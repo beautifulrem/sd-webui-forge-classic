@@ -33,7 +33,8 @@ routes get registered).
 * When the webui finishes a generation (including one you started manually),
   the queue automatically fills in the next prompt and presses Generate for
   you. It never double-dispatches: it waits until the webui is fully idle.
-* The queue is saved to `queue.json` inside the extension folder, so it
+* The queue is saved to `extension-data/sd-webui-prompt-queue/queue.json` in
+  Forge's data directory, so it
   survives restarts. After a restart the queue starts **paused** if it
   restored unfinished items — press **▶ Run queue** to continue.
 

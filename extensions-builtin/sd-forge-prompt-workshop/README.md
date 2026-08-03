@@ -69,7 +69,7 @@ Without credentials, every request to either site returns `401 Unauthorized`. Th
 2. Visit [api.rule34.xxx](https://api.rule34.xxx/) for the API credentials page and copy the `api_key` and `user_id`.
 3. On the Anima Workshop tab, expand the **Rule34 API credentials** section, paste both values, and click *Save Credentials*. Like the Gelbooru section, it's open by default until credentials are saved.
 
-Credentials are written to a file called `config.json` next to the extension, under prefixed keys so the two sites' credentials don't collide. Each set of credentials is only ever sent to the corresponding booru. **Danbooru and Aibooru** do not require credentials, but their anonymous searches are limited to 2 tags total (including the rating tag).
+Credentials are written to `extension-data/sd-forge-prompt-workshop/config.json` in Forge's data directory, under prefixed keys so the two sites' credentials don't collide. The file is owner-only on POSIX systems. Each set of credentials is only ever sent to the corresponding booru. **Danbooru and Aibooru** do not require credentials, but their anonymous searches are limited to 2 tags total (including the rating tag).
 
 ## Tag autocomplete compatibility
 
@@ -115,16 +115,15 @@ These are points raised in tdrussell's discussions on the Anima Hugging Face pag
 - **Prompt weighting with `(tag:1.2)` syntax is not fully implemented yet** (discussion [#135](https://huggingface.co/circlestone-labs/Anima/discussions/135)). It will not behave the same way it does in other models.
 - **Leading whitespace affects output.** `"best quality"` and `" best quality"` (with a leading space) produce slightly different stylistic tendencies (discussion [#57](https://huggingface.co/circlestone-labs/Anima/discussions/57)). The extension strips whitespace from every tag, so you will always be on the no-leading-space side.
 
-## Install
+## Installation layout
 
-1. Place the extension folder inside Forge's `extensions/` directory. Final layout:
+In Forge Neo Remi this extension is preinstalled under `extensions-builtin/`:
 
     ```
     sd-webui-forge-neo/
-    └── extensions/
+    └── extensions-builtin/
         └── sd-forge-prompt-workshop/
             ├── README.md
-            ├── config.json              (created automatically when you save credentials)
             ├── scripts/
             │   └── prompt_workshop.py
             └── javascript/
@@ -132,7 +131,9 @@ These are points raised in tdrussell's discussions on the Anima Hugging Face pag
                 └── tagcomplete_compat.js
     ```
 
-    Both the `scripts/` and `javascript/` subfolders are required. Forge only discovers Python files inside `scripts/`, and only auto-loads JS from `javascript/`.
+Runtime credentials are created under Forge's data directory, not in this
+built-in source tree. Forge discovers Python files inside `scripts/` and
+auto-loads JavaScript from `javascript/`.
 
 2. Fully close and restart `webui-user.bat`. The first startup is what registers the new tab; *Reload UI* is only enough for re-rendering.
 

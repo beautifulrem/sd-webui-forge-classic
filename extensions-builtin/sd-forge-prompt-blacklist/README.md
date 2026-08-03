@@ -5,7 +5,8 @@ Strips unwanted tags from your **positive prompt** with a single button press. P
 - Works on **txt2img** and **img2img**, each with its own collapsible panel
 - **Manual only** — nothing scans or edits your prompt automatically
 - **Never touches the negative prompt**
-- Blacklist persists to `blacklist.txt` in the extension folder
+- Blacklist persists under `extension-data/sd-forge-prompt-blacklist/` in
+  Forge's data directory
 
 ## Install
 

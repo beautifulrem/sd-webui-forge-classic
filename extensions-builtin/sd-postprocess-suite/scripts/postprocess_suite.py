@@ -12,12 +12,13 @@ into the img2img canvas.
 """
 
 import os
+import shutil
 import sys
 
 import gradio as gr
 
 import modules.scripts as scripts
-from modules import script_callbacks
+from modules import paths_internal, script_callbacks
 from modules.ui_components import InputAccordion
 
 # make the sibling lib package importable
@@ -29,7 +30,23 @@ from lib_postprocess import pipeline as P  # noqa: E402
 
 INFOTEXT_KEY = "PP Suite"
 
-_PRESET_DIR = os.path.join(_EXT_DIR, "presets")
+_PRESET_DIR = os.path.join(
+    paths_internal.data_path, "extension-data", "sd-postprocess-suite", "presets"
+)
+_LEGACY_PRESET_DIR = os.path.join(_EXT_DIR, "presets")
+
+
+def _migrate_legacy_presets() -> None:
+    if os.path.isdir(_PRESET_DIR) or not os.path.isdir(_LEGACY_PRESET_DIR):
+        return
+    try:
+        os.makedirs(os.path.dirname(_PRESET_DIR), exist_ok=True)
+        shutil.copytree(_LEGACY_PRESET_DIR, _PRESET_DIR)
+    except OSError as e:
+        print(f"[PP Suite] legacy preset migration failed: {e}")
+
+
+_migrate_legacy_presets()
 
 
 def _sanitize(name: str) -> str:
@@ -44,8 +61,13 @@ def _preset_path(name: str) -> str:
 
 def list_presets() -> list:
     try:
-        files = [f[:-5] for f in os.listdir(_PRESET_DIR) if f.lower().endswith(".json")]
-        return sorted(files, key=str.lower)
+        names = set()
+        for directory in (_PRESET_DIR, _LEGACY_PRESET_DIR):
+            if os.path.isdir(directory):
+                names.update(
+                    f[:-5] for f in os.listdir(directory) if f.lower().endswith(".json")
+                )
+        return sorted(names, key=str.lower)
     except Exception:
         return []
 
@@ -70,7 +92,10 @@ def save_preset_file(name: str, args) -> bool:
 def load_preset_file(name: str):
     import json
     try:
-        with open(_preset_path(name), "r", encoding="utf-8") as f:
+        path = _preset_path(name)
+        if not os.path.isfile(path):
+            path = os.path.join(_LEGACY_PRESET_DIR, _sanitize(name) + ".json")
+        with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
         print(f"[PP Suite] load preset failed: {e}")

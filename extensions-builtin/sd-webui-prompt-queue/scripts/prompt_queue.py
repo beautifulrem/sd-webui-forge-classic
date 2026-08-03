@@ -2,8 +2,8 @@
 Prompt Queue — queue up prompts for txt2img / img2img and run them back-to-back.
 
 Backend design:
-  * A small thread-safe in-memory store, persisted to queue.json inside the
-    extension folder (survives webui restarts).
+  * A small thread-safe in-memory store, persisted under Forge's user-data
+    directory (survives webui restarts without modifying built-in sources).
   * A handful of lightweight FastAPI endpoints under /prompt-queue/*.
     All rendering is done client-side (javascript/prompt_queue.js) against
     /prompt-queue/state, which is cheap to poll: the response carries a
@@ -16,6 +16,7 @@ Backend design:
 
 import json
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -24,7 +25,7 @@ import gradio as gr
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-from modules import script_callbacks, shared
+from modules import paths_internal, script_callbacks, shared
 
 try:
     from modules import progress as webui_progress
@@ -37,7 +38,24 @@ MAX_FINISHED_KEPT = 50     # finished/failed history kept for display
 STALE_RUNNING_SECONDS = 120
 
 EXT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-STATE_FILE = os.path.join(EXT_DIR, "queue.json")
+STATE_DIR = os.path.join(
+    paths_internal.data_path, "extension-data", "sd-webui-prompt-queue"
+)
+STATE_FILE = os.path.join(STATE_DIR, "queue.json")
+LEGACY_STATE_FILE = os.path.join(EXT_DIR, "queue.json")
+
+
+def _migrate_legacy_state():
+    if os.path.exists(STATE_FILE) or not os.path.isfile(LEGACY_STATE_FILE):
+        return
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        shutil.copy2(LEGACY_STATE_FILE, STATE_FILE)
+    except OSError as e:
+        print(f"[Prompt Queue] failed to migrate legacy queue.json: {e}")
+
+
+_migrate_legacy_state()
 
 VALID_TABS = ("txt2img", "img2img")
 
@@ -55,9 +73,10 @@ class _Store:
     # ---------- persistence ----------
 
     def _load(self):
+        path = STATE_FILE if os.path.isfile(STATE_FILE) else LEGACY_STATE_FILE
         try:
-            if os.path.exists(STATE_FILE):
-                with open(STATE_FILE, "r", encoding="utf-8") as f:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 self.items = [i for i in data.get("items", []) if isinstance(i, dict)]
                 # Anything that was mid-flight when the webui stopped goes back to pending.
@@ -77,6 +96,7 @@ class _Store:
 
     def _save(self):
         try:
+            os.makedirs(STATE_DIR, exist_ok=True)
             tmp = STATE_FILE + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump({"items": self.items}, f, ensure_ascii=False)

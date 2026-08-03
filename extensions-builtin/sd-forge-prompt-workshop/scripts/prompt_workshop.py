@@ -25,12 +25,13 @@ The tab has:
 import json
 import os
 import re
+import shutil
 from typing import Tuple, List, Dict
 
 import gradio as gr
 import requests
 
-from modules import script_callbacks
+from modules import paths_internal, script_callbacks
 
 # Forge Neo: `generation_parameters_copypaste` was renamed to
 # `infotext_utils`. We try the new name first and fall back. Used to
@@ -167,7 +168,7 @@ def _filter_tags_in_buckets(buckets: Dict[str, List[str]],
             out[key] = list(tags)
     return out
 
-# Persisted booru API credentials live in config.json next to the extension.
+# Persisted booru API credentials live in Forge's user-data directory.
 # Gelbooru has required api_key + user_id for ALL API access since mid-2022;
 # Rule34 added the same requirement in August 2025. The credentials are free
 # for both -- account holders can grab them from their site's account page:
@@ -177,12 +178,31 @@ def _filter_tags_in_buckets(buckets: Dict[str, List[str]],
 # {source}_user_id) so adding more credentialled sources later doesn't
 # require a config migration.
 _EXT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_CONFIG_PATH = os.path.join(_EXT_DIR, "config.json")
+_STATE_DIR = os.path.join(
+    paths_internal.data_path, "extension-data", "sd-forge-prompt-workshop"
+)
+_CONFIG_PATH = os.path.join(_STATE_DIR, "config.json")
+_LEGACY_CONFIG_PATH = os.path.join(_EXT_DIR, "config.json")
+
+
+def _migrate_legacy_config() -> None:
+    if os.path.exists(_CONFIG_PATH) or not os.path.isfile(_LEGACY_CONFIG_PATH):
+        return
+    try:
+        os.makedirs(_STATE_DIR, exist_ok=True)
+        shutil.copy2(_LEGACY_CONFIG_PATH, _CONFIG_PATH)
+        os.chmod(_CONFIG_PATH, 0o600)
+    except OSError as e:
+        print(f"{EXT_TAG} could not migrate legacy config.json: {e}")
+
+
+_migrate_legacy_config()
 
 
 def _load_config() -> Dict[str, str]:
+    path = _CONFIG_PATH if os.path.isfile(_CONFIG_PATH) else _LEGACY_CONFIG_PATH
     try:
-        with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, dict):
                 return data
@@ -198,9 +218,13 @@ def _save_config(cfg: Dict[str, str]) -> None:
         # This file contains API credentials. Create it owner-only instead of
         # relying on the process umask, then also repair an existing file's
         # mode on POSIX systems.
+        os.makedirs(_STATE_DIR, exist_ok=True)
+        tmp_path = _CONFIG_PATH + ".tmp"
         opener = lambda path, flags: os.open(path, flags, 0o600)
-        with open(_CONFIG_PATH, "w", encoding="utf-8", opener=opener) as f:
+        with open(tmp_path, "w", encoding="utf-8", opener=opener) as f:
             json.dump(cfg, f, indent=2)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, _CONFIG_PATH)
         try:
             os.chmod(_CONFIG_PATH, 0o600)
         except OSError:

@@ -14,16 +14,17 @@ Blacklist entries are comma- or newline-separated. Matching is:
   * escaped-paren agnostic     (ganyu \(genshin impact\) matches ganyu (genshin impact))
   * wildcard-capable           ("*_hair" removes blue_hair, long hair, etc.)
 
-The blacklist is persisted to blacklist.txt inside the extension folder.
+The blacklist is persisted under Forge's user-data directory.
 """
 
 import os
 import re
 import fnmatch
+import shutil
 
 import gradio as gr
 
-from modules import scripts, script_callbacks
+from modules import paths_internal, scripts, script_callbacks
 
 
 # --------------------------------------------------------------------------- #
@@ -31,12 +32,30 @@ from modules import scripts, script_callbacks
 # --------------------------------------------------------------------------- #
 
 EXT_DIR = scripts.basedir()
-BLACKLIST_FILE = os.path.join(EXT_DIR, "blacklist.txt")
+STATE_DIR = os.path.join(
+    paths_internal.data_path, "extension-data", "sd-forge-prompt-blacklist"
+)
+BLACKLIST_FILE = os.path.join(STATE_DIR, "blacklist.txt")
+LEGACY_BLACKLIST_FILE = os.path.join(EXT_DIR, "blacklist.txt")
+
+
+def _migrate_legacy_blacklist() -> None:
+    if os.path.exists(BLACKLIST_FILE) or not os.path.isfile(LEGACY_BLACKLIST_FILE):
+        return
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        shutil.copy2(LEGACY_BLACKLIST_FILE, BLACKLIST_FILE)
+    except OSError as e:
+        print(f"[Prompt Blacklist] failed to migrate legacy blacklist.txt: {e}")
+
+
+_migrate_legacy_blacklist()
 
 
 def load_blacklist() -> str:
+    path = BLACKLIST_FILE if os.path.isfile(BLACKLIST_FILE) else LEGACY_BLACKLIST_FILE
     try:
-        with open(BLACKLIST_FILE, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             return f.read().strip()
     except OSError:
         return ""
@@ -44,6 +63,7 @@ def load_blacklist() -> str:
 
 def save_blacklist(text: str) -> str:
     try:
+        os.makedirs(STATE_DIR, exist_ok=True)
         with open(BLACKLIST_FILE, "w", encoding="utf-8") as f:
             f.write((text or "").strip() + "\n")
         return "✅ Blacklist saved."

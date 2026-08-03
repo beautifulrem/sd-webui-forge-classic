@@ -32,7 +32,8 @@ Open the **💾 Presets** panel at the top of the suite.
 
 - **Save** — type a name and click *Save* to store the entire current
   configuration (master toggle + every stage's enabled state, order and
-  parameters) as a JSON file in this extension's `presets/` folder.
+  parameters) as a JSON file under
+  `extension-data/sd-postprocess-suite/presets/` in Forge's data directory.
 - **Load** — pick a preset and click *Load* to apply it to all controls.
 - **Delete** / **🔄** — remove a preset / refresh the list.
 
