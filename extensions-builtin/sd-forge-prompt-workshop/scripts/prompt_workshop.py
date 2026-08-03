@@ -1888,20 +1888,17 @@ _IMAGE_URL_RE = re.compile(r"^Image:\s*(\S+)", re.MULTILINE)
 
 
 def _joycaption_bridge_dir() -> _pw_Path:
-    """Resolves the bridge dir lazily so a missing JoyCaption install
-    doesn't break the Workshop. Falls back to a tempdir if needed."""
-    try:
-        # JoyCaption registers its scripts/ on sys.path before its UI
-        # script runs, so importing its main module exposes
-        # bridge_tmp_dir(). If JoyCaption isn't installed this raises.
-        from joycaption import bridge_tmp_dir  # type: ignore
-        return bridge_tmp_dir()
-    except Exception:
-        # Fallback: our own per-process dir. The Workshop still works,
-        # the file just doesn't land where JoyCaption looks.
-        p = _pw_Path(_pw_tempfile.gettempdir()) / "prompt_workshop_images"
-        p.mkdir(parents=True, exist_ok=True)
-        return p
+    """Return the shared Workshop -> JoyCaption handoff directory.
+
+    Do not import JoyCaption's WebUI script here. Forge loads extension scripts
+    with a file-based module name and does not register that first load as the
+    importable ``joycaption`` module; importing it again can therefore execute
+    the script twice and duplicate its UI callbacks. Both built-ins instead
+    share this small, deterministic temp-directory contract.
+    """
+    p = _pw_Path(_pw_tempfile.gettempdir()) / "joycaption_bridge"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
 
 def _safe_image_filename(url: str, post_id_hint: str = "") -> str:
