@@ -1,0 +1,114 @@
+/* prompt_anchor.css
+ * Styling for the anchor prompt box.
+ *
+ * Goals:
+ *   - Visually subordinate to the main prompt -- the user's eye should
+ *     still go to the main prompt first.
+ *   - Match the host theme: borrow webui CSS custom properties for
+ *     colors/borders rather than hard-coding, so dark/light themes
+ *     both look right.
+ *   - Compact: no extra vertical space when collapsed; minimal extra
+ *     space when expanded.
+ *   - Subtle accent on the left edge so the user can tell at a glance
+ *     this is a different box from the main prompt.
+ *
+ * Forge auto-loads any style.css at the extension root. We use that
+ * mechanism instead of injecting via JS.
+ */
+
+/* The group wrapper -- everything in one box with a left accent bar. */
+.prompt-anchor-group {
+    border: 1px solid var(--block-border-color, #555);
+    border-left: 3px solid var(--color-accent, #f0b41d);
+    border-radius: 6px;
+    padding: 6px 8px 4px 10px;
+    margin-bottom: 6px;
+    background: var(--block-background-fill, transparent);
+}
+
+/* Header row holds the enable-checkbox and the collapse button. We
+   set the row's flex to keep the collapse button hugging the right
+   edge instead of flowing inline with the checkbox label. */
+.prompt-anchor-header {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    margin-bottom: 4px !important;
+    min-height: 24px;
+}
+
+.prompt-anchor-header .prompt-anchor-enabled {
+    flex: 1 1 auto;
+    /* Gradio's container=False on the checkbox already strips the box,
+       but it still leaves some default margins. Knock them out. */
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.prompt-anchor-header .prompt-anchor-enabled label {
+    font-size: 0.85em;
+    color: var(--body-text-color-subdued, #888);
+    user-select: none;
+}
+
+/* The collapse button -- small, ghost-style, just a +/- glyph. */
+.prompt-anchor-collapse {
+    flex: 0 0 auto !important;
+    min-width: 24px !important;
+    width: 24px !important;
+    height: 24px !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+    font-size: 16px !important;
+    font-weight: bold;
+    border: 1px solid var(--block-border-color, #555) !important;
+    background: transparent !important;
+    color: var(--body-text-color, inherit) !important;
+    cursor: pointer;
+    opacity: 0.7;
+}
+.prompt-anchor-collapse:hover { opacity: 1; }
+
+/* The textbox itself -- a tad less prominent than the main prompt, but
+   still readable. We set min-height rather than rows count to allow
+   resizing via Gradio's built-in handle. */
+.prompt-anchor-textbox textarea {
+    min-height: 44px;
+    font-size: 0.95em;
+    /* Slightly muted background so it doesn't compete with the main
+       prompt visually. */
+    background: var(--input-background-fill, transparent);
+}
+
+.prompt-anchor-textbox textarea::placeholder {
+    color: var(--body-text-color-subdued, #888);
+    font-style: italic;
+    opacity: 0.7;
+}
+
+/* Hide the gradio label container's gap above the textbox since we
+   already render our own header above. */
+.prompt-anchor-textbox {
+    margin: 0 !important;
+}
+
+/* Advanced accordion -- keep it skinny when collapsed. */
+.prompt-anchor-advanced {
+    margin-top: 4px !important;
+}
+.prompt-anchor-advanced .label-wrap {
+    font-size: 0.8em !important;
+    padding: 2px 4px !important;
+    min-height: unset !important;
+}
+
+/* COLLAPSED state -- hide everything except the header row. The JS
+   adds .pa-collapsed to the group when the user clicks the - button. */
+.prompt-anchor-group.pa-collapsed .prompt-anchor-textbox,
+.prompt-anchor-group.pa-collapsed .prompt-anchor-advanced {
+    display: none !important;
+}
+
+.prompt-anchor-group.pa-collapsed {
+    padding-bottom: 6px;
+}
