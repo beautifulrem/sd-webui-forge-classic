@@ -1,0 +1,198 @@
+/* Prompt Queue — styles. Uses the webui/gradio theme variables so it
+   blends into both light and dark themes. */
+
+/* ---------- "Add to Queue" button under Generate ---------- */
+.pq-add-btn {
+    position: relative;
+    margin-top: 4px;
+    width: 100%;
+    min-height: 30px;
+}
+.pq-add-btn.pq-flashing .pq-add-flash {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    color: var(--primary-500, #4b9ef9);
+}
+.pq-add-btn.pq-flash-error .pq-add-flash {
+    color: var(--error-text-color, #d44);
+}
+
+/* ---------- badge on the tab button ---------- */
+.pq-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 7px;
+    border-radius: 999px;
+    font-size: 0.72em;
+    font-weight: 700;
+    line-height: 1.6;
+    background: var(--primary-600, #2563eb);
+    color: #fff;
+    vertical-align: middle;
+}
+.pq-badge-live {
+    animation: pq-pulse 1.4s ease-in-out infinite;
+}
+@keyframes pq-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+
+/* ---------- queue page ---------- */
+#prompt-queue-root {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 10px 4px 40px;
+    color: var(--body-text-color);
+}
+#prompt-queue-root .pq-loading,
+#prompt-queue-root .pq-empty {
+    text-align: center;
+    padding: 48px 16px;
+    color: var(--body-text-color-subdued, #888);
+}
+.pq-empty-icon { font-size: 2.2em; margin-bottom: 10px; }
+.pq-empty-hint { margin-top: 8px; font-size: 0.9em; max-width: 520px; margin-left: auto; margin-right: auto; line-height: 1.5; }
+
+/* toolbar */
+.pq-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+    border: 1px solid var(--border-color-primary, #444);
+    border-radius: 10px;
+    background: var(--block-background-fill, transparent);
+}
+.pq-spacer { flex: 1; }
+.pq-status { font-size: 0.92em; display: inline-flex; align-items: center; gap: 7px; }
+.pq-count { font-size: 0.85em; color: var(--body-text-color-subdued, #888); }
+.pq-live-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #22c55e;
+    animation: pq-pulse 1.2s ease-in-out infinite;
+    display: inline-block;
+}
+
+.pq-run {
+    padding: 6px 16px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    font-weight: 600;
+    cursor: pointer;
+}
+.pq-run-on  { background: var(--button-secondary-background-fill, #333); color: var(--button-secondary-text-color, inherit); border-color: var(--border-color-primary, #444); }
+.pq-run-off { background: var(--button-primary-background-fill, #2563eb); color: var(--button-primary-text-color, #fff); }
+.pq-run:hover { filter: brightness(1.1); }
+
+.pq-ghost {
+    background: transparent;
+    border: 1px solid var(--border-color-primary, #444);
+    border-radius: 8px;
+    padding: 5px 12px;
+    font-size: 0.85em;
+    cursor: pointer;
+    color: var(--body-text-color);
+}
+.pq-ghost:hover { background: var(--background-fill-secondary, rgba(128,128,128,.12)); }
+.pq-ghost.pq-danger:hover { border-color: #d44; color: #d44; }
+
+/* list + cards */
+.pq-list { display: flex; flex-direction: column; gap: 8px; }
+.pq-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color-primary, #444);
+    border-radius: 10px;
+    background: var(--block-background-fill, transparent);
+    transition: border-color .15s ease;
+}
+.pq-item-running { border-color: #22c55e; }
+.pq-item-done, .pq-item-failed { opacity: 0.7; }
+
+.pq-num {
+    min-width: 26px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.9em;
+    padding-top: 2px;
+    color: var(--body-text-color-subdued, #888);
+}
+.pq-num-dim { opacity: .4; }
+
+.pq-body { flex: 1; min-width: 0; }
+.pq-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+.pq-when { font-size: 0.75em; color: var(--body-text-color-subdued, #888); }
+
+.pq-tab {
+    font-size: 0.7em;
+    font-weight: 700;
+    letter-spacing: .04em;
+    padding: 1px 8px;
+    border-radius: 999px;
+    text-transform: uppercase;
+}
+.pq-tab-txt2img { background: rgba(59,130,246,.18); color: #60a5fa; }
+.pq-tab-img2img { background: rgba(168,85,247,.18); color: #c084fc; }
+
+.pq-chip {
+    font-size: 0.72em;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 999px;
+}
+.pq-chip-pending { background: rgba(128,128,128,.18); color: var(--body-text-color-subdued, #999); }
+.pq-chip-running { background: rgba(34,197,94,.18); color: #22c55e; }
+.pq-chip-done    { background: rgba(34,197,94,.12); color: #16a34a; }
+.pq-chip-failed  { background: rgba(220,68,68,.15); color: #d44; }
+
+.pq-prompt {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.45;
+    font-size: 0.93em;
+    max-height: 5.8em;
+    overflow-y: auto;
+}
+.pq-neg {
+    margin-top: 4px;
+    font-size: 0.8em;
+    color: var(--body-text-color-subdued, #999);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 3.2em;
+    overflow-y: auto;
+}
+
+/* per-item action buttons */
+.pq-actions { display: flex; gap: 4px; }
+.pq-icon {
+    width: 28px; height: 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border-color-primary, #444);
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 0.8em;
+    color: var(--body-text-color);
+}
+.pq-icon:hover { background: var(--background-fill-secondary, rgba(128,128,128,.12)); }
+.pq-icon.pq-danger:hover { border-color: #d44; color: #d44; }
+
+.pq-history-label {
+    margin: 22px 0 8px;
+    font-size: 0.8em;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--body-text-color-subdued, #888);
+}
+.pq-list-history .pq-actions { align-self: center; }
