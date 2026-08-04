@@ -24,6 +24,12 @@ from modules import scripts
 class LockImg2ImgSteps(scripts.Script):
     """Always-visible img2img-only UI: just the lock checkbox."""
 
+    # Render as part of Forge's native sampler section instead of creating an
+    # extension accordion in the generic scripts area.
+    section = "sampler"
+    create_group = False
+    sorting_priority = 1
+
     def title(self):
         return "Lock img2img Steps"
 
@@ -34,11 +40,10 @@ class LockImg2ImgSteps(scripts.Script):
         if not is_img2img:
             return []
 
-        with gr.Accordion("Lock img2img Steps", open=False):
-            lock = gr.Checkbox(
-                label="Lock Sampling Steps (ignore values from Send to img2img / paste)",
-                value=False,
-                elem_id="lock_img2img_steps_checkbox",
-            )
+        lock = gr.Checkbox(
+            label="Lock Sampling Steps (ignore values from Send to img2img / paste)",
+            value=False,
+            elem_id="lock_img2img_steps_checkbox",
+        )
 
         return [lock]

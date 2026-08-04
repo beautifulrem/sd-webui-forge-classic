@@ -27,8 +27,8 @@ parameters for upscaling, but keep your own fixed step count.
 
 2. Restart the WebUI (full restart, not just "Reload UI" the first time).
 
-3. On the **img2img** tab, expand the **"Lock img2img Steps"** accordion
-   near the bottom of the script section.
+3. On the **img2img** tab, find **"Lock Sampling Steps"** directly below
+   the native sampler controls.
 
 ## Usage
 
