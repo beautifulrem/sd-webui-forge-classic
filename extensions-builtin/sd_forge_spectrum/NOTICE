@@ -1,0 +1,10 @@
+Spectrum vNext integration
+
+Feature forecasting is adapted from Spectrum by Yangheng95 and the
+ComfyUI-Spectrum-KSampler implementation (MIT License).
+
+The SEA decision metric implements the equations described in SeaCache:
+Spectral-Evolution-Aware Cache for Accelerating Diffusion Models.
+
+Forge Neo integration, lifecycle guards, GUI, cache persistence, and
+compatibility policies are maintained in this repository.
