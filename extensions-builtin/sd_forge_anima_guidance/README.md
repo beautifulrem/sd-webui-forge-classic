@@ -1,9 +1,9 @@
 # Anima Guidance & Corrections
 
 Built-in Forge Neo controls for inference-time Anima guidance and correction
-techniques. The first integrated technique is **Skimmed CFG**, an anti-burn
-transform that limits only CFG values identified as harmful while retaining
-the selected generation CFG elsewhere.
+techniques. It includes **Skimmed CFG**, an anti-burn transform that limits
+only CFG values identified as harmful, and **SMC-CFG**, an alpha-adaptive
+sliding-mode controller operating in Anima's velocity space.
 
 The panel is available in txt2img and img2img. It is inert for non-Anima
 models, patches a cloned model for one generation, preserves an existing Forge
@@ -24,3 +24,17 @@ Forge's residual-return CFG contract, existing-CFG-function composition, and
 Anima-only lifecycle/UI integration. This derivative is distributed as part
 of Forge Neo under the repository's AGPL-3.0 license; the upstream copyright
 and Apache-2.0 notice are preserved here.
+
+## SMC-CFG
+
+SMC-CFG replaces the normal CFG combine with an adaptive sliding-mode
+controller. The implementation converts Forge's denoised predictions to
+velocity space, applies the controller, and returns the residual required by
+Forge's CFG contract. `alpha=0.2` and `lambda=5.0` match the current Anima
+defaults from
+[ComfyUI-Spectrum-KSampler](https://github.com/sorryhyun/ComfyUI-Spectrum-KSampler).
+
+SMC-CFG and another CFG-combine replacement cannot both own the same hook. If
+SMC-CFG is explicitly selected, it replaces an existing CFG function and the
+replacement is recorded in generation metadata. Skimmed CFG remains
+composable and is applied to the cond/uncond predictions before SMC-CFG.

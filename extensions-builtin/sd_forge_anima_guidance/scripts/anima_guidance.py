@@ -8,6 +8,7 @@ import gradio as gr
 import torch
 
 from lib_anima_guidance.skim import apply_skim_to_predictions
+from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
 from modules import scripts
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
@@ -97,6 +98,28 @@ class AnimaGuidanceScript(scripts.Script):
                 "Only applies to Anima. Guidance patches are installed on a cloned "
                 "model for the current generation and recorded in PNG metadata."
             )
+            guidance_mode = gr.Dropdown(
+                ["Standard / preserve existing", "SMC-CFG"],
+                value="Standard / preserve existing",
+                label="CFG guidance mode",
+                info="SMC-CFG replaces other CFG-combine modes by explicit selection; Skimmed CFG is applied before it.",
+            )
+            with gr.Row():
+                smc_alpha = gr.Slider(
+                    0.0,
+                    1.0,
+                    value=0.2,
+                    step=0.01,
+                    label="SMC adaptive alpha",
+                    info="Switching gain = alpha x mean absolute conditional residual.",
+                )
+                smc_lambda = gr.Slider(
+                    0.0,
+                    10.0,
+                    value=5.0,
+                    step=0.1,
+                    label="SMC surface lambda",
+                )
             skim_enable = gr.Checkbox(False, label="Skimmed CFG anti-burn")
             with gr.Row():
                 skim_scale = gr.Slider(
@@ -131,6 +154,9 @@ class AnimaGuidanceScript(scripts.Script):
 
         controls = [
             enable,
+            guidance_mode,
+            smc_alpha,
+            smc_lambda,
             skim_enable,
             skim_scale,
             full_negative,
@@ -141,6 +167,9 @@ class AnimaGuidanceScript(scripts.Script):
         ]
         keys = [
             "Anima guidance enabled",
+            "Anima CFG guidance mode",
+            "Anima SMC alpha",
+            "Anima SMC lambda",
             "Anima Skimmed CFG",
             "Anima skim CFG",
             "Anima skim full negative",
@@ -157,6 +186,9 @@ class AnimaGuidanceScript(scripts.Script):
         self,
         p,
         enable: bool,
+        guidance_mode: str,
+        smc_alpha: float,
+        smc_lambda: float,
         skim_enable: bool,
         skim_scale: float,
         full_negative: bool,
@@ -167,7 +199,8 @@ class AnimaGuidanceScript(scripts.Script):
         *args,
         **kwargs,
     ):
-        if not enable or not skim_enable or not _is_anima(p):
+        smc_enabled = guidance_mode == "SMC-CFG" and float(smc_alpha) > 0.0
+        if not enable or not _is_anima(p) or (not skim_enable and not smc_enabled):
             return
 
         unet = p.sd_model.forge_objects.unet.clone()
@@ -179,27 +212,41 @@ class AnimaGuidanceScript(scripts.Script):
             flip_sigma = float(predictor.percent_to_sigma(float(flip_percent)))
 
         previous = unet.model_options.get("sampler_cfg_function")
-        unet.set_model_sampler_cfg_function(
-            _make_skim_cfg_function(
-                previous,
+        active_cfg_function = previous
+        if smc_enabled:
+            active_cfg_function = make_smc_cfg_function(
+                SMCCFGState(lam=float(smc_lambda), alpha=float(smc_alpha))
+            )
+            p.extra_generation_params["Anima CFG guidance mode"] = "SMC-CFG"
+            p.extra_generation_params["Anima SMC alpha"] = float(smc_alpha)
+            p.extra_generation_params["Anima SMC lambda"] = float(smc_lambda)
+            if previous is not None:
+                p.extra_generation_params["Anima CFG replaced existing"] = getattr(
+                    previous, "__name__", type(previous).__name__
+                )
+
+        if skim_enable:
+            active_cfg_function = _make_skim_cfg_function(
+                active_cfg_function,
                 sigma_start=sigma_start,
                 sigma_end=sigma_end,
                 skimming_scale=float(skim_scale),
                 full_skim_negative=bool(full_negative),
                 disable_flipping_filter=bool(disable_flip_filter),
                 flip_sigma=flip_sigma,
-            ),
-            disable_cfg1_optimization=True,
-        )
+            )
+
+        unet.set_model_sampler_cfg_function(active_cfg_function, disable_cfg1_optimization=True)
         p.sd_model.forge_objects.unet = unet
 
-        p.extra_generation_params["Anima Skimmed CFG"] = True
-        p.extra_generation_params["Anima skim CFG"] = float(skim_scale)
-        if full_negative:
-            p.extra_generation_params["Anima skim full negative"] = True
-        if disable_flip_filter:
-            p.extra_generation_params["Anima skim disable flip filter"] = True
-        if not math.isclose(float(start_percent), 0.0) or not math.isclose(float(end_percent), 1.0):
-            p.extra_generation_params["Anima skim range"] = f"{float(start_percent):.2f}-{float(end_percent):.2f}"
-        if flip_sigma is not None:
-            p.extra_generation_params["Anima skim flip"] = float(flip_percent)
+        if skim_enable:
+            p.extra_generation_params["Anima Skimmed CFG"] = True
+            p.extra_generation_params["Anima skim CFG"] = float(skim_scale)
+            if full_negative:
+                p.extra_generation_params["Anima skim full negative"] = True
+            if disable_flip_filter:
+                p.extra_generation_params["Anima skim disable flip filter"] = True
+            if not math.isclose(float(start_percent), 0.0) or not math.isclose(float(end_percent), 1.0):
+                p.extra_generation_params["Anima skim range"] = f"{float(start_percent):.2f}-{float(end_percent):.2f}"
+            if flip_sigma is not None:
+                p.extra_generation_params["Anima skim flip"] = float(flip_percent)
