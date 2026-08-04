@@ -1,0 +1,8 @@
+This extension implements the FreeFuse algorithm described by Yaoli Liu,
+Yao-Xiang Ding, and Kun Zhou and studies the Apache-2.0 reference code at:
+https://github.com/yaoliliu/FreeFuse
+
+Reference revision: 7a76c3ac43ef3c27c7a3f8126e29e6021d837c80
+Reference license: Apache License 2.0
+
+The Forge Neo/Anima runtime integration is an independent implementation.
