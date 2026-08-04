@@ -1,0 +1,31 @@
+{
+  "防画风过拟合": {
+    "auto": true,
+    "stage": "构图阶段",
+    "parts": [
+      {
+        "stage": "构图阶段",
+        "mode": "allow",
+        "curve": "前强后弱",
+        "strength": 1.0
+      },
+      {
+        "stage": "人物特征阶段",
+        "mode": "allow",
+        "curve": "平滑淡入淡出",
+        "strength": 1.0
+      },
+      {
+        "stage": "画风阶段",
+        "mode": "ban",
+        "curve": "平滑淡入淡出",
+        "strength": 1.0
+      }
+    ],
+    "start": 0.0,
+    "end": 0.32,
+    "peak": 0.08,
+    "strength": 1.0,
+    "curve": "前强后弱"
+  }
+}
