@@ -50,3 +50,16 @@ monkeypatching the sampler.
 The Anima default is `lambda=-0.015`, `one_minus_sigma`, and Haar `LL` only.
 Other schedules and frequency-band masks are exposed in the GUI. DCW is a
 post-step correction and composes with Standard CFG, SMC-CFG, and Skimmed CFG.
+
+## Anima ER SDE CNS
+
+`Anima ER SDE CNS` is a dedicated sampler entry which keeps Forge's ER-SDE
+solver math and recolors only the stochastic noise draw at each step. The
+recolorer redistributes a fixed variance budget across radial frequency bands
+using the Anima-calibrated gamma matrix and RMS-normalizes every channel.
+
+The GUI strength blends stock white noise with calibrated colored noise. CNS
+does not affect Flow Euler, Flow UniPC2, or Flow PC3 because those ODE paths do
+not contain ER-SDE's stochastic-noise seam. The pinned 6 KiB calibration file
+is downloaded on first use over HTTPS, limited to 1 MiB, and verified against a
+hard-coded SHA-256 before loading.

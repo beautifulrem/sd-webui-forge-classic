@@ -6,7 +6,7 @@ import torch
 
 import modules.shared as shared
 from backend.sampling.sampling_function import sampling_cleanup, sampling_prepare
-from modules import devices, sd_samplers_anima, sd_samplers_cfg_denoiser, sd_samplers_common, sd_samplers_extra, sd_schedulers
+from modules import devices, sd_samplers_anima, sd_samplers_anima_cns, sd_samplers_cfg_denoiser, sd_samplers_common, sd_samplers_extra, sd_schedulers
 from modules.script_callbacks import ExtraNoiseParams, extra_noise_callback
 from modules.sd_samplers_cfg_denoiser import CFGDenoiser  # noqa: F401
 from modules.shared import opts
@@ -23,6 +23,7 @@ samplers_k_diffusion = [
     ("Anima Flow UniPC2", sd_samplers_anima.sample_anima_flow_unipc2, ["anima_flow_unipc2"], {"scheduler": "anima_flow_match", "lock_scheduler_override": True}),
     ("Anima Flow PC3", sd_samplers_anima.sample_anima_flow_pc3, ["anima_flow_pc3"], {"scheduler": "anima_flow_match", "lock_scheduler_override": True}),
     ("ER SDE", "sample_er_sde", ["er_sde"], {}),
+    ("Anima ER SDE CNS", sd_samplers_anima_cns.sample_anima_er_sde_cns, ["anima_er_sde_cns"], {}),
     ("LCM", "sample_lcm", ["k_lcm"], {}),
     ("LMS", "sample_lms", ["k_lms"], {}),
     ("Heun", "sample_heun", ["k_heun"], {"second_order": True}),
@@ -43,6 +44,7 @@ sampler_extra_params = {
     "sample_euler_ancestral": ["eta", "s_noise"],
     "sample_euler": ["s_churn", "s_tmin", "s_tmax", "s_noise"],
     "sample_heun": ["s_churn", "s_tmin", "s_tmax", "s_noise"],
+    "sample_anima_er_sde_cns": ["s_noise", "cns_strength"],
     "sample_dpm_2": ["s_churn", "s_tmin", "s_tmax", "s_noise"],
 }
 
@@ -64,7 +66,10 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
     def __init__(self, funcname, sd_model, options=None):
         super().__init__(funcname)
 
-        self.extra_params = sampler_extra_params.get(funcname, [])
+        self.extra_params = sampler_extra_params.get(
+            funcname,
+            sampler_extra_params.get(getattr(funcname, "__name__", ""), []),
+        )
 
         self.options = options or {}
         self.func = funcname if callable(funcname) else getattr(k_diffusion.sampling, self.funcname)

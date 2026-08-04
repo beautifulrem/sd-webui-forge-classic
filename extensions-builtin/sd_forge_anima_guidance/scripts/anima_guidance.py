@@ -187,6 +187,15 @@ class AnimaGuidanceScript(scripts.Script):
                         label="DCW frequency bands",
                         info="LL is the Anima-tuned default; all reproduces broadband correction.",
                     )
+            with gr.Accordion("CNS colored-noise sampler", open=False):
+                cns_strength = gr.Slider(
+                    0.0,
+                    1.0,
+                    value=1.0,
+                    step=0.05,
+                    label="Anima ER SDE CNS strength",
+                    info="Used only by the Anima ER SDE CNS sampler. 0 is stock ER-SDE noise; 1 is full calibrated recoloring.",
+                )
 
         controls = [
             enable,
@@ -204,6 +213,7 @@ class AnimaGuidanceScript(scripts.Script):
             dcw_lambda,
             dcw_schedule,
             dcw_bands,
+            cns_strength,
         ]
         keys = [
             "Anima guidance enabled",
@@ -221,6 +231,7 @@ class AnimaGuidanceScript(scripts.Script):
             "Anima DCW lambda",
             "Anima DCW schedule",
             "Anima DCW bands",
+            "Anima CNS strength",
         ]
         self.infotext_fields = [PasteField(component, key) for component, key in zip(controls, keys)]
         self.paste_field_names = keys
@@ -244,12 +255,26 @@ class AnimaGuidanceScript(scripts.Script):
         dcw_lambda: float,
         dcw_schedule: str,
         dcw_bands: str,
+        cns_strength: float,
         *args,
         **kwargs,
     ):
         smc_enabled = guidance_mode == "SMC-CFG" and float(smc_alpha) > 0.0
         dcw_enabled = bool(dcw_enable) and not math.isclose(float(dcw_lambda), 0.0)
-        if not enable or not _is_anima(p) or (not skim_enable and not smc_enabled and not dcw_enabled):
+        active_sampler = (
+            (getattr(p, "hr_sampler_name", None) or p.sampler_name)
+            if getattr(p, "is_hr_pass", False)
+            else p.sampler_name
+        )
+        cns_selected = active_sampler == "Anima ER SDE CNS"
+        if not enable or not _is_anima(p):
+            return
+
+        if cns_selected:
+            p.cns_strength = min(max(float(cns_strength), 0.0), 1.0)
+            p.extra_generation_params["Anima CNS strength"] = p.cns_strength
+
+        if not skim_enable and not smc_enabled and not dcw_enabled:
             return
 
         unet = p.sd_model.forge_objects.unet.clone()
