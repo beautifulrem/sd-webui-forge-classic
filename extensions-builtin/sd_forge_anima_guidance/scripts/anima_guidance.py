@@ -3,16 +3,35 @@
 from __future__ import annotations
 
 import math
+import os
+import logging
 
 import gradio as gr
 import torch
 
+from backend import memory_management
+from backend.logging import setup_logger
+from lib_anima_guidance.modulation import (
+    ADAPTER_MAX_BYTES,
+    ADAPTER_SHA256,
+    ADAPTER_URL,
+    CLIP_MAX_BYTES,
+    CLIP_SHA256,
+    CLIP_URL,
+    ModulationPatch,
+    encode_clip_pooled,
+    prepare_modulation_vectors,
+    resolve_artifact,
+)
 from lib_anima_guidance.skim import apply_skim_to_predictions
 from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
 from lib_anima_guidance.dcw import DCWState, parse_band_mask
-from modules import script_callbacks, scripts
+from modules import paths, script_callbacks, scripts
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
+
+logger = logging.getLogger("AnimaGuidance")
+setup_logger(logger)
 
 
 def _is_anima(p) -> bool:
@@ -196,6 +215,58 @@ class AnimaGuidanceScript(scripts.Script):
                     label="Anima ER SDE CNS strength",
                     info="Used only by the Anima ER SDE CNS sampler. 0 is stock ER-SDE noise; 1 is full calibrated recoloring.",
                 )
+            with gr.Accordion("CLIP modulation guidance", open=False):
+                gr.Markdown(
+                    "Adds the official-style CLIP pooled modulation path to Anima. "
+                    "The first automatic use downloads a pinned 163 MiB adapter and 235 MiB CLIP-L encoder."
+                )
+                modulation_enable = gr.Checkbox(False, label="Enable CLIP modulation guidance")
+                with gr.Row():
+                    modulation_weight = gr.Slider(
+                        -20.0,
+                        20.0,
+                        value=3.0,
+                        step=0.05,
+                        label="Direction weight",
+                        info="CLIP(base) + weight x (CLIP(positive direction) - CLIP(negative direction)).",
+                    )
+                    modulation_start = gr.Slider(0, 63, value=0, step=1, label="Start block")
+                    modulation_end = gr.Slider(
+                        -1,
+                        63,
+                        value=-1,
+                        step=1,
+                        label="End block",
+                        info="-1 means the final Anima block.",
+                    )
+                modulation_base = gr.Textbox(
+                    "",
+                    label="Base CLIP prompt override",
+                    info="Empty uses each image's normal positive prompt. The normal negative prompt is used for unconditional rows.",
+                )
+                with gr.Row():
+                    modulation_positive = gr.Textbox(
+                        "high quality, detailed, accurate anatomy",
+                        label="Positive modulation direction",
+                    )
+                    modulation_negative = gr.Textbox(
+                        "low quality, artifacts, bad anatomy",
+                        label="Negative modulation direction",
+                    )
+                with gr.Row():
+                    adapter_mode = gr.Dropdown(
+                        ["Auto-download pinned", "Local file"],
+                        value="Auto-download pinned",
+                        label="Modulation adapter",
+                    )
+                    adapter_path = gr.Textbox("", label="Local adapter .pt path")
+                with gr.Row():
+                    clip_mode = gr.Dropdown(
+                        ["Auto-download pinned", "Local file"],
+                        value="Auto-download pinned",
+                        label="CLIP-L encoder",
+                    )
+                    clip_path = gr.Textbox("", label="Local CLIP-L .safetensors path")
 
         controls = [
             enable,
@@ -214,6 +285,17 @@ class AnimaGuidanceScript(scripts.Script):
             dcw_schedule,
             dcw_bands,
             cns_strength,
+            modulation_enable,
+            modulation_weight,
+            modulation_start,
+            modulation_end,
+            modulation_base,
+            modulation_positive,
+            modulation_negative,
+            adapter_mode,
+            adapter_path,
+            clip_mode,
+            clip_path,
         ]
         keys = [
             "Anima guidance enabled",
@@ -232,6 +314,17 @@ class AnimaGuidanceScript(scripts.Script):
             "Anima DCW schedule",
             "Anima DCW bands",
             "Anima CNS strength",
+            "Anima modulation guidance",
+            "Anima modulation weight",
+            "Anima modulation start block",
+            "Anima modulation end block",
+            "Anima modulation base prompt",
+            "Anima modulation positive direction",
+            "Anima modulation negative direction",
+            "Anima modulation adapter mode",
+            "Anima modulation adapter path",
+            "Anima modulation CLIP mode",
+            "Anima modulation CLIP path",
         ]
         self.infotext_fields = [PasteField(component, key) for component, key in zip(controls, keys)]
         self.paste_field_names = keys
@@ -256,6 +349,17 @@ class AnimaGuidanceScript(scripts.Script):
         dcw_schedule: str,
         dcw_bands: str,
         cns_strength: float,
+        modulation_enable: bool,
+        modulation_weight: float,
+        modulation_start: int,
+        modulation_end: int,
+        modulation_base: str,
+        modulation_positive: str,
+        modulation_negative: str,
+        adapter_mode: str,
+        adapter_path: str,
+        clip_mode: str,
+        clip_path: str,
         *args,
         **kwargs,
     ):
@@ -274,10 +378,76 @@ class AnimaGuidanceScript(scripts.Script):
             p.cns_strength = min(max(float(cns_strength), 0.0), 1.0)
             p.extra_generation_params["Anima CNS strength"] = p.cns_strength
 
-        if not skim_enable and not smc_enabled and not dcw_enabled:
+        modulation_enabled = bool(modulation_enable)
+        if not skim_enable and not smc_enabled and not dcw_enabled and not modulation_enabled:
             return
 
-        unet = p.sd_model.forge_objects.unet.clone()
+        unet = p.sd_model.forge_objects.unet
+        if modulation_enabled:
+            try:
+                automatic_adapter = os.path.join(paths.models_path, "Anima", "modulation_guidance", "checkpoint_4000.pt")
+                automatic_clip = os.path.join(paths.models_path, "CLIP", "Anima-Mod-Guidance", "clip_l.safetensors")
+                resolved_adapter = resolve_artifact(
+                    str(adapter_mode),
+                    str(adapter_path),
+                    automatic_adapter,
+                    url=ADAPTER_URL,
+                    sha256=ADAPTER_SHA256,
+                    maximum_bytes=ADAPTER_MAX_BYTES,
+                )
+                resolved_clip = resolve_artifact(
+                    str(clip_mode),
+                    str(clip_path),
+                    automatic_clip,
+                    url=CLIP_URL,
+                    sha256=CLIP_SHA256,
+                    maximum_bytes=CLIP_MAX_BYTES,
+                )
+                positive_prompts = list(getattr(p, "prompts", None) or [getattr(p, "prompt", "")])
+                negative_prompts = list(getattr(p, "negative_prompts", None) or [getattr(p, "negative_prompt", "")])
+                if len(negative_prompts) == 1 and len(positive_prompts) > 1:
+                    negative_prompts *= len(positive_prompts)
+                if len(positive_prompts) != len(negative_prompts):
+                    raise RuntimeError("Anima modulation positive/negative prompt batch sizes differ")
+                base_prompts = [str(modulation_base)] * len(positive_prompts) if str(modulation_base).strip() else positive_prompts
+                all_clip_prompts = [*base_prompts, *negative_prompts, str(modulation_positive), str(modulation_negative)]
+                pooled = encode_clip_pooled(
+                    all_clip_prompts,
+                    clip_path=resolved_clip,
+                    config_dir=os.path.join(paths.script_path, "backend", "huggingface", "black-forest-labs", "FLUX.1-schnell", "text_encoder"),
+                    tokenizer_dir=os.path.join(paths.script_path, "backend", "huggingface", "black-forest-labs", "FLUX.1-schnell", "tokenizer"),
+                    device=memory_management.text_encoder_device(),
+                )
+                batch = len(positive_prompts)
+                projected_positive, projected_negative, scales = prepare_modulation_vectors(
+                    adapter_path=resolved_adapter,
+                    base_positive=pooled[:batch],
+                    base_negative=pooled[batch : 2 * batch],
+                    direction_positive=pooled[-2:-1],
+                    direction_negative=pooled[-1:],
+                    weight=float(modulation_weight),
+                )
+                unet, effective_start, effective_end = ModulationPatch(
+                    positive=projected_positive,
+                    negative=projected_negative,
+                    scales=scales,
+                    start_layer=int(modulation_start),
+                    end_layer=int(modulation_end),
+                ).apply(unet)
+                p.extra_generation_params["Anima modulation guidance"] = True
+                p.extra_generation_params["Anima modulation weight"] = float(modulation_weight)
+                p.extra_generation_params["Anima modulation blocks"] = f"{effective_start}-{effective_end}"
+                p.extra_generation_params["Anima modulation positive"] = str(modulation_positive)
+                p.extra_generation_params["Anima modulation negative"] = str(modulation_negative)
+                if str(modulation_base).strip():
+                    p.extra_generation_params["Anima modulation base override"] = str(modulation_base)
+            except Exception as error:
+                modulation_enabled = False
+                logger.exception("Anima modulation guidance was disabled for this generation: %s", error)
+                p.extra_generation_params["Anima modulation guidance"] = f"disabled: {type(error).__name__}"
+
+        if not modulation_enabled:
+            unet = unet.clone()
         predictor = unet.model.predictor
         sigma_start = float(predictor.percent_to_sigma(float(start_percent)))
         sigma_end = float(predictor.percent_to_sigma(float(end_percent)))

@@ -63,3 +63,24 @@ does not affect Flow Euler, Flow UniPC2, or Flow PC3 because those ODE paths do
 not contain ER-SDE's stochastic-noise seam. The pinned 6 KiB calibration file
 is downloaded on first use over HTTPS, limited to 1 MiB, and verified against a
 hard-coded SHA-256 before loading.
+
+## CLIP modulation guidance
+
+The optional modulation path supplies the global CLIP-L conditioning that the
+base Anima/Cosmos architecture was trained without. Conditional rows receive
+`CLIP(base) + w * (CLIP(direction+) - CLIP(direction-))`; unconditional CFG
+rows receive their own negative-prompt CLIP embedding without the direction.
+The projected vector is multiplied by the learned per-block adapter scale and
+added to each selected block's AdaLN-LoRA input. The final layer keeps the
+native, unmodified timestep embedding.
+
+Automatic mode downloads revision-pinned, SHA-256-verified weights only when
+the control is enabled. Adapter `.pt` files are loaded with PyTorch
+`weights_only=True`; CLIP uses a safetensors file and Forge's bundled FLUX
+CLIP-L config/tokenizer. The large adapter projection runs once on CPU, and
+only the small projected vectors and per-block scale rows are used during
+sampling.
+
+Spectrum composition is explicit: modulation runs around Spectrum, while
+Spectrum forecasts features learned from actual modulated blocks. Hires passes
+strip and rebuild both pass-scoped wrappers instead of nesting stale states.

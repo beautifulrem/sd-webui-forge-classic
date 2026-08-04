@@ -321,9 +321,10 @@ class SpectrumNode:
 
         old_wrapper = new_model.model_options.get("model_function_wrapper")
         # process_before_every_sampling runs again for hires/img2img passes. Do
-        # not nest a second Spectrum closure around the first pass's state.
-        if getattr(old_wrapper, "__spectrum_feature_cache__", False):
-            old_wrapper = getattr(old_wrapper, "__spectrum_previous_wrapper__", None)
+        # not retain pass-scoped Spectrum/Modulation closures from the prior
+        # pass; both will be rebuilt in sorting-priority order below.
+        while getattr(old_wrapper, "__forge_pass_wrapper_kind__", None) in {"spectrum", "anima_modulation"}:
+            old_wrapper = getattr(old_wrapper, "__forge_previous_wrapper__", None)
         tail_from_fraction = max(0, int(steps) - int(math.ceil(float(steps) * float(stop_caching_step))))
         tail_actual_steps = max(int(tail_actual_steps), tail_from_fraction)
         calibration = None
@@ -421,5 +422,7 @@ class SpectrumNode:
 
         wrapper.__spectrum_feature_cache__ = True
         wrapper.__spectrum_previous_wrapper__ = old_wrapper
+        wrapper.__forge_pass_wrapper_kind__ = "spectrum"
+        wrapper.__forge_previous_wrapper__ = old_wrapper
         new_model.set_model_unet_function_wrapper(wrapper)
         return new_model
