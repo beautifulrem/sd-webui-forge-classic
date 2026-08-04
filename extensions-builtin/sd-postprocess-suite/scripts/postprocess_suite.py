@@ -179,6 +179,9 @@ script_callbacks.on_after_component(_on_after_component)
 
 # ---------------------------------------------------------------------------
 class PostProcessSuite(scripts.Script):
+    section = "accordions"
+    create_group = False
+
     def title(self):
         return "Post Processing Suite"
 

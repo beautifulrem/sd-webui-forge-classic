@@ -2,7 +2,7 @@
 
 A feature-packed, **reorderable** post-processing pipeline for
 [sd-webui-forge-classic (neo)](https://github.com/Haoming02/sd-webui-forge-classic).
-It adds a dropdown to **both txt2img and img2img** and runs a stack of image
+It adds a native generation accordion to **both txt2img and img2img** and runs a stack of image
 effects in `postprocess_image_after_composite` — the final hook before the
 image is saved — so every effect is baked into the saved file, the gallery and
 the API result. Works alongside other extensions (it only touches the finished
@@ -14,7 +14,7 @@ dependencies.**
 ## Install
 Drop the `sd-postprocess-suite` folder into your `extensions/` directory (or use
 *Extensions → Install from URL*) and restart the UI. Open the **Post Processing
-Suite** accordion under either tab.
+Suite** accordion in either tab's generation controls.
 
 ## How it works
 1. Tick the master **Post Processing Suite** toggle.
