@@ -41,12 +41,25 @@ def get_csvs():
 
 
 def get_csv(key):
-    global base_dir
-    global self_base_dir
-    global self_tags_dir
-    path = base_dir + key
-    if not os.path.exists(path):
-        path = os.path.join(self_tags_dir, key.replace('\\extensions\\sd-webui-prompt-all-in-one\\tags\\', ''))
-        if not os.path.exists(path):
-            return None
-    return path
+    # ``key`` comes from an HTTP query parameter. Resolve it through the
+    # server-generated inventory instead of treating it as a filesystem path.
+    # This preserves all keys emitted by get_csvs() while preventing absolute
+    # paths, ``..`` traversal, and symlink escapes from exposing host files.
+    allowed_roots = [os.path.realpath(directory) for directory in dirs]
+    for item in get_csvs():
+        if item['key'] != key:
+            continue
+
+        path = os.path.realpath(item['path'])
+        try:
+            inside_allowed_root = any(
+                os.path.commonpath((root, path)) == root
+                for root in allowed_roots
+            )
+        except ValueError:
+            inside_allowed_root = False
+
+        if inside_allowed_root and path.lower().endswith('.csv') and os.path.isfile(path):
+            return path
+        return None
+    return None

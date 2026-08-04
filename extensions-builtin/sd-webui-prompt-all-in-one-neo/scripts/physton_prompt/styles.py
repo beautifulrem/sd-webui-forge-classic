@@ -8,12 +8,13 @@ styles_path = os.path.normpath(styles_path)
 
 def get_style_full_path(file):
     global styles_path
-    path = os.path.join(styles_path, file)
-    path = os.path.abspath(path)
-    path = os.path.normpath(path)
-    if not os.path.exists(path):
-        return None
-    if styles_path not in path:
+    root = os.path.realpath(styles_path)
+    path = os.path.realpath(os.path.join(root, file))
+    try:
+        inside_root = os.path.commonpath((root, path)) == root
+    except ValueError:
+        inside_root = False
+    if not inside_root or not os.path.isfile(path):
         return None
     return path
 
