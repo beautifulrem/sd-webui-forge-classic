@@ -20,6 +20,7 @@ import shutil
 import threading
 import time
 import uuid
+from typing import Optional
 
 import gradio as gr
 from fastapi import FastAPI
@@ -122,7 +123,15 @@ class _Store:
 
     # ---------- mutations ----------
 
-    def add(self, tab, prompt, negative):
+    def add(
+        self,
+        tab,
+        prompt,
+        negative,
+        anchor=None,
+        anchor_enabled=None,
+        anchor_separator=None,
+    ):
         with self.lock:
             if len(self._pending()) >= MAX_PENDING:
                 return None, f"Queue is full ({MAX_PENDING} prompts max)."
@@ -136,6 +145,15 @@ class _Store:
                 "started": None,
                 "finished": None,
             }
+            # Prompt Anchor is optional. Only persist its fields when the
+            # caller actually supplied them, keeping old queue files and
+            # installs without that built-in fully compatible.
+            if anchor_enabled is not None:
+                item["anchor"] = anchor or ""
+                item["anchor_enabled"] = bool(anchor_enabled)
+                item["anchor_separator"] = (
+                    anchor_separator if anchor_separator is not None else ", "
+                )
             self.items.append(item)
             self._prune_finished()
             self._bump()
@@ -253,6 +271,9 @@ class AddRequest(BaseModel):
     tab: str = Field(...)
     prompt: str = Field(default="")
     negative: str = Field(default="")
+    anchor: Optional[str] = None
+    anchor_enabled: Optional[bool] = None
+    anchor_separator: Optional[str] = None
 
 
 class IdRequest(BaseModel):
@@ -287,9 +308,21 @@ def register_api(_demo, app: FastAPI):
     @app.post(prefix + "/add")
     def add(req: AddRequest):
         tab = req.tab if req.tab in VALID_TABS else "txt2img"
-        if not (req.prompt or "").strip() and not (req.negative or "").strip():
+        has_anchor_prompt = bool(req.anchor_enabled and (req.anchor or "").strip())
+        if (
+            not (req.prompt or "").strip()
+            and not (req.negative or "").strip()
+            and not has_anchor_prompt
+        ):
             return {"ok": False, "error": "Prompt is empty."}
-        item, err = STORE.add(tab, req.prompt, req.negative)
+        item, err = STORE.add(
+            tab,
+            req.prompt,
+            req.negative,
+            req.anchor,
+            req.anchor_enabled,
+            req.anchor_separator,
+        )
         if err:
             return {"ok": False, "error": err}
         return {"ok": True, "item": item, "pending": STORE.snapshot()["pending"]}

@@ -23,7 +23,8 @@ routes get registered).
 
 * An **"📋 Add to Queue"** button appears directly under **Generate** on both
   txt2img and img2img. It snapshots the current **prompt + negative prompt**
-  and adds them to the queue. All other settings (model, sampler, steps,
+  and, when the built-in Prompt Anchor is present, its text, separator and
+  enabled state. All other settings (model, sampler, steps,
   size, seed, img2img source image, etc.) are taken from whatever is set on
   that tab *at the moment the item runs*.
 * A **Queue** tab appears in the top bar, right next to img2img, with a live

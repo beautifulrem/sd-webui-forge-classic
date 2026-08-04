@@ -45,6 +45,47 @@
         if (n) { n.value = negative; updateInput(n); }
     }
 
+    function anchorControls(tab) {
+        const group = gradioApp().querySelector("#prompt_anchor_group_" + tab);
+        if (!group) return null;
+        return {
+            text: gradioApp().querySelector("#prompt_anchor_" + tab + " textarea"),
+            enabled: gradioApp().querySelector("#prompt_anchor_enable_" + tab + " input[type=checkbox]"),
+            separator: group.querySelector(".prompt-anchor-separator input, .prompt-anchor-separator textarea"),
+        };
+    }
+
+    function snapshotAnchor(tab) {
+        const controls = anchorControls(tab);
+        if (!controls || !controls.enabled) return {};
+        return {
+            anchor: controls.text ? controls.text.value : "",
+            anchor_enabled: !!controls.enabled.checked,
+            anchor_separator: controls.separator ? controls.separator.value : ", ",
+        };
+    }
+
+    function restoreAnchor(tab, item) {
+        // Old queue entries intentionally have no anchor fields: leave the
+        // current UI state untouched to retain their historical behaviour.
+        if (!Object.prototype.hasOwnProperty.call(item, "anchor_enabled")) return;
+        const controls = anchorControls(tab);
+        if (!controls) return;
+        if (controls.text) {
+            controls.text.value = item.anchor || "";
+            updateInput(controls.text);
+        }
+        if (controls.separator) {
+            controls.separator.value = item.anchor_separator == null ? ", " : item.anchor_separator;
+            updateInput(controls.separator);
+        }
+        if (controls.enabled) {
+            controls.enabled.checked = !!item.anchor_enabled;
+            updateInput(controls.enabled);
+            controls.enabled.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+    }
+
     function relTime(ts) {
         if (!ts) return "";
         const s = Math.max(0, Math.round(Date.now() / 1000 - ts));
@@ -73,7 +114,11 @@
             const prompt = (promptBox(tab, false) || {}).value || "";
             const negative = (promptBox(tab, true) || {}).value || "";
             try {
-                const res = await api("/add", { tab: tab, prompt: prompt, negative: negative });
+                const payload = Object.assign(
+                    { tab: tab, prompt: prompt, negative: negative },
+                    snapshotAnchor(tab)
+                );
+                const res = await api("/add", payload);
                 if (res.ok) {
                     flash(btn, "\u2713 Queued  \u00b7  " + res.pending + " pending", false);
                 } else {
@@ -259,7 +304,19 @@
                 } else if (action === "requeue") {
                     const st = await api("/state");
                     const item = st.items.find(function (i) { return i.id === id; });
-                    if (item) await api("/add", { tab: item.tab, prompt: item.prompt, negative: item.negative });
+                    if (item) {
+                        const payload = {
+                            tab: item.tab,
+                            prompt: item.prompt,
+                            negative: item.negative,
+                        };
+                        if (Object.prototype.hasOwnProperty.call(item, "anchor_enabled")) {
+                            payload.anchor = item.anchor || "";
+                            payload.anchor_enabled = !!item.anchor_enabled;
+                            payload.anchor_separator = item.anchor_separator == null ? ", " : item.anchor_separator;
+                        }
+                        await api("/add", payload);
+                    }
                 } else if (action === "interrupt") {
                     const tab = btn.getAttribute("data-tab");
                     const ib = gradioApp().getElementById(tab + "_interrupt");
@@ -300,6 +357,7 @@
         const item = res && res.item;
         if (!item) return;
 
+        restoreAnchor(item.tab, item);
         setPromptFields(item.tab, item.prompt, item.negative);
         const gen = gradioApp().getElementById(item.tab + "_generate");
         if (!gen) {
