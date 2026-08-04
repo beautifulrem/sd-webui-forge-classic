@@ -1,9 +1,9 @@
 import sqlite3
 from contextlib import contextmanager
 
-from scripts.shared_paths import TAGS_PATH
+from scripts.shared_paths import TAG_FREQUENCY_DB_PATH
 
-db_file = TAGS_PATH.joinpath("tag_frequency.db")
+db_file = TAG_FREQUENCY_DB_PATH
 timeout = 30
 db_ver = 1
 

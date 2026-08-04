@@ -2,6 +2,6 @@
 def preload(parser):
     parser.add_argument(
         "--agent-scheduler-sqlite-file",
-        help="sqlite file to use for the database connection. It can be abs or relative path(from base path) default: task_scheduler.sqlite3",
-        default="task_scheduler.sqlite3",
+        help="SQLite database path. Absolute paths are used as-is; relative paths are resolved from Forge's data directory.",
+        default="extension-data/agent-scheduler/task_scheduler.sqlite3",
     )

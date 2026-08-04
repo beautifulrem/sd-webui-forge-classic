@@ -1,6 +1,9 @@
 import os
 import json
+import shutil
 import time
+
+from modules import paths_internal
 
 
 class Storage:
@@ -10,21 +13,30 @@ class Storage:
         Storage.__dispose_all_locks()
 
     def __get_storage_path():
-        Storage.storage_path = os.path.dirname(os.path.abspath(__file__)) + '/../../storage'
-        Storage.storage_path = os.path.normpath(Storage.storage_path)
+        Storage.storage_path = os.path.join(
+            paths_internal.data_path,
+            'extension-data',
+            'sd-webui-prompt-all-in-one-neo',
+            'storage',
+        )
         if not os.path.exists(Storage.storage_path):
             os.makedirs(Storage.storage_path)
 
-        # old_storage_path = os.path.join(Path().absolute(), 'physton-prompt')
-        # if os.path.exists(old_storage_path):
-        #     # 复制就的存储文件到新的存储文件夹
-        #     for file in os.listdir(old_storage_path):
-        #         old_file_path = os.path.join(old_storage_path, file)
-        #         new_file_path = os.path.join(Storage.storage_path, file)
-        #         if not os.path.exists(new_file_path):
-        #             os.rename(old_file_path, new_file_path)
-        #     # 删除旧的存储文件夹
-        #     os.rmdir(old_storage_path)
+        legacy_storage_path = os.path.normpath(
+            os.path.dirname(os.path.abspath(__file__)) + '/../../storage'
+        )
+        if os.path.isdir(legacy_storage_path):
+            for filename in os.listdir(legacy_storage_path):
+                if not filename.endswith('.json'):
+                    continue
+                old_file_path = os.path.join(legacy_storage_path, filename)
+                new_file_path = os.path.join(Storage.storage_path, filename)
+                if not os.path.exists(new_file_path):
+                    try:
+                        shutil.copy2(old_file_path, new_file_path)
+                        os.chmod(new_file_path, 0o600)
+                    except OSError as e:
+                        print(f"Prompt All-in-One storage migration failed: {e}")
 
         return Storage.storage_path
 
@@ -48,7 +60,8 @@ class Storage:
 
     def __lock(key):
         file_path = Storage.__get_key_lock_filename(key)
-        with open(file_path, 'w') as f:
+        opener = lambda path, flags: os.open(path, flags, 0o600)
+        with open(file_path, 'w', opener=opener) as f:
             f.write('1')
 
     def __unlock(key):
@@ -88,8 +101,12 @@ class Storage:
 
     def __set(key, data):
         file_path = Storage.__get_data_filename(key)
-        with open(file_path, 'w') as f:
+        temp_path = file_path + '.tmp'
+        opener = lambda path, flags: os.open(path, flags, 0o600)
+        with open(temp_path, 'w', opener=opener) as f:
             json.dump(data, f, indent=4, ensure_ascii=True)
+        os.chmod(temp_path, 0o600)
+        os.replace(temp_path, file_path)
 
     def set(key, data):
         while Storage.__is_locked(key):

@@ -23,12 +23,11 @@ This script does three things at Forge startup:
    `localization` to `shared.opts.quicksettings_list` so the
    language dropdown appears in the quicksettings row at the top of
    the WebUI (next to UI Preset / Checkpoint / VAE). Tracked by a
-   `.first-run-pinned` marker file inside the extension folder:
+   `.first-run-pinned` marker under Forge's user-data directory:
      - First install: pin added.
      - User removes the pin later via Settings → User Interface →
        Quicksettings List: stays removed (marker prevents re-pinning).
-     - User uninstalls and reinstalls: marker is gone with the folder,
-       so pin gets re-added on next launch.
+     - Built-in source updates never overwrite this preference.
 
 All three actions are pure UI reorganisation. The setting key,
 dropdown options, persistence, Apply-Settings-then-Reload-UI flow,
@@ -37,11 +36,23 @@ restores the upstream layout entirely.
 """
 
 import os
-from modules import shared
+import shutil
+from modules import paths_internal, shared
 
 
 _EXT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_FIRST_RUN_MARKER = os.path.join(_EXT_ROOT, ".first-run-pinned")
+_STATE_DIR = os.path.join(
+    paths_internal.data_path, "extension-data", "sd-webui-language-diffusion"
+)
+_FIRST_RUN_MARKER = os.path.join(_STATE_DIR, ".first-run-pinned")
+_LEGACY_FIRST_RUN_MARKER = os.path.join(_EXT_ROOT, ".first-run-pinned")
+
+try:
+    if not os.path.exists(_FIRST_RUN_MARKER) and os.path.isfile(_LEGACY_FIRST_RUN_MARKER):
+        os.makedirs(_STATE_DIR, exist_ok=True)
+        shutil.copy2(_LEGACY_FIRST_RUN_MARKER, _FIRST_RUN_MARKER)
+except OSError:
+    pass
 
 # Display labels for the language dropdown — autoglottonyms (the name
 # of each language in its own language) plus "English" for the
@@ -171,7 +182,7 @@ def pin_to_quicksettings_once() -> None:
     OptionInfo default is `[]`, see modules/shared_options.py). The
     DropdownMulti component handles it as such. We append the
     'localization' identifier to that list, persist the config, and
-    drop a marker file inside the extension folder so subsequent
+    drop a marker file inside Forge's user-data directory so subsequent
     launches do not re-pin (letting the user remove the entry from
     the list later if they prefer).
     """
@@ -209,6 +220,7 @@ def pin_to_quicksettings_once() -> None:
     # Mark first-run setup as complete (reached when localization is in
     # the list, whether we just added it or it was already there).
     try:
+        os.makedirs(_STATE_DIR, exist_ok=True)
         with open(_FIRST_RUN_MARKER, "w", encoding="utf-8") as f:
             f.write(
                 "Created by sd-webui-language-diffusion on first install.\n"
