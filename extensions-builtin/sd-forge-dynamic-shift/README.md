@@ -12,8 +12,9 @@ Drop this folder into your webui's `extensions/` directory (or *Extensions → I
 
 ## Usage
 
-1. Open the **Dynamic Shift** accordion in txt2img or img2img.
-2. Enable it, set **Shift @ first step** and **Shift @ last step**, pick a curve.
+1. In txt2img or img2img, open **Dynamic Shift** directly below the native
+   sampler controls. The accordion header is also its enable switch.
+2. Set **Shift @ first step** and **Shift @ last step**, then pick a curve.
    The inline plot shows your dynamic schedule (orange) against the two constant-shift references (dashed/dotted).
 3. Generate. The console logs the active ramp; parameters are written to infotext and restore correctly via *Send to txt2img* / PNG Info.
 
@@ -35,7 +36,7 @@ Drop this folder into your webui's `extensions/` directory (or *Extensions → I
 
 ## Notes / limitations
 
-- While enabled, the **Schedule type** dropdown and the built-in **Shift** slider are bypassed for the sigma schedule (the extension takes over via `sampler_noise_scheduler_override`). Prompt-editing step percentages (`[a:b:0.5]`) still use the built-in shift for their timing — a minor, usually invisible interaction.
+- While enabled with a **K-diffusion sampler** (Euler, DPM++, etc.), the **Schedule type** dropdown and the built-in **Shift** slider are bypassed for the sigma schedule (the extension takes over via `sampler_noise_scheduler_override`). Forge's timestep/alternate sampler families do not consume this override, so Dynamic Shift has no effect with those samplers. Prompt-editing step percentages (`[a:b:0.5]`) still use the built-in shift for their timing — a minor, usually invisible interaction.
 - Only activates on models with `use_shift = True`; it silently skips SDXL/SD1.5 and prints a console notice.
 - If another script already sets a scheduler override, this extension defers to it.
 - A constant ramp (start == end) reproduces the stock `FlowMatchEulerDiscrete` schedule exactly, which is handy for A/B sanity checks.

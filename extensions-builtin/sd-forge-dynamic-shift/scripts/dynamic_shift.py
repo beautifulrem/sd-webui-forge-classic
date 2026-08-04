@@ -18,6 +18,7 @@ from pathlib import Path
 import gradio as gr
 
 from modules import script_callbacks, scripts
+from modules.ui_components import InputAccordion
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib_dynshift.schedule import CURVES, compute_sigmas, preview_svg  # noqa: E402
@@ -37,6 +38,8 @@ HR_MODES = ["Same as first pass", "Custom", "Static (built-in shift)"]
 
 
 class DynamicShiftScript(scripts.Script):
+    section = "sampler"
+    create_group = False
     sorting_priority = 5
 
     def title(self):
@@ -46,9 +49,10 @@ class DynamicShiftScript(scripts.Script):
         return scripts.AlwaysVisible
 
     def ui(self, is_img2img):
-        with gr.Accordion(NAME, open=False):
+        # InputAccordion makes the native accordion header itself the enable
+        # control, matching Forge's Hires Fix / Refiner UI pattern.
+        with InputAccordion(False, label=NAME) as enabled:
             with gr.Row():
-                enabled = gr.Checkbox(label="Enable", value=False)
                 curve = gr.Dropdown(label="Curve", choices=CURVES, value="Cosine")
             with gr.Row():
                 shift_start = gr.Slider(
