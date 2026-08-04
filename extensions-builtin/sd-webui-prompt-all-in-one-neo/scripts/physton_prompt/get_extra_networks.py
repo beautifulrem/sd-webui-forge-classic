@@ -4,6 +4,7 @@ from modules import script_callbacks, extra_networks, prompt_parser, shared, ui_
 import json
 import os
 import copy
+import ast
 
 filters = [
     # 'filename',
@@ -12,6 +13,41 @@ filters = [
     'local_preview',
     'metadata',
 ]
+
+
+def _resolve_prompt_expression(expression):
+    """Resolve Forge's generated Extra Networks prompt without JavaScript eval.
+
+    Forge emits JSON string literals joined with ``+`` and may insert the one
+    known ``opts.extra_networks_default_multiplier`` value. No names, calls,
+    attributes, containers, or other operators are accepted.
+    """
+    if not isinstance(expression, str) or not expression.strip():
+        return ''
+
+    default_weight = getattr(shared.opts, 'extra_networks_default_multiplier', 1.0)
+    normalized = expression.replace(
+        'opts.extra_networks_default_multiplier',
+        repr(default_weight),
+    )
+    try:
+        tree = ast.parse(normalized, mode='eval')
+    except (SyntaxError, ValueError):
+        return ''
+
+    def resolve(node):
+        if isinstance(node, ast.Expression):
+            return resolve(node.body)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return resolve(node.left) + resolve(node.right)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (str, int, float)):
+            return str(node.value)
+        raise ValueError('unsupported prompt expression')
+
+    try:
+        return resolve(tree)
+    except ValueError:
+        return ''
 
 
 def get_extra_networks():
@@ -35,6 +71,7 @@ def get_extra_networks():
                 except Exception as e:
                     pass
                 item['output_name'] = output_name
+                item['prompt_text'] = _resolve_prompt_expression(item.get('prompt', ''))
 
                 # 获取civitai.info
                 item['civitai_info'] = {}

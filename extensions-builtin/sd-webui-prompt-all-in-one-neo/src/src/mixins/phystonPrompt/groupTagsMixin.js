@@ -257,20 +257,7 @@ export default {
                     setTimeout(setLoading, 100, num + 1)
                 }
                 setLoading(0)
-                console.log(data)
-                if (data.onclick) {
-                    let e = document.createElement('div')
-                    e.innerHTML = data.onclick
-                    let onclick = e.textContent || e.innerText
-                    // 去除左右"引号
-                    onclick = onclick.replace(/^"/, '').replace(/"$/, '').trim()
-                    // 去除 return
-                    onclick = onclick.replace(/^return /, '').trim()
-                    console.log(onclick)
-                    eval(onclick)
-                } else {
-                    selectCheckpoint(data.basename)
-                }
+                selectCheckpoint(data.name || data.basename)
                 return
             }
             let indexes = this._groupTagsExtraNetworkTagsIndexes(data)
@@ -281,7 +268,8 @@ export default {
                 })
                 this.updateTags()
             } else {
-                let index = this._appendTag(eval(data.prompt), '', false, -1, 'text')
+                if (!data.prompt_text) return
+                let index = this._appendTag(data.prompt_text, '', false, -1, 'text')
                 if (this.autoTranslateToLocal) {
                     this.translates([index], true, false).finally(() => {
                         this.updateTags()
