@@ -25,7 +25,7 @@ from modules import shared
 from scripts.physton_prompt.get_quality_presets import (
     load_presets, save_presets, detect_preset_for_checkpoint,
     get_current_checkpoint_path, BUILTIN_TEMPLATES,
-    get_installed_checkpoints, scan_checkpoint,
+    get_installed_checkpoints, scan_checkpoint, resolve_installed_checkpoint_path,
 )
 
 try:
@@ -420,6 +420,7 @@ def on_app_started(_: gr.Blocks, app: FastAPI):
     @app.get("/physton_prompt/detect_model_preset")
     async def _detect_model_preset(filepath: str = ''):
         path = filepath if filepath else get_current_checkpoint_path()
+        path = resolve_installed_checkpoint_path(path)
         result = detect_preset_for_checkpoint(path)
         result['checkpoint_path'] = path
         return result

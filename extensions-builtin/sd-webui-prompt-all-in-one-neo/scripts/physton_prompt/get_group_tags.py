@@ -1,9 +1,18 @@
 import os
+import re
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
+group_tags_dir = os.path.realpath(os.path.join(current_dir, '../../group_tags'))
 
 def _get_tags_filename(name):
-    file = os.path.join(current_dir, '../../group_tags/', name + '.yaml')
+    if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', name):
+        return None
+    file = os.path.realpath(os.path.join(group_tags_dir, name + '.yaml'))
+    try:
+        if os.path.commonpath((group_tags_dir, file)) != group_tags_dir:
+            return None
+    except ValueError:
+        return None
     return file
 
 def get_group_tags(lang):
@@ -19,9 +28,9 @@ def get_group_tags(lang):
 
     if not is_exists:
         tags_file = _get_tags_filename(lang)
-        if not os.path.exists(tags_file):
+        if not tags_file or not os.path.exists(tags_file):
             tags_file = _get_tags_filename('default')
-    if not os.path.exists(tags_file):
+    if not tags_file or not os.path.exists(tags_file):
         return ''
 
     tags = ''

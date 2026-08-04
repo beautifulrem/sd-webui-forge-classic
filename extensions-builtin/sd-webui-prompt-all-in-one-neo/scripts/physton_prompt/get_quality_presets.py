@@ -246,6 +246,21 @@ def save_presets(data: dict) -> None:
 # or fall back to a built-in template.
 # ---------------------------------------------------------------------------
 
+def resolve_installed_checkpoint_path(filepath: str) -> str:
+    """Return the canonical path only when Forge has registered the model."""
+    if not filepath:
+        return ''
+    candidate = os.path.realpath(filepath)
+    try:
+        from modules import sd_models
+        for info in sd_models.checkpoints_list.values():
+            registered = getattr(info, 'filename', '')
+            if registered and os.path.realpath(registered) == candidate:
+                return candidate
+    except Exception:
+        pass
+    return ''
+
 def detect_preset_for_checkpoint(filepath: str) -> dict:
     """
     Examine the checkpoint at `filepath` and return the best-matching quality
@@ -278,7 +293,8 @@ def detect_preset_for_checkpoint(filepath: str) -> dict:
         'auto_insert': False,
     }
 
-    if not filepath or not os.path.exists(filepath):
+    filepath = resolve_installed_checkpoint_path(filepath)
+    if not filepath or not os.path.isfile(filepath):
         return result
 
     filename_stem = os.path.splitext(os.path.basename(filepath))[0].lower()
@@ -405,6 +421,10 @@ def scan_checkpoint(filepath: str) -> dict:
     Query CivitAI for a single checkpoint and update checkpoint_cache.
     Returns {'filename', 'sha256', 'base_model'} — empty strings on failure.
     """
+    filepath = resolve_installed_checkpoint_path(filepath)
+    if not filepath or not os.path.isfile(filepath):
+        raise ValueError('Checkpoint is not registered in Forge')
+
     storage = load_presets()
     api_key = _get_civitai_api_key()
 
