@@ -71,6 +71,8 @@ _SUBJECT_TAG_RE = re.compile(
 )
 
 USER_AGENT = "sd-forge-prompt-workshop/1.0 (https://github.com/)"
+MAX_IMAGE_DOWNLOAD_BYTES = 64 * 1024 * 1024
+IMAGE_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 
 # Maps the UI checkbox labels for "block these categories from grabs" onto
 # the internal bucket keys used inside the grab functions. Single source of
@@ -1981,15 +1983,34 @@ def _download_url_to_pil_and_disk(url: str, pid_hint: str = ""):
     if referer:
         headers["Referer"] = referer
 
-    # Pull the bytes fully into memory rather than streaming straight
-    # to disk. This lets us validate the content (and produce a useful
-    # error if e.g. an HTML "blocked" page came back) BEFORE PIL gets
-    # involved, and avoids a race where PIL tries to open the file
-    # while the OS still has it buffered.
+    # Keep the validated bytes in memory for PIL/Gradio, but stream the HTTP
+    # response into a bounded buffer. Booru originals are normally far below
+    # this ceiling; the cap prevents a bad server or response from exhausting
+    # the long-running Forge process.
     try:
-        with requests.get(url, headers=headers, timeout=30) as r:
+        with requests.get(url, headers=headers, timeout=30, stream=True) as r:
             r.raise_for_status()
-            data = r.content
+            declared = r.headers.get("Content-Length")
+            if declared:
+                try:
+                    if int(declared) > MAX_IMAGE_DOWNLOAD_BYTES:
+                        return None, fname, (
+                            "Download rejected: server reports an image larger than "
+                            f"{MAX_IMAGE_DOWNLOAD_BYTES // (1024 * 1024)} MiB."
+                        )
+                except ValueError:
+                    pass
+
+            data = bytearray()
+            for chunk in r.iter_content(chunk_size=IMAGE_DOWNLOAD_CHUNK_BYTES):
+                if not chunk:
+                    continue
+                if len(data) + len(chunk) > MAX_IMAGE_DOWNLOAD_BYTES:
+                    return None, fname, (
+                        "Download rejected: image exceeded the "
+                        f"{MAX_IMAGE_DOWNLOAD_BYTES // (1024 * 1024)} MiB limit."
+                    )
+                data.extend(chunk)
     except Exception as e:
         return None, None, f"Download failed: {e}"
 
