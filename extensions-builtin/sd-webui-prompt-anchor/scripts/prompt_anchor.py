@@ -147,6 +147,9 @@ class PromptAnchorScript(scripts.Script):
     wouldn't anyway because they're in different Blocks, but the
     distinct elem_ids matter for our JS / localStorage)."""
 
+    section = "prompt"
+    create_group = False
+
     def title(self):
         return "Prompt Anchor"
 
