@@ -1,7 +1,6 @@
 // Utility functions to select text areas the script should work on,
 // including third party options.
-// Supported third party options so far:
-// - Dataset Tag Editor
+// Built-in and third-party prompt fields supported by this Forge Neo bundle.
 
 // Core text area selectors.
 // Use descendant selectors (no '>') so they work with Gradio 4.39+ which inserts
@@ -93,6 +92,40 @@ const thirdParty = {
         "hasIds": false,
         "selectors": [
             "Tag Prompt"
+        ]
+    },
+    "anima-prompt-workshop": {
+        "base": "#prompt_workshop_tab",
+        "hasIds": true,
+        "selectors": [
+            "#pw_quality textarea",
+            "#pw_subject textarea",
+            "#pw_character textarea",
+            "#pw_series textarea",
+            "#pw_artist textarea",
+            "#pw_general textarea",
+            "#pw_composition textarea",
+            "#pw_pose textarea",
+            "#pw_clothing textarea",
+            "#pw_setting textarea",
+            "#pw_lighting textarea",
+            "#pw_features textarea",
+            "#pw_style textarea",
+            "#pw_content textarea",
+            "#pw_consolidated textarea",
+            "#pw_grabbed textarea",
+            "#pw_search_tag textarea",
+            "#pw_search_tag input[type='text']",
+            "#pw_blacklist_tags textarea",
+            "#pw_blacklist_tags input[type='text']"
+        ]
+    },
+    "prompt-anchor": {
+        "base": "#tab_txt2img, #tab_img2img",
+        "hasIds": true,
+        "selectors": [
+            "#prompt_anchor_txt2img textarea",
+            "#prompt_anchor_img2img textarea"
         ]
     }
 }

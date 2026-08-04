@@ -2231,8 +2231,8 @@ def on_ui_tabs():
         # Each one lives in its own collapsed Accordion to keep the tab
         # tidy now that there are fourteen boxes total. They're collapsed by
         # default; the user opens only the ones they want. Their elem_ids are
-        # also listed in javascript/tagcomplete_compat.js so tag autocomplete
-        # binds to them exactly like the six core boxes.
+        # registered directly by the bundled TagComplete Neo integration so
+        # autocomplete binds to them exactly like the six core boxes.
         gr.Markdown(
             "---\n### Additional Categories (manual)\n"
             "Optional buckets for organising your own tags. They're appended "

@@ -73,21 +73,10 @@ Credentials are written to `extension-data/sd-forge-prompt-workshop/config.json`
 
 ## Tag autocomplete compatibility
 
-If you have the [a1111-sd-webui-tagcomplete](https://github.com/DominikDoom/a1111-sd-webui-tagcomplete) extension installed, Anima Workshop ships a small bridge file (`javascript/tagcomplete_compat.js`) that tries to enable tag autocomplete on the ten text-input fields in this tab: the six category boxes, the Consolidated Prompt and Grabbed Tags boxes, the booru search-tag input, and the blacklist-tags input.
-
-**How it works.** Tagcomplete attaches autocomplete to a fixed list of textareas it knows about (txt2img prompt, img2img prompt, and a few specific third-party extensions it has built-in support for). It does not provide a public API for other extensions to register their own textareas. The bridge in this extension does a best-effort hook: after tagcomplete finishes setting up the standard textareas, it monkey-patches tagcomplete's internal identifier function so it recognises Anima Workshop's fields, then attaches the same listeners tagcomplete uses internally.
-
-**When it will work.** Older versions of tagcomplete and most forks expose their helper functions as top-level globals on `window`. The bridge can hook into those and autocomplete should work on all ten Anima Workshop fields without any further setup.
-
-**When it won't work.** Newer modular versions of tagcomplete may wrap their helpers inside a module so they aren't accessible from outside. In that case the bridge will log a clear message to the browser console explaining the situation. If this happens, the only way to get autocomplete in Anima Workshop is for tagcomplete itself to add the field IDs (`pw_quality`, `pw_subject`, `pw_character`, `pw_series`, `pw_artist`, `pw_general`, `pw_consolidated`, `pw_grabbed`, `pw_search_tag`, `pw_blacklist_tags`) to its supported textarea list. You can open a feature request at the [tagcomplete issues page](https://github.com/DominikDoom/a1111-sd-webui-tagcomplete/issues) to ask for this.
-
-**Checking whether it worked.** Open the browser developer console after the UI loads. You'll see one of these messages:
-
-- `[anima-workshop:tagcomplete] enabled tagcomplete on N Anima Workshop textareas` — working.
-- `[anima-workshop:tagcomplete] tagcomplete is installed and active on txt2img/img2img, but its helper functions aren't exposed on window in your version.` — bridge can't hook in on your version of tagcomplete.
-- `[anima-workshop:tagcomplete] tagcomplete not detected after 15s.` — tagcomplete isn't installed (this is the normal no-op message when you don't use tagcomplete).
-
-The bridge is completely isolated from the main extension. If it can't hook in, every other Anima Workshop feature continues to work normally.
+The bundled TagComplete Neo registers all editable Workshop prompt/tag fields
+directly. Autocomplete therefore uses TagComplete's normal lifecycle and the
+global **Enable for third party extensions** setting; no polling or monkey-patch
+bridge is required.
 
 ## Tag format rules applied automatically
 
