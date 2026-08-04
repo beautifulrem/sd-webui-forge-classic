@@ -88,6 +88,9 @@ branch.
   `[from::when]`). Per-step alternation has no `when` and needs no rescaling.
 * This extension is independent of the Anima sampler — it works with any
   sampler — but is designed to pair with it.
+* When the built-in Prompt Anchor is present, Forge loads this rescaler after
+  it, so scheduled blocks placed in the anchor are rescaled along with the
+  main positive prompt during img2img auto-apply.
 
 ## Install
 
