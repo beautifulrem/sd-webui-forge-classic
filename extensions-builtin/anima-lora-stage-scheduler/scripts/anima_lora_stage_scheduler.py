@@ -1683,6 +1683,7 @@ def _patch_added_strengths(patch_destination, before_counts, state: RuntimeState
                 continue
 
             strength_patch, patch_value, strength_model, offset, function = patch[:5]
+            forge_fields = patch[5:]
             model_key = _model_key(key)
             base_strength = config.panel_weight.strength_for_key(model_key, strength_patch) if config.panel_weight_nonzero else strength_patch
 
@@ -1701,7 +1702,7 @@ def _patch_added_strengths(patch_destination, before_counts, state: RuntimeState
             else:
                 strength_patch = base_strength
 
-            current_patches[index] = (strength_patch, patch_value, strength_model, offset, function)
+            current_patches[index] = (strength_patch, patch_value, strength_model, offset, function, *forge_fields)
 
 
 def install_patch():
@@ -1719,7 +1720,9 @@ def install_patch():
             should_control = config is not None and config.file_matches(filename)
             lora_config = config.config_for_file(filename) if should_control else None
 
-            patch_destination = self.online_patches if online_mode else self.patches
+            # Forge Neo keeps offline and online entries in one patch mapping;
+            # the sixth tuple field is the online-mode flag.
+            patch_destination = self.patches
             before_counts = {key: len(value) for key, value in patch_destination.items()} if should_control else {}
 
             loaded = _ORIGINAL_ADD_PATCHES(self, patches, strength_patch=strength_patch, strength_model=strength_model, filename=filename, online_mode=online_mode)
