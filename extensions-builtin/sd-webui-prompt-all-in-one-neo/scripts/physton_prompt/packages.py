@@ -36,14 +36,27 @@ def get_packages_state():
     return states
 
 
-def install_package(name, package):
+def install_package(name, package=None):
     result = {'state': False, 'message': ''}
+    allowed_package = packages.get(name)
+    # This function is reachable through an HTTP endpoint. Never pass a
+    # caller-controlled requirement string to pip: only the fixed dependency
+    # names declared above are installable. Keep checking ``package`` when it
+    # is supplied so old clients cannot disguise a different requirement
+    # behind an allowed display name.
+    if allowed_package is None or (package is not None and package != allowed_package):
+        result['message'] = f'Package is not allowed: {name}'
+        return result
+
     try:
-        launch.run_pip(f"install {package}", f"sd-webui-prompt-all-in-one: {name}")
+        launch.run_pip(
+            f"install {allowed_package}",
+            f"sd-webui-prompt-all-in-one: {name}",
+        )
         result['state'] = True
-        result['message'] = get_lang('install_success', {'0': package})
+        result['message'] = get_lang('install_success', {'0': allowed_package})
     except Exception as e:
         print(e)
-        print(f'Warning: Failed to install {package}, some preprocessors may not work.')
-        result['message'] = get_lang('install_failed', {'0': package}) + '\n' + str(e)
+        print(f'Warning: Failed to install {allowed_package}, some preprocessors may not work.')
+        result['message'] = get_lang('install_failed', {'0': allowed_package}) + '\n' + str(e)
     return result
