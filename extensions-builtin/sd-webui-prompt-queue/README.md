@@ -46,5 +46,6 @@ routes get registered).
   or extensions you use — it presses the real Generate button).
 * When an item dispatches, the prompt boxes of the target tab are overwritten
   with the queued prompt.
-* Don't combine with right-click "Generate forever" — the two will fight
-  over the Generate button.
+* The built-in queue coordinates with Agent Scheduler and Repeat Generate:
+  active Agent Scheduler work gets priority, and Prompt Queue waits while
+  Repeat is enabled. Pausing a queue leaves its items intact.

@@ -200,7 +200,7 @@ class _Store:
     def pop_next(self):
         """Atomically hand the next pending item to the runner, or None."""
         with self.lock:
-            if not self.enabled or webui_is_busy():
+            if not self.enabled or webui_is_busy() or agent_scheduler_has_pending_work():
                 return None
             now = time.time()
             for i in self.items:
@@ -260,6 +260,25 @@ def webui_is_busy():
         except Exception:
             pass
     return False
+
+
+def agent_scheduler_has_pending_work():
+    """Let the server-side Agent Scheduler drain before browser queues.
+
+    Imports only its backend package, never its WebUI script, so this cannot
+    duplicate extension callbacks. Missing/disabled Scheduler installs are a
+    normal no-op.
+    """
+    try:
+        from agent_scheduler.db import task_manager
+        from agent_scheduler.task_runner import TaskRunner
+
+        runner = getattr(TaskRunner, "instance", None)
+        if runner is not None and runner.paused:
+            return False
+        return task_manager.count_tasks(status="pending") > 0
+    except Exception:
+        return False
 
 
 STORE = _Store()

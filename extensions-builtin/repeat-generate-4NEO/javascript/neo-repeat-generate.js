@@ -465,10 +465,45 @@
         log(tabName, "interrupt click fired");
     }
 
-    function toggleRepeat(tabName) {
+    async function conflictingQueueReason() {
+        async function readJson(url) {
+            try {
+                const response = await fetch(url);
+                return response.ok ? await response.json() : null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        const results = await Promise.all([
+            readJson("/prompt-queue/state"),
+            readJson("/agent-scheduler/v1/queue"),
+        ]);
+        const promptQueue = results[0];
+        const agentQueue = results[1];
+        const promptQueueRunning = promptQueue && promptQueue.items &&
+            promptQueue.items.some(function (item) { return item.status === "running"; });
+        if (promptQueue && promptQueue.enabled && (promptQueue.pending > 0 || promptQueueRunning)) {
+            return "Prompt Queue is active; pause it before starting Repeat.";
+        }
+        if (agentQueue && !agentQueue.paused &&
+            (agentQueue.current_task_id || agentQueue.total_pending_tasks > 0)) {
+            return "Agent Scheduler is active; pause it before starting Repeat.";
+        }
+        return null;
+    }
+
+    async function toggleRepeat(tabName) {
         const state = states[tabName];
         if (state.running) {
             requestStop(tabName);
+            return;
+        }
+
+        const conflict = await conflictingQueueReason();
+        if (conflict) {
+            setStatus(tabName, conflict);
+            log(tabName, "repeat start blocked", { reason: conflict });
             return;
         }
 
@@ -501,7 +536,7 @@
         button.type = "button";
         button.className = "lg secondary gradio-button neo-repeat-generate-button";
         button.addEventListener("click", function () {
-            toggleRepeat(tabName);
+            void toggleRepeat(tabName);
         });
 
         const interruptButton = document.createElement("button");

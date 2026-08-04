@@ -86,6 +86,10 @@
         }
     }
 
+    function repeatRunnerActive() {
+        return !!gradioApp().querySelector(".neo-repeat-generate-active");
+    }
+
     function relTime(ts) {
         if (!ts) return "";
         const s = Math.max(0, Math.round(Date.now() / 1000 - ts));
@@ -351,7 +355,7 @@
             return;
         }
 
-        if (!state.enabled || state.busy || state.pending === 0) return;
+        if (!state.enabled || state.busy || state.pending === 0 || repeatRunnerActive()) return;
 
         const res = await api("/pop", {});
         const item = res && res.item;

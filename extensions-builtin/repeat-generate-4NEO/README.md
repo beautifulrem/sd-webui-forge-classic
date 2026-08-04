@@ -66,6 +66,8 @@ Continue generating using the same parameters as at the start.
 * Changing parameters during repeated generation is not being accepted.
 * If you want to change the parameters, stop repeated generation and then start.
 * You don't need to wait until “↻ Start Repeat”, click while “⌛ Stopping”.
+* In Forge Neo Remi, Repeat refuses to start while Prompt Queue or Agent
+  Scheduler has active work. Pause the other queue first; its items are kept.
 
 ## 🛠️ Installation
 
