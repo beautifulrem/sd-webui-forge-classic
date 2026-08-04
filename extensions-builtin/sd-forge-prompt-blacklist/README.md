@@ -2,7 +2,8 @@
 
 Strips unwanted tags from your **positive prompt** with a single button press. Perfect for pasting in booru tag dumps and nuking the junk (`watermark`, `artist name`, usernames, etc.) without hand-editing.
 
-- Works on **txt2img** and **img2img**, each with its own collapsible panel
+- Works on **txt2img** and **img2img**, with a collapsible panel embedded next
+  to each tab's native prompt controls
 - **Manual only** — nothing scans or edits your prompt automatically
 - **Never touches the negative prompt**
 - Blacklist persists under `extension-data/sd-forge-prompt-blacklist/` in

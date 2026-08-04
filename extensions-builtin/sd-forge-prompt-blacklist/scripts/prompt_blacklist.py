@@ -208,6 +208,9 @@ script_callbacks.on_after_component(_on_after_component)
 
 class PromptBlacklistScript(scripts.Script):
 
+    section = "prompt"
+    create_group = False
+
     def title(self):
         return "Prompt Blacklist"
 
