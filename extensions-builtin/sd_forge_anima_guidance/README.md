@@ -38,3 +38,15 @@ SMC-CFG and another CFG-combine replacement cannot both own the same hook. If
 SMC-CFG is explicitly selected, it replaces an existing CFG function and the
 replacement is recorded in generation metadata. Skimmed CFG remains
 composable and is applied to the cond/uncond predictions before SMC-CFG.
+
+## DCW
+
+DCW applies the previous step's SNR-t bias correction to the mutable sampler
+latent before the next denoiser evaluation. A post-CFG hook captures the prior
+denoised prediction; Forge's pre-denoiser callback applies the correction only
+when sigma advances, matching the upstream CALC_COND_BATCH timing without
+monkeypatching the sampler.
+
+The Anima default is `lambda=-0.015`, `one_minus_sigma`, and Haar `LL` only.
+Other schedules and frequency-band masks are exposed in the GUI. DCW is a
+post-step correction and composes with Standard CFG, SMC-CFG, and Skimmed CFG.

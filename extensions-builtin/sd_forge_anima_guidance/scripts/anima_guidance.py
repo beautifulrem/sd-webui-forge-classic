@@ -9,13 +9,27 @@ import torch
 
 from lib_anima_guidance.skim import apply_skim_to_predictions
 from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
-from modules import scripts
+from lib_anima_guidance.dcw import DCWState, parse_band_mask
+from modules import script_callbacks, scripts
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
 
 def _is_anima(p) -> bool:
     return type(getattr(p, "sd_model", None)).__name__ == "Anima"
+
+
+def _dcw_before_denoiser(params) -> None:
+    process = getattr(params.denoiser, "p", None)
+    state = getattr(process, "_anima_dcw_state", None)
+    if state is None:
+        return
+    sigma = params.sigma
+    sigma_value = float(sigma.flatten()[0]) if torch.is_tensor(sigma) else float(sigma)
+    state.before_denoiser(params.x, sigma_value)
+
+
+script_callbacks.on_cfg_denoiser(_dcw_before_denoiser, name="anima_dcw_pre_step")
 
 
 def _active_for_sigma(sigma: float, sigma_start: float, sigma_end: float) -> bool:
@@ -151,6 +165,28 @@ class AnimaGuidanceScript(scripts.Script):
                     label="Filter flip point",
                     info="0 disables timed inversion of the flipping filter.",
                 )
+            with gr.Accordion("DCW latent bias correction", open=False):
+                dcw_enable = gr.Checkbox(False, label="Enable DCW")
+                with gr.Row():
+                    dcw_lambda = gr.Slider(
+                        -0.1,
+                        0.1,
+                        value=-0.015,
+                        step=0.001,
+                        label="DCW lambda",
+                        info="Anima LL-band starting point: -0.015.",
+                    )
+                    dcw_schedule = gr.Dropdown(
+                        ["one_minus_sigma", "sigma", "constant"],
+                        value="one_minus_sigma",
+                        label="DCW schedule",
+                    )
+                    dcw_bands = gr.Dropdown(
+                        ["LL", "LH", "HL", "HH", "LH+HL+HH", "all"],
+                        value="LL",
+                        label="DCW frequency bands",
+                        info="LL is the Anima-tuned default; all reproduces broadband correction.",
+                    )
 
         controls = [
             enable,
@@ -164,6 +200,10 @@ class AnimaGuidanceScript(scripts.Script):
             start_percent,
             end_percent,
             flip_percent,
+            dcw_enable,
+            dcw_lambda,
+            dcw_schedule,
+            dcw_bands,
         ]
         keys = [
             "Anima guidance enabled",
@@ -177,6 +217,10 @@ class AnimaGuidanceScript(scripts.Script):
             "Anima skim start",
             "Anima skim end",
             "Anima skim flip",
+            "Anima DCW",
+            "Anima DCW lambda",
+            "Anima DCW schedule",
+            "Anima DCW bands",
         ]
         self.infotext_fields = [PasteField(component, key) for component, key in zip(controls, keys)]
         self.paste_field_names = keys
@@ -196,11 +240,16 @@ class AnimaGuidanceScript(scripts.Script):
         start_percent: float,
         end_percent: float,
         flip_percent: float,
+        dcw_enable: bool,
+        dcw_lambda: float,
+        dcw_schedule: str,
+        dcw_bands: str,
         *args,
         **kwargs,
     ):
         smc_enabled = guidance_mode == "SMC-CFG" and float(smc_alpha) > 0.0
-        if not enable or not _is_anima(p) or (not skim_enable and not smc_enabled):
+        dcw_enabled = bool(dcw_enable) and not math.isclose(float(dcw_lambda), 0.0)
+        if not enable or not _is_anima(p) or (not skim_enable and not smc_enabled and not dcw_enabled):
             return
 
         unet = p.sd_model.forge_objects.unet.clone()
@@ -236,7 +285,25 @@ class AnimaGuidanceScript(scripts.Script):
                 flip_sigma=flip_sigma,
             )
 
-        unet.set_model_sampler_cfg_function(active_cfg_function, disable_cfg1_optimization=True)
+        if smc_enabled or skim_enable:
+            unet.set_model_sampler_cfg_function(active_cfg_function, disable_cfg1_optimization=True)
+
+        if dcw_enabled:
+            dcw_state = DCWState(
+                lam=float(dcw_lambda),
+                schedule=str(dcw_schedule),
+                bands=parse_band_mask(str(dcw_bands)),
+            )
+            p._anima_dcw_state = dcw_state
+            unet.set_model_sampler_post_cfg_function(
+                lambda hook_args: dcw_state.capture_denoised(hook_args["denoised"]),
+                disable_cfg1_optimization=True,
+            )
+            p.extra_generation_params["Anima DCW"] = True
+            p.extra_generation_params["Anima DCW lambda"] = float(dcw_lambda)
+            p.extra_generation_params["Anima DCW schedule"] = str(dcw_schedule)
+            p.extra_generation_params["Anima DCW bands"] = str(dcw_bands)
+
         p.sd_model.forge_objects.unet = unet
 
         if skim_enable:
