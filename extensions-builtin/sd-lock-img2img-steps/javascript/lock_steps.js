@@ -60,25 +60,30 @@
         if (!steps.dataset.lockStepsWired) {
             steps.dataset.lockStepsWired = "1";
 
-            const onUserChange = () => {
+            const onUserChange = (event) => {
                 if (suppressNextChange) {
                     suppressNextChange = false;
                     return;
                 }
                 const lock = getLockCheckbox();
-                // Only update the snapshot when the lock is OFF.
-                // While locked, user edits to the slider also update the
-                // snapshot so manual changes stick.
-                if (!lock || !lock.checked) {
-                    savedSteps = steps.value;
-                } else {
+                // Native user edits have isTrusted=true and should become the
+                // new locked value. Gradio paste/send updates dispatch
+                // synthetic events (isTrusted=false); ignore those while the
+                // lock is active so restoreIfLocked can put the snapshot back.
+                if (!lock || !lock.checked || event.isTrusted) {
                     savedSteps = steps.value;
                 }
             };
 
             steps.addEventListener("change", onUserChange);
             steps.addEventListener("input", onUserChange);
-            savedSteps = steps.value;
+            // Gradio may replace the entire input during Send-to-img2img.
+            // Wiring that new node must not overwrite an existing lock
+            // snapshot with the just-pasted value.
+            const lock = getLockCheckbox();
+            if (savedSteps === null || !lock || !lock.checked) {
+                savedSteps = steps.value;
+            }
         }
         return true;
     }
