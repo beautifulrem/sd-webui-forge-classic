@@ -133,13 +133,13 @@ def ddim_scheduler(n, sigma_min, sigma_max, inner_model, device):
     return torch.FloatTensor(sigs).to(device)
 
 
-def beta_scheduler(n, sigma_min, sigma_max, inner_model, device):
+def beta_scheduler(n, sigma_min, sigma_max, inner_model, device, *, alpha=None, beta=None):
     """
     Beta scheduler
     Based on "Beta Sampling is All You Need" [arXiv:2407.12173] (Lee et. al, 2024)
     """
-    alpha = shared.opts.beta_dist_alpha
-    beta = shared.opts.beta_dist_beta
+    alpha = shared.opts.beta_dist_alpha if alpha is None else alpha
+    beta = shared.opts.beta_dist_beta if beta is None else beta
 
     total_timesteps = len(inner_model.sigmas) - 1
     ts = 1 - np.linspace(0, 1, n, endpoint=False)
@@ -153,6 +153,24 @@ def beta_scheduler(n, sigma_min, sigma_max, inner_model, device):
         last_t = t
     sigs += [0.0]
     return torch.FloatTensor(sigs).to(device)
+
+
+def beta57_scheduler(n, sigma_min, sigma_max, inner_model, device):
+    """RES4LYF beta57: ComfyUI's Beta schedule fixed at alpha=.5, beta=.7.
+
+    RES4LYF registers this preset as ``partial(beta_scheduler, alpha=0.5,
+    beta=0.7)``. Keeping it as a distinct scheduler makes Anima workflows
+    reproducible without changing the user's configurable generic Beta preset.
+    """
+    return beta_scheduler(
+        n=n,
+        sigma_min=sigma_min,
+        sigma_max=sigma_max,
+        inner_model=inner_model,
+        device=device,
+        alpha=0.5,
+        beta=0.7,
+    )
 
 
 def turbo_scheduler(n, sigma_min, sigma_max, inner_model, device):
@@ -278,6 +296,7 @@ all_schedulers = [
     Scheduler("ddim", "DDIM", ddim_scheduler, need_inner_model=True),
     Scheduler("align_your_steps", "Align Your Steps", get_align_your_steps_sigmas),
     Scheduler("beta", "Beta", beta_scheduler, need_inner_model=True),
+    Scheduler("beta57", "Beta57", beta57_scheduler, need_inner_model=True, aliases=["Beta 57", "RES4LYF Beta57"]),
     Scheduler("turbo", "Turbo", turbo_scheduler, need_inner_model=True),
     Scheduler("bong_tangent", "Bong Tangent", bong_tangent_scheduler),
     Scheduler("flow_match", "FlowMatchEulerDiscrete", flow_match_euler_discrete_scheduler, need_inner_model=True),
