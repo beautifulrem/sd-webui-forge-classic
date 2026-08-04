@@ -220,6 +220,30 @@ def bong_tangent_scheduler(n, sigma_min, sigma_max, device, *, start=1.0, middle
 
 
 def flow_match_euler_discrete_scheduler(n, sigma_min, sigma_max, inner_model, device):
+    return _flow_match_euler_discrete_scheduler(
+        n,
+        inner_model,
+        device,
+        use_global_options=True,
+    )
+
+
+def anima_flow_match_scheduler(n, sigma_min, sigma_max, inner_model, device):
+    """Official Anima Diffusers FlowMatch grid (linear shift 3 by default).
+
+    Unlike the general FlowMatch scheduler this profile intentionally ignores
+    experimental global schedule toggles, so choosing an Anima Flow sampler
+    with ``Automatic`` remains reproducible.
+    """
+    return _flow_match_euler_discrete_scheduler(
+        n,
+        inner_model,
+        device,
+        use_global_options=False,
+    )
+
+
+def _flow_match_euler_discrete_scheduler(n, inner_model, device, *, use_global_options):
     from diffusers.schedulers.scheduling_flow_match_euler_discrete import (
         FlowMatchEulerDiscreteScheduler,
     )
@@ -229,14 +253,14 @@ def flow_match_euler_discrete_scheduler(n, sigma_min, sigma_max, inner_model, de
     config = {
         "num_train_timesteps": 1000,
         "shift": getattr(unet.model.predictor, "shift", 1.0),
-        "use_dynamic_shifting": shared.opts.use_dynamic_shifting,
-        "invert_sigmas": shared.opts.invert_sigmas,
+        "use_dynamic_shifting": shared.opts.use_dynamic_shifting if use_global_options else False,
+        "invert_sigmas": shared.opts.invert_sigmas if use_global_options else False,
         "shift_terminal": None,
-        "use_karras_sigmas": shared.opts.use_karras_sigmas,
-        "use_exponential_sigmas": shared.opts.use_exponential_sigmas,
-        "use_beta_sigmas": shared.opts.use_beta_sigmas,
+        "use_karras_sigmas": shared.opts.use_karras_sigmas if use_global_options else False,
+        "use_exponential_sigmas": shared.opts.use_exponential_sigmas if use_global_options else False,
+        "use_beta_sigmas": shared.opts.use_beta_sigmas if use_global_options else False,
         "time_shift_type": "exponential",
-        "stochastic_sampling": shared.opts.stochastic_sampling,
+        "stochastic_sampling": shared.opts.stochastic_sampling if use_global_options else False,
     }
 
     scheduler = FlowMatchEulerDiscreteScheduler.from_config(config)
@@ -300,6 +324,7 @@ all_schedulers = [
     Scheduler("turbo", "Turbo", turbo_scheduler, need_inner_model=True),
     Scheduler("bong_tangent", "Bong Tangent", bong_tangent_scheduler),
     Scheduler("flow_match", "FlowMatchEulerDiscrete", flow_match_euler_discrete_scheduler, need_inner_model=True),
+    Scheduler("anima_flow_match", "Anima FlowMatch", anima_flow_match_scheduler, need_inner_model=True, aliases=["Anima Diffusers FlowMatch"]),
     Scheduler("flux2", "Flux2", flux2_scheduler),
 ]
 

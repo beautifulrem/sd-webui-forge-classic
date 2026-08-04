@@ -6,7 +6,7 @@ import torch
 
 import modules.shared as shared
 from backend.sampling.sampling_function import sampling_cleanup, sampling_prepare
-from modules import devices, sd_samplers_cfg_denoiser, sd_samplers_common, sd_samplers_extra, sd_schedulers
+from modules import devices, sd_samplers_anima, sd_samplers_cfg_denoiser, sd_samplers_common, sd_samplers_extra, sd_schedulers
 from modules.script_callbacks import ExtraNoiseParams, extra_noise_callback
 from modules.sd_samplers_cfg_denoiser import CFGDenoiser  # noqa: F401
 from modules.shared import opts
@@ -19,6 +19,9 @@ samplers_k_diffusion = [
     ("Flux Realistic" if opts.forbidden_knowledge else "DPM++ 2s a RF", "sample_dpmpp_2s_ancestral_RF", ["sample_dpmpp_2s_ancestral_RF"], {}),
     ("Euler a", "sample_euler_ancestral", ["k_euler_a", "k_euler_ancestral"], {"uses_ensd": True}),
     ("Euler", "sample_euler", ["k_euler"], {}),
+    ("Anima Flow Euler", sd_samplers_anima.sample_anima_flow_euler, ["anima_flow_euler"], {"scheduler": "anima_flow_match", "lock_scheduler_override": True}),
+    ("Anima Flow UniPC2", sd_samplers_anima.sample_anima_flow_unipc2, ["anima_flow_unipc2"], {"scheduler": "anima_flow_match", "lock_scheduler_override": True}),
+    ("Anima Flow PC3", sd_samplers_anima.sample_anima_flow_pc3, ["anima_flow_pc3"], {"scheduler": "anima_flow_match", "lock_scheduler_override": True}),
     ("ER SDE", "sample_er_sde", ["er_sde"], {}),
     ("LCM", "sample_lcm", ["k_lcm"], {}),
     ("LMS", "sample_lms", ["k_lms"], {}),
@@ -93,7 +96,10 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
 
         m_sigma_min, m_sigma_max = self.model_wrap.sigmas[0].item(), self.model_wrap.sigmas[-1].item()
 
-        if p.sampler_noise_scheduler_override:
+        lock_scheduler_override = self.config is not None and self.config.options.get("lock_scheduler_override", False)
+        if p.sampler_noise_scheduler_override and lock_scheduler_override:
+            p.extra_generation_params["Anima Flow scheduler lock"] = True
+        if p.sampler_noise_scheduler_override and not lock_scheduler_override:
             sigmas = p.sampler_noise_scheduler_override(steps)
         elif scheduler is None or scheduler.function is None:
             sigmas = self.model_wrap.get_sigmas(steps)
