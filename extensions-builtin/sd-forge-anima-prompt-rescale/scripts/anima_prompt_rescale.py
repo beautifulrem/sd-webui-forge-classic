@@ -52,6 +52,8 @@ _AUTO_INFO = (
 
 
 class AnimaPromptRescaleScript(scripts.Script):
+    section = "accordions"
+    create_group = False
     sorting_priority = 17
 
     def __init__(self):

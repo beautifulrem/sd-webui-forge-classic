@@ -51,8 +51,9 @@ text are never touched. Nested schedules are handled at every depth.
 
 ## Two ways to use it
 
-Both live in the **Anima Prompt-Schedule Rescaler** accordion (txt2img and
-img2img), and both are off/manual by default.
+Both live in the **Anima Prompt-Schedule Rescaler** accordion alongside
+Forge's native generation accordions (txt2img and img2img), and both are
+off/manual by default.
 
 ### Manual tool
 Paste a prompt, set the **source steps** (what it was authored for), the
