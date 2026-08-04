@@ -379,6 +379,9 @@ class SpectrumNode:
             state.conditioning_signature = conditioning_signature
 
             compatible = valid_branches
+            transformer_options = args.get("c", {}).get("transformer_options", {})
+            if transformer_options.get("forge_spectrum_force_actual"):
+                compatible = False
             if compat_policy != "Legacy / fastest":
                 compatible = compatible and _safe_simple_branches(branches)
                 if old_wrapper is not None and not getattr(old_wrapper, "__spectrum_cache_safe__", False):
