@@ -819,14 +819,22 @@ export default {
                         this.$refs.translateSetting.getCSV(this.tagCompleteFile)
                     })
                 } else {
-                    /*if (typeof TAC_CFG === 'object' && typeof QUEUE_FILE_LOAD === 'object') {
+                    if (typeof TAC_CFG === 'object' && typeof QUEUE_FILE_LOAD === 'object') {
                         QUEUE_FILE_LOAD.push(() => {
                             if (typeof TAC_CFG.translation !== 'object' || typeof TAC_CFG.translation.translationFile !== 'string') return
-                            if (!TAC_CFG.translation.translationFile) return
-                            this.tagCompleteFile = '\\extensions\\a1111-sd-webui-tagcomplete\\tags\\' + TAC_CFG.translation.translationFile
-                            this.$refs.translateSetting.getCSV(this.tagCompleteFile)
+                            const filename = TAC_CFG.translation.translationFile
+                            if (!filename || filename === 'None') return
+                            this.gradioAPI.getCSVs().then(csvs => {
+                                const preferred = csvs.find(item =>
+                                    item.name === filename && item.key.includes('/sd-webui-tagcomplete-neo/'))
+                                const match = preferred || csvs.find(item => item.name === filename)
+                                if (!match) return
+                                this.tagCompleteFile = match.key
+                                this.gradioAPI.setData('tagCompleteFile', match.key)
+                                this.$refs.translateSetting.getCSV(match.key)
+                            })
                         })
-                    }*/
+                    }
                 }
                 if (data.onlyCsvOnAuto !== null) {
                     this.onlyCsvOnAuto = data.onlyCsvOnAuto

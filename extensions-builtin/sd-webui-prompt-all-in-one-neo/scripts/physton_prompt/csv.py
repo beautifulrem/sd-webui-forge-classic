@@ -4,9 +4,12 @@ from pathlib import Path
 base_dir = str(Path().absolute())
 self_base_dir = os.path.abspath(os.path.join(os.path.join(os.path.dirname(__file__)), '../', '../'))
 self_tags_dir = os.path.join(self_base_dir, 'tags')
+builtin_tagcomplete_dir = os.path.join(base_dir, 'extensions-builtin', 'sd-webui-tagcomplete-neo', 'tags')
 dirs = [
     self_tags_dir,
-    # os.path.join(base_dir, 'extensions', 'sd-webui-prompt-all-in-one', 'tags'),
+    builtin_tagcomplete_dir,
+    # Backward compatibility for installations that still keep upstream TAC
+    # as a user extension.
     os.path.join(base_dir, 'extensions', 'a1111-sd-webui-tagcomplete', 'tags'),
 ]
 
@@ -46,8 +49,16 @@ def get_csv(key):
     # This preserves all keys emitted by get_csvs() while preventing absolute
     # paths, ``..`` traversal, and symlink escapes from exposing host files.
     allowed_roots = [os.path.realpath(directory) for directory in dirs]
+    legacy_prefix = '\\extensions\\a1111-sd-webui-tagcomplete\\tags\\'
+    legacy_name = key[len(legacy_prefix):] if key.startswith(legacy_prefix) else None
     for item in get_csvs():
-        if item['key'] != key:
+        is_builtin_legacy_match = (
+            legacy_name is not None
+            and item['name'] == legacy_name
+            and os.path.commonpath((os.path.realpath(builtin_tagcomplete_dir), os.path.realpath(item['path'])))
+                == os.path.realpath(builtin_tagcomplete_dir)
+        )
+        if item['key'] != key and not is_builtin_legacy_match:
             continue
 
         path = os.path.realpath(item['path'])

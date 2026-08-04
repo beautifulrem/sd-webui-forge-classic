@@ -353,7 +353,14 @@ def on_app_started(_: gr.Blocks, app: FastAPI):
 
     @app.get("/physton_prompt/get_csvs")
     async def _get_csvs():
-        return {"csvs": get_csvs()}
+        # Filesystem paths are backend implementation details; the browser
+        # only needs the stable key and display metadata.
+        return {
+            "csvs": [
+                {key: value for key, value in item.items() if key != 'path'}
+                for item in get_csvs()
+            ]
+        }
 
     @app.get("/physton_prompt/get_csv")
     async def _get_csv(key: str):
