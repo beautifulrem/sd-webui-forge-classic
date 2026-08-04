@@ -1117,8 +1117,9 @@ def install_patch():
     global _ORIGINAL_ADD_PATCHES
 
     from backend.patcher.base import ModelPatcher
+    from backend.patcher.function_chain import function_chain_contains
 
-    if getattr(ModelPatcher.add_patches, "_anima_layer_weight_patched", False):
+    if function_chain_contains(ModelPatcher.add_patches, "_anima_layer_weight_patched"):
         return
 
     _ORIGINAL_ADD_PATCHES = ModelPatcher.add_patches
@@ -1156,6 +1157,7 @@ def install_patch():
         return list(loaded)
 
     add_patches_with_anima_layers._anima_layer_weight_patched = True
+    add_patches_with_anima_layers.__wrapped__ = _ORIGINAL_ADD_PATCHES
     ModelPatcher.add_patches = add_patches_with_anima_layers
     logger.info("Installed Anima LoRA layer weight patch")
 

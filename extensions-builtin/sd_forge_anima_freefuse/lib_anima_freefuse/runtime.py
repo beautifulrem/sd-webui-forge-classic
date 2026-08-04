@@ -60,9 +60,10 @@ def install_patch_metadata_hook() -> None:
     """Tag patch payloads without changing Forge's six-field patch tuple ABI."""
 
     from backend.patcher.base import ModelPatcher
+    from backend.patcher.function_chain import function_chain_contains
 
     current = ModelPatcher.add_patches
-    if getattr(current, "_anima_freefuse_metadata", False):
+    if function_chain_contains(current, "_anima_freefuse_metadata"):
         return
 
     def add_patches_with_metadata(
@@ -87,6 +88,7 @@ def install_patch_metadata_hook() -> None:
 
     add_patches_with_metadata._anima_freefuse_metadata = True
     add_patches_with_metadata._anima_freefuse_previous = current
+    add_patches_with_metadata.__wrapped__ = current
     ModelPatcher.add_patches = add_patches_with_metadata
 
 

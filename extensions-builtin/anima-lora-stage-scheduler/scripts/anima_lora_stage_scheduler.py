@@ -1709,9 +1709,10 @@ def install_patch():
     global _ORIGINAL_ADD_PATCHES, _ORIGINAL_EXTRA_NETWORKS_ACTIVATE
 
     from backend.patcher.base import ModelPatcher
+    from backend.patcher.function_chain import function_chain_contains
     from modules import extra_networks
 
-    if not getattr(ModelPatcher.add_patches, "_anima_stage_scheduler_patched", False):
+    if not function_chain_contains(ModelPatcher.add_patches, "_anima_stage_scheduler_patched"):
         _ORIGINAL_ADD_PATCHES = ModelPatcher.add_patches
 
         def add_patches_with_stage_scheduler(self, patches: list[dict], strength_patch: float = 1.0, strength_model: float = 1.0, *, filename: str = None, online_mode: bool = None):
@@ -1733,6 +1734,7 @@ def install_patch():
             return loaded
 
         add_patches_with_stage_scheduler._anima_stage_scheduler_patched = True
+        add_patches_with_stage_scheduler.__wrapped__ = _ORIGINAL_ADD_PATCHES
         ModelPatcher.add_patches = add_patches_with_stage_scheduler
         logger.info("Installed Anima LoRA stage scheduler patch")
 
