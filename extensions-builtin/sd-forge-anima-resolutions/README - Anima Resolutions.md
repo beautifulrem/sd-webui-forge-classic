@@ -2,7 +2,7 @@
 
 Forge Neo extension for [Anima](https://huggingface.co/circlestone-labs/Anima). Four features:
 
-1. **Resolution picker** inserted below the txt2img seed row — two preset dropdowns (standard and high-res), compact, no quick buttons.
+1. **Resolution picker** embedded in Forge's native txt2img dimensions section — two preset dropdowns (standard and high-res), compact, no quick buttons.
 2. **img2img "Resize to" auto-adjuster** — on *Send to img2img* / *Send to inpaint*, computes a target W and H that are both multiples of 64 and whose sum lands in **2560 – 3072** (neither side over 1856), choosing the pair with the **highest total** (as close to 3072 as possible) among those whose aspect-ratio drift from the source stays within the drift cap (`MAX_UPSCALE_DRIFT`, default 3%). Writes those targets directly into the img2img Width and Height fields (use the "Resize to" tab).
 3. **Randomize toggles** — two independent checkboxes. The standard toggle rolls a random resolution from the standard preset list; the high-res toggle rolls from the high-res preset list; with both on, the roll draws from the combined pool of both lists. Applied per txt2img generation; img2img is unaffected.
 4. **Session prompt history** — every Generate click silently logs the current positive prompt into a 100-entry session ring; the dropdown right below the preset dropdowns updates only when you click **↻ Refresh**.
@@ -42,13 +42,11 @@ The standard dropdown, the standard Randomize roll, and the send-to-img2img Resi
 
 ## Randomize feature
 
-A `scripts.Script` subclass (`AlwaysVisible`) runs `before_process(p)` on every txt2img generation. When either inline randomize checkbox is on, it overwrites `p.width` / `p.height` with `random.choice(...)` from the matching pool before the noise is sampled: `RESOLUTIONS` for the standard toggle, `HIGH_RES_RESOLUTIONS` for the high-res toggle, or `RESOLUTIONS + HIGH_RES_RESOLUTIONS` when both are on. Console will log the pool used, e.g. `randomized (standard pool) 1024x1024 -> 768x1408` or `randomized (high-res pool) 1024x1024 -> 1536x1536`.
-
-The roll pool is the **standard** list only — high-res presets are intentionally excluded, since they're meant for deliberate "generate big in the first pass" use rather than random sampling.
+A `scripts.Script` subclass (`AlwaysVisible`) runs `before_process(p)` on every txt2img generation. The two checkbox values are passed through Forge's normal script-argument path (there is no module-global UI state). When either checkbox is on, it overwrites `p.width` / `p.height` with `random.choice(...)` from the matching pool before the noise is sampled: `RESOLUTIONS` for the standard toggle, `HIGH_RES_RESOLUTIONS` for the high-res toggle, or `RESOLUTIONS + HIGH_RES_RESOLUTIONS` when both are on. Console will log the pool used, e.g. `randomized (standard pool) 1024x1024 -> 768x1408` or `randomized (high-res pool) 1024x1024 -> 1536x1536`.
 
 One Generate click → one random res (all iterations in `batch_count` share that res, all images in `batch_size` definitely share it since SD requires matching dims in a batch). Each *click* is a fresh roll.
 
-The Script creates a small empty "Anima random resolution" section in the txt2img scripts accordion — a cosmetic side-effect of `AlwaysVisible`. The actual control is the inline checkbox; the accordion section can be ignored or collapsed.
+The controls are rendered directly in the dimensions section, so no empty extension accordion is created and img2img gets no placeholder UI.
 
 ## Prompt history
 
@@ -91,7 +89,7 @@ Then fully restart the webui.
 ```
 [anima-resolution] script file is being imported
 [anima-resolution] callback registered
-[anima-resolution] picker injected after txt2img_seed_row
+[anima-resolution] picker embedded in txt2img dimensions section
 [anima-resolution] prompt-history logger wired on txt2img_generate (log-only; use Refresh to update dropdown)
 [anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_img2img (reads image PNG metadata, writes img2img_width / img2img_height)
 [anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_inpaint (reads image PNG metadata, writes img2img_width / img2img_height)

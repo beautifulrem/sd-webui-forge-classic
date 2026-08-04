@@ -7,8 +7,8 @@ anima_resolutions.py
 --------------------
 Forge Neo extension. Four features layered together:
 
-  1. Inline resolution picker (two preset dropdowns) injected directly
-     below the txt2img seed row. The standard list caps txt2img W+H at
+  1. Inline resolution picker (two preset dropdowns) rendered in Forge's
+     native txt2img dimensions section. The standard list caps txt2img W+H at
      2176; a secondary high-res list offers larger first-pass targets
      with W+H in [2560, 3072] and each dimension capped at 1856.
 
@@ -381,7 +381,6 @@ _TRACKED_IDS = (
     "txt2img_height",
     "txt2img_prompt",
     "txt2img_generate",
-    "txt2img_seed_row",
     "img2img_width",
     "img2img_height",
     "txt2img_send_to_img2img",
@@ -394,16 +393,12 @@ _TRACKED_IDS = (
 )
 
 _refs = {k: None for k in _TRACKED_IDS}
-_picker_anchor = None
 _resize_wired_buttons = set()
 _history_wired_buttons = set()
 
 # Components we create inside _build_picker_ui that we need to wire to
 # external components later (when those external refs become available).
 _picker_components = {"history_dropdown": None}
-
-# Module-level state shared with the AnimaRandomizeResolutionScript.
-_state = {"randomize_enabled": False, "randomize_highres_enabled": False}
 
 # Session-only prompt history; most recent first. Cleared on webui restart
 # because module-level state doesn't persist.
@@ -642,17 +637,6 @@ def _on_history_selected(selected):
     return gr.update(value=selected), gr.update(value=None)
 
 
-def _set_randomize_enabled(value):
-    _state["randomize_enabled"] = bool(value)
-    print(f"[anima-resolution] randomize_enabled = {_state['randomize_enabled']}")
-
-
-def _set_randomize_highres_enabled(value):
-    _state["randomize_highres_enabled"] = bool(value)
-    print(f"[anima-resolution] randomize_highres_enabled = "
-          f"{_state['randomize_highres_enabled']}")
-
-
 # ---------------------------------------------------------------------------
 # UI builder
 # ---------------------------------------------------------------------------
@@ -708,12 +692,12 @@ def _build_picker_ui(width_comp, height_comp, prompt_comp):
         with gr.Row():
             randomize_toggle = gr.Checkbox(
                 label="Randomize resolution each generation (standard preset list)",
-                value=_state["randomize_enabled"],
+                value=False,
                 elem_id="txt2img_anima_randomize",
             )
             randomize_highres_toggle = gr.Checkbox(
                 label="Randomize high-res resolution each generation (high-res preset list; both on = combined pool)",
-                value=_state["randomize_highres_enabled"],
+                value=False,
                 elem_id="txt2img_anima_randomize_highres",
             )
 
@@ -735,42 +719,14 @@ def _build_picker_ui(width_comp, height_comp, prompt_comp):
         outputs=[history_dropdown],
     )
 
-    # Wire randomize checkboxes -> module state (no UI output)
-    randomize_toggle.change(
-        fn=_set_randomize_enabled,
-        inputs=[randomize_toggle],
-        outputs=[],
-    )
-    randomize_highres_toggle.change(
-        fn=_set_randomize_highres_enabled,
-        inputs=[randomize_highres_toggle],
-        outputs=[],
-    )
+    # These are the only processing inputs. Forge passes their current values
+    # directly to before_process(), avoiding module-global UI state.
+    return [randomize_toggle, randomize_highres_toggle]
 
 
 # ---------------------------------------------------------------------------
 # Wiring helpers
 # ---------------------------------------------------------------------------
-
-def _try_inject_picker(seed_row_component):
-    global _picker_anchor
-    if _picker_anchor is seed_row_component:
-        return
-    w = _refs["txt2img_width"]
-    h = _refs["txt2img_height"]
-    if w is None or h is None:
-        print(f"[anima-resolution] seed_row reached but W/H refs missing "
-              f"(W={w is not None}, H={h is not None}); skipping inject")
-        return
-    prompt = _refs.get("txt2img_prompt")  # may be None; history just won't auto-fill prompt
-    try:
-        _build_picker_ui(w, h, prompt)
-        _picker_anchor = seed_row_component
-        print("[anima-resolution] picker injected after txt2img_seed_row")
-    except Exception as e:
-        print(f"[anima-resolution] inject failed: {e}")
-        traceback.print_exc()
-
 
 def _try_wire_resize_by():
     # Source W/H from the displayed image's actual metadata, not the txt2img
@@ -877,10 +833,8 @@ def _on_after_component(component, **kwargs):
     # object than the one we already had for this elem_id, every other stored
     # ref must also belong to the dead Blocks() and is invalid.
     if _refs[elem_id] is not None and component is not _refs[elem_id]:
-        global _picker_anchor
         for k in _refs:
             _refs[k] = None
-        _picker_anchor = None
         _resize_wired_buttons.clear()
         _history_wired_buttons.clear()
         _picker_components["history_dropdown"] = None
@@ -890,13 +844,6 @@ def _on_after_component(component, **kwargs):
     _try_wire_resize_by()
     _try_wire_history_logger()
 
-    if elem_id == "txt2img_seed_row":
-        _try_inject_picker(component)
-        # After the picker is built, the history dropdown exists, so the
-        # logger wiring may now be completable.
-        _try_wire_history_logger()
-
-
 script_callbacks.on_after_component(_on_after_component)
 
 
@@ -905,30 +852,46 @@ script_callbacks.on_after_component(_on_after_component)
 # ---------------------------------------------------------------------------
 
 class AnimaRandomizeResolutionScript(scripts.Script):
-    """When either randomize flag in _state is True, every txt2img
+    """When either randomize UI argument is True, every txt2img
     generation has its width/height overwritten via before_process with a
     random choice from the corresponding preset list: RESOLUTIONS for the
     standard toggle, HIGH_RES_RESOLUTIONS for the high-res toggle, or the
     combined pool when both are on. img2img is unaffected."""
 
+    section = "dimensions"
+    create_group = False
+
     def title(self):
         return "Anima random resolution"
 
     def show(self, is_img2img):
-        # AlwaysVisible means it runs every generation (and shows an empty
-        # accordion section -- minor cosmetic cost for the always-run hook).
-        return scripts.AlwaysVisible
+        return scripts.AlwaysVisible if not is_img2img else False
 
     def ui(self, is_img2img):
-        return []
+        if is_img2img:
+            return []
+        width = _refs.get("txt2img_width")
+        height = _refs.get("txt2img_height")
+        if width is None or height is None:
+            raise RuntimeError("txt2img dimension controls were not available")
+        controls = _build_picker_ui(width, height, _refs.get("txt2img_prompt"))
+        _try_wire_history_logger()
+        print("[anima-resolution] picker embedded in txt2img dimensions section")
+        return controls
 
-    def before_process(self, p, *args, **kwargs):
+    def before_process(
+        self,
+        p,
+        randomize_enabled=False,
+        randomize_highres_enabled=False,
+        **kwargs,
+    ):
         try:
             # img2img processing objects carry init_images; txt2img doesn't.
             if hasattr(p, "init_images"):
                 return
-            std_on = _state.get("randomize_enabled", False)
-            hr_on = _state.get("randomize_highres_enabled", False)
+            std_on = bool(randomize_enabled)
+            hr_on = bool(randomize_highres_enabled)
             if not (std_on or hr_on):
                 return
             if std_on and hr_on:
