@@ -162,6 +162,11 @@ class Script:
 
         pass
 
+    def after_model_load(self, p, *args):
+        """Run after checkpoint overrides have loaded the active model."""
+
+        pass
+
     def process(self, p, *args):
         """
         This function is called before processing begins for AlwaysVisible scripts.
@@ -851,6 +856,14 @@ class ScriptRunner:
                 script.before_process(p, *script_args)
             except Exception:
                 errors.report(f"Error running before_process: {script.filename}", exc_info=True)
+
+    def after_model_load(self, p):
+        for script in self.ordered_scripts("after_model_load"):
+            try:
+                script_args = p.script_args[script.args_from : script.args_to]
+                script.after_model_load(p, *script_args)
+            except Exception:
+                errors.report(f"Error running after_model_load: {script.filename}", exc_info=True)
 
     def process(self, p):
         for script in self.ordered_scripts("process"):

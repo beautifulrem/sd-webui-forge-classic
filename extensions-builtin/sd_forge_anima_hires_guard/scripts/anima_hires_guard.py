@@ -94,7 +94,7 @@ class AnimaHiresGuardScript(scripts.Script):
         ]
         return [enabled, policy, preset, align, base_mp, hires_mp, max_upscale]
 
-    def before_process(
+    def after_model_load(
         self,
         process,
         enabled,

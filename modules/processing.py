@@ -834,6 +834,9 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
                 if sd_vae.reload_vae_weights(override):
                     _overridden_modules.append(override)
 
+        if p.scripts is not None:
+            p.scripts.after_model_load(p)
+
         # backwards compatibility, fix sampler and scheduler if invalid
         sd_samplers.fix_p_invalid_sampler_and_scheduler(p)
 

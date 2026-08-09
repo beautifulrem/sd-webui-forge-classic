@@ -189,7 +189,7 @@ class AnimaFreeFuseScript(scripts.Script):
         self.paste_field_names = keys
         return controls
 
-    def before_process(self, p, enable, *values, **kwargs):
+    def process(self, p, enable, *values, **kwargs):
         if not enable:
             return
         current_model = getattr(p, "sd_model", None)
