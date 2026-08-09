@@ -11,6 +11,7 @@ import gradio as gr
 
 from backend.args import dynamic_args
 from modules import script_callbacks, script_loading, scripts, shared
+from modules.anima_lora_support import active_template_parts, current_sampling_position
 
 
 logger = logging.getLogger("anima_lora_stage_scheduler")
@@ -1405,7 +1406,10 @@ class PassConfig:
 
     def finalize_timing(self):
         template = _template_config(self.template_name)
-        self.parts = _template_parts(template)
+        self.parts = active_template_parts(
+            self.auto_timing,
+            _template_parts(template),
+        )
         stage = template.get("stage") or _stage_from_template_value(self.stage) or STAGE_CHARACTER
         if self.parts:
             primary = next((part for part in self.parts if part["mode"] == PART_ALLOW), self.parts[0])
@@ -1787,9 +1791,10 @@ def _denoiser_callback(params):
         return
 
     pass_name = state.current_pass_name()
+    step, total_steps = current_sampling_position(params)
     for wrapper in state.wrappers:
         if wrapper.pass_name == pass_name:
-            wrapper.factor = _stage_curve_factor(wrapper.config, params.sampling_step, params.total_sampling_steps)
+            wrapper.factor = _stage_curve_factor(wrapper.config, step, total_steps)
         else:
             wrapper.factor = 0.0
 
