@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 from collections.abc import Hashable, Sequence
 
 import torch
@@ -68,19 +69,25 @@ class ChebyshevForecaster:
             raise RuntimeError("Spectrum forecast requested before warmup")
         device = self.features[-1].device
         original_dtype = self.features[-1].dtype
-        observations = torch.stack([item.reshape(-1) for item in self.features]).float()
         times = torch.tensor(self.times, device=device, dtype=torch.float32)
         design = self._design(self._tau(times))
         regularizer = self.lam * torch.eye(design.shape[1], device=device, dtype=torch.float32)
         normal = design.T @ design + regularizer
-        rhs = design.T @ observations
+        query = torch.tensor([self._tau(float(step))], device=device, dtype=torch.float32)
+        query_design = self._design(query)
         try:
             factor = torch.linalg.cholesky(normal)
-            coefficients = torch.cholesky_solve(rhs, factor)
+            history_projection = torch.cholesky_solve(design.T, factor)
         except (RuntimeError, torch.linalg.LinAlgError):
-            coefficients = torch.linalg.pinv(normal) @ rhs
-        query = torch.tensor([self._tau(float(step))], device=device, dtype=torch.float32)
-        chebyshev = (self._design(query) @ coefficients).squeeze(0)
+            history_projection = torch.linalg.pinv(normal) @ design.T
+        history_weights = (query_design @ history_projection).squeeze(0)
+        # The fitted value is a weighted sum of observations. Computing those
+        # weights in the tiny history space avoids materializing H x feature
+        # elements plus a degree x feature coefficient matrix on the GPU.
+        chebyshev = torch.zeros_like(self.features[-1], dtype=torch.float32)
+        for weight, feature in zip(history_weights.float().cpu().tolist(), self.features):
+            chebyshev.add_(feature, alpha=float(weight))
+        chebyshev = chebyshev.reshape(-1)
 
         if len(self.features) >= 2 and self.weight < 1.0:
             latest = self.features[-1].reshape(-1).float()
@@ -100,13 +107,16 @@ class ChebyshevForecaster:
 
 
 def _capture_feature(module, args):
-    state = getattr(module, "_forge_spectrum_state", None)
+    local = getattr(module, "_forge_spectrum_local", None)
+    state = getattr(local, "state", None)
     if state is not None and args:
         state.captured_feature = args[0].detach().clone()
 
 
 def _ensure_capture_hook(dit) -> None:
     final_layer = dit.final_layer
+    if not hasattr(final_layer, "_forge_spectrum_local"):
+        final_layer._forge_spectrum_local = threading.local()
     if not getattr(final_layer, "_forge_spectrum_hook_installed", False):
         final_layer.register_forward_pre_hook(_capture_feature)
         final_layer._forge_spectrum_hook_installed = True
@@ -406,11 +416,16 @@ class SpectrumNode:
                 state.cached_completed()
                 return result
 
-            dit.final_layer._forge_spectrum_state = state
+            capture_local = dit.final_layer._forge_spectrum_local
+            capture_local.state = state
             state.captured_feature = None
-            result = actual_forward(model_function, args)
-            feature = state.captured_feature
-            dit.final_layer._forge_spectrum_state = None
+            feature = None
+            try:
+                result = actual_forward(model_function, args)
+                feature = state.captured_feature
+            finally:
+                capture_local.state = None
+                state.captured_feature = None
             if new_step and compatible and feature is not None and feature.shape[0] % len(branches) == 0:
                 chunks = feature.chunk(len(branches), dim=0)
                 for key, chunk in zip(branches, chunks):

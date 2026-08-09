@@ -14,6 +14,9 @@ Two refresh schedules are available:
   sampler/CFG/resolution configuration measures a threshold; later runs load
   that threshold from `data/cache/spectrum-sea`.
 
+Base and Hires passes use their actual, independent step count, sampler and CFG
+values when building the forecast and SEA calibration state.
+
 `Conservative` is the default compatibility policy. It forecasts only simple
 one-branch or standard two-branch Forge CFG batches, invalidates history when
 the latent shape or text conditioning changes, and refuses unknown model
@@ -21,6 +24,7 @@ wrappers. `Strict` currently keeps every step actual because Forge does not
 expose stable per-conditioning UUIDs. `Legacy / fastest` is an explicit
 quality-risk opt-in for complex wrapper chains.
 
-The minimum history is `Polynomial Degree + 2`. Increasing feature history can
-raise VRAM usage substantially because Anima's pre-final hidden features are
-large.
+The minimum history is `Polynomial Degree + 2`. History tensors remain large,
+but prediction computes regression weights in the small history space and then
+accumulates features one at a time, avoiding a second stacked history tensor
+and a full coefficient matrix at peak VRAM.

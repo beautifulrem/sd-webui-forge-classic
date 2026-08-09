@@ -3,6 +3,7 @@ import os
 import gradio as gr
 from lib_spectrum import logger
 from lib_spectrum.forecaster import SpectrumNode
+from lib_spectrum.pass_context import resolve_pass_context
 from lib_spectrum.presets import PresetManager
 
 from modules import paths, scripts, shared
@@ -241,16 +242,17 @@ class SpectrumForForge(scripts.Script):
 
         x = kwargs.get("x")
         latent_shape = tuple(x.shape[-2:]) if x is not None else None
-        sampler_name = getattr(p, "sampler_name", "unknown")
+        pass_context = resolve_pass_context(p)
         sea_context = {
-            "sampler": str(sampler_name),
-            "cfg": round(float(getattr(p, "cfg_scale", 0.0)), 4),
+            "pass": "hires" if pass_context.is_hires else "base",
+            "sampler": pass_context.sampler,
+            "cfg": round(pass_context.cfg, 4),
             "latent_hw": latent_shape,
         }
         unet = p.sd_model.forge_objects.unet
         unet = SpectrumNode.patch(
             unet,
-            p.steps,
+            pass_context.steps,
             *args,
             sea_cache_dir=os.path.join(paths.data_path, "cache", "spectrum-sea"),
             sea_cache_context=sea_context,
