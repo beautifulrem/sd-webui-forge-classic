@@ -16,6 +16,7 @@ from collections.abc import Hashable, Sequence
 import torch
 
 from lib_spectrum.sea import SeaCalibration, l1rel, sea_filter
+from modules.anima_support import is_anima_auxiliary_denoiser
 
 logger = logging.getLogger("Spectrum")
 
@@ -315,6 +316,7 @@ class SpectrumNode:
         verbose: bool,
         sea_cache_dir: str,
         sea_cache_context: dict,
+        process=None,
     ):
         history_size = max(int(history_size), int(degree) + 2)
         if compat_policy not in COMPAT_POLICIES:
@@ -374,6 +376,9 @@ class SpectrumNode:
             return model_function(args["input"], args["timestep"], **args["c"])
 
         def wrapper(model_function, args):
+            if is_anima_auxiliary_denoiser(process):
+                return actual_forward(model_function, args)
+
             input_x = args["input"]
             sigma = args["timestep"]
             sigma_value = float(sigma.flatten()[0].item())

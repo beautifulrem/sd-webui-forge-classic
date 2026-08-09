@@ -257,6 +257,7 @@ class SpectrumForForge(scripts.Script):
             *args,
             sea_cache_dir=os.path.join(paths.data_path, "cache", "spectrum-sea"),
             sea_cache_context=sea_context,
+            process=p,
         )
         p.sd_model.forge_objects.unet = unet
 
