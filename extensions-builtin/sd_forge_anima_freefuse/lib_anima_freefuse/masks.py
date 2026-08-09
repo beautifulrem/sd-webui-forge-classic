@@ -12,6 +12,19 @@ def _normalize(value: torch.Tensor) -> torch.Tensor:
     return (value - low) / (high - low).clamp_min(1e-8)
 
 
+def fit_mask_batch(mask: torch.Tensor, batch: int) -> torch.Tensor:
+    """Repeat per-image masks across CFG branches without mixing images."""
+
+    mask_batch = int(mask.shape[0])
+    if mask_batch == batch:
+        return mask
+    if mask_batch <= 0 or batch % mask_batch:
+        raise RuntimeError(
+            f"Anima FreeFuse mask batch {mask_batch} does not match model batch {batch}"
+        )
+    return mask.repeat(batch // mask_batch, 1, 1)
+
+
 def stabilized_balanced_argmax(
     logits: torch.Tensor, height: int, width: int, iterations: int
 ) -> torch.Tensor:
@@ -94,29 +107,34 @@ def generate_masks(
     names = list(similarity_maps)
     if len(names) < 2:
         raise ValueError("FreeFuse requires at least two collected concepts")
-    maps = torch.stack([similarity_maps[name].reshape(-1) for name in names], dim=0)
+    batches = {int(similarity_maps[name].shape[0]) for name in names}
+    batches.add(int(background_map.shape[0]))
+    if len(batches) != 1:
+        raise ValueError("FreeFuse similarity maps have inconsistent batch sizes")
+    batch = batches.pop()
+    maps = torch.stack(
+        [similarity_maps[name].reshape(batch, -1) for name in names], dim=1
+    )
     tokens = height * width
-    if maps.shape[-1] != tokens or background_map.numel() != tokens:
+    if maps.shape[-1] != tokens or background_map.numel() != batch * tokens:
         raise ValueError("FreeFuse similarity map has the wrong Anima spatial size")
 
     foreground_logits = torch.cat(
-        [maps.unsqueeze(0), background_map.reshape(1, 1, tokens) * float(bg_scale)],
+        [maps, background_map.reshape(batch, 1, tokens) * float(bg_scale)],
         dim=1,
     )
     foreground = (foreground_logits.argmax(dim=1) != len(names)).to(maps.dtype)
     foreground = _morphological_clean(foreground, height, width)
-    assignment = stabilized_balanced_argmax(
-        maps.unsqueeze(0), height, width, iterations
-    )[0]
+    assignment = stabilized_balanced_argmax(maps, height, width, iterations)
 
     result = {}
     for index, name in enumerate(names):
-        mask = ((assignment == index).to(maps.dtype) * foreground[0]).view(
-            1, 1, height, width
+        mask = ((assignment == index).to(maps.dtype) * foreground).view(
+            batch, 1, height, width
         )
         radius = max(0, int(feather))
         if radius:
             kernel = radius * 2 + 1
             mask = F.avg_pool2d(mask, kernel, stride=1, padding=radius)
-        result[name] = mask[0, 0].clamp(0.0, 1.0)
+        result[name] = mask[:, 0].clamp(0.0, 1.0)
     return result

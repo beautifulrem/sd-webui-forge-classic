@@ -17,7 +17,7 @@ from backend.attention import attention_function
 from backend.operations import main_stream_worker, weights_manual_cast
 from backend.patcher.base import WeightPatch
 from backend.patcher.lora import merge_lora_to_weight
-from .masks import generate_masks
+from .masks import fit_mask_batch, generate_masks
 
 logger = logging.getLogger("AnimaFreeFuse")
 _PATCH_LOCK = threading.RLock()
@@ -107,7 +107,7 @@ def _selector_matches(selector: str, filename: str | None) -> bool:
 def _conditioning_indices(markers, batch: int, device) -> torch.Tensor:
     markers = [int(value) for value in markers or []]
     if not markers or batch % len(markers):
-        return torch.arange(batch, device=device)
+        return torch.empty(0, device=device, dtype=torch.long)
     chunk = batch // len(markers)
     indices = []
     for group, marker in enumerate(markers):
@@ -325,7 +325,7 @@ class AnimaFreeFuseState:
             similarity = (similarity / max(float(self.temperature), 1e-3)).softmax(
                 dim=-1
             )
-            self.similarity_samples[name].append(similarity.mean(dim=0).detach())
+            self.similarity_samples[name].append(similarity.detach())
 
         bg_indices = (
             scores["__background__"]
@@ -344,7 +344,7 @@ class AnimaFreeFuseState:
         bg_similarity = (bg_similarity / max(float(self.temperature), 1e-3)).softmax(
             dim=-1
         )
-        self.background_samples.append(bg_similarity.mean(dim=0).detach())
+        self.background_samples.append(bg_similarity.detach())
 
     def mask_for_output(
         self,
@@ -358,13 +358,16 @@ class AnimaFreeFuseState:
         mask = self.masks.get(name)
         if mask is None:
             return None
+        mask = fit_mask_batch(mask, int(output.shape[0]))
         height, width = self.grid_height, self.grid_width
         if output.ndim == 5 and output.shape[-3:-1] == (height, width):
-            return mask.to(output).view(1, 1, height, width, 1)
+            return mask.to(output).view(output.shape[0], 1, height, width, 1)
         spatial = height * width
         if output.ndim == 3 and output.shape[1] % spatial == 0:
             repeats = output.shape[1] // spatial
-            return mask.to(output).reshape(1, spatial, 1).repeat(1, repeats, 1)
+            return mask.to(output).reshape(output.shape[0], spatial, 1).repeat(
+                1, repeats, 1
+            )
         # Text projections and time-only paths have no spatial axis; official
         # FreeFuse leaves their LoRA contribution unmasked during phase 2.
         return None
@@ -389,10 +392,13 @@ class AnimaFreeFuseState:
         row_gate = torch.zeros((q.shape[0], 1, 1, 1), device=q.device, dtype=q.dtype)
         row_gate[cond] = 1.0
         for adapter in self.adapters:
+            adapter_mask = fit_mask_batch(
+                self.masks[adapter.name], int(q.shape[0])
+            )
             mask = (
-                self.masks[adapter.name]
+                adapter_mask
                 .to(q)
-                .reshape(1, 1, spatial, 1)
+                .reshape(q.shape[0], 1, spatial, 1)
                 .repeat(1, 1, repeats, 1)
             )
             for position in self.token_positions[adapter.name]:

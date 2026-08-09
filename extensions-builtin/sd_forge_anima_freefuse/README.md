@@ -15,6 +15,10 @@ This is a real two-pass implementation:
    mask, while an optional additive cross-attention bias suppresses wrong
    concept tokens and boosts the correct tokens.
 
+Mask collection and routing preserve the image-batch dimension. Different
+seeds/layouts in the same batch receive independent masks; masks are repeated
+only across that image's CFG branches.
+
 All algorithm parameters have controls in txt2img/img2img. Enabling the panel
 selects the required sampler automatically and forces prompt LoRAs to reload in
 Forge online mode. The original online-LoRA setting is restored afterwards.
