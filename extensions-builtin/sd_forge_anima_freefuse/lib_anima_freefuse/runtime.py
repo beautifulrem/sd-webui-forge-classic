@@ -11,9 +11,7 @@ from types import MethodType
 
 import torch
 import torch.nn.functional as F
-from einops import rearrange
 
-from backend.attention import attention_function
 from backend.operations import main_stream_worker, weights_manual_cast
 from backend.patcher.base import WeightPatch
 from backend.patcher.lora import merge_lora_to_weight
@@ -447,22 +445,13 @@ def _make_cross_attention_forward(
             if block_index in state.bias_blocks
             else None
         )
-        if bias is None:
-            return self.compute_attention(
-                q, k, v, transformer_options=transformer_options
-            )
-        q_heads = rearrange(q, "b s h d -> b h s d")
-        k_heads = rearrange(k, "b s h d -> b h s d")
-        v_heads = rearrange(v, "b s h d -> b h s d")
-        result = attention_function(
-            q_heads,
-            k_heads,
-            v_heads,
-            self.n_heads,
+        return self.compute_attention(
+            q,
+            k,
+            v,
+            transformer_options=transformer_options,
             mask=bias,
-            skip_reshape=True,
         )
-        return self.output_dropout(self.output_proj(result))
 
     wrapped.__anima_freefuse_temporary__ = True
     return MethodType(wrapped, module)

@@ -144,7 +144,11 @@ def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_
             if not torch.any(alpha > 0):
                 continue
             regional_context = fit_context(region.conditioning, base.shape[0], context)
-            regional = original_forward(x, context=regional_context, rope_emb=rope_emb, transformer_options=transformer_options)
+            regional_options = dict(transformer_options)
+            # NAG's negative branch is meaningful for the base positive/negative
+            # pair, not for synthetic regional contexts repeated across rows.
+            regional_options["anima_nag_skip"] = "regional_context"
+            regional = original_forward(x, context=regional_context, rope_emb=rope_emb, transformer_options=regional_options)
             numerator = numerator + regional * alpha
             denominator = denominator + alpha
         blend = denominator.clamp(0.0, 1.0) * (1.0 - min(max(float(state.base_preserve), 0.0), 1.0))

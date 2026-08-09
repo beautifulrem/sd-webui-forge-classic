@@ -1999,6 +1999,7 @@ def _artist_forward_batched(original_forward, x, context, rope_emb, transformer_
     if torch.is_tensor(rope_emb) and rope_emb.dim() > 0 and rope_emb.shape[0] == batch_size:
         rope_rep = rope_emb.repeat(count, *([1] * (rope_emb.dim() - 1)))
     opts = dict(transformer_options) if isinstance(transformer_options, dict) else {}
+    opts["anima_nag_skip"] = "artist_context"
     cou = opts.get("cond_or_uncond")
     if cou is not None:
         opts["cond_or_uncond"] = list(cou) * count
@@ -2079,10 +2080,12 @@ def _dispatch_output_avg(original_forward, state, x, context, rope_emb, transfor
             state.batched_disabled = True
             artist_total = None
     if artist_total is None:
+        artist_options = dict(transformer_options)
+        artist_options["anima_nag_skip"] = "artist_context"
         for (artist, _), weight in zip(active, weights):
             artist_context = _to_context_like(artist.cond, context)
             kv = _concat_contexts(context, artist_context) if state.fusion_mode in BASE_CONTEXT_FUSIONS else artist_context
-            out_i = original_forward(x, context=kv, rope_emb=rope_emb, transformer_options=transformer_options)
+            out_i = original_forward(x, context=kv, rope_emb=rope_emb, transformer_options=artist_options)
             artist_total = out_i * weight if artist_total is None else artist_total + out_i * weight
     strength = _clamp(float(state.global_strength), 0.0, 1.0 if state.fusion_mode == FUSION_QUALITY_DELTA else 2.0) * total_influence
     base_out = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
@@ -2124,9 +2127,13 @@ def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_
     combined = torch.cat(parts, dim=_context_token_dim(context))
     if state.fusion_mode in BASE_CONTEXT_FUSIONS:
         merged = _concat_contexts(context, combined)
-        artist_out = original_forward(x, context=merged, rope_emb=rope_emb, transformer_options=transformer_options)
+        artist_options = dict(transformer_options)
+        artist_options["anima_nag_skip"] = "artist_context"
+        artist_out = original_forward(x, context=merged, rope_emb=rope_emb, transformer_options=artist_options)
     else:
-        artist_out = original_forward(x, context=combined, rope_emb=rope_emb, transformer_options=transformer_options)
+        artist_options = dict(transformer_options)
+        artist_options["anima_nag_skip"] = "artist_context"
+        artist_out = original_forward(x, context=combined, rope_emb=rope_emb, transformer_options=artist_options)
     strength = _clamp(float(state.global_strength), 0.0, 1.0 if state.fusion_mode == FUSION_QUALITY_DELTA else 2.0) * total_influence
     base_out = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
     if state.diff_probe is None:

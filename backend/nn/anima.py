@@ -17,6 +17,7 @@ from torchvision.transforms import InterpolationMode, functional
 from backend.args import dynamic_args
 from backend.attention import attention_function
 from backend.memory_management import is_device_mps
+from backend.nn.anima_attention import run_anima_attention
 from backend.operations import (
     main_stream_worker,
     scaled_dot_product_attention,
@@ -154,8 +155,24 @@ class SelfCrossAttention(nn.Module):
         v_B_H_S_D = rearrange(v_B_S_H_D, "b ... h v -> b h ... v").view(in_k_shape[0], in_k_shape[-2], -1, in_k_shape[-1])
         return attention_function(q_B_H_S_D, k_B_H_S_D, v_B_H_S_D, in_q_shape[-2], skip_reshape=True, transformer_options=transformer_options)
 
-    def compute_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, transformer_options: Optional[dict] = {}) -> torch.Tensor:
-        result = self.torch_attention_op(q, k, v, transformer_options=transformer_options)
+    def compute_attention(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        transformer_options: Optional[dict] = None,
+        mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        result = run_anima_attention(
+            q,
+            k,
+            v,
+            heads=self.n_heads,
+            base_attention=attention_function,
+            transformer_options=transformer_options,
+            is_self_attention=self.is_SelfAttn,
+            mask=mask,
+        )
         return self.output_dropout(self.output_proj(result))
 
     def forward(self, x: torch.Tensor, context: Optional[torch.Tensor] = None, rope_emb: Optional[torch.Tensor] = None, transformer_options: Optional[dict] = {}) -> torch.Tensor:

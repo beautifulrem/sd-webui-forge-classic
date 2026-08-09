@@ -22,11 +22,10 @@ from modules.sd_vae import vae_dict
 from modules.shared import opts, state
 from modules.ui_components import InputAccordion
 from modules_forge.main_entry import module_list
+from pid_state import batch_value, result_sink
 
 
 class PiDForForge(scripts.Script):
-    results: list[tuple[Image.Image], str] = []
-
     def __init__(self):
         self.models: list[str] = [m for m in sorted(checkpoint_tiles(use_short=True)) if "pid" in m.lower()]
 
@@ -41,6 +40,11 @@ class PiDForForge(scripts.Script):
         modules: list[str] = [m for m in sorted(module_list.keys()) if m not in vaes]
 
         with InputAccordion(False, label=self.title()) as enable:
+            gr.Markdown(
+                "Optional 4x pixel-diffusion postprocessor (4 LCM steps). It cannot be combined "
+                "with Hires fix. PiD weights are limited to non-commercial research/evaluation; "
+                "review the model license before use."
+            )
             prompt = gr.Textbox(value=None, lines=3, max_lines=3, label="Prompt", placeholder="(leave empty to use main prompt)")
             with gr.Row():
                 ckpt = gr.Dropdown(value=next(iter(self.models), None), choices=self.models, label="PiD")
@@ -76,8 +80,11 @@ class PiDForForge(scripts.Script):
         if not enable:
             return
 
+        result_sink(p)
+
         if getattr(p, "enable_hr", False):
-            logger.error("PiD does not support Hires. Fix")
+            logger.warning("PiD was skipped: disable Hires fix before enabling the 4x PiD postprocessor")
+            p.extra_generation_params["PiD"] = "skipped: incompatible with Hires fix"
             return
 
         override_settings = p.override_settings.copy()
@@ -142,11 +149,11 @@ class PiDForForge(scripts.Script):
             initial_noise_multiplier=1.0,
             outpath_samples=p.outpath_samples,
             outpath_grids=p.outpath_grids,
-            prompt=prompt or p.all_prompts[b],
+            prompt=prompt or batch_value(p, "prompts", "all_prompts", b),
             negative_prompt="",
             styles=None,
-            seed=p.all_seeds[b],
-            subseed=p.all_subseeds[b],
+            seed=batch_value(p, "seeds", "all_seeds", b),
+            subseed=batch_value(p, "subseeds", "all_subseeds", b),
             subseed_strength=p.subseed_strength,
             seed_resize_from_h=p.seed_resize_from_h,
             seed_resize_from_w=p.seed_resize_from_w,
@@ -180,7 +187,7 @@ class PiDForForge(scripts.Script):
                 if cc_target is not None:
                     image = apply_color_correction(cc_target, image)
 
-                PiDForForge.results.append((image, info))
+                result_sink(p).append((image, info))
                 images.save_image(
                     image,
                     i2i.outpath_samples,
@@ -192,13 +199,14 @@ class PiDForForge(scripts.Script):
                     p=i2i,
                     suffix="-pid",
                 )
-        except Exception as e:
-            logger.error(f"Error during PiD Pass:\n{e}")
+        except Exception:
+            logger.exception("Error during PiD pass")
         finally:
             i2i.close()
 
     def postprocess(self, p, processed: Processed, *args):
-        for image, info in self.results:
+        for image, info in getattr(p, "_forge_pid_results", ()):
             processed.extra_images.append(image)
             processed.infotexts.append(info)
-        self.results.clear()
+        if hasattr(p, "_forge_pid_results"):
+            delattr(p, "_forge_pid_results")

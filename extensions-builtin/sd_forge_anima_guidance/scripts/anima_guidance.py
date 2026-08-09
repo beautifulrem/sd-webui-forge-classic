@@ -27,6 +27,14 @@ from lib_anima_guidance.prompts import effective_prompt_batch
 from lib_anima_guidance.skim import apply_skim_to_predictions
 from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
 from lib_anima_guidance.dcw import DCWState, parse_band_mask
+from lib_anima_guidance.advanced import (
+    MomentumGuidanceState,
+    make_fdg_cfg_function,
+    make_guidance_range_cfg_function,
+    make_momentum_post_cfg_function,
+)
+from lib_anima_guidance.nag import NAGAttentionModifier
+from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS
 from modules import paths, script_callbacks, scripts
 from modules.anima_support import is_anima_auxiliary_denoiser, is_anima_engine
 from modules.infotext_utils import PasteField
@@ -144,10 +152,10 @@ class AnimaGuidanceScript(scripts.Script):
                 "model for the current generation and recorded in PNG metadata."
             )
             guidance_mode = gr.Dropdown(
-                ["Standard / preserve existing", "SMC-CFG"],
+                ["Standard / preserve existing", "SMC-CFG", "FDG (experimental)"],
                 value="Standard / preserve existing",
                 label="CFG guidance mode",
-                info="SMC-CFG replaces other CFG-combine modes by explicit selection; Skimmed CFG is applied before it.",
+                info="SMC-CFG and FDG are mutually exclusive combine modes. Skimmed CFG is applied before the selected combine.",
             )
             with gr.Row():
                 smc_alpha = gr.Slider(
@@ -165,6 +173,36 @@ class AnimaGuidanceScript(scripts.Script):
                     step=0.1,
                     label="SMC surface lambda",
                 )
+            with gr.Accordion("Advanced Anima guidance", open=False):
+                gr.Markdown(
+                    "NAG modifies cross-attention; Momentum modifies the final flow velocity. "
+                    "NAG guides the base prompt path while synthetic Regional/Artist branches stay isolated. "
+                    "Momentum is limited to single-evaluation Euler samplers and is disabled with SMC-CFG or FDG."
+                )
+                nag_enable = gr.Checkbox(False, label="Enable NAG attention guidance")
+                with gr.Row():
+                    nag_scale = gr.Slider(0.0, 8.0, value=2.0, step=0.05, label="NAG scale")
+                    nag_tau = gr.Slider(0.1, 10.0, value=2.5, step=0.1, label="NAG normalization tau")
+                    nag_alpha = gr.Slider(0.0, 1.0, value=0.5, step=0.01, label="NAG blend alpha")
+                with gr.Row():
+                    nag_start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="NAG start")
+                    nag_end = gr.Slider(0.0, 1.0, value=0.5, step=0.01, label="NAG end")
+                momentum_enable = gr.Checkbox(False, label="Enable Momentum Guidance")
+                with gr.Row():
+                    momentum_strength = gr.Slider(0.0, 1.5, value=0.5, step=0.01, label="Momentum strength")
+                    momentum_ema = gr.Slider(0.0, 0.99, value=0.6, step=0.01, label="Momentum EMA decay")
+                fdg_high_scale = gr.Slider(
+                    0.0,
+                    10.0,
+                    value=2.0,
+                    step=0.1,
+                    label="FDG detail guidance",
+                    info="Used only by FDG. FDG takes priority over DCW and is disabled with the CNS sampler.",
+                )
+                guidance_range_enable = gr.Checkbox(False, label="Limit CFG to a sampling range")
+                with gr.Row():
+                    guidance_range_start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="CFG range start")
+                    guidance_range_end = gr.Slider(0.0, 1.0, value=1.0, step=0.01, label="CFG range end")
             skim_enable = gr.Checkbox(False, label="Skimmed CFG anti-burn")
             with gr.Row():
                 skim_scale = gr.Slider(
@@ -367,6 +405,19 @@ class AnimaGuidanceScript(scripts.Script):
             adapter_path,
             clip_mode,
             clip_path,
+            nag_enable,
+            nag_scale,
+            nag_tau,
+            nag_alpha,
+            nag_start,
+            nag_end,
+            momentum_enable,
+            momentum_strength,
+            momentum_ema,
+            fdg_high_scale,
+            guidance_range_enable,
+            guidance_range_start,
+            guidance_range_end,
         ]
         keys = [
             "Anima guidance enabled",
@@ -403,6 +454,19 @@ class AnimaGuidanceScript(scripts.Script):
             "Anima modulation adapter path",
             "Anima modulation CLIP mode",
             "Anima modulation CLIP path",
+            "Anima NAG",
+            "Anima NAG scale",
+            "Anima NAG tau",
+            "Anima NAG alpha",
+            "Anima NAG start",
+            "Anima NAG end",
+            "Anima Momentum Guidance",
+            "Anima Momentum strength",
+            "Anima Momentum EMA",
+            "Anima FDG detail guidance",
+            "Anima CFG active range",
+            "Anima CFG range start",
+            "Anima CFG range end",
         ]
         self.infotext_fields = [PasteField(component, key) for component, key in zip(controls, keys)]
         self.paste_field_names = keys
@@ -445,10 +509,24 @@ class AnimaGuidanceScript(scripts.Script):
         adapter_path: str,
         clip_mode: str,
         clip_path: str,
+        nag_enable: bool = False,
+        nag_scale: float = 2.0,
+        nag_tau: float = 2.5,
+        nag_alpha: float = 0.5,
+        nag_start: float = 0.0,
+        nag_end: float = 0.5,
+        momentum_enable: bool = False,
+        momentum_strength: float = 0.5,
+        momentum_ema: float = 0.6,
+        fdg_high_scale: float = 2.0,
+        guidance_range_enable: bool = False,
+        guidance_range_start: float = 0.0,
+        guidance_range_end: float = 1.0,
         *args,
         **kwargs,
     ):
         smc_enabled = guidance_mode == "SMC-CFG" and float(smc_alpha) > 0.0
+        fdg_enabled = guidance_mode == "FDG (experimental)"
         dcw_enabled = bool(dcw_enable) and not math.isclose(float(dcw_lambda), 0.0)
         active_sampler = (
             (getattr(p, "hr_sampler_name", None) or p.sampler_name)
@@ -458,6 +536,15 @@ class AnimaGuidanceScript(scripts.Script):
         cns_selected = active_sampler == "Anima ER SDE CNS"
         if not enable or not _is_anima(p):
             return
+
+        if fdg_enabled and cns_selected:
+            fdg_enabled = False
+            p.extra_generation_params["Anima CFG guidance mode"] = "FDG disabled: incompatible with CNS"
+            logger.warning("Anima FDG was disabled because the CNS sampler is selected")
+        if fdg_enabled and dcw_enabled:
+            dcw_enabled = False
+            p.extra_generation_params["Anima DCW"] = "disabled: incompatible with FDG"
+            logger.warning("Anima DCW was disabled because FDG is selected")
 
         if cns_selected:
             p.cns_strength = min(max(float(cns_strength), 0.0), 1.0)
@@ -498,7 +585,8 @@ class AnimaGuidanceScript(scripts.Script):
             )
 
         modulation_enabled = bool(modulation_enable)
-        if not skim_enable and not smc_enabled and not dcw_enabled and not modulation_enabled:
+        advanced_enabled = bool(nag_enable) or bool(momentum_enable) or fdg_enabled or bool(guidance_range_enable)
+        if not skim_enable and not smc_enabled and not dcw_enabled and not modulation_enabled and not advanced_enabled:
             return
 
         unet = p.sd_model.forge_objects.unet
@@ -569,6 +657,35 @@ class AnimaGuidanceScript(scripts.Script):
         if 0.0 < float(flip_percent) < 1.0:
             flip_sigma = float(predictor.percent_to_sigma(float(flip_percent)))
 
+        if nag_enable:
+            nag_sigma_start = float(predictor.percent_to_sigma(float(nag_start)))
+            nag_sigma_end = float(predictor.percent_to_sigma(float(nag_end)))
+            def report_unbatched_nag():
+                message = "inactive: positive/negative branches could not be GPU-batched"
+                p.extra_generation_params["Anima NAG"] = message
+                logger.warning(
+                    "Anima NAG is inactive for this generation because Forge split the positive and negative branches; reduce batch/resolution or free VRAM"
+                )
+
+            unet.append_transformer_option(
+                ANIMA_ATTENTION_MODIFIERS,
+                NAGAttentionModifier(
+                    scale=float(nag_scale),
+                    tau=float(nag_tau),
+                    alpha=float(nag_alpha),
+                    sigma_start=nag_sigma_start,
+                    sigma_end=nag_sigma_end,
+                    on_unbatched=report_unbatched_nag,
+                ),
+            )
+            unet.set_transformer_option("forge_spectrum_force_actual", "anima_nag")
+            unet.disable_model_cfg1_optimization()
+            p.extra_generation_params["Anima NAG"] = True
+            p.extra_generation_params["Anima NAG scale"] = float(nag_scale)
+            p.extra_generation_params["Anima NAG tau"] = float(nag_tau)
+            p.extra_generation_params["Anima NAG alpha"] = float(nag_alpha)
+            p.extra_generation_params["Anima NAG range"] = f"{float(nag_start):.2f}-{float(nag_end):.2f}"
+
         previous = unet.model_options.get("sampler_cfg_function")
         active_cfg_function = previous
         if smc_enabled:
@@ -579,6 +696,14 @@ class AnimaGuidanceScript(scripts.Script):
             p.extra_generation_params["Anima CFG guidance mode"] = "SMC-CFG"
             p.extra_generation_params["Anima SMC alpha"] = float(smc_alpha)
             p.extra_generation_params["Anima SMC lambda"] = float(smc_lambda)
+            if previous is not None:
+                p.extra_generation_params["Anima CFG replaced existing"] = getattr(
+                    previous, "__name__", type(previous).__name__
+                )
+        elif fdg_enabled:
+            active_cfg_function = make_fdg_cfg_function(float(fdg_high_scale))
+            p.extra_generation_params["Anima CFG guidance mode"] = "FDG (experimental)"
+            p.extra_generation_params["Anima FDG detail guidance"] = float(fdg_high_scale)
             if previous is not None:
                 p.extra_generation_params["Anima CFG replaced existing"] = getattr(
                     previous, "__name__", type(previous).__name__
@@ -595,8 +720,48 @@ class AnimaGuidanceScript(scripts.Script):
                 flip_sigma=flip_sigma,
             )
 
-        if smc_enabled or skim_enable:
+        if guidance_range_enable:
+            range_sigma_start = float(predictor.percent_to_sigma(float(guidance_range_start)))
+            range_sigma_end = float(predictor.percent_to_sigma(float(guidance_range_end)))
+            active_cfg_function = make_guidance_range_cfg_function(
+                active_cfg_function,
+                sigma_start=range_sigma_start,
+                sigma_end=range_sigma_end,
+            )
+            p.extra_generation_params["Anima CFG active range"] = (
+                f"{float(guidance_range_start):.2f}-{float(guidance_range_end):.2f}"
+            )
+
+        if smc_enabled or fdg_enabled or skim_enable or guidance_range_enable:
             unet.set_model_sampler_cfg_function(active_cfg_function, disable_cfg1_optimization=True)
+
+        momentum_samplers = {"Euler", "Anima Flow Euler", "Anima FreeFuse Euler"}
+        momentum_enabled = (
+            bool(momentum_enable)
+            and not (smc_enabled or fdg_enabled)
+            and active_sampler in momentum_samplers
+        )
+        if momentum_enable and not momentum_enabled:
+            reason = (
+                f"incompatible CFG mode {guidance_mode}"
+                if smc_enabled or fdg_enabled
+                else f"sampler {active_sampler} performs unsupported intermediate evaluations"
+            )
+            p.extra_generation_params["Anima Momentum Guidance"] = f"disabled: {reason}"
+            logger.warning("Anima Momentum Guidance was disabled: %s", reason)
+        if momentum_enabled:
+            momentum_state = MomentumGuidanceState(
+                momentum=float(momentum_strength),
+                ema_decay=float(momentum_ema),
+            )
+            unet.set_model_sampler_post_cfg_function(
+                make_momentum_post_cfg_function(momentum_state, process=p),
+                disable_cfg1_optimization=True,
+            )
+            unet.set_transformer_option("forge_spectrum_force_actual", "anima_momentum")
+            p.extra_generation_params["Anima Momentum Guidance"] = True
+            p.extra_generation_params["Anima Momentum strength"] = float(momentum_strength)
+            p.extra_generation_params["Anima Momentum EMA"] = float(momentum_ema)
 
         if dcw_enabled:
             dcw_state = DCWState(
