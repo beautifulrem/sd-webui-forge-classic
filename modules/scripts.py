@@ -14,6 +14,10 @@ topological_sort = util.topological_sort
 AlwaysVisible = object()
 
 
+class ScriptAbort(RuntimeError):
+    """Stop the current generation when continuing would produce invalid output."""
+
+
 class MaskBlendArgs:
     def __init__(self, current_latent, nmask, init_latent, mask, blended_latent, denoiser=None, sigma=None):
         self.current_latent = current_latent
@@ -869,6 +873,8 @@ class ScriptRunner:
             try:
                 script_args = p.script_args[script.args_from : script.args_to]
                 script.before_process_batch(p, *script_args, **kwargs)
+            except ScriptAbort:
+                raise
             except Exception:
                 errors.report(f"Error running before_process_batch: {script.filename}", exc_info=True)
 

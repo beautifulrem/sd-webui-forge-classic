@@ -1394,6 +1394,7 @@ class Script(scripts.Script):
         global _ACTIVE_RULE
 
         install_patch()
+        _ACTIVE_RULE = None
         p._anima_lora_inline_rules = {}
         lora_preset_enabled = False
         lokr_preset_enabled = False
@@ -1421,8 +1422,11 @@ class Script(scripts.Script):
             lokr_text_layer_enabled,
             lokr_text_layer_weights,
         )
-        lora_inline_rules = _apply_prompt_rewrite(p, lora_target_loras, "lora", lora_target_mode) if lora_enabled else {}
-        lokr_inline_rules = _apply_prompt_rewrite(p, lokr_target_loras, "lokr", lokr_target_mode) if lokr_enabled else {}
+        try:
+            lora_inline_rules = _apply_prompt_rewrite(p, lora_target_loras, "lora", lora_target_mode) if lora_enabled else {}
+            lokr_inline_rules = _apply_prompt_rewrite(p, lokr_target_loras, "lokr", lokr_target_mode) if lokr_enabled else {}
+        except ValueError as error:
+            raise scripts.ScriptAbort(str(error)) from error
         _ACTIVE_RULE = ActiveRule(
             lora_enabled,
             lora_target_loras,
