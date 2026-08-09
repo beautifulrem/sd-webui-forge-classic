@@ -27,6 +27,7 @@ from lib_anima_guidance.skim import apply_skim_to_predictions
 from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
 from lib_anima_guidance.dcw import DCWState, parse_band_mask
 from modules import paths, script_callbacks, scripts
+from modules.anima_support import is_anima_engine
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -35,7 +36,7 @@ setup_logger(logger)
 
 
 def _is_anima(p) -> bool:
-    return type(getattr(p, "sd_model", None)).__name__ == "Anima"
+    return is_anima_engine(getattr(p, "sd_model", None))
 
 
 def _dcw_before_denoiser(params) -> None:

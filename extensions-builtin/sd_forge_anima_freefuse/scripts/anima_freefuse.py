@@ -18,6 +18,7 @@ from lib_anima_freefuse import (
 )
 from lib_anima_freefuse.runtime import install_patch_metadata_hook
 from modules import scripts
+from modules.anima_support import is_anima_engine
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -192,7 +193,7 @@ class AnimaFreeFuseScript(scripts.Script):
         if not enable:
             return
         current_model = getattr(p, "sd_model", None)
-        if current_model is not None and type(current_model).__name__ != "Anima":
+        if current_model is not None and not is_anima_engine(current_model):
             logger.warning(
                 "Anima FreeFuse was enabled for a non-Anima checkpoint and has been skipped."
             )

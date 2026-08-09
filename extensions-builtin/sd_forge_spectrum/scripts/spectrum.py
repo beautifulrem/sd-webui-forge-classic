@@ -6,6 +6,7 @@ from lib_spectrum.forecaster import SpectrumNode
 from lib_spectrum.presets import PresetManager
 
 from modules import paths, scripts, shared
+from modules.anima_support import is_anima_engine
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -234,7 +235,7 @@ class SpectrumForForge(scripts.Script):
             logger.warning('Spectrum does not support "Ignore/Skip Negative Prompt" optimizations.')
             return
 
-        if type(getattr(p, "sd_model", None)).__name__ != "Anima":
+        if not is_anima_engine(getattr(p, "sd_model", None)):
             logger.warning("Spectrum vNext is limited to Anima because its cache seam is the Anima DiT final layer.")
             return
 

@@ -10,6 +10,7 @@ import torch
 from backend.logging import setup_logger
 from lib_anima_regional.regional import Region, RegionalState, apply_regional_patch, parse_blocks
 from modules import prompt_parser, scripts
+from modules.anima_support import is_anima_engine
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -91,7 +92,7 @@ class AnimaRegionalScript(scripts.Script):
         return controls
 
     def process_before_every_sampling(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
-        if not enable or type(getattr(p, "sd_model", None)).__name__ != "Anima":
+        if not enable or not is_anima_engine(getattr(p, "sd_model", None)):
             return
         unet = p.sd_model.forge_objects.unet
         total_blocks = len(unet.model.diffusion_model.blocks)

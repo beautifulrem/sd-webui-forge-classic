@@ -17,6 +17,7 @@ import torch
 from tqdm.auto import trange
 
 from modules import paths_internal
+from modules.anima_support import require_anima_flow_denoiser
 
 
 GAMMA_URL = (
@@ -166,9 +167,7 @@ class CNSRecolorer:
 
 
 def _require_anima_flow(model) -> None:
-    predictor = model.inner_model.predictor
-    if predictor.__class__.__name__ != "PredictionDiscreteFlow":
-        raise RuntimeError("Anima ER SDE CNS requires Anima/PredictionDiscreteFlow")
+    require_anima_flow_denoiser(model, "Anima ER SDE CNS")
 
 
 @torch.no_grad()

@@ -8,6 +8,7 @@ import gradio as gr
 
 from lib_anima_hires import GuardLimits, guard_dimensions
 from modules import scripts
+from modules.anima_support import is_anima_engine
 from modules.ui_components import InputAccordion
 
 logger = logging.getLogger("AnimaHiresGuard")
@@ -20,7 +21,7 @@ PRESETS = {
 
 
 def _is_anima(process) -> bool:
-    return type(getattr(process, "sd_model", None)).__name__ == "Anima"
+    return is_anima_engine(getattr(process, "sd_model", None))
 
 
 class AnimaHiresGuardScript(scripts.Script):

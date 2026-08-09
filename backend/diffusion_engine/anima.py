@@ -17,6 +17,7 @@ from modules.shared import opts
 
 
 class Anima(ForgeDiffusionEngine):
+    is_anima_engine = True
     matched_guesses = [model_list.Anima]
 
     def __init__(self, estimated_config, huggingface_components):

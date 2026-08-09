@@ -25,6 +25,8 @@ from dataclasses import dataclass
 import torch
 from tqdm.auto import trange
 
+from modules.anima_support import require_anima_flow_denoiser
+
 
 _EPS = 1e-6
 _TAIL_SIGMA = 0.10
@@ -33,14 +35,9 @@ _TAIL_GAP_SIGMA = 0.25
 
 
 def _require_discrete_flow(model):
-    """Reject VP/VE models: these solvers treat k-diffusion sigma as RF time."""
+    """Reject non-Anima and VP/VE models before treating sigma as RF time."""
 
-    predictor = model.inner_model.predictor
-    if predictor.__class__.__name__ != "PredictionDiscreteFlow":
-        raise RuntimeError(
-            "Anima Flow samplers require a discrete rectified-flow model "
-            "(Anima/PredictionDiscreteFlow)."
-        )
+    require_anima_flow_denoiser(model, "Anima Flow samplers")
 
 
 def _rf_lambda(t):
