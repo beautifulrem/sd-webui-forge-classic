@@ -8,6 +8,7 @@ from pathlib import Path
 import gradio as gr
 
 from modules import script_callbacks, scripts, shared
+from modules.anima_lora_support import merge_consistent_rules
 
 
 logger = logging.getLogger("anima_lora_layer_weight")
@@ -1040,9 +1041,12 @@ def _register_inline_rule(rules: dict[str, PromptRule], name: str, rule: PromptR
     if not clean_name:
         return
     path = Path(clean_name)
-    for key in {clean_name, path.name.lower(), path.stem.lower()}:
-        if key:
-            rules[key] = rule
+    aliases = {
+        key: rule
+        for key in {clean_name, path.name.lower(), path.stem.lower()}
+        if key
+    }
+    merge_consistent_rules(rules, aliases, label="Anima adapter")
 
 
 def _split_lora_args(text: str) -> tuple[str, list[str]]:
@@ -1177,24 +1181,35 @@ def _apply_prompt_rewrite(p, target_loras: str, adapter_kind: str, target_mode: 
     inline_rules = {}
     start = getattr(p, "iteration", 0) * getattr(p, "batch_size", 1)
     end = start + getattr(p, "batch_size", 1)
+    replacements = []
 
     if hasattr(p, "prompts") and p.prompts:
-        p.prompts, rules = _rewrite_lora_prompts(p.prompts, target_loras, adapter_kind, target_mode)
-        inline_rules.update(rules)
+        rewritten, rules = _rewrite_lora_prompts(p.prompts, target_loras, adapter_kind, target_mode)
+        merge_consistent_rules(inline_rules, rules, label="Anima adapter")
+        replacements.append(("prompts", None, rewritten))
 
     if hasattr(p, "all_prompts") and p.all_prompts:
         current, rules = _rewrite_lora_prompts(p.all_prompts[start:end], target_loras, adapter_kind, target_mode)
-        p.all_prompts[start:end] = current
-        inline_rules.update(rules)
+        merge_consistent_rules(inline_rules, rules, label="Anima adapter")
+        replacements.append(("all_prompts", slice(start, end), current))
 
     if hasattr(p, "hr_prompts") and p.hr_prompts:
-        p.hr_prompts, rules = _rewrite_lora_prompts(p.hr_prompts, target_loras, adapter_kind, target_mode)
-        inline_rules.update(rules)
+        rewritten, rules = _rewrite_lora_prompts(p.hr_prompts, target_loras, adapter_kind, target_mode)
+        merge_consistent_rules(inline_rules, rules, label="Anima adapter")
+        replacements.append(("hr_prompts", None, rewritten))
 
     if hasattr(p, "all_hr_prompts") and p.all_hr_prompts:
         current, rules = _rewrite_lora_prompts(p.all_hr_prompts[start:end], target_loras, adapter_kind, target_mode)
-        p.all_hr_prompts[start:end] = current
-        inline_rules.update(rules)
+        merge_consistent_rules(inline_rules, rules, label="Anima adapter")
+        replacements.append(("all_hr_prompts", slice(start, end), current))
+
+    # Validation above is intentionally transactional. Script hook failures are
+    # reported and sampling continues, so never leave prompts half rewritten.
+    for attribute, selection, values in replacements:
+        if selection is None:
+            setattr(p, attribute, values)
+        else:
+            getattr(p, attribute)[selection] = values
 
     stored_rules = getattr(p, "_anima_lora_inline_rules", {})
     if not isinstance(stored_rules, dict):

@@ -20,3 +20,16 @@ def current_sampling_position(params) -> tuple[int, int]:
     return max(callback_step, denoiser_step), max(
         1, callback_steps, denoiser_steps
     )
+
+
+def merge_consistent_rules(target: dict, incoming: dict, *, label: str) -> None:
+    """Merge alias rules, rejecting one adapter with conflicting batch rules."""
+
+    for key, rule in incoming.items():
+        existing = target.get(key)
+        if existing is not None and existing != rule:
+            raise ValueError(
+                f"{label} {key!r} uses different inline weights in one batch; "
+                "generate those prompts in separate batches"
+            )
+        target[key] = rule
