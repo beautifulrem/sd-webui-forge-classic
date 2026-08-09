@@ -74,9 +74,22 @@ def _fit(
             _aligned_floor(width * scale, alignment, minimum_side),
             _aligned_floor(height * scale, alignment, minimum_side),
         )
-    return (
+    nearest = (
         _aligned_nearest(width, alignment, minimum_side),
         _aligned_nearest(height, alignment, minimum_side),
+    )
+    nearest_is_safe = nearest[0] * nearest[1] <= max_pixels
+    if max_width is not None:
+        nearest_is_safe = nearest_is_safe and nearest[0] <= max_width
+    if max_height is not None:
+        nearest_is_safe = nearest_is_safe and nearest[1] <= max_height
+    if nearest_is_safe:
+        return nearest
+    # The unaligned request can be inside every limit while nearest alignment
+    # rounds it over a hard ceiling. In that case align downward instead.
+    return (
+        _aligned_floor(width, alignment, minimum_side),
+        _aligned_floor(height, alignment, minimum_side),
     )
 
 
@@ -139,7 +152,12 @@ def guard_dimensions(
     )
 
     # Hires fix should never accidentally become a downscale after clamping.
-    hires = (max(base[0], hires[0]), max(base[1], hires[1]))
+    if hires[0] < base[0] or hires[1] < base[1]:
+        # Combining per-axis maxima from differently shaped rectangles can
+        # create a third rectangle larger than both and violate max_pixels.
+        # Falling back to the already-safe base is the only deterministic way
+        # to honor both the no-downscale and hard-ceiling contracts.
+        hires = base
     if hires != requested_int:
         changes.append(
             f"hires {requested_int[0]}x{requested_int[1]} -> {hires[0]}x{hires[1]}"
