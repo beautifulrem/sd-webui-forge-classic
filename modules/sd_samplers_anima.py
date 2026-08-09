@@ -25,7 +25,7 @@ from dataclasses import dataclass
 import torch
 from tqdm.auto import trange
 
-from modules.anima_support import require_anima_flow_denoiser
+from modules.anima_support import anima_auxiliary_denoiser, require_anima_flow_denoiser
 
 
 _EPS = 1e-6
@@ -523,7 +523,8 @@ def sample_anima_flow_pc3(
         )
         if can_correct:
             _set_denoiser_step(model, min(i + 1, total_steps - 1), total_steps)
-            denoised_pred = model(x_pred, t_next * s_in, **extra_args)
+            with anima_auxiliary_denoiser(model):
+                denoised_pred = model(x_pred, t_next * s_in, **extra_args)
             x_next = _pc3_correct(
                 x,
                 denoised,

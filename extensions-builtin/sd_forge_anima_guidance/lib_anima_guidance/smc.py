@@ -11,6 +11,8 @@ from typing import Optional
 
 import torch
 
+from modules.anima_support import is_anima_auxiliary_denoiser
+
 
 class SMCCFGState:
     """Stateful alpha-adaptive sliding-mode CFG controller."""
@@ -28,6 +30,8 @@ class SMCCFGState:
         cond: torch.Tensor,
         uncond: torch.Tensor,
         guidance_scale: float,
+        *,
+        update_state: bool = True,
     ) -> torch.Tensor:
         e = cond - uncond
         if self._e_prev is not None and self._e_prev.shape != e.shape:
@@ -36,11 +40,12 @@ class SMCCFGState:
         surface = (e - e_prev) + self.lam * e_prev
         gain = self.alpha * e.abs().mean().clamp_min(1e-12)
         correction = -gain * torch.sign(surface)
-        self._e_prev = e.detach()
+        if update_state:
+            self._e_prev = e.detach()
         return uncond + float(guidance_scale) * (e + correction)
 
 
-def make_smc_cfg_function(state: SMCCFGState):
+def make_smc_cfg_function(state: SMCCFGState, process=None):
     """Return a Forge ``sampler_cfg_function`` running SMC in velocity space."""
 
     @torch.no_grad()
@@ -60,7 +65,12 @@ def make_smc_cfg_function(state: SMCCFGState):
         uncond = args.get("uncond_denoised", args["uncond"])
         v_cond = (x_in - cond) / sig
         v_uncond = (x_in - uncond) / sig
-        v_out = state.combine(v_cond, v_uncond, float(args["cond_scale"]))
+        v_out = state.combine(
+            v_cond,
+            v_uncond,
+            float(args["cond_scale"]),
+            update_state=not is_anima_auxiliary_denoiser(process),
+        )
 
         # Forge computes cfg_result = x_in - returned_residual.
         return sig * v_out

@@ -39,6 +39,21 @@ class SMCCFGTests(unittest.TestCase):
         self.assertFalse(torch.equal(first, second))
         self.assertFalse(torch.equal(second, fresh))
 
+    def test_auxiliary_combine_does_not_advance_history(self):
+        state = SMCCFGState(alpha=0.2, lam=5.0)
+        uncond = torch.zeros(1, 1, 2, 2)
+        state.combine(torch.ones_like(uncond), uncond, 4.0)
+        previous = state._e_prev.clone()
+
+        state.combine(
+            -torch.ones_like(uncond),
+            uncond,
+            4.0,
+            update_state=False,
+        )
+
+        self.assertTrue(torch.equal(state._e_prev, previous))
+
 
 if __name__ == "__main__":
     unittest.main()

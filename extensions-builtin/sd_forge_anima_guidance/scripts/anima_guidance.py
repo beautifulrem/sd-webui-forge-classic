@@ -28,7 +28,7 @@ from lib_anima_guidance.skim import apply_skim_to_predictions
 from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
 from lib_anima_guidance.dcw import DCWState, parse_band_mask
 from modules import paths, script_callbacks, scripts
-from modules.anima_support import is_anima_engine
+from modules.anima_support import is_anima_auxiliary_denoiser, is_anima_engine
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -42,12 +42,22 @@ def _is_anima(p) -> bool:
 
 def _dcw_before_denoiser(params) -> None:
     process = getattr(params.denoiser, "p", None)
+    if is_anima_auxiliary_denoiser(process):
+        return
     state = getattr(process, "_anima_dcw_state", None)
     if state is None:
         return
     sigma = params.sigma
     sigma_value = float(sigma.flatten()[0]) if torch.is_tensor(sigma) else float(sigma)
     state.before_denoiser(params.x, sigma_value)
+
+
+def _capture_dcw_denoised(process, state: DCWState, denoised):
+    """Do not let PC3 endpoint probes replace the main-step DCW history."""
+
+    if is_anima_auxiliary_denoiser(process):
+        return denoised
+    return state.capture_denoised(denoised)
 
 
 script_callbacks.on_cfg_denoiser(_dcw_before_denoiser, name="anima_dcw_pre_step")
@@ -563,7 +573,8 @@ class AnimaGuidanceScript(scripts.Script):
         active_cfg_function = previous
         if smc_enabled:
             active_cfg_function = make_smc_cfg_function(
-                SMCCFGState(lam=float(smc_lambda), alpha=float(smc_alpha))
+                SMCCFGState(lam=float(smc_lambda), alpha=float(smc_alpha)),
+                process=p,
             )
             p.extra_generation_params["Anima CFG guidance mode"] = "SMC-CFG"
             p.extra_generation_params["Anima SMC alpha"] = float(smc_alpha)
@@ -595,7 +606,9 @@ class AnimaGuidanceScript(scripts.Script):
             )
             p._anima_dcw_state = dcw_state
             unet.set_model_sampler_post_cfg_function(
-                lambda hook_args: dcw_state.capture_denoised(hook_args["denoised"]),
+                lambda hook_args: _capture_dcw_denoised(
+                    p, dcw_state, hook_args["denoised"]
+                ),
                 disable_cfg1_optimization=True,
             )
             p.extra_generation_params["Anima DCW"] = True

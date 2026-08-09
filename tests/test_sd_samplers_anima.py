@@ -1,4 +1,8 @@
+from types import SimpleNamespace
+
 import torch
+
+import modules.sd_samplers_anima as anima_samplers
 
 from modules.sd_samplers_anima import (
     _PC3State,
@@ -68,3 +72,28 @@ def test_pc3_zero_gamma_returns_predictor_exactly():
     )
 
     assert torch.equal(result, x_pred)
+
+
+def test_pc3_marks_endpoint_correction_as_auxiliary(monkeypatch):
+    class FakeModel:
+        def __init__(self):
+            self.p = SimpleNamespace()
+            self.step = 0
+            self.total_steps = 0
+            self.auxiliary_calls = []
+
+        def __call__(self, x, sigma, **_extra_args):
+            self.auxiliary_calls.append(
+                bool(getattr(self.p, "_anima_auxiliary_denoiser", False))
+            )
+            return x * 0.9
+
+    monkeypatch.setattr(anima_samplers, "_require_discrete_flow", lambda _model: None)
+    model = FakeModel()
+    x = torch.ones(1, 1, 2, 2)
+    sigmas = torch.tensor([0.95, 0.9, 0.85, 0.8, 0.75, 0.0])
+
+    anima_samplers.sample_anima_flow_pc3(model, x, sigmas, disable=True)
+
+    assert any(model.auxiliary_calls)
+    assert not hasattr(model.p, "_anima_auxiliary_denoiser")
