@@ -247,6 +247,7 @@ class SpectrumForForge(scripts.Script):
             "pass": "hires" if pass_context.is_hires else "base",
             "sampler": pass_context.sampler,
             "cfg": round(pass_context.cfg, 4),
+            "latent_batch": int(x.shape[0]) if x is not None else None,
             "latent_hw": latent_shape,
         }
         unet = p.sd_model.forge_objects.unet

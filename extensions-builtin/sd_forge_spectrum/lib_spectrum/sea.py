@@ -38,7 +38,14 @@ def sea_filter(value: torch.Tensor, sigma: float, beta: float = 2.0) -> torch.Te
 
 
 def l1rel(current: torch.Tensor, previous: torch.Tensor) -> float:
-    return float((current - previous).abs().sum() / (previous.abs().sum() + _EPS))
+    if current.shape != previous.shape:
+        raise ValueError("SEA relative-distance tensors must have the same shape")
+    if current.ndim == 0:
+        return float((current - previous).abs() / (previous.abs() + _EPS))
+
+    difference = (current - previous).abs().reshape(current.shape[0], -1).sum(dim=1)
+    baseline = previous.abs().reshape(previous.shape[0], -1).sum(dim=1)
+    return float((difference / (baseline + _EPS)).max())
 
 
 def count_refreshes(distances: Sequence[float], delta: float) -> int:

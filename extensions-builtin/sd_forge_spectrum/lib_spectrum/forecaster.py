@@ -246,7 +246,7 @@ class SpectrumState:
         self.step += 1
         self.last_sigma = sigma
         if self.schedule == "SEA (auto-calibrated)":
-            current = sea_filter(latent[0:1], sigma, self.sea_beta)
+            current = sea_filter(latent, sigma, self.sea_beta)
             if self.sea_previous is not None:
                 distance = l1rel(current, self.sea_previous)
                 self.sea_accumulated += distance

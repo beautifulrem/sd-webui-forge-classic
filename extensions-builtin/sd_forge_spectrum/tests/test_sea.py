@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 from lib_spectrum.sea import (
     count_refreshes,
+    l1rel,
     sea_filter,
     solve_delta_for_refresh_ratio,
     window_refresh_fraction,
@@ -22,6 +23,14 @@ class SeaTests(unittest.TestCase):
         filtered = sea_filter(value, sigma=0.5, beta=2.0)
         self.assertEqual(filtered.shape, value.shape)
         self.assertTrue(torch.isfinite(filtered).all())
+
+    def test_relative_distance_uses_most_changed_batch_row(self):
+        previous = torch.ones(2, 1, 1, 2)
+        current = previous.clone()
+        current[0] += 0.1
+        current[1] += 2.0
+
+        self.assertAlmostEqual(l1rel(current, previous), 2.0)
 
     def test_delta_solver_tracks_requested_refresh_count(self):
         distances = [0.1, 0.2, 0.05, 0.4, 0.1, 0.15]
