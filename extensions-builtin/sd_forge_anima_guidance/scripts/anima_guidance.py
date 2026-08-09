@@ -216,6 +216,58 @@ class AnimaGuidanceScript(scripts.Script):
                     label="Anima ER SDE CNS strength",
                     info="Used only by the Anima ER SDE CNS sampler. 0 is stock ER-SDE noise; 1 is full calibrated recoloring.",
                 )
+            with gr.Accordion("Flow corrective sampler tuning", open=False):
+                gr.Markdown(
+                    "These controls are wired only to `Anima Flow UniPC2` and "
+                    "`Anima Flow PC3`; upstream defaults are preserved."
+                )
+                with gr.Row():
+                    flow_unipc_solver_type = gr.Dropdown(
+                        ["bh2", "bh1"],
+                        value="bh2",
+                        label="UniPC solver type",
+                    )
+                    flow_unipc_disable_corrector_first = gr.Slider(
+                        0,
+                        10,
+                        value=0,
+                        step=1,
+                        label="UniPC disabled early correctors",
+                    )
+                    flow_unipc_thresholding = gr.Checkbox(
+                        False,
+                        label="UniPC dynamic thresholding",
+                    )
+                with gr.Row():
+                    flow_unipc_dynamic_thresholding_ratio = gr.Slider(
+                        0.5,
+                        1.0,
+                        value=0.995,
+                        step=0.001,
+                        label="UniPC threshold percentile",
+                    )
+                    flow_unipc_sample_max_value = gr.Slider(
+                        1.0,
+                        10.0,
+                        value=1.0,
+                        step=0.1,
+                        label="UniPC threshold maximum",
+                    )
+                with gr.Row():
+                    flow_pc3_gamma = gr.Slider(
+                        0.0,
+                        1.0,
+                        value=1.0,
+                        step=0.05,
+                        label="PC3 maximum correction gamma",
+                    )
+                    flow_pc3_tolerance = gr.Slider(
+                        0.0001,
+                        0.05,
+                        value=0.005,
+                        step=0.0005,
+                        label="PC3 correction tolerance",
+                    )
             with gr.Accordion("CLIP modulation guidance", open=False):
                 gr.Markdown(
                     "Adds the official-style CLIP pooled modulation path to Anima. "
@@ -286,6 +338,13 @@ class AnimaGuidanceScript(scripts.Script):
             dcw_schedule,
             dcw_bands,
             cns_strength,
+            flow_unipc_solver_type,
+            flow_unipc_disable_corrector_first,
+            flow_unipc_thresholding,
+            flow_unipc_dynamic_thresholding_ratio,
+            flow_unipc_sample_max_value,
+            flow_pc3_gamma,
+            flow_pc3_tolerance,
             modulation_enable,
             modulation_weight,
             modulation_start,
@@ -315,6 +374,13 @@ class AnimaGuidanceScript(scripts.Script):
             "Anima DCW schedule",
             "Anima DCW bands",
             "Anima CNS strength",
+            "Anima Flow UniPC solver type",
+            "Anima Flow UniPC disabled correctors",
+            "Anima Flow UniPC thresholding",
+            "Anima Flow UniPC threshold percentile",
+            "Anima Flow UniPC threshold maximum",
+            "Anima Flow PC3 gamma",
+            "Anima Flow PC3 tolerance",
             "Anima modulation guidance",
             "Anima modulation weight",
             "Anima modulation start block",
@@ -350,6 +416,13 @@ class AnimaGuidanceScript(scripts.Script):
         dcw_schedule: str,
         dcw_bands: str,
         cns_strength: float,
+        flow_unipc_solver_type: str,
+        flow_unipc_disable_corrector_first: int,
+        flow_unipc_thresholding: bool,
+        flow_unipc_dynamic_thresholding_ratio: float,
+        flow_unipc_sample_max_value: float,
+        flow_pc3_gamma: float,
+        flow_pc3_tolerance: float,
         modulation_enable: bool,
         modulation_weight: float,
         modulation_start: int,
@@ -378,6 +451,40 @@ class AnimaGuidanceScript(scripts.Script):
         if cns_selected:
             p.cns_strength = min(max(float(cns_strength), 0.0), 1.0)
             p.extra_generation_params["Anima CNS strength"] = p.cns_strength
+
+        if active_sampler == "Anima Flow UniPC2":
+            p.flow_unipc_solver_type = str(flow_unipc_solver_type)
+            p.flow_unipc_disable_corrector_first = max(
+                0, int(flow_unipc_disable_corrector_first)
+            )
+            p.flow_unipc_thresholding = bool(flow_unipc_thresholding)
+            p.flow_unipc_dynamic_thresholding_ratio = min(
+                max(float(flow_unipc_dynamic_thresholding_ratio), 0.5), 1.0
+            )
+            p.flow_unipc_sample_max_value = max(
+                1.0, float(flow_unipc_sample_max_value)
+            )
+            p.extra_generation_params["Anima Flow UniPC solver type"] = (
+                p.flow_unipc_solver_type
+            )
+            p.extra_generation_params["Anima Flow UniPC disabled correctors"] = (
+                p.flow_unipc_disable_corrector_first
+            )
+            if p.flow_unipc_thresholding:
+                p.extra_generation_params["Anima Flow UniPC thresholding"] = (
+                    f"p={p.flow_unipc_dynamic_thresholding_ratio:g}, "
+                    f"max={p.flow_unipc_sample_max_value:g}"
+                )
+
+        if active_sampler == "Anima Flow PC3":
+            p.flow_pc3_gamma = min(max(float(flow_pc3_gamma), 0.0), 1.0)
+            p.flow_pc3_tolerance = min(
+                max(float(flow_pc3_tolerance), 0.0001), 0.05
+            )
+            p.extra_generation_params["Anima Flow PC3 gamma"] = p.flow_pc3_gamma
+            p.extra_generation_params["Anima Flow PC3 tolerance"] = (
+                p.flow_pc3_tolerance
+            )
 
         modulation_enabled = bool(modulation_enable)
         if not skim_enable and not smc_enabled and not dcw_enabled and not modulation_enabled:

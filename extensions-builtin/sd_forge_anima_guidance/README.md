@@ -64,6 +64,15 @@ not contain ER-SDE's stochastic-noise seam. The pinned 6 KiB calibration file
 is downloaded on first use over HTTPS, limited to 1 MiB, and verified against a
 hard-coded SHA-256 before loading.
 
+## Flow corrective sampler controls
+
+The panel exposes the upstream parameters used by Forge's native `Anima Flow
+UniPC2` and `Anima Flow PC3` paths. UniPC supports `bh1`/`bh2`, suppression of
+early correctors, and optional per-sample dynamic thresholding. PC3 exposes
+its maximum correction gamma and error tolerance. The defaults preserve the
+conservative Diffusers-grid profiles; controls are written to generation
+metadata only when their corresponding sampler is active.
+
 ## CLIP modulation guidance
 
 The optional modulation path supplies the global CLIP-L conditioning that the

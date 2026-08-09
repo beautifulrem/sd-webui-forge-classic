@@ -1,0 +1,70 @@
+import torch
+
+from modules.sd_samplers_anima import (
+    _PC3State,
+    _bh_rhos,
+    _pc3_correct,
+    _rf_lambda,
+    _threshold_sample,
+)
+
+
+def test_unipc_bh_selector_changes_integration_coefficient():
+    like = torch.zeros(1)
+    hh = torch.tensor(-0.5)
+
+    _, bh1, _ = _bh_rhos(
+        hh,
+        order=1,
+        like=like,
+        predictor=True,
+        solver_type="bh1",
+    )
+    _, bh2, _ = _bh_rhos(
+        hh,
+        order=1,
+        like=like,
+        predictor=True,
+        solver_type="bh2",
+    )
+
+    assert torch.allclose(bh1, hh)
+    assert torch.allclose(bh2, torch.expm1(hh))
+
+
+def test_dynamic_thresholding_is_independent_per_batch_row():
+    sample = torch.tensor([[[-4.0, 2.0]], [[-40.0, 20.0]]])
+
+    result = _threshold_sample(sample, 1.0, 10.0)
+
+    assert result.shape == sample.shape
+    assert torch.allclose(result[0], torch.tensor([[-1.0, 0.5]]))
+    assert torch.allclose(result[1], torch.tensor([[-1.0, 1.0]]))
+
+
+def test_pc3_zero_gamma_returns_predictor_exactly():
+    x = torch.tensor([1.0, 0.5])
+    denoised = torch.tensor([0.8, 0.2])
+    denoised_pred = torch.tensor([0.7, 0.1])
+    x_pred = torch.tensor([0.75, 0.15])
+    state = _PC3State(
+        previous_denoised=torch.tensor([0.9, 0.3]),
+        previous_lambda=_rf_lambda(torch.tensor(0.8)),
+        previous_previous_denoised=torch.tensor([1.0, 0.4]),
+        previous_previous_lambda=_rf_lambda(torch.tensor(0.9)),
+    )
+
+    result = _pc3_correct(
+        x,
+        denoised,
+        denoised_pred,
+        torch.tensor(0.7),
+        torch.tensor(0.5),
+        state,
+        x_pred,
+        3,
+        max_gamma=0.0,
+        tolerance=0.005,
+    )
+
+    assert torch.equal(result, x_pred)

@@ -113,10 +113,15 @@ def _tail_policy(t, t_next):
     return tail_interval, tail_corrector
 
 
-def _bh_rhos(hh, *, order, like, predictor, rks=()):
+def _bh_rhos(hh, *, order, like, predictor, solver_type, rks=()):
     hh = hh.to(device=like.device, dtype=like.dtype)
     h_phi_1 = torch.expm1(hh)
-    b_h = h_phi_1  # upstream's default BH2 solver
+    if solver_type == "bh1":
+        b_h = hh
+    elif solver_type == "bh2":
+        b_h = h_phi_1
+    else:
+        raise ValueError("Anima Flow UniPC solver type must be 'bh1' or 'bh2'")
 
     if order <= 1:
         return h_phi_1, b_h, [like.new_tensor(0.5)]
@@ -134,7 +139,9 @@ def _bh_rhos(hh, *, order, like, predictor, rks=()):
     return h_phi_1, b_h, list(rhos)
 
 
-def _unipc_predict(x, model_outputs, times, lambdas, t_next, order):
+def _unipc_predict(
+    x, model_outputs, times, lambdas, t_next, order, *, solver_type
+):
     t = torch.clamp(times[-1].to(x), min=_EPS, max=1.0 - _EPS)
     t_next = torch.clamp(torch.as_tensor(t_next).to(x), min=_EPS, max=1.0 - _EPS)
     current_lambda = lambdas[-1]
@@ -152,14 +159,29 @@ def _unipc_predict(x, model_outputs, times, lambdas, t_next, order):
         else:
             d1s.append((model_outputs[-2] - denoised) / rk)
 
-    h_phi_1, b_h, rhos = _bh_rhos(hh, order=order, like=x, predictor=True)
+    h_phi_1, b_h, rhos = _bh_rhos(
+        hh,
+        order=order,
+        like=x,
+        predictor=True,
+        solver_type=solver_type,
+    )
     base = (t_next / t) * x - (1.0 - t_next) * h_phi_1 * denoised
     if order < 2:
         return base
     return base - (1.0 - t_next) * b_h * rhos[0] * d1s[0]
 
 
-def _unipc_correct(state, x, current_denoised, current_t, current_lambda, order):
+def _unipc_correct(
+    state,
+    x,
+    current_denoised,
+    current_t,
+    current_lambda,
+    order,
+    *,
+    solver_type,
+):
     previous_denoised = state.model_outputs[-1]
     previous_t = torch.clamp(state.times[-1].to(x), min=_EPS, max=1.0 - _EPS)
     current_t = torch.clamp(current_t.to(x), min=_EPS, max=1.0 - _EPS)
@@ -181,6 +203,7 @@ def _unipc_correct(state, x, current_denoised, current_t, current_lambda, order)
         order=order,
         like=state.last_sample,
         predictor=False,
+        solver_type=solver_type,
         rks=(rk,) if order >= 2 and d1s else (),
     )
     base = (current_t / previous_t) * state.last_sample - (
@@ -192,9 +215,35 @@ def _unipc_correct(state, x, current_denoised, current_t, current_lambda, order)
     return base - (1.0 - current_t) * b_h * residual
 
 
+def _threshold_sample(sample, ratio, maximum):
+    """Diffusers/UniPC dynamic thresholding applied per latent sample."""
+
+    dtype = sample.dtype
+    value = sample.float() if dtype not in (torch.float32, torch.float64) else sample
+    batch = int(value.shape[0])
+    flattened = value.reshape(batch, -1)
+    thresholds = torch.quantile(flattened.abs(), float(ratio), dim=1)
+    thresholds = torch.clamp(thresholds, min=1.0, max=float(maximum)).reshape(
+        batch, 1
+    )
+    return (torch.clamp(flattened, -thresholds, thresholds) / thresholds).reshape(
+        value.shape
+    ).to(dtype)
+
+
 @torch.no_grad()
 def sample_anima_flow_unipc2(
-    model, x, sigmas, extra_args=None, callback=None, disable=None
+    model,
+    x,
+    sigmas,
+    extra_args=None,
+    callback=None,
+    disable=None,
+    flow_unipc_solver_type="bh2",
+    flow_unipc_disable_corrector_first=0,
+    flow_unipc_thresholding=False,
+    flow_unipc_dynamic_thresholding_ratio=0.995,
+    flow_unipc_sample_max_value=1.0,
 ):
     """Anima RF x0 UniPC2 with conservative Diffusers-grid tail handling."""
 
@@ -203,6 +252,16 @@ def sample_anima_flow_unipc2(
     state = _UniPCState()
     s_in = x.new_ones([x.shape[0]])
     total_steps = len(sigmas) - 1
+    solver_type = str(flow_unipc_solver_type)
+    if solver_type not in {"bh1", "bh2"}:
+        raise ValueError("Anima Flow UniPC solver type must be 'bh1' or 'bh2'")
+    disable_corrector_first = max(0, int(flow_unipc_disable_corrector_first))
+    threshold_ratio = float(flow_unipc_dynamic_thresholding_ratio)
+    threshold_maximum = float(flow_unipc_sample_max_value)
+    if not 0.0 < threshold_ratio <= 1.0:
+        raise ValueError("Anima Flow UniPC threshold ratio must be in (0, 1]")
+    if threshold_maximum < 1.0:
+        raise ValueError("Anima Flow UniPC threshold maximum must be at least 1")
 
     for i in trange(total_steps, disable=disable):
         t, t_next = sigmas[i], sigmas[i + 1]
@@ -210,6 +269,11 @@ def sample_anima_flow_unipc2(
         denoised = model(x, t * s_in, **extra_args)
         if callback is not None:
             callback({"x": x, "i": i, "sigma": t, "sigma_hat": t, "denoised": denoised})
+        model_output = (
+            _threshold_sample(denoised, threshold_ratio, threshold_maximum)
+            if bool(flow_unipc_thresholding)
+            else denoised
+        )
 
         tail_interval, tail_corrector = _tail_policy(t, t_next)
         current_t = torch.clamp(t.to(x), min=_EPS, max=1.0 - _EPS)
@@ -221,16 +285,23 @@ def sample_anima_flow_unipc2(
         use_corrector = (
             i > 0
             and not tail_corrector
+            and i - 1 >= disable_corrector_first
             and state.last_sample is not None
             and state.model_outputs[-1] is not None
         )
         if use_corrector:
             corrector_order = min(max(1, state.this_order), available)
             x_corrected = _unipc_correct(
-                state, x, denoised, current_t, current_lambda, corrector_order
+                state,
+                x,
+                model_output,
+                current_t,
+                current_lambda,
+                corrector_order,
+                solver_type=solver_type,
             )
 
-        model_outputs = (state.model_outputs[-1], denoised)
+        model_outputs = (state.model_outputs[-1], model_output)
         times = (state.times[-1], current_t)
         lambdas = (state.lambdas[-1], current_lambda)
 
@@ -243,7 +314,13 @@ def sample_anima_flow_unipc2(
             if model_outputs[-2] is None:
                 predictor_order = 1
             x_next = _unipc_predict(
-                x_corrected, model_outputs, times, lambdas, t_next, predictor_order
+                x_corrected,
+                model_outputs,
+                times,
+                lambdas,
+                t_next,
+                predictor_order,
+                solver_type=solver_type,
             )
 
         state = _UniPCState(
@@ -332,7 +409,19 @@ def _pc3_predict(x, denoised, t, t_next, state, max_order):
     ), 3
 
 
-def _pc3_correct(x, denoised, denoised_pred, t, t_next, state, x_pred, predictor_order):
+def _pc3_correct(
+    x,
+    denoised,
+    denoised_pred,
+    t,
+    t_next,
+    state,
+    x_pred,
+    predictor_order,
+    *,
+    max_gamma,
+    tolerance,
+):
     current_lambda = _rf_lambda(t).to(x)
     lambda_next = _rf_lambda(t_next).to(x)
     h = lambda_next - current_lambda
@@ -361,12 +450,14 @@ def _pc3_correct(x, denoised, denoised_pred, t, t_next, state, x_pred, predictor
 
     error = _rms(x_corrected - x_pred) / (_rms(x_pred) + _EPS)
     gamma_error = torch.sqrt(
-        torch.clamp(x.new_tensor(0.005) / (error + _EPS), min=0.0, max=1.0)
+        torch.clamp(
+            x.new_tensor(float(tolerance)) / (error + _EPS), min=0.0, max=1.0
+        )
     )
     gamma_lambda = torch.sigmoid((current_lambda + 2.5) / 0.5) * torch.sigmoid(
         (4.5 - lambda_next) / 0.8
     )
-    gamma = gamma_lambda * gamma_error
+    gamma = float(max_gamma) * gamma_lambda * gamma_error
 
     correction_rms = _rms(x_corrected - x_pred)
     if predictor_order >= 3 and _scalar(correction_rms) > _EPS:
@@ -384,7 +475,14 @@ def _pc3_correct(x, denoised, denoised_pred, t, t_next, state, x_pred, predictor
 
 @torch.no_grad()
 def sample_anima_flow_pc3(
-    model, x, sigmas, extra_args=None, callback=None, disable=None
+    model,
+    x,
+    sigmas,
+    extra_args=None,
+    callback=None,
+    disable=None,
+    flow_pc3_gamma=1.0,
+    flow_pc3_tolerance=0.005,
 ):
     """Anima damped PC3 with upstream's conservative Diffusers-tail policy."""
 
@@ -393,6 +491,12 @@ def sample_anima_flow_pc3(
     state = _PC3State()
     s_in = x.new_ones([x.shape[0]])
     total_steps = len(sigmas) - 1
+    max_gamma = float(flow_pc3_gamma)
+    tolerance = float(flow_pc3_tolerance)
+    if not 0.0 <= max_gamma <= 1.0:
+        raise ValueError("Anima Flow PC3 gamma must be in [0, 1]")
+    if not 0.0 < tolerance <= 1.0:
+        raise ValueError("Anima Flow PC3 tolerance must be in (0, 1]")
 
     for i in trange(total_steps, disable=disable):
         t, t_next = sigmas[i], sigmas[i + 1]
@@ -415,12 +519,22 @@ def sample_anima_flow_pc3(
             and total_steps - i > 2
             and predictor_order >= 3
             and state.previous_previous_denoised is not None
+            and max_gamma > 0.0
         )
         if can_correct:
             _set_denoiser_step(model, min(i + 1, total_steps - 1), total_steps)
             denoised_pred = model(x_pred, t_next * s_in, **extra_args)
             x_next = _pc3_correct(
-                x, denoised, denoised_pred, t, t_next, state, x_pred, predictor_order
+                x,
+                denoised,
+                denoised_pred,
+                t,
+                t_next,
+                state,
+                x_pred,
+                predictor_order,
+                max_gamma=max_gamma,
+                tolerance=tolerance,
             )
         else:
             x_next = x_pred
