@@ -23,6 +23,7 @@ from lib_anima_guidance.modulation import (
     prepare_modulation_vectors,
     resolve_artifact,
 )
+from lib_anima_guidance.prompts import effective_prompt_batch
 from lib_anima_guidance.skim import apply_skim_to_predictions
 from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
 from lib_anima_guidance.dcw import DCWState, parse_band_mask
@@ -511,12 +512,7 @@ class AnimaGuidanceScript(scripts.Script):
                     sha256=CLIP_SHA256,
                     maximum_bytes=CLIP_MAX_BYTES,
                 )
-                positive_prompts = list(getattr(p, "prompts", None) or [getattr(p, "prompt", "")])
-                negative_prompts = list(getattr(p, "negative_prompts", None) or [getattr(p, "negative_prompt", "")])
-                if len(negative_prompts) == 1 and len(positive_prompts) > 1:
-                    negative_prompts *= len(positive_prompts)
-                if len(positive_prompts) != len(negative_prompts):
-                    raise RuntimeError("Anima modulation positive/negative prompt batch sizes differ")
+                positive_prompts, negative_prompts = effective_prompt_batch(p)
                 base_prompts = [str(modulation_base)] * len(positive_prompts) if str(modulation_base).strip() else positive_prompts
                 all_clip_prompts = [*base_prompts, *negative_prompts, str(modulation_positive), str(modulation_negative)]
                 pooled = encode_clip_pooled(
