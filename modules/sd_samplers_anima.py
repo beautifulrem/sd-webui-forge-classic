@@ -306,7 +306,7 @@ def sample_anima_flow_unipc2(
         lambdas = (state.lambdas[-1], current_lambda)
 
         if _scalar(t_next) <= 0.0:
-            x_next = denoised
+            x_next = model_output
             predictor_order = 1
         else:
             requested_order = 1 if tail_interval else 2

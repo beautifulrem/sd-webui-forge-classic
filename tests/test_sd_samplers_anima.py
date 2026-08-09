@@ -97,3 +97,28 @@ def test_pc3_marks_endpoint_correction_as_auxiliary(monkeypatch):
 
     assert any(model.auxiliary_calls)
     assert not hasattr(model.p, "_anima_auxiliary_denoiser")
+
+
+def test_unipc_applies_dynamic_thresholding_on_terminal_step(monkeypatch):
+    class FakeModel:
+        def __init__(self, output):
+            self.output = output
+
+        def __call__(self, _x, _sigma, **_extra_args):
+            return self.output
+
+    monkeypatch.setattr(anima_samplers, "_require_discrete_flow", lambda _model: None)
+    denoised = torch.tensor([[[[-4.0, 2.0]]], [[[-40.0, 20.0]]]])
+    model = FakeModel(denoised)
+
+    result = anima_samplers.sample_anima_flow_unipc2(
+        model,
+        torch.zeros_like(denoised),
+        torch.tensor([0.8, 0.0]),
+        disable=True,
+        flow_unipc_thresholding=True,
+        flow_unipc_dynamic_thresholding_ratio=1.0,
+        flow_unipc_sample_max_value=10.0,
+    )
+
+    assert torch.equal(result, _threshold_sample(denoised, 1.0, 10.0))
