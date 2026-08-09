@@ -1438,3 +1438,7 @@ class Script(scripts.Script):
     def postprocess(self, p, processed, *args, **kwargs):
         global _ACTIVE_RULE
         _ACTIVE_RULE = None
+
+    def cleanup(self, p, *args, **kwargs):
+        global _ACTIVE_RULE
+        _ACTIVE_RULE = None

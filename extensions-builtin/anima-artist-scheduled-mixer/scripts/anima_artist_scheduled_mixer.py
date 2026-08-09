@@ -1750,6 +1750,16 @@ def _unpatch_cross_attn():
     _PATCHED_MODEL_WRAPPERS = []
 
 
+def _cleanup_runtime():
+    global _ACTIVE_STATE
+
+    states = list(_RUN_STATES)
+    _unpatch_cross_attn()
+    _ACTIVE_STATE = None
+    _RUN_STATES.clear()
+    return states
+
+
 def _validate_anima_unet(unet):
     try:
         dm = unet.model.diffusion_model
@@ -2613,11 +2623,7 @@ class Script(scripts.Script):
         )
 
     def postprocess(self, p, processed, *args, **kwargs):
-        global _ACTIVE_STATE
-        states = list(_RUN_STATES)
-        _unpatch_cross_attn()
-        _ACTIVE_STATE = None
-        _RUN_STATES.clear()
+        states = _cleanup_runtime()
         for state in states:
             if state.superseded:
                 continue
@@ -2660,3 +2666,6 @@ class Script(scripts.Script):
                         state.mask_probe[1],
                         state.apply_uncond,
                     )
+
+    def cleanup(self, p, *args, **kwargs):
+        _cleanup_runtime()

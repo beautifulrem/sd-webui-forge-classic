@@ -346,7 +346,8 @@ class AnimaFreeFuseScript(scripts.Script):
             f"negative {float(bias_scale):.2f}, positive {float(positive_bias):.2f}, blocks {bias_blocks}"
         )
 
-    def postprocess(self, p, processed, *args, **kwargs):
+    @staticmethod
+    def _cleanup_runtime(p):
         if not getattr(p, "_anima_freefuse_enabled", False):
             return
         # The stage scheduler owns the online-LoRA lease when it was active at
@@ -356,3 +357,9 @@ class AnimaFreeFuseScript(scripts.Script):
                 getattr(p, "_anima_freefuse_original_online", False)
             )
         p._anima_freefuse_enabled = False
+
+    def postprocess(self, p, processed, *args, **kwargs):
+        self._cleanup_runtime(p)
+
+    def cleanup(self, p, *args, **kwargs):
+        self._cleanup_runtime(p)

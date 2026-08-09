@@ -380,6 +380,24 @@ def _clamp(value, low, high):
     return max(low, min(high, value))
 
 
+def _cleanup_runtime(p=None):
+    global _ACTIVE_STATE
+
+    state = getattr(p, "_anima_lora_stage_scheduler_state", None) if p is not None else None
+    if state is None:
+        state = _ACTIVE_STATE
+    if state is None:
+        return
+
+    dynamic_args.online_lora = state.original_online_lora
+    state.set_factor(1.0)
+    owner = getattr(state, "p", None)
+    if owner is not None and getattr(owner, "_anima_lora_stage_scheduler_state", None) is state:
+        owner._anima_lora_stage_scheduler_state = None
+    if _ACTIVE_STATE is state:
+        _ACTIVE_STATE = None
+
+
 def _to_float(value, fallback=0.0):
     try:
         return float(value)
@@ -2174,7 +2192,7 @@ class Script(scripts.Script):
         global _ACTIVE_STATE
 
         if not enabled:
-            _ACTIVE_STATE = None
+            _cleanup_runtime()
             return
 
         base_shift = _to_float(getattr(p, "distilled_cfg_scale", 3.0), 3.0)
@@ -2273,12 +2291,7 @@ class Script(scripts.Script):
             p.sd_model.current_lora_hash = f"anima-stage-scheduler:force-hires-reload:{state.run_id}:{getattr(p, 'iteration', 0)}"
 
     def postprocess(self, p, processed, *args, **kwargs):
-        global _ACTIVE_STATE
+        _cleanup_runtime(p)
 
-        state = getattr(p, "_anima_lora_stage_scheduler_state", None)
-        if state is not None:
-            dynamic_args.online_lora = state.original_online_lora
-            state.set_factor(1.0)
-            p._anima_lora_stage_scheduler_state = None
-        if _ACTIVE_STATE is state:
-            _ACTIVE_STATE = None
+    def cleanup(self, p, *args, **kwargs):
+        _cleanup_runtime(p)

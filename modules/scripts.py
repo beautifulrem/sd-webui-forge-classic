@@ -296,6 +296,16 @@ class Script:
 
         pass
 
+    def cleanup(self, p, *args):
+        """Release per-generation resources even when processing raises.
+
+        Unlike ``postprocess``, this hook is guaranteed to run from
+        ``process_images``' ``finally`` block. Implementations must be
+        idempotent because successful generations call ``postprocess`` first.
+        """
+
+        pass
+
     def before_component(self, component, **kwargs):
         """
         Called before a component is created.
@@ -901,6 +911,17 @@ class ScriptRunner:
                 script.postprocess(p, processed, *script_args)
             except Exception:
                 errors.report(f"Error running postprocess: {script.filename}", exc_info=True)
+
+    def cleanup(self, p):
+        from modules.script_cleanup import run_script_cleanup
+
+        run_script_cleanup(
+            self.ordered_scripts("cleanup"),
+            p,
+            lambda script: errors.report(
+                f"Error running cleanup: {script.filename}", exc_info=True
+            ),
+        )
 
     def postprocess_batch(self, p, images, **kwargs):
         for script in self.ordered_scripts("postprocess_batch"):
