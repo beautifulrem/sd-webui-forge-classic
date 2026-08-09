@@ -18,7 +18,7 @@ from lib_anima_freefuse import (
 )
 from lib_anima_freefuse.runtime import install_patch_metadata_hook
 from modules import scripts
-from modules.anima_support import is_anima_engine
+from modules.anima_support import effective_prompt_batch, is_anima_engine
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -283,7 +283,7 @@ class AnimaFreeFuseScript(scripts.Script):
         if not 2 <= len(adapters) <= 3:
             raise ValueError("Anima FreeFuse requires two or three active subjects")
 
-        prompts = list(getattr(p, "prompts", None) or [getattr(p, "prompt", "")])
+        prompts, _negative_prompts = effective_prompt_batch(p)
         engine = p.sd_model.text_processing_engine_anima
         concepts = {adapter.name: adapter.concept for adapter in adapters}
         token_positions = None

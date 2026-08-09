@@ -18,6 +18,33 @@ def is_anima_auxiliary_denoiser(process) -> bool:
     return bool(getattr(process, _AUXILIARY_DENOISER_ATTRIBUTE, False))
 
 
+def effective_prompt_batch(process) -> tuple[list[str], list[str]]:
+    """Return the positive and negative prompts used by the current pass."""
+
+    if bool(getattr(process, "is_hr_pass", False)):
+        positive = getattr(process, "hr_prompts", None) or getattr(
+            process, "prompts", None
+        )
+        negative = getattr(process, "hr_negative_prompts", None) or getattr(
+            process, "negative_prompts", None
+        )
+    else:
+        positive = getattr(process, "prompts", None)
+        negative = getattr(process, "negative_prompts", None)
+
+    positive = list(positive or [getattr(process, "prompt", "")])
+    negative = list(negative or [getattr(process, "negative_prompt", "")])
+    if len(positive) == 1 and len(negative) > 1:
+        positive *= len(negative)
+    if len(negative) == 1 and len(positive) > 1:
+        negative *= len(positive)
+    if len(positive) != len(negative):
+        raise RuntimeError(
+            "Anima positive/negative prompt batch sizes differ for the current pass"
+        )
+    return [str(value) for value in positive], [str(value) for value in negative]
+
+
 @contextmanager
 def anima_auxiliary_denoiser(model):
     """Mark a solver-only model call without leaking process-global state."""
