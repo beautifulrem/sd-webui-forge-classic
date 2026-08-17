@@ -8,6 +8,7 @@ from lib_spectrum.presets import PresetManager
 
 from modules import paths, scripts, shared
 from modules.anima_support import is_anima_engine
+from modules.anima_presets import register_preset_control
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -202,6 +203,25 @@ class SpectrumForForge(scripts.Script):
             PasteField(verbose, "spec_verbose"),
         ]
         self.paste_field_names = [field.label for field in self.infotext_fields]
+
+        for name, component in {
+            "spectrum.enabled": enable,
+            "spectrum.weight": w,
+            "spectrum.degree": m,
+            "spectrum.regularization": lam,
+            "spectrum.window": window_size,
+            "spectrum.window_growth": flex_window,
+            "spectrum.warmup": warmup_steps,
+            "spectrum.stop": stop_caching_step,
+            "spectrum.tail_actual": tail_actual_steps,
+            "spectrum.history": history_size,
+            "spectrum.schedule": schedule,
+            "spectrum.refresh_ratio": refresh_ratio,
+            "spectrum.sea_beta": sea_beta,
+            "spectrum.policy": compat_policy,
+            "spectrum.verbose": verbose,
+        }.items():
+            register_preset_control(self.tabname, name, component)
 
         return [
             enable,

@@ -8,7 +8,7 @@ Anima LoRA/LoKR 分层权重是一个 Forge/WebUI 插件，用于按 Anima block
 
 - 普通 LoRA 和 LoKR 分开控制。
 - 可作用于全部检测到的 Anima 适配器，也可只作用于指定文件名或别名。
-- 支持 Anima blocks `0-27` 分层权重。
+- 支持对所有已检测 Anima blocks 分层权重，包含 28 层和 40 层模型。
 - 支持 `self_attn`、`cross_attn`、`mlp`、`adaln`、`norm` 模块权重。
 - 可选 Qwen 文本编码器层权重。
 - 支持在提示词内直接写单 LoRA 的 block/module 权重。

@@ -42,7 +42,7 @@ The Hires. fix tab includes `Disable artist mixing during Hires. fix`. When enab
 - Combine mode: `Output average`
 - Fusion mode: `Interpolate`
 - Global artist strength: `0.70`
-- Default blocks: `0-27` for Balance and Quality, `10-18` for Performance.
+- Default blocks: `0-39` for Balance and Quality (28-block models ignore indices 28-39), `10-18` for Performance.
 - Use `Quality-safe delta` when the reference-style interpolation is too strong for a prompt.
 
 ## Notes

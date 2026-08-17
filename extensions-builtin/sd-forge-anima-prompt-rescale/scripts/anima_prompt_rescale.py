@@ -26,6 +26,7 @@ import sys
 import gradio as gr
 
 from modules import scripts, shared
+from modules.anima_presets import register_preset_control
 
 _EXT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _EXT_ROOT not in sys.path:
@@ -132,6 +133,12 @@ class AnimaPromptRescaleScript(scripts.Script):
                 gr.Markdown(_AUTO_INFO)
 
         # Only these three feed process(); the manual tool is self-contained.
+        for name, component in {
+            "prompt_rescale.enabled": auto_enable,
+            "prompt_rescale.source_steps": auto_source,
+            "prompt_rescale.fractions": auto_fraction,
+        }.items():
+            register_preset_control(self.tabname, name, component)
         return [auto_enable, auto_source, auto_fraction]
 
     def process(self, p, auto_enable=False, auto_source=35, auto_fraction=False):

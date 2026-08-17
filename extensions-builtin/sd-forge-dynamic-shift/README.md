@@ -37,6 +37,11 @@ Drop this folder into your webui's `extensions/` directory (or *Extensions → I
 ## Notes / limitations
 
 - While enabled with a **K-diffusion sampler** (Euler, DPM++, etc.), the **Schedule type** dropdown and the built-in **Shift** slider are bypassed for the sigma schedule (the extension takes over via `sampler_noise_scheduler_override`). Forge's timestep/alternate sampler families do not consume this override, so Dynamic Shift has no effect with those samplers. Prompt-editing step percentages (`[a:b:0.5]`) still use the built-in shift for their timing — a minor, usually invisible interaction.
+- `Anima Flow Euler`, `Anima Flow UniPC2`, and `Anima Flow PC3` lock the official
+  `Anima FlowMatch` schedule. Selecting one disables Dynamic Shift and locks the
+  Schedule type control in the GUI; API/CLI requests are skipped with an
+  infotext reason. Enabling Dynamic Shift on an ordinary sampler resets the
+  bypassed Schedule type to `Automatic`.
 - Only activates on models with `use_shift = True`; it silently skips SDXL/SD1.5 and prints a console notice.
 - If another script already sets a scheduler override, this extension defers to it.
 - A constant ramp (start == end) reproduces the stock `FlowMatchEulerDiscrete` schedule exactly, which is handy for A/B sanity checks.

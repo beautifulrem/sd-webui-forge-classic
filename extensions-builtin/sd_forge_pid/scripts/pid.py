@@ -8,6 +8,8 @@ from PIL import Image
 
 from backend import memory_management
 from modules import devices, images, scripts
+from modules.anima_feature_conflicts import wire_exclusive_components
+from modules.anima_presets import register_preset_control
 from modules.processing import (
     Processed,
     StableDiffusionProcessing,
@@ -28,12 +30,17 @@ from pid_state import batch_value, result_sink
 class PiDForForge(scripts.Script):
     def __init__(self):
         self.models: list[str] = [m for m in sorted(checkpoint_tiles(use_short=True)) if "pid" in m.lower()]
+        self._hires_component = None
 
     def title(self):
         return "PiD Integrated"
 
     def show(self, is_img2img):
         return scripts.AlwaysVisible if bool(self.models) else None
+
+    def after_component(self, component, **kwargs):
+        if getattr(component, "elem_id", None) == "txt2img_hr-checkbox":
+            self._hires_component = component
 
     def ui(self, *args, **kwargs):
         vaes: list[str] = sorted(vae_dict.keys())
@@ -54,6 +61,12 @@ class PiDForForge(scripts.Script):
                 degrade_sigma = gr.Slider(minimum=0.0, maximum=1.0, value=0.0, step=0.05, label="Degrade Sigma", info="(denoising strength)")
                 cc = gr.Checkbox(True, label="Color Correction", info="(fix discoloration issue)")
 
+        if self.tabname == "txt2img":
+            wire_exclusive_components(
+                ("pid", "hires"),
+                (enable, self._hires_component),
+            )
+
         self.infotext_fields = [
             (prompt, "pid_prompt"),
             (ckpt, "pid_ckpt"),
@@ -61,6 +74,13 @@ class PiDForForge(scripts.Script):
             (tec, "pid_tec"),
             (degrade_sigma, "degrade_sigma"),
         ]
+
+        for name, component in {
+            "pid.enabled": enable,
+            "pid.degrade_sigma": degrade_sigma,
+            "pid.color_correction": cc,
+        }.items():
+            register_preset_control(self.tabname, name, component)
 
         return [enable, prompt, ckpt, vae, tec, degrade_sigma, cc]
 

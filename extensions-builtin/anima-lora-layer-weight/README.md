@@ -8,7 +8,7 @@ Anima LoRA/LoKR Layer Weight is a Forge/WebUI extension for controlling Anima Lo
 
 - Separate tabs for regular LoRA and LoKR.
 - Target all detected Anima adapters, or only specified file names and aliases.
-- Block weights for Anima blocks `0-27`.
+- Block weights for all detected Anima blocks, including 28-block and 40-block models.
 - Module weights for `self_attn`, `cross_attn`, `mlp`, `adaln`, and `norm`.
 - Optional Qwen text-encoder layer weights.
 - Inline prompt syntax for per-LoRA block/module weights.

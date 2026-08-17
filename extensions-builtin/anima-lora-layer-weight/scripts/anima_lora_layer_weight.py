@@ -9,6 +9,7 @@ import gradio as gr
 
 from modules import script_callbacks, scripts, shared
 from modules.anima_lora_support import merge_consistent_rules
+from modules.anima_presets import register_preset_control
 
 
 logger = logging.getLogger("anima_lora_layer_weight")
@@ -139,7 +140,7 @@ LOKR_MARKERS = (".lokr_",)
 INLINE_LORA_RE = re.compile(r"<lora:([^:>]+):([^>]+)>")
 PROMPT_LORA_RE = re.compile(r"<lora:([^:>]+)(?::([^>]*))?>")
 
-DEFAULT_BLOCK_WEIGHTS = "0-27=1.0"
+DEFAULT_BLOCK_WEIGHTS = "all=1.0"
 DEFAULT_MODULE_WEIGHTS = "\n".join(
     [
         "self_attn=1.0",
@@ -1333,6 +1334,9 @@ class Script(scripts.Script):
 
         self._bind_preset_apply_button(lora_preset_apply, lora_target_loras, lora_preset_name, lora_preset_scope, lora_preset_text, "lora")
         self._bind_preset_apply_button(lokr_preset_apply, lokr_target_loras, lokr_preset_name, lokr_preset_scope, lokr_preset_text, "lokr")
+
+        register_preset_control(self.tabname, "lora_layer.lora_enabled", lora_enabled)
+        register_preset_control(self.tabname, "lora_layer.lokr_enabled", lokr_enabled)
 
         return [
             lora_enabled,

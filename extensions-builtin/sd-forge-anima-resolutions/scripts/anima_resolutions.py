@@ -50,6 +50,7 @@ import traceback
 import gradio as gr
 
 from modules import script_callbacks, scripts
+from modules.anima_presets import register_preset_control
 
 
 # ---------------------------------------------------------------------------
@@ -875,6 +876,8 @@ class AnimaRandomizeResolutionScript(scripts.Script):
         if width is None or height is None:
             raise RuntimeError("txt2img dimension controls were not available")
         controls = _build_picker_ui(width, height, _refs.get("txt2img_prompt"))
+        register_preset_control(self.tabname, "resolution.random_standard", controls[0])
+        register_preset_control(self.tabname, "resolution.random_highres", controls[1])
         _try_wire_history_logger()
         print("[anima-resolution] picker embedded in txt2img dimensions section")
         return controls

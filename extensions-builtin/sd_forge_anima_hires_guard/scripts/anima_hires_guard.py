@@ -9,6 +9,7 @@ import gradio as gr
 from lib_anima_hires import GuardLimits, guard_dimensions
 from modules import scripts
 from modules.anima_support import is_anima_engine
+from modules.anima_presets import register_preset_control
 from modules.ui_components import InputAccordion
 
 logger = logging.getLogger("AnimaHiresGuard")
@@ -92,6 +93,16 @@ class AnimaHiresGuardScript(scripts.Script):
             (hires_mp, "Anima Hires MP"),
             (max_upscale, "Anima Hires max upscale"),
         ]
+        for name, component in {
+            "hires_guard.enabled": enabled,
+            "hires_guard.policy": policy,
+            "hires_guard.preset": preset,
+            "hires_guard.align": align,
+            "hires_guard.base_mp": base_mp,
+            "hires_guard.hires_mp": hires_mp,
+            "hires_guard.max_upscale": max_upscale,
+        }.items():
+            register_preset_control(self.tabname, name, component)
         return [enabled, policy, preset, align, base_mp, hires_mp, max_upscale]
 
     def after_model_load(

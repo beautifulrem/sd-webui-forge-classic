@@ -36,6 +36,11 @@ from lib_anima_guidance.advanced import (
 from lib_anima_guidance.nag import NAGAttentionModifier
 from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS
 from modules import paths, script_callbacks, scripts
+from modules.anima_feature_conflicts import (
+    record_conflict_resolution,
+    resolve_guidance_conflicts,
+)
+from modules.anima_presets import register_preset_control
 from modules.anima_support import is_anima_auxiliary_denoiser, is_anima_engine
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
@@ -139,11 +144,18 @@ def _make_skim_cfg_function(
 class AnimaGuidanceScript(scripts.Script):
     sorting_priority = 2030
 
+    def __init__(self):
+        self._sampler_component = None
+
     def title(self):
         return "Anima Guidance & Corrections"
 
     def show(self, is_img2img):
         return scripts.AlwaysVisible
+
+    def after_component(self, component, **kwargs):
+        if getattr(component, "elem_id", None) == f"{self.tabname}_sampling":
+            self._sampler_component = component
 
     def ui(self, *args, **kwargs):
         with InputAccordion(False, label=self.title()) as enable:
@@ -151,6 +163,7 @@ class AnimaGuidanceScript(scripts.Script):
                 "Only applies to Anima. Guidance patches are installed on a cloned "
                 "model for the current generation and recorded in PNG metadata."
             )
+            conflict_status = gr.Markdown("")
             guidance_mode = gr.Dropdown(
                 ["Standard / preserve existing", "SMC-CFG", "FDG (experimental)"],
                 value="Standard / preserve existing",
@@ -370,6 +383,64 @@ class AnimaGuidanceScript(scripts.Script):
                     )
                     clip_path = gr.Textbox("", label="Local CLIP-L .safetensors path")
 
+        if self._sampler_component is not None:
+            conflict_inputs = [
+                self._sampler_component,
+                guidance_mode,
+                momentum_enable,
+                dcw_enable,
+            ]
+            conflict_outputs = [
+                guidance_mode,
+                momentum_enable,
+                dcw_enable,
+                conflict_status,
+            ]
+
+            def update_conflicts(selected, sampler, mode, momentum, dcw):
+                state = resolve_guidance_conflicts(
+                    sampler=str(sampler),
+                    mode=str(mode),
+                    momentum=bool(momentum),
+                    dcw=bool(dcw),
+                    selected=selected,
+                )
+                if state.messages:
+                    status = "**Compatibility:** " + "; ".join(state.messages)
+                elif state.mode == "FDG (experimental)":
+                    status = "**Compatibility:** FDG owns CFG combine; Momentum and DCW are locked."
+                elif state.momentum:
+                    status = "**Compatibility:** Momentum requires Standard CFG guidance."
+                elif state.dcw:
+                    status = "**Compatibility:** DCW is active, so FDG is unavailable."
+                else:
+                    status = ""
+                return (
+                    gr.update(value=state.mode, choices=list(state.mode_choices)),
+                    gr.update(
+                        value=state.momentum,
+                        interactive=state.momentum_interactive,
+                    ),
+                    gr.update(value=state.dcw, interactive=state.dcw_interactive),
+                    gr.update(value=status),
+                )
+
+            for selected, component in (
+                ("sampler", self._sampler_component),
+                ("mode", guidance_mode),
+                ("momentum", momentum_enable),
+                ("dcw", dcw_enable),
+            ):
+                component.change(
+                    fn=lambda sampler, mode, momentum, dcw, selected=selected: update_conflicts(
+                        selected, sampler, mode, momentum, dcw
+                    ),
+                    inputs=conflict_inputs,
+                    outputs=conflict_outputs,
+                    queue=False,
+                    show_progress=False,
+                )
+
         controls = [
             enable,
             guidance_mode,
@@ -419,6 +490,52 @@ class AnimaGuidanceScript(scripts.Script):
             guidance_range_start,
             guidance_range_end,
         ]
+        preset_controls = {
+            "guidance.enabled": enable,
+            "guidance.mode": guidance_mode,
+            "guidance.smc_alpha": smc_alpha,
+            "guidance.smc_lambda": smc_lambda,
+            "guidance.skim_enabled": skim_enable,
+            "guidance.skim_scale": skim_scale,
+            "guidance.skim_full_negative": full_negative,
+            "guidance.skim_disable_flip": disable_flip_filter,
+            "guidance.skim_start": start_percent,
+            "guidance.skim_end": end_percent,
+            "guidance.skim_flip": flip_percent,
+            "guidance.dcw_enabled": dcw_enable,
+            "guidance.dcw_lambda": dcw_lambda,
+            "guidance.dcw_schedule": dcw_schedule,
+            "guidance.dcw_bands": dcw_bands,
+            "guidance.cns_strength": cns_strength,
+            "guidance.unipc_solver": flow_unipc_solver_type,
+            "guidance.unipc_disabled_correctors": flow_unipc_disable_corrector_first,
+            "guidance.unipc_thresholding": flow_unipc_thresholding,
+            "guidance.unipc_threshold_ratio": flow_unipc_dynamic_thresholding_ratio,
+            "guidance.unipc_threshold_max": flow_unipc_sample_max_value,
+            "guidance.pc3_gamma": flow_pc3_gamma,
+            "guidance.pc3_tolerance": flow_pc3_tolerance,
+            "guidance.modulation_enabled": modulation_enable,
+            "guidance.modulation_weight": modulation_weight,
+            "guidance.modulation_start": modulation_start,
+            "guidance.modulation_end": modulation_end,
+            "guidance.modulation_adapter_mode": adapter_mode,
+            "guidance.modulation_clip_mode": clip_mode,
+            "guidance.nag_enabled": nag_enable,
+            "guidance.nag_scale": nag_scale,
+            "guidance.nag_tau": nag_tau,
+            "guidance.nag_alpha": nag_alpha,
+            "guidance.nag_start": nag_start,
+            "guidance.nag_end": nag_end,
+            "guidance.momentum_enabled": momentum_enable,
+            "guidance.momentum_strength": momentum_strength,
+            "guidance.momentum_ema": momentum_ema,
+            "guidance.fdg_detail": fdg_high_scale,
+            "guidance.range_enabled": guidance_range_enable,
+            "guidance.range_start": guidance_range_start,
+            "guidance.range_end": guidance_range_end,
+        }
+        for name, component in preset_controls.items():
+            register_preset_control(self.tabname, name, component)
         keys = [
             "Anima guidance enabled",
             "Anima CFG guidance mode",
@@ -525,26 +642,31 @@ class AnimaGuidanceScript(scripts.Script):
         *args,
         **kwargs,
     ):
-        smc_enabled = guidance_mode == "SMC-CFG" and float(smc_alpha) > 0.0
-        fdg_enabled = guidance_mode == "FDG (experimental)"
-        dcw_enabled = bool(dcw_enable) and not math.isclose(float(dcw_lambda), 0.0)
         active_sampler = (
             (getattr(p, "hr_sampler_name", None) or p.sampler_name)
             if getattr(p, "is_hr_pass", False)
             else p.sampler_name
         )
+        conflict_state = resolve_guidance_conflicts(
+            sampler=str(active_sampler),
+            mode=str(guidance_mode),
+            momentum=bool(momentum_enable),
+            dcw=bool(dcw_enable),
+        )
+        guidance_mode = conflict_state.mode
+        momentum_enable = conflict_state.momentum
+        dcw_enable = conflict_state.dcw
+        smc_enabled = guidance_mode == "SMC-CFG" and float(smc_alpha) > 0.0
+        fdg_enabled = guidance_mode == "FDG (experimental)"
+        dcw_enabled = bool(dcw_enable) and not math.isclose(float(dcw_lambda), 0.0)
         cns_selected = active_sampler == "Anima ER SDE CNS"
         if not enable or not _is_anima(p):
             return
 
-        if fdg_enabled and cns_selected:
-            fdg_enabled = False
-            p.extra_generation_params["Anima CFG guidance mode"] = "FDG disabled: incompatible with CNS"
-            logger.warning("Anima FDG was disabled because the CNS sampler is selected")
-        if fdg_enabled and dcw_enabled:
-            dcw_enabled = False
-            p.extra_generation_params["Anima DCW"] = "disabled: incompatible with FDG"
-            logger.warning("Anima DCW was disabled because FDG is selected")
+        if conflict_state.messages:
+            resolution = "; ".join(conflict_state.messages)
+            record_conflict_resolution(p, *conflict_state.messages)
+            logger.warning("Anima compatibility resolver: %s", resolution)
 
         if cns_selected:
             p.cns_strength = min(max(float(cns_strength), 0.0), 1.0)

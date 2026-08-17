@@ -17,6 +17,7 @@ from backend.logging import setup_logger
 from backend.utils import get_attr, set_attr_raw
 from modules import scripts
 from modules.anima_support import is_anima_engine
+from modules.anima_presets import register_preset_control
 from anima_block_compile import AnimaBlockCompileManager
 
 try:
@@ -88,6 +89,8 @@ class TorchCompileForForge(scripts.Script):
 - **reduce-overhead:** Similar to **max-autotune** ; {_indynamic} ; {_no_malloc}
 - **Anima per-block:** Compile each Anima transformer block separately; fixed resolution/batch, lower graph-break risk than whole-model compile
             """)
+
+        register_preset_control(self.tabname, "compile.preset", preset)
 
         return [preset]
 

@@ -12,6 +12,7 @@ import gradio as gr
 from backend.args import dynamic_args
 from modules import script_callbacks, script_loading, scripts, shared
 from modules.anima_lora_support import active_template_parts, current_sampling_position
+from modules.anima_presets import register_preset_control
 
 
 logger = logging.getLogger("anima_lora_stage_scheduler")
@@ -2133,6 +2134,8 @@ class Script(scripts.Script):
             outputs=[base_template, hr_template, manage_template, template_status],
             show_progress=False,
         )
+
+        register_preset_control(self.tabname, "lora_stage.enabled", enabled)
 
         return [
             enabled,

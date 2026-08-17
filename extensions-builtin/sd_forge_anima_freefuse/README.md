@@ -30,9 +30,12 @@ Forge online mode. The original online-LoRA setting is restored afterwards.
 - Each trigger phrase must occur verbatim in every positive prompt in a batch.
 - S-churn must remain zero so the collection and generation paths are
   deterministic and identical up to the collection step.
-- Regional Conditioning and Artist Mixer are rejected in the same pass because
-  they replace or multiply the conditioning stream from which FreeFuse derives
-  token positions. Spectrum is forced to an actual model evaluation, while
+- Regional Conditioning and Artist Mixer are mutually exclusive because they
+  replace or multiply the conditioning stream from which FreeFuse derives
+  token positions. The GUI disables the other two when FreeFuse is selected;
+  API/CLI processing gives FreeFuse priority and records the disabled features
+  in infotext. Refiner checkpoint switching is cleared by the same resolver.
+  Spectrum is forced to an actual model evaluation, while
   Modulation Guidance, LoRA layer weights, and the LoRA stage scheduler compose.
 - Non-spatial Anima DiT LoRA paths (cross-attention context keys/values and
   timestep projections) remain unmasked in phase 2, matching FreeFuse's rule

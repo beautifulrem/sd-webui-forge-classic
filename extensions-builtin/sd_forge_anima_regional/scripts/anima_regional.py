@@ -10,6 +10,8 @@ import torch
 from backend.logging import setup_logger
 from lib_anima_regional.regional import Region, RegionalState, apply_regional_patch, parse_blocks
 from modules import prompt_parser, scripts
+from modules.anima_feature_conflicts import register_exclusive_component
+from modules.anima_presets import register_preset_control
 from modules.anima_support import is_anima_engine
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
@@ -52,9 +54,17 @@ class AnimaRegionalScript(scripts.Script):
 
     def ui(self, *args, **kwargs):
         with InputAccordion(False, label=self.title()) as enable:
-            gr.Markdown("Routes independently encoded prompts into feathered rectangular regions at selected Anima cross-attention blocks.")
+            gr.Markdown(
+                "Routes independently encoded prompts into feathered rectangular regions at selected "
+                "Anima cross-attention blocks. Regional, FreeFuse, and Artist Mixer are one-of-three; "
+                "the active choice locks the others."
+            )
             with gr.Row():
-                blocks = gr.Textbox("0-27", label="Anima blocks")
+                blocks = gr.Textbox(
+                    "0-39",
+                    label="Anima blocks",
+                    info="Covers every block on both 28-block and 40-block Anima models; out-of-range indices are ignored.",
+                )
                 start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="Start progress")
                 end = gr.Slider(0.0, 1.0, value=0.65, step=0.01, label="End progress")
                 feather = gr.Slider(0.0, 0.25, value=0.03, step=0.005, label="Edge feather")
@@ -77,7 +87,36 @@ class AnimaRegionalScript(scripts.Script):
                         width = gr.Slider(0.0, 1.0, value=values[4], step=0.01, label="Width")
                         height = gr.Slider(0.0, 1.0, value=values[5], step=0.01, label="Height")
                     region_controls.extend([active, prompt, x, y, width, height, strength])
+        register_exclusive_component(
+            tab=self.tabname,
+            group="anima_spatial_conditioning",
+            names=("freefuse", "regional", "artist"),
+            name="regional",
+            component=enable,
+        )
         controls = [enable, blocks, start, end, feather, base_preserve, *region_controls]
+        for name, component in {
+            "regional.enabled": enable,
+            "regional.blocks": blocks,
+            "regional.start": start,
+            "regional.end": end,
+            "regional.feather": feather,
+            "regional.base_preserve": base_preserve,
+        }.items():
+            register_preset_control(self.tabname, name, component)
+        for index in range(3):
+            offset = index * 7
+            number = index + 1
+            active, _prompt, x, y, width, height, strength = region_controls[offset : offset + 7]
+            for name, component in {
+                f"regional.region{number}_active": active,
+                f"regional.region{number}_x": x,
+                f"regional.region{number}_y": y,
+                f"regional.region{number}_width": width,
+                f"regional.region{number}_height": height,
+                f"regional.region{number}_strength": strength,
+            }.items():
+                register_preset_control(self.tabname, name, component)
         keys = [
             "Anima regional enabled",
             "Anima regional blocks",
@@ -93,6 +132,11 @@ class AnimaRegionalScript(scripts.Script):
 
     def process_before_every_sampling(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
         if not enable or not is_anima_engine(getattr(p, "sd_model", None)):
+            return
+        if getattr(p, "_anima_freefuse_enabled", False):
+            message = "disabled: Anima FreeFuse has priority in headless processing"
+            p.extra_generation_params["Anima regional conditioning"] = message
+            logger.warning("Anima Regional Conditioning %s", message)
             return
         unet = p.sd_model.forge_objects.unet
         total_blocks = len(unet.model.diffusion_model.blocks)

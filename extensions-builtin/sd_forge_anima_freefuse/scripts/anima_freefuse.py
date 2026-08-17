@@ -18,7 +18,13 @@ from lib_anima_freefuse import (
 )
 from lib_anima_freefuse.runtime import install_patch_metadata_hook
 from modules import scripts
+from modules.anima_feature_conflicts import (
+    record_conflict_resolution,
+    register_exclusive_component,
+    resolve_freefuse_refiner_conflicts,
+)
 from modules.anima_support import effective_prompt_batch, is_anima_engine
+from modules.anima_presets import register_preset_control
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -49,19 +55,32 @@ class AnimaFreeFuseScript(scripts.Script):
     # diagnosed from the actual pass configuration.
     sorting_priority = 2040
 
+    def __init__(self):
+        self._refiner_enable_component = None
+        self._refiner_checkpoint_component = None
+
     def title(self):
         return "Anima FreeFuse (multi-LoRA)"
 
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
+    def after_component(self, component, **kwargs):
+        elem_id = getattr(component, "elem_id", None)
+        if elem_id == f"{self.tabname}_enable-checkbox":
+            self._refiner_enable_component = component
+        elif elem_id == f"{self.tabname}_checkpoint":
+            self._refiner_checkpoint_component = component
+
     def ui(self, *args, **kwargs):
         with InputAccordion(False, label=self.title()) as enable:
             gr.Markdown(
                 "Two-pass, same-noise FreeFuse for **2–3 Anima subject LoRAs**. "
                 "Enabling it selects `Anima FreeFuse Euler`; each trigger phrase must "
-                "appear verbatim in the positive prompt."
+                "appear verbatim in the positive prompt. FreeFuse, Regional Conditioning, "
+                "and Artist Mixer are one-of-three; the active choice locks the others."
             )
+            refiner_conflict_status = gr.Markdown("")
             adapter_controls = []
             defaults = [
                 (True, "", ""),
@@ -140,9 +159,76 @@ class AnimaFreeFuseScript(scripts.Script):
                         0.0, 10.0, value=1.0, step=0.25, label="Own-concept boost"
                     )
                 bias_blocks = gr.Textbox(
-                    "0-27",
+                    "0-39",
                     label="Attention-bias blocks",
-                    info="LoRA output routing applies to all spatial LoRA layers; this selects cross-attention bias blocks.",
+                    info="LoRA output routing applies to all spatial LoRA layers; 0-39 covers both 28-block and 40-block Anima models because out-of-range indices are ignored.",
+                )
+
+        register_exclusive_component(
+            tab=self.tabname,
+            group="anima_spatial_conditioning",
+            names=("freefuse", "regional", "artist"),
+            name="freefuse",
+            component=enable,
+        )
+
+        if (
+            self._refiner_enable_component is not None
+            and self._refiner_checkpoint_component is not None
+        ):
+            conflict_inputs = [
+                enable,
+                self._refiner_enable_component,
+                self._refiner_checkpoint_component,
+            ]
+            conflict_outputs = [
+                enable,
+                self._refiner_enable_component,
+                self._refiner_checkpoint_component,
+                refiner_conflict_status,
+            ]
+
+            def update_refiner_conflict(selected, freefuse, refiner, checkpoint):
+                state = resolve_freefuse_refiner_conflicts(
+                    freefuse=bool(freefuse),
+                    refiner=bool(refiner),
+                    checkpoint=checkpoint,
+                    selected=selected,
+                )
+                status = (
+                    "**Compatibility:** " + "; ".join(state.messages)
+                    if state.messages
+                    else ""
+                )
+                return (
+                    gr.update(
+                        value=state.freefuse,
+                        interactive=state.freefuse_interactive,
+                    ),
+                    gr.update(
+                        value=state.refiner,
+                        interactive=state.refiner_interactive,
+                    ),
+                    gr.update(
+                        value=state.checkpoint,
+                        interactive=state.checkpoint_interactive,
+                    ),
+                    gr.update(value=status),
+                )
+
+            for selected, component in (
+                ("freefuse", enable),
+                ("refiner", self._refiner_enable_component),
+                ("checkpoint", self._refiner_checkpoint_component),
+            ):
+                component.change(
+                    fn=lambda freefuse, refiner, checkpoint, selected=selected: update_refiner_conflict(
+                        selected, freefuse, refiner, checkpoint
+                    ),
+                    inputs=conflict_inputs,
+                    outputs=conflict_outputs,
+                    queue=False,
+                    show_progress=False,
                 )
 
         controls = [
@@ -162,6 +248,22 @@ class AnimaFreeFuseScript(scripts.Script):
             positive_bias,
             bias_blocks,
         ]
+        for name, component in {
+            "freefuse.enabled": enable,
+            "freefuse.collect_step": collect_step,
+            "freefuse.collect_block": collect_block,
+            "freefuse.top_k": top_k,
+            "freefuse.temperature": temperature,
+            "freefuse.background_scale": bg_scale,
+            "freefuse.balance_iterations": balance_iterations,
+            "freefuse.feather": feather,
+            "freefuse.routing_strength": routing_strength,
+            "freefuse.routing_end": routing_end,
+            "freefuse.bias_scale": bias_scale,
+            "freefuse.positive_bias": positive_bias,
+            "freefuse.bias_blocks": bias_blocks,
+        }.items():
+            register_preset_control(self.tabname, name, component)
         keys = [
             "Anima FreeFuse enabled",
             *[
@@ -198,6 +300,19 @@ class AnimaFreeFuseScript(scripts.Script):
                 "Anima FreeFuse was enabled for a non-Anima checkpoint and has been skipped."
             )
             return
+        refiner_state = resolve_freefuse_refiner_conflicts(
+            freefuse=True,
+            refiner=getattr(p, "refiner_checkpoint", None)
+            not in (None, "", "None", "none"),
+            checkpoint=getattr(p, "refiner_checkpoint", None),
+        )
+        if refiner_state.messages:
+            resolution = "; ".join(refiner_state.messages)
+            record_conflict_resolution(p, *refiner_state.messages)
+            logger.warning("Anima compatibility resolver: %s", resolution)
+        p.refiner_checkpoint = None
+        p.refiner_checkpoint_info = None
+        p.refiner_switch_at = None
         install_patch_metadata_hook()
         borrowed_online = (
             getattr(p, "_anima_lora_stage_scheduler_state", None) is not None
@@ -237,11 +352,12 @@ class AnimaFreeFuseScript(scripts.Script):
 
     @staticmethod
     def _configure_sampling(p, values):
-        if "Anima regional conditioning" in p.extra_generation_params:
+        if p.extra_generation_params.get("Anima regional conditioning") is True:
             raise ValueError(
                 "Anima FreeFuse and Anima Regional Conditioning cannot run in the same pass"
             )
-        if "Anima Artist Mixer" in p.extra_generation_params:
+        artist_state = p.extra_generation_params.get("Anima Artist Mixer")
+        if artist_state and not str(artist_state).startswith("disabled:"):
             raise ValueError(
                 "Anima FreeFuse and Anima Artist Mixer cannot run in the same pass"
             )

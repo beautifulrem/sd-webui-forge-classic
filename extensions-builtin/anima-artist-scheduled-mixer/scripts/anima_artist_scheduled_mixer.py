@@ -11,6 +11,8 @@ import gradio as gr
 import torch
 
 from modules import script_callbacks, scripts, shared
+from modules.anima_feature_conflicts import register_exclusive_component
+from modules.anima_presets import register_preset_control
 
 
 logger = logging.getLogger("anima_artist_scheduled_mixer")
@@ -282,7 +284,7 @@ HELP_EN = """
 
 `Artist`: one artist prompt per row. It may include an inline row multiplier such as `(wlop:1.2)`, `[wlop:0.8]`, or `wlop:1.2`; the final row strength is `Weight x inline multiplier`. Keep comma-separated chains for quick migration if needed, but one artist per row gives the cleanest control.
 
-`Weight` controls this artist's relative and absolute contribution. `Blocks` accepts `0-27`, `0,3,5-12`, or negative indices such as `-1`. `Start` and `End` are denoise progress values from 0 to 1. `Peak` is the point inside that window where the row reaches full strength; it matters most for Smooth and Triangle curves.
+`Weight` controls this artist's relative and absolute contribution. `Blocks` accepts `0-39`, `0,3,5-12`, or negative indices such as `-1`; out-of-range indices are ignored on 28-block models. `Start` and `End` are denoise progress values from 0 to 1. `Peak` is the point inside that window where the row reaches full strength; it matters most for Smooth and Triangle curves.
 
 `Curve` shapes the row strength inside the Start/End window. Hold stays at full strength for the whole window. Smooth fades in and out around the peak. Triangle rises and falls linearly. Front loaded starts strong and fades later; Back loaded does the opposite.
 
@@ -312,7 +314,7 @@ HELP_ZH = """
 
 `画师` 每行建议填一个画师提示词。可以直接写行内倍率，例如 `(wlop:1.2)`、`[wlop:0.8]` 或 `wlop:1.2`；最终强度是 `权重 x 行内倍率`。为了迁移旧画师串，逗号分隔仍可用，但每行一个画师最方便单独控制。
 
-`权重` 控制该画师的相对比例，也会在总权重低于 1 时降低实际介入。`层数` 支持 `0-27`、`0,3,5-12`，也支持 `-1` 这种倒数索引。`开始` 和 `结束` 是 0 到 1 的去噪进度。`峰值` 表示这一行在窗口内达到满强度的位置，对平滑和三角峰曲线最明显。
+`权重` 控制该画师的相对比例，也会在总权重低于 1 时降低实际介入。`层数` 支持 `0-39`、`0,3,5-12`，也支持 `-1` 这种倒数索引；28 层模型会忽略越界索引。`开始` 和 `结束` 是 0 到 1 的去噪进度。`峰值` 表示这一行在窗口内达到满强度的位置，对平滑和三角峰曲线最明显。
 
 `曲线` 决定窗口内强度怎样变化。保持会在整个窗口内满强度。平滑会围绕峰值淡入淡出。三角峰会线性升到峰值再线性降下。前段强化是一开始更强、后面变弱；后段强化则相反。
 
@@ -595,7 +597,7 @@ def _default_blocks_for_optimization(optimization):
     optimization = _option_key("optimization", optimization, OPT_BALANCE)
     if optimization == OPT_PERFORMANCE:
         return "10-18"
-    return "0-27"
+    return "0-39"
 
 
 def _apply_optimization_to_block_timing_components(count, shift, optimization, *values):
@@ -2249,6 +2251,18 @@ class Script(scripts.Script):
                 save_current_settings = gr.Button(value="Save current settings", elem_id=self.elem_id("save_current_settings"))
                 save_current_settings_status = gr.Markdown(value="", elem_id=self.elem_id("save_current_settings_status"))
             enable = gr.Checkbox(label=_t("enable"), value=defaults["enable"], elem_id=self.elem_id("enable"))
+            gr.Markdown(
+                "Compatibility: Artist Mixer, FreeFuse, and Regional Conditioning are "
+                "one-of-three; the active choice locks the others."
+            )
+            register_exclusive_component(
+                tab=self.tabname,
+                group="anima_spatial_conditioning",
+                names=("freefuse", "regional", "artist"),
+                name="artist",
+                component=enable,
+                reset=True,
+            )
             with gr.Row():
                 optimization = gr.Dropdown(label=_t("optimization"), choices=_option_choices("optimization", lang), value=defaults["optimization"], elem_id=self.elem_id("optimization"))
                 global_strength = gr.Slider(label=_t("global_strength"), minimum=0.0, maximum=2.0, step=0.01, value=defaults["global_strength"], elem_id=self.elem_id("global_strength"))
@@ -2513,6 +2527,29 @@ class Script(scripts.Script):
             **_internal_event_kwargs(),
         )
 
+        register_preset_control(self.tabname, "artist.enabled", enable)
+        register_preset_control(self.tabname, "artist.global_strength", global_strength)
+        register_preset_control(
+            self.tabname,
+            "artist.optimization",
+            optimization,
+            _option_label("optimization", OPT_BALANCE, lang),
+        )
+        register_preset_control(
+            self.tabname,
+            "artist.combine",
+            combine_mode,
+            _option_label("combine", COMBINE_OUTPUT_AVG, lang),
+        )
+        register_preset_control(
+            self.tabname,
+            "artist.fusion",
+            fusion_mode,
+            _option_label("fusion", FUSION_INTERPOLATE, lang),
+        )
+        register_preset_control(self.tabname, "artist.apply_uncond", apply_uncond)
+        register_preset_control(self.tabname, "artist.cache", enable_cache)
+
         return [
             enable,
             base_row_count,
@@ -2573,6 +2610,11 @@ class Script(scripts.Script):
         _unpatch_cross_attn()
         _ACTIVE_STATE = None
         if not enable:
+            return
+        if getattr(p, "_anima_freefuse_enabled", False):
+            message = "disabled: Anima FreeFuse has priority in headless processing"
+            p.extra_generation_params["Anima Artist Mixer"] = message
+            logger.warning("Anima Artist Mixer %s", message)
             return
         if getattr(p, "is_hr_pass", False) and bool(disable_hires_mixing):
             return
