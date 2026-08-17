@@ -17,6 +17,7 @@ from backend.patcher.lora import load_lora, model_lora_keys_clip, model_lora_key
 from backend.state_dict import state_dict_prefix_replace
 from backend.utils import load_torch_file
 from modules import errors, scripts, sd_models, shared
+from modules.anima_lora_support import remap_anima_lora_blocks
 
 logger = logging.getLogger("lora")
 setup_logger(logger)
@@ -25,7 +26,7 @@ setup_logger(logger)
 load_lora_state_dict = functools.partial(load_torch_file, safe_load=True)
 
 
-def process_anima(lora: dict[str, torch.Tensor]):
+def process_anima(lora: dict[str, torch.Tensor], blocks: int):
     # LLMAdapter was moved from transformer to text_encoder
 
     keys = list(lora.keys())
@@ -34,6 +35,9 @@ def process_anima(lora: dict[str, torch.Tensor]):
             lora[k.replace("diffusion_model", "text_encoders.qwen3_06b")] = lora.pop(k)
         elif k.startswith("lora_unet_llm_adapter"):
             lora[k.replace("lora_unet_llm_adapter", "lora_te_llm_adapter")] = lora.pop(k)
+
+    if remap_anima_lora_blocks(lora, target_blocks=blocks):
+        logger.warning("Re-mapped a complete 28-block Anima LoRA for the 40-block model")
 
 
 def load_lora_for_models(model: "UnetPatcher", clip: "CLIP", lora: dict[str, torch.Tensor], strength_model: float, strength_clip: float, filename: str = "default", online_mode: bool = False):
@@ -47,7 +51,7 @@ def load_lora_for_models(model: "UnetPatcher", clip: "CLIP", lora: dict[str, tor
     clip_keys = model_lora_keys_clip(clip.cond_stage_model) if clip is not None else {}
 
     if model.model.diffusion_model.__class__.__name__ == "Anima":
-        process_anima(lora)
+        process_anima(lora, len(model.model.diffusion_model.blocks))
 
     lora_unmatch = lora
     lora_unet, lora_unmatch = load_lora(lora_unmatch, unet_keys)

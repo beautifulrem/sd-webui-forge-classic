@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
+import torch
+
 from modules.anima_support import anima_auxiliary_denoiser, is_anima_engine
+from modules_forge.packages.huggingface_guess.detection import detect_unet_config
 
 
 def test_anima_capability_marker_accepts_wrapped_engines():
@@ -30,3 +33,18 @@ def test_auxiliary_denoiser_removes_temporary_marker():
         assert process._anima_auxiliary_denoiser is True
 
     assert not hasattr(process, "_anima_auxiliary_denoiser")
+
+
+def test_anima_model_detection_uses_checkpoint_block_count():
+    prefix = "model.diffusion_model."
+    state_dict = {
+        f"{prefix}blocks.{index}.mlp.layer1.weight": torch.empty(1)
+        for index in range(40)
+    }
+    state_dict[f"{prefix}llm_adapter.blocks.0.cross_attn.q_proj.weight"] = torch.empty(1)
+    state_dict[f"{prefix}x_embedder.proj.1.weight"] = torch.empty(2048, 68)
+
+    config = detect_unet_config(state_dict, prefix)
+
+    assert config["image_model"] == "anima"
+    assert config["num_blocks"] == 40

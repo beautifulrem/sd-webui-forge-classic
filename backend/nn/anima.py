@@ -467,7 +467,10 @@ class Anima(nn.Module):
             padding_mask = torch.zeros(x_B_C_T_H_W.shape[0], 1, x_B_C_T_H_W.shape[3], x_B_C_T_H_W.shape[4], dtype=x_B_C_T_H_W.dtype, device=x_B_C_T_H_W.device)
         else:
             padding_mask = functional.resize(padding_mask, list(x_B_C_T_H_W.shape[-2:]), interpolation=InterpolationMode.NEAREST)
-        x_B_C_T_H_W = torch.cat([x_B_C_T_H_W, padding_mask.unsqueeze(1).repeat(1, 1, x_B_C_T_H_W.shape[2], 1, 1)], dim=1)
+        padding_channel = padding_mask.unsqueeze(1).expand(
+            -1, -1, x_B_C_T_H_W.shape[2], -1, -1
+        )
+        x_B_C_T_H_W = torch.cat([x_B_C_T_H_W, padding_channel], dim=1)
         x_B_T_H_W_D = self.x_embedder(x_B_C_T_H_W)
 
         return x_B_T_H_W_D, self.pos_embedder(x_B_T_H_W_D, device=x_B_C_T_H_W.device), None
@@ -538,8 +541,7 @@ def rotate_half(x):
 def apply_rotary_pos_emb(x, cos, sin, unsqueeze_dim=1):
     cos = cos.unsqueeze(unsqueeze_dim)
     sin = sin.unsqueeze(unsqueeze_dim)
-    x_embed = (x * cos) + (rotate_half(x) * sin)
-    return x_embed
+    return torch.addcmul(x * cos, rotate_half(x), sin)
 
 
 class RotaryEmbedding(nn.Module):
