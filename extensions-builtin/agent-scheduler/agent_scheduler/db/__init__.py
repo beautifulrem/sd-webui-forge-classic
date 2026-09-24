@@ -90,8 +90,8 @@ def _trust_unsigned_script_params(engine):
         return
     signed = failed = 0
     with engine.begin() as conn:
-        rows = conn.execute(text("SELECT id, script_params, status FROM task")).fetchall()
-        for task_id, script_params, status in rows:
+        rows = conn.execute(text("SELECT id, script_params, status, result FROM task")).fetchall()
+        for task_id, script_params, status, result in rows:
             if script_params is None or signing.verified_payload(script_params) is not None:
                 continue
             conn.execute(
@@ -99,10 +99,10 @@ def _trust_unsigned_script_params(engine):
                 {"value": signing.sign(signing.strip_signature(script_params)), "id": task_id},
             )
             signed += 1
-            failed += status == "failed"
+            failed += status == "failed" and "script params are not signed" in (result or "")
     message = f"[AgentScheduler] Trusted and signed {signed} stored task(s)"
     if failed:
-        message += f"; {failed} of them had failed (use 'Requeue failed' to run them again)"
+        message += f"; {failed} had failed for being unsigned and can be requeued from the History tab"
     log.warning(message + "; remove --agent-scheduler-trust-unsigned-params for later starts")
 
 

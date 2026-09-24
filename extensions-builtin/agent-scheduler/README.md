@@ -40,4 +40,5 @@ accepts only tasks exported from the same install.
 Tasks saved by older versions have no signature and will not run (they fail
 with a message saying so). If nobody else could have imported tasks into your
 database, start once with `--agent-scheduler-trust-unsigned-params` to sign
-them, then remove the flag; failed ones can then be requeued.
+them, then remove the flag; tasks that failed for being unsigned can then be
+requeued from the History tab.

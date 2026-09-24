@@ -1,4 +1,5 @@
 import importlib.util
+import os
 from pathlib import Path
 
 import pytest
@@ -48,16 +49,22 @@ def _app(abspath):
 def setup(tmp_path, monkeypatch, request):
     from gradio import utils
 
-    abspath = _gradio_440_abspath if request.param == "4.40" else utils.abspath
-    monkeypatch.setattr(file_guard, "_served_path", lambda p: str(abspath(p)))
+    if request.param == "4.40":
+        abspath = _gradio_440_abspath
+        monkeypatch.setattr(file_guard, "_served_path", lambda p: str(abspath(p)))
+    else:
+        abspath = utils.abspath  # the guard uses it itself
     monkeypatch.chdir(tmp_path)
     data = tmp_path / "data"
     store = data / "extension-data" / "agent-scheduler"
     store.mkdir(parents=True)
     key = store / "signing.key"
     key.write_text("secret")
+    # The configured database is a symlink to the real file elsewhere.
+    (tmp_path / "volume").mkdir()
+    (tmp_path / "volume" / "real.db").write_text("secret db")
     db = store / "tasks.sqlite3"
-    db.write_text("secret db")
+    db.symlink_to(tmp_path / "volume" / "real.db")
     (data / "public.txt").write_text("hello")
     app = _app(abspath)
     assert file_guard.install(app, lambda: [str(key), str(db)]) == 3
@@ -111,3 +118,18 @@ def test_names_elsewhere_are_served(setup):
     (data / "tasks.sqlite3.png").write_text("image")
 
     assert client.get(f"/file={data / 'tasks.sqlite3.png'}").text == "image"
+
+
+def test_aliases_under_other_names_are_refused(setup):
+    client, data, store = setup
+    (data / "pic.png").symlink_to(store / "signing.key")
+    os.link(store / "signing.key", data / "copy.txt")
+
+    for alias in ("pic.png", "copy.txt"):
+        assert client.get(f"/file={data / alias}").status_code == 403, alias
+    assert client.get(f"/file={store / 'tasks.sqlite3'}").status_code == 403  # symlinked DB
+    assert client.get(f"/file={data.parent / 'volume' / 'real.db'}").status_code == 403
+
+
+def test_names_are_matched_across_unicode_forms():
+    assert file_guard._name_key("t\u0061\u0302ches.sqlite3") == file_guard._name_key("t\u00e2ches.SQLITE3")

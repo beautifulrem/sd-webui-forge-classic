@@ -9,6 +9,7 @@ protected file (or one derived from it, such as a SQLite journal).
 
 import os
 import time
+import unicodedata
 from typing import Callable, Iterable
 
 # Gradio 4 (and its deprecated alias) and Gradio 5 file routes.
@@ -26,11 +27,12 @@ def _identity(path: str):
 
 
 def _name_key(name: str) -> str:
-    # Case-insensitive filesystems; on Windows also alternate data streams
-    # ("x:stream") and the ignored trailing dots / spaces ("x. ").
+    # Case- and normalization-insensitive filesystems (NTFS, APFS); on
+    # Windows also alternate data streams ("x:stream") and the ignored
+    # trailing dots / spaces ("x. ").
     if os.name == "nt":
         name = name.split(":", 1)[0].rstrip(" .")
-    return name.casefold()
+    return unicodedata.normalize("NFC", name).casefold()
 
 
 def _served_path(requested: str) -> str:
@@ -47,61 +49,63 @@ class ProtectedFiles:
     """Refuses requests for protected files under any spelling.
 
     The request is turned into the path the file route opens (with Gradio's
-    own function). Only names starting with a protected file's name (so also
-    SQLite journals and key temp files, which come and go) or Windows short
-    names are looked at further: the path is canonicalised with realpath
-    (symlinks; short names on Windows) and refused when its folder is a
-    protected file's folder (by identity: bind mounts, aliases) and its name
-    matches, or when it is the same file as a protected one.
+    own function) and refused when:
+
+    - it is the same file as a protected one (stat follows symlinks the way
+      the route's open does: aliases, hard links, short names, case), or
+    - it lies in a protected file's folder (by identity) under a name that
+      starts with a protected name, or a short name ("~"): SQLite journals
+      and key temp files come and go, so they are matched whether or not
+      they exist yet.
     """
 
     def __init__(self, paths: Callable[[], Iterable[str]]):
         self._paths = paths
-        self._entries = ()
         self._ids = frozenset()
+        self._folders = frozenset()
+        self._names = ()
         self._checked = float("-inf")
 
     def _refresh(self):
         now = time.monotonic()
         if now - self._checked < _REFRESH_SECONDS:
             return
-        entries, ids = set(), set()
+        ids, folders, names = set(), set(), set()
         for path in self._paths():
-            real = os.path.realpath(path)
-            name = _name_key(os.path.basename(real))
+            # Both the configured path and its target (it may be a symlink;
+            # SQLite puts journals next to the resolved database).
+            for spelling in {path, os.path.realpath(path)}:
+                names.add(_name_key(os.path.basename(spelling)))
+                try:
+                    folders.add(_identity(os.path.dirname(spelling)))
+                except (OSError, ValueError):
+                    pass
             try:
-                entries.add((_identity(os.path.dirname(real)), name))
-            except (OSError, ValueError):
-                entries.add((None, name))  # folder missing: nothing to serve
-            try:
-                ids.add(_identity(real))
+                ids.add(_identity(path))
             except (OSError, ValueError):
                 pass
-        self._entries, self._ids, self._checked = tuple(entries), frozenset(ids), now
+        self._ids, self._folders, self._names = frozenset(ids), frozenset(folders), tuple(names)
+        self._checked = now
 
     def contains(self, requested: str) -> bool:
         self._refresh()
         path = _served_path(requested)
-        name = _name_key(os.path.basename(path))
-        short_name = os.name == "nt" and "~" in name
-        if not short_name and not any(name.startswith(entry_name) for _, entry_name in self._entries):
-            return False
         try:
-            real = os.path.realpath(path)
-            name = _name_key(os.path.basename(real))
-            folder = _identity(os.path.dirname(real))
-        except FileNotFoundError:
-            return False  # no such folder: nothing to serve
+            if _identity(path) in self._ids:
+                return True
+        except (FileNotFoundError, NotADirectoryError):
+            pass  # may still be a journal about to be created
         except Exception:
             return True  # cannot be checked: refuse
-        # By name even if the file does not exist yet: it may by the time the
-        # route opens it (SQLite journals exist only during writes).
-        if any(folder == entry_folder and name.startswith(entry_name) for entry_folder, entry_name in self._entries):
-            return True
-        try:
-            return _identity(real) in self._ids
-        except (OSError, ValueError):
+        name = _name_key(os.path.basename(path))
+        if "~" not in name and not any(name.startswith(protected) for protected in self._names):
             return False
+        try:
+            return _identity(os.path.dirname(path)) in self._folders
+        except (FileNotFoundError, NotADirectoryError):
+            return False  # no such folder: nothing to serve
+        except Exception:
+            return True
 
 
 def install(app, protected: Callable[[], Iterable[str]]) -> int:
