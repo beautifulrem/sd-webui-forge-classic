@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from collections import OrderedDict
 import numpy as np
 
@@ -250,6 +251,7 @@ PIPELINE_ARG_COUNT = 1 + sum(2 + len(st["params"]) for st in STAGES)
 # the life of the server.
 _LUT_CACHE: OrderedDict = OrderedDict()
 _LUT_CACHE_SIZE = 8
+_LUT_LOCK = threading.Lock()
 
 
 def _load_lut(path):
@@ -259,17 +261,19 @@ def _load_lut(path):
         print(f"[PostProcess Suite] LUT load failed: {e}")
         return None
     key = (os.path.realpath(path), stat.st_mtime_ns, stat.st_size)
-    if key in _LUT_CACHE:
-        _LUT_CACHE.move_to_end(key)
-        return _LUT_CACHE[key]
+    with _LUT_LOCK:
+        if key in _LUT_CACHE:
+            _LUT_CACHE.move_to_end(key)
+            return _LUT_CACHE[key]
     try:
         parsed = E.parse_cube(path)
     except Exception as e:
         print(f"[PostProcess Suite] LUT load failed: {e}")
-        return None
-    _LUT_CACHE[key] = parsed
-    while len(_LUT_CACHE) > _LUT_CACHE_SIZE:
-        _LUT_CACHE.popitem(last=False)
+        parsed = None  # cached too: a bad file is not re-parsed per image
+    with _LUT_LOCK:
+        _LUT_CACHE[key] = parsed
+        while len(_LUT_CACHE) > _LUT_CACHE_SIZE:
+            _LUT_CACHE.popitem(last=False)
     return parsed
 
 

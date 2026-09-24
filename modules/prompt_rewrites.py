@@ -4,8 +4,9 @@ img2img batch, Loopback and SD upscale run the same processing object
 through process_images() again, and setup_prompts() rebuilds the prompt
 lists from p.prompt: a script that rewrites p.prompt in process() would
 rewrite its own output on the next run. Scripts record their rewrites here
-and every participant restores in before_process() / postprocess(); chained
-rewrites by several scripts restore to the value before the first one.
+and every participant restores in before_process(), which runs before the
+prompts are rebuilt; chained rewrites by several scripts restore to the
+value before the first one.
 """
 
 _KEY = "_script_prompt_rewrites"

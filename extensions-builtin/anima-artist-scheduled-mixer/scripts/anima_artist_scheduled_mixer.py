@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -1292,12 +1293,20 @@ def _current_settings_data():
 def _save_current_settings_data(data):
     try:
         CURRENT_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        # Write a sibling and swap it in: an interrupted write must not
-        # leave truncated JSON that silently resets the panel.
-        temp = CURRENT_SETTINGS_FILE.with_name(CURRENT_SETTINGS_FILE.name + ".tmp")
-        with temp.open("w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(temp, CURRENT_SETTINGS_FILE)
+        # Write a unique sibling and swap it in: an interrupted or concurrent
+        # write must not leave truncated JSON that silently resets the panel.
+        fd, temp = tempfile.mkstemp(
+            dir=CURRENT_SETTINGS_FILE.parent, prefix=CURRENT_SETTINGS_FILE.name, suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp, CURRENT_SETTINGS_FILE)
+        finally:
+            if os.path.exists(temp):
+                os.remove(temp)
     except Exception:
         logger.exception("Failed to save Anima artist mixer current settings")
 
@@ -1402,20 +1411,18 @@ def _save_current_settings_ui(*values):
     return ""
 
 
-_LAST_REMEMBERED_JOB = None
-
-
 def _should_remember_settings(p) -> bool:
-    """Remember the panel as the user last generated with: once per UI
-    Generate click, not for API calls, hires passes or later X/Y/Z cells
-    (each would overwrite the saved panel with that run's args)."""
-    global _LAST_REMEMBERED_JOB
+    """Remember the panel as the user last generated with: once per
+    processing run from the UI, not for API calls, hires passes or later
+    X/Y/Z cells (each would overwrite the saved panel with that run's args)."""
     if getattr(p, "is_api", False) or getattr(p, "is_hr_pass", False):
         return False
-    job = getattr(shared.state, "job_timestamp", None)
-    if job is not None and job == _LAST_REMEMBERED_JOB:
+    if getattr(p, "_anima_artist_settings_remembered", False):
         return False
-    _LAST_REMEMBERED_JOB = job
+    p._anima_artist_settings_remembered = True
+    state = shared.state
+    if int(getattr(state, "job_count", 0) or 0) > 1 and int(getattr(state, "job_no", 0) or 0) > 0:
+        return False  # a later job of a multi-job run (X/Y/Z grid cells)
     return True
 
 

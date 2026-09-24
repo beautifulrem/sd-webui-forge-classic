@@ -8,6 +8,7 @@ import os
 import re
 import sqlite3
 import sys
+import threading
 import urllib.parse
 from asyncio import sleep
 from pathlib import Path
@@ -860,6 +861,31 @@ def api_tac(_: gr.Blocks, app: FastAPI):
     def get_lyco_info(lyco_name):
         return get_json_info(LYCO_PATH, lyco_name)
 
+    _hashing = set()
+    _hashing_lock = threading.Lock()
+    _hash_slot = threading.Semaphore(1)  # one file at a time: disk-bound
+
+    def _hash_in_background(lora_path: Path, lora_name: str):
+        if not getattr(shared.opts, "tac_modelKeywordCivitai", False):
+            return
+        key = str(lora_path)
+        with _hashing_lock:
+            if key in _hashing:
+                return
+            _hashing.add(key)
+
+        def run():
+            try:
+                with _hash_slot:
+                    hashes.sha256(key, f"lora/{lora_name}", lora_path.suffix == ".safetensors")
+            except Exception as e:
+                print(f"[Tag Autocomplete Neo] Could not hash {lora_name}: {e}")
+            finally:
+                with _hashing_lock:
+                    _hashing.discard(key)
+
+        threading.Thread(target=run, name="tac-lora-hash", daemon=True).start()
+
     @app.get("/tacapi/v1/civitai-trigger-words/{lora_name}")
     def get_civitai_trigger_words(lora_name: str):
         """Look up trigger words for a LoRA from CivitAI by-hash API.
@@ -886,12 +912,14 @@ def api_tac(_: gr.Blocks, app: FastAPI):
         lora_path = Path(paths[0])
         json_path = lora_path.with_suffix(".json")
 
-        # Compute SHA256 (uses Forge's cache, fast on repeat calls). This
-        # route is sync, so hashing a new file runs in the thread pool.
-        sha256 = hashes.sha256(
+        # Forge's hash cache; a LoRA not hashed yet is hashed in the
+        # background (it can take seconds and the frontend awaits this call
+        # while inserting the tag), so its trigger words work next time.
+        sha256 = hashes.sha256_from_cache(
             str(lora_path), f"lora/{lora_name}", lora_path.suffix == ".safetensors"
         )
         if not sha256:
+            _hash_in_background(lora_path, lora_name)
             return Response(status_code=404)
 
         sha256_upper = sha256.upper()

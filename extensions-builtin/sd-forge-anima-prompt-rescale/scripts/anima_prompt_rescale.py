@@ -141,11 +141,10 @@ class AnimaPromptRescaleScript(scripts.Script):
             register_preset_control(self.tabname, name, component)
         return [auto_enable, auto_source, auto_fraction]
 
-    # The same p is run again by img2img batch, Loopback and SD upscale.
+    # The same p is run again by img2img batch, Loopback and SD upscale:
+    # undo this script's rewrite before the next run rebuilds the prompts.
+    # (Not after a run: Loopback / SD upscale report p.prompt afterwards.)
     def before_process(self, p, *args):
-        prompt_rewrites.restore(p)
-
-    def postprocess(self, p, processed, *args):
         prompt_rewrites.restore(p)
 
     def process(self, p, auto_enable=False, auto_source=35, auto_fraction=False):
