@@ -129,8 +129,23 @@ Built-in status means these extensions are versioned with Remi and participate i
 | `--forge-ref-comfy-home PATH` | Reuse model directories from a ComfyUI installation |
 | `--forge-ref-comfy-yaml PATH` | Read ComfyUI `extra_model_paths.yaml` |
 | `--sage` / `--flash` | Install optional attention packages; availability does not guarantee selection |
+| `--agent-scheduler-trust-unsigned-params` | Once, after upgrading: sign Agent Scheduler tasks saved by older versions (see below) |
 
 Do not install every attention backend blindly. Native PyTorch attention is often the most compatible choice. Run `python launch.py --help` and consult the upstream [extra installation guide](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Extra-Installations) for additional flags.
+
+## Security and Remote Access
+
+Remi hardens the routes that bundled extensions add to the WebUI server. This matters most with `--share`, `--listen`, or a reverse proxy:
+
+- **Cross-site writes are refused.** Every route an extension adds refuses state-changing browser requests from another site (`Origin` / `Sec-Fetch-Site`). Scripts and API tools send no `Origin` header and are unaffected. Browser front-ends on another origin must be allowed with `--cors-allow-origins` / `--cors-allow-origins-regex`.
+- **The Gradio login covers extension APIs.** With `--gradio-auth`, the routes of Agent Scheduler, Prompt All-in-One (prompt history, stored API keys), TagComplete, and Prompt Queue require the same login as the UI. Agent Scheduler keeps using HTTP Basic auth when `--api-auth` is set.
+- **Reverse proxies** must forward the public host. If the proxy drops a non-default public port from `Host` (e.g. nginx `$host` on `:8443`), also send `X-Forwarded-Port`; otherwise UI saves are refused as cross-site.
+- **Agent Scheduler task params are signed.** Queued tasks store pickled script arguments, so they are signed with a per-install key (`agent_scheduler_signing.key`, next to the task database). Keep this file with the database when moving an install or a Docker volume. `/import` only accepts queues exported from the same install. The task database and key are never served through `/file=`.
+- **Outbound requests** made by Agent Scheduler (API callbacks, image URLs) are checked against the address actually connected to: cloud-metadata and link-local targets are refused, and image URLs follow Forge's *Settings → API* request policy.
+
+### Upgrading from an older Remi or Agent Scheduler
+
+Tasks saved before signing existed will not run and fail with a message saying so. If nobody else could have imported tasks into your database, start once with `--agent-scheduler-trust-unsigned-params`, then remove the flag; tasks that failed for being unsigned can be requeued from the History tab.
 
 ## Documentation
 
@@ -146,6 +161,8 @@ Do not install every attention backend blindly. Native PyTorch attention is ofte
 - Third-party extensions may depend on APIs that Neo or Remi intentionally changed.
 - CUDA-only packages such as FlashAttention are not available on every platform.
 - Experimental guidance methods can alter image character as well as quality; preserve a baseline seed when comparing them.
+- Torch compile (whole-model presets and **Anima per-block**) runs the affected steps uncompiled while NAG, NegPiP, Regional, FreeFuse, or Artist Mixer are active, so these features are never silently ignored by a cached graph; expect no compile speed-up for those runs.
+- **Anima FlowMatch** is only meaningful for flow-matching models; on other models (e.g. left selected after switching from an Anima Flow sampler) it falls back to the Simple schedule.
 - Real checkpoint output remains the final compatibility test. Startup or unit tests do not prove generation quality for every checkpoint or quantization.
 
 ## Issues and Contributions

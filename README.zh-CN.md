@@ -129,8 +129,23 @@ Remi 随分支提供经筛选的内置扩展，包括：
 | `--forge-ref-comfy-home PATH` | 复用 ComfyUI 安装中的模型目录 |
 | `--forge-ref-comfy-yaml PATH` | 读取 ComfyUI `extra_model_paths.yaml` |
 | `--sage` / `--flash` | 安装可选 attention 包；安装成功不代表一定被选中 |
+| `--agent-scheduler-trust-unsigned-params` | 升级后使用一次：为旧版本保存的 Agent Scheduler 任务签名（见下文） |
 
 不要盲目安装所有 attention 后端。PyTorch 原生 attention 通常是兼容性最好的选择。更多参数可运行 `python launch.py --help`，并参考上游 [额外安装指南](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Extra-Installations)。
+
+## 安全与远程访问
+
+Remi 加固了内置扩展添加到 WebUI 服务器上的接口。使用 `--share`、`--listen` 或反向代理时尤其重要：
+
+- **拒绝跨站写请求。** 所有扩展新增的接口都会拒绝来自其他站点的浏览器写请求（依据 `Origin` / `Sec-Fetch-Site`）。脚本和 API 工具不带 `Origin` 头，不受影响。其他来源的浏览器前端需要通过 `--cors-allow-origins` / `--cors-allow-origins-regex` 放行。
+- **Gradio 登录覆盖扩展接口。** 设置 `--gradio-auth` 后，Agent Scheduler、Prompt All-in-One（提示词历史、保存的 API 密钥）、TagComplete 和 Prompt Queue 的接口需要与界面相同的登录。设置 `--api-auth` 时，Agent Scheduler 仍使用 HTTP Basic 认证。
+- **反向代理**需要转发公网主机名。如果代理在 `Host` 中去掉了非默认的公网端口（例如 nginx 在 `:8443` 上使用 `$host`），请同时发送 `X-Forwarded-Port`，否则界面上的保存操作会被当作跨站请求拒绝。
+- **Agent Scheduler 任务参数经过签名。** 队列任务以 pickle 保存脚本参数，因此会用本安装专属的密钥签名（`agent_scheduler_signing.key`，位于任务数据库旁）。迁移安装目录或 Docker 数据卷时，请把该文件和数据库一起带走。`/import` 只接受本安装导出的队列。任务数据库和密钥不会通过 `/file=` 对外提供。
+- **对外请求**（API 回调、图片 URL）按实际连接到的地址检查：拒绝云元数据和链路本地地址；图片 URL 遵循 Forge *设置 → API* 中的请求策略。
+
+### 从旧版 Remi 或 Agent Scheduler 升级
+
+签名机制出现之前保存的任务不会运行，并会提示原因。如果没有其他人能向你的数据库导入任务，请带上 `--agent-scheduler-trust-unsigned-params` 启动一次，然后去掉该参数；因未签名而失败的任务可在 History 页重新排队。
 
 ## 文档
 
@@ -146,6 +161,8 @@ Remi 随分支提供经筛选的内置扩展，包括：
 - 第三方扩展可能依赖 Neo 或 Remi 已主动修改的 API。
 - FlashAttention 等仅支持 CUDA 的依赖无法在所有平台上使用。
 - 实验性引导方法不仅可能改变质量，也可能改变画面特征；对比时请保留固定种子的基线结果。
+- 开启 NAG、NegPiP、Regional、FreeFuse 或 Artist Mixer 时，Torch compile（整模型预设和 **Anima per-block**）会让相关步骤以未编译方式运行，确保这些功能不会被缓存的编译图悄悄忽略；这类生成不会获得编译加速。
+- **Anima FlowMatch** 只适用于 flow-matching 模型；用在其他模型上（例如从 Anima Flow 采样器切换后仍保留该调度器）会回退到 Simple 调度。
 - 真实 checkpoint 生成是最终兼容性测试。成功启动或单元测试通过，不能证明所有 checkpoint 和量化都具有相同生成质量。
 
 ## 问题反馈与贡献

@@ -42,3 +42,22 @@ with a message saying so). If nobody else could have imported tasks into your
 database, start once with `--agent-scheduler-trust-unsigned-params` to sign
 them, then remove the flag; tasks that failed for being unsigned can then be
 requeued from the History tab.
+
+Keep `agent_scheduler_signing.key` together with the task database when you
+move the install or a Docker volume. If the key file cannot be read (e.g. it is
+locked at startup), the queue is paused instead of failing stored tasks; fix
+the file and restart. The task database and key are never served through
+Gradio's `/file=` route.
+
+## Access control
+
+- With `--api-auth`, the API uses HTTP Basic auth.
+- Without it, but with `--gradio-auth`, every `/agent-scheduler/v1/*` route
+  requires the Gradio login (the UI's own requests already carry it).
+- State-changing requests from another site are refused. Browser front-ends on
+  another origin must be allowed with `--cors-allow-origins`.
+- `callback_url` must be http(s); loopback and LAN targets are allowed, cloud
+  metadata / link-local targets are not, and redirects are not followed.
+- Image URLs in API tasks follow Forge's *Settings → API* request policy.
+- A task runs at most once at a time, even across a UI reload or a manual
+  **Run** while the queue is running.
