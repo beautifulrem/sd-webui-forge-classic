@@ -1971,7 +1971,15 @@ def _context_token_dim(context):
     return max(1, context.dim() - 2)
 
 
-def _concat_contexts(base_context, artist_context):
+def _concat_contexts(base_context, artist_context, transformer_options=None):
+    # Under NegPiP the base context has negative-weight tokens sign-restored and
+    # its attention hook skips artist contexts, so fold the mask back in here.
+    mask = transformer_options.get("negpip_mask") if isinstance(transformer_options, dict) else None
+    if torch.is_tensor(mask) and mask.dim() == base_context.dim() and mask.shape[1] == base_context.shape[1]:
+        if mask.shape[0] != base_context.shape[0] and base_context.shape[0] % mask.shape[0] == 0:
+            mask = mask.repeat(base_context.shape[0] // mask.shape[0], *([1] * (mask.dim() - 1)))
+        if mask.shape[0] == base_context.shape[0]:
+            base_context = base_context * mask.to(base_context)
     return torch.cat([base_context, artist_context], dim=_context_token_dim(base_context))
 
 
@@ -1981,7 +1989,7 @@ def _artist_forward_batched(original_forward, x, context, rope_emb, transformer_
     for artist, _ in artists:
         artist_context = _to_context_like(artist.cond, context)
         if fusion_mode in BASE_CONTEXT_FUSIONS:
-            contexts.append(_concat_contexts(context, artist_context))
+            contexts.append(_concat_contexts(context, artist_context, transformer_options))
         else:
             contexts.append(artist_context)
     lengths = {item.shape[_context_token_dim(item)] for item in contexts}
@@ -2079,7 +2087,7 @@ def _dispatch_output_avg(original_forward, state, x, context, rope_emb, transfor
         artist_options["anima_nag_skip"] = "artist_context"
         for (artist, _), weight in zip(active, weights):
             artist_context = _to_context_like(artist.cond, context)
-            kv = _concat_contexts(context, artist_context) if state.fusion_mode in BASE_CONTEXT_FUSIONS else artist_context
+            kv = _concat_contexts(context, artist_context, transformer_options) if state.fusion_mode in BASE_CONTEXT_FUSIONS else artist_context
             out_i = original_forward(x, context=kv, rope_emb=rope_emb, transformer_options=artist_options)
             artist_total = out_i * weight if artist_total is None else artist_total + out_i * weight
     strength = _clamp(float(state.global_strength), 0.0, 1.0 if state.fusion_mode == FUSION_QUALITY_DELTA else 2.0) * total_influence
@@ -2121,7 +2129,7 @@ def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_
         parts.append(artist_context * (weight / denom))
     combined = torch.cat(parts, dim=_context_token_dim(context))
     if state.fusion_mode in BASE_CONTEXT_FUSIONS:
-        merged = _concat_contexts(context, combined)
+        merged = _concat_contexts(context, combined, transformer_options)
         artist_options = dict(transformer_options)
         artist_options["anima_nag_skip"] = "artist_context"
         artist_out = original_forward(x, context=merged, rope_emb=rope_emb, transformer_options=artist_options)
