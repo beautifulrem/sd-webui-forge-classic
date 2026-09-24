@@ -85,7 +85,21 @@ def require_anima_flow_denoiser(model, feature: str) -> None:
 
 
 
-NEGPIP_MASK_KEY = "negpip_mask"
+NEGPIP_MASK_KEY = "negpip_mask"  # base prompt mask, set by NegPiP's DiT hook
+# Mask for a context a wrapper swapped in (Regional, Artist Mixer); None means
+# "no negative weights here". Kept apart so the base mask cannot leak onto it.
+NEGPIP_CONTEXT_MASK_KEY = "negpip_context_mask"
+NEGPIP_EXTRA_PROMPTS = "negpip_extra_prompts"
+
+
+def register_negpip_prompts(process, prompts) -> None:
+    """Let NegPiP see negative weights in prompts encoded outside the main ones."""
+
+    extra = getattr(process, NEGPIP_EXTRA_PROMPTS, None)
+    if extra is None:
+        extra = []
+        setattr(process, NEGPIP_EXTRA_PROMPTS, extra)
+    extra.extend(str(prompt) for prompt in prompts if isinstance(prompt, str) and prompt)
 
 
 def split_conditioning(conds):
@@ -96,24 +110,37 @@ def split_conditioning(conds):
     attention hook negates only V with the mask. Callers that build their own
     contexts (Regional, Artist Mixer) keep the mask and pass it to the forward
     under ``NEGPIP_MASK_KEY`` so those tokens get the same semantics as in the
-    main prompt. Other outputs are returned unchanged with ``mask=None``.
+    main prompt. Other outputs, and masks without negative entries, give
+    ``mask=None``.
     """
+
+    import torch
 
     if not isinstance(conds, dict):
         return conds, None
-    return conds.get("crossattn", conds.get("c_crossattn")), conds.get("c_negpip_mask")
+    mask = conds.get("c_negpip_mask")
+    if not torch.is_tensor(mask) or not bool((mask < 0).any()):
+        mask = None
+    return conds.get("crossattn", conds.get("c_crossattn")), mask
 
 
 def negpip_mask_for(context, transformer_options):
     """NegPiP V-mask from ``transformer_options`` if it matches ``context``.
 
-    The mask describes one specific context's tokens; any other context (a
-    different length, or a batch it cannot tile onto) must not use it.
+    A swapped-in context uses only its own ``NEGPIP_CONTEXT_MASK_KEY``; one
+    marked ``anima_nag_skip`` without it never inherits the base mask. The
+    mask must also fit the context (same length, tileable batch).
     """
 
     import torch
 
-    mask = (transformer_options or {}).get(NEGPIP_MASK_KEY)
+    options = transformer_options or {}
+    if NEGPIP_CONTEXT_MASK_KEY in options:
+        mask = options[NEGPIP_CONTEXT_MASK_KEY]
+    elif options.get("anima_nag_skip"):
+        return None
+    else:
+        mask = options.get(NEGPIP_MASK_KEY)
     if not torch.is_tensor(mask) or not torch.is_tensor(context):
         return None
     if mask.ndim != context.ndim or mask.shape[1] != context.shape[1]:

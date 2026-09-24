@@ -10,7 +10,7 @@ SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_artist_scheduled_mixer.p
 _HELPERS = {"_ensure_3d", "_to_context", "_broadcast_batch", "_artist_mask_like", "_joined_mask", "_with_negpip_mask"}
 _tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
 _nodes = [node for node in _tree.body if isinstance(node, ast.FunctionDef) and node.name in _HELPERS]
-_ns = {"torch": torch, "NEGPIP_MASK_KEY": "negpip_mask"}
+_ns = {"torch": torch, "NEGPIP_CONTEXT_MASK_KEY": "negpip_context_mask"}
 exec(compile(ast.Module(_nodes, []), str(SCRIPT), "exec"), _ns)
 
 
@@ -36,8 +36,8 @@ def test_joined_mask_fills_parts_without_a_mask_with_ones():
     assert _ns["_joined_mask"]([(base, None), (artist, None)], 1) is None
 
 
-def test_foreign_context_options_replace_the_base_mask():
+def test_foreign_context_options_carry_their_own_mask():
     base_mask = torch.ones(1, 3, 1)
     options = _ns["_with_negpip_mask"]({"negpip_mask": base_mask, "other": 1}, None)
 
-    assert options == {"negpip_mask": None, "other": 1}
+    assert options == {"negpip_mask": base_mask, "negpip_context_mask": None, "other": 1}

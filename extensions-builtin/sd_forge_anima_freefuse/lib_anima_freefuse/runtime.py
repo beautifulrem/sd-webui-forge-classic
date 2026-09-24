@@ -463,13 +463,18 @@ def _make_cross_attention_forward(
                 rope_emb=rope_emb,
                 transformer_options=transformer_options,
             )
-        q, k, v = self.compute_qkv(x, context, rope_emb=rope_emb)
         # This override replaces the class forward NegPiP hooks, so apply its
         # V-only negation here: K keeps the sign-restored tokens.
         negpip_mask = negpip_mask_for(context, transformer_options)
-        if negpip_mask is not None:
-            # Same V path as SelfCrossAttention.compute_qkv.
-            v = self.v_norm(self.v_proj(context * negpip_mask).unflatten(-1, (self.n_heads, self.head_dim)))
+        if negpip_mask is None:
+            q, k, v = self.compute_qkv(x, context, rope_emb=rope_emb)
+        else:
+            # Cross-attention branch of SelfCrossAttention.compute_qkv, with V
+            # projected from the masked context in the same single pass.
+            heads = (self.n_heads, self.head_dim)
+            q = self.q_norm(self.q_proj(x).unflatten(-1, heads))
+            k = self.k_norm(self.k_proj(context).unflatten(-1, heads))
+            v = self.v_norm(self.v_proj(context * negpip_mask).unflatten(-1, heads))
         if block_index == state.collect_block:
             state.collect_similarity(x, q, k, transformer_options)
         bias = (

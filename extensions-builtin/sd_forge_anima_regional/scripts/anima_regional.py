@@ -12,7 +12,7 @@ from lib_anima_regional.regional import Region, RegionalState, apply_regional_pa
 from modules import prompt_parser, scripts
 from modules.anima_feature_conflicts import register_exclusive_component
 from modules.anima_presets import register_preset_control
-from modules.anima_support import is_anima_engine, split_conditioning
+from modules.anima_support import is_anima_engine, register_negpip_prompts, split_conditioning
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -131,6 +131,15 @@ class AnimaRegionalScript(scripts.Script):
         self.infotext_fields = [PasteField(control, key) for control, key in zip(controls, keys)]
         self.paste_field_names = keys
         return controls
+
+    def process(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
+        # Runs before NegPiP's process_batch: let a negative weight in a
+        # region prompt enable NegPiP.
+        if enable:
+            register_negpip_prompts(
+                p,
+                [region_values[offset + 1] for offset in range(0, len(region_values), 7) if region_values[offset]],
+            )
 
     def process_before_every_sampling(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
         if not enable or not is_anima_engine(getattr(p, "sd_model", None)):

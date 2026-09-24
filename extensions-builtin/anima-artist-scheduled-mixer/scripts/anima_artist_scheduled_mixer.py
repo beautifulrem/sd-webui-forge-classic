@@ -13,7 +13,7 @@ import torch
 from modules import script_callbacks, scripts, sd_models, shared, spectrum_force
 from modules.anima_feature_conflicts import register_exclusive_component
 from modules.anima_presets import register_preset_control
-from modules.anima_support import NEGPIP_MASK_KEY, negpip_mask_for, split_conditioning
+from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, negpip_mask_for, register_negpip_prompts, split_conditioning
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
@@ -2002,7 +2002,7 @@ def _with_negpip_mask(transformer_options, mask):
     """Options for a foreign context: its own mask replaces the base prompt's."""
 
     options = dict(transformer_options) if isinstance(transformer_options, dict) else {}
-    options[NEGPIP_MASK_KEY] = mask
+    options[NEGPIP_CONTEXT_MASK_KEY] = mask
     return options
 
 
@@ -2609,6 +2609,12 @@ class Script(scripts.Script):
             *base_row_components,
             *hires_row_components,
         ]
+
+    def process(self, p, *args, **kwargs):
+        # Runs before NegPiP's process_batch: let a negative weight in an
+        # artist field enable NegPiP. Only free-text row fields can match.
+        if args and args[0]:
+            register_negpip_prompts(p, args[13:])
 
     def process_before_every_sampling(self, p, *args, **kwargs):
         global _ACTIVE_STATE
