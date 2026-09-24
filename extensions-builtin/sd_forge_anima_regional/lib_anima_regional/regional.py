@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 import torch
 
+from modules import spectrum_force
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
@@ -185,9 +186,7 @@ def apply_regional_patch(model, state: RegionalState):
                 state.current_masks = None
 
     patched.set_model_unet_function_wrapper(wrapper)
-    # Spectrum wraps this wrapper, so it must see the flag on the patcher.
+    # Spectrum wraps this wrapper, so it must see the request on the patcher.
     # Only steps inside the regional window need actual forwards.
-    options = dict(patched.model_options.get("transformer_options", {}))
-    options["forge_spectrum_force_actual"] = state.active
-    patched.model_options["transformer_options"] = options
+    spectrum_force.request(patched, state.active)
     return patched

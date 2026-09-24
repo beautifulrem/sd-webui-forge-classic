@@ -42,6 +42,7 @@ from modules.anima_feature_conflicts import (
     record_conflict_resolution,
     resolve_guidance_conflicts,
 )
+from modules import spectrum_force
 from modules.anima_presets import register_preset_control
 from modules.anima_support import is_anima_auxiliary_denoiser, is_anima_engine
 from modules.infotext_utils import PasteField
@@ -814,7 +815,8 @@ class AnimaGuidanceScript(scripts.Script):
                     on_unbatched=report_unbatched_nag,
                 ),
             )
-            unet.set_transformer_option("forge_spectrum_force_actual", "anima_nag")
+            # NAG only changes the output inside its own sigma window.
+            spectrum_force.request(unet, spectrum_force.sigma_window(nag_sigma_start, nag_sigma_end))
             unet.disable_model_cfg1_optimization()
             p.extra_generation_params["Anima NAG"] = True
             p.extra_generation_params["Anima NAG scale"] = float(nag_scale)
@@ -884,7 +886,7 @@ class AnimaGuidanceScript(scripts.Script):
                 make_momentum_post_cfg_function(momentum_state, process=p),
                 disable_cfg1_optimization=True,
             )
-            unet.set_transformer_option("forge_spectrum_force_actual", "anima_momentum")
+            spectrum_force.request(unet, "anima_momentum")
             p.extra_generation_params["Anima Momentum Guidance"] = True
             p.extra_generation_params["Anima Momentum strength"] = float(momentum_strength)
             p.extra_generation_params["Anima Momentum EMA"] = float(momentum_ema)

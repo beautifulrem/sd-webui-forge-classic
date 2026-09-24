@@ -85,19 +85,22 @@ _ESCAPED_OPEN = "\x00"
 _ESCAPED_CLOSE = "\x01"
 
 _WEIGHT_RE = re.compile(r":\s*-?[\d.]+\s*$")
+_GROUP_BRACKET = re.compile(r"[()\[\]{}]")
 
 
 def _strip_emphasis(token: str) -> str:
     """Remove surrounding ()/[]/<> emphasis and any trailing :weight."""
     # protect escaped parens (literal booru parens like `ganyu \(genshin impact\)`)
     s = token.replace(r"\(", _ESCAPED_OPEN).replace(r"\)", _ESCAPED_CLOSE).strip()
+    # ":3" or "16:9" are tags, not weights; a weight needs an emphasis group.
+    grouped = bool(_GROUP_BRACKET.search(s))
 
     changed = True
     while changed:
         changed = False
         s = s.strip()
         # trailing :1.2 style weight (possibly just before a closing paren)
-        new = _WEIGHT_RE.sub("", s)
+        new = _WEIGHT_RE.sub("", s) if grouped else s
         if new != s:
             s, changed = new, True
         # matched wrapper pairs
@@ -110,10 +113,11 @@ def _strip_emphasis(token: str) -> str:
 
 def _normalize(tag: str) -> str:
     """Canonical form used for comparison."""
+    grouped = bool(_GROUP_BRACKET.search(tag.replace(r"\(", "").replace(r"\)", "")))
     s = _strip_emphasis(tag).lower()
     s = s.replace("\\", "")             # drop escape backslashes
     s = re.sub(r"[()\[\]{}]", " ", s)   # brackets are irrelevant for comparison
-    while _WEIGHT_RE.search(s):        # weights left behind by unbalanced group ends
+    while grouped and _WEIGHT_RE.search(s):  # weights left by unbalanced group ends
         s = _WEIGHT_RE.sub("", s).strip()
     s = s.replace("_", " ")             # underscore == space
     s = re.sub(r"\s+", " ", s)          # collapse whitespace

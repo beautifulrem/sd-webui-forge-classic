@@ -8,6 +8,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from lib_anima_regional.regional import apply_regional_patch
+from modules import spectrum_force
 
 
 class _Patcher:
@@ -56,8 +57,8 @@ def test_wrapper_runs_with_and_without_previous_wrapper_and_restores_forward():
 
     patched = apply_regional_patch(_Patcher(dit), _State())
     # Spectrum is the outer wrapper, so the flag must live on the patcher.
-    force_actual = patched.model_options["transformer_options"]["forge_spectrum_force_actual"]
-    assert force_actual(0.5) is True
+    force_actual = patched.model_options["transformer_options"][spectrum_force.KEY]
+    assert spectrum_force.is_forced(force_actual, 0.5)
     patched.model_options["model_function_wrapper"](model_function, _args())
 
     previous_calls = []

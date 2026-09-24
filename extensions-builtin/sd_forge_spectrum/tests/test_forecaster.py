@@ -227,7 +227,7 @@ class ForecasterTests(unittest.TestCase):
         def run(force_actual):
             calls.clear()
             for step in range(5):
-                options = {"forge_spectrum_force_actual": force_actual}
+                options = {"forge_spectrum_force_actual": (force_actual,)}
                 patcher.wrapper(
                     model_function,
                     {
@@ -241,6 +241,24 @@ class ForecasterTests(unittest.TestCase):
 
         self.assertEqual(len(run(lambda sigma: False)), 4)  # step 3 served from cache
         self.assertEqual(len(run(lambda sigma: sigma > 0.65)), 5)  # step 3 (sigma 0.7) forced
+
+        def run_steps(force_actual, count):
+            calls.clear()
+            for step in range(count):
+                patcher.wrapper(
+                    model_function,
+                    {
+                        "input": torch.zeros(1, 1),
+                        "timestep": torch.tensor([1.0 - step * 0.1]),
+                        "c": {"transformer_options": {"forge_spectrum_force_actual": (force_actual,)}},
+                        "cond_or_uncond": [0],
+                    },
+                )
+            return len(calls)
+
+        # Steps 3-4 are forced; step 5 must rebuild history instead of
+        # extrapolating from steps 0-2 across the forced window.
+        self.assertEqual(run_steps(lambda sigma: 0.55 < sigma < 0.75, 6), 6)
 
 
 if __name__ == "__main__":

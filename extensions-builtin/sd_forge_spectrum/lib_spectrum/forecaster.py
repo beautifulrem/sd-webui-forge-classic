@@ -18,6 +18,7 @@ from collections.abc import Hashable, Sequence
 import torch
 
 from lib_spectrum.sea import SeaCalibration, l1rel, sea_filter
+from modules import spectrum_force
 from modules.anima_support import is_anima_auxiliary_denoiser
 
 logger = logging.getLogger("Spectrum")
@@ -225,6 +226,7 @@ class SpectrumState:
         self.sea_delta = sea_calibration.load() if sea_calibration is not None else None
         self.sea_saved = self.sea_delta is not None
         self.warned_wrapper = False
+        self.was_forced = False
 
     def reset(self):
         self.forecasters.clear()
@@ -239,6 +241,7 @@ class SpectrumState:
         self.sea_previous = None
         self.sea_accumulated = 0.0
         self.sea_distances.clear()
+        self.was_forced = False
 
     def advance(self, sigma: float, latent: torch.Tensor) -> bool:
         if self.last_sigma is not None and sigma > self.last_sigma + 1e-7:
@@ -375,6 +378,13 @@ class SpectrumNode:
         )
         if feature_cache:
             _ensure_capture_hook(dit)
+        if process is not None:
+            # Lets the script free the (GPU) feature history after generation.
+            states = getattr(process, "_spectrum_states", None)
+            if states is None:
+                states = []
+                setattr(process, "_spectrum_states", states)
+            states.append(state)
 
         def actual_forward(model_function, args):
             if old_wrapper is not None:
@@ -401,12 +411,16 @@ class SpectrumNode:
 
             compatible = valid_branches
             transformer_options = args.get("c", {}).get("transformer_options", {})
-            # A string flag forces actual forwards for the whole pass; a
-            # callable decides per step from the current sigma.
-            force_actual = transformer_options.get("forge_spectrum_force_actual")
-            if callable(force_actual):
-                force_actual = force_actual(sigma_value)
-            if force_actual:
+            forced = spectrum_force.is_forced(transformer_options.get(spectrum_force.KEY), sigma_value)
+            if new_step:
+                if state.was_forced and not forced:
+                    # Forecasters were not updated inside the forced window;
+                    # rebuild history instead of extrapolating across it.
+                    state.forecasters.clear()
+                    state.current_window = state.window_size
+                    state.consecutive_cached = 0
+                state.was_forced = forced
+            if forced:
                 compatible = False
             if compat_policy != "Legacy / fastest":
                 compatible = compatible and _safe_simple_branches(branches)

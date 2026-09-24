@@ -240,6 +240,13 @@ class SpectrumForForge(scripts.Script):
             verbose,
         ]
 
+    def cleanup(self, p, *args, **kwargs):
+        # The wrapper (and its GPU feature history) stays on forge_objects
+        # until the next generation; drop the history as soon as this one ends.
+        for state in getattr(p, "_spectrum_states", None) or ():
+            state.reset()
+        p._spectrum_states = []
+
     def process_before_every_sampling(self, p, enable: bool, *args, **kwargs):
         if not enable:
             return

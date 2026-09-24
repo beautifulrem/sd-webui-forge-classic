@@ -15,6 +15,7 @@ import torch.nn.functional as F
 from backend.operations import main_stream_worker, weights_manual_cast
 from backend.patcher.base import LowVramPatch, OnlineLoRAPatch
 from backend.patcher.lora import merge_lora_to_weight
+from modules import spectrum_force
 from modules.forward_override import install_forward_override, restore_forward_override
 from .masks import fit_mask_batch, generate_masks
 
@@ -617,7 +618,6 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
                 adjusted = dict(args)
                 adjusted["c"] = dict(args["c"])
                 options = dict(adjusted["c"].get("transformer_options", {}))
-                options["forge_spectrum_force_actual"] = "anima_freefuse"
                 options["anima_freefuse_phase"] = state.phase
                 adjusted["c"]["transformer_options"] = options
                 if previous is not None:
@@ -632,7 +632,7 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
     patched.set_model_unet_function_wrapper(wrapper)
     options = dict(patched.model_options.get("transformer_options", {}))
     options["anima_freefuse_state"] = state
-    # Spectrum wraps this wrapper, so it must see the flag on the patcher.
-    options["forge_spectrum_force_actual"] = "anima_freefuse"
     patched.model_options["transformer_options"] = options
+    # Spectrum wraps this wrapper, so it must see the request on the patcher.
+    spectrum_force.request(patched, "anima_freefuse")
     return patched

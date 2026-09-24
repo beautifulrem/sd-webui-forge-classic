@@ -10,7 +10,7 @@ from pathlib import Path
 import gradio as gr
 import torch
 
-from modules import script_callbacks, scripts, shared
+from modules import script_callbacks, scripts, sd_models, shared, spectrum_force
 from modules.anima_feature_conflicts import register_exclusive_component
 from modules.anima_presets import register_preset_control
 from modules.forward_override import install_forward_override, restore_forward_override
@@ -1649,11 +1649,11 @@ def _cache_key(p, texts):
     sd_model = getattr(p, "sd_model", None)
     # forge_objects is a fresh shallow_copy() every pass, so its id never
     # matches twice; key on the checkpoint, text encoder and LoRA set instead.
+    # forge_hash encodes the checkpoint and additional modules (text encoder).
     checkpoint = getattr(getattr(sd_model, "sd_checkpoint_info", None), "filename", None)
     model_key = (
         str(checkpoint),
-        id(sd_model),  # changes when the engine (e.g. its text encoder) reloads
-        id(getattr(sd_model, "cond_stage_model", None)),
+        str(getattr(sd_models.model_data, "forge_hash", "")),
         str(getattr(sd_model, "current_lora_hash", "")),
     )
     return model_key, tuple(texts)
@@ -1840,9 +1840,7 @@ def _install_model_wrapper(unet, dm, state):
     # Spectrum cannot infer; it wraps this wrapper, so set the flag on the
     # patcher. Artist windows depend on sampler progress, not sigma alone,
     # so the whole pass is forced.
-    transformer_options = dict(options.get("transformer_options", {}))
-    transformer_options["forge_spectrum_force_actual"] = "artist_mixer"
-    options["transformer_options"] = transformer_options
+    spectrum_force.request(unet, "artist_mixer")
     _PATCHED_MODEL_WRAPPERS.append((unet, had_wrapper, existing))
 
 
