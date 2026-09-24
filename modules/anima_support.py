@@ -92,14 +92,18 @@ NEGPIP_CONTEXT_MASK_KEY = "negpip_context_mask"
 NEGPIP_EXTRA_PROMPTS = "negpip_extra_prompts"
 
 
-def register_negpip_prompts(process, prompts) -> None:
-    """Let NegPiP see negative weights in prompts encoded outside the main ones."""
+def register_negpip_prompts(process, source: str, prompts) -> None:
+    """Let NegPiP see negative weights in prompts encoded outside the main ones.
+
+    Entries are replaced per ``source`` so repeated ``process_images`` calls on
+    one ``p`` (img2img batch, loopback, SD upscale) do not accumulate them.
+    """
 
     extra = getattr(process, NEGPIP_EXTRA_PROMPTS, None)
-    if extra is None:
-        extra = []
+    if not isinstance(extra, dict):
+        extra = {}
         setattr(process, NEGPIP_EXTRA_PROMPTS, extra)
-    extra.extend(str(prompt) for prompt in prompts if isinstance(prompt, str) and prompt)
+    extra[source] = [str(prompt) for prompt in prompts if isinstance(prompt, str) and prompt]
 
 
 def split_conditioning(conds):
@@ -107,10 +111,10 @@ def split_conditioning(conds):
 
     While NegPiP is active the output is ``{"crossattn", "c_negpip_mask"}``:
     negative-weight tokens are sign-restored in ``crossattn`` and NegPiP's
-    attention hook negates only V with the mask. Callers that build their own
+    attention hook negates only V with the mask. Callers that swap in their own
     contexts (Regional, Artist Mixer) keep the mask and pass it to the forward
-    under ``NEGPIP_MASK_KEY`` so those tokens get the same semantics as in the
-    main prompt. Other outputs, and masks without negative entries, give
+    under ``NEGPIP_CONTEXT_MASK_KEY`` so those tokens get the same semantics as
+    in the main prompt. Other outputs, and masks without negative entries, give
     ``mask=None``.
     """
 
@@ -127,9 +131,9 @@ def split_conditioning(conds):
 def negpip_mask_for(context, transformer_options):
     """NegPiP V-mask from ``transformer_options`` if it matches ``context``.
 
-    A swapped-in context uses only its own ``NEGPIP_CONTEXT_MASK_KEY``; one
-    marked ``anima_nag_skip`` without it never inherits the base mask. The
-    mask must also fit the context (same length, tileable batch).
+    A swapped-in context uses only its own ``NEGPIP_CONTEXT_MASK_KEY`` (which
+    the swapping wrapper always sets, possibly to None). The mask must also
+    fit the context (same length, tileable batch).
     """
 
     import torch
@@ -137,8 +141,6 @@ def negpip_mask_for(context, transformer_options):
     options = transformer_options or {}
     if NEGPIP_CONTEXT_MASK_KEY in options:
         mask = options[NEGPIP_CONTEXT_MASK_KEY]
-    elif options.get("anima_nag_skip"):
-        return None
     else:
         mask = options.get(NEGPIP_MASK_KEY)
     if not torch.is_tensor(mask) or not torch.is_tensor(context):

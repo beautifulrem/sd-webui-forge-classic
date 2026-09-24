@@ -19,7 +19,7 @@ from einops import rearrange
 from backend.nn.anima import SelfCrossAttention
 from backend.sampling import condition, sampling_function
 from modules import shared
-from modules.anima_support import negpip_mask_for
+from modules.anima_support import NEGPIP_MASK_KEY, negpip_mask_for
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
@@ -182,19 +182,16 @@ def _hook_dit_forward(dit: "Anima", remove: bool):
     ):
         if forward_detached[0]:
             return orig_forward(x, timesteps, context, padding_mask, **kwargs)
-        transformer_options = kwargs.get("transformer_options", {})
+        # Copy: the caller's transformer_options dict is shared across calls.
+        transformer_options = dict(kwargs.get("transformer_options", {}))
 
         negpip_mask = kwargs.get("c_negpip_mask", None)
-        if negpip_mask is None:
-            negpip_mask = torch.ones(
-                context.shape[0],
-                context.shape[1],
-                1,
-                device=context.device,
-                dtype=context.dtype,
-            )
+        # An all-positive mask is a no-op; skip the per-block multiply (one
+        # check per model call instead of a multiply in every cross-attention).
+        if negpip_mask is not None and not bool((negpip_mask < 0).any()):
+            negpip_mask = None
 
-        transformer_options["negpip_mask"] = negpip_mask
+        transformer_options[NEGPIP_MASK_KEY] = negpip_mask
         kwargs["transformer_options"] = transformer_options
 
         return orig_forward(x, timesteps, context, padding_mask, **kwargs)

@@ -45,6 +45,14 @@ def _encode(p, text: str):
     return cond.detach().float().cpu().contiguous(), mask
 
 
+def _region_rows(region_values):
+    return [tuple(region_values[offset : offset + 7]) for offset in range(0, len(region_values), 7)]
+
+
+def _region_is_used(active, text, width, height, strength) -> bool:
+    return bool(active) and bool(str(text).strip()) and float(strength) > 0.0 and float(width) > 0.0 and float(height) > 0.0
+
+
 class AnimaRegionalScript(scripts.Script):
     sorting_priority = 2027
 
@@ -133,13 +141,16 @@ class AnimaRegionalScript(scripts.Script):
         return controls
 
     def process(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
-        # Runs before NegPiP's process_batch: let a negative weight in a
-        # region prompt enable NegPiP.
-        if enable:
-            register_negpip_prompts(
-                p,
-                [region_values[offset + 1] for offset in range(0, len(region_values), 7) if region_values[offset]],
-            )
+        # Runs before NegPiP's process_batch: let a negative weight in a region
+        # prompt that will actually be encoded enable NegPiP.
+        prompts = []
+        if enable and is_anima_engine(getattr(p, "sd_model", None)) and not getattr(p, "_anima_freefuse_enabled", False):
+            prompts = [
+                text
+                for active, text, x, y, width, height, strength in _region_rows(region_values)
+                if _region_is_used(active, text, width, height, strength)
+            ]
+        register_negpip_prompts(p, "anima_regional", prompts)
 
     def process_before_every_sampling(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
         if not enable or not is_anima_engine(getattr(p, "sd_model", None)):
@@ -153,9 +164,8 @@ class AnimaRegionalScript(scripts.Script):
         total_blocks = len(unet.model.diffusion_model.blocks)
         selected_blocks = parse_blocks(str(blocks), total_blocks)
         regions = []
-        for offset in range(0, len(region_values), 7):
-            active, text, x, y, width, height, strength = region_values[offset : offset + 7]
-            if not active or not str(text).strip() or float(strength) <= 0.0 or float(width) <= 0.0 or float(height) <= 0.0:
+        for active, text, x, y, width, height, strength in _region_rows(region_values):
+            if not _region_is_used(active, text, width, height, strength):
                 continue
             cond, negpip_mask = _encode(p, str(text))
             regions.append(Region(cond, float(x), float(y), float(width), float(height), float(strength), negpip_mask))

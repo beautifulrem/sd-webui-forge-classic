@@ -84,8 +84,8 @@ def test_foreign_contexts_never_inherit_the_base_mask():
     base = torch.tensor([[[1.0], [-1.0], [1.0]]])
     context = torch.zeros(1, 3, 2)
 
-    assert negpip_mask_for(context, {NEGPIP_MASK_KEY: base, "anima_nag_skip": "artist_context"}) is None
     assert negpip_mask_for(context, {NEGPIP_MASK_KEY: base, NEGPIP_CONTEXT_MASK_KEY: None}) is None
+    assert negpip_mask_for(context, {NEGPIP_MASK_KEY: base, "anima_nag_skip": "x"}) is not None  # base pass
     own = negpip_mask_for(context, {NEGPIP_MASK_KEY: base, NEGPIP_CONTEXT_MASK_KEY: -base, "anima_nag_skip": "x"})
     assert own[0, :, 0].tolist() == [-1.0, 1.0, -1.0]
 
@@ -95,5 +95,6 @@ def test_all_positive_masks_are_dropped_and_extra_prompts_registered():
     assert split_conditioning({"crossattn": torch.zeros(1, 3, 2), "c_negpip_mask": ones})[1] is None
 
     process = SimpleNamespace()
-    register_negpip_prompts(process, ["(hat:-1)", None, ""])
-    assert process.negpip_extra_prompts == ["(hat:-1)"]
+    register_negpip_prompts(process, "regional", ["(hat:-1)", None, ""])
+    register_negpip_prompts(process, "regional", ["(cap:-1)"])  # replaced, not appended
+    assert process.negpip_extra_prompts == {"regional": ["(cap:-1)"]}

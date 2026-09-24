@@ -2205,37 +2205,40 @@ def _current_prompts(p):
     return [str(prompt or "")]
 
 
-def _build_artists(p, rows, num_blocks, shift, optimization, use_cache):
+def _artist_entries(rows, shift, optimization):
+    """Yield ``(row, clean_name, inline_weight)`` for every artist that is encoded."""
+
     optimization = _option_key("optimization", optimization, OPT_BALANCE)
-    rows = _normalize_rows(rows, None, shift, optimization, display=False)
-    prompts = _current_prompts(p)
-    artists = []
-    for row in rows:
-        enabled, artist_text, weight, blocks_text, start, end, peak, curve, _stage, _auto = row
+    for row in _normalize_rows(rows, None, shift, optimization, display=False):
+        enabled, artist_text = row[0], row[1]
         if not enabled or not artist_text:
             continue
-        names = _split_artist_chain(artist_text)
-        if not names:
-            continue
-        for name in names:
+        for name in _split_artist_chain(artist_text) or ():
             clean_name, inline_weight = _parse_inline_weight(name)
-            if not clean_name:
-                continue
-            texts = [f"{clean_name}\n{prompt}" if prompt.strip() else clean_name for prompt in prompts]
-            cond, negpip_mask = _encode_text_batch(p, texts, use_cache=use_cache)
-            artists.append(
-                ArtistRuntime(
-                    name=clean_name,
-                    weight=float(weight) * float(inline_weight),
-                    blocks=_parse_blocks(blocks_text, num_blocks),
-                    start=_clamp(float(start), 0.0, 1.0),
-                    end=_clamp(float(end), 0.0, 1.0),
-                    peak=_clamp(float(peak), 0.0, 1.0),
-                    curve=_option_key("curve", curve, CURVE_SMOOTH),
-                    cond=cond,
-                    negpip_mask=negpip_mask,
-                )
+            if clean_name:
+                yield row, clean_name, inline_weight
+
+
+def _build_artists(p, rows, num_blocks, shift, optimization, use_cache):
+    prompts = _current_prompts(p)
+    artists = []
+    for row, clean_name, inline_weight in _artist_entries(rows, shift, optimization):
+        enabled, artist_text, weight, blocks_text, start, end, peak, curve, _stage, _auto = row
+        texts = [f"{clean_name}\n{prompt}" if prompt.strip() else clean_name for prompt in prompts]
+        cond, negpip_mask = _encode_text_batch(p, texts, use_cache=use_cache)
+        artists.append(
+            ArtistRuntime(
+                name=clean_name,
+                weight=float(weight) * float(inline_weight),
+                blocks=_parse_blocks(blocks_text, num_blocks),
+                start=_clamp(float(start), 0.0, 1.0),
+                end=_clamp(float(end), 0.0, 1.0),
+                peak=_clamp(float(peak), 0.0, 1.0),
+                curve=_option_key("curve", curve, CURVE_SMOOTH),
+                cond=cond,
+                negpip_mask=negpip_mask,
             )
+        )
     return artists
 
 
@@ -2612,9 +2615,28 @@ class Script(scripts.Script):
 
     def process(self, p, *args, **kwargs):
         # Runs before NegPiP's process_batch: let a negative weight in an
-        # artist field enable NegPiP. Only free-text row fields can match.
-        if args and args[0]:
-            register_negpip_prompts(p, args[13:])
+        # artist name that will actually be encoded enable NegPiP.
+        names = []
+        if len(args) >= 13 and args[0] and _validate_anima_unet(getattr(getattr(p.sd_model, "forge_objects", None), "unet", None))[0] is not None:
+            (
+                _enable,
+                base_row_count,
+                hires_row_count,
+                hires_independent,
+                disable_hires_mixing,
+                runtime_base_shift,
+                runtime_hires_shift,
+                _strength,
+                optimization,
+            ) = args[:9]
+            component_values = args[13:]
+            groups = [(base_row_count, runtime_base_shift, component_values[: MAX_ARTIST_ROWS * 10])]
+            if getattr(p, "enable_hr", False) and hires_independent and not disable_hires_mixing:
+                groups.append((hires_row_count, runtime_hires_shift, component_values[MAX_ARTIST_ROWS * 10 : MAX_ARTIST_ROWS * 20]))
+            for count, shift, values in groups:
+                rows = _active_rows_from_components(count, shift, optimization, *values, display=False)
+                names.extend(name for _row, name, _weight in _artist_entries(rows, shift, optimization))
+        register_negpip_prompts(p, "anima_artist_mixer", names)
 
     def process_before_every_sampling(self, p, *args, **kwargs):
         global _ACTIVE_STATE

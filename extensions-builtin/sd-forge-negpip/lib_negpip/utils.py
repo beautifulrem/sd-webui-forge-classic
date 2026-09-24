@@ -43,6 +43,6 @@ def any_negative(p: "StableDiffusionProcessing") -> bool:
             have_negative(getattr(p, "hr_negative_prompts", None) or ""),
             # Prompts other scripts encode themselves (Regional regions,
             # Artist Mixer artists) need NegPiP's conditioning too.
-            have_negative(getattr(p, "negpip_extra_prompts", None) or ()),
+            have_negative([prompt for prompts in (getattr(p, "negpip_extra_prompts", None) or {}).values() for prompt in prompts]),
         ]
     )
