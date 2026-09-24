@@ -8,11 +8,16 @@ from modules import paths_internal
 
 class Storage:
     storage_path = ''
+    _storage_ready = False
 
     def __init__():
         Storage.__dispose_all_locks()
 
     def __get_storage_path():
+        # Resolve, create and migrate once; this runs for every storage call
+        # (including each 10 ms lock-wait spin).
+        if Storage._storage_ready:
+            return Storage.storage_path
         Storage.storage_path = os.path.join(
             paths_internal.data_path,
             'extension-data',
@@ -38,13 +43,30 @@ class Storage:
                     except OSError as e:
                         print(f"Prompt All-in-One storage migration failed: {e}")
 
+        Storage._storage_ready = True
         return Storage.storage_path
 
+    def __key_path(key, suffix):
+        """Path for a storage key; keys come from HTTP and must stay inside storage."""
+        key = str(key)
+        if (
+            not key
+            or key.startswith('.')
+            or any(char in key for char in ('/', '\\', ':', '\0'))
+            or '..' in key
+        ):
+            raise ValueError(f"Invalid Prompt All-in-One storage key: {key!r}")
+        directory = os.path.realpath(Storage.__get_storage_path())
+        path = os.path.realpath(os.path.join(directory, key + suffix))
+        if os.path.dirname(path) != directory:
+            raise ValueError(f"Invalid Prompt All-in-One storage key: {key!r}")
+        return path
+
     def __get_data_filename(key):
-        return Storage.__get_storage_path() + '/' + key + '.json'
+        return Storage.__key_path(key, '.json')
 
     def __get_key_lock_filename(key):
-        return Storage.__get_storage_path() + '/' + key + '.lock'
+        return Storage.__key_path(key, '.lock')
 
     def __dispose_all_locks():
         directory = Storage.__get_storage_path()

@@ -200,7 +200,7 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
             paused=TaskRunner.instance.paused,
         )
 
-    @app.get("/agent-scheduler/v1/export")
+    @app.get("/agent-scheduler/v1/export", dependencies=deps)
     def export_queue(limit: int = 1000, offset: int = 0):
         pending_tasks = task_manager.get_tasks(status=TaskStatus.PENDING, limit=limit, offset=offset)
         pending_tasks = [Task.from_table(t).to_json() for t in pending_tasks]
@@ -209,7 +209,7 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
     class StringRequestBody(BaseModel):
         content: str
 
-    @app.post("/agent-scheduler/v1/import")
+    @app.post("/agent-scheduler/v1/import", dependencies=deps)
     def import_queue(queue: StringRequestBody):
         try:
             objList = json.loads(queue.content)
@@ -417,7 +417,7 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
         return {"success": True, "message": "Task bookmarked"}
 
     @app.post("/agent-scheduler/v1/unbookmark/{id}", dependencies=deps, deprecated=True)
-    @app.post("/agent-scheduler/v1/task/{id}/unbookmark")
+    @app.post("/agent-scheduler/v1/task/{id}/unbookmark", dependencies=deps)
     def unpin_task(id: str):
         task = task_manager.get_task(id)
         if task is None:

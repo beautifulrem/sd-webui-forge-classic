@@ -2,6 +2,7 @@ import io
 import zlib
 import base64
 import pickle
+import sys
 import inspect
 import requests
 import numpy as np
@@ -195,9 +196,48 @@ def serialize_script_args(script_args: List):
     return zlib.compress(pickle.dumps(script_args))
 
 
+_SAFE_PICKLE_GLOBALS = {
+    ("builtins", name)
+    for name in (
+        "list", "dict", "tuple", "set", "frozenset", "str", "bytes", "bytearray",
+        "int", "float", "bool", "complex", "slice", "range", "object",
+    )
+} | {
+    ("collections", "OrderedDict"),
+    ("copyreg", "_reconstructor"),
+    ("numpy", "ndarray"),
+    ("numpy", "dtype"),
+    ("numpy.core.multiarray", "_reconstruct"),
+    ("numpy.core.multiarray", "scalar"),
+    ("numpy._core.multiarray", "_reconstruct"),
+    ("numpy._core.multiarray", "scalar"),
+    ("PIL.Image", "Image"),
+}
+
+
+class _ScriptArgsUnpickler(pickle.Unpickler):
+    """Only rebuild plain data: script params can come from /import, so an
+    unrestricted pickle.loads would execute attacker-controlled code."""
+
+    def find_class(self, module, name):
+        if (module, name) in _SAFE_PICKLE_GLOBALS:
+            return super().find_class(module, name)
+        # Enum members of already-loaded modules (e.g. extension settings)
+        # are data too; never import a module on behalf of a payload.
+        loaded = sys.modules.get(module)
+        candidate = getattr(loaded, name, None) if loaded is not None and "." not in name else None
+        if isinstance(candidate, type) and issubclass(candidate, Enum):
+            return candidate
+        raise pickle.UnpicklingError(f"Refusing to load {module}.{name} from task script params")
+
+
+def _load_script_args(data: bytes):
+    return _ScriptArgsUnpickler(io.BytesIO(zlib.decompress(data))).load()
+
+
 def deserialize_script_args(script_args: Union[bytes, List], UiControlNetUnit = None):
     if type(script_args) is bytes:
-        script_args = pickle.loads(zlib.decompress(script_args))
+        script_args = _load_script_args(script_args)
 
     for i, a in enumerate(script_args):
         if isinstance(a, dict) and a.get("is_cnet", False):

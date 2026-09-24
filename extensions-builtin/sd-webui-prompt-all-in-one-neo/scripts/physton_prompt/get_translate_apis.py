@@ -38,24 +38,42 @@ def get_translate_apis(reload=False):
     return translate_apis
 
 
+# Config fields that decide where requests (and therefore secrets) are sent.
+_ENDPOINT_CONFIG_KEYS = ('api_base', 'host')
+# Values an unset endpoint field falls back to (see gen_openai).
+_ENDPOINT_DEFAULTS = {'api_base': 'https://api.openai.com/v1'}
+
+
+def _endpoint_value(config, field):
+    value = str((config or {}).get(field) or _ENDPOINT_DEFAULTS.get(field, '')).strip()
+    return value.rstrip('/').casefold()
+
+
+def _secret_api_for_key(data_key):
+    """API name whose secrets a storage key holds (case-insensitive, since the
+    same file is reachable with any casing on case-insensitive filesystems)."""
+    key = str(data_key).casefold()
+    if key == 'chatgpt_key':
+        return 'openai'
+    start = 'translate_api.'
+    if key.startswith(start):
+        return key[len(start):]
+    return None
+
+
 def privacy_translate_api_config(data_key, data):
     # 如果 data 为空或者不是 dict
     if not data or not isinstance(data, dict):
         return data
     # 如果 data_key 是 translate_api. 开头
-    api = None
-    if data_key == 'chatgpt_key':
-        api = 'openai'
-    else:
-        start = 'translate_api.'
-        if not data_key.startswith(start):
-            return data
-        api = data_key[len(start):]
+    api = _secret_api_for_key(data_key)
+    if api is None:
+        return data
     apis = get_translate_apis()
     find = False
     for group in apis['apis']:
         for item in group['children']:
-            if item['key'] == api:
+            if str(item['key']).casefold() == api:
                 find = item
                 break
     if not find:
@@ -77,20 +95,15 @@ def privacy_translate_api_config(data_key, data):
     return data
 
 def unprotected_translate_api_config(data_key, data):
-    api = None
-    if data_key == 'chatgpt_key':
-        api = 'openai'
-    else:
-        start = 'translate_api.'
-        if not data_key.startswith(start):
-            return data
-        api = data_key[len(start):]
+    api = _secret_api_for_key(data_key)
+    if api is None:
+        return data
 
     apis = get_translate_apis()
     find = False
     for group in apis['apis']:
         for item in group['children']:
-            if item['key'] == api:
+            if str(item['key']).casefold() == api:
                 find = item
                 break
     if not find:
@@ -100,6 +113,13 @@ def unprotected_translate_api_config(data_key, data):
         return data
 
     storage_data = Storage.get(data_key)
+    # Restoring a masked secret is only allowed for the endpoint it was saved
+    # with; otherwise a caller could send it to a URL of their choosing.
+    endpoint_changed = bool(storage_data) and any(
+        _endpoint_value(data, field) != _endpoint_value(storage_data, field)
+        for field in _ENDPOINT_CONFIG_KEYS
+        if field in data
+    )
 
     for config in api_item['config']:
         # 如果有 privacy 的属性并且为 True
@@ -109,7 +129,7 @@ def unprotected_translate_api_config(data_key, data):
                     value = data[config['key']]
                     # 如果包含 * 号，并且前面6个字符等于 storage_data 的前面6个字符
                     if '*' in value and value[:6] == storage_data[config['key']][:6]:
-                        data[config['key']] = storage_data[config['key']]
+                        data[config['key']] = '' if endpoint_changed else storage_data[config['key']]
 
                     # 多个 * 替换成一个 *
                     # value = re.sub(r'\*+', '*', value)
