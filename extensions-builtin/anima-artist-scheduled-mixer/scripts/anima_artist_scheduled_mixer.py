@@ -1476,6 +1476,13 @@ def _save_runtime_current_settings(
             enable_cache,
             *component_values,
         )
+        # A generation does not know the template dropdown: keep the one the
+        # user saved with "Save current settings".
+        saved = _LAST_REMEMBERED_SETTINGS or _current_settings_data()
+        if isinstance(saved, dict):
+            for field_name in ("template_name", "template_target"):
+                if field_name in saved:
+                    payload[field_name] = saved[field_name]
         # Unchanged since the last successful save: skip the write.
         if payload == _LAST_REMEMBERED_SETTINGS:
             return

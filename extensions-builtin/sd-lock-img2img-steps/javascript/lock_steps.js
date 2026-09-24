@@ -77,6 +77,25 @@
 
             steps.addEventListener("change", onUserChange);
             steps.addEventListener("input", onUserChange);
+        }
+
+        // Dragging the slider updates the number box through Gradio's
+        // binding, without events on it: take trusted slider edits too.
+        const root = (typeof gradioApp === "function") ? gradioApp() : document;
+        const range = root.querySelector('#img2img_steps input[type="range"]');
+        if (range && !range.dataset.lockStepsWired) {
+            range.dataset.lockStepsWired = "1";
+            const onSlider = (event) => {
+                if (event.isTrusted && range.value !== "") {
+                    savedSteps = range.value;
+                }
+            };
+            range.addEventListener("input", onSlider);
+            range.addEventListener("change", onSlider);
+        }
+
+        if (steps.dataset.lockStepsSnapshot !== "1") {
+            steps.dataset.lockStepsSnapshot = "1";
             // Gradio may replace the entire input during Send-to-img2img.
             // Wiring that new node must not overwrite an existing lock
             // snapshot with the just-pasted value.

@@ -16,6 +16,20 @@ _FALLBACK_HANDLER_KEY = "_forge_anima_block_compile_fallback_handler"
 _FALLBACK_REASON_KEY = "_forge_anima_block_compile_fallback_reason"
 
 
+# Per-generation transformer_options entries the blocks act on. The compile
+# config drops guards on transformer_options (they change every step), so a
+# graph traced without these would silently keep ignoring them: calls that
+# carry any run the eager blocks instead.
+_EAGER_OPTION_KEYS = ("anima_attention_modifiers", "negpip_mask", "negpip_context_mask")
+
+
+def _needs_eager_blocks(args, kwargs) -> bool:
+    options = kwargs.get("transformer_options")
+    if options is None and len(args) > 5:
+        options = args[5]
+    return isinstance(options, dict) and any(options.get(key) is not None and options.get(key) != () for key in _EAGER_OPTION_KEYS)
+
+
 def _is_compile_failure(error: Exception) -> bool:
     module = type(error).__module__
     name = type(error).__name__
@@ -44,7 +58,7 @@ class AnimaBlockCompileManager:
 
         @wraps(original_apply_model)
         def apply_model_with_compiled_blocks(*args, **kwargs):
-            if getattr(kmodel, _FAILED_KEY, False):
+            if getattr(kmodel, _FAILED_KEY, False) or _needs_eager_blocks(args, kwargs):
                 return original_apply_model(*args, **kwargs)
             diffusion_model = kmodel.diffusion_model
             blocks = getattr(diffusion_model, "blocks", None)
