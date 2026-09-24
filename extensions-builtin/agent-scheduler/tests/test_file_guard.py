@@ -60,11 +60,15 @@ def setup(tmp_path, monkeypatch, request):
     store.mkdir(parents=True)
     key = store / "signing.key"
     key.write_text("secret")
-    # The configured database is a symlink to the real file elsewhere.
+    # The configured database is a symlink to the real file elsewhere
+    # (a plain file where symlinks are unavailable).
     (tmp_path / "volume").mkdir()
     (tmp_path / "volume" / "real.db").write_text("secret db")
     db = store / "tasks.sqlite3"
-    db.symlink_to(tmp_path / "volume" / "real.db")
+    try:
+        db.symlink_to(tmp_path / "volume" / "real.db")
+    except OSError:
+        db.write_text("secret db")
     (data / "public.txt").write_text("hello")
     app = _app(abspath)
     assert file_guard.install(app, lambda: [str(key), str(db)]) == 3
@@ -122,13 +126,30 @@ def test_names_elsewhere_are_served(setup):
 
 def test_aliases_under_other_names_are_refused(setup):
     client, data, store = setup
-    (data / "pic.png").symlink_to(store / "signing.key")
-    os.link(store / "signing.key", data / "copy.txt")
+    try:
+        (data / "pic.png").symlink_to(store / "signing.key")
+        (data / "journal.png").symlink_to(store / "tasks.sqlite3-journal")  # not there yet
+        os.link(store / "signing.key", data / "copy.txt")
+    except OSError:
+        pytest.skip("symlinks / hard links unavailable")
 
-    for alias in ("pic.png", "copy.txt"):
-        assert client.get(f"/file={data / alias}").status_code == 403, alias
+    for alias in ("pic.png", "copy.txt", "journal.png"):
+        assert client.get(f"/file={data / alias}").status_code in (403, 404), alias
+    assert client.get(f"/file={data / 'pic.png'}").status_code == 403
+    (store / "tasks.sqlite3-journal").write_text("secret pages")
+    assert client.get(f"/file={data / 'journal.png'}").status_code == 403
     assert client.get(f"/file={store / 'tasks.sqlite3'}").status_code == 403  # symlinked DB
-    assert client.get(f"/file={data.parent / 'volume' / 'real.db'}").status_code == 403
+    if (store / "tasks.sqlite3").is_symlink():
+        assert client.get(f"/file={data.parent / 'volume' / 'real.db'}").status_code == 403
+
+
+def test_short_names_of_protected_files_are_refused(setup):
+    client, data, store = setup
+    (data / "img~1.png").write_text("image")
+
+    assert client.get(f"/file={store / 'TASKS~1.SQL'}").status_code == 403  # may appear later
+    assert client.get(f"/file={store / 'SIGNIN~1.KEY'}").status_code == 403
+    assert client.get(f"/file={data / 'img~1.png'}").text == "image"
 
 
 def test_names_are_matched_across_unicode_forms():

@@ -99,7 +99,9 @@ def _trust_unsigned_script_params(engine):
                 {"value": signing.sign(signing.strip_signature(script_params)), "id": task_id},
             )
             signed += 1
-            failed += status == "failed" and "script params are not signed" in (result or "")
+            # Tasks that could not be loaded (unsigned, or refused by the
+            # pickle filters of earlier builds) failed with this prefix.
+            failed += status == "failed" and (result or "").startswith("Could not load task")
     message = f"[AgentScheduler] Trusted and signed {signed} stored task(s)"
     if failed:
         message += f"; {failed} had failed for being unsigned and can be requeued from the History tab"

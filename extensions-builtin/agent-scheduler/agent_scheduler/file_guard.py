@@ -45,6 +45,12 @@ def _served_path(requested: str) -> str:
         return os.path.abspath(requested)
 
 
+def _short_prefix(name: str) -> str:
+    # Windows 8.3 names start with (at least) the first two characters of the
+    # long name, dots and spaces removed ("TASK_S~1.SQL", "TA1B2~1.SQL").
+    return name.replace(" ", "").replace(".", "")[:2]
+
+
 class ProtectedFiles:
     """Refuses requests for protected files under any spelling.
 
@@ -53,10 +59,10 @@ class ProtectedFiles:
 
     - it is the same file as a protected one (stat follows symlinks the way
       the route's open does: aliases, hard links, short names, case), or
-    - it lies in a protected file's folder (by identity) under a name that
-      starts with a protected name, or a short name ("~"): SQLite journals
-      and key temp files come and go, so they are matched whether or not
-      they exist yet.
+    - it, or the file a symlink there points to, lies in a protected file's
+      folder (by identity) under a name that starts with a protected name, or
+      is a short name ("~") of one: SQLite journals and key temp files come
+      and go, so they are matched whether or not they exist yet.
     """
 
     def __init__(self, paths: Callable[[], Iterable[str]]):
@@ -81,11 +87,29 @@ class ProtectedFiles:
                 except (OSError, ValueError):
                     pass
             try:
-                ids.add(_identity(path))
+                identity = _identity(path)
             except (OSError, ValueError):
-                pass
+                continue
+            if identity[1]:  # some network/FUSE volumes report inode 0
+                ids.add(identity)
         self._ids, self._folders, self._names = frozenset(ids), frozenset(folders), tuple(names)
         self._checked = now
+
+    def _derived_name(self, path: str) -> bool:
+        """A protected file's name (or a journal / temp file / short name of
+        one) inside a protected folder."""
+        name = _name_key(os.path.basename(path))
+        if not any(
+            name.startswith(protected) or ("~" in name and name.startswith(_short_prefix(protected)))
+            for protected in self._names
+        ):
+            return False
+        try:
+            return _identity(os.path.dirname(path)) in self._folders
+        except (FileNotFoundError, NotADirectoryError):
+            return False  # no such folder: nothing to serve
+        except Exception:
+            return True
 
     def contains(self, requested: str) -> bool:
         self._refresh()
@@ -97,15 +121,14 @@ class ProtectedFiles:
             pass  # may still be a journal about to be created
         except Exception:
             return True  # cannot be checked: refuse
-        name = _name_key(os.path.basename(path))
-        if "~" not in name and not any(name.startswith(protected) for protected in self._names):
-            return False
+        if self._derived_name(path):
+            return True
         try:
-            return _identity(os.path.dirname(path)) in self._folders
-        except (FileNotFoundError, NotADirectoryError):
-            return False  # no such folder: nothing to serve
+            if os.path.islink(path):  # an alias of a journal / temp file
+                return self._derived_name(os.path.realpath(path))
         except Exception:
             return True
+        return False
 
 
 def install(app, protected: Callable[[], Iterable[str]]) -> int:
