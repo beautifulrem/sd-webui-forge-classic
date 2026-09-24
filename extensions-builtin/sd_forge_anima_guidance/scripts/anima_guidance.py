@@ -35,14 +35,13 @@ from lib_anima_guidance.advanced import (
 )
 from lib_anima_guidance.nag import NAGAttentionModifier
 from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS
-from modules import paths, script_callbacks, scripts
+from modules import paths, script_callbacks, scripts, spectrum_force
 from modules.anima_feature_conflicts import (
     SMC_GUIDANCE,
     STANDARD_GUIDANCE,
     record_conflict_resolution,
     resolve_guidance_conflicts,
 )
-from modules import spectrum_force
 from modules.anima_presets import register_preset_control
 from modules.anima_support import is_anima_auxiliary_denoiser, is_anima_engine
 from modules.infotext_utils import PasteField
@@ -79,11 +78,7 @@ def _capture_dcw_denoised(process, state: DCWState, denoised):
 script_callbacks.on_cfg_denoiser(_dcw_before_denoiser, name="anima_dcw_pre_step")
 
 
-def _active_for_sigma(sigma: float, sigma_start: float, sigma_end: float) -> bool:
-    high = max(float(sigma_start), float(sigma_end))
-    low = min(float(sigma_start), float(sigma_end))
-    eps = max(1e-8, high * 1e-7)
-    return low - eps <= float(sigma) <= high + eps
+_active_for_sigma = spectrum_force.in_sigma_window
 
 
 def _make_skim_cfg_function(

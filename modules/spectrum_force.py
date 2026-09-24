@@ -35,8 +35,15 @@ def is_forced(value, sigma: float) -> bool:
     return any(reason(sigma) if callable(reason) else bool(reason) for reason in reasons)
 
 
+def in_sigma_window(sigma: float, start: float, end: float) -> bool:
+    """Inclusive sigma-window test shared by features and their requests."""
+
+    low, high = sorted((float(start), float(end)))
+    eps = max(1e-8, high * 1e-7)
+    return low - eps <= float(sigma) <= high + eps
+
+
 def sigma_window(start: float, end: float):
     """Callable reason that forces steps whose sigma lies in [start, end]."""
 
-    low, high = sorted((float(start), float(end)))
-    return lambda sigma: low - 1e-7 <= float(sigma) <= high + 1e-7
+    return lambda sigma: in_sigma_window(sigma, start, end)

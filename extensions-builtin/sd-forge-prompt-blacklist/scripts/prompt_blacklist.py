@@ -85,40 +85,46 @@ _ESCAPED_OPEN = "\x00"
 _ESCAPED_CLOSE = "\x01"
 
 _WEIGHT_RE = re.compile(r":\s*-?[\d.]+\s*$")
-_GROUP_BRACKET = re.compile(r"[()\[\]{}]")
 
 
 def _strip_emphasis(token: str) -> str:
-    """Remove surrounding ()/[]/<> emphasis and any trailing :weight."""
+    """Remove surrounding ()/[]/{} emphasis and each group's trailing :weight.
+
+    Only one weight belongs to each peeled group, so ``(16:9:1.1)`` keeps
+    ``16:9`` and bare tags such as ``:3`` are never treated as weights.
+    """
     # protect escaped parens (literal booru parens like `ganyu \(genshin impact\)`)
     s = token.replace(r"\(", _ESCAPED_OPEN).replace(r"\)", _ESCAPED_CLOSE).strip()
-    # ":3" or "16:9" are tags, not weights; a weight needs an emphasis group.
-    grouped = bool(_GROUP_BRACKET.search(s))
 
-    changed = True
-    while changed:
-        changed = False
+    weights = 0  # weights still allowed: one per peeled group level
+    while True:
         s = s.strip()
-        # trailing :1.2 style weight (possibly just before a closing paren)
-        new = _WEIGHT_RE.sub("", s) if grouped else s
-        if new != s:
-            s, changed = new, True
-        # matched wrapper pairs
+        if weights:
+            new = _WEIGHT_RE.sub("", s, count=1)
+            if new != s:
+                s, weights = new, weights - 1
+                continue
         for open_c, close_c in (("(", ")"), ("[", "]"), ("{", "}")):
             if len(s) >= 2 and s.startswith(open_c) and s.endswith(close_c):
-                s, changed = s[1:-1], True
+                s, weights = s[1:-1], weights + 1
+                break
+        else:
+            break
 
     return s.replace(_ESCAPED_OPEN, "(").replace(_ESCAPED_CLOSE, ")").strip()
 
 
 def _normalize(tag: str) -> str:
     """Canonical form used for comparison."""
-    grouped = bool(_GROUP_BRACKET.search(tag.replace(r"\(", "").replace(r"\)", "")))
+    # A tag cut from the end of a weighted group ("blue eyes:1.2)") carries one
+    # weight per unmatched closing bracket.
+    _openers, closing = _bracket_residue(tag)
+    group_ends = len(_CLOSING_SEGMENT.findall(closing))
     s = _strip_emphasis(tag).lower()
     s = s.replace("\\", "")             # drop escape backslashes
     s = re.sub(r"[()\[\]{}]", " ", s)   # brackets are irrelevant for comparison
-    while grouped and _WEIGHT_RE.search(s):  # weights left by unbalanced group ends
-        s = _WEIGHT_RE.sub("", s).strip()
+    for _ in range(group_ends):
+        s = _WEIGHT_RE.sub("", s.strip(), count=1)
     s = s.replace("_", " ")             # underscore == space
     s = re.sub(r"\s+", " ", s)          # collapse whitespace
     return s.strip()

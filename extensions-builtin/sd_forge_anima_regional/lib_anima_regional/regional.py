@@ -98,8 +98,7 @@ class RegionalState:
     current_masks: list[torch.Tensor] | None = None
 
     def active(self, sigma: float) -> bool:
-        low, high = sorted((self.start_sigma, self.end_sigma))
-        return low - 1e-7 <= sigma <= high + 1e-7
+        return spectrum_force.in_sigma_window(sigma, self.start_sigma, self.end_sigma)
 
     def prepare_masks(self, input_x: torch.Tensor, dit):
         latent_t = int(input_x.shape[-3])
@@ -185,6 +184,9 @@ def apply_regional_patch(model, state: RegionalState):
                     restore_forward_override(module, forward, restore_token)
                 state.current_masks = None
 
+    # Outside its window the wrapper is a pass-through, and the request below
+    # forces actual forwards inside it, so Spectrum may cache the other steps.
+    wrapper.__spectrum_cache_safe__ = previous is None or getattr(previous, "__spectrum_cache_safe__", False)
     patched.set_model_unet_function_wrapper(wrapper)
     # Spectrum wraps this wrapper, so it must see the request on the patcher.
     # Only steps inside the regional window need actual forwards.

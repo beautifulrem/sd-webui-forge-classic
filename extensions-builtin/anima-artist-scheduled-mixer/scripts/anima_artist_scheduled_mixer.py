@@ -1655,6 +1655,10 @@ def _cache_key(p, texts):
         str(checkpoint),
         str(getattr(sd_models.model_data, "forge_hash", "")),
         str(getattr(sd_model, "current_lora_hash", "")),
+        # Encoding also depends on the emphasis mode and on hooks such as
+        # NegPiP replacing get_learned_conditioning for this run.
+        str(getattr(shared.opts, "emphasis", "")),
+        "get_learned_conditioning" in getattr(sd_model, "__dict__", {}),
     )
     return model_key, tuple(texts)
 

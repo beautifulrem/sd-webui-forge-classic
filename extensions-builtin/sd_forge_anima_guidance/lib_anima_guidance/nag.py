@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import torch
 
+from modules.spectrum_force import in_sigma_window
+
 
 def _select_batch(value: torch.Tensor | None, indices: list[int]):
     if value is None or value.ndim == 0 or value.shape[0] == 1:
@@ -49,7 +51,7 @@ class NAGAttentionModifier:
         if sigmas is None:
             return True
         sigma = float(sigmas.detach().flatten()[0]) if torch.is_tensor(sigmas) else float(sigmas)
-        return self.sigma_low <= sigma <= self.sigma_high
+        return in_sigma_window(sigma, self.sigma_low, self.sigma_high)
 
     @torch.no_grad()
     def __call__(

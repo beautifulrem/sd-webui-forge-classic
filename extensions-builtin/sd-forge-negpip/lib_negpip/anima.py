@@ -21,18 +21,38 @@ from modules import shared
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
+# (engine, dit) patched by the active hook, so unpatching restores the same
+# objects even if shared.sd_model changed or failed to load meanwhile.
+_PATCHED_TARGETS = None
+
+
 def patch_anima_negpip(cls: "NegPiP", *, unpatch=False):
+    global _PATCHED_TARGETS
+
     if unpatch != cls._patched[1]:
         return
 
-    cls._patched[1] = not cls._patched[1]
+    if unpatch:
+        cls._patched[1] = False
+        targets, _PATCHED_TARGETS = _PATCHED_TARGETS, None
+        # Class/module-level hooks first: they must be restored even if the
+        # instance targets are gone.
+        _hook_forwards(True)
+        _hook_compile_conditions(True)
+        if targets is not None:
+            model, dit = targets
+            _hook_get_learned_conditioning(model, True)
+            _hook_dit_forward(dit, True)
+        return
 
     model: "AnimaEngine" = shared.sd_model
     dit: "Anima" = model.forge_objects.unet.model.diffusion_model
-    _hook_get_learned_conditioning(model, unpatch)
-    _hook_dit_forward(dit, unpatch)
-    _hook_forwards(unpatch)
-    _hook_compile_conditions(unpatch)
+    cls._patched[1] = True
+    _PATCHED_TARGETS = (model, dit)
+    _hook_get_learned_conditioning(model, False)
+    _hook_dit_forward(dit, False)
+    _hook_forwards(False)
+    _hook_compile_conditions(False)
 
 
 # ================================================================================ #
@@ -247,17 +267,26 @@ def _hook_forwards(remove: bool):
     _CLASS_HOOK = (negpip_forward, original, detached)
 
 
+# (installed function, original function) while the hook is active.
+_COMPILE_HOOK = None
+
+
 def _hook_compile_conditions(remove: bool):
+    global _COMPILE_HOOK
+
     if remove:
-        if hasattr(condition, "orig_forward"):
-            condition.compile_conditions = condition.orig_forward
-            sampling_function.compile_conditions = condition.orig_forward
-            del condition.orig_forward
+        if _COMPILE_HOOK is None:
+            return
+        installed, original = _COMPILE_HOOK
+        _COMPILE_HOOK = None
+        for module in (condition, sampling_function):
+            if getattr(module, "compile_conditions", None) is installed:
+                module.compile_conditions = original
         return
 
-    condition.orig_forward = condition.compile_conditions
+    original = condition.compile_conditions
 
-    @wraps(condition.orig_forward)
+    @wraps(original)
     def compile_conditions(cond):
         if cond is None:
             return None
@@ -271,7 +300,8 @@ def _hook_compile_conditions(remove: bool):
                 )
             return [dict(cross_attn=cross_attn, model_conds=model_conds)]
 
-        return condition.orig_forward(cond)
+        return original(cond)
 
     condition.compile_conditions = compile_conditions
     sampling_function.compile_conditions = compile_conditions
+    _COMPILE_HOOK = (compile_conditions, original)

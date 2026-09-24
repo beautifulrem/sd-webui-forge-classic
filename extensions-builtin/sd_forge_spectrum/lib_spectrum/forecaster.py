@@ -380,11 +380,11 @@ class SpectrumNode:
             _ensure_capture_hook(dit)
         if process is not None:
             # Lets the script free the (GPU) feature history after generation.
-            states = getattr(process, "_spectrum_states", None)
-            if states is None:
-                states = []
-                setattr(process, "_spectrum_states", states)
-            states.append(state)
+            # Earlier passes are finished, so free their history right away
+            # instead of keeping it alive (e.g. during the larger hires pass).
+            for previous_state in getattr(process, "_spectrum_states", None) or ():
+                previous_state.reset()
+            setattr(process, "_spectrum_states", [state])
 
         def actual_forward(model_function, args):
             if old_wrapper is not None:

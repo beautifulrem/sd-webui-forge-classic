@@ -19,16 +19,30 @@ else:
     from ldm_patched.ldm.modules.attention import optimized_attention
 
 
+# Modules hooked by the active patch, so unpatching restores the same objects
+# even if shared.sd_model changed or failed to load meanwhile.
+_PATCHED_MODULES: list = []
+
+
 def patch_sd_negpip(instance: "NegPiP", cls: "NegPiP", *, unpatch=False):
+    global _PATCHED_MODULES
+
     if unpatch != cls._patched[0]:
         return
 
-    cls._patched[0] = not cls._patched[0]
+    if unpatch:
+        cls._patched[0] = False
+        modules, _PATCHED_MODULES = _PATCHED_MODULES, []
+        for module in modules:
+            _hook_forward(instance, module, True)
+        return
 
     unet: "UNet" = shared.sd_model.forge_objects.unet.model.diffusion_model
+    cls._patched[0] = True
     for name, module in unet.named_modules():
         if "attn2" in name and module.__class__.__name__ == "CrossAttention":
-            _hook_forward(instance, module, unpatch)
+            _hook_forward(instance, module, False)
+            _PATCHED_MODULES.append(module)
 
 
 # ================================================================================ #

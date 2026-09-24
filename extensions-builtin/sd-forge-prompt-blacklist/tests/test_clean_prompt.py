@@ -43,6 +43,11 @@ def test_removal_keeps_emphasis_groups_balanced(prompt, blacklist, expected):
 def test_colon_tags_are_not_weights():
     assert clean_prompt("1girl, :3, smile", ":3", False)[0] == "1girl, smile"
     assert clean_prompt("aspect ratio 16:9, aspect ratio 4:3", "", True)[0] == "aspect ratio 16:9, aspect ratio 4:3"
+    assert (
+        clean_prompt("1girl, (aspect ratio 16:9:1.1), (aspect ratio 16:10:1.1)", "", True)[0]
+        == "1girl, (aspect ratio 16:9:1.1), (aspect ratio 16:10:1.1)"
+    )
+    assert clean_prompt("1girl, (:3:1.2), smile", ":3", False)[0] == "1girl, smile"
 
 
 def test_duplicates_are_removed():
