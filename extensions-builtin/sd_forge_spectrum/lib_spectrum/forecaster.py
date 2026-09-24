@@ -114,7 +114,8 @@ def _capture_feature(module, args):
     local = getattr(module, "_forge_spectrum_local", None)
     state = getattr(local, "state", None)
     if state is not None and args:
-        state.captured_feature = args[0].detach().clone()
+        # No copy here: the forecasters clone the per-branch slices they keep.
+        state.captured_feature = args[0].detach()
 
 
 def _ensure_capture_hook(dit) -> None:
@@ -449,7 +450,9 @@ class SpectrumNode:
                 state.cached_completed()
                 return result
 
-            if feature_cache:
+            # Only a new, cacheable step feeds the forecasters: skip capturing
+            # (a full-resolution feature) on forced / repeated / other calls.
+            if feature_cache and new_step and compatible:
                 capture_local = dit.final_layer._forge_spectrum_local
                 capture_local.state = state
                 state.captured_feature = None
@@ -460,6 +463,9 @@ class SpectrumNode:
                 finally:
                     capture_local.state = None
                     state.captured_feature = None
+            elif feature_cache:
+                result = actual_forward(model_function, args)
+                feature = None
             else:
                 result = actual_forward(model_function, args)
                 feature = result

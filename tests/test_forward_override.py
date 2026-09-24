@@ -46,3 +46,19 @@ def test_named_override_restores_other_methods():
 
     assert restore_forward_override(engine, wrapper, token, name="get_learned_conditioning")
     assert "get_learned_conditioning" not in engine.__dict__
+
+
+def test_active_overrides_are_tracked_until_restored():
+    from modules.forward_override import overridden_modules
+
+    module = torch.nn.Linear(1, 1)
+    first = lambda x: x
+    second = lambda x: x
+    first_token = install_forward_override(module, first)
+    second_token = install_forward_override(module, second)
+    assert module in overridden_modules()
+
+    assert restore_forward_override(module, second, second_token)
+    assert module in overridden_modules()
+    assert restore_forward_override(module, first, first_token)
+    assert module not in overridden_modules()

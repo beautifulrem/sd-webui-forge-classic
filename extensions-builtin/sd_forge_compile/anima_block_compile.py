@@ -23,6 +23,19 @@ _FALLBACK_REASON_KEY = "_forge_anima_block_compile_fallback_reason"
 _EAGER_OPTION_KEYS = ("anima_attention_modifiers", "negpip_mask", "negpip_context_mask")
 
 
+def patched_inside(module_ids) -> bool:
+    """True while a forward override (Regional, FreeFuse, Artist Mixer,
+    NegPiP...) is installed on any module whose id is in ``module_ids``:
+    compiled graphs traced without it would ignore or keep recompiling it."""
+    from modules.forward_override import overridden_modules
+
+    return any(id(module) in module_ids for module in overridden_modules())
+
+
+def needs_eager(args, kwargs, module_ids) -> bool:
+    return _needs_eager_blocks(args, kwargs) or patched_inside(module_ids)
+
+
 def _needs_eager_blocks(args, kwargs) -> bool:
     # NegPiP's mask arrives as a conditioning kwarg; its DiT hook moves it
     # into transformer_options only after the compiled blocks are in place.
@@ -62,11 +75,14 @@ class AnimaBlockCompileManager:
 
         @wraps(original_apply_model)
         def apply_model_with_compiled_blocks(*args, **kwargs):
-            if getattr(kmodel, _FAILED_KEY, False) or _needs_eager_blocks(args, kwargs):
+            if getattr(kmodel, _FAILED_KEY, False):
                 return original_apply_model(*args, **kwargs)
             diffusion_model = kmodel.diffusion_model
             blocks = getattr(diffusion_model, "blocks", None)
             if not isinstance(blocks, torch.nn.ModuleList) or not blocks:
+                return original_apply_model(*args, **kwargs)
+            block_ids = {id(module) for block in blocks for module in block.modules()}
+            if needs_eager(args, kwargs, block_ids):
                 return original_apply_model(*args, **kwargs)
 
             compiled = getattr(kmodel, _COMPILED_BLOCKS_KEY, None)

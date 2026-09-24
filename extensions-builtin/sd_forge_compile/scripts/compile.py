@@ -19,7 +19,7 @@ from backend.utils import get_attr, set_attr_raw
 from modules import scripts
 from modules.anima_support import is_anima_engine
 from modules.anima_presets import register_preset_control
-from anima_block_compile import AnimaBlockCompileManager
+from anima_block_compile import AnimaBlockCompileManager, needs_eager
 
 try:
     import triton  # noqa: F401 -- importing is the backend availability probe
@@ -203,6 +203,11 @@ class TorchCompileForForge(scripts.Script):
         @wraps(original_apply_model)
         def apply_model_with_compile(*args, **kwargs):
             orig_model = get_attr(kmodel, "diffusion_model")
+            # The guard filter drops guards on transformer_options: calls with
+            # per-generation attention options or patched modules run eager.
+            model_ids = {id(module) for module in orig_model.modules()}
+            if needs_eager(args, kwargs, model_ids):
+                return original_apply_model(*args, **kwargs)
 
             if not hasattr(kmodel, "_forge_compiled_model"):
                 setattr(kmodel, "_forge_compiled_model", torch.compile(orig_model, **compile_config))
