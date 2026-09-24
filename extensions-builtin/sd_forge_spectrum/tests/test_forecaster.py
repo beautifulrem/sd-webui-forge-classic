@@ -156,7 +156,6 @@ class ForecasterTests(unittest.TestCase):
             calls.append("regional")
             return model_function(args["input"], args["timestep"], **args["c"])
 
-        regional.__forge_pass_wrapper_kind__ = "anima_regional"
         patcher = SpectrumNode.patch(
             FakePatcher(regional),
             steps=4,

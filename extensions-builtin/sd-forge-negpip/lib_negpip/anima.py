@@ -41,8 +41,9 @@ def patch_anima_negpip(cls: "NegPiP", *, unpatch=False):
 def _hook_get_learned_conditioning(model: "AnimaEngine", remove: bool):
     if remove:
         restore = model.__dict__.pop("_negpip_restore_conditioning", None)
-        if restore is not None:
-            restore_forward_override(model, *restore, name="get_learned_conditioning")
+        if restore is not None and not restore_forward_override(model, *restore, name="get_learned_conditioning"):
+            # Another override sits on top; make ours a pass-through.
+            restore[0]._negpip_detached = True
         return
 
     orig_get_learned_conditioning = model.get_learned_conditioning
@@ -52,6 +53,8 @@ def _hook_get_learned_conditioning(model: "AnimaEngine", remove: bool):
     @torch.inference_mode()
     @wraps(orig_get_learned_conditioning)
     def negpip_learned_conditioning(prompt: "SdConditioning"):
+        if getattr(negpip_learned_conditioning, "_negpip_detached", False):
+            return orig_get_learned_conditioning(prompt)
         conds = orig_get_learned_conditioning(prompt)
         assert isinstance(conds, list)
         assert len(prompt) == len(conds)
@@ -127,8 +130,9 @@ def _hook_dit_forward(dit: "Anima", remove: bool):
         # Remove the instance override instead of pinning the old bound method;
         # the wrapper keeps its own reference to the original forward.
         restore = dit.__dict__.pop("_negpip_restore", None)
-        if restore is not None:
-            restore_forward_override(dit, *restore)
+        if restore is not None and not restore_forward_override(dit, *restore):
+            # Another override sits on top; make ours a pass-through.
+            restore[0]._negpip_detached = True
         return
 
     orig_forward = dit.forward
@@ -142,6 +146,8 @@ def _hook_dit_forward(dit: "Anima", remove: bool):
         padding_mask: Optional[torch.Tensor] = None,
         **kwargs,
     ):
+        if getattr(negpip_forward, "_negpip_detached", False):
+            return orig_forward(x, timesteps, context, padding_mask, **kwargs)
         transformer_options = kwargs.get("transformer_options", {})
 
         negpip_mask = kwargs.get("c_negpip_mask", None)

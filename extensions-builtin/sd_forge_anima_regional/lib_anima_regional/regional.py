@@ -189,7 +189,9 @@ def apply_regional_patch(model, state: RegionalState):
                     restore_forward_override(module, forward, restore_token)
                 state.current_masks = None
 
-    wrapper.__forge_pass_wrapper_kind__ = "anima_regional"
-    wrapper.__forge_previous_wrapper__ = previous
     patched.set_model_unet_function_wrapper(wrapper)
+    # Spectrum wraps this wrapper, so it must see the flag on the patcher.
+    options = dict(patched.model_options.get("transformer_options", {}))
+    options["forge_spectrum_force_actual"] = "regional_conditioning"
+    patched.model_options["transformer_options"] = options
     return patched

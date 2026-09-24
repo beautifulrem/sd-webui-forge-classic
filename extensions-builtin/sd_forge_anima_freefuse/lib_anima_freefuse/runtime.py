@@ -589,33 +589,28 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
     dit = patched.model.diffusion_model
     state.validate_patches(patched)
     previous = patched.model_options.get("model_function_wrapper")
-    # Walk the DiT once per pass instead of on every model call.
-    linear_modules = [
-        (module_name, module)
+    # Build the per-module overrides once per pass; each model call only
+    # installs and removes them (fresh closures per call are costly and
+    # defeat torch.compile guards).
+    overrides = [
+        (
+            block.cross_attn,
+            _make_cross_attention_forward(block.cross_attn.forward, block.cross_attn, state, index),
+        )
+        for index, block in enumerate(dit.blocks)
+    ]
+    overrides.extend(
+        (module, _make_linear_forward(module.forward, module, state, module_name))
         for module_name, module in dit.named_modules()
         if isinstance(module, torch.nn.Linear)
-    ]
+    )
 
     def wrapper(model_function, args):
         with _PATCH_LOCK:
             state.update_grid(args["input"], dit)
             originals = []
             try:
-                for index, block in enumerate(dit.blocks):
-                    cross = block.cross_attn
-                    forward = _make_cross_attention_forward(
-                        cross.forward, cross, state, index
-                    )
-                    originals.append(
-                        (cross, forward, install_forward_override(cross, forward))
-                    )
-                for module_name, module in linear_modules:
-                    forward = _make_linear_forward(
-                        module.forward,
-                        module,
-                        state,
-                        module_name,
-                    )
+                for module, forward in overrides:
                     originals.append(
                         (module, forward, install_forward_override(module, forward))
                     )
@@ -634,10 +629,10 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
                 for module, forward, restore_token in reversed(originals):
                     restore_forward_override(module, forward, restore_token)
 
-    wrapper.__forge_pass_wrapper_kind__ = "anima_freefuse"
-    wrapper.__forge_previous_wrapper__ = previous
     patched.set_model_unet_function_wrapper(wrapper)
     options = dict(patched.model_options.get("transformer_options", {}))
     options["anima_freefuse_state"] = state
+    # Spectrum wraps this wrapper, so it must see the flag on the patcher.
+    options["forge_spectrum_force_actual"] = "anima_freefuse"
     patched.model_options["transformer_options"] = options
     return patched

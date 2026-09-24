@@ -113,6 +113,7 @@ def _normalize(tag: str) -> str:
     s = _strip_emphasis(tag).lower()
     s = s.replace("\\", "")             # drop escape backslashes
     s = re.sub(r"[()\[\]{}]", " ", s)   # brackets are irrelevant for comparison
+    s = _WEIGHT_RE.sub("", s)          # weight left behind by an unbalanced group end
     s = s.replace("_", " ")             # underscore == space
     s = re.sub(r"\s+", " ", s)          # collapse whitespace
     return s.strip()
@@ -138,6 +139,40 @@ def _is_blacklisted(norm_tag: str, entries) -> bool:
     return False
 
 
+_PAIRS = {")": "(", "]": "[", "}": "{"}
+_TRAILING_WEIGHT = re.compile(r":\s*-?\d*\.?\d+\s*$")
+
+
+def _bracket_residue(tag: str):
+    """Return (openers, closing) that removing ``tag`` must keep.
+
+    Comma splitting cuts through emphasis groups such as
+    ``(red hair, blue eyes:1.2)``; dropping ``(red hair`` must keep ``(``
+    and dropping ``blue eyes:1.2)`` must keep ``:1.2)`` so the group stays
+    balanced. Escaped brackets are literal text.
+    """
+
+    stack, first_unmatched_close, escaped = [], None, False
+    for index, char in enumerate(tag):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+        elif char in "([{":
+            stack.append(char)
+        elif char in _PAIRS:
+            if stack and stack[-1] == _PAIRS[char]:
+                stack.pop()
+            elif first_unmatched_close is None:
+                first_unmatched_close = index
+    closing = ""
+    if first_unmatched_close is not None:
+        weight = _TRAILING_WEIGHT.search(tag[:first_unmatched_close])
+        closing = tag[weight.start() if weight else first_unmatched_close :]
+    return "".join(stack), closing
+
+
 def clean_prompt(prompt: str, blacklist_text: str, remove_dupes: bool):
     """Remove blacklisted tags from the positive prompt. Returns (prompt, status)."""
     entries = _parse_blacklist(blacklist_text)
@@ -149,6 +184,28 @@ def clean_prompt(prompt: str, blacklist_text: str, remove_dupes: bool):
 
     for line in (prompt or "").split("\n"):
         kept = []
+        pending_openers = ""
+
+        def drop(tag, label):
+            nonlocal pending_openers
+            removed.append(label)
+            openers, closing = _bracket_residue(tag)
+            # A group whose every tag was dropped disappears entirely.
+            while closing and pending_openers:
+                bracket = closing.rstrip()[-1]
+                if _PAIRS.get(bracket) != pending_openers[-1]:
+                    break
+                pending_openers = pending_openers[:-1]
+                closing = closing.rstrip()[:-1]
+                if not any(char in _PAIRS for char in closing):
+                    closing = ""
+            pending_openers += openers
+            if closing:
+                if kept:
+                    kept[-1] += closing
+                else:
+                    kept.append(closing)
+
         for raw in line.split(","):
             tag = raw.strip()
             if not tag:
@@ -158,20 +215,24 @@ def clean_prompt(prompt: str, blacklist_text: str, remove_dupes: bool):
 
             # never touch structural keywords
             if norm in ("break", "and"):
-                kept.append(tag)
+                kept.append(pending_openers + tag)
+                pending_openers = ""
                 continue
 
             if _is_blacklisted(norm, entries):
-                removed.append(tag)
+                drop(tag, tag)
                 continue
 
             if remove_dupes:
                 if norm in seen:
-                    removed.append(f"{tag} (duplicate)")
+                    drop(tag, f"{tag} (duplicate)")
                     continue
                 seen.add(norm)
 
-            kept.append(tag)
+            kept.append(pending_openers + tag)
+            pending_openers = ""
+        if pending_openers:
+            kept.append(pending_openers)
         out_lines.append(", ".join(kept))
 
     new_prompt = "\n".join(out_lines).strip()

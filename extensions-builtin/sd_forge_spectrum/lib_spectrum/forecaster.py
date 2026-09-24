@@ -456,9 +456,5 @@ class SpectrumNode:
                 state.actual_completed()
             return result
 
-        wrapper.__spectrum_feature_cache__ = feature_cache
-        wrapper.__spectrum_previous_wrapper__ = old_wrapper
-        wrapper.__forge_pass_wrapper_kind__ = "spectrum"
-        wrapper.__forge_previous_wrapper__ = old_wrapper
         new_model.set_model_unet_function_wrapper(wrapper)
         return new_model

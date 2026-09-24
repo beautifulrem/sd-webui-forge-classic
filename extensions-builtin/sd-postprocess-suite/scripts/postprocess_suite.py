@@ -332,6 +332,9 @@ class PostProcessSuite(scripts.Script):
             return
         if getattr(p, "resize_mode", 0) not in (0, 1, 2):
             return
+        # Inpainting derives its mask scale from the init image size, so keep
+        # the original size there and only apply the effects.
+        keep_size = isinstance(pp, dict) and pp.get("image_mask") is not None
         init_images = getattr(p, "init_images", None)
         if not init_images:
             return
@@ -340,8 +343,9 @@ class PostProcessSuite(scripts.Script):
             new_images = []
             for img in init_images:
                 flat = images.flatten(img, shared.opts.img2img_background_color)
-                upscaled = images.resize_image(p.resize_mode, flat, p.width, p.height)
-                processed = P.run_pipeline(upscaled, list(args))
+                if not keep_size:
+                    flat = images.resize_image(p.resize_mode, flat, p.width, p.height)
+                processed = P.run_pipeline(flat, list(args))
                 new_images.append(processed)
             p.init_images = new_images
             summary = P.summarize(list(args))

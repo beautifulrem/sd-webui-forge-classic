@@ -189,13 +189,12 @@ class Script(scripts.Script):
     
     def process(self, p, enabled, *all_daemon_args):    
         if not enabled:
-            if hasattr(self, 'callback_added'):
-                remove_callbacks_for_function(self.denoiser_callback)
-                delattr(self, 'callback_added')
+            self._remove_callback()
             return
 
         if p.sampler_name in ["DPM adaptive", "HeunPP2"]:
             tqdm.write(f'\033[31mDetail Daemon:\033[0m Selected sampler ({p.sampler_name}) is not supported.')
+            self._remove_callback()
             return        
 
         self.daemon_data = []
@@ -266,10 +265,17 @@ class Script(scripts.Script):
     def before_hr(self, p, *args):
         self.is_hires_pass = True
 
-    def postprocess(self, p, processed, *args):
+    def _remove_callback(self):
         if hasattr(self, 'callback_added'):
             remove_callbacks_for_function(self.denoiser_callback)
-            delattr(self, 'callback_added') 
+            delattr(self, 'callback_added')
+
+    def postprocess(self, p, processed, *args):
+        self._remove_callback()
+
+    def cleanup(self, p, *args):
+        # Runs even when generation raises, so the global callback never leaks.
+        self._remove_callback()
         
     def denoiser_callback(self, params): 
         for daemon in self.daemon_data:

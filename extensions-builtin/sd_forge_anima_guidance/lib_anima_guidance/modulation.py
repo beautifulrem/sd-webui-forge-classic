@@ -240,8 +240,6 @@ class ModulationPatch:
         _ensure_hooks(dit)
 
         previous = patched.model_options.get("model_function_wrapper")
-        while getattr(previous, "__forge_pass_wrapper_kind__", None) == "anima_modulation":
-            previous = getattr(previous, "__forge_previous_wrapper__", None)
 
         def wrapper(model_function, args):
             branches = [int(item) for item in args.get("cond_or_uncond", [])]
@@ -264,7 +262,5 @@ class ModulationPatch:
                     dit.blocks[index]._forge_anima_modulation_local.delta = None
 
         wrapper.__spectrum_cache_safe__ = True
-        wrapper.__forge_pass_wrapper_kind__ = "anima_modulation"
-        wrapper.__forge_previous_wrapper__ = previous
         patched.set_model_unet_function_wrapper(wrapper)
         return patched, start, end

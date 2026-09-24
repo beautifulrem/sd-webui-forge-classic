@@ -125,8 +125,8 @@ class CNSRecolorer:
         self.bin_cache: dict[tuple[int, int, str], torch.Tensor] = {}
 
     @classmethod
-    def calibrated(cls, strength: float) -> "CNSRecolorer":
-        arrays = load_gamma_arrays()
+    def calibrated(cls, strength: float, arrays: Optional[dict[str, np.ndarray]] = None) -> "CNSRecolorer":
+        arrays = load_gamma_arrays() if arrays is None else arrays
         return cls(arrays["gamma"], arrays["aspects"], arrays["sigmas"], strength)
 
     @classmethod
@@ -152,7 +152,7 @@ class CNSRecolorer:
             _record_cns_fallback(process, reason)
             return None
         _GAMMA_FAILED_AT = None
-        return cls(arrays["gamma"], arrays["aspects"], arrays["sigmas"], strength)
+        return cls.calibrated(strength, arrays)
 
     def _select_aspect(self, height: int, width: int) -> None:
         aspect = width / max(height, 1)

@@ -1670,6 +1670,9 @@ def _encode_text_batch(p, texts, use_cache=True):
     )
     conds = p.sd_model.get_learned_conditioning(conditioning)
     tensors = []
+    if isinstance(conds, dict):
+        # Hooks such as NegPiP return {"crossattn": batch, ...extra keys}.
+        conds = conds.get("crossattn", conds.get("c_crossattn"))
     if torch.is_tensor(conds):
         conds = list(conds)
     for cond in conds:
@@ -1836,6 +1839,10 @@ def _install_model_wrapper(unet, dm, state):
 
     model_wrapper._anima_artist_mixer_model_wrapper = True
     options["model_function_wrapper"] = model_wrapper
+    # Spectrum wraps this wrapper, so it must see the flag on the patcher.
+    transformer_options = dict(options.get("transformer_options", {}))
+    transformer_options["forge_spectrum_force_actual"] = "artist_mixer"
+    options["transformer_options"] = transformer_options
     _PATCHED_MODEL_WRAPPERS.append((unet, had_wrapper, existing))
 
 
@@ -2647,6 +2654,10 @@ class Script(scripts.Script):
         for previous in previous_states:
             previous.superseded = True
         _install_cross_attn_patch(dm, state)
+        # forge_objects.shallow_copy() shares the long-lived unet patcher; clone
+        # so the wrapper and options stay scoped to this pass.
+        unet = unet.clone()
+        p.sd_model.forge_objects.unet = unet
         _install_model_wrapper(unet, dm, state)
         _ACTIVE_STATE = state
         _RUN_STATES.append(state)

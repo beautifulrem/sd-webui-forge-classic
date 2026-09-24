@@ -100,7 +100,8 @@ class JoyCaptionEngine:
     """Holds the loaded processor + model. Thread-safe (single GPU)."""
 
     _instance: Optional["JoyCaptionEngine"] = None
-    _lock = threading.Lock()
+    # Re-entrant: load() unloads first, and generate() must not race either.
+    _lock = threading.RLock()
 
     def __init__(self):
         self.processor = None
@@ -126,6 +127,10 @@ class JoyCaptionEngine:
 
     def load(self, quantization: str = "bf16", progress_print=print):
         """quantization: 'bf16' | 'int8' | 'nf4'"""
+        with self._lock:
+            self._load(quantization, progress_print)
+
+    def _load(self, quantization: str, progress_print):
         torch, transformers = _lazy_imports()
 
         if self.is_loaded() and self.loaded_quant == quantization:
@@ -166,6 +171,10 @@ class JoyCaptionEngine:
         progress_print(f"[JoyCaption] Model loaded ({quantization}).")
 
     def unload(self):
+        with self._lock:
+            self._unload()
+
+    def _unload(self):
         torch, _ = _lazy_imports()
         if self.model is not None:
             del self.model
