@@ -1,3 +1,4 @@
+import weakref
 from functools import wraps
 from typing import TYPE_CHECKING
 
@@ -19,8 +20,9 @@ else:
     from ldm_patched.ldm.modules.attention import optimized_attention
 
 
-# Modules hooked by the active patch, so unpatching restores the same objects
-# even if shared.sd_model changed or failed to load meanwhile.
+# Weak refs to the modules hooked by the active patch, so unpatching restores
+# the same objects even if shared.sd_model changed or failed to load
+# meanwhile, without keeping an unloaded checkpoint alive.
 _PATCHED_MODULES: list = []
 
 
@@ -33,8 +35,10 @@ def patch_sd_negpip(instance: "NegPiP", cls: "NegPiP", *, unpatch=False):
     if unpatch:
         cls._patched[0] = False
         modules, _PATCHED_MODULES = _PATCHED_MODULES, []
-        for module in modules:
-            _hook_forward(instance, module, True)
+        for ref in modules:
+            module = ref()
+            if module is not None:
+                _hook_forward(instance, module, True)
         return
 
     unet: "UNet" = shared.sd_model.forge_objects.unet.model.diffusion_model
@@ -42,7 +46,7 @@ def patch_sd_negpip(instance: "NegPiP", cls: "NegPiP", *, unpatch=False):
     for name, module in unet.named_modules():
         if "attn2" in name and module.__class__.__name__ == "CrossAttention":
             _hook_forward(instance, module, False)
-            _PATCHED_MODULES.append(module)
+            _PATCHED_MODULES.append(weakref.ref(module))
 
 
 # ================================================================================ #

@@ -1,5 +1,6 @@
 # https://github.com/david419kr/sd-webui-negpip/blob/main/scripts/negpip.py
 
+import weakref
 from functools import wraps
 from typing import TYPE_CHECKING, Optional
 
@@ -21,8 +22,9 @@ from modules import shared
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
-# (engine, dit) patched by the active hook, so unpatching restores the same
-# objects even if shared.sd_model changed or failed to load meanwhile.
+# Weak refs to the (engine, dit) patched by the active hook, so unpatching
+# restores the same objects even if shared.sd_model changed or failed to load
+# meanwhile, without keeping an unloaded checkpoint alive.
 _PATCHED_TARGETS = None
 
 
@@ -40,15 +42,17 @@ def patch_anima_negpip(cls: "NegPiP", *, unpatch=False):
         _hook_forwards(True)
         _hook_compile_conditions(True)
         if targets is not None:
-            model, dit = targets
-            _hook_get_learned_conditioning(model, True)
-            _hook_dit_forward(dit, True)
+            model, dit = (ref() for ref in targets)
+            if model is not None:
+                _hook_get_learned_conditioning(model, True)
+            if dit is not None:
+                _hook_dit_forward(dit, True)
         return
 
     model: "AnimaEngine" = shared.sd_model
     dit: "Anima" = model.forge_objects.unet.model.diffusion_model
     cls._patched[1] = True
-    _PATCHED_TARGETS = (model, dit)
+    _PATCHED_TARGETS = (weakref.ref(model), weakref.ref(dit))
     _hook_get_learned_conditioning(model, False)
     _hook_dit_forward(dit, False)
     _hook_forwards(False)
@@ -233,6 +237,15 @@ def _hook_forwards(remove: bool):
             return original(self, x, context, rope_emb, transformer_options)
 
         negpip_mask: torch.Tensor = transformer_options.get("negpip_mask", None)
+        # The mask belongs to the base prompt's tokens. Contexts injected by
+        # Regional / Artist Mixer (marked anima_nag_skip) or of another length
+        # must not be sign-flipped with it.
+        if negpip_mask is not None and (
+            transformer_options.get("anima_nag_skip")
+            or context is None
+            or negpip_mask.shape[1] != context.shape[1]
+        ):
+            negpip_mask = None
 
         q = self.q_proj(x)
         context_k = x if context is None else context
