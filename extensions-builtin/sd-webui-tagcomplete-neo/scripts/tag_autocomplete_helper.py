@@ -5,6 +5,7 @@ import glob
 import importlib
 import json
 import os
+import re
 import sqlite3
 import sys
 import urllib.parse
@@ -885,8 +886,9 @@ def api_tac(_: gr.Blocks, app: FastAPI):
         lora_path = Path(paths[0])
         json_path = lora_path.with_suffix(".json")
 
-        # Compute SHA256 (uses Forge's cache, fast on repeat calls)
-        sha256 = hashes.sha256_from_cache(
+        # Compute SHA256 (uses Forge's cache, fast on repeat calls). This
+        # route is sync, so hashing a new file runs in the thread pool.
+        sha256 = hashes.sha256(
             str(lora_path), f"lora/{lora_name}", lora_path.suffix == ".safetensors"
         )
         if not sha256:
@@ -974,6 +976,9 @@ def api_tac(_: gr.Blocks, app: FastAPI):
           2. Call CivitAI GET /api/v1/model-versions/by-hash/{sha256}.
           3. Save the baseModel field to the cache for future cache hits.
         """
+        # A hash only (AutoV2 .. full SHA256): this goes into the CivitAI URL.
+        if not re.fullmatch(r"[0-9A-Fa-f]{10,64}", sha256 or ""):
+            return Response(status_code=400)
         sha256_upper = sha256.upper()
         cache = load_checkpoint_basemodel_cache()
 

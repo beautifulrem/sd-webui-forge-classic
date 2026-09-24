@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 import uuid
 from collections import OrderedDict
@@ -1291,8 +1292,12 @@ def _current_settings_data():
 def _save_current_settings_data(data):
     try:
         CURRENT_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with CURRENT_SETTINGS_FILE.open("w", encoding="utf-8") as f:
+        # Write a sibling and swap it in: an interrupted write must not
+        # leave truncated JSON that silently resets the panel.
+        temp = CURRENT_SETTINGS_FILE.with_name(CURRENT_SETTINGS_FILE.name + ".tmp")
+        with temp.open("w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(temp, CURRENT_SETTINGS_FILE)
     except Exception:
         logger.exception("Failed to save Anima artist mixer current settings")
 
@@ -1395,6 +1400,23 @@ def _current_settings_payload(
 def _save_current_settings_ui(*values):
     _save_current_settings_data(_current_settings_payload(*values))
     return ""
+
+
+_LAST_REMEMBERED_JOB = None
+
+
+def _should_remember_settings(p) -> bool:
+    """Remember the panel as the user last generated with: once per UI
+    Generate click, not for API calls, hires passes or later X/Y/Z cells
+    (each would overwrite the saved panel with that run's args)."""
+    global _LAST_REMEMBERED_JOB
+    if getattr(p, "is_api", False) or getattr(p, "is_hr_pass", False):
+        return False
+    job = getattr(shared.state, "job_timestamp", None)
+    if job is not None and job == _LAST_REMEMBERED_JOB:
+        return False
+    _LAST_REMEMBERED_JOB = job
+    return True
 
 
 def _save_runtime_current_settings(
@@ -2669,22 +2691,23 @@ class Script(scripts.Script):
         component_values = args[13:]
         base_values = component_values[: MAX_ARTIST_ROWS * 10]
         hires_values = component_values[MAX_ARTIST_ROWS * 10 : MAX_ARTIST_ROWS * 20]
-        _save_runtime_current_settings(
-            enable,
-            base_row_count,
-            hires_row_count,
-            hires_independent,
-            disable_hires_mixing,
-            runtime_base_shift,
-            runtime_hires_shift,
-            global_strength,
-            optimization,
-            combine_mode,
-            fusion_mode,
-            apply_uncond,
-            enable_cache,
-            *component_values,
-        )
+        if _should_remember_settings(p):
+            _save_runtime_current_settings(
+                enable,
+                base_row_count,
+                hires_row_count,
+                hires_independent,
+                disable_hires_mixing,
+                runtime_base_shift,
+                runtime_hires_shift,
+                global_strength,
+                optimization,
+                combine_mode,
+                fusion_mode,
+                apply_uncond,
+                enable_cache,
+                *component_values,
+            )
 
         _unpatch_cross_attn()
         _ACTIVE_STATE = None

@@ -70,7 +70,7 @@ import traceback
 
 import gradio as gr
 
-from modules import scripts, script_callbacks, shared
+from modules import prompt_rewrites, scripts, script_callbacks, shared
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +261,13 @@ class PromptAnchorScript(scripts.Script):
 
     # ---- Generation hooks --------------------------------------------------
 
+    # The same p is run again by img2img batch, Loopback and SD upscale.
+    def before_process(self, p, *args):
+        prompt_rewrites.restore(p)
+
+    def postprocess(self, p, processed, *args):
+        prompt_rewrites.restore(p)
+
     def process(self, p, enabled, anchor, separator, *_):
         """Runs once per Generate click, BEFORE any per-batch processing
         (wildcards, dynamic prompts, etc.). We prepend the anchor here
@@ -291,6 +298,7 @@ class PromptAnchorScript(scripts.Script):
             original_all_prompts = list(getattr(p, "all_prompts", None) or [])
             if hasattr(p, "prompt"):
                 p.prompt = _join(text, p.prompt or "", sep)
+                prompt_rewrites.record(p, "prompt", original_prompt, p.prompt)
 
             # `p.all_prompts` -- list, one entry per image in the batch.
             # Populated by process_images() BEFORE process() runs, so
@@ -322,6 +330,7 @@ class PromptAnchorScript(scripts.Script):
             hr_prompt = getattr(p, "hr_prompt", None)
             if isinstance(hr_prompt, str) and hr_prompt:
                 p.hr_prompt = anchor_hires(hr_prompt, original_prompt, getattr(p, "prompt", None))
+                prompt_rewrites.record(p, "hr_prompt", hr_prompt, p.hr_prompt)
             all_hr = getattr(p, "all_hr_prompts", None)
             if all_hr:
                 anchored_all = getattr(p, "all_prompts", None) or []

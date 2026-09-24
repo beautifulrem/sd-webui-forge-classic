@@ -14,6 +14,8 @@ This is what makes the whole pipeline freely reorderable.
 from __future__ import annotations
 
 import json
+import os
+from collections import OrderedDict
 import numpy as np
 
 from . import effects as E
@@ -243,8 +245,32 @@ def grouped_stages():
 # Anything beyond this in the arg list is an extra control (e.g. apply-mode).
 PIPELINE_ARG_COUNT = 1 + sum(2 + len(st["params"]) for st in STAGES)
 
-# cache for parsed LUTs keyed by path
-_LUT_CACHE: dict = {}
+# Parsed LUTs, most recently used last. Keyed by file identity: every Gradio
+# upload is a new temp path, so a path-keyed, unbounded cache would grow for
+# the life of the server.
+_LUT_CACHE: OrderedDict = OrderedDict()
+_LUT_CACHE_SIZE = 8
+
+
+def _load_lut(path):
+    try:
+        stat = os.stat(path)
+    except OSError as e:
+        print(f"[PostProcess Suite] LUT load failed: {e}")
+        return None
+    key = (os.path.realpath(path), stat.st_mtime_ns, stat.st_size)
+    if key in _LUT_CACHE:
+        _LUT_CACHE.move_to_end(key)
+        return _LUT_CACHE[key]
+    try:
+        parsed = E.parse_cube(path)
+    except Exception as e:
+        print(f"[PostProcess Suite] LUT load failed: {e}")
+        return None
+    _LUT_CACHE[key] = parsed
+    while len(_LUT_CACHE) > _LUT_CACHE_SIZE:
+        _LUT_CACHE.popitem(last=False)
+    return parsed
 
 
 def _resolve_file(v):
@@ -283,13 +309,7 @@ def apply_stage(effect: str, arr: np.ndarray, v: dict) -> np.ndarray:
         path = _resolve_file(v["lut_file"])
         if not path:
             return arr
-        if path not in _LUT_CACHE:
-            try:
-                _LUT_CACHE[path] = E.parse_cube(path)
-            except Exception as e:
-                print(f"[PostProcess Suite] LUT load failed: {e}")
-                _LUT_CACHE[path] = None
-        cached = _LUT_CACHE[path]
+        cached = _load_lut(path)
         if cached is None:
             return arr
         lut, dmin, dmax = cached

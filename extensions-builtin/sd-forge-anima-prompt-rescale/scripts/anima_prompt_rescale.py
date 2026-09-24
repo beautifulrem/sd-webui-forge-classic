@@ -25,7 +25,7 @@ import sys
 
 import gradio as gr
 
-from modules import scripts, shared
+from modules import prompt_rewrites, scripts, shared
 from modules.anima_presets import register_preset_control
 
 _EXT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -141,6 +141,13 @@ class AnimaPromptRescaleScript(scripts.Script):
             register_preset_control(self.tabname, name, component)
         return [auto_enable, auto_source, auto_fraction]
 
+    # The same p is run again by img2img batch, Loopback and SD upscale.
+    def before_process(self, p, *args):
+        prompt_rewrites.restore(p)
+
+    def postprocess(self, p, processed, *args):
+        prompt_rewrites.restore(p)
+
     def process(self, p, auto_enable=False, auto_source=35, auto_fraction=False):
         # Never touch txt2img, and never act unless explicitly enabled.
         if not self.is_img2img or not auto_enable:
@@ -188,6 +195,7 @@ class AnimaPromptRescaleScript(scripts.Script):
                 val = getattr(p, attr, None)
                 if isinstance(val, str):
                     setattr(p, attr, _rw(val))
+                    prompt_rewrites.record(p, attr, val, getattr(p, attr))
 
             if changed:
                 p.extra_generation_params["Anima schedule rescale"] = (

@@ -640,6 +640,10 @@ class AnimaGuidanceScript(scripts.Script):
         *args,
         **kwargs,
     ):
+        # The global pre-denoiser hook applies whatever DCW state p holds: a
+        # pass without DCW (e.g. hires after it was dropped for the sampler)
+        # must not keep correcting towards the previous pass's history.
+        p._anima_dcw_state = None
         active_sampler = (
             (getattr(p, "hr_sampler_name", None) or p.sampler_name)
             if getattr(p, "is_hr_pass", False)
