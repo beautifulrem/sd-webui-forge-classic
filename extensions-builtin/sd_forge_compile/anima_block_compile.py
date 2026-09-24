@@ -24,6 +24,10 @@ _EAGER_OPTION_KEYS = ("anima_attention_modifiers", "negpip_mask", "negpip_contex
 
 
 def _needs_eager_blocks(args, kwargs) -> bool:
+    # NegPiP's mask arrives as a conditioning kwarg; its DiT hook moves it
+    # into transformer_options only after the compiled blocks are in place.
+    if kwargs.get("c_negpip_mask") is not None:
+        return True
     options = kwargs.get("transformer_options")
     if options is None and len(args) > 5:
         options = args[5]
