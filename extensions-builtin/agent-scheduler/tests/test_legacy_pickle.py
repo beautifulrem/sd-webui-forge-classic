@@ -101,3 +101,15 @@ class _Codec:
 def test_code_execution_payloads_are_rejected(payload, protocol):
     with pytest.raises(pickle.UnpicklingError):
         _load([payload], protocol)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"(S'/dev/null'\niPIL.PngImagePlugin\nPngImageFile\n.",  # INST
+        b"(cPIL.PngImagePlugin\nPngImageFile\nS'/dev/null'\no.",  # OBJ
+    ],
+)
+def test_inst_and_obj_cannot_call_classes(payload):
+    with pytest.raises(pickle.UnpicklingError):
+        _ns["_load_script_args"](zlib.compress(payload))

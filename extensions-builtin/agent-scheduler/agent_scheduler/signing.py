@@ -48,9 +48,22 @@ def _stale_key_files():
 
 
 def protected_files():
-    """Files that must never be served: the key and the task database."""
-    db_file = _db_file()
-    return [key_file(), db_file, db_file + "-journal", db_file + "-wal", db_file + "-shm"]
+    """Files that must never be served: the key and the task databases."""
+    from .db.base import legacy_db_file
+
+    files = [key_file()]
+    for db_file in (_db_file(), os.path.abspath(legacy_db_file)):
+        files += [db_file, db_file + "-journal", db_file + "-wal", db_file + "-shm"]
+    return files
+
+
+# False while the key file cannot be kept from Gradio's /file= route: /import
+# then refuses everything (a downloaded key would sign crafted pickles).
+imports_allowed = True
+
+
+def ensure_key() -> None:
+    _load_key()
 
 
 def _load_key() -> bytes:
@@ -64,7 +77,15 @@ def _load_key() -> bytes:
                     pass
                 except OSError:
                     pass  # it is not trusted either way
-            _KEY = _read_or_create_key(key_file())
+            try:
+                _KEY = _read_or_create_key(key_file())
+            except OSError as error:
+                from .helpers import log
+
+                # Stored params then verify only in this session; afterwards
+                # they load through the legacy unpickler.
+                log.warning(f"[AgentScheduler] Cannot use the signing key file ({error}); using a session key")
+                _KEY = secrets.token_bytes(_KEY_SIZE)
         return _KEY
 
 
@@ -85,7 +106,7 @@ def _read_key(path: str, wait: bool):
 
 
 def _read_or_create_key(path: str) -> bytes:
-    key = _read_key(path, wait=False)
+    key = _read_key(path, wait=True)
     if key:
         return key
     temp = f"{path}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
@@ -150,11 +171,9 @@ def verified_payload(data):
 
 def verify(data) -> bytes:
     """Return the signed payload, or raise ValueError if it is not ours."""
-    if not is_signed(data):
-        raise ValueError("task script params are not signed by this server")
     blob = verified_payload(data)
     if blob is None:
-        raise ValueError("task script params signature does not match this server")
+        raise ValueError("task script params are not signed by this server")
     return blob
 
 

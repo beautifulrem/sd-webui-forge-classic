@@ -127,6 +127,13 @@ class _ScriptArgsUnpickler(pickle._Unpickler):
 
     dispatch[pickle.REDUCE[0]] = load_reduce
 
+    def _instantiate(self, klass, args):
+        # INST / OBJ (protocol 0/1) call the class with payload arguments,
+        # just like REDUCE: e.g. PngImageFile("/any/path") opens host files.
+        if not _is_safe_reduce(klass, tuple(args)):
+            raise pickle.UnpicklingError(f"Refusing to call {klass!r} from task script params")
+        super()._instantiate(klass, args)
+
 
 def legacy_load(data: bytes):
     """Load zlib-compressed pickled script params with the legacy filter."""
