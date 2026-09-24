@@ -20,6 +20,7 @@ import yaml
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse, Response
 from modules import hashes, script_callbacks, sd_models, shared
+from modules.extension_route_guard import guard_routes
 from pydantic import BaseModel
 
 from scripts.model_keyword_support import (get_lora_simple_hash,
@@ -1170,3 +1171,6 @@ def api_tac(_: gr.Blocks, app: FastAPI):
         return db_request(lambda: db.get_all_tags(), get=True)
 
 script_callbacks.on_app_started(api_tac)
+# Registered after the routes: require the Gradio login (when set) and refuse
+# cross-site writes.
+script_callbacks.on_app_started(lambda _demo, app: guard_routes(app, ("/tacapi/",)))

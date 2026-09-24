@@ -85,6 +85,24 @@ def _release(task_id: str) -> None:
         _RUNNING_TASKS.discard(task_id)
 
 
+_EXEC_LOCK = threading.Lock()
+
+
+def _save_task(task: Task) -> None:
+    """Store a task's outcome. The row may have been renamed or bookmarked
+    while the task ran (keep that), or deleted (nothing to store)."""
+    current = task_manager.get_task(task.id)
+    if current is None:
+        log.warning(f"[AgentScheduler] Task {task.id} was deleted while it ran; its result is not stored")
+        return
+    task.name = current.name
+    task.bookmarked = current.bookmarked
+    try:
+        task_manager.update_task(task)
+    except Exception as error:
+        log.error(f"[AgentScheduler] Could not store task {task.id}: {error}")
+
+
 class TaskRunner:
     instance = None
 
@@ -346,43 +364,24 @@ class TaskRunner:
 
         return task
 
-    def execute_task(self, task: Task, get_next_task: Callable[[], Task]):
+    def execute_task(self, task: Task, get_next_task: Callable[[], Task], manual: bool = False):
         while True:
             if self.dispose:
                 break
 
             if progress.current_task is None:
-                # The copy we hold may be stale: another runner (e.g. the one
-                # before a UI reload, or a manual Run) may have run it since.
-                fresh = task_manager.get_task(task.id)
-                pending = fresh is not None and fresh.status == TaskStatus.PENDING
-                if not pending or not _claim(task.id):
-                    if pending:
-                        # Being started by another thread (e.g. a manual Run):
-                        # wait instead of spinning on the same head task.
-                        time.sleep(2)
-                    else:
-                        log.info(f"[AgentScheduler] Task {task.id} is no longer pending; skipping")
+                # One task at a time per process: a manual Run and the queue
+                # runner share this instance's per-task state.
+                with _EXEC_LOCK:
+                    outcome = self.__run_if_pending(task)
+                if outcome in ("busy", "gone"):
+                    if outcome == "busy":
+                        time.sleep(2)  # claimed elsewhere: do not spin on it
                     task = get_next_task()
                     if not task:
                         break
                     continue
-                try:
-                    finished = self.__run_claimed_task(fresh)
-                except Exception as error:
-                    # Fail the task instead of killing the runner and leaving
-                    # it pending at the head of the queue.
-                    log.error(f"[AgentScheduler] Task {fresh.id} crashed: {error}")
-                    log.debug(traceback.format_exc())
-                    progress.pending_tasks.pop(fresh.id, None)
-                    progress.finish_task(fresh.id)
-                    fresh.status = TaskStatus.FAILED
-                    fresh.result = f"Task crashed: {error}"
-                    task_manager.update_task(fresh)
-                    finished = True
-                finally:
-                    _release(fresh.id)
-                if not finished:
+                if outcome == "stop":
                     break
             else:
                 time.sleep(2)
@@ -390,10 +389,48 @@ class TaskRunner:
 
             task = get_next_task()
             if not task:
-                if not self.paused:
+                if not self.paused and not manual:
                     time.sleep(1)
                     self.__on_completed()
                 break
+
+    def __run_if_pending(self, task: Task) -> str:
+        """Run ``task`` if it is still pending and unclaimed: "done", "stop"
+        (end the runner loop), "busy" (claimed elsewhere) or "gone"."""
+        # The copy we hold may be stale: another runner (e.g. the one before
+        # a UI reload, or a manual Run) may have run it since.
+        fresh = task_manager.get_task(task.id)
+        if fresh is None or fresh.status != TaskStatus.PENDING:
+            log.info(f"[AgentScheduler] Task {task.id} is no longer pending; skipping")
+            return "gone"
+        if not _claim(fresh.id):
+            return "busy"
+        try:
+            return "done" if self.__run_claimed_task(fresh) else "stop"
+        except Exception as error:
+            # Fail the task instead of killing the runner and leaving it
+            # pending at the head of the queue.
+            log.error(f"[AgentScheduler] Task {fresh.id} crashed: {error}")
+            log.debug(traceback.format_exc())
+            progress.pending_tasks.pop(fresh.id, None)
+            progress.finish_task(fresh.id)
+            fresh.status = TaskStatus.FAILED
+            fresh.result = f"Task crashed: {error}"
+            _save_task(fresh)
+            try:
+                self.__run_callbacks(
+                    "task_finished",
+                    fresh.id,
+                    status=TaskStatus.FAILED,
+                    is_img2img=fresh.type == "img2img",
+                    is_ui=False,
+                    task=fresh,
+                )
+            except Exception as callback_error:
+                log.error(f"[AgentScheduler] task_finished callbacks failed: {callback_error}")
+            return "done"
+        finally:
+            _release(fresh.id)
 
     def __run_claimed_task(self, task: Task) -> bool:
         """Run one claimed task; False stops the runner loop."""
@@ -424,7 +461,7 @@ class TaskRunner:
             progress.finish_task(task_id)
             task.status = TaskStatus.FAILED
             task.result = f"Could not load task: {error}"
-            task_manager.update_task(task)
+            _save_task(task)
             self.__run_callbacks(
                 "task_finished",
                 task_id,
@@ -465,18 +502,18 @@ class TaskRunner:
                 log.info(f"[AgentScheduler] Requeue task {task_id}")
                 task.status = TaskStatus.PENDING
                 task.priority = int(datetime.now(timezone.utc).timestamp() * 1000)
-                task_manager.update_task(task)
+                _save_task(task)
             else:
                 task.status = TaskStatus.FAILED
                 task.result = str(res) if res else None
-                task_manager.update_task(task)
+                _save_task(task)
                 self.__run_callbacks("task_finished", task_id, status=TaskStatus.FAILED, **task_meta)
         else:
             is_interrupted = self.interrupted == task_id
             if is_interrupted:
                 log.info(f"\n[AgentScheduler] Task {task.id} interrupted")
                 task.status = TaskStatus.INTERRUPTED
-                task_manager.update_task(task)
+                _save_task(task)
                 self.__run_callbacks(
                     "task_finished",
                     task_id,
@@ -492,7 +529,7 @@ class TaskRunner:
 
                 task.status = TaskStatus.DONE
                 task.result = json.dumps(result)
-                task_manager.update_task(task)
+                _save_task(task)
                 self.__run_callbacks(
                     "task_finished",
                     task_id,

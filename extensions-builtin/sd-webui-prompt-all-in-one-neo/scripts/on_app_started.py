@@ -23,6 +23,7 @@ from scripts.physton_prompt.get_version import get_git_commit_version, get_git_r
 from scripts.physton_prompt.mbart50 import initialize as mbart50_initialize, translate as mbart50_translate
 from scripts.physton_prompt.get_group_tags import get_group_tags
 from modules import shared
+from modules.extension_route_guard import guard_routes
 from scripts.physton_prompt.get_quality_presets import (
     load_presets, save_client_presets, detect_preset_for_checkpoint, STORAGE_KEY as QUALITY_PRESETS_KEY,
     get_current_checkpoint_path, BUILTIN_TEMPLATES,
@@ -487,6 +488,9 @@ def on_ui_settings():
 
 try:
     script_callbacks.on_app_started(on_app_started)
+    # Registered after the routes: require the Gradio login (when set) and
+    # refuse cross-site writes; the routes hold prompt history and API keys.
+    script_callbacks.on_app_started(lambda _demo, app: guard_routes(app, ("/physton_prompt/",)))
     script_callbacks.on_ui_settings(on_ui_settings)
     print('sd-webui-prompt-all-in-one-neo background API service started successfully.')
 except Exception as e:

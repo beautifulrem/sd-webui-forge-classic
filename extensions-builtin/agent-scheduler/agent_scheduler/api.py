@@ -379,6 +379,8 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
                     task,
                     lambda: None,
                 ),
+                # Not the queue: no completion action after this one task.
+                kwargs={"manual": True},
             )
             current_thread.daemon = True
             current_thread.start()
