@@ -82,3 +82,24 @@ def require_anima_flow_denoiser(model, feature: str) -> None:
             f"{feature} requires Anima's discrete rectified-flow predictor"
         )
 
+
+
+def conditioning_crossattn(conds):
+    """Cross-attention tensor from ``get_learned_conditioning`` output.
+
+    Accepts a tensor, a list of tensors, or the dict returned while a hook such
+    as NegPiP is active. NegPiP's ``crossattn`` has negative-weight tokens
+    sign-restored and relies on its attention hook to negate V with
+    ``c_negpip_mask``; contexts used elsewhere (Regional, Artist Mixer) do
+    not get that treatment, so the mask is folded back in here.
+    """
+
+    import torch
+
+    if not isinstance(conds, dict):
+        return conds
+    crossattn = conds.get("crossattn", conds.get("c_crossattn"))
+    mask = conds.get("c_negpip_mask")
+    if torch.is_tensor(crossattn) and torch.is_tensor(mask):
+        crossattn = crossattn * mask.to(crossattn)
+    return crossattn

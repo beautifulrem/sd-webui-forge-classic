@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import torch
 
-from modules.anima_support import anima_auxiliary_denoiser, is_anima_engine
+from modules.anima_support import anima_auxiliary_denoiser, conditioning_crossattn, is_anima_engine
 from modules_forge.packages.huggingface_guess.detection import detect_unet_config
 
 
@@ -49,3 +49,14 @@ def test_anima_model_detection_uses_checkpoint_block_count():
     assert config["image_model"] == "anima"
     assert config["num_blocks"] == 40
 
+
+
+def test_conditioning_crossattn_folds_negpip_mask_back_in():
+    crossattn = torch.ones(1, 3, 2)
+    mask = torch.tensor([[[1.0], [-1.0], [1.0]]])
+
+    folded = conditioning_crossattn({"crossattn": crossattn, "c_negpip_mask": mask})
+
+    assert folded[0, :, 0].tolist() == [1.0, -1.0, 1.0]
+    plain = torch.zeros(1, 3, 2)
+    assert conditioning_crossattn(plain) is plain

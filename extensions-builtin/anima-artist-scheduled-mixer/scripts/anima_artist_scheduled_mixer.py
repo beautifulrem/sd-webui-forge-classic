@@ -13,6 +13,7 @@ import torch
 from modules import script_callbacks, scripts, sd_models, shared, spectrum_force
 from modules.anima_feature_conflicts import register_exclusive_component
 from modules.anima_presets import register_preset_control
+from modules.anima_support import conditioning_crossattn
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
@@ -1678,9 +1679,8 @@ def _encode_text_batch(p, texts, use_cache=True):
     )
     conds = p.sd_model.get_learned_conditioning(conditioning)
     tensors = []
-    if isinstance(conds, dict):
-        # Hooks such as NegPiP return {"crossattn": batch, ...extra keys}.
-        conds = conds.get("crossattn", conds.get("c_crossattn"))
+    # Hooks such as NegPiP return a dict; fold its mask back in.
+    conds = conditioning_crossattn(conds)
     if torch.is_tensor(conds):
         conds = list(conds)
     for cond in conds:

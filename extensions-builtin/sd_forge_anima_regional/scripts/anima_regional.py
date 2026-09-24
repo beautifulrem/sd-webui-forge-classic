@@ -12,7 +12,7 @@ from lib_anima_regional.regional import Region, RegionalState, apply_regional_pa
 from modules import prompt_parser, scripts
 from modules.anima_feature_conflicts import register_exclusive_component
 from modules.anima_presets import register_preset_control
-from modules.anima_support import is_anima_engine
+from modules.anima_support import conditioning_crossattn, is_anima_engine
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -26,9 +26,10 @@ def _extract_conditioning(value):
     if isinstance(value, (list, tuple)) and value:
         return _extract_conditioning(value[0])
     if isinstance(value, dict):
-        for key in ("crossattn", "cross_attn", "c_crossattn"):
-            if torch.is_tensor(value.get(key)):
-                return value[key]
+        # Hooks such as NegPiP return a dict; fold its mask back in.
+        value = conditioning_crossattn(value)
+        if torch.is_tensor(value):
+            return value
     raise RuntimeError("Could not extract Anima regional conditioning tensor")
 
 
