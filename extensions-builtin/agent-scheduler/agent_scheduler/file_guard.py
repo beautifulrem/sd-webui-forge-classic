@@ -33,29 +33,26 @@ def _name_key(name: str) -> str:
     return name.casefold()
 
 
-def _folder_key(path: str) -> str:
-    return os.path.normcase(path).casefold()
-
-
 def _served_path(requested: str) -> str:
     """The path Gradio's file route will open for ``requested``."""
     try:
         from gradio import utils
 
         return str(utils.abspath(requested))
-    except ImportError:
+    except Exception:
         return os.path.abspath(requested)
 
 
 class ProtectedFiles:
     """Refuses requests for protected files under any spelling.
 
-    The request is first turned into the path the file route will open (with
-    Gradio's own function), then canonicalised with realpath, which follows
-    symlinks and, on Windows, expands short (8.3) names. A request is refused
-    when it lands in a protected file's folder under a name starting with that
-    file's name (so SQLite journals and temp files created later count too),
-    or when it is the same file as a protected one.
+    The request is turned into the path the file route opens (with Gradio's
+    own function). Only names starting with a protected file's name (so also
+    SQLite journals and key temp files, which come and go) or Windows short
+    names are looked at further: the path is canonicalised with realpath
+    (symlinks; short names on Windows) and refused when its folder is a
+    protected file's folder (by identity: bind mounts, aliases) and its name
+    matches, or when it is the same file as a protected one.
     """
 
     def __init__(self, paths: Callable[[], Iterable[str]]):
@@ -71,7 +68,11 @@ class ProtectedFiles:
         entries, ids = set(), set()
         for path in self._paths():
             real = os.path.realpath(path)
-            entries.add((_folder_key(os.path.dirname(real)), _name_key(os.path.basename(real))))
+            name = _name_key(os.path.basename(real))
+            try:
+                entries.add((_identity(os.path.dirname(real)), name))
+            except (OSError, ValueError):
+                entries.add((None, name))  # folder missing: nothing to serve
             try:
                 ids.add(_identity(real))
             except (OSError, ValueError):
@@ -79,20 +80,28 @@ class ProtectedFiles:
         self._entries, self._ids, self._checked = tuple(entries), frozenset(ids), now
 
     def contains(self, requested: str) -> bool:
-        try:
-            path = _served_path(requested)
-            if not os.path.exists(path):
-                return False  # the route answers 404
-            real = os.path.realpath(path)
-            target = _identity(real)
-        except (OSError, ValueError):
-            return True  # exists, but cannot be checked: refuse
         self._refresh()
-        if target in self._ids:
+        path = _served_path(requested)
+        name = _name_key(os.path.basename(path))
+        short_name = os.name == "nt" and "~" in name
+        if not short_name and not any(name.startswith(entry_name) for _, entry_name in self._entries):
+            return False
+        try:
+            real = os.path.realpath(path)
+            name = _name_key(os.path.basename(real))
+            folder = _identity(os.path.dirname(real))
+        except FileNotFoundError:
+            return False  # no such folder: nothing to serve
+        except Exception:
+            return True  # cannot be checked: refuse
+        # By name even if the file does not exist yet: it may by the time the
+        # route opens it (SQLite journals exist only during writes).
+        if any(folder == entry_folder and name.startswith(entry_name) for entry_folder, entry_name in self._entries):
             return True
-        folder = _folder_key(os.path.dirname(real))
-        name = _name_key(os.path.basename(real))
-        return any(folder == entry_folder and name.startswith(entry_name) for entry_folder, entry_name in self._entries)
+        try:
+            return _identity(real) in self._ids
+        except (OSError, ValueError):
+            return False
 
 
 def install(app, protected: Callable[[], Iterable[str]]) -> int:

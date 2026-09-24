@@ -226,13 +226,13 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
             taskList: List[Task] = []
             refused = 0
             for obj in objList:
-                if "id" not in obj or not obj["id"] or obj["id"] == "":
-                    obj["id"] = str(uuid4())
-                obj["result"] = None
-                obj["status"] = TaskStatus.PENDING
                 # Script params are pickles: only accept ones this server
                 # signed, never foreign blobs (or rows that do not parse).
                 try:
+                    if "id" not in obj or not obj["id"] or obj["id"] == "":
+                        obj["id"] = str(uuid4())
+                    obj["result"] = None
+                    obj["status"] = TaskStatus.PENDING
                     task = Task.from_json(obj)
                     trusted = verified_payload(task.script_params) is not None
                 except Exception:
@@ -251,7 +251,7 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
             if refused:
                 return {
                     "success": bool(taskList),
-                    "message": f"Imported {len(taskList)} task(s); refused {refused} not signed by this install",
+                    "message": f"Imported {len(taskList)} task(s); refused {refused} invalid or not signed by this install",
                 }
             return {"success": True, "message": "Queue imported"}
         except Exception as e:

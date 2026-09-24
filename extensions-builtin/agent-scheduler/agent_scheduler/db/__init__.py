@@ -78,14 +78,9 @@ def init():
         _trust_unsigned_script_params(engine)
 
 
-# Result prefix of tasks that failed because their params were unsigned.
-UNSIGNED_FAILURE = "Could not load task: task script params are not signed"
-
-
 def _trust_unsigned_script_params(engine):
     """Sign every stored script param without a valid signature, on the
-    user's explicit word that this database holds no crafted imports. Tasks
-    that failed only because they were unsigned go back to the queue."""
+    user's explicit word that this database holds no crafted imports."""
     from .. import signing
     from ..helpers import log
 
@@ -93,26 +88,22 @@ def _trust_unsigned_script_params(engine):
     if not signing.key_is_persistent:
         log.error("[AgentScheduler] Not trusting unsigned tasks: the signing key file cannot be used")
         return
-    signed = requeued = 0
+    signed = failed = 0
     with engine.begin() as conn:
-        rows = conn.execute(text("SELECT id, script_params, status, result FROM task")).fetchall()
-        for task_id, script_params, status, result in rows:
+        rows = conn.execute(text("SELECT id, script_params, status FROM task")).fetchall()
+        for task_id, script_params, status in rows:
             if script_params is None or signing.verified_payload(script_params) is not None:
                 continue
-            values = {"value": signing.sign(signing.strip_signature(script_params)), "id": task_id}
-            if status == "failed" and (result or "").startswith(UNSIGNED_FAILURE):
-                conn.execute(
-                    text("UPDATE task SET script_params = :value, status = 'pending', result = NULL WHERE id = :id"),
-                    values,
-                )
-                requeued += 1
-            else:
-                conn.execute(text("UPDATE task SET script_params = :value WHERE id = :id"), values)
+            conn.execute(
+                text("UPDATE task SET script_params = :value WHERE id = :id"),
+                {"value": signing.sign(signing.strip_signature(script_params)), "id": task_id},
+            )
             signed += 1
-    log.warning(
-        f"[AgentScheduler] Trusted and signed {signed} stored task(s), {requeued} requeued; "
-        "remove --agent-scheduler-trust-unsigned-params for later starts"
-    )
+            failed += status == "failed"
+    message = f"[AgentScheduler] Trusted and signed {signed} stored task(s)"
+    if failed:
+        message += f"; {failed} of them had failed (use 'Requeue failed' to run them again)"
+    log.warning(message + "; remove --agent-scheduler-trust-unsigned-params for later starts")
 
 
 __all__ = [

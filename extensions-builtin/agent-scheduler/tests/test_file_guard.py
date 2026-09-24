@@ -1,5 +1,4 @@
 import importlib.util
-import os
 from pathlib import Path
 
 import pytest
@@ -14,26 +13,6 @@ file_guard = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(file_guard)
 
 
-def _app():
-    app = FastAPI()
-
-    # Same shapes as Gradio's file routes, opening what Gradio would open.
-    @app.head("/file={path_or_url:path}")
-    @app.get("/file={path_or_url:path}")
-    async def file(path_or_url: str):
-        path = file_guard._served_path(path_or_url)
-        if not os.path.isfile(path):
-            return PlainTextResponse("missing", status_code=404)
-        with open(path) as handle:
-            return PlainTextResponse(handle.read())
-
-    @app.get("/file/{path:path}")
-    async def file_deprecated(path: str):
-        return await file(path)
-
-    return app
-
-
 def _gradio_440_abspath(path):
     # gradio.utils.abspath as shipped with Gradio 4.40 (Forge Neo's pin).
     path = Path(path)
@@ -45,10 +24,32 @@ def _gradio_440_abspath(path):
     return path.resolve()
 
 
+def _app(abspath):
+    app = FastAPI()
+
+    # Same shapes and resolution as Gradio's file routes (without its
+    # allow-list), independent of the guard's own code.
+    @app.head("/file={path_or_url:path}")
+    @app.get("/file={path_or_url:path}")
+    async def file(path_or_url: str):
+        path = abspath(path_or_url)
+        if path.is_dir() or not path.exists():
+            return PlainTextResponse("missing", status_code=404)
+        return PlainTextResponse(path.read_text())
+
+    @app.get("/file/{path:path}")
+    async def file_deprecated(path: str):
+        return await file(path)
+
+    return app
+
+
 @pytest.fixture(params=["installed", "4.40"])
 def setup(tmp_path, monkeypatch, request):
-    if request.param == "4.40":
-        monkeypatch.setattr(file_guard, "_served_path", lambda p: str(_gradio_440_abspath(p)))
+    from gradio import utils
+
+    abspath = _gradio_440_abspath if request.param == "4.40" else utils.abspath
+    monkeypatch.setattr(file_guard, "_served_path", lambda p: str(abspath(p)))
     monkeypatch.chdir(tmp_path)
     data = tmp_path / "data"
     store = data / "extension-data" / "agent-scheduler"
@@ -56,9 +57,9 @@ def setup(tmp_path, monkeypatch, request):
     key = store / "signing.key"
     key.write_text("secret")
     db = store / "tasks.sqlite3"
-    db.write_text("db")
+    db.write_text("secret db")
     (data / "public.txt").write_text("hello")
-    app = _app()
+    app = _app(abspath)
     assert file_guard.install(app, lambda: [str(key), str(db)]) == 3
     assert file_guard.install(app, lambda: [str(key), str(db)]) == 0  # idempotent
     return TestClient(app), data, store
@@ -87,18 +88,26 @@ def test_protected_files_are_refused_under_any_spelling(setup, tmp_path):
     for spelling in spellings:
         # %2E keeps HTTP clients from collapsing dot segments (curl --path-as-is).
         raw = spelling.replace(".", "%2E")
-        # Refused, or not something the route would serve at all.
-        assert client.get(f"/file={raw}").status_code in (403, 404), spelling
-        assert client.get(f"/file/{raw}").status_code in (403, 404), spelling
-        assert "secret" not in client.get(f"/file={raw}").text
+        for route in ("/file=", "/file/"):
+            response = client.get(f"{route}{raw}")
+            assert response.status_code in (403, 404) and "secret" not in response.text, (route, spelling)
+    assert client.get(f"/file={store / 'signing.key'}").status_code == 403
     assert client.get(f"/file={data / 'public.txt'}").text == "hello"
 
 
-def test_journals_created_later_are_refused(setup):
+def test_journals_are_refused_even_before_they_exist(setup):
     client, data, store = setup
-    client.get(f"/file={data / 'public.txt'}")  # warm the cache
     journal = store / "tasks.sqlite3-journal"
-    journal.write_text("pages")
 
+    # Refused by name: it may be created before the route opens it.
     assert client.get(f"/file={journal}").status_code == 403
-    assert client.get(f"/file={store / 'TASKS.SQLITE3-WAL'}").status_code in (403, 404)
+    journal.write_text("secret pages")
+    assert client.get(f"/file={journal}").status_code == 403
+    assert client.get(f"/file={store / 'TASKS.SQLITE3-WAL'}").status_code == 403
+
+
+def test_names_elsewhere_are_served(setup):
+    client, data, store = setup
+    (data / "tasks.sqlite3.png").write_text("image")
+
+    assert client.get(f"/file={data / 'tasks.sqlite3.png'}").text == "image"

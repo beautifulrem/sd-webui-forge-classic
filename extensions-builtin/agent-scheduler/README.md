@@ -37,6 +37,7 @@ this build signs them with a per-install key (`agent_scheduler_signing.key`,
 next to the task database). Queue exports carry the signature; `/import`
 accepts only tasks exported from the same install.
 
-Tasks saved by older versions have no signature and will not run. If nobody
-else could have imported tasks into your database, start once with
-`--agent-scheduler-trust-unsigned-params` to sign them, then remove the flag.
+Tasks saved by older versions have no signature and will not run (they fail
+with a message saying so). If nobody else could have imported tasks into your
+database, start once with `--agent-scheduler-trust-unsigned-params` to sign
+them, then remove the flag; failed ones can then be requeued.
