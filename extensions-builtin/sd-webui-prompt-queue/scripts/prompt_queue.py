@@ -212,6 +212,7 @@ class _Store:
                 return None
             if not self.enabled or agent_scheduler_has_pending_work():
                 return None
+            failed_stale = False
             for i in self.items:
                 if i["status"] == "running":
                     # A runner already owns an item. If it looks abandoned
@@ -225,6 +226,7 @@ class _Store:
                         i["status"] = "failed"
                         i["finished"] = now
                         i["stale"] = True
+                        failed_stale = True
                     else:
                         return None
             for i in self.items:
@@ -233,6 +235,8 @@ class _Store:
                     i["started"] = now
                     self._bump()
                     return dict(i)
+            if failed_stale:
+                self._bump()
             return None
 
     def finish(self, item_id, status):

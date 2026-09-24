@@ -1735,6 +1735,9 @@ def _unpatch_cross_attn():
     global _PATCHED_MODULES, _PATCHED_MODEL_WRAPPERS
     for module, forward, previous in reversed(_PATCHED_MODULES):
         try:
+            # Drop the mixer state even if another override now sits on top
+            # and the wrapper cannot be removed: it then just passes through.
+            forward._anima_artist_mixer_binding["state"] = None
             restore_forward_override(module, forward, previous)
         except Exception:
             logger.exception("Failed to restore Anima artist mixer cross-attn wrapper")
@@ -1841,17 +1844,23 @@ def _install_cross_attn_patch_no_unpatch(dm, state):
         module = block.cross_attn
 
         def make_wrapper(original_forward, layer_idx):
+            binding = {"state": state}
+
             def wrapped(x, context=None, rope_emb=None, transformer_options={}):
+                bound_state = binding["state"]
+                if bound_state is None:
+                    return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
                 return _dispatch_cross_attn(
                     original_forward,
                     layer_idx,
-                    state,
+                    bound_state,
                     x,
                     context=context,
                     rope_emb=rope_emb,
                     transformer_options=transformer_options,
                 )
 
+            wrapped._anima_artist_mixer_binding = binding
             return wrapped
 
         forward = make_wrapper(module.forward, idx)

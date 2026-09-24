@@ -80,5 +80,7 @@ def test_img2img_pass_counts_only_the_steps_denoise_runs():
         cfg_scale=5.0,
     )
 
-    assert MODULE.resolve_pass_context(process, fix_steps=False).steps == 13
-    assert MODULE.resolve_pass_context(process, fix_steps=True).steps == 30
+    # setup_img2img_steps() returns (schedule steps, t_enc); t_enc + 1 run.
+    result = MODULE.resolve_pass_context(process, img2img_steps=lambda p: (30, 12))
+
+    assert result.steps == 13

@@ -287,6 +287,8 @@ class PromptAnchorScript(scripts.Script):
 
             # `p.prompt` -- single-string version, used for display and
             # for the no-batch path.
+            original_prompt = getattr(p, "prompt", None)
+            original_all_prompts = list(getattr(p, "all_prompts", None) or [])
             if hasattr(p, "prompt"):
                 p.prompt = _join(text, p.prompt or "", sep)
 
@@ -307,12 +309,30 @@ class PromptAnchorScript(scripts.Script):
             # (copied from the original prompt when the user left the
             # hires prompt empty). Prepend unconditionally so the base
             # and hires passes use the same anchored conditioning.
+            # A copy of the main prompt takes the anchored main prompt; a
+            # custom hires prompt is anchored unless it already starts with
+            # the anchor (e.g. pasted from an anchored image's infotext).
+            def anchor_hires(hires, main, anchored_main):
+                if hires == main:
+                    return anchored_main
+                if not hires or hires.startswith(text):
+                    return hires
+                return _join(text, hires, sep)
+
             hr_prompt = getattr(p, "hr_prompt", None)
             if isinstance(hr_prompt, str) and hr_prompt:
-                p.hr_prompt = _join(text, hr_prompt, sep)
+                p.hr_prompt = anchor_hires(hr_prompt, original_prompt, getattr(p, "prompt", None))
             all_hr = getattr(p, "all_hr_prompts", None)
             if all_hr:
-                p.all_hr_prompts = [_join(text, hp or "", sep) for hp in all_hr]
+                anchored_all = getattr(p, "all_prompts", None) or []
+                p.all_hr_prompts = [
+                    anchor_hires(
+                        hp,
+                        original_all_prompts[index] if index < len(original_all_prompts) else None,
+                        anchored_all[index] if index < len(anchored_all) else None,
+                    )
+                    for index, hp in enumerate(all_hr)
+                ]
 
             # Record in infotext so the value survives into PNG metadata
             # and "send to txt2img" round-trips. Wrap in double quotes

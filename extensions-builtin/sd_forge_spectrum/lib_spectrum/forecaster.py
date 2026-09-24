@@ -344,7 +344,13 @@ class SpectrumNode:
         if schedule == "SEA (auto-calibrated)":
             calibration = SeaCalibration(
                 cache_dir=sea_cache_dir,
-                context=sea_cache_context,
+                # Latent statistics differ per architecture, so calibrations
+                # must not be shared between e.g. SDXL and Anima.
+                context={
+                    **dict(sea_cache_context or {}),
+                    "model": type(dit if dit is not None else kmodel).__name__,
+                    "cache": "feature" if feature_cache else "output",
+                },
                 steps=int(steps),
                 warmup_steps=int(warmup_steps),
                 tail_actual_steps=tail_actual_steps,

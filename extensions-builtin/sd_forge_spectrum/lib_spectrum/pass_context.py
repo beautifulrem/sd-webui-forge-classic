@@ -13,25 +13,16 @@ class SamplingPassContext:
     is_hires: bool
 
 
-def _img2img_fix_steps() -> bool:
-    try:
-        from modules.shared import opts
-    except Exception:
-        return False
-    return bool(getattr(opts, "img2img_fix_steps", False))
+def _setup_img2img_steps(process):
+    from modules.sd_samplers_common import setup_img2img_steps
+
+    return setup_img2img_steps(process)
 
 
-def _img2img_actual_steps(process, requested: int, fix_steps: bool) -> int:
-    """Mirror ``sd_samplers_common.setup_img2img_steps``: the sampler runs
-    ``t_enc + 1`` steps of a schedule sized for ``requested`` or more steps."""
+def resolve_pass_context(process, img2img_steps=_setup_img2img_steps) -> SamplingPassContext:
+    """``img2img_steps`` is ``sd_samplers_common.setup_img2img_steps``; the
+    img2img sampler runs ``t_enc + 1`` steps of the schedule it returns."""
 
-    if fix_steps:
-        return requested
-    denoise = float(getattr(process, "denoising_strength", 1.0) or 0.0)
-    return int(min(max(denoise, 0.0), 0.999) * requested) + 1
-
-
-def resolve_pass_context(process, fix_steps: bool | None = None) -> SamplingPassContext:
     is_hires = bool(getattr(process, "is_hr_pass", False))
     base_steps = max(1, int(getattr(process, "steps", 1)))
     if is_hires:
@@ -43,9 +34,8 @@ def resolve_pass_context(process, fix_steps: bool | None = None) -> SamplingPass
     else:
         steps = base_steps
         if getattr(process, "init_images", None) is not None:
-            if fix_steps is None:
-                fix_steps = _img2img_fix_steps()
-            steps = _img2img_actual_steps(process, base_steps, fix_steps)
+            _, t_enc = img2img_steps(process)
+            steps = int(t_enc) + 1
         sampler = getattr(process, "sampler_name", "unknown")
         cfg = float(getattr(process, "cfg_scale", 0.0))
     return SamplingPassContext(
