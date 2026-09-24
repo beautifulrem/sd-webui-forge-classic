@@ -1,3 +1,4 @@
+import threading
 import os
 import json
 import struct
@@ -200,33 +201,41 @@ def _civitai_headers(api_key: str = '') -> dict:
 
 
 # sha256 -> (base_model, monotonic time). The frontend polls detection every
-# few seconds, so misses are retried only after _BASE_MODEL_MISS_TTL.
+# few seconds; definitive answers (found / unknown to CivitAI) are cached, an
+# unknown model is re-asked after _BASE_MODEL_MISS_TTL. Transient failures
+# (timeouts, 429, auth) are not cached.
 _BASE_MODEL_CACHE = {}
 _BASE_MODEL_MISS_TTL = 600.0
 
 
-def fetch_base_model_from_civitai(sha256: str, api_key: str = '') -> str:
+def fetch_base_model_from_civitai(sha256: str, api_key: str = '', force: bool = False) -> str:
     """
     Query CivitAI /api/v1/model-versions/by-hash/{sha256}.
     Returns the raw baseModel string (e.g. 'NoobAI', 'Pony') or '' on failure.
+    ``force`` skips the cache (explicit user scans).
     """
     if not sha256 or len(sha256) != 64:
         return ''
     import time
 
     cached = _BASE_MODEL_CACHE.get(sha256)
-    if cached is not None and (cached[0] or time.monotonic() - cached[1] < _BASE_MODEL_MISS_TTL):
+    if not force and cached is not None and (cached[0] or time.monotonic() - cached[1] < _BASE_MODEL_MISS_TTL):
         return cached[0]
-    base_model = ''
     url = f'https://civitai.com/api/v1/model-versions/by-hash/{sha256}'
     try:
         resp = requests.get(url, headers=_civitai_headers(api_key), timeout=(15, 30))
-        if resp.status_code == 200:
-            data = resp.json()
-            if 'error' not in data:
-                base_model = data.get('baseModel', '') or ''
     except Exception:
-        pass
+        return ''
+    base_model = ''
+    if resp.status_code == 200:
+        try:
+            data = resp.json()
+        except ValueError:
+            return ''
+        if 'error' not in data:
+            base_model = data.get('baseModel', '') or ''
+    elif resp.status_code != 404:
+        return ''
     _BASE_MODEL_CACHE[sha256] = (base_model, time.monotonic())
     return base_model
 
@@ -250,8 +259,13 @@ def load_presets() -> dict:
     return data
 
 
+# Serializes preset read-modify-write cycles (scans run in the thread pool).
+_PRESETS_LOCK = threading.RLock()
+
+
 def save_presets(data: dict) -> None:
-    Storage.set(STORAGE_KEY, data)
+    with _PRESETS_LOCK:
+        Storage.set(STORAGE_KEY, data)
 
 
 # ---------------------------------------------------------------------------
@@ -438,24 +452,27 @@ def scan_checkpoint(filepath: str) -> dict:
     if not filepath or not os.path.isfile(filepath):
         raise ValueError('Checkpoint is not registered in Forge')
 
-    storage = load_presets()
     api_key = _get_civitai_api_key()
 
     sha256 = get_sha256_from_file(filepath)
     if not sha256:
         return {'filename': os.path.basename(filepath), 'sha256': '', 'base_model': ''}
 
-    base_model = fetch_base_model_from_civitai(sha256, api_key)
+    base_model = fetch_base_model_from_civitai(sha256, api_key, force=True)
 
     import time
-    cache = storage.get('checkpoint_cache', {})
-    cache[sha256] = {
-        'base_model':  base_model,
-        'filename':    os.path.basename(filepath),
-        'scanned_at':  int(time.time()),
-    }
-    storage['checkpoint_cache'] = cache
-    save_presets(storage)
+    # Re-read under the lock after the (slow) network call so presets saved
+    # meanwhile, or other scans, are not overwritten with a stale snapshot.
+    with _PRESETS_LOCK:
+        storage = load_presets()
+        cache = storage.get('checkpoint_cache', {})
+        cache[sha256] = {
+            'base_model':  base_model,
+            'filename':    os.path.basename(filepath),
+            'scanned_at':  int(time.time()),
+        }
+        storage['checkpoint_cache'] = cache
+        save_presets(storage)
 
     return {
         'filename':   os.path.basename(filepath),

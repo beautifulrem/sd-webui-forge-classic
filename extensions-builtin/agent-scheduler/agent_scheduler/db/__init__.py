@@ -72,6 +72,31 @@ def init():
 
         conn.close()
 
+    _sign_existing_script_params(engine)
+
+
+def _sign_existing_script_params(engine):
+    """Sign script params stored before signing existed (created by this
+    install), so they keep loading. Runs once: anything unsigned that shows
+    up later is refused instead of being trusted."""
+    import os
+
+    from ..signing import is_signed, migration_marker, sign
+
+    marker = migration_marker()
+    if os.path.exists(marker):
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("SELECT id, script_params FROM task")).fetchall()
+        for task_id, script_params in rows:
+            if script_params is not None and not is_signed(script_params):
+                conn.execute(
+                    text("UPDATE task SET script_params = :value WHERE id = :id"),
+                    {"value": sign(bytes(script_params)), "id": task_id},
+                )
+    with open(marker, "w", encoding="utf-8") as handle:
+        handle.write("signed\n")
+
 
 __all__ = [
     "init",

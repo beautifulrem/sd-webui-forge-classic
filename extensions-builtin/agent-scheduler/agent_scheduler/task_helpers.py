@@ -2,11 +2,7 @@ import io
 import os
 import zlib
 import base64
-import _codecs
-import _compat_pickle
-import dataclasses
 import pickle
-import sys
 import inspect
 import requests
 import numpy as np
@@ -26,6 +22,7 @@ from modules.api.models import (
 )
 
 from .helpers import log, get_dict_attribute
+from .signing import sign, verify
 
 img2img_image_args_by_mode: Dict[int, List[List[str]]] = {
     0: [["init_img"]],
@@ -46,14 +43,34 @@ def get_script_by_name(script_name: str, is_img2img: bool = False, is_always_on:
     )
 
 
+def resolved_addresses(url: str):
+    """All IPv4 and IPv6 addresses the URL's host resolves to (empty on error)."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    try:
+        host = urlparse(url).hostname
+        if not host:
+            return []
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+        return [ipaddress.ip_address(info[4][0].split("%")[0]) for info in infos]
+    except (OSError, ValueError):
+        return []
+
+
+def url_is_global(url: str) -> bool:
+    """Like Forge's verify_url, but checks every address family (AAAA too)."""
+    addresses = resolved_addresses(url)
+    return bool(addresses) and all(address.is_global for address in addresses)
+
+
 def load_image_from_url(url: str):
     # Same policy as Forge's own API image downloads (modules.api.api).
     try:
-        from modules.api.api import verify_url
-
         if not getattr(shared.opts, "api_enable_requests", False):
             raise ValueError("requests are disabled (Settings > API)")
-        if getattr(shared.opts, "api_forbid_local_requests", True) and not verify_url(url):
+        if getattr(shared.opts, "api_forbid_local_requests", True) and not url_is_global(url):
             raise ValueError("requests to local addresses are forbidden")
         # Redirects are not followed: each hop would need the same local check.
         response = requests.get(
@@ -238,116 +255,13 @@ def serialize_script_args(script_args: List):
         if type(a).__name__ in ("UiControlNetUnit", "ControlNetUnit"):
             script_args[i] = serialize_controlnet_args(a)
 
-    return zlib.compress(pickle.dumps(script_args))
-
-
-_SAFE_PICKLE_GLOBALS = {
-    ("builtins", name)
-    for name in (
-        "list", "dict", "tuple", "set", "frozenset", "str", "bytes", "bytearray",
-        "int", "float", "bool", "complex", "slice", "range", "object",
-    )
-} | {
-    ("collections", "OrderedDict"),
-    ("copyreg", "_reconstructor"),
-    ("numpy", "ndarray"),
-    ("numpy", "dtype"),
-    ("numpy.core.multiarray", "_reconstruct"),
-    ("numpy.core.multiarray", "scalar"),
-    ("numpy._core.multiarray", "_reconstruct"),
-    ("numpy._core.multiarray", "scalar"),
-    ("numpy.core.numeric", "_frombuffer"),
-    ("numpy._core.numeric", "_frombuffer"),
-    ("PIL.Image", "Image"),
-    ("_codecs", "encode"),  # protocol < 3 bytes; REDUCE restricts it to latin1
-}
-
-
-def _is_plain_data_class(cls, module):
-    if issubclass(cls, Enum):
-        return True
-    if module.split(".")[0] == "PIL" and issubclass(cls, Image.Image):
-        return True
-    return (
-        dataclasses.is_dataclass(cls)
-        and "__setstate__" not in vars(cls)
-        and "__reduce__" not in vars(cls)
-        and "__reduce_ex__" not in vars(cls)
-    )
-
-
-# Callables REDUCE may invoke. Classes resolved by find_class are only rebuilt
-# via NEWOBJ (cls.__new__) + BUILD (state), never called with payload
-# arguments: e.g. PngImageFile("/any/path") would open host files.
-_SAFE_REDUCE_GLOBALS = {
-    ("copyreg", "_reconstructor"),
-    ("collections", "OrderedDict"),
-    ("numpy", "dtype"),
-    ("numpy.core.multiarray", "_reconstruct"),
-    ("numpy.core.multiarray", "scalar"),
-    ("numpy._core.multiarray", "_reconstruct"),
-    ("numpy._core.multiarray", "scalar"),
-    ("numpy.core.numeric", "_frombuffer"),
-    ("numpy._core.numeric", "_frombuffer"),
-} | {
-    ("builtins", name)
-    for name in ("set", "frozenset", "bytearray", "complex", "slice", "range", "list", "dict", "tuple", "str", "bytes", "int", "float", "bool")
-}
-
-
-def _is_safe_reduce(func):
-    if isinstance(func, type) and issubclass(func, Enum):
-        return True  # Enum members pickle as Enum(value): a lookup, no side effects.
-    return (getattr(func, "__module__", None), getattr(func, "__qualname__", None)) in _SAFE_REDUCE_GLOBALS
-
-
-class _ScriptArgsUnpickler(pickle._Unpickler):
-    """Only rebuild plain data: script params can come from /import, so an
-    unrestricted pickle.loads would execute attacker-controlled code.
-
-    The pure-Python unpickler is used so REDUCE can be restricted too."""
-
-    dispatch = dict(pickle._Unpickler.dispatch)
-
-    def find_class(self, module, name):
-        if self.proto < 3 and self.fix_imports:
-            # Map Python 2 names (e.g. __builtin__) before checking, as the
-            # base class would.
-            if (module, name) in _compat_pickle.NAME_MAPPING:
-                module, name = _compat_pickle.NAME_MAPPING[(module, name)]
-            elif module in _compat_pickle.IMPORT_MAPPING:
-                module = _compat_pickle.IMPORT_MAPPING[module]
-        if (module, name) in _SAFE_PICKLE_GLOBALS:
-            return super().find_class(module, name)
-        # Plain data classes of already-loaded modules are data too: enums,
-        # dataclasses without custom (de)serialisation hooks (e.g. Forge's
-        # ControlNetUnit) and PIL image subclasses. Never import a module on
-        # behalf of a payload (``vars`` avoids lazy-module __getattr__ imports).
-        loaded = sys.modules.get(module)
-        candidate = vars(loaded).get(name) if loaded is not None and "." not in name else None
-        if isinstance(candidate, type) and _is_plain_data_class(candidate, module):
-            return candidate
-        raise pickle.UnpicklingError(f"Refusing to load {module}.{name} from task script params")
-
-    def load_reduce(self):
-        func, args = self.stack[-2], self.stack[-1]
-        safe = _is_safe_reduce(func) or (
-            func is _codecs.encode and len(args) == 2 and args[1] in ("latin1", "latin-1")
-        )
-        if not safe:
-            raise pickle.UnpicklingError(f"Refusing to call {func!r} from task script params")
-        super().load_reduce()
-
-    dispatch[pickle.REDUCE[0]] = load_reduce
-
-
-def _load_script_args(data: bytes):
-    return _ScriptArgsUnpickler(io.BytesIO(zlib.decompress(data))).load()
+    return sign(zlib.compress(pickle.dumps(script_args)))
 
 
 def deserialize_script_args(script_args: Union[bytes, List], UiControlNetUnit = None):
     if type(script_args) is bytes:
-        script_args = _load_script_args(script_args)
+        # Unpickling runs code: only load blobs this server signed.
+        script_args = pickle.loads(zlib.decompress(verify(script_args)))
 
     for i, a in enumerate(script_args):
         if isinstance(a, dict) and a.get("is_cnet", False):

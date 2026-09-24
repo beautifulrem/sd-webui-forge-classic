@@ -1,3 +1,4 @@
+import threading
 import launch
 from scripts.physton_prompt.get_lang import get_lang
 
@@ -36,6 +37,9 @@ def get_packages_state():
     return states
 
 
+_PIP_LOCK = threading.Lock()
+
+
 def install_package(name, package=None):
     result = {'state': False, 'message': ''}
     allowed_package = packages.get(name)
@@ -49,10 +53,13 @@ def install_package(name, package=None):
         return result
 
     try:
-        launch.run_pip(
-            f"install {allowed_package}",
-            f"sd-webui-prompt-all-in-one: {name}",
-        )
+        # Installs run in the thread pool; concurrent pip runs into the same
+        # site-packages can corrupt it.
+        with _PIP_LOCK:
+            launch.run_pip(
+                f"install {allowed_package}",
+                f"sd-webui-prompt-all-in-one: {name}",
+            )
         result['state'] = True
         result['message'] = get_lang('install_success', {'0': allowed_package})
     except Exception as e:
