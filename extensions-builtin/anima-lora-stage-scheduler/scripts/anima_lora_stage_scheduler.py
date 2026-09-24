@@ -1558,6 +1558,7 @@ class RuntimeState:
     current_activation_pass: str | None = None
     wrappers: list[ScheduledStrength] = field(default_factory=list)
     warned_offline: bool = False
+    yielded_to_lora_control: set = field(default_factory=set)
 
     def current_config(self) -> PassConfig:
         pass_name = self.current_pass_name()
@@ -1759,6 +1760,12 @@ def install_patch():
             state = _ACTIVE_STATE
             config = state.current_config() if state is not None and state.enabled else None
             should_control = config is not None and config.file_matches(filename)
+            if should_control and filename in _lora_control_files():
+                # Forge's LoRA Control (<lora:name:[w@t,...]>) overwrites the
+                # strength slot every step; leave that LoRA to it rather than
+                # having one schedule silently replace the other.
+                should_control = False
+                _note_lora_control(state, filename)
             lora_config = config.config_for_file(filename) if should_control else None
 
             # Forge Neo stores offline patches in ``patches`` and online LoRAs
@@ -1796,6 +1803,29 @@ def install_patch():
         activate_with_stage_scheduler._anima_stage_scheduler_patched = True
         extra_networks.activate = activate_with_stage_scheduler
         logger.info("Installed Anima LoRA stage scheduler extra network patch")
+
+
+def _lora_control_files() -> set:
+    """Files scheduled by Forge's built-in LoRA Control in this generation."""
+    from modules import scripts as webui_scripts
+
+    for runner in (webui_scripts.scripts_txt2img, webui_scripts.scripts_img2img):
+        for script in getattr(runner, "alwayson_scripts", None) or ():
+            if script.title() == "LoRA Control Integrated":
+                return set(getattr(type(script), "mapping", None) or ())
+    return set()
+
+
+def _note_lora_control(state, filename):
+    if filename in state.yielded_to_lora_control:
+        return
+    state.yielded_to_lora_control.add(filename)
+    name = os.path.splitext(os.path.basename(str(filename)))[0]
+    logger.warning("Anima stage scheduler skips %s: it is scheduled with LoRA Control syntax", name)
+    extra = getattr(state.p, "extra_generation_params", None)
+    if isinstance(extra, dict):
+        skipped = [value for value in str(extra.get("Anima stage scheduler skipped", "")).split(", ") if value]
+        extra["Anima stage scheduler skipped"] = ", ".join(sorted({*skipped, name}))
 
 
 def _denoiser_callback(params):

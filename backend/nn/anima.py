@@ -499,18 +499,24 @@ class Anima(nn.Module):
         t_embedding_B_T_D, adaln_lora_B_T_3D = self.t_embedder[1](self.t_embedder[0](timesteps_B_T).to(x_B_T_H_W_D.dtype))
         t_embedding_B_T_D = self.t_embedding_norm(t_embedding_B_T_D)
 
+        # A per-call copy: block_index below must not leak into the caller's
+        # (shared) options dict.
+        transformer_options = dict(kwargs.get("transformer_options", {}))
         block_kwargs = {
             "rope_emb_L_1_1_D": rope_emb_L_1_1_D.unsqueeze(1).unsqueeze(0),
             "adaln_lora_B_T_3D": adaln_lora_B_T_3D,
             "extra_per_block_pos_emb": extra_pos_emb_None,
-            "transformer_options": kwargs.get("transformer_options", {}),
+            "transformer_options": transformer_options,
         }
 
         # To make fp16 compute_dtype work, we keep the residual stream in fp32 but run attention and MLP modules in fp16.
         if x_B_T_H_W_D.dtype is torch.float16:
             x_B_T_H_W_D = x_B_T_H_W_D.float()
 
-        for block in self.blocks:
+        for block_index, block in enumerate(self.blocks):
+            # Like Flux / Wan / UNet: lets attention overrides act per block
+            # (e.g. Sparse Attention's "Dense Blocks").
+            transformer_options["block_index"] = block_index
             x_B_T_H_W_D = block(
                 x_B_T_H_W_D,
                 t_embedding_B_T_D,
