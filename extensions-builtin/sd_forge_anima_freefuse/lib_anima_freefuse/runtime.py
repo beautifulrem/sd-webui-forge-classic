@@ -16,6 +16,7 @@ from backend.operations import main_stream_worker, weights_manual_cast
 from backend.patcher.base import LowVramPatch, OnlineLoRAPatch
 from backend.patcher.lora import merge_lora_to_weight
 from modules import spectrum_force
+from modules.anima_support import negpip_mask_for
 from modules.forward_override import install_forward_override, restore_forward_override
 from .masks import fit_mask_batch, generate_masks
 
@@ -463,6 +464,12 @@ def _make_cross_attention_forward(
                 transformer_options=transformer_options,
             )
         q, k, v = self.compute_qkv(x, context, rope_emb=rope_emb)
+        # This override replaces the class forward NegPiP hooks, so apply its
+        # V-only negation here: K keeps the sign-restored tokens.
+        negpip_mask = negpip_mask_for(context, transformer_options)
+        if negpip_mask is not None:
+            # Same V path as SelfCrossAttention.compute_qkv.
+            v = self.v_norm(self.v_proj(context * negpip_mask).unflatten(-1, (self.n_heads, self.head_dim)))
         if block_index == state.collect_block:
             state.collect_similarity(x, q, k, transformer_options)
         bias = (

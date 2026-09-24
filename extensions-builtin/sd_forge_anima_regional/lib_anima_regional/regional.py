@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import torch
 
 from modules import spectrum_force
+from modules.anima_support import NEGPIP_MASK_KEY
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
@@ -85,6 +86,8 @@ class Region:
     width: float
     height: float
     strength: float
+    # NegPiP V-mask for this region's tokens (None without negative weights).
+    negpip_mask: torch.Tensor | None = None
 
 
 @dataclass
@@ -151,6 +154,10 @@ def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_
             # NAG's negative branch is meaningful for the base positive/negative
             # pair, not for synthetic regional contexts repeated across rows.
             regional_options["anima_nag_skip"] = "regional_context"
+            # The base prompt's NegPiP mask describes other tokens.
+            regional_options[NEGPIP_MASK_KEY] = (
+                None if region.negpip_mask is None else fit_context(region.negpip_mask, base.shape[0], context)
+            )
             regional = original_forward(x, context=regional_context, rope_emb=rope_emb, transformer_options=regional_options)
             numerator = numerator + regional * alpha
             denominator = denominator + alpha

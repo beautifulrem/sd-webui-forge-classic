@@ -84,22 +84,42 @@ def require_anima_flow_denoiser(model, feature: str) -> None:
 
 
 
-def conditioning_crossattn(conds):
-    """Cross-attention tensor from ``get_learned_conditioning`` output.
 
-    Accepts a tensor, a list of tensors, or the dict returned while a hook such
-    as NegPiP is active. NegPiP's ``crossattn`` has negative-weight tokens
-    sign-restored and relies on its attention hook to negate V with
-    ``c_negpip_mask``; contexts used elsewhere (Regional, Artist Mixer) do
-    not get that treatment, so the mask is folded back in here.
+NEGPIP_MASK_KEY = "negpip_mask"
+
+
+def split_conditioning(conds):
+    """Split ``get_learned_conditioning`` output into ``(crossattn, mask)``.
+
+    While NegPiP is active the output is ``{"crossattn", "c_negpip_mask"}``:
+    negative-weight tokens are sign-restored in ``crossattn`` and NegPiP's
+    attention hook negates only V with the mask. Callers that build their own
+    contexts (Regional, Artist Mixer) keep the mask and pass it to the forward
+    under ``NEGPIP_MASK_KEY`` so those tokens get the same semantics as in the
+    main prompt. Other outputs are returned unchanged with ``mask=None``.
+    """
+
+    if not isinstance(conds, dict):
+        return conds, None
+    return conds.get("crossattn", conds.get("c_crossattn")), conds.get("c_negpip_mask")
+
+
+def negpip_mask_for(context, transformer_options):
+    """NegPiP V-mask from ``transformer_options`` if it matches ``context``.
+
+    The mask describes one specific context's tokens; any other context (a
+    different length, or a batch it cannot tile onto) must not use it.
     """
 
     import torch
 
-    if not isinstance(conds, dict):
-        return conds
-    crossattn = conds.get("crossattn", conds.get("c_crossattn"))
-    mask = conds.get("c_negpip_mask")
-    if torch.is_tensor(crossattn) and torch.is_tensor(mask):
-        crossattn = crossattn * mask.to(crossattn)
-    return crossattn
+    mask = (transformer_options or {}).get(NEGPIP_MASK_KEY)
+    if not torch.is_tensor(mask) or not torch.is_tensor(context):
+        return None
+    if mask.ndim != context.ndim or mask.shape[1] != context.shape[1]:
+        return None
+    if mask.shape[0] != context.shape[0]:
+        if context.shape[0] % mask.shape[0]:
+            return None
+        mask = mask.repeat(context.shape[0] // mask.shape[0], *([1] * (mask.ndim - 1)))
+    return mask.to(context)

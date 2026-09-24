@@ -13,7 +13,7 @@ import torch
 from modules import script_callbacks, scripts, sd_models, shared, spectrum_force
 from modules.anima_feature_conflicts import register_exclusive_component
 from modules.anima_presets import register_preset_control
-from modules.anima_support import conditioning_crossattn
+from modules.anima_support import NEGPIP_MASK_KEY, negpip_mask_for, split_conditioning
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
@@ -1615,11 +1615,6 @@ def _apply_last_template_on_load_ui(base_row_count, hires_row_count, current_bas
 def _extract_cond_tensor(value):
     if torch.is_tensor(value):
         return value
-    if isinstance(value, dict):
-        for key in ("crossattn", "cross_attn", "c_crossattn"):
-            item = value.get(key)
-            if torch.is_tensor(item):
-                return item
     if isinstance(value, (list, tuple)):
         if not value:
             return None
@@ -1679,8 +1674,9 @@ def _encode_text_batch(p, texts, use_cache=True):
     )
     conds = p.sd_model.get_learned_conditioning(conditioning)
     tensors = []
-    # Hooks such as NegPiP return a dict; fold its mask back in.
-    conds = conditioning_crossattn(conds)
+    # NegPiP returns {"crossattn", "c_negpip_mask"}; keep the mask so the
+    # artist context gets the same negative-weight semantics as the prompt.
+    conds, negpip_mask = split_conditioning(conds)
     if torch.is_tensor(conds):
         conds = list(conds)
     for cond in conds:
@@ -1689,11 +1685,16 @@ def _encode_text_batch(p, texts, use_cache=True):
             raise RuntimeError("Failed to extract Anima conditioning tensor.")
         tensors.append(tensor.detach().to("cpu"))
     batch = torch.cat(tensors, dim=0)
+    if torch.is_tensor(negpip_mask):
+        negpip_mask = negpip_mask.detach().to("cpu")
+    else:
+        negpip_mask = None
+    result = (batch, negpip_mask)
     if use_cache:
-        _COND_CACHE[key] = batch
+        _COND_CACHE[key] = result
         while len(_COND_CACHE) > _COND_CACHE_LIMIT:
             _COND_CACHE.popitem(last=False)
-    return batch
+    return result
 
 
 @dataclass
@@ -1706,6 +1707,8 @@ class ArtistRuntime:
     peak: float
     curve: str
     cond: torch.Tensor
+    # NegPiP V-mask for this artist's tokens (None without negative weights).
+    negpip_mask: torch.Tensor | None = None
 
 
 @dataclass
@@ -1971,27 +1974,55 @@ def _context_token_dim(context):
     return max(1, context.dim() - 2)
 
 
-def _concat_contexts(base_context, artist_context, transformer_options=None):
-    # Under NegPiP the base context has negative-weight tokens sign-restored and
-    # its attention hook skips artist contexts, so fold the mask back in here.
-    mask = transformer_options.get("negpip_mask") if isinstance(transformer_options, dict) else None
-    if torch.is_tensor(mask) and mask.dim() == base_context.dim() and mask.shape[1] == base_context.shape[1]:
-        if mask.shape[0] != base_context.shape[0] and base_context.shape[0] % mask.shape[0] == 0:
-            mask = mask.repeat(base_context.shape[0] // mask.shape[0], *([1] * (mask.dim() - 1)))
-        if mask.shape[0] == base_context.shape[0]:
-            base_context = base_context * mask.to(base_context)
+def _concat_contexts(base_context, artist_context):
     return torch.cat([base_context, artist_context], dim=_context_token_dim(base_context))
+
+
+def _artist_mask_like(artist, artist_context):
+    """The artist's NegPiP V-mask aligned with ``artist_context``, or None."""
+
+    if artist.negpip_mask is None:
+        return None
+    return _broadcast_batch(_to_context(artist.negpip_mask, artist_context), artist_context.shape[0])
+
+
+def _joined_mask(parts, dim):
+    """NegPiP mask for contexts joined along ``dim``; ones fill parts without one."""
+
+    if all(mask is None for _, mask in parts):
+        return None
+    masks = [
+        mask if mask is not None else torch.ones_like(part[..., :1])
+        for part, mask in parts
+    ]
+    return torch.cat(masks, dim=dim)
+
+
+def _with_negpip_mask(transformer_options, mask):
+    """Options for a foreign context: its own mask replaces the base prompt's."""
+
+    options = dict(transformer_options) if isinstance(transformer_options, dict) else {}
+    options[NEGPIP_MASK_KEY] = mask
+    return options
 
 
 def _artist_forward_batched(original_forward, x, context, rope_emb, transformer_options, artists, weights, fusion_mode):
     batch_size = context.shape[0]
+    token_dim = _context_token_dim(context)
+    base_fusion = fusion_mode in BASE_CONTEXT_FUSIONS
+    base_mask = negpip_mask_for(context, transformer_options) if base_fusion else None
     contexts = []
+    masks = []
     for artist, _ in artists:
         artist_context = _to_context_like(artist.cond, context)
-        if fusion_mode in BASE_CONTEXT_FUSIONS:
-            contexts.append(_concat_contexts(context, artist_context, transformer_options))
+        artist_mask = _artist_mask_like(artist, artist_context)
+        if base_fusion:
+            contexts.append(_concat_contexts(context, artist_context))
+            mask = _joined_mask([(context, base_mask), (artist_context, artist_mask)], token_dim)
         else:
             contexts.append(artist_context)
+            mask = artist_mask
+        masks.append((contexts[-1], mask))
     lengths = {item.shape[_context_token_dim(item)] for item in contexts}
     if len(lengths) > 1:
         raise RuntimeError(f"Cannot batch artist contexts with different token lengths: {lengths}")
@@ -2001,7 +2032,7 @@ def _artist_forward_batched(original_forward, x, context, rope_emb, transformer_
     rope_rep = rope_emb
     if torch.is_tensor(rope_emb) and rope_emb.dim() > 0 and rope_emb.shape[0] == batch_size:
         rope_rep = rope_emb.repeat(count, *([1] * (rope_emb.dim() - 1)))
-    opts = dict(transformer_options) if isinstance(transformer_options, dict) else {}
+    opts = _with_negpip_mask(transformer_options, _joined_mask(masks, 0))
     opts["anima_nag_skip"] = "artist_context"
     cou = opts.get("cond_or_uncond")
     if cou is not None:
@@ -2085,10 +2116,18 @@ def _dispatch_output_avg(original_forward, state, x, context, rope_emb, transfor
     if artist_total is None:
         artist_options = dict(transformer_options)
         artist_options["anima_nag_skip"] = "artist_context"
+        token_dim = _context_token_dim(context)
+        base_fusion = state.fusion_mode in BASE_CONTEXT_FUSIONS
+        base_mask = negpip_mask_for(context, transformer_options) if base_fusion else None
         for (artist, _), weight in zip(active, weights):
             artist_context = _to_context_like(artist.cond, context)
-            kv = _concat_contexts(context, artist_context, transformer_options) if state.fusion_mode in BASE_CONTEXT_FUSIONS else artist_context
-            out_i = original_forward(x, context=kv, rope_emb=rope_emb, transformer_options=artist_options)
+            artist_mask = _artist_mask_like(artist, artist_context)
+            if base_fusion:
+                kv = _concat_contexts(context, artist_context)
+                kv_mask = _joined_mask([(context, base_mask), (artist_context, artist_mask)], token_dim)
+            else:
+                kv, kv_mask = artist_context, artist_mask
+            out_i = original_forward(x, context=kv, rope_emb=rope_emb, transformer_options=_with_negpip_mask(artist_options, kv_mask))
             artist_total = out_i * weight if artist_total is None else artist_total + out_i * weight
     strength = _clamp(float(state.global_strength), 0.0, 1.0 if state.fusion_mode == FUSION_QUALITY_DELTA else 2.0) * total_influence
     base_out = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
@@ -2123,20 +2162,21 @@ def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_
         return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
     total_influence = _clamp(total_abs, 0.0, 1.0)
     denom = total_abs
+    token_dim = _context_token_dim(context)
     parts = []
     for artist, weight in active:
         artist_context = _to_context_like(artist.cond, context)
-        parts.append(artist_context * (weight / denom))
-    combined = torch.cat(parts, dim=_context_token_dim(context))
+        parts.append((artist_context * (weight / denom), _artist_mask_like(artist, artist_context)))
+    combined = torch.cat([part for part, _ in parts], dim=token_dim)
+    combined_mask = _joined_mask(parts, token_dim)
     if state.fusion_mode in BASE_CONTEXT_FUSIONS:
-        merged = _concat_contexts(context, combined, transformer_options)
-        artist_options = dict(transformer_options)
-        artist_options["anima_nag_skip"] = "artist_context"
-        artist_out = original_forward(x, context=merged, rope_emb=rope_emb, transformer_options=artist_options)
+        kv = _concat_contexts(context, combined)
+        kv_mask = _joined_mask([(context, negpip_mask_for(context, transformer_options)), (combined, combined_mask)], token_dim)
     else:
-        artist_options = dict(transformer_options)
-        artist_options["anima_nag_skip"] = "artist_context"
-        artist_out = original_forward(x, context=combined, rope_emb=rope_emb, transformer_options=artist_options)
+        kv, kv_mask = combined, combined_mask
+    artist_options = _with_negpip_mask(transformer_options, kv_mask)
+    artist_options["anima_nag_skip"] = "artist_context"
+    artist_out = original_forward(x, context=kv, rope_emb=rope_emb, transformer_options=artist_options)
     strength = _clamp(float(state.global_strength), 0.0, 1.0 if state.fusion_mode == FUSION_QUALITY_DELTA else 2.0) * total_influence
     base_out = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
     if state.diff_probe is None:
@@ -2182,7 +2222,7 @@ def _build_artists(p, rows, num_blocks, shift, optimization, use_cache):
             if not clean_name:
                 continue
             texts = [f"{clean_name}\n{prompt}" if prompt.strip() else clean_name for prompt in prompts]
-            cond = _encode_text_batch(p, texts, use_cache=use_cache)
+            cond, negpip_mask = _encode_text_batch(p, texts, use_cache=use_cache)
             artists.append(
                 ArtistRuntime(
                     name=clean_name,
@@ -2193,6 +2233,7 @@ def _build_artists(p, rows, num_blocks, shift, optimization, use_cache):
                     peak=_clamp(float(peak), 0.0, 1.0),
                     curve=_option_key("curve", curve, CURVE_SMOOTH),
                     cond=cond,
+                    negpip_mask=negpip_mask,
                 )
             )
     return artists

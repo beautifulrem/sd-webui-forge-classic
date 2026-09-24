@@ -2,7 +2,13 @@ from types import SimpleNamespace
 
 import torch
 
-from modules.anima_support import anima_auxiliary_denoiser, conditioning_crossattn, is_anima_engine
+from modules.anima_support import (
+    NEGPIP_MASK_KEY,
+    anima_auxiliary_denoiser,
+    is_anima_engine,
+    negpip_mask_for,
+    split_conditioning,
+)
 from modules_forge.packages.huggingface_guess.detection import detect_unet_config
 
 
@@ -51,12 +57,21 @@ def test_anima_model_detection_uses_checkpoint_block_count():
 
 
 
-def test_conditioning_crossattn_folds_negpip_mask_back_in():
+
+def test_split_conditioning_keeps_the_negpip_mask_separate():
     crossattn = torch.ones(1, 3, 2)
     mask = torch.tensor([[[1.0], [-1.0], [1.0]]])
 
-    folded = conditioning_crossattn({"crossattn": crossattn, "c_negpip_mask": mask})
-
-    assert folded[0, :, 0].tolist() == [1.0, -1.0, 1.0]
+    assert split_conditioning({"crossattn": crossattn, "c_negpip_mask": mask}) == (crossattn, mask)
     plain = torch.zeros(1, 3, 2)
-    assert conditioning_crossattn(plain) is plain
+    assert split_conditioning(plain) == (plain, None)
+
+
+def test_negpip_mask_only_applies_to_matching_contexts():
+    mask = torch.tensor([[[1.0], [-1.0], [1.0]]])
+    options = {NEGPIP_MASK_KEY: mask}
+
+    tiled = negpip_mask_for(torch.zeros(4, 3, 2), options)
+    assert tiled.shape == (4, 3, 1)
+    assert negpip_mask_for(torch.zeros(4, 5, 2), options) is None
+    assert negpip_mask_for(torch.zeros(4, 3, 2), {NEGPIP_MASK_KEY: None}) is None

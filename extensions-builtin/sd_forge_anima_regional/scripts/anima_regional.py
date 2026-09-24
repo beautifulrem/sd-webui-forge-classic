@@ -12,7 +12,7 @@ from lib_anima_regional.regional import Region, RegionalState, apply_regional_pa
 from modules import prompt_parser, scripts
 from modules.anima_feature_conflicts import register_exclusive_component
 from modules.anima_presets import register_preset_control
-from modules.anima_support import conditioning_crossattn, is_anima_engine
+from modules.anima_support import is_anima_engine, split_conditioning
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -21,15 +21,13 @@ setup_logger(logger)
 
 
 def _extract_conditioning(value):
+    """Return ``(crossattn, negpip_mask or None)`` for one encoded prompt."""
+
+    while isinstance(value, (list, tuple)) and value:
+        value = value[0]
+    value, mask = split_conditioning(value)
     if torch.is_tensor(value):
-        return value
-    if isinstance(value, (list, tuple)) and value:
-        return _extract_conditioning(value[0])
-    if isinstance(value, dict):
-        # Hooks such as NegPiP return a dict; fold its mask back in.
-        value = conditioning_crossattn(value)
-        if torch.is_tensor(value):
-            return value
+        return value, mask
     raise RuntimeError("Could not extract Anima regional conditioning tensor")
 
 
@@ -41,7 +39,10 @@ def _encode(p, text: str):
         distilled_cfg_scale=getattr(p, "distilled_cfg_scale", None),
     )
     result = p.sd_model.get_learned_conditioning(value)
-    return _extract_conditioning(result).detach().float().cpu().contiguous()
+    cond, mask = _extract_conditioning(result)
+    if mask is not None:
+        mask = mask.detach().float().cpu().contiguous()
+    return cond.detach().float().cpu().contiguous(), mask
 
 
 class AnimaRegionalScript(scripts.Script):
@@ -147,7 +148,8 @@ class AnimaRegionalScript(scripts.Script):
             active, text, x, y, width, height, strength = region_values[offset : offset + 7]
             if not active or not str(text).strip() or float(strength) <= 0.0 or float(width) <= 0.0 or float(height) <= 0.0:
                 continue
-            regions.append(Region(_encode(p, str(text)), float(x), float(y), float(width), float(height), float(strength)))
+            cond, negpip_mask = _encode(p, str(text))
+            regions.append(Region(cond, float(x), float(y), float(width), float(height), float(strength), negpip_mask))
         if not regions:
             logger.warning("Anima Regional Conditioning was enabled but no active non-empty region exists.")
             return

@@ -19,6 +19,7 @@ from einops import rearrange
 from backend.nn.anima import SelfCrossAttention
 from backend.sampling import condition, sampling_function
 from modules import shared
+from modules.anima_support import negpip_mask_for
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
@@ -236,25 +237,14 @@ def _hook_forwards(remove: bool):
         if detached[0] or self.is_SelfAttn:
             return original(self, x, context, rope_emb, transformer_options)
 
-        negpip_mask: torch.Tensor = transformer_options.get("negpip_mask", None)
-        # The mask belongs to the base prompt's tokens. Contexts injected by
-        # Regional / Artist Mixer (marked anima_nag_skip) or of another length
-        # must not be sign-flipped with it.
-        if negpip_mask is not None and (
-            transformer_options.get("anima_nag_skip")
-            or context is None
-            or negpip_mask.shape[1] != context.shape[1]
-        ):
-            negpip_mask = None
-
         q = self.q_proj(x)
         context_k = x if context is None else context
         context_v = context_k
+        # The mask describes one context's tokens (base prompt, or a region /
+        # artist context that sets its own); it only applies to that context.
+        negpip_mask = negpip_mask_for(context, transformer_options)
         if negpip_mask is not None:
-            assert negpip_mask.ndim == context_v.ndim
-            if (batch := (x.size(0) // negpip_mask.size(0))) > 1:
-                negpip_mask = negpip_mask.repeat(batch, 1, 1)
-            context_v = context_v * negpip_mask.to(context_v)
+            context_v = context_v * negpip_mask
 
         k = self.k_proj(context_k)
         v = self.v_proj(context_v)

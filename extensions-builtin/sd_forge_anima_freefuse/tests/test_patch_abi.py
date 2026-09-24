@@ -137,3 +137,29 @@ def test_model_wrapper_runs_and_restores_every_forward():
 
     assert calls == ["collect", "previous", "collect"]
     assert all("forward" not in module.__dict__ for module in dit.modules())
+
+
+def test_cross_attention_applies_negpip_to_values_only():
+    runtime, _, _ = _load()
+    from backend.nn.anima import SelfCrossAttention
+
+    torch.manual_seed(0)
+    attention = SelfCrossAttention(8, context_dim=6, n_heads=2, head_dim=4)
+    x = torch.randn(1, 5, 8)
+    context = torch.randn(1, 3, 6)
+    mask = torch.tensor([[[1.0], [-1.0], [1.0]]])
+    captured = {}
+
+    def compute_attention(q, k, v, transformer_options=None, mask=None):
+        captured.update(k=k, v=v)
+        return q
+
+    attention.compute_attention = compute_attention
+    state = SimpleNamespace(collect_block=-1, bias_blocks=set())
+    forward = runtime._make_cross_attention_forward(attention.forward, attention, state, 0)
+    forward(x, context=context, transformer_options={"negpip_mask": mask})
+
+    _, expected_k, _ = attention.compute_qkv(x, context)
+    _, _, expected_v = attention.compute_qkv(x, context * mask)
+    assert torch.allclose(captured["k"], expected_k)
+    assert torch.allclose(captured["v"], expected_v)
