@@ -86,6 +86,7 @@ class AnimaHiresGuardScript(scripts.Script):
                 )
 
         self.infotext_fields = [
+            (enabled, "Anima Hires guard enabled"),
             (policy, "Anima Hires policy"),
             (preset, "Anima Hires preset"),
             (align, "Anima Hires align"),
@@ -141,8 +142,15 @@ class AnimaHiresGuardScript(scripts.Script):
             hr_resize_y=int(getattr(process, "hr_resize_y", 0) or 0),
             limits=limits,
         )
-        process.extra_generation_params["Anima Hires guard"] = str(policy)
-        process.extra_generation_params["Anima Hires preset"] = str(preset)
+        # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
+        params = process.extra_generation_params
+        params["Anima Hires guard enabled"] = True
+        params["Anima Hires policy"] = str(policy)
+        params["Anima Hires preset"] = str(preset)
+        params["Anima Hires align"] = bool(align)
+        params["Anima base MP"] = float(base_mp)
+        params["Anima Hires MP"] = float(hires_mp)
+        params["Anima Hires max upscale"] = float(max_upscale)
         process.extra_generation_params["Anima Hires limits"] = (
             f"base {limits.base_megapixels:g} MP, hires {limits.hires_megapixels:g} MP, "
             f"upscale {limits.max_upscale:g}x, align {limits.alignment}"

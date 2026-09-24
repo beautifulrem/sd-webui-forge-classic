@@ -352,7 +352,7 @@ class AnimaFreeFuseScript(scripts.Script):
 
     @staticmethod
     def _configure_sampling(p, values):
-        if p.extra_generation_params.get("Anima regional conditioning") is True:
+        if p.extra_generation_params.get("Anima regional enabled") is True:
             raise ValueError(
                 "Anima FreeFuse and Anima Regional Conditioning cannot run in the same pass"
             )
@@ -461,6 +461,29 @@ class AnimaFreeFuseScript(scripts.Script):
         p.extra_generation_params["Anima FreeFuse bias"] = (
             f"negative {float(bias_scale):.2f}, positive {float(positive_bias):.2f}, blocks {bias_blocks}"
         )
+        # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
+        params = p.extra_generation_params
+        params["Anima FreeFuse enabled"] = True
+        for index, offset in enumerate(range(0, 9, 3), start=1):
+            active, selector, concept = adapter_values[offset : offset + 3]
+            params[f"Anima FreeFuse subject {index} active"] = bool(active)
+            if active:
+                params[f"Anima FreeFuse subject {index} LoRA"] = str(selector).strip()
+                params[f"Anima FreeFuse subject {index} concept"] = str(concept).strip()
+        params["Anima FreeFuse collect step"] = int(collect_step)
+        params["Anima FreeFuse collect block"] = int(collect_block)
+        params["Anima FreeFuse top-k"] = float(top_k)
+        params["Anima FreeFuse temperature"] = float(temperature)
+        if str(background).strip():
+            params["Anima FreeFuse background"] = str(background)
+        params["Anima FreeFuse background scale"] = float(bg_scale)
+        params["Anima FreeFuse balance iterations"] = int(balance_iterations)
+        params["Anima FreeFuse feather"] = int(feather)
+        params["Anima FreeFuse routing strength"] = float(routing_strength)
+        params["Anima FreeFuse routing end"] = float(routing_end)
+        params["Anima FreeFuse bias scale"] = float(bias_scale)
+        params["Anima FreeFuse positive bias"] = float(positive_bias)
+        params["Anima FreeFuse bias blocks"] = str(bias_blocks)
 
     @staticmethod
     def _cleanup_runtime(p):

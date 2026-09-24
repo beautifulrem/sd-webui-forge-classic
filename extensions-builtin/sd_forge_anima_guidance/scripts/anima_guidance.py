@@ -663,6 +663,9 @@ class AnimaGuidanceScript(scripts.Script):
         if not enable or not _is_anima(p):
             return
 
+        # Keys below match ``self.infotext_fields`` so pasted parameters restore the panel.
+        p.extra_generation_params["Anima guidance enabled"] = True
+
         if conflict_state.messages:
             resolution = "; ".join(conflict_state.messages)
             record_conflict_resolution(p, *conflict_state.messages)
@@ -691,9 +694,12 @@ class AnimaGuidanceScript(scripts.Script):
                 p.flow_unipc_disable_corrector_first
             )
             if p.flow_unipc_thresholding:
-                p.extra_generation_params["Anima Flow UniPC thresholding"] = (
-                    f"p={p.flow_unipc_dynamic_thresholding_ratio:g}, "
-                    f"max={p.flow_unipc_sample_max_value:g}"
+                p.extra_generation_params["Anima Flow UniPC thresholding"] = True
+                p.extra_generation_params["Anima Flow UniPC threshold percentile"] = (
+                    p.flow_unipc_dynamic_thresholding_ratio
+                )
+                p.extra_generation_params["Anima Flow UniPC threshold maximum"] = (
+                    p.flow_unipc_sample_max_value
                 )
 
         if active_sampler == "Anima Flow PC3":
@@ -760,11 +766,14 @@ class AnimaGuidanceScript(scripts.Script):
                 ).apply(unet)
                 p.extra_generation_params["Anima modulation guidance"] = True
                 p.extra_generation_params["Anima modulation weight"] = float(modulation_weight)
-                p.extra_generation_params["Anima modulation blocks"] = f"{effective_start}-{effective_end}"
-                p.extra_generation_params["Anima modulation positive"] = str(modulation_positive)
-                p.extra_generation_params["Anima modulation negative"] = str(modulation_negative)
+                p.extra_generation_params["Anima modulation start block"] = int(effective_start)
+                p.extra_generation_params["Anima modulation end block"] = int(effective_end)
+                p.extra_generation_params["Anima modulation positive direction"] = str(modulation_positive)
+                p.extra_generation_params["Anima modulation negative direction"] = str(modulation_negative)
+                p.extra_generation_params["Anima modulation adapter mode"] = str(adapter_mode)
+                p.extra_generation_params["Anima modulation CLIP mode"] = str(clip_mode)
                 if str(modulation_base).strip():
-                    p.extra_generation_params["Anima modulation base override"] = str(modulation_base)
+                    p.extra_generation_params["Anima modulation base prompt"] = str(modulation_base)
             except Exception as error:
                 modulation_enabled = False
                 logger.exception("Anima modulation guidance was disabled for this generation: %s", error)
@@ -806,7 +815,8 @@ class AnimaGuidanceScript(scripts.Script):
             p.extra_generation_params["Anima NAG scale"] = float(nag_scale)
             p.extra_generation_params["Anima NAG tau"] = float(nag_tau)
             p.extra_generation_params["Anima NAG alpha"] = float(nag_alpha)
-            p.extra_generation_params["Anima NAG range"] = f"{float(nag_start):.2f}-{float(nag_end):.2f}"
+            p.extra_generation_params["Anima NAG start"] = float(nag_start)
+            p.extra_generation_params["Anima NAG end"] = float(nag_end)
 
         previous = unet.model_options.get("sampler_cfg_function")
         active_cfg_function = previous
@@ -850,9 +860,9 @@ class AnimaGuidanceScript(scripts.Script):
                 sigma_start=range_sigma_start,
                 sigma_end=range_sigma_end,
             )
-            p.extra_generation_params["Anima CFG active range"] = (
-                f"{float(guidance_range_start):.2f}-{float(guidance_range_end):.2f}"
-            )
+            p.extra_generation_params["Anima CFG active range"] = True
+            p.extra_generation_params["Anima CFG range start"] = float(guidance_range_start)
+            p.extra_generation_params["Anima CFG range end"] = float(guidance_range_end)
 
         if smc_enabled or fdg_enabled or skim_enable or guidance_range_enable:
             unet.set_model_sampler_cfg_function(active_cfg_function, disable_cfg1_optimization=True)
@@ -913,6 +923,7 @@ class AnimaGuidanceScript(scripts.Script):
             if disable_flip_filter:
                 p.extra_generation_params["Anima skim disable flip filter"] = True
             if not math.isclose(float(start_percent), 0.0) or not math.isclose(float(end_percent), 1.0):
-                p.extra_generation_params["Anima skim range"] = f"{float(start_percent):.2f}-{float(end_percent):.2f}"
+                p.extra_generation_params["Anima skim start"] = float(start_percent)
+                p.extra_generation_params["Anima skim end"] = float(end_percent)
             if flip_sigma is not None:
                 p.extra_generation_params["Anima skim flip"] = float(flip_percent)

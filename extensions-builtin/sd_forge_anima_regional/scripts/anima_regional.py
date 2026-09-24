@@ -160,9 +160,22 @@ class AnimaRegionalScript(scripts.Script):
             end_sigma=float(predictor.percent_to_sigma(float(end))),
         )
         p.sd_model.forge_objects.unet = apply_regional_patch(unet, state)
-        p.extra_generation_params["Anima regional conditioning"] = True
-        p.extra_generation_params["Anima regional regions"] = len(regions)
-        p.extra_generation_params["Anima regional blocks"] = str(blocks)
-        p.extra_generation_params["Anima regional range"] = f"{float(start):.2f}-{float(end):.2f}"
-        p.extra_generation_params["Anima regional feather"] = float(feather)
-        p.extra_generation_params["Anima regional base preserve"] = float(base_preserve)
+        # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
+        params = p.extra_generation_params
+        params["Anima regional enabled"] = True
+        params["Anima regional blocks"] = str(blocks)
+        params["Anima regional start"] = float(start)
+        params["Anima regional end"] = float(end)
+        params["Anima regional feather"] = float(feather)
+        params["Anima regional base preserve"] = float(base_preserve)
+        for index, offset in enumerate(range(0, len(region_values), 7), start=1):
+            active, text, x, y, width, height, strength = region_values[offset : offset + 7]
+            params[f"Anima region {index} active"] = bool(active)
+            if not active:
+                continue
+            params[f"Anima region {index} prompt"] = str(text)
+            params[f"Anima region {index} x"] = float(x)
+            params[f"Anima region {index} y"] = float(y)
+            params[f"Anima region {index} width"] = float(width)
+            params[f"Anima region {index} height"] = float(height)
+            params[f"Anima region {index} strength"] = float(strength)
