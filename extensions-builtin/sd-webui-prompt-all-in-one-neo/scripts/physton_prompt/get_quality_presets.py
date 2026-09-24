@@ -199,6 +199,12 @@ def _civitai_headers(api_key: str = '') -> dict:
     return headers
 
 
+# sha256 -> (base_model, monotonic time). The frontend polls detection every
+# few seconds, so misses are retried only after _BASE_MODEL_MISS_TTL.
+_BASE_MODEL_CACHE = {}
+_BASE_MODEL_MISS_TTL = 600.0
+
+
 def fetch_base_model_from_civitai(sha256: str, api_key: str = '') -> str:
     """
     Query CivitAI /api/v1/model-versions/by-hash/{sha256}.
@@ -206,16 +212,23 @@ def fetch_base_model_from_civitai(sha256: str, api_key: str = '') -> str:
     """
     if not sha256 or len(sha256) != 64:
         return ''
+    import time
+
+    cached = _BASE_MODEL_CACHE.get(sha256)
+    if cached is not None and (cached[0] or time.monotonic() - cached[1] < _BASE_MODEL_MISS_TTL):
+        return cached[0]
+    base_model = ''
     url = f'https://civitai.com/api/v1/model-versions/by-hash/{sha256}'
     try:
         resp = requests.get(url, headers=_civitai_headers(api_key), timeout=(15, 30))
         if resp.status_code == 200:
             data = resp.json()
             if 'error' not in data:
-                return data.get('baseModel', '')
+                base_model = data.get('baseModel', '') or ''
     except Exception:
         pass
-    return ''
+    _BASE_MODEL_CACHE[sha256] = (base_model, time.monotonic())
+    return base_model
 
 
 # ---------------------------------------------------------------------------

@@ -252,6 +252,10 @@ class _Store:
                     return True
             return False
 
+    def pending_count(self):
+        with self.lock:
+            return len(self._pending())
+
     def snapshot(self):
         # SQLite query outside the store lock; /state is polled per tab.
         agent_scheduler_active = agent_scheduler_has_pending_work()
@@ -373,7 +377,7 @@ def register_api(_demo, app: FastAPI):
         )
         if err:
             return {"ok": False, "error": err}
-        return {"ok": True, "item": item, "pending": STORE.snapshot()["pending"]}
+        return {"ok": True, "item": item, "pending": STORE.pending_count()}
 
     @app.post(prefix + "/remove")
     def remove(req: IdRequest):

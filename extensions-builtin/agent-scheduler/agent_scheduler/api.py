@@ -78,7 +78,8 @@ def on_task_finished(
         task.api_task_callback,
         task_id=task_id,
         status=status,
-        images=result["images"],
+        # Failed / interrupted tasks finish without a result.
+        images=(result or {}).get("images", []),
     )
 
     request_with_retry(upload)

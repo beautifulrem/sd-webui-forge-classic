@@ -68,15 +68,17 @@ except Exception as e:
 def on_app_started(_: gr.Blocks, app: FastAPI):
     hi = History()
 
+    # Sync handlers run in FastAPI's thread pool: these hit the network,
+    # git or large files and must not block the event loop.
     @app.get("/physton_prompt/get_version")
-    async def _get_version():
+    def _get_version():
         return {
             'version': get_git_commit_version(),
             'latest_version': get_latest_version(),
         }
 
     @app.get("/physton_prompt/get_remote_versions")
-    async def _get_remote_versions(page: int = 1, per_page: int = 100):
+    def _get_remote_versions(page: int = 1, per_page: int = 100):
         return {
             'versions': get_git_remote_versions(page, per_page),
         }
@@ -100,7 +102,7 @@ def on_app_started(_: gr.Blocks, app: FastAPI):
             return {"result": get_lang('is_required', {'0': 'name'})}
         if 'package' not in data:
             return {"result": get_lang('is_required', {'0': 'package'})}
-        return {"result": install_package(data['name'], data['package'])}
+        return {"result": await run_in_threadpool(install_package, data['name'], data['package'])}
 
     @app.get("/physton_prompt/get_extensions")
     async def _get_extensions():
@@ -427,7 +429,7 @@ def on_app_started(_: gr.Blocks, app: FastAPI):
         return {"templates": BUILTIN_TEMPLATES}
 
     @app.get("/physton_prompt/detect_model_preset")
-    async def _detect_model_preset(filepath: str = ''):
+    def _detect_model_preset(filepath: str = ''):
         path = filepath if filepath else get_current_checkpoint_path()
         path = resolve_installed_checkpoint_path(path)
         result = detect_preset_for_checkpoint(path)
@@ -435,7 +437,7 @@ def on_app_started(_: gr.Blocks, app: FastAPI):
         return result
 
     @app.get("/physton_prompt/get_installed_checkpoints")
-    async def _get_installed_checkpoints():
+    def _get_installed_checkpoints():
         return {"checkpoints": get_installed_checkpoints()}
 
     @app.post("/physton_prompt/scan_checkpoint")
@@ -445,7 +447,7 @@ def on_app_started(_: gr.Blocks, app: FastAPI):
         if not filepath:
             return {"success": False, "message": "filepath is required"}
         try:
-            result = scan_checkpoint(filepath)
+            result = await run_in_threadpool(scan_checkpoint, filepath)
             return {"success": True, **result}
         except Exception as e:
             return {"success": False, "message": str(e)}

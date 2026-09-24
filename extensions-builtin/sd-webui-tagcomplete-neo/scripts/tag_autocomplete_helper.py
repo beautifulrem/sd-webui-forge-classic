@@ -793,6 +793,18 @@ def get_style_mtime():
 last_style_mtime = get_style_mtime()
 
 def api_tac(_: gr.Blocks, app: FastAPI):
+    def _safe_name(name) -> bool:
+        """Reject client-supplied names that could leave their base folder.
+
+        ".." is refused outright: after a symlinked folder the OS resolves it
+        against the link target, which a lexical containment check misses.
+        """
+        if not isinstance(name, str) or not name or "\0" in name:
+            return False
+        if os.path.isabs(name) or os.path.splitdrive(name)[0]:
+            return False
+        return ".." not in name.replace("\\", "/").split("/")
+
     def _inside(base_path, candidate) -> bool:
         # glob.escape leaves "..\\" intact, so on Windows a name can walk out of
         # the model folder. Compare normalized paths without following
@@ -804,7 +816,7 @@ def api_tac(_: gr.Blocks, app: FastAPI):
     # Sync handlers: FastAPI runs them in a worker thread, so recursive globs
     # and network calls do not block the event loop.
     def get_json_info(base_path: Path, filename: str = None):
-        if base_path is None or (not base_path.exists()):
+        if base_path is None or (not base_path.exists()) or not _safe_name(filename):
             return Response(status_code=404)
 
         try:
@@ -816,7 +828,7 @@ def api_tac(_: gr.Blocks, app: FastAPI):
             return JSONResponse({"error": str(e)}, status_code=500)
 
     def get_preview_thumbnail(base_path: Path, filename: str = None, blob: bool = False):
-        if base_path is None or (not base_path.exists()):
+        if base_path is None or (not base_path.exists()) or not _safe_name(filename):
             return Response(status_code=404)
 
         try:
@@ -856,7 +868,7 @@ def api_tac(_: gr.Blocks, app: FastAPI):
           2. Call CivitAI GET /api/v1/model-versions/by-hash/{sha256}.
           3. Save trainedWords to .json sidecar for future cache hits.
         """
-        if LORA_PATH is None or not LORA_PATH.exists():
+        if LORA_PATH is None or not LORA_PATH.exists() or not _safe_name(lora_name):
             return Response(status_code=404)
 
         # Locate the LoRA file
@@ -865,7 +877,7 @@ def api_tac(_: gr.Blocks, app: FastAPI):
         )
         paths = [
             p for p in path_glob
-            if Path(p).suffix in {".safetensors", ".ckpt", ".pt"} and Path(p).is_file()
+            if Path(p).suffix in {".safetensors", ".ckpt", ".pt"} and _inside(LORA_PATH, p) and Path(p).is_file()
         ]
         if not paths:
             return Response(status_code=404)
@@ -997,8 +1009,10 @@ def api_tac(_: gr.Blocks, app: FastAPI):
 
     @app.get("/tacapi/v1/lora-cached-hash/{lora_name}")
     def get_lora_cached_hash(lora_name: str):
+        if LORA_PATH is None or not _safe_name(lora_name):
+            return None
         path_glob = glob.glob(LORA_PATH.as_posix() + f"/**/{glob.escape(lora_name)}.*", recursive=True)
-        paths = [lora for lora in path_glob if Path(lora).suffix in [".safetensors", ".ckpt", ".pt"] and Path(lora).is_file()]
+        paths = [lora for lora in path_glob if Path(lora).suffix in [".safetensors", ".ckpt", ".pt"] and _inside(LORA_PATH, lora) and Path(lora).is_file()]
         if paths is not None and len(paths) > 0:
             path = paths[0]
             hash = hashes.sha256_from_cache(path, f"lora/{lora_name}", path.endswith(".safetensors"))
@@ -1027,7 +1041,9 @@ def api_tac(_: gr.Blocks, app: FastAPI):
 
     @app.get("/tacapi/v1/wildcard-contents")
     def get_wildcard_contents(basepath: str, filename: str):
-        if basepath is None or basepath == "":
+        if basepath is None or basepath == "" or not _safe_name(filename):
+            return Response(status_code=404)
+        if ".." in basepath.replace("\\", "/").split("/"):
             return Response(status_code=404)
 
         try:

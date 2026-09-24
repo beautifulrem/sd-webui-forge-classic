@@ -2,6 +2,8 @@ import io
 import os
 import zlib
 import base64
+import _codecs
+import _compat_pickle
 import dataclasses
 import pickle
 import sys
@@ -53,7 +55,15 @@ def load_image_from_url(url: str):
             raise ValueError("requests are disabled (Settings > API)")
         if getattr(shared.opts, "api_forbid_local_requests", True) and not verify_url(url):
             raise ValueError("requests to local addresses are forbidden")
-        response = requests.get(url, timeout=30, headers={"user-agent": getattr(shared.opts, "api_useragent", "") or "agent-scheduler"})
+        # Redirects are not followed: each hop would need the same local check.
+        response = requests.get(
+            url,
+            timeout=30,
+            allow_redirects=False,
+            headers={"user-agent": getattr(shared.opts, "api_useragent", "") or "agent-scheduler"},
+        )
+        if response.is_redirect:
+            raise ValueError("redirects are not followed")
         response.raise_for_status()
         buffer = io.BytesIO(response.content)
         return Image.open(buffer)
@@ -63,23 +73,27 @@ def load_image_from_url(url: str):
 
 
 def local_image_path(path: str):
-    """``path`` if it is an image file inside the WebUI data directory.
+    """``path`` if it names an image file inside the WebUI data directory.
 
     Task params are client-controlled, so arbitrary host files must not be
-    readable through init images.
+    readable through init images. ".." is refused (it would resolve against
+    symlink targets); otherwise the check is lexical so symlinked folders
+    inside the data dir (e.g. outputs on another drive) keep working.
     """
     from modules.paths_internal import data_path
 
-    if not isinstance(path, str) or path.startswith(("http://", "https://", "data:")):
+    # Cheap rejections first: raw base64 images arrive here too.
+    if not isinstance(path, str) or not path or len(path) > 4096 or "\n" in path or "\0" in path:
         return None
-    try:
-        root = os.path.realpath(data_path)
-        resolved = os.path.realpath(path)
-    except (OSError, ValueError):
+    if path.startswith(("http://", "https://", "data:")):
         return None
-    if os.path.commonpath([root, resolved]) != root or not os.path.isfile(resolved):
+    if ".." in path.replace("\\", "/").split("/"):
         return None
-    return resolved
+    root = os.path.normcase(os.path.normpath(os.path.abspath(data_path)))
+    candidate = os.path.normcase(os.path.normpath(os.path.abspath(path)))
+    if candidate != root and not candidate.startswith(root.rstrip(os.sep) + os.sep):
+        return None
+    return candidate if os.path.isfile(candidate) else None
 
 
 def encode_image_to_base64(image):
@@ -242,7 +256,10 @@ _SAFE_PICKLE_GLOBALS = {
     ("numpy.core.multiarray", "scalar"),
     ("numpy._core.multiarray", "_reconstruct"),
     ("numpy._core.multiarray", "scalar"),
+    ("numpy.core.numeric", "_frombuffer"),
+    ("numpy._core.numeric", "_frombuffer"),
     ("PIL.Image", "Image"),
+    ("_codecs", "encode"),  # protocol < 3 bytes; REDUCE restricts it to latin1
 }
 
 
@@ -259,22 +276,69 @@ def _is_plain_data_class(cls, module):
     )
 
 
-class _ScriptArgsUnpickler(pickle.Unpickler):
+# Callables REDUCE may invoke. Classes resolved by find_class are only rebuilt
+# via NEWOBJ (cls.__new__) + BUILD (state), never called with payload
+# arguments: e.g. PngImageFile("/any/path") would open host files.
+_SAFE_REDUCE_GLOBALS = {
+    ("copyreg", "_reconstructor"),
+    ("collections", "OrderedDict"),
+    ("numpy", "dtype"),
+    ("numpy.core.multiarray", "_reconstruct"),
+    ("numpy.core.multiarray", "scalar"),
+    ("numpy._core.multiarray", "_reconstruct"),
+    ("numpy._core.multiarray", "scalar"),
+    ("numpy.core.numeric", "_frombuffer"),
+    ("numpy._core.numeric", "_frombuffer"),
+} | {
+    ("builtins", name)
+    for name in ("set", "frozenset", "bytearray", "complex", "slice", "range", "list", "dict", "tuple", "str", "bytes", "int", "float", "bool")
+}
+
+
+def _is_safe_reduce(func):
+    if isinstance(func, type) and issubclass(func, Enum):
+        return True  # Enum members pickle as Enum(value): a lookup, no side effects.
+    return (getattr(func, "__module__", None), getattr(func, "__qualname__", None)) in _SAFE_REDUCE_GLOBALS
+
+
+class _ScriptArgsUnpickler(pickle._Unpickler):
     """Only rebuild plain data: script params can come from /import, so an
-    unrestricted pickle.loads would execute attacker-controlled code."""
+    unrestricted pickle.loads would execute attacker-controlled code.
+
+    The pure-Python unpickler is used so REDUCE can be restricted too."""
+
+    dispatch = dict(pickle._Unpickler.dispatch)
 
     def find_class(self, module, name):
+        if self.proto < 3 and self.fix_imports:
+            # Map Python 2 names (e.g. __builtin__) before checking, as the
+            # base class would.
+            if (module, name) in _compat_pickle.NAME_MAPPING:
+                module, name = _compat_pickle.NAME_MAPPING[(module, name)]
+            elif module in _compat_pickle.IMPORT_MAPPING:
+                module = _compat_pickle.IMPORT_MAPPING[module]
         if (module, name) in _SAFE_PICKLE_GLOBALS:
             return super().find_class(module, name)
         # Plain data classes of already-loaded modules are data too: enums,
         # dataclasses without custom (de)serialisation hooks (e.g. Forge's
         # ControlNetUnit) and PIL image subclasses. Never import a module on
-        # behalf of a payload.
+        # behalf of a payload (``vars`` avoids lazy-module __getattr__ imports).
         loaded = sys.modules.get(module)
-        candidate = getattr(loaded, name, None) if loaded is not None and "." not in name else None
+        candidate = vars(loaded).get(name) if loaded is not None and "." not in name else None
         if isinstance(candidate, type) and _is_plain_data_class(candidate, module):
             return candidate
         raise pickle.UnpicklingError(f"Refusing to load {module}.{name} from task script params")
+
+    def load_reduce(self):
+        func, args = self.stack[-2], self.stack[-1]
+        safe = _is_safe_reduce(func) or (
+            func is _codecs.encode and len(args) == 2 and args[1] in ("latin1", "latin-1")
+        )
+        if not safe:
+            raise pickle.UnpicklingError(f"Refusing to call {func!r} from task script params")
+        super().load_reduce()
+
+    dispatch[pickle.REDUCE[0]] = load_reduce
 
 
 def _load_script_args(data: bytes):
