@@ -23,7 +23,7 @@ from modules.anima_feature_conflicts import (
     register_exclusive_component,
     resolve_freefuse_refiner_conflicts,
 )
-from modules.anima_support import effective_prompt_batch, is_anima_engine
+from modules.anima_support import effective_prompt_batch, is_anima_engine, register_negpip_prompts
 from modules.anima_presets import register_preset_control
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
@@ -320,6 +320,9 @@ class AnimaFreeFuseScript(scripts.Script):
         p._anima_freefuse_original_online = bool(dynamic_args.online_lora)
         p._anima_freefuse_borrowed_online = borrowed_online
         p._anima_freefuse_enabled = True
+        # Artist Mixer (its process() ran earlier) yields to FreeFuse, so its
+        # artist prompts will not be encoded and must not enable NegPiP.
+        register_negpip_prompts(p, "anima_artist_mixer", [])
         dynamic_args.online_lora = True
 
         old_sampler = str(getattr(p, "sampler_name", ""))

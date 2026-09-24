@@ -27,6 +27,10 @@ from modules.forward_override import install_forward_override, restore_forward_o
 # restores the same objects even if shared.sd_model changed or failed to load
 # meanwhile, without keeping an unloaded checkpoint alive.
 _PATCHED_TARGETS = None
+# Whether any prompt encoded since patching had a negative weight. Set at
+# conditioning time so the DiT hook can skip no-op masks without a per-call
+# device sync (which would also break whole-model torch.compile graphs).
+_NEGATIVES_SEEN = [False]
 
 
 def patch_anima_negpip(cls: "NegPiP", *, unpatch=False):
@@ -54,6 +58,7 @@ def patch_anima_negpip(cls: "NegPiP", *, unpatch=False):
     dit: "Anima" = model.forge_objects.unet.model.diffusion_model
     cls._patched[1] = True
     _PATCHED_TARGETS = (weakref.ref(model), weakref.ref(dit))
+    _NEGATIVES_SEEN[0] = False
     _hook_get_learned_conditioning(model, False)
     _hook_dit_forward(dit, False)
     _hook_forwards(False)
@@ -112,6 +117,7 @@ def _hook_get_learned_conditioning(model: "AnimaEngine", remove: bool):
             negpip_mask.append(mask.unsqueeze(-1).to(cond_data))
 
         if _count > 0:
+            _NEGATIVES_SEEN[0] = True
             key = "Negative" if prompt.is_negative_prompt else "Positive"
             print(f"NegPiP Enable ({key}: {_count})")
 
@@ -185,11 +191,9 @@ def _hook_dit_forward(dit: "Anima", remove: bool):
         # Copy: the caller's transformer_options dict is shared across calls.
         transformer_options = dict(kwargs.get("transformer_options", {}))
 
-        negpip_mask = kwargs.get("c_negpip_mask", None)
-        # An all-positive mask is a no-op; skip the per-block multiply (one
-        # check per model call instead of a multiply in every cross-attention).
-        if negpip_mask is not None and not bool((negpip_mask < 0).any()):
-            negpip_mask = None
+        # All masks are ones when no encoded prompt had a negative weight (e.g.
+        # NegPiP enabled only by a side prompt); skip the no-op multiply.
+        negpip_mask = kwargs.get("c_negpip_mask", None) if _NEGATIVES_SEEN[0] else None
 
         transformer_options[NEGPIP_MASK_KEY] = negpip_mask
         kwargs["transformer_options"] = transformer_options

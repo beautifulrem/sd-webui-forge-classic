@@ -2616,8 +2616,15 @@ class Script(scripts.Script):
     def process(self, p, *args, **kwargs):
         # Runs before NegPiP's process_batch: let a negative weight in an
         # artist name that will actually be encoded enable NegPiP.
+        # Mirrors process_before_every_sampling's gating; FreeFuse (which runs
+        # later) clears this registration when it takes priority.
         names = []
-        if len(args) >= 13 and args[0] and _validate_anima_unet(getattr(getattr(p.sd_model, "forge_objects", None), "unet", None))[0] is not None:
+        if (
+            len(args) >= 13
+            and args[0]
+            and not getattr(p, "_ad_inner", False)
+            and _validate_anima_unet(getattr(getattr(p.sd_model, "forge_objects", None), "unet", None))[0] is not None
+        ):
             (
                 _enable,
                 base_row_count,
@@ -2633,9 +2640,11 @@ class Script(scripts.Script):
             groups = [(base_row_count, runtime_base_shift, component_values[: MAX_ARTIST_ROWS * 10])]
             if getattr(p, "enable_hr", False) and hires_independent and not disable_hires_mixing:
                 groups.append((hires_row_count, runtime_hires_shift, component_values[MAX_ARTIST_ROWS * 10 : MAX_ARTIST_ROWS * 20]))
+            max_artists = _optimization_defaults(optimization)["max_artists"]
             for count, shift, values in groups:
                 rows = _active_rows_from_components(count, shift, optimization, *values, display=False)
-                names.extend(name for _row, name, _weight in _artist_entries(rows, shift, optimization))
+                entries = [name for _row, name, _weight in _artist_entries(rows, shift, optimization)]
+                names.extend(entries[:max_artists])
         register_negpip_prompts(p, "anima_artist_mixer", names)
 
     def process_before_every_sampling(self, p, *args, **kwargs):
