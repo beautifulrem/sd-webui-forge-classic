@@ -50,13 +50,14 @@ def test_wrapper_runs_with_and_without_previous_wrapper_and_restores_forward():
     seen = []
 
     def model_function(x, t, **c):
-        seen.append(c["transformer_options"]["forge_spectrum_force_actual"])
+        seen.append("called")
         assert "forward" in dit.blocks[0].cross_attn.__dict__
         return x
 
     patched = apply_regional_patch(_Patcher(dit), _State())
     # Spectrum is the outer wrapper, so the flag must live on the patcher.
-    assert patched.model_options["transformer_options"]["forge_spectrum_force_actual"] == "regional_conditioning"
+    force_actual = patched.model_options["transformer_options"]["forge_spectrum_force_actual"]
+    assert force_actual(0.5) is True
     patched.model_options["model_function_wrapper"](model_function, _args())
 
     previous_calls = []
@@ -68,6 +69,6 @@ def test_wrapper_runs_with_and_without_previous_wrapper_and_restores_forward():
     wrapper = apply_regional_patch(_Patcher(dit, previous), _State()).model_options["model_function_wrapper"]
     wrapper(model_function, _args())
 
-    assert seen == ["regional_conditioning", "regional_conditioning"]
+    assert seen == ["called", "called"]
     assert previous_calls == [True]
     assert "forward" not in dit.blocks[0].cross_attn.__dict__

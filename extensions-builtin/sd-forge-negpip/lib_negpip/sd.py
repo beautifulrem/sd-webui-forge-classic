@@ -55,18 +55,23 @@ def _hook_forward(cls: "NegPiP", module: "CrossAttention", remove: bool):
     if remove:
         # Remove the instance override instead of pinning the old bound method.
         restore = module.__dict__.pop("_negpip_restore", None)
-        if restore is not None and not restore_forward_override(module, *restore):
-            # Another override sits on top; make ours a pass-through.
-            restore[0]._negpip_detached = True
+        if restore is not None:
+            forward, token, detached = restore
+            if not restore_forward_override(module, forward, token):
+                # Another override sits on top; make ours a pass-through.
+                detached[0] = True
         return
 
     counter = Counter(cls.is_xl)
     orig_forward = module.forward
+    # Closure flag, not a function attribute: @wraps copies __dict__ into
+    # wrappers built later on top of this one.
+    detached = [False]
 
     @torch.inference_mode()
     @wraps(orig_forward)
     def forward(x, context=None, value=None, mask=None, *args, **kwargs):
-        if getattr(forward, "_negpip_detached", False):
+        if detached[0]:
             return orig_forward(x, context, value, mask, *args, **kwargs)
 
         @torch.inference_mode()
@@ -122,7 +127,7 @@ def _hook_forward(cls: "NegPiP", module: "CrossAttention", remove: bool):
             cls.uc_tokens[0] if len(cls.unconds) > 0 else None,
         )
 
-    module._negpip_restore = (forward, install_forward_override(module, forward))
+    module._negpip_restore = (forward, install_forward_override(module, forward), detached)
 
 
 @torch.inference_mode()

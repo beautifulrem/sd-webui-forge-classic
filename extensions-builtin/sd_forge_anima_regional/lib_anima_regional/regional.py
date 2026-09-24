@@ -178,12 +178,7 @@ def apply_regional_patch(model, state: RegionalState):
                     module = dit.blocks[index].cross_attn
                     forward = _make_cross_attention_wrapper(module.forward, state, index)
                     originals.append((module, forward, install_forward_override(module, forward)))
-                adjusted = dict(args)
-                adjusted["c"] = dict(args["c"])
-                options = dict(adjusted["c"].get("transformer_options", {}))
-                options["forge_spectrum_force_actual"] = "regional_conditioning"
-                adjusted["c"]["transformer_options"] = options
-                return previous(model_function, adjusted) if previous is not None else model_function(adjusted["input"], adjusted["timestep"], **adjusted["c"])
+                return previous(model_function, args) if previous is not None else model_function(args["input"], args["timestep"], **args["c"])
             finally:
                 for module, forward, restore_token in reversed(originals):
                     restore_forward_override(module, forward, restore_token)
@@ -191,7 +186,8 @@ def apply_regional_patch(model, state: RegionalState):
 
     patched.set_model_unet_function_wrapper(wrapper)
     # Spectrum wraps this wrapper, so it must see the flag on the patcher.
+    # Only steps inside the regional window need actual forwards.
     options = dict(patched.model_options.get("transformer_options", {}))
-    options["forge_spectrum_force_actual"] = "regional_conditioning"
+    options["forge_spectrum_force_actual"] = state.active
     patched.model_options["transformer_options"] = options
     return patched

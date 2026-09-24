@@ -41,19 +41,23 @@ def patch_anima_negpip(cls: "NegPiP", *, unpatch=False):
 def _hook_get_learned_conditioning(model: "AnimaEngine", remove: bool):
     if remove:
         restore = model.__dict__.pop("_negpip_restore_conditioning", None)
-        if restore is not None and not restore_forward_override(model, *restore, name="get_learned_conditioning"):
-            # Another override sits on top; make ours a pass-through.
-            restore[0]._negpip_detached = True
+        if restore is not None:
+            wrapper, token, detached = restore
+            if not restore_forward_override(model, wrapper, token, name="get_learned_conditioning"):
+                # Another override sits on top; make ours a pass-through.
+                detached[0] = True
         return
 
     orig_get_learned_conditioning = model.get_learned_conditioning
+    # Closure flag, not a function attribute: @wraps copies __dict__.
+    conditioning_detached = [False]
 
     engine: "AnimaTextProcessingEngine" = model.text_processing_engine_anima
 
     @torch.inference_mode()
     @wraps(orig_get_learned_conditioning)
     def negpip_learned_conditioning(prompt: "SdConditioning"):
-        if getattr(negpip_learned_conditioning, "_negpip_detached", False):
+        if conditioning_detached[0]:
             return orig_get_learned_conditioning(prompt)
         conds = orig_get_learned_conditioning(prompt)
         assert isinstance(conds, list)
@@ -94,6 +98,7 @@ def _hook_get_learned_conditioning(model: "AnimaEngine", remove: bool):
     model._negpip_restore_conditioning = (
         negpip_learned_conditioning,
         install_forward_override(model, negpip_learned_conditioning, name="get_learned_conditioning"),
+        conditioning_detached,
     )
 
 
@@ -130,12 +135,16 @@ def _hook_dit_forward(dit: "Anima", remove: bool):
         # Remove the instance override instead of pinning the old bound method;
         # the wrapper keeps its own reference to the original forward.
         restore = dit.__dict__.pop("_negpip_restore", None)
-        if restore is not None and not restore_forward_override(dit, *restore):
-            # Another override sits on top; make ours a pass-through.
-            restore[0]._negpip_detached = True
+        if restore is not None:
+            wrapper, token, detached = restore
+            if not restore_forward_override(dit, wrapper, token):
+                # Another override sits on top; make ours a pass-through.
+                detached[0] = True
         return
 
     orig_forward = dit.forward
+    # Closure flag, not a function attribute: @wraps copies __dict__.
+    forward_detached = [False]
 
     @torch.inference_mode()
     @wraps(orig_forward)
@@ -146,7 +155,7 @@ def _hook_dit_forward(dit: "Anima", remove: bool):
         padding_mask: Optional[torch.Tensor] = None,
         **kwargs,
     ):
-        if getattr(negpip_forward, "_negpip_detached", False):
+        if forward_detached[0]:
             return orig_forward(x, timesteps, context, padding_mask, **kwargs)
         transformer_options = kwargs.get("transformer_options", {})
 
@@ -165,22 +174,34 @@ def _hook_dit_forward(dit: "Anima", remove: bool):
 
         return orig_forward(x, timesteps, context, padding_mask, **kwargs)
 
-    negpip_forward._negpip = True
-    dit._negpip_restore = (negpip_forward, install_forward_override(dit, negpip_forward))
+    dit._negpip_restore = (negpip_forward, install_forward_override(dit, negpip_forward), forward_detached)
+
+
+# (installed forward, original forward, detached flag) while the class hook is active.
+_CLASS_HOOK = None
 
 
 def _hook_forwards(remove: bool):
+    global _CLASS_HOOK
+
     if remove:
-        if hasattr(SelfCrossAttention, "negpip_orig_forward"):
-            if getattr(SelfCrossAttention.forward, "_negpip", False):
-                SelfCrossAttention.forward = SelfCrossAttention.negpip_orig_forward
-            del SelfCrossAttention.negpip_orig_forward
+        if _CLASS_HOOK is None:
+            return
+        installed, original, detached = _CLASS_HOOK
+        _CLASS_HOOK = None
+        if SelfCrossAttention.__dict__.get("forward") is installed:
+            SelfCrossAttention.forward = original
+        else:
+            # Another patch wraps ours; keep the chain intact but pass through.
+            detached[0] = True
         return
 
-    SelfCrossAttention.negpip_orig_forward = SelfCrossAttention.forward
+    original = SelfCrossAttention.forward
+    # Closure flag, not a function attribute: @wraps copies __dict__.
+    detached = [False]
 
     @torch.inference_mode()
-    @wraps(SelfCrossAttention.negpip_orig_forward)
+    @wraps(original)
     def negpip_forward(
         self: SelfCrossAttention,
         x: torch.Tensor,
@@ -188,8 +209,8 @@ def _hook_forwards(remove: bool):
         rope_emb: Optional[torch.Tensor] = None,
         transformer_options: Optional[dict] = {},
     ):
-        if self.is_SelfAttn:
-            return self.negpip_orig_forward(x, context, rope_emb, transformer_options)
+        if detached[0] or self.is_SelfAttn:
+            return original(self, x, context, rope_emb, transformer_options)
 
         negpip_mask: torch.Tensor = transformer_options.get("negpip_mask", None)
 
@@ -222,8 +243,8 @@ def _hook_forwards(remove: bool):
 
         return self.compute_attention(q, k, v, transformer_options=transformer_options)
 
-    negpip_forward._negpip = True
     SelfCrossAttention.forward = negpip_forward
+    _CLASS_HOOK = (negpip_forward, original, detached)
 
 
 def _hook_compile_conditions(remove: bool):

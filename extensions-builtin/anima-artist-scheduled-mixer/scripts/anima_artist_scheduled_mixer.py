@@ -1647,9 +1647,13 @@ _COND_CACHE_LIMIT = 64
 
 def _cache_key(p, texts):
     sd_model = getattr(p, "sd_model", None)
+    # forge_objects is a fresh shallow_copy() every pass, so its id never
+    # matches twice; key on the checkpoint, text encoder and LoRA set instead.
+    checkpoint = getattr(getattr(sd_model, "sd_checkpoint_info", None), "filename", None)
     model_key = (
+        str(checkpoint),
+        id(sd_model),  # changes when the engine (e.g. its text encoder) reloads
         id(getattr(sd_model, "cond_stage_model", None)),
-        id(getattr(sd_model, "forge_objects", None)),
         str(getattr(sd_model, "current_lora_hash", "")),
     )
     return model_key, tuple(texts)
@@ -1826,20 +1830,16 @@ def _install_model_wrapper(unet, dm, state):
         state.wrapper_checks += 1
         if not _PATCHED_MODULES:
             _install_cross_attn_patch_no_unpatch(dm, state)
-        # Artist contexts and per-step curves change the block features in a
-        # way Spectrum cannot infer from its base conditioning signature.
-        args = dict(args)
-        args["c"] = dict(args.get("c", {}))
-        transformer_options = dict(args["c"].get("transformer_options", {}))
-        transformer_options["forge_spectrum_force_actual"] = "artist_mixer"
-        args["c"]["transformer_options"] = transformer_options
         if existing is not None:
             return existing(apply_model, args)
         return apply_model(args.get("input"), args.get("timestep"), **args.get("c", {}))
 
     model_wrapper._anima_artist_mixer_model_wrapper = True
     options["model_function_wrapper"] = model_wrapper
-    # Spectrum wraps this wrapper, so it must see the flag on the patcher.
+    # Artist contexts and per-step curves change the block features in a way
+    # Spectrum cannot infer; it wraps this wrapper, so set the flag on the
+    # patcher. Artist windows depend on sampler progress, not sigma alone,
+    # so the whole pass is forced.
     transformer_options = dict(options.get("transformer_options", {}))
     transformer_options["forge_spectrum_force_actual"] = "artist_mixer"
     options["transformer_options"] = transformer_options

@@ -401,7 +401,12 @@ class SpectrumNode:
 
             compatible = valid_branches
             transformer_options = args.get("c", {}).get("transformer_options", {})
-            if transformer_options.get("forge_spectrum_force_actual"):
+            # A string flag forces actual forwards for the whole pass; a
+            # callable decides per step from the current sigma.
+            force_actual = transformer_options.get("forge_spectrum_force_actual")
+            if callable(force_actual):
+                force_actual = force_actual(sigma_value)
+            if force_actual:
                 compatible = False
             if compat_policy != "Legacy / fastest":
                 compatible = compatible and _safe_simple_branches(branches)

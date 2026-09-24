@@ -84,7 +84,7 @@ def reload_blacklist():
 _ESCAPED_OPEN = "\x00"
 _ESCAPED_CLOSE = "\x01"
 
-_WEIGHT_RE = re.compile(r":\s*[\d.]+\s*$")
+_WEIGHT_RE = re.compile(r":\s*-?[\d.]+\s*$")
 
 
 def _strip_emphasis(token: str) -> str:
@@ -113,7 +113,8 @@ def _normalize(tag: str) -> str:
     s = _strip_emphasis(tag).lower()
     s = s.replace("\\", "")             # drop escape backslashes
     s = re.sub(r"[()\[\]{}]", " ", s)   # brackets are irrelevant for comparison
-    s = _WEIGHT_RE.sub("", s)          # weight left behind by an unbalanced group end
+    while _WEIGHT_RE.search(s):        # weights left behind by unbalanced group ends
+        s = _WEIGHT_RE.sub("", s).strip()
     s = s.replace("_", " ")             # underscore == space
     s = re.sub(r"\s+", " ", s)          # collapse whitespace
     return s.strip()
@@ -141,6 +142,8 @@ def _is_blacklisted(norm_tag: str, entries) -> bool:
 
 _PAIRS = {")": "(", "]": "[", "}": "{"}
 _TRAILING_WEIGHT = re.compile(r":\s*-?\d*\.?\d+\s*$")
+# One closing bracket together with the weight of the group it closes.
+_CLOSING_SEGMENT = re.compile(r"(:\s*-?[\d.]+\s*)?([)\]}])")
 
 
 def _bracket_residue(tag: str):
@@ -190,15 +193,15 @@ def clean_prompt(prompt: str, blacklist_text: str, remove_dupes: bool):
             nonlocal pending_openers
             removed.append(label)
             openers, closing = _bracket_residue(tag)
-            # A group whose every tag was dropped disappears entirely.
-            while closing and pending_openers:
-                bracket = closing.rstrip()[-1]
-                if _PAIRS.get(bracket) != pending_openers[-1]:
-                    break
-                pending_openers = pending_openers[:-1]
-                closing = closing.rstrip()[:-1]
-                if not any(char in _PAIRS for char in closing):
-                    closing = ""
+            # A group whose every tag was dropped disappears entirely, together
+            # with its weight (which belongs to its first closing bracket).
+            kept_closers = []
+            for weight, bracket in _CLOSING_SEGMENT.findall(closing):
+                if not kept_closers and pending_openers and _PAIRS[bracket] == pending_openers[-1]:
+                    pending_openers = pending_openers[:-1]
+                    continue
+                kept_closers.append(weight + bracket)
+            closing = "".join(kept_closers)
             pending_openers += openers
             if closing:
                 if kept:
