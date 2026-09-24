@@ -72,41 +72,54 @@ def init():
 
         conn.close()
 
-    _sign_existing_script_params(engine)
 
-
-def _sign_existing_script_params(engine):
+def sign_legacy_script_params():
     """Sign script params stored before signing existed, so the queue and
-    history keep working. Runs once: anything unsigned that shows up later is
-    refused instead of being trusted.
+    history keep working. Runs once, after all extensions are loaded (the
+    filter below recognises e.g. ControlNet units only once their module is
+    imported); anything unsigned that shows up later is refused.
 
-    Failed tasks are left unsigned: the previous pickle filter refused crafted
-    imports by failing them, and signing those would let a requeue run them.
+    A row is signed only if the pickle filter it was loaded with before the
+    upgrade accepts it, so crafted imports that filter refused (or that are
+    still queued) never become trusted.
     """
     import os
 
-    from ..signing import is_signed, migration_marker, sign
+    from ..helpers import log
+    from ..legacy_pickle import legacy_load
+    from ..signing import is_signed, sign
 
-    marker = migration_marker()
+    marker = db_file + ".script-params-signed"
     if os.path.exists(marker):
         return
-    with engine.begin() as conn:
-        rows = conn.execute(
-            text("SELECT id, script_params FROM task WHERE status != :failed"),
-            {"failed": "failed"},
-        ).fetchall()
-        for task_id, script_params in rows:
-            if script_params is not None and not is_signed(script_params):
+    engine = create_engine(f"sqlite:///{db_file}")
+    refused = 0
+    try:
+        with engine.begin() as conn:
+            rows = conn.execute(text("SELECT id, script_params FROM task")).fetchall()
+            for task_id, script_params in rows:
+                if script_params is None or is_signed(script_params):
+                    continue
+                try:
+                    legacy_load(bytes(script_params))
+                except Exception:
+                    refused += 1
+                    continue
                 conn.execute(
                     text("UPDATE task SET script_params = :value WHERE id = :id"),
                     {"value": sign(bytes(script_params)), "id": task_id},
                 )
+    finally:
+        engine.dispose()
+    if refused:
+        log.warning(f"[AgentScheduler] {refused} stored task(s) have script params that cannot be trusted; they will not run")
     with open(marker, "w", encoding="utf-8") as handle:
         handle.write("signed\n")
 
 
 __all__ = [
     "init",
+    "sign_legacy_script_params",
     "Base",
     "metadata",
     "db_file",

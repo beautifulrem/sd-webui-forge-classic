@@ -3,16 +3,20 @@
 Checking a URL's DNS answer before requesting it is not enough: the request
 resolves the host again, and a rebinding DNS server can answer differently the
 second time. These sessions check the peer address of every connection they
-open instead. Connections through a configured proxy are not checked (the
-proxy, not the target, is the peer).
+open instead. Through a configured proxy the proxy is the peer, so there the
+target host is checked by resolving it locally before sending (the proxy
+resolves it again; an IP literal target is always checked exactly).
 """
 
 import ipaddress
+import socket
 from typing import Callable
+from urllib.parse import urlparse
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.connection import HTTPConnection, HTTPSConnection
+from requests.utils import select_proxy
 from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 
 # Cloud metadata endpoints outside the link-local range.
@@ -25,6 +29,9 @@ _METADATA_ADDRESSES = frozenset(
 )
 
 
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
 class AddressNotAllowed(ValueError):
     pass
 
@@ -35,6 +42,8 @@ def normalize_address(address) -> ipaddress._BaseAddress:
         embedded = address.ipv4_mapped or address.sixtofour
         if embedded is not None:
             return embedded
+        if address in _NAT64:
+            return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
     return address
 
 
@@ -62,11 +71,10 @@ def _checked_connection(base, allowed: Callable):
     class CheckedConnection(base):
         def _new_conn(self):
             sock = super()._new_conn()
-            if getattr(self, "proxy", None) is None and getattr(self, "_tunnel_host", None) is None:
-                peer = sock.getpeername()[0]
-                if not allowed(peer):
-                    sock.close()
-                    raise AddressNotAllowed(f"connections to {peer} are not allowed")
+            peer = sock.getpeername()[0]
+            if not allowed(peer):
+                sock.close()
+                raise AddressNotAllowed(f"connections to {peer} are not allowed")
             return sock
 
     return CheckedConnection
@@ -88,6 +96,20 @@ class _CheckedAdapter(HTTPAdapter):
             ConnectionCls = _checked_connection(HTTPSConnection, allowed)
 
         self.poolmanager.pool_classes_by_scheme = {"http": CheckedHTTPPool, "https": CheckedHTTPSPool}
+
+    def send(self, request, **kwargs):
+        # Proxied requests use requests' own proxy pools (the peer is the
+        # proxy): check the target before handing it over.
+        if select_proxy(request.url, kwargs.get("proxies") or {}):
+            host = urlparse(request.url).hostname or ""
+            try:
+                infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+            except OSError:
+                infos = []  # only the proxy can resolve it
+            for info in infos:
+                if not self._allowed(info[4][0]):
+                    raise AddressNotAllowed(f"requests to {host} ({info[4][0]}) are not allowed")
+        return super().send(request, **kwargs)
 
 
 def guarded_session(allowed: Callable) -> requests.Session:
