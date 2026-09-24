@@ -29,6 +29,7 @@ from modules import shared, progress, sd_models, sd_samplers
 
 from .db import Task, TaskStatus, task_manager
 from . import signing
+from .request_guard import make_request_guard
 from .signing import verified_payload
 from .models import (
     Txt2ImgApiTaskArgs,
@@ -94,7 +95,6 @@ def on_task_finished(
 
 def regsiter_apis(app: App, task_runner: TaskRunner):
     api_credentials = {}
-    deps = None
 
     def auth(credentials: HTTPBasicCredentials = Depends(HTTPBasic())):
         if credentials.username in api_credentials:
@@ -105,6 +105,7 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
             status_code=401, detail="Incorrect username or password", headers={"WWW-Authenticate": "Basic"}
         )
 
+    deps = [Depends(make_request_guard(app, bool(shared.cmd_opts.api_auth)))]
     if shared.cmd_opts.api_auth:
         api_credentials = {}
 
@@ -112,15 +113,15 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
             user, password = cred.split(":")
             api_credentials[user] = password
 
-        deps = [Depends(auth)]
+        deps.append(Depends(auth))
 
     log.info("[AgentScheduler] Registering APIs")
 
-    @app.get("/agent-scheduler/v1/samplers", response_model=List[str])
+    @app.get("/agent-scheduler/v1/samplers", response_model=List[str], dependencies=deps)
     def get_samplers():
         return [sampler[0] for sampler in sd_samplers.all_samplers]
 
-    @app.get("/agent-scheduler/v1/sd-models", response_model=List[str])
+    @app.get("/agent-scheduler/v1/sd-models", response_model=List[str], dependencies=deps)
     def get_sd_models():
         return [x.title for x in sd_models.checkpoints_list.values()]
 
@@ -171,7 +172,12 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
         return QueueTaskResponse(task_id=task_id)
 
     def format_task_args(task):
-        task_args = TaskRunner.instance.parse_task_args(task, deserialization=False)
+        try:
+            task_args = TaskRunner.instance.parse_task_args(task, deserialization=False)
+        except Exception as error:
+            # One malformed row must not break the whole queue / history list.
+            log.warning(f"[AgentScheduler] Task {task.id} has unreadable params: {error}")
+            return {}
         named_args = task_args.named_args
         named_args["checkpoint"] = task_args.checkpoint
         # remove unused args to reduce payload size
@@ -234,7 +240,15 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
                     obj["result"] = None
                     obj["status"] = TaskStatus.PENDING
                     task = Task.from_json(obj)
-                    trusted = verified_payload(task.script_params) is not None
+                    params = json.loads(task.params)
+                    # params are not signed: they may only carry the task's
+                    # named args, never script args of their own.
+                    trusted = (
+                        verified_payload(task.script_params) is not None
+                        and isinstance(params, dict)
+                        and isinstance(params.get("args"), dict)
+                        and "script_args" not in params
+                    )
                 except Exception:
                     trusted = False
                 if not trusted:
@@ -342,6 +356,11 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
     @app.post("/agent-scheduler/v1/run/{id}", dependencies=deps, deprecated=True)
     @app.post("/agent-scheduler/v1/task/{id}/run", dependencies=deps)
     def run_task(id: str):
+        task = task_manager.get_task(id)
+        if task is None:
+            return {"success": False, "message": "Task not found"}
+        if task.status != TaskStatus.PENDING:
+            return {"success": False, "message": f"Task is {task.status}, not pending"}
         if progress.current_task is not None:
             if progress.current_task == id:
                 return {"success": False, "message": "Task is running"}
@@ -353,8 +372,7 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
                     "message": "Task is scheduled to run next",
                 }
         else:
-            # run task
-            task = task_manager.get_task(id)
+            # run task (execute_task re-checks and claims it)
             current_thread = threading.Thread(
                 target=TaskRunner.instance.execute_task,
                 args=(

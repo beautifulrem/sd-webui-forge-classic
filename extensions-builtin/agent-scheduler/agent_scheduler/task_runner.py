@@ -23,6 +23,7 @@ from modules.api.models import (
     StableDiffusionImg2ImgProcessingAPI,
 )
 
+from . import signing
 from .db import TaskStatus, Task, task_manager
 from .helpers import (
     log,
@@ -63,6 +64,25 @@ class ParsedTaskArgs(BaseModel):
     script_args: List[Any]
     checkpoint: Optional[str] = None
     vae: Optional[str] = None
+
+
+# Task ids being executed in this process, shared by all runner instances (a
+# UI reload creates a new runner while the old thread may still be running).
+_RUNNING_TASKS = set()
+_RUNNING_TASKS_LOCK = threading.Lock()
+
+
+def _claim(task_id: str) -> bool:
+    with _RUNNING_TASKS_LOCK:
+        if task_id in _RUNNING_TASKS:
+            return False
+        _RUNNING_TASKS.add(task_id)
+        return True
+
+
+def _release(task_id: str) -> None:
+    with _RUNNING_TASKS_LOCK:
+        _RUNNING_TASKS.discard(task_id)
 
 
 class TaskRunner:
@@ -332,6 +352,16 @@ class TaskRunner:
                 break
 
             if progress.current_task is None:
+                # The copy we hold may be stale: another runner (e.g. the one
+                # before a UI reload, or a manual Run) may have run it since.
+                fresh = task_manager.get_task(task.id)
+                if fresh is None or fresh.status != TaskStatus.PENDING or not _claim(task.id):
+                    log.info(f"[AgentScheduler] Task {task.id} is no longer pending here; skipping")
+                    task = get_next_task()
+                    if not task:
+                        break
+                    continue
+                task = fresh
                 task_id = task.id
                 is_img2img = task.type == "img2img"
                 log.info(f"[AgentScheduler] Executing task {task_id}")
@@ -342,6 +372,17 @@ class TaskRunner:
                     # A task that cannot be loaded (e.g. rejected script params)
                     # must fail on its own instead of killing the runner and
                     # staying at the head of the queue forever.
+                    if not signing.key_is_persistent:
+                        # The key file could not be read (e.g. locked at
+                        # startup): stored tasks only look unsigned. Keep them
+                        # pending rather than failing the whole queue.
+                        log.error(
+                            f"[AgentScheduler] Task {task_id} could not be verified: the signing key file is "
+                            "unavailable. The queue is paused; fix the key file and restart."
+                        )
+                        shared.opts.queue_paused = True
+                        _release(task_id)
+                        break
                     log.error(f"[AgentScheduler] Task {task_id} could not be loaded: {error}")
                     # It was registered in progress.pending_tasks when queued:
                     # report it as finished, or the WebUI keeps waiting on it.
@@ -358,6 +399,7 @@ class TaskRunner:
                         is_ui=False,
                         task=task,
                     )
+                    _release(task_id)
                     task = get_next_task()
                     if not task:
                         if not self.paused:
@@ -432,6 +474,7 @@ class TaskRunner:
                         )
 
                 self.__saved_images_path = []
+                _release(task_id)
             else:
                 time.sleep(2)
                 continue
