@@ -1530,6 +1530,8 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
         self.rng = rng.ImageRNG(samples.shape[1:], self.seeds, subseeds=self.subseeds, subseed_strength=self.subseed_strength, seed_resize_from_h=self.seed_resize_from_h, seed_resize_from_w=self.seed_resize_from_w)
         noise = self.rng.next()
 
+        self.outpath_samples = opts.outdir_hires_samples or self.outpath_samples
+
         # GC now before running the next img2img to prevent running out of memory
         devices.torch_gc()
 
@@ -1792,6 +1794,7 @@ class StableDiffusionProcessingImg2Img(StableDiffusionProcessing):
 
             if crop_region is None and self.resize_mode != 3:  # Whole picture / img2img
                 image = images.resize_image(self.resize_mode, image, self.width, self.height)
+                self.width, self.height = image.size
 
             if image_mask is not None:
                 _scales = tuple(y / x for y, x in zip(_image_size, _orig_size))

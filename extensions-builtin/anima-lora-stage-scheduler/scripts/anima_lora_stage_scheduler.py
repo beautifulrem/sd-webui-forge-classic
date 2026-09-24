@@ -1695,37 +1695,54 @@ def _rewrite_batch_prompts(p, state: RuntimeState):
 
 def _patch_added_strengths(patch_destination, before_counts, state: RuntimeState, config: PassConfig, online_mode):
     pass_name = state.current_pass_name()
+
+    def scheduled_patch(key, patch):
+        if not isinstance(patch, (tuple, list)) or len(patch) < 5:
+            return None
+
+        strength_patch, patch_value, strength_model, offset, function = patch[:5]
+        forge_fields = tuple(patch[5:])
+        model_key = _model_key(key)
+        base_strength = config.panel_weight.strength_for_key(model_key, strength_patch) if config.panel_weight_nonzero else strength_patch
+
+        if _is_unet_patch_key(model_key):
+            if online_mode:
+                strength_obj = ScheduledStrength(base_strength, config, pass_name)
+                state.register(strength_obj)
+                strength_patch = strength_obj
+            else:
+                if not state.warned_offline:
+                    logger.warning("Anima stage scheduler needs Forge online LoRA for per-step strength control.")
+                    state.warned_offline = True
+                strength_patch = _to_float(base_strength, 1.0)
+        elif config.panel_weight_nonzero:
+            strength_patch = _to_float(base_strength, 1.0)
+        else:
+            strength_patch = base_strength
+
+        updated = (strength_patch, patch_value, strength_model, offset, function, *forge_fields)
+        # Online patches are mutable lists that LoRA Control edits in place.
+        return list(updated) if isinstance(patch, list) else updated
+
     for key, current_patches in patch_destination.items():
         start = before_counts.get(key, 0)
         if start >= len(current_patches):
             continue
 
         for index in range(start, len(current_patches)):
-            patch = current_patches[index]
-            if not isinstance(patch, tuple) or len(patch) < 5:
+            entry = current_patches[index]
+            # Online LoRAs are OnlineLoRAPatch weight wrappers holding a patch list.
+            wrapped = getattr(entry, "patch", None)
+            if isinstance(wrapped, list):
+                for slot, patch in enumerate(wrapped):
+                    updated = scheduled_patch(key, patch)
+                    if updated is not None:
+                        wrapped[slot] = updated
                 continue
 
-            strength_patch, patch_value, strength_model, offset, function = patch[:5]
-            forge_fields = patch[5:]
-            model_key = _model_key(key)
-            base_strength = config.panel_weight.strength_for_key(model_key, strength_patch) if config.panel_weight_nonzero else strength_patch
-
-            if _is_unet_patch_key(model_key):
-                if online_mode:
-                    strength_obj = ScheduledStrength(base_strength, config, pass_name)
-                    state.register(strength_obj)
-                    strength_patch = strength_obj
-                else:
-                    if not state.warned_offline:
-                        logger.warning("Anima stage scheduler needs Forge online LoRA for per-step strength control.")
-                        state.warned_offline = True
-                    strength_patch = _to_float(base_strength, 1.0)
-            elif config.panel_weight_nonzero:
-                strength_patch = _to_float(base_strength, 1.0)
-            else:
-                strength_patch = base_strength
-
-            current_patches[index] = (strength_patch, patch_value, strength_model, offset, function, *forge_fields)
+            updated = scheduled_patch(key, entry)
+            if updated is not None:
+                current_patches[index] = updated
 
 
 def install_patch():
@@ -1744,9 +1761,9 @@ def install_patch():
             should_control = config is not None and config.file_matches(filename)
             lora_config = config.config_for_file(filename) if should_control else None
 
-            # Forge Neo keeps offline and online entries in one patch mapping;
-            # the sixth tuple field is the online-mode flag.
-            patch_destination = self.patches
+            # Forge Neo stores offline patches in ``patches`` and online LoRAs
+            # as ``OnlineLoRAPatch`` entries in ``weight_wrapper_patches``.
+            patch_destination = self.weight_wrapper_patches if online_mode else self.patches
             before_counts = {key: len(value) for key, value in patch_destination.items()} if should_control else {}
 
             loaded = _ORIGINAL_ADD_PATCHES(self, patches, strength_patch=strength_patch, strength_model=strength_model, filename=filename, online_mode=online_mode)

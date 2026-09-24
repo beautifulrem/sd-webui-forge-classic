@@ -13,7 +13,7 @@ import torch
 import torch.nn.functional as F
 
 from backend.operations import main_stream_worker, weights_manual_cast
-from backend.patcher.base import WeightPatch
+from backend.patcher.base import LowVramPatch, OnlineLoRAPatch
 from backend.patcher.lora import merge_lora_to_weight
 from .masks import fit_mask_batch, generate_masks
 
@@ -54,8 +54,18 @@ def _patch_filename(value) -> str | None:
     return None
 
 
+def _lora_function_patches(function):
+    """Return ``(key, patches)`` for Forge LoRA weight functions, else ``None``."""
+
+    if isinstance(function, OnlineLoRAPatch):
+        return function.key, function.patch
+    if isinstance(function, LowVramPatch):
+        return function.key, function.patches.get(function.key, [])
+    return None
+
+
 def install_patch_metadata_hook() -> None:
-    """Tag patch payloads without changing Forge's six-field patch tuple ABI."""
+    """Tag patch payloads without changing Forge's patch tuple ABI."""
 
     from backend.patcher.base import ModelPatcher
     from backend.patcher.function_chain import function_chain_contains
@@ -211,24 +221,37 @@ class AnimaFreeFuseState:
         self.matched_files = {adapter.name: set() for adapter in self.adapters}
         offline = []
         ambiguous = []
-        for patches in patcher.patches.values():
-            for patch in patches:
-                matches = [
-                    adapter.name
-                    for adapter in self.adapters
-                    if _selector_matches(adapter.selector, _patch_filename(patch[1]))
-                ]
-                if len(matches) > 1:
-                    ambiguous.append("/".join(matches))
-                elif len(matches) == 1:
-                    filename = _patch_filename(patch[1])
-                    self.matched_files[matches[0]].add(filename or "unknown")
-                    if len(patch) < 6 or not bool(patch[5]):
-                        offline.append(matches[0])
-                    if not math.isclose(float(patch[2]), 1.0):
-                        raise ValueError(
-                            "Anima FreeFuse supports standard additive LoRA patches with strength_model = 1"
-                        )
+        # Offline patches live in ``patcher.patches``; online LoRAs are
+        # ``OnlineLoRAPatch`` weight wrappers holding a single patch each.
+        entries = [
+            (patch, False)
+            for patches in patcher.patches.values()
+            for patch in patches
+        ]
+        entries.extend(
+            (patch, True)
+            for functions in getattr(patcher, "weight_wrapper_patches", {}).values()
+            for function in functions
+            if isinstance(function, OnlineLoRAPatch)
+            for patch in function.patch
+        )
+        for patch, online in entries:
+            matches = [
+                adapter.name
+                for adapter in self.adapters
+                if _selector_matches(adapter.selector, _patch_filename(patch[1]))
+            ]
+            if len(matches) > 1:
+                ambiguous.append("/".join(matches))
+            elif len(matches) == 1:
+                filename = _patch_filename(patch[1])
+                self.matched_files[matches[0]].add(filename or "unknown")
+                if not online:
+                    offline.append(matches[0])
+                if not math.isclose(float(patch[2]), 1.0):
+                    raise ValueError(
+                        "Anima FreeFuse supports standard additive LoRA patches with strength_model = 1"
+                    )
         if ambiguous:
             raise ValueError(
                 f"FreeFuse adapter selectors overlap: {', '.join(sorted(set(ambiguous)))}"
@@ -478,9 +501,10 @@ def _make_linear_forward(
         weight_functions = list(getattr(self, "weight_function", []))
         routed = []
         for function in weight_functions:
-            if not isinstance(function, WeightPatch):
+            entry = _lora_function_patches(function)
+            if entry is None:
                 continue
-            for patch in function.patches.get(function.key, []):
+            for patch in entry[1]:
                 name = state.adapter_for_patch(patch)
                 if name is not None:
                     routed.append((function, patch, name))
@@ -507,11 +531,13 @@ def _make_linear_forward(
             base_weight = raw_weight.clone()
             deltas = {}
             for function in weight_functions:
-                if not isinstance(function, WeightPatch):
+                entry = _lora_function_patches(function)
+                if entry is None:
                     base_weight = function(base_weight)
                     continue
+                key, patches = entry
                 non_target = []
-                for patch in function.patches.get(function.key, []):
+                for patch in patches:
                     name = state.adapter_for_patch(patch)
                     if name is None:
                         non_target.append(patch)
@@ -519,7 +545,7 @@ def _make_linear_forward(
                     if state.phase == "collect":
                         continue
                     patched = merge_lora_to_weight(
-                        [patch], unpatched_weight.clone(), function.key
+                        [patch], unpatched_weight.clone(), key
                     )
                     delta = patched - unpatched_weight
                     if name in deltas:
@@ -528,7 +554,7 @@ def _make_linear_forward(
                         deltas[name] = delta
                 if non_target:
                     base_weight = merge_lora_to_weight(
-                        non_target, base_weight, function.key
+                        non_target, base_weight, key
                     )
             for function in saved_bias:
                 raw_bias = function(raw_bias)

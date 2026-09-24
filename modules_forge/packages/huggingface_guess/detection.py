@@ -193,9 +193,7 @@ def detect_unet_config(state_dict: dict, key_prefix: str) -> dict:
         dit_config["concat_padding_mask"] = True
         dit_config["crossattn_emb_channels"] = 1024
         dit_config["adaln_lora_dim"] = 256
-        dit_config["num_blocks"] = count_blocks(
-            state_dict_keys, "{}blocks.".format(key_prefix) + "{}."
-        )
+        dit_config["num_blocks"] = count_blocks(state_dict_keys, "{}blocks.".format(key_prefix) + "{}.")
         dit_config["num_heads"] = 16
         dit_config["rope_h_extrapolation_ratio"] = 4.0
         dit_config["rope_w_extrapolation_ratio"] = 4.0
@@ -275,12 +273,7 @@ def detect_unet_config(state_dict: dict, key_prefix: str) -> dict:
     if "{}input_blocks.0.0.weight".format(key_prefix) not in state_dict_keys:
         return None
 
-    unet_config = {
-        "use_checkpoint": False,
-        "image_size": 32,
-        "use_spatial_transformer": True,
-        "legacy": False,
-    }
+    unet_config = {"use_checkpoint": False, "use_spatial_transformer": True}
 
     y_input = "{}label_emb.0.0.weight".format(key_prefix)
     if y_input in state_dict_keys:
@@ -381,9 +374,6 @@ def detect_unet_config(state_dict: dict, key_prefix: str) -> dict:
     unet_config["context_dim"] = context_dim
 
     assert not video_model
-    unet_config["use_temporal_resblock"] = False
-    unet_config["use_temporal_attention"] = False
-
     return unet_config
 
 
@@ -502,10 +492,8 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
 
     SDXL = {
         "use_checkpoint": False,
-        "image_size": 32,
         "out_channels": 4,
         "use_spatial_transformer": True,
-        "legacy": False,
         "num_classes": "sequential",
         "adm_in_channels": 2816,
         "dtype": dtype,
@@ -519,16 +507,12 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
         "context_dim": 2048,
         "num_head_channels": 64,
         "transformer_depth_output": [0, 0, 0, 2, 2, 2, 10, 10, 10],
-        "use_temporal_attention": False,
-        "use_temporal_resblock": False,
     }
 
     SDXL_refiner = {
         "use_checkpoint": False,
-        "image_size": 32,
         "out_channels": 4,
         "use_spatial_transformer": True,
-        "legacy": False,
         "num_classes": "sequential",
         "adm_in_channels": 2560,
         "dtype": dtype,
@@ -542,16 +526,12 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
         "context_dim": 1280,
         "num_head_channels": 64,
         "transformer_depth_output": [0, 0, 0, 4, 4, 4, 4, 4, 4, 0, 0, 0],
-        "use_temporal_attention": False,
-        "use_temporal_resblock": False,
     }
 
     SD15 = {
         "use_checkpoint": False,
-        "image_size": 32,
         "out_channels": 4,
         "use_spatial_transformer": True,
-        "legacy": False,
         "adm_in_channels": None,
         "dtype": dtype,
         "in_channels": 4,
@@ -564,16 +544,12 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
         "context_dim": 768,
         "num_heads": 8,
         "transformer_depth_output": [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0],
-        "use_temporal_attention": False,
-        "use_temporal_resblock": False,
     }
 
     SDXL_mid_cnet = {
         "use_checkpoint": False,
-        "image_size": 32,
         "out_channels": 4,
         "use_spatial_transformer": True,
-        "legacy": False,
         "num_classes": "sequential",
         "adm_in_channels": 2816,
         "dtype": dtype,
@@ -587,16 +563,12 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
         "context_dim": 2048,
         "num_head_channels": 64,
         "transformer_depth_output": [0, 0, 0, 0, 0, 0, 1, 1, 1],
-        "use_temporal_attention": False,
-        "use_temporal_resblock": False,
     }
 
     SDXL_small_cnet = {
         "use_checkpoint": False,
-        "image_size": 32,
         "out_channels": 4,
         "use_spatial_transformer": True,
-        "legacy": False,
         "num_classes": "sequential",
         "adm_in_channels": 2816,
         "dtype": dtype,
@@ -610,16 +582,12 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
         "num_head_channels": 64,
         "context_dim": 1,
         "transformer_depth_output": [0, 0, 0, 0, 0, 0, 0, 0, 0],
-        "use_temporal_attention": False,
-        "use_temporal_resblock": False,
     }
 
     SDXL_diffusers_inpaint = {
         "use_checkpoint": False,
-        "image_size": 32,
         "out_channels": 4,
         "use_spatial_transformer": True,
-        "legacy": False,
         "num_classes": "sequential",
         "adm_in_channels": 2816,
         "dtype": dtype,
@@ -633,8 +601,6 @@ def unet_config_from_diffusers_unet(state_dict, dtype=None):
         "context_dim": 2048,
         "num_head_channels": 64,
         "transformer_depth_output": [0, 0, 0, 2, 2, 2, 10, 10, 10],
-        "use_temporal_attention": False,
-        "use_temporal_resblock": False,
     }
 
     supported_models = [

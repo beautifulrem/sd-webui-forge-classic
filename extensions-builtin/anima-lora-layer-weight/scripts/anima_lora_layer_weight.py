@@ -1142,9 +1142,9 @@ def install_patch():
                 online_mode=online_mode,
             )
 
-        # Delegate tuple construction to the live Forge implementation. This
-        # preserves Forge Neo's sixth online-mode field and composes with the
-        # stage scheduler regardless of extension load order.
+        # Delegate patch construction to the live Forge implementation. This
+        # keeps Forge Neo's offline/online patch storage intact and composes
+        # with the stage scheduler regardless of extension load order.
         loaded = set()
         for patch_key, patch_value in patches.items():
             model_key = patch_key if isinstance(patch_key, str) else patch_key[0]

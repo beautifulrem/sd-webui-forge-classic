@@ -31,8 +31,7 @@ class DiagonalGaussianDistribution:
             self.var = self.std = torch.zeros_like(self.mean).to(device=self.parameters.device)
 
     def sample(self):
-        noise = torch.randn(self.mean.shape).to(device=self.parameters.device)
-        return torch.addcmul(self.mean, self.std, noise)
+        return torch.addcmul(self.mean, self.std, torch.randn(self.mean.shape).to(device=self.parameters.device))
 
     def mode(self):
         return self.mean
