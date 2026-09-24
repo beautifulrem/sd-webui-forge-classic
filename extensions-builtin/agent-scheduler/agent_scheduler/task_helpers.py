@@ -1,6 +1,8 @@
 import io
+import os
 import zlib
 import base64
+import dataclasses
 import pickle
 import sys
 import inspect
@@ -43,13 +45,41 @@ def get_script_by_name(script_name: str, is_img2img: bool = False, is_always_on:
 
 
 def load_image_from_url(url: str):
+    # Same policy as Forge's own API image downloads (modules.api.api).
     try:
-        response = requests.get(url)
+        from modules.api.api import verify_url
+
+        if not getattr(shared.opts, "api_enable_requests", False):
+            raise ValueError("requests are disabled (Settings > API)")
+        if getattr(shared.opts, "api_forbid_local_requests", True) and not verify_url(url):
+            raise ValueError("requests to local addresses are forbidden")
+        response = requests.get(url, timeout=30, headers={"user-agent": getattr(shared.opts, "api_useragent", "") or "agent-scheduler"})
+        response.raise_for_status()
         buffer = io.BytesIO(response.content)
         return Image.open(buffer)
     except Exception as e:
         log.error(f"[AgentScheduler] Error downloading image from url: {e}")
         return None
+
+
+def local_image_path(path: str):
+    """``path`` if it is an image file inside the WebUI data directory.
+
+    Task params are client-controlled, so arbitrary host files must not be
+    readable through init images.
+    """
+    from modules.paths_internal import data_path
+
+    if not isinstance(path, str) or path.startswith(("http://", "https://", "data:")):
+        return None
+    try:
+        root = os.path.realpath(data_path)
+        resolved = os.path.realpath(path)
+    except (OSError, ValueError):
+        return None
+    if os.path.commonpath([root, resolved]) != root or not os.path.isfile(resolved):
+        return None
+    return resolved
 
 
 def encode_image_to_base64(image):
@@ -190,7 +220,8 @@ def deserialize_controlnet_args(args: Dict):
 def serialize_script_args(script_args: List):
     # convert UiControlNetUnit to dict to make it serializable
     for i, a in enumerate(script_args):
-        if type(a).__name__ == "UiControlNetUnit":
+        # Forge aliases UiControlNetUnit to ControlNetUnit.
+        if type(a).__name__ in ("UiControlNetUnit", "ControlNetUnit"):
             script_args[i] = serialize_controlnet_args(a)
 
     return zlib.compress(pickle.dumps(script_args))
@@ -215,6 +246,19 @@ _SAFE_PICKLE_GLOBALS = {
 }
 
 
+def _is_plain_data_class(cls, module):
+    if issubclass(cls, Enum):
+        return True
+    if module.split(".")[0] == "PIL" and issubclass(cls, Image.Image):
+        return True
+    return (
+        dataclasses.is_dataclass(cls)
+        and "__setstate__" not in vars(cls)
+        and "__reduce__" not in vars(cls)
+        and "__reduce_ex__" not in vars(cls)
+    )
+
+
 class _ScriptArgsUnpickler(pickle.Unpickler):
     """Only rebuild plain data: script params can come from /import, so an
     unrestricted pickle.loads would execute attacker-controlled code."""
@@ -222,11 +266,13 @@ class _ScriptArgsUnpickler(pickle.Unpickler):
     def find_class(self, module, name):
         if (module, name) in _SAFE_PICKLE_GLOBALS:
             return super().find_class(module, name)
-        # Enum members of already-loaded modules (e.g. extension settings)
-        # are data too; never import a module on behalf of a payload.
+        # Plain data classes of already-loaded modules are data too: enums,
+        # dataclasses without custom (de)serialisation hooks (e.g. Forge's
+        # ControlNetUnit) and PIL image subclasses. Never import a module on
+        # behalf of a payload.
         loaded = sys.modules.get(module)
         candidate = getattr(loaded, name, None) if loaded is not None and "." not in name else None
-        if isinstance(candidate, type) and issubclass(candidate, Enum):
+        if isinstance(candidate, type) and _is_plain_data_class(candidate, module):
             return candidate
         raise pickle.UnpicklingError(f"Refusing to load {module}.{name} from task script params")
 

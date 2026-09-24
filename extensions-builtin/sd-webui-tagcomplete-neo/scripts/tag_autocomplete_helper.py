@@ -4,6 +4,7 @@
 import glob
 import importlib
 import json
+import os
 import sqlite3
 import sys
 import urllib.parse
@@ -792,31 +793,42 @@ def get_style_mtime():
 last_style_mtime = get_style_mtime()
 
 def api_tac(_: gr.Blocks, app: FastAPI):
-    async def get_json_info(base_path: Path, filename: str = None):
+    def _inside(base_path, candidate) -> bool:
+        # glob.escape leaves "..\\" intact, so on Windows a name can walk out of
+        # the model folder. Compare normalized paths without following
+        # symlinks, so symlinked model/wildcard files and folders still work.
+        root = os.path.normcase(os.path.normpath(os.path.abspath(base_path)))
+        path = os.path.normcase(os.path.normpath(os.path.abspath(candidate)))
+        return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+
+    # Sync handlers: FastAPI runs them in a worker thread, so recursive globs
+    # and network calls do not block the event loop.
+    def get_json_info(base_path: Path, filename: str = None):
         if base_path is None or (not base_path.exists()):
             return Response(status_code=404)
 
         try:
             json_candidates = glob.glob(base_path.as_posix() + f"/**/{glob.escape(filename)}.json", recursive=True)
-            if json_candidates is not None and len(json_candidates) > 0 and Path(json_candidates[0]).is_file():
+            json_candidates = [c for c in json_candidates if _inside(base_path, c) and Path(c).is_file()]
+            if json_candidates:
                 return FileResponse(json_candidates[0])
         except Exception as e:
-            return JSONResponse({"error": e}, status_code=500)
+            return JSONResponse({"error": str(e)}, status_code=500)
 
-    async def get_preview_thumbnail(base_path: Path, filename: str = None, blob: bool = False):
+    def get_preview_thumbnail(base_path: Path, filename: str = None, blob: bool = False):
         if base_path is None or (not base_path.exists()):
             return Response(status_code=404)
 
         try:
             img_glob = glob.glob(base_path.as_posix() + f"/**/{glob.escape(filename)}.*", recursive=True)
-            img_candidates = [img for img in img_glob if Path(img).suffix in [".png", ".jpg", ".jpeg", ".webp", ".gif"] and Path(img).is_file()]
+            img_candidates = [img for img in img_glob if Path(img).suffix in [".png", ".jpg", ".jpeg", ".webp", ".gif"] and _inside(base_path, img) and Path(img).is_file()]
             if img_candidates is not None and len(img_candidates) > 0:
                 if blob:
                     return FileResponse(img_candidates[0])
                 else:
                     return JSONResponse({"url": urllib.parse.quote(img_candidates[0])})
         except Exception as e:
-            return JSONResponse({"error": e}, status_code=500)
+            return JSONResponse({"error": str(e)}, status_code=500)
 
     @app.post("/tacapi/v1/refresh-temp-files")
     async def api_refresh_temp_files():
@@ -828,15 +840,15 @@ def api_tac(_: gr.Blocks, app: FastAPI):
         refresh_embeddings(force=False)
 
     @app.get("/tacapi/v1/lora-info/{lora_name}")
-    async def get_lora_info(lora_name):
-        return await get_json_info(LORA_PATH, lora_name)
+    def get_lora_info(lora_name):
+        return get_json_info(LORA_PATH, lora_name)
 
     @app.get("/tacapi/v1/lyco-info/{lyco_name}")
-    async def get_lyco_info(lyco_name):
-        return await get_json_info(LYCO_PATH, lyco_name)
+    def get_lyco_info(lyco_name):
+        return get_json_info(LYCO_PATH, lyco_name)
 
     @app.get("/tacapi/v1/civitai-trigger-words/{lora_name}")
-    async def get_civitai_trigger_words(lora_name: str):
+    def get_civitai_trigger_words(lora_name: str):
         """Look up trigger words for a LoRA from CivitAI by-hash API.
 
         Priority:
@@ -939,7 +951,7 @@ def api_tac(_: gr.Blocks, app: FastAPI):
             print(f"[Tag Autocomplete Neo] Could not save checkpoint base model cache: {e}")
 
     @app.get("/tacapi/v1/civitai-checkpoint-basemodel/{sha256}")
-    async def get_civitai_checkpoint_basemodel(sha256: str):
+    def get_civitai_checkpoint_basemodel(sha256: str):
         """Look up a checkpoint's CivitAI base model family by hash.
 
         Used to detect ANIMA-based checkpoints (and other base model families) so
@@ -984,7 +996,7 @@ def api_tac(_: gr.Blocks, app: FastAPI):
             return Response(status_code=500)
 
     @app.get("/tacapi/v1/lora-cached-hash/{lora_name}")
-    async def get_lora_cached_hash(lora_name: str):
+    def get_lora_cached_hash(lora_name: str):
         path_glob = glob.glob(LORA_PATH.as_posix() + f"/**/{glob.escape(lora_name)}.*", recursive=True)
         paths = [lora for lora in path_glob if Path(lora).suffix in [".safetensors", ".ckpt", ".pt"] and Path(lora).is_file()]
         if paths is not None and len(paths) > 0:
@@ -1006,34 +1018,30 @@ def api_tac(_: gr.Blocks, app: FastAPI):
             return None
 
     @app.get("/tacapi/v1/thumb-preview/{filename}")
-    async def get_thumb_preview(filename, type):
-        return await get_preview_thumbnail(get_path_for_type(type), filename, False)
+    def get_thumb_preview(filename, type):
+        return get_preview_thumbnail(get_path_for_type(type), filename, False)
 
     @app.get("/tacapi/v1/thumb-preview-blob/{filename}")
-    async def get_thumb_preview_blob(filename, type):
-        return await get_preview_thumbnail(get_path_for_type(type), filename, True)
-
-    def _is_within(path: Path, root: Path) -> bool:
-        return path == root or root in path.parents
+    def get_thumb_preview_blob(filename, type):
+        return get_preview_thumbnail(get_path_for_type(type), filename, True)
 
     @app.get("/tacapi/v1/wildcard-contents")
-    async def get_wildcard_contents(basepath: str, filename: str):
+    def get_wildcard_contents(basepath: str, filename: str):
         if basepath is None or basepath == "":
             return Response(status_code=404)
 
         try:
             # Only serve files inside the registered wildcard folders; basepath
             # and filename come from the client.
-            roots = [root.resolve() for root in [WILDCARD_PATH, *(WILDCARD_EXT_PATHS or [])] if root.exists()]
+            roots = [root for root in [WILDCARD_PATH, *(WILDCARD_EXT_PATHS or [])] if root.exists()]
             base = Path(basepath)
             if not base.is_absolute():
                 base = FILE_DIR.joinpath(base)
-            base = base.resolve()
-            if not any(_is_within(base, root) for root in roots):
+            if not any(_inside(root, base) for root in roots):
                 return Response(status_code=404)
 
-            wildcard_path = base.joinpath(filename).resolve()
-            if _is_within(wildcard_path, base) and wildcard_path.is_file():
+            wildcard_path = base.joinpath(filename)
+            if _inside(base, wildcard_path) and wildcard_path.is_file():
                 return FileResponse(wildcard_path)
             else:
                 return Response(status_code=404)

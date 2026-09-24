@@ -822,9 +822,9 @@ export default {
                     if (typeof TAC_CFG === 'object' && typeof QUEUE_FILE_LOAD === 'object') {
                         QUEUE_FILE_LOAD.push(() => {
                             if (typeof TAC_CFG.translation !== 'object' || typeof TAC_CFG.translation.translationFile !== 'string') return
-                            // TAC re-runs QUEUE_FILE_LOAD on every embedding refresh; load once.
+                            // TAC re-runs QUEUE_FILE_LOAD on every embedding refresh; load once
+                            // (the flag is set only after a file was actually found).
                             if (window.__paioTacTranslationLoaded) return
-                            window.__paioTacTranslationLoaded = true
                             const filename = TAC_CFG.translation.translationFile
                             if (!filename || filename === 'None') return
                             this.gradioAPI.getCSVs().then(csvs => {
@@ -832,6 +832,7 @@ export default {
                                     item.name === filename && item.key.includes('/sd-webui-tagcomplete-neo/'))
                                 const match = preferred || csvs.find(item => item.name === filename)
                                 if (!match) return
+                                window.__paioTacTranslationLoaded = true
                                 this.tagCompleteFile = match.key
                                 this.gradioAPI.setData('tagCompleteFile', match.key)
                                 this.$refs.translateSetting.getCSV(match.key)

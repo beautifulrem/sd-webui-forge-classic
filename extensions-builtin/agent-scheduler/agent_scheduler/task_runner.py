@@ -35,6 +35,7 @@ from .helpers import (
 )
 from .task_helpers import (
     encode_image_to_base64,
+    local_image_path,
     serialize_img2img_image_args,
     deserialize_img2img_image_args,
     serialize_script_args,
@@ -224,8 +225,9 @@ class TaskRunner:
         if is_img2img:
             init_images = named_args.get("init_images")
             for i, img in enumerate(init_images):
-                if isinstance(img, str) and os.path.isfile(img):
-                    image = Image.open(img)
+                path = local_image_path(img)
+                if path is not None:
+                    image = Image.open(path)
                     init_images[i] = encode_image_to_base64(image)
 
         # force image saving
@@ -334,7 +336,30 @@ class TaskRunner:
                 is_img2img = task.type == "img2img"
                 log.info(f"[AgentScheduler] Executing task {task_id}")
 
-                task_args = self.parse_task_args(task)
+                try:
+                    task_args = self.parse_task_args(task)
+                except Exception as error:
+                    # A task that cannot be loaded (e.g. rejected script params)
+                    # must fail on its own instead of killing the runner and
+                    # staying at the head of the queue forever.
+                    log.error(f"[AgentScheduler] Task {task_id} could not be loaded: {error}")
+                    task.status = TaskStatus.FAILED
+                    task.result = f"Could not load task: {error}"
+                    task_manager.update_task(task)
+                    self.__run_callbacks(
+                        "task_finished",
+                        task_id,
+                        status=TaskStatus.FAILED,
+                        is_img2img=is_img2img,
+                        is_ui=False,
+                        task=task,
+                    )
+                    task = get_next_task()
+                    if not task:
+                        if not self.paused:
+                            self.__on_completed()
+                        break
+                    continue
                 task_meta = {
                     "is_img2img": is_img2img,
                     "is_ui": task_args.is_ui,

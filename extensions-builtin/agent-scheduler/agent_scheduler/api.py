@@ -303,7 +303,7 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
             params: Dict = json.loads(task.params)
             if body.checkpoint is not None:
                 params["checkpoint"] = body.checkpoint
-            if body.checkpoint is not None:
+            if body.params is not None:
                 params["args"].update(body.params)
 
             task.params = json.dumps(params)

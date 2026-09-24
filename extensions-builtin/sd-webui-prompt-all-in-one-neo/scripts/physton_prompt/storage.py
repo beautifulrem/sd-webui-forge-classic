@@ -1,9 +1,15 @@
 import os
 import json
 import shutil
-import time
+import threading
+from contextlib import contextmanager
 
 from modules import paths_internal
+
+
+# One in-process lock replaces the old .lock files: a lock file leaked by an
+# exception made every later request spin forever (on the event loop).
+_STORAGE_LOCK = threading.RLock()
 
 
 class Storage:
@@ -44,6 +50,7 @@ class Storage:
                         print(f"Prompt All-in-One storage migration failed: {e}")
 
         Storage._storage_ready = True
+        Storage.__dispose_all_locks()
         return Storage.storage_path
 
     def __key_path(key, suffix):
@@ -65,8 +72,6 @@ class Storage:
     def __get_data_filename(key):
         return Storage.__key_path(key, '.json')
 
-    def __get_key_lock_filename(key):
-        return Storage.__key_path(key, '.lock')
 
     def __dispose_all_locks():
         directory = Storage.__get_storage_path()
@@ -80,20 +85,10 @@ class Storage:
                 except Exception as e:
                     print(f"Dispose lock {file_path} failed: {e}")
 
-    def __lock(key):
-        file_path = Storage.__get_key_lock_filename(key)
-        opener = lambda path, flags: os.open(path, flags, 0o600)
-        with open(file_path, 'w', opener=opener) as f:
-            f.write('1')
-
-    def __unlock(key):
-        file_path = Storage.__get_key_lock_filename(key)
-        if os.path.exists(file_path):
-            os.remove(file_path)
-
-    def __is_locked(key):
-        file_path = Storage.__get_key_lock_filename(key)
-        return os.path.exists(file_path)
+    @contextmanager
+    def __locked(key):
+        with _STORAGE_LOCK:
+            yield
 
     def __get(key):
         filename = Storage.__get_data_filename(key)
@@ -131,15 +126,8 @@ class Storage:
         os.replace(temp_path, file_path)
 
     def set(key, data):
-        while Storage.__is_locked(key):
-            time.sleep(0.01)
-        Storage.__lock(key)
-        try:
+        with Storage.__locked(key):
             Storage.__set(key, data)
-            Storage.__unlock(key)
-        except Exception as e:
-            Storage.__unlock(key)
-            raise e
 
     def get(key):
         return Storage.__get(key)
@@ -157,57 +145,33 @@ class Storage:
 
     # 向列表中添加元素
     def list_push(key, item):
-        while Storage.__is_locked(key):
-            time.sleep(0.01)
-        Storage.__lock(key)
-        try:
+        with Storage.__locked(key):
             data = Storage.__get_list(key)
             data.append(item)
             Storage.__set(key, data)
-            Storage.__unlock(key)
-        except Exception as e:
-            Storage.__unlock(key)
-            raise e
 
     # 从列表中删除和返回最后一个元素
     def list_pop(key):
-        while Storage.__is_locked(key):
-            time.sleep(0.01)
-        Storage.__lock(key)
-        try:
+        with Storage.__locked(key):
             data = Storage.__get_list(key)
             item = data.pop()
             Storage.__set(key, data)
-            Storage.__unlock(key)
             return item
-        except Exception as e:
-            Storage.__unlock(key)
-            raise e
 
     # 从列表中删除和返回第一个元素
     def list_shift(key):
-        while Storage.__is_locked(key):
-            time.sleep(0.01)
-        Storage.__lock(key)
-        try:
+        with Storage.__locked(key):
             data = Storage.__get_list(key)
             item = data.pop(0)
             Storage.__set(key, data)
-            Storage.__unlock(key)
             return item
-        except Exception as e:
-            Storage.__unlock(key)
-            raise e
 
     # 从列表中删除指定元素
     def list_remove(key, index):
-        while Storage.__is_locked(key):
-            time.sleep(0.01)
-        Storage.__lock(key)
-        data = Storage.__get_list(key)
-        data.pop(index)
-        Storage.__set(key, data)
-        Storage.__unlock(key)
+        with Storage.__locked(key):
+            data = Storage.__get_list(key)
+            data.pop(index)
+            Storage.__set(key, data)
 
     # 获取列表中指定位置的元素
     def list_get(key, index):
@@ -216,12 +180,5 @@ class Storage:
 
     # 清空列表中的所有元素
     def list_clear(key):
-        while Storage.__is_locked(key):
-            time.sleep(0.01)
-        Storage.__lock(key)
-        try:
+        with Storage.__locked(key):
             Storage.__set(key, [])
-            Storage.__unlock(key)
-        except Exception as e:
-            Storage.__unlock(key)
-            raise e

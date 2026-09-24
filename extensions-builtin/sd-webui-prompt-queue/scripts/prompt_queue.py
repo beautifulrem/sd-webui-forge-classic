@@ -253,6 +253,8 @@ class _Store:
             return False
 
     def snapshot(self):
+        # SQLite query outside the store lock; /state is polled per tab.
+        agent_scheduler_active = agent_scheduler_has_pending_work()
         with self.lock:
             busy = webui_is_busy()
             if busy:
@@ -263,7 +265,7 @@ class _Store:
                 "busy": busy,
                 # Server-side view for clients that cannot call the (possibly
                 # --api-auth protected) Agent Scheduler API themselves.
-                "agent_scheduler_active": agent_scheduler_has_pending_work(),
+                "agent_scheduler_active": agent_scheduler_active,
                 "max": MAX_PENDING,
                 "pending": len(self._pending()),
                 "items": [dict(i) for i in self.items],
@@ -302,10 +304,8 @@ def agent_scheduler_has_pending_work():
         runner = getattr(TaskRunner, "instance", None)
         if runner is not None and runner.paused:
             return False
-        return (
-            task_manager.count_tasks(status="pending") > 0
-            or task_manager.count_tasks(status="running") > 0
-        )
+        # A running task keeps status "pending" until it finishes.
+        return task_manager.count_tasks(status="pending") > 0
     except Exception:
         return False
 
