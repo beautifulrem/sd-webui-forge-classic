@@ -1170,7 +1170,11 @@ def api_tac(_: gr.Blocks, app: FastAPI):
     async def get_all_tag_counts():
         return db_request(lambda: db.get_all_tags(), get=True)
 
-script_callbacks.on_app_started(api_tac)
-# Registered after the routes: require the Gradio login (when set) and refuse
-# cross-site writes.
-script_callbacks.on_app_started(lambda _demo, app: guard_routes(app, ("/tacapi/",)))
+def api_tac_guarded(demo: gr.Blocks, app: FastAPI):
+    api_tac(demo, app)
+    # Right after registering (callback order is configurable): require the
+    # Gradio login (when set) and refuse cross-site writes.
+    guard_routes(app, ("/tacapi/",))
+
+
+script_callbacks.on_app_started(api_tac_guarded)

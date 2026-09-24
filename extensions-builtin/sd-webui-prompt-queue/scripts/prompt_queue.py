@@ -419,8 +419,13 @@ def on_ui_tabs():
     return [(tab, "Queue", "prompt_queue")]
 
 
-script_callbacks.on_app_started(register_api)
-# Registered after the routes: they drive the UI's Generate button, so they
-# require the Gradio login (when set) and refuse cross-site writes.
-script_callbacks.on_app_started(lambda _demo, app: guard_routes(app, ("/prompt-queue/",)))
+def register_api_guarded(demo, app: FastAPI):
+    register_api(demo, app)
+    # Right after registering (callback order is configurable): the routes
+    # drive the UI's Generate button, so they require the Gradio login (when
+    # set) and refuse cross-site writes.
+    guard_routes(app, ("/prompt-queue/",))
+
+
+script_callbacks.on_app_started(register_api_guarded)
 script_callbacks.on_ui_tabs(on_ui_tabs)

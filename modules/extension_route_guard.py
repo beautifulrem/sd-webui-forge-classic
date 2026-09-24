@@ -9,19 +9,62 @@ state-changing requests. :func:`guard_routes` wraps such routes.
 
 from __future__ import annotations
 
+import re
+import sys
 from typing import Iterable
 from urllib.parse import urlparse
 
 
+def _allowed_by_cors(origin: str) -> bool:
+    """Origins the admin allowed with --cors-allow-origins(-regex)."""
+    # Only if the WebUI loaded it: importing it parses the command line.
+    cmd_opts = getattr(sys.modules.get("modules.shared_cmd_options"), "cmd_opts", None)
+    if cmd_opts is None:
+        return False
+    allowed = [value.strip() for value in (getattr(cmd_opts, "cors_allow_origins", None) or "").split(",")]
+    if "*" in allowed or origin in allowed:
+        return True
+    pattern = getattr(cmd_opts, "cors_allow_origins_regex", None)
+    return bool(pattern) and re.fullmatch(pattern, origin) is not None
+
+
+def _same_origin(origin: str, request) -> bool:
+    target = urlparse(origin)
+    candidates = [request.headers.get("host") or ""]
+    # Proxies: X-Forwarded-Host may list several hops (first is the client's),
+    # and Forwarded carries host=...
+    candidates += [value.strip() for value in (request.headers.get("x-forwarded-host") or "").split(",")[:1]]
+    for part in (request.headers.get("forwarded") or "").split(","):
+        for pair in part.split(";"):
+            key, _, value = pair.strip().partition("=")
+            if key.lower() == "host":
+                candidates.append(value.strip('"'))
+    for host in filter(None, candidates):
+        if host == target.netloc:
+            return True
+        # Proxies often send the host without the public port ($host).
+        parsed = urlparse("//" + host)
+        if parsed.port is None and parsed.hostname == target.hostname:
+            return True
+    return False
+
+
+def is_cross_site(request) -> bool:
+    """A state-changing request a browser sent from another site."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return False
+    origin = request.headers.get("origin")
+    if origin and origin != "null" and _allowed_by_cors(origin):
+        return False
+    if origin:
+        return origin == "null" or not _same_origin(origin, request)
+    return request.headers.get("sec-fetch-site") == "cross-site"
+
+
 def refusal(app, request, require_login: bool = True) -> tuple[int, str] | None:
     """(status, reason) when ``request`` must be refused, else None."""
-    if request.method not in ("GET", "HEAD", "OPTIONS"):
-        origin = request.headers.get("origin")
-        hosts = {request.headers.get("host"), request.headers.get("x-forwarded-host")}
-        if request.headers.get("sec-fetch-site") == "cross-site" or (
-            origin and (origin == "null" or urlparse(origin).netloc not in hosts)
-        ):
-            return 403, "Cross-site request refused"
+    if is_cross_site(request):
+        return 403, "Cross-site request refused"
     if not require_login:
         return None
     auth_dependency = getattr(app, "auth_dependency", None)

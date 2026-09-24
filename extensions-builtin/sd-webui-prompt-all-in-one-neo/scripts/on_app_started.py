@@ -487,10 +487,14 @@ def on_ui_settings():
 
 
 try:
-    script_callbacks.on_app_started(on_app_started)
-    # Registered after the routes: require the Gradio login (when set) and
-    # refuse cross-site writes; the routes hold prompt history and API keys.
-    script_callbacks.on_app_started(lambda _demo, app: guard_routes(app, ("/physton_prompt/",)))
+    def on_app_started_guarded(demo: gr.Blocks, app: FastAPI):
+        on_app_started(demo, app)
+        # Right after registering (callback order is configurable): require
+        # the Gradio login (when set) and refuse cross-site writes; the routes
+        # hold prompt history and API keys.
+        guard_routes(app, ("/physton_prompt/",))
+
+    script_callbacks.on_app_started(on_app_started_guarded)
     script_callbacks.on_ui_settings(on_ui_settings)
     print('sd-webui-prompt-all-in-one-neo background API service started successfully.')
 except Exception as e:

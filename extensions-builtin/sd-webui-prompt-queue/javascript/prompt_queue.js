@@ -8,7 +8,8 @@
 (function () {
     "use strict";
 
-    const API = "/prompt-queue";
+    // Relative: the WebUI may be served under --subpath.
+    const API = "prompt-queue";
     const TABS = ["txt2img", "img2img"];
     const POLL_MS = 1000;
     const START_TIMEOUT_MS = 30000; // generation must register as busy within this window

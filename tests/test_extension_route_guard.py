@@ -63,3 +63,30 @@ def test_new_extension_routes_refuse_cross_site_writes_only():
     assert client.post("/ext/api", headers={"origin": "https://evil.example"}).status_code == 403
     assert client.post("/ext/api").json() == "ext"  # API clients: no Origin, no login needed
     assert client.post("/core", headers={"origin": "https://evil.example"}).json() == "core"
+
+
+def test_proxies_and_cors_allow_list():
+    import sys
+    from types import SimpleNamespace
+
+    from modules.extension_route_guard import is_cross_site
+
+    def request(origin, host, **headers):
+        return SimpleNamespace(method="POST", headers={"origin": origin, "host": host, **headers})
+
+    # nginx "Host: $host" drops the public port.
+    assert not is_cross_site(request("https://example.com:8443", "example.com"))
+    assert not is_cross_site(request("https://a.com", "backend:7860", **{"x-forwarded-host": "a.com, a.com"}))
+    assert not is_cross_site(request("https://a.com", "backend:7860", forwarded='for=1.2.3.4;host="a.com"'))
+    assert is_cross_site(request("http://localhost:3000", "localhost:7860"))
+
+    fake = SimpleNamespace(cmd_opts=SimpleNamespace(cors_allow_origins="http://localhost:3000", cors_allow_origins_regex=None))
+    saved = sys.modules.get("modules.shared_cmd_options")
+    sys.modules["modules.shared_cmd_options"] = fake
+    try:
+        assert not is_cross_site(request("http://localhost:3000", "localhost:7860"))
+    finally:
+        if saved is None:
+            del sys.modules["modules.shared_cmd_options"]
+        else:
+            sys.modules["modules.shared_cmd_options"] = saved
