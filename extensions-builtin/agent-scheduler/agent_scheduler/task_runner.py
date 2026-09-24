@@ -355,126 +355,35 @@ class TaskRunner:
                 # The copy we hold may be stale: another runner (e.g. the one
                 # before a UI reload, or a manual Run) may have run it since.
                 fresh = task_manager.get_task(task.id)
-                if fresh is None or fresh.status != TaskStatus.PENDING or not _claim(task.id):
-                    log.info(f"[AgentScheduler] Task {task.id} is no longer pending here; skipping")
+                pending = fresh is not None and fresh.status == TaskStatus.PENDING
+                if not pending or not _claim(task.id):
+                    if pending:
+                        # Being started by another thread (e.g. a manual Run):
+                        # wait instead of spinning on the same head task.
+                        time.sleep(2)
+                    else:
+                        log.info(f"[AgentScheduler] Task {task.id} is no longer pending; skipping")
                     task = get_next_task()
                     if not task:
                         break
                     continue
-                task = fresh
-                task_id = task.id
-                is_img2img = task.type == "img2img"
-                log.info(f"[AgentScheduler] Executing task {task_id}")
-
                 try:
-                    task_args = self.parse_task_args(task)
+                    finished = self.__run_claimed_task(fresh)
                 except Exception as error:
-                    # A task that cannot be loaded (e.g. rejected script params)
-                    # must fail on its own instead of killing the runner and
-                    # staying at the head of the queue forever.
-                    if not signing.key_is_persistent:
-                        # The key file could not be read (e.g. locked at
-                        # startup): stored tasks only look unsigned. Keep them
-                        # pending rather than failing the whole queue.
-                        log.error(
-                            f"[AgentScheduler] Task {task_id} could not be verified: the signing key file is "
-                            "unavailable. The queue is paused; fix the key file and restart."
-                        )
-                        shared.opts.queue_paused = True
-                        _release(task_id)
-                        break
-                    log.error(f"[AgentScheduler] Task {task_id} could not be loaded: {error}")
-                    # It was registered in progress.pending_tasks when queued:
-                    # report it as finished, or the WebUI keeps waiting on it.
-                    progress.pending_tasks.pop(task_id, None)
-                    progress.finish_task(task_id)
-                    task.status = TaskStatus.FAILED
-                    task.result = f"Could not load task: {error}"
-                    task_manager.update_task(task)
-                    self.__run_callbacks(
-                        "task_finished",
-                        task_id,
-                        status=TaskStatus.FAILED,
-                        is_img2img=is_img2img,
-                        is_ui=False,
-                        task=task,
-                    )
-                    _release(task_id)
-                    task = get_next_task()
-                    if not task:
-                        if not self.paused:
-                            self.__on_completed()
-                        break
-                    continue
-                task_meta = {
-                    "is_img2img": is_img2img,
-                    "is_ui": task_args.is_ui,
-                    "task": task,
-                }
-
-                self.interrupted = None
-                self.__saved_images_path = []
-                self.__run_callbacks("task_started", task_id, **task_meta)
-
-                # enable image saving
-                samples_save = shared.opts.samples_save
-                shared.opts.samples_save = True
-
-                res = self.__execute_task(task_id, is_img2img, task_args)
-
-                # disable image saving
-                shared.opts.samples_save = samples_save
-
-                if not res or isinstance(res, Exception):
-                    if isinstance(res, OutOfMemoryError):
-                        log.error(f"[AgentScheduler] Task {task_id} failed: CUDA OOM. Queue will be paused.")
-                        shared.opts.queue_paused = True
-                    else:
-                        log.error(f"[AgentScheduler] Task {task_id} failed: {res}")
-                        log.debug(traceback.format_exc())
-
-                    if getattr(shared.opts, "queue_automatic_requeue_failed_task", False):
-                        log.info(f"[AgentScheduler] Requeue task {task_id}")
-                        task.status = TaskStatus.PENDING
-                        task.priority = int(datetime.now(timezone.utc).timestamp() * 1000)
-                        task_manager.update_task(task)
-                    else:
-                        task.status = TaskStatus.FAILED
-                        task.result = str(res) if res else None
-                        task_manager.update_task(task)
-                        self.__run_callbacks("task_finished", task_id, status=TaskStatus.FAILED, **task_meta)
-                else:
-                    is_interrupted = self.interrupted == task_id
-                    if is_interrupted:
-                        log.info(f"\n[AgentScheduler] Task {task.id} interrupted")
-                        task.status = TaskStatus.INTERRUPTED
-                        task_manager.update_task(task)
-                        self.__run_callbacks(
-                            "task_finished",
-                            task_id,
-                            status=TaskStatus.INTERRUPTED,
-                            **task_meta,
-                        )
-                    else:
-                        geninfo = res if isinstance(res, dict) else json.loads(res)
-                        result = {
-                            "images": self.__saved_images_path.copy(),
-                            "geninfo": geninfo,
-                        }
-
-                        task.status = TaskStatus.DONE
-                        task.result = json.dumps(result)
-                        task_manager.update_task(task)
-                        self.__run_callbacks(
-                            "task_finished",
-                            task_id,
-                            status=TaskStatus.DONE,
-                            result=result,
-                            **task_meta,
-                        )
-
-                self.__saved_images_path = []
-                _release(task_id)
+                    # Fail the task instead of killing the runner and leaving
+                    # it pending at the head of the queue.
+                    log.error(f"[AgentScheduler] Task {fresh.id} crashed: {error}")
+                    log.debug(traceback.format_exc())
+                    progress.pending_tasks.pop(fresh.id, None)
+                    progress.finish_task(fresh.id)
+                    fresh.status = TaskStatus.FAILED
+                    fresh.result = f"Task crashed: {error}"
+                    task_manager.update_task(fresh)
+                    finished = True
+                finally:
+                    _release(fresh.id)
+                if not finished:
+                    break
             else:
                 time.sleep(2)
                 continue
@@ -485,6 +394,115 @@ class TaskRunner:
                     time.sleep(1)
                     self.__on_completed()
                 break
+
+    def __run_claimed_task(self, task: Task) -> bool:
+        """Run one claimed task; False stops the runner loop."""
+        task_id = task.id
+        is_img2img = task.type == "img2img"
+        log.info(f"[AgentScheduler] Executing task {task_id}")
+
+        try:
+            task_args = self.parse_task_args(task)
+        except Exception as error:
+            # A task that cannot be loaded (e.g. rejected script params)
+            # must fail on its own instead of killing the runner and
+            # staying at the head of the queue forever.
+            if not signing.key_is_persistent and signing.verified_payload(task.script_params) is None:
+                # The key file could not be read (e.g. locked at
+                # startup): stored tasks only look unsigned. Keep them
+                # pending rather than failing the whole queue.
+                log.error(
+                    f"[AgentScheduler] Task {task_id} could not be verified: the signing key file is "
+                    "unavailable. The queue is paused; fix the key file and restart."
+                )
+                shared.opts.queue_paused = True
+                return False
+            log.error(f"[AgentScheduler] Task {task_id} could not be loaded: {error}")
+            # It was registered in progress.pending_tasks when queued:
+            # report it as finished, or the WebUI keeps waiting on it.
+            progress.pending_tasks.pop(task_id, None)
+            progress.finish_task(task_id)
+            task.status = TaskStatus.FAILED
+            task.result = f"Could not load task: {error}"
+            task_manager.update_task(task)
+            self.__run_callbacks(
+                "task_finished",
+                task_id,
+                status=TaskStatus.FAILED,
+                is_img2img=is_img2img,
+                is_ui=False,
+                task=task,
+            )
+            return True
+        task_meta = {
+            "is_img2img": is_img2img,
+            "is_ui": task_args.is_ui,
+            "task": task,
+        }
+
+        self.interrupted = None
+        self.__saved_images_path = []
+        self.__run_callbacks("task_started", task_id, **task_meta)
+
+        # enable image saving
+        samples_save = shared.opts.samples_save
+        shared.opts.samples_save = True
+        try:
+            res = self.__execute_task(task_id, is_img2img, task_args)
+        finally:
+            # restore image saving
+            shared.opts.samples_save = samples_save
+
+        if not res or isinstance(res, Exception):
+            if isinstance(res, OutOfMemoryError):
+                log.error(f"[AgentScheduler] Task {task_id} failed: CUDA OOM. Queue will be paused.")
+                shared.opts.queue_paused = True
+            else:
+                log.error(f"[AgentScheduler] Task {task_id} failed: {res}")
+                log.debug(traceback.format_exc())
+
+            if getattr(shared.opts, "queue_automatic_requeue_failed_task", False):
+                log.info(f"[AgentScheduler] Requeue task {task_id}")
+                task.status = TaskStatus.PENDING
+                task.priority = int(datetime.now(timezone.utc).timestamp() * 1000)
+                task_manager.update_task(task)
+            else:
+                task.status = TaskStatus.FAILED
+                task.result = str(res) if res else None
+                task_manager.update_task(task)
+                self.__run_callbacks("task_finished", task_id, status=TaskStatus.FAILED, **task_meta)
+        else:
+            is_interrupted = self.interrupted == task_id
+            if is_interrupted:
+                log.info(f"\n[AgentScheduler] Task {task.id} interrupted")
+                task.status = TaskStatus.INTERRUPTED
+                task_manager.update_task(task)
+                self.__run_callbacks(
+                    "task_finished",
+                    task_id,
+                    status=TaskStatus.INTERRUPTED,
+                    **task_meta,
+                )
+            else:
+                geninfo = res if isinstance(res, dict) else json.loads(res)
+                result = {
+                    "images": self.__saved_images_path.copy(),
+                    "geninfo": geninfo,
+                }
+
+                task.status = TaskStatus.DONE
+                task.result = json.dumps(result)
+                task_manager.update_task(task)
+                self.__run_callbacks(
+                    "task_finished",
+                    task_id,
+                    status=TaskStatus.DONE,
+                    result=result,
+                    **task_meta,
+                )
+
+        self.__saved_images_path = []
+        return True
 
     def execute_pending_tasks_threading(self):
         if self.paused:
