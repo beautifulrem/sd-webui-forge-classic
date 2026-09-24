@@ -71,3 +71,17 @@ def test_proxied_requests_check_the_target(monkeypatch):
     with net.guarded_session(net.callback_address_allowed) as session:
         with pytest.raises(net.AddressNotAllowed):
             session.post("http://169.254.169.254/latest/", timeout=5)
+
+
+def test_local_use_nat64_is_never_allowed():
+    assert not net.callback_address_allowed("64:ff9b:1::a9fe:a9fe")
+    assert not net.global_address_allowed("64:ff9b:1::808:808")
+
+
+def test_proxied_unresolvable_targets_are_refused(monkeypatch):
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    with net.guarded_session(net.callback_address_allowed) as session:
+        with pytest.raises(net.AddressNotAllowed):
+            session.post("http://does-not-exist.invalid/", timeout=5)

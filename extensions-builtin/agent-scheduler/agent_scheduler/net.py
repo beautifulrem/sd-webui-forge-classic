@@ -4,8 +4,8 @@ Checking a URL's DNS answer before requesting it is not enough: the request
 resolves the host again, and a rebinding DNS server can answer differently the
 second time. These sessions check the peer address of every connection they
 open instead. Through a configured proxy the proxy is the peer, so there the
-target host is checked by resolving it locally before sending (the proxy
-resolves it again; an IP literal target is always checked exactly).
+target host must resolve locally to allowed addresses before it is sent (the
+proxy resolves it again; an IP literal target is always checked exactly).
 """
 
 import ipaddress
@@ -30,6 +30,9 @@ _METADATA_ADDRESSES = frozenset(
 
 
 _NAT64 = ipaddress.ip_network("64:ff9b::/96")
+# Local-use NAT64 (RFC 8215): the IPv4 part depends on the operator's prefix
+# length, so these can reach anything and are never allowed.
+_NAT64_LOCAL = ipaddress.ip_network("64:ff9b:1::/48")
 
 
 class AddressNotAllowed(ValueError):
@@ -51,6 +54,8 @@ def callback_address_allowed(address) -> bool:
     """Loopback / LAN callbacks are a supported use case (local clients);
     metadata, link-local, multicast and reserved targets never are."""
     address = normalize_address(address)
+    if address.version == 6 and address in _NAT64_LOCAL:
+        return False
     if address.is_loopback:
         return True  # ::1 is also inside the reserved ::/8 block
     return not (
@@ -64,6 +69,8 @@ def callback_address_allowed(address) -> bool:
 
 def global_address_allowed(address) -> bool:
     address = normalize_address(address)
+    if address.version == 6 and address in _NAT64_LOCAL:
+        return False
     return address.is_global and address not in _METADATA_ADDRESSES
 
 
@@ -103,12 +110,14 @@ class _CheckedAdapter(HTTPAdapter):
         if select_proxy(request.url, kwargs.get("proxies") or {}):
             host = urlparse(request.url).hostname or ""
             try:
-                infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+                addresses = [info[4][0] for info in socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)]
             except OSError:
-                infos = []  # only the proxy can resolve it
-            for info in infos:
-                if not self._allowed(info[4][0]):
-                    raise AddressNotAllowed(f"requests to {host} ({info[4][0]}) are not allowed")
+                addresses = []
+            if not addresses:
+                raise AddressNotAllowed(f"cannot check {host}: it does not resolve here")
+            for address in addresses:
+                if not self._allowed(address):
+                    raise AddressNotAllowed(f"requests to {host} ({address}) are not allowed")
         return super().send(request, **kwargs)
 
 

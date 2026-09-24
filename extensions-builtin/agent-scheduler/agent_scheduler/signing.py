@@ -1,10 +1,9 @@
-"""HMAC signatures for pickled task script params.
+"""HMAC signatures for exported task script params.
 
-Script params are pickled, and unpickling runs arbitrary code, so only blobs
-this server produced may be loaded. A per-install secret signs every blob it
-writes; anything unsigned or signed elsewhere (e.g. a crafted /import) is
-refused before pickle ever sees it. Export/import on the same install still
-round-trips because exported blobs carry the signature.
+Script params are pickled, and unpickling runs arbitrary code. The database is
+written by this server only, but exported queues come back through /import,
+so exports carry a signature made with a per-install secret and imports are
+refused unless it matches: a crafted import never reaches pickle.
 """
 
 import hashlib
@@ -12,13 +11,11 @@ import hmac
 import os
 import secrets
 import threading
-import time
 
 _MAGIC = b"ASSIG1"
 _DIGEST_SIZE = hashlib.sha256().digest_size
 _KEY_SIZE = 32
 _KEY = None
-_KEY_PATH = None
 _KEY_LOCK = threading.Lock()
 
 
@@ -39,7 +36,7 @@ def _private_key_file() -> str:
     serves (Gradio's blocked_paths compare paths lexically, so blocking a file
     inside a served folder is not reliable on case-insensitive filesystems).
     AGENT_SCHEDULER_KEY_FILE overrides it (e.g. a persistent volume in Docker,
-    where the home directory does not survive the container)."""
+    so exports stay importable after the container is recreated)."""
     override = os.environ.get("AGENT_SCHEDULER_KEY_FILE")
     if override:
         return os.path.abspath(override)
@@ -70,93 +67,60 @@ def _is_served(path: str) -> bool:
     return False
 
 
-def key_file() -> str:
-    """The key file in use (created on first use)."""
-    _load_key()
-    return _KEY_PATH
-
-
 def _load_key() -> bytes:
-    global _KEY, _KEY_PATH
+    global _KEY
     with _KEY_LOCK:
         if _KEY is None:
-            _KEY_PATH, _KEY = _open_key()
+            _KEY = _open_key()
         return _KEY
 
 
 def _open_key():
-    path = _private_key_file()
+    from .helpers import log
+
     legacy = legacy_key_file()
+    if os.path.exists(legacy):
+        # Earlier versions kept the key where /file= could serve it.
+        try:
+            os.remove(legacy)
+        except OSError as error:
+            log.warning(f"[AgentScheduler] Could not remove the exposed signing key {legacy}: {error}")
+    path = _private_key_file()
     try:
         os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
         if _is_served(path):
-            from .helpers import log
-
-            log.warning(f"[AgentScheduler] The script params signing key {path} is inside a folder the WebUI serves")
-        seed = None
-        if not os.path.exists(path) and os.path.exists(legacy):
-            seed = _read_key(legacy)  # keep blobs signed by earlier versions valid
-        key = _read_or_create_key(path, seed)
+            raise OSError(f"{path} is inside a folder the WebUI serves")
+        return _read_or_create_key(path)
     except OSError as error:
-        from .helpers import log
-
-        log.warning(
-            f"[AgentScheduler] Cannot keep the script params signing key private ({error}); "
-            f"using {legacy}, which only Gradio's blocked_paths hides"
-        )
-        return legacy, _read_or_create_key(legacy)
-    if os.path.exists(legacy):
-        try:
-            os.remove(legacy)
-        except OSError:
-            pass
-    return path, key
+        # Only exports depend on the key: without a private place for it,
+        # exports stay importable until the WebUI restarts.
+        log.warning(f"[AgentScheduler] Queue exports will only import into this session ({error})")
+        return secrets.token_bytes(_KEY_SIZE)
 
 
-def _read_key(path: str) -> bytes:
-    # A key being created by another process may briefly be empty on
-    # filesystems without hard links (see below).
-    for _ in range(50):
+def _read_or_create_key(path: str) -> bytes:
+    try:
         with open(path, "rb") as handle:
             key = handle.read()
         if len(key) >= _KEY_SIZE:
             return key
-        time.sleep(0.02)
-    raise RuntimeError(f"Agent Scheduler signing key is invalid (delete it to regenerate): {path}")
-
-
-def _read_or_create_key(path: str, seed: bytes = None) -> bytes:
-    if os.path.exists(path):
-        return _read_key(path)
-    key = seed or secrets.token_bytes(_KEY_SIZE)
-    # Write the key to a private temp file first and publish it with an
-    # exclusive link, so no reader (or a crash) ever sees a partial key.
+    except FileNotFoundError:
+        pass
+    # Missing or damaged (e.g. a crash while it was written): publish a new
+    # key atomically, so no reader ever sees a partial one.
     temp = f"{path}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
     fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(fd, "wb") as handle:
-            handle.write(key)
+            handle.write(secrets.token_bytes(_KEY_SIZE))
             handle.flush()
             os.fsync(handle.fileno())
-        try:
-            os.link(temp, path)
-        except FileExistsError:
-            pass
-        except OSError:
-            # No hard links here (e.g. exFAT): create the key exclusively in
-            # place; concurrent readers wait for it in _read_key.
-            try:
-                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            except FileExistsError:
-                pass
-            else:
-                with os.fdopen(fd, "wb") as handle:
-                    handle.write(key)
-                    handle.flush()
-                    os.fsync(handle.fileno())
+        os.replace(temp, path)
     finally:
-        os.unlink(temp)
-    return _read_key(path)
+        if os.path.exists(temp):
+            os.unlink(temp)
+    with open(path, "rb") as handle:
+        return handle.read()
 
 
 def _mac(blob: bytes, key: bytes = None) -> bytes:
@@ -169,6 +133,15 @@ def sign(blob: bytes) -> bytes:
 
 def is_signed(data) -> bool:
     return isinstance(data, (bytes, bytearray, memoryview)) and bytes(data[: len(_MAGIC)]) == _MAGIC
+
+
+def strip_signature(data) -> bytes:
+    """The payload of a stored blob (rows stored by earlier versions may
+    carry a signature)."""
+    data = bytes(data)
+    if is_signed(data):
+        return data[len(_MAGIC) + _DIGEST_SIZE :]
+    return data
 
 
 def verify(data) -> bytes:

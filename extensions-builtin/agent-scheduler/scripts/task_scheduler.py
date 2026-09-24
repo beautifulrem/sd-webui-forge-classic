@@ -23,9 +23,8 @@ from modules.infotext_utils import (
 
 from agent_scheduler.task_runner import TaskRunner, get_instance
 from agent_scheduler.helpers import get_default_config_dependencies, log, compare_components_with_ids, get_components_by_ids, is_macos
-from agent_scheduler.db import init as init_db, sign_legacy_script_params, task_manager, TaskStatus
+from agent_scheduler.db import init as init_db, task_manager, TaskStatus
 from agent_scheduler.api import regsiter_apis
-from agent_scheduler.signing import key_file, legacy_key_file
 
 is_sdnext = parser.description == "SD.Next"
 ToolButton = gr.Button if is_sdnext else ui_components.ToolButton
@@ -794,18 +793,6 @@ def on_ui_settings():
 
 def on_app_started(block: gr.Blocks, app):
     global task_runner
-
-    # A leaked signing key would re-enable pickle RCE. It is kept outside the
-    # served folders; blocking it too covers setups where it cannot be.
-    try:
-        blocked_paths = getattr(block, "blocked_paths", None)
-        if isinstance(blocked_paths, list):
-            blocked_paths.extend([key_file(), legacy_key_file()])
-        # Needs every extension loaded (ControlNet units in stored params).
-        sign_legacy_script_params()
-    except Exception as e:
-        log.error(f"[AgentScheduler] Error preparing script params signing: {e}")
-
     task_runner = get_instance(block)
     task_runner.execute_pending_tasks_threading()
     regsiter_apis(app, task_runner)

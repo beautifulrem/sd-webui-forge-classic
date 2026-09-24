@@ -73,53 +73,8 @@ def init():
         conn.close()
 
 
-def sign_legacy_script_params():
-    """Sign script params stored before signing existed, so the queue and
-    history keep working. Runs once, after all extensions are loaded (the
-    filter below recognises e.g. ControlNet units only once their module is
-    imported); anything unsigned that shows up later is refused.
-
-    A row is signed only if the pickle filter it was loaded with before the
-    upgrade accepts it, so crafted imports that filter refused (or that are
-    still queued) never become trusted.
-    """
-    import os
-
-    from ..helpers import log
-    from ..legacy_pickle import legacy_load
-    from ..signing import is_signed, sign
-
-    marker = db_file + ".script-params-signed"
-    if os.path.exists(marker):
-        return
-    engine = create_engine(f"sqlite:///{db_file}")
-    refused = 0
-    try:
-        with engine.begin() as conn:
-            rows = conn.execute(text("SELECT id, script_params FROM task")).fetchall()
-            for task_id, script_params in rows:
-                if script_params is None or is_signed(script_params):
-                    continue
-                try:
-                    legacy_load(bytes(script_params))
-                except Exception:
-                    refused += 1
-                    continue
-                conn.execute(
-                    text("UPDATE task SET script_params = :value WHERE id = :id"),
-                    {"value": sign(bytes(script_params)), "id": task_id},
-                )
-    finally:
-        engine.dispose()
-    if refused:
-        log.warning(f"[AgentScheduler] {refused} stored task(s) have script params that cannot be trusted; they will not run")
-    with open(marker, "w", encoding="utf-8") as handle:
-        handle.write("signed\n")
-
-
 __all__ = [
     "init",
-    "sign_legacy_script_params",
     "Base",
     "metadata",
     "db_file",

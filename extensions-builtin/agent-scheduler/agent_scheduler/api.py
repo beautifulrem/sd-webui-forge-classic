@@ -28,7 +28,7 @@ def _model_to_dict(model):
 from modules import shared, progress, sd_models, sd_samplers
 
 from .db import Task, TaskStatus, task_manager
-from .signing import verify
+from .signing import sign, strip_signature, verify
 from .models import (
     Txt2ImgApiTaskArgs,
     Img2ImgApiTaskArgs,
@@ -41,6 +41,12 @@ from .models import (
 from .task_runner import TaskRunner
 from .helpers import log, request_with_retry
 from .task_helpers import encode_image_to_base64, img2img_image_args_by_mode
+
+
+def _exported(task: Task) -> dict:
+    """Task JSON for /export, with script params signed for /import."""
+    task.script_params = sign(strip_signature(task.script_params))
+    return task.to_json()
 
 
 def api_callback(callback_url: str, task_id: str, status: TaskStatus, images: list):
@@ -210,7 +216,7 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
     @app.get("/agent-scheduler/v1/export", dependencies=deps)
     def export_queue(limit: int = 1000, offset: int = 0):
         pending_tasks = task_manager.get_tasks(status=TaskStatus.PENDING, limit=limit, offset=offset)
-        pending_tasks = [Task.from_table(t).to_json() for t in pending_tasks]
+        pending_tasks = [_exported(Task.from_table(t)) for t in pending_tasks]
         return pending_tasks
 
     class StringRequestBody(BaseModel):
@@ -228,9 +234,9 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
                 obj["status"] = TaskStatus.PENDING
                 task = Task.from_json(obj)
                 # Script params are pickles: only accept ones this server
-                # signed (i.e. exported from here), never foreign blobs.
+                # signed on export, never foreign blobs.
                 try:
-                    verify(task.script_params)
+                    task.script_params = verify(task.script_params)
                 except ValueError as error:
                     return {"success": False, "message": f"Import refused: {error}"}
                 taskList.append(task)
