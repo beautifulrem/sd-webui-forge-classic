@@ -68,3 +68,17 @@ def test_hires_zero_steps_and_sampler_fall_back_to_base():
 
     assert result.steps == 24
     assert result.sampler == "Euler"
+
+
+def test_img2img_pass_counts_only_the_steps_denoise_runs():
+    process = SimpleNamespace(
+        is_hr_pass=False,
+        steps=30,
+        denoising_strength=0.4,
+        init_images=[object()],
+        sampler_name="Euler",
+        cfg_scale=5.0,
+    )
+
+    assert MODULE.resolve_pass_context(process, fix_steps=False).steps == 13
+    assert MODULE.resolve_pass_context(process, fix_steps=True).steps == 30

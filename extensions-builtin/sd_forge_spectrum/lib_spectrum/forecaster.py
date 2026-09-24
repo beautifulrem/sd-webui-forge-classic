@@ -1,9 +1,11 @@
-"""Anima DiT feature forecasting for Forge Neo's built-in Spectrum panel.
+"""Spectrum feature forecasting for Forge Neo's built-in Spectrum panel.
 
-The cache lives immediately before Anima's ``final_layer``.  Cached steps still
-run the timestep embedding, final projection, unpatchify, and the model's native
-flow-prediction conversion.  This is intentionally narrower than caching the
-whole denoised output: the latter silently reuses stale timestep semantics.
+On Anima the cache lives immediately before the DiT ``final_layer``.  Cached
+steps still run the timestep embedding, final projection, unpatchify, and the
+model's native flow-prediction conversion.  This is intentionally narrower than
+caching the whole denoised output: the latter silently reuses stale timestep
+semantics.  Other architectures fall back to forecasting the model output, as
+upstream Forge Neo's Spectrum does.
 """
 
 from __future__ import annotations
@@ -328,8 +330,7 @@ class SpectrumNode:
         dit = getattr(kmodel, "diffusion_model", None)
         predictor = getattr(kmodel, "predictor", None)
         required = ("final_layer", "t_embedder", "t_embedding_norm", "unpatchify")
-        if dit is None or predictor is None or not all(hasattr(dit, name) for name in required):
-            raise RuntimeError("Spectrum vNext requires the Anima DiT architecture")
+        feature_cache = dit is not None and predictor is not None and all(hasattr(dit, name) for name in required)
 
         old_wrapper = new_model.model_options.get("model_function_wrapper")
         # process_before_every_sampling runs again for hires/img2img passes. Do
@@ -368,7 +369,8 @@ class SpectrumNode:
             compat_policy=compat_policy,
             verbose=verbose,
         )
-        _ensure_capture_hook(dit)
+        if feature_cache:
+            _ensure_capture_hook(dit)
 
         def actual_forward(model_function, args):
             if old_wrapper is not None:
@@ -417,20 +419,27 @@ class SpectrumNode:
             if state.mode == "cached" and compatible and state.ready(branches):
                 predictions = [state.forecasters[key].predict(state.step) for key in branches]
                 feature = torch.cat(predictions, dim=0)
-                result = _fast_forward(dit, predictor, sigma, input_x, feature)
+                if feature_cache:
+                    result = _fast_forward(dit, predictor, sigma, input_x, feature)
+                else:
+                    result = feature.to(input_x.dtype)
                 state.cached_completed()
                 return result
 
-            capture_local = dit.final_layer._forge_spectrum_local
-            capture_local.state = state
-            state.captured_feature = None
-            feature = None
-            try:
-                result = actual_forward(model_function, args)
-                feature = state.captured_feature
-            finally:
-                capture_local.state = None
+            if feature_cache:
+                capture_local = dit.final_layer._forge_spectrum_local
+                capture_local.state = state
                 state.captured_feature = None
+                feature = None
+                try:
+                    result = actual_forward(model_function, args)
+                    feature = state.captured_feature
+                finally:
+                    capture_local.state = None
+                    state.captured_feature = None
+            else:
+                result = actual_forward(model_function, args)
+                feature = result
             if new_step and compatible and feature is not None and feature.shape[0] % len(branches) == 0:
                 chunks = feature.chunk(len(branches), dim=0)
                 for key, chunk in zip(branches, chunks):
@@ -443,7 +452,7 @@ class SpectrumNode:
                 state.actual_completed()
             return result
 
-        wrapper.__spectrum_feature_cache__ = True
+        wrapper.__spectrum_feature_cache__ = feature_cache
         wrapper.__spectrum_previous_wrapper__ = old_wrapper
         wrapper.__forge_pass_wrapper_kind__ = "spectrum"
         wrapper.__forge_previous_wrapper__ = old_wrapper

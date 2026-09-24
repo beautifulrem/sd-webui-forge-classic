@@ -84,6 +84,59 @@ class ForecasterTests(unittest.TestCase):
 
         self.assertIs(result, sentinel)
 
+    def test_non_anima_models_forecast_the_model_output(self):
+        class FakePatcher:
+            def __init__(self):
+                self.model = SimpleNamespace(diffusion_model=torch.nn.Identity(), predictor=object())
+                self.model_options = {}
+                self.wrapper = None
+
+            def clone(self):
+                return self
+
+            def set_model_unet_function_wrapper(self, wrapper):
+                self.wrapper = wrapper
+
+        patcher = SpectrumNode.patch(
+            FakePatcher(),
+            steps=8,
+            weight=1.0,
+            degree=1,
+            lam=1e-6,
+            window_size=2,
+            flex_window=0.0,
+            warmup_steps=3,
+            stop_caching_step=1.0,
+            tail_actual_steps=1,
+            history_size=3,
+            schedule="Window",
+            refresh_ratio=0.0,
+            sea_beta=2.0,
+            compat_policy="Conservative",
+            verbose=False,
+            sea_cache_dir="unused",
+            sea_cache_context={},
+            process=SimpleNamespace(),
+        )
+        calls = []
+
+        def model_function(x, timestep, **_kwargs):
+            calls.append(float(timestep[0]))
+            return torch.full_like(x, float(len(calls)))
+
+        outputs = []
+        for step in range(5):
+            sigma = torch.tensor([1.0 - step * 0.1])
+            outputs.append(
+                patcher.wrapper(
+                    model_function,
+                    {"input": torch.zeros(1, 1), "timestep": sigma, "c": {}, "cond_or_uncond": [0]},
+                )
+            )
+
+        self.assertEqual(len(calls), 4)
+        self.assertTrue(torch.allclose(outputs[3], torch.full((1, 1), 4.0), atol=1e-3))
+
 
 if __name__ == "__main__":
     unittest.main()
