@@ -1290,7 +1290,13 @@ def _current_settings_data():
         return None
 
 
+# The payload last written to CURRENT_SETTINGS_FILE (None: unknown / deleted),
+# so generations with an unchanged panel skip the write and its fsync.
+_LAST_REMEMBERED_SETTINGS = None
+
+
 def _save_current_settings_data(data):
+    global _LAST_REMEMBERED_SETTINGS
     try:
         CURRENT_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
         # Write a unique sibling and swap it in: an interrupted or concurrent
@@ -1310,6 +1316,7 @@ def _save_current_settings_data(data):
                 mode = 0o644
             os.chmod(temp, mode)
             os.replace(temp, CURRENT_SETTINGS_FILE)
+            _LAST_REMEMBERED_SETTINGS = data
         finally:
             if os.path.exists(temp):
                 os.remove(temp)
@@ -1318,6 +1325,8 @@ def _save_current_settings_data(data):
 
 
 def _delete_current_settings_data():
+    global _LAST_REMEMBERED_SETTINGS
+    _LAST_REMEMBERED_SETTINGS = None
     try:
         if CURRENT_SETTINGS_FILE.exists():
             CURRENT_SETTINGS_FILE.unlink()
@@ -1417,9 +1426,6 @@ def _save_current_settings_ui(*values):
     return ""
 
 
-_LAST_REMEMBERED_SETTINGS = None
-
-
 def _should_remember_settings(p) -> bool:
     """Remember the panel as the user last generated with: once per
     processing run from the UI, not for API calls, hires passes or later
@@ -1451,7 +1457,6 @@ def _save_runtime_current_settings(
     enable_cache,
     *component_values,
 ):
-    global _LAST_REMEMBERED_SETTINGS
     try:
         payload = _current_settings_payload(
             enable,
@@ -1471,11 +1476,10 @@ def _save_runtime_current_settings(
             enable_cache,
             *component_values,
         )
-        # Unchanged since the last save: skip the write (and its fsync).
+        # Unchanged since the last successful save: skip the write.
         if payload == _LAST_REMEMBERED_SETTINGS:
             return
         _save_current_settings_data(payload)
-        _LAST_REMEMBERED_SETTINGS = payload
     except Exception:
         logger.exception("Failed to save Anima artist mixer runtime settings")
 

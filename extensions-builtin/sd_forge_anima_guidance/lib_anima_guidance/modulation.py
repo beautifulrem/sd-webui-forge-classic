@@ -64,8 +64,8 @@ def resolve_artifact(mode: str, local_path: str, automatic_path: str, *, url: st
 def _load_adapter(path: str) -> dict[str, torch.Tensor]:
     path = os.path.abspath(path)
     with _LOAD_LOCK:
-        key = _cache_key(path)
-        cached = _ADAPTER_CACHE.get(key)
+        cache_key = _cache_key(path)
+        cached = _ADAPTER_CACHE.get(cache_key)
         if cached is not None:
             return cached
         try:
@@ -85,7 +85,7 @@ def _load_adapter(path: str) -> dict[str, torch.Tensor]:
             state[key] = tensor.detach().float().cpu().contiguous()
         _validate_adapter_tensors(state)
         _ADAPTER_CACHE.clear()
-        _ADAPTER_CACHE[key] = state
+        _ADAPTER_CACHE[cache_key] = state
         return state
 
 
@@ -107,8 +107,8 @@ def _validate_adapter_tensors(state):
 def _load_clip(path: str, config_dir: str, tokenizer_dir: str):
     path = os.path.abspath(path)
     with _LOAD_LOCK:
-        key = _cache_key(path)
-        cached = _CLIP_CACHE.get(key)
+        cache_key = _cache_key(path)
+        cached = _CLIP_CACHE.get(cache_key)
         if cached is not None:
             return cached
         from transformers import CLIPTextConfig, CLIPTextModel, CLIPTokenizer
@@ -136,7 +136,7 @@ def _load_clip(path: str, config_dir: str, tokenizer_dir: str):
                     raise RuntimeError(f"Anima modulation CLIP-L left unsupported meta buffer {name!r}")
         model.eval().requires_grad_(False)
         _CLIP_CACHE.clear()
-        _CLIP_CACHE[key] = (model, tokenizer)
+        _CLIP_CACHE[cache_key] = (model, tokenizer)
         return model, tokenizer
 
 

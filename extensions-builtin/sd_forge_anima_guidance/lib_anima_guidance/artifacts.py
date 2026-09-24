@@ -10,6 +10,23 @@ import urllib.request
 
 
 _DOWNLOAD_LOCK = threading.Lock()
+# (path, mtime, size) -> sha256 of files already hashed: guidance asks for its
+# artifacts (~430 MB) on every sampling pass; re-hash only changed files.
+_VERIFIED: dict[tuple, str] = {}
+
+
+def _file_version(path: str) -> tuple:
+    stat = os.stat(path)
+    return path, stat.st_mtime_ns, stat.st_size
+
+
+def _cached_sha256(path: str) -> str:
+    version = _file_version(path)
+    digest = _VERIFIED.get(version)
+    if digest is None:
+        digest = sha256_file(path)
+        _VERIFIED[version] = digest
+    return digest
 
 
 def sha256_file(path: str) -> str:
@@ -24,7 +41,7 @@ def ensure_pinned_download(*, path: str, url: str, sha256: str, maximum_bytes: i
     """Return a verified artifact, downloading atomically when necessary."""
     path = os.path.abspath(path)
     with _DOWNLOAD_LOCK:
-        if os.path.isfile(path) and sha256_file(path) == sha256:
+        if os.path.isfile(path) and _cached_sha256(path) == sha256:
             return path
 
         os.makedirs(os.path.dirname(path), exist_ok=True)

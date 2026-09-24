@@ -235,6 +235,11 @@ def anima_flow_match_scheduler(n, sigma_min, sigma_max, inner_model, device):
     experimental global schedule toggles, so choosing an Anima Flow sampler
     with ``Automatic`` remains reproducible.
     """
+    if not getattr(inner_model.inner_model, "use_shift", False):
+        # E.g. left selected after an Anima Flow sampler locked it: a flow
+        # grid in [0, 1] would barely noise an eps / v-prediction model.
+        print("[Anima FlowMatch] not a flow-matching model; using the Simple schedule")
+        return simple_scheduler(n, sigma_min, sigma_max, inner_model, device)
     return _flow_match_euler_discrete_scheduler(
         n,
         inner_model,
