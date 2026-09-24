@@ -38,8 +38,16 @@ EXPECTED_ADAPTER_KEYS = (
 
 _LOAD_LOCK = threading.Lock()
 _ENCODE_LOCK = threading.Lock()
-_ADAPTER_CACHE: dict[str, dict[str, torch.Tensor]] = {}
-_CLIP_CACHE: dict[str, tuple[torch.nn.Module, object]] = {}
+# One entry each (the file in use), keyed by path and file version: another
+# path, or a file replaced in place (e.g. a retrained adapter), reloads and
+# frees the previous weights instead of pinning every one for good.
+_ADAPTER_CACHE: dict[tuple, dict[str, torch.Tensor]] = {}
+_CLIP_CACHE: dict[tuple, tuple[torch.nn.Module, object]] = {}
+
+
+def _cache_key(path: str) -> tuple:
+    stat = os.stat(path)
+    return path, stat.st_mtime_ns, stat.st_size
 
 
 def resolve_artifact(mode: str, local_path: str, automatic_path: str, *, url: str, sha256: str, maximum_bytes: int) -> str:
@@ -56,7 +64,8 @@ def resolve_artifact(mode: str, local_path: str, automatic_path: str, *, url: st
 def _load_adapter(path: str) -> dict[str, torch.Tensor]:
     path = os.path.abspath(path)
     with _LOAD_LOCK:
-        cached = _ADAPTER_CACHE.get(path)
+        key = _cache_key(path)
+        cached = _ADAPTER_CACHE.get(key)
         if cached is not None:
             return cached
         try:
@@ -75,7 +84,8 @@ def _load_adapter(path: str) -> dict[str, torch.Tensor]:
                 raise RuntimeError(f"Anima modulation adapter entry {key!r} is not a tensor")
             state[key] = tensor.detach().float().cpu().contiguous()
         _validate_adapter_tensors(state)
-        _ADAPTER_CACHE[path] = state
+        _ADAPTER_CACHE.clear()
+        _ADAPTER_CACHE[key] = state
         return state
 
 
@@ -97,7 +107,8 @@ def _validate_adapter_tensors(state):
 def _load_clip(path: str, config_dir: str, tokenizer_dir: str):
     path = os.path.abspath(path)
     with _LOAD_LOCK:
-        cached = _CLIP_CACHE.get(path)
+        key = _cache_key(path)
+        cached = _CLIP_CACHE.get(key)
         if cached is not None:
             return cached
         from transformers import CLIPTextConfig, CLIPTextModel, CLIPTokenizer
@@ -124,7 +135,8 @@ def _load_clip(path: str, config_dir: str, tokenizer_dir: str):
                 else:
                     raise RuntimeError(f"Anima modulation CLIP-L left unsupported meta buffer {name!r}")
         model.eval().requires_grad_(False)
-        _CLIP_CACHE[path] = (model, tokenizer)
+        _CLIP_CACHE.clear()
+        _CLIP_CACHE[key] = (model, tokenizer)
         return model, tokenizer
 
 

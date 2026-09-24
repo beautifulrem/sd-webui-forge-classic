@@ -3,6 +3,7 @@
 import logging
 import shutil
 import sys
+import weakref
 from functools import wraps
 from typing import TYPE_CHECKING
 
@@ -98,9 +99,15 @@ class TorchCompileForForge(scripts.Script):
         kmodel: "KModel" = p.sd_model.forge_objects.unet.model
         prev_config: tuple[str] = getattr(kmodel, _COMPILE_CONFIG_KEY, None)
 
+        # The handler outlives this generation on the model: hold p weakly so
+        # the finished generation (images, prompts) can be freed.
+        process_ref = weakref.ref(p)
+
         def compile_fallback(error):
             message = f"Anima per-block fell back to eager: {type(error).__name__}"
-            p.extra_generation_params["Torch compile"] = message
+            process = process_ref()
+            if process is not None:
+                process.extra_generation_params["Torch compile"] = message
             logger.error(
                 message,
                 exc_info=(type(error), error, error.__traceback__),

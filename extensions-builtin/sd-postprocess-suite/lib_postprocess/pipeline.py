@@ -254,11 +254,23 @@ _LUT_CACHE_SIZE = 8
 _LUT_LOCK = threading.Lock()
 
 
+_LUT_MAX_BYTES = 64 * 1024 * 1024  # a 65^3 .cube is ~7 MB
+
+
 def _load_lut(path):
+    # The path comes from script args (API clients too): only regular .cube
+    # files, never network shares (Windows would authenticate to them),
+    # devices or FIFOs, and nothing large enough to exhaust memory.
+    if not str(path).lower().endswith(".cube") or str(path).replace("\\", "/").startswith("//"):
+        print(f"[PostProcess Suite] LUT refused (not a local .cube file): {path}")
+        return None
     try:
         stat = os.stat(path)
     except OSError as e:
         print(f"[PostProcess Suite] LUT load failed: {e}")
+        return None
+    if not os.path.isfile(path) or stat.st_size > _LUT_MAX_BYTES:
+        print(f"[PostProcess Suite] LUT refused (not a regular file under 64 MB): {path}")
         return None
     key = (os.path.realpath(path), stat.st_mtime_ns, stat.st_size)
     with _LUT_LOCK:

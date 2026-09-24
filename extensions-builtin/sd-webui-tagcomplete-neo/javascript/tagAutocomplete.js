@@ -655,7 +655,7 @@ async function insertTextAtCursor(textArea, result, tagword, tabCompletedWithout
 
         // CivitAI API fallback: fetch trigger words by SHA256 (cached in sidecar)
         if (!keywords && TAC_CFG.civitaiKeywordLookup) {
-            let civitaiData = await fetchTacAPI(`tacapi/v1/civitai-trigger-words/${result.text}`);
+            let civitaiData = await fetchTacAPI(`tacapi/v1/civitai-trigger-words/${encodeURIComponent(result.text)}`);
             if (civitaiData && civitaiData.trainedWords && civitaiData.trainedWords.length > 0) {
                 keywords = civitaiData.trainedWords;
             }
@@ -667,7 +667,7 @@ async function insertTextAtCursor(textArea, result, tagword, tabCompletedWithout
 
             // No match, try to find a sha256 match from the cache file
             if (!nameDict) {
-                const sha256 = await fetchTacAPI(`/tacapi/v1/lora-cached-hash/${result.text}`)
+                const sha256 = await fetchTacAPI(`/tacapi/v1/lora-cached-hash/${encodeURIComponent(result.text)}`)
                 if (sha256) {
                     nameDict = modelKeywordDict.get(sha256);
                 }

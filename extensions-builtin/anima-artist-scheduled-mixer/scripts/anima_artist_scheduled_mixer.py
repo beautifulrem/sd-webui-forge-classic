@@ -1303,6 +1303,12 @@ def _save_current_settings_data(data):
                 json.dump(data, f, ensure_ascii=False, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
+            # mkstemp creates 0600; keep the permissions a plain write had.
+            try:
+                mode = os.stat(CURRENT_SETTINGS_FILE).st_mode & 0o777
+            except OSError:
+                mode = 0o644
+            os.chmod(temp, mode)
             os.replace(temp, CURRENT_SETTINGS_FILE)
         finally:
             if os.path.exists(temp):
@@ -1411,6 +1417,9 @@ def _save_current_settings_ui(*values):
     return ""
 
 
+_LAST_REMEMBERED_SETTINGS = None
+
+
 def _should_remember_settings(p) -> bool:
     """Remember the panel as the user last generated with: once per
     processing run from the UI, not for API calls, hires passes or later
@@ -1442,27 +1451,31 @@ def _save_runtime_current_settings(
     enable_cache,
     *component_values,
 ):
+    global _LAST_REMEMBERED_SETTINGS
     try:
-        _save_current_settings_data(
-            _current_settings_payload(
-                enable,
-                "",
-                APPLY_BASE,
-                base_row_count,
-                hires_row_count,
-                hires_independent,
-                disable_hires_mixing,
-                runtime_base_shift,
-                runtime_hires_shift,
-                global_strength,
-                optimization,
-                combine_mode,
-                fusion_mode,
-                apply_uncond,
-                enable_cache,
-                *component_values,
-            )
+        payload = _current_settings_payload(
+            enable,
+            "",
+            APPLY_BASE,
+            base_row_count,
+            hires_row_count,
+            hires_independent,
+            disable_hires_mixing,
+            runtime_base_shift,
+            runtime_hires_shift,
+            global_strength,
+            optimization,
+            combine_mode,
+            fusion_mode,
+            apply_uncond,
+            enable_cache,
+            *component_values,
         )
+        # Unchanged since the last save: skip the write (and its fsync).
+        if payload == _LAST_REMEMBERED_SETTINGS:
+            return
+        _save_current_settings_data(payload)
+        _LAST_REMEMBERED_SETTINGS = payload
     except Exception:
         logger.exception("Failed to save Anima artist mixer runtime settings")
 
