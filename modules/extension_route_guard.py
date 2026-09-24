@@ -28,8 +28,14 @@ def _allowed_by_cors(origin: str) -> bool:
     return bool(pattern) and re.fullmatch(pattern, origin) is not None
 
 
+_DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
+
+
 def _same_origin(origin: str, request) -> bool:
     target = urlparse(origin)
+    default_port = _DEFAULT_PORTS.get(target.scheme)
+    origin_port = target.port or default_port
+    forwarded_port = request.headers.get("x-forwarded-port")
     candidates = [request.headers.get("host") or ""]
     # Proxies: X-Forwarded-Host may list several hops (first is the client's),
     # and Forwarded carries host=...
@@ -40,11 +46,15 @@ def _same_origin(origin: str, request) -> bool:
             if key.lower() == "host":
                 candidates.append(value.strip('"'))
     for host in filter(None, candidates):
-        if host == target.netloc:
-            return True
-        # Proxies often send the host without the public port ($host).
         parsed = urlparse("//" + host)
-        if parsed.port is None and parsed.hostname == target.hostname:
+        if parsed.hostname is None or parsed.hostname != target.hostname:
+            continue
+        if parsed.port is not None:
+            if parsed.port == origin_port:  # "a.com:443" is https://a.com
+                return True
+        # A proxy's "$host" has no port: only the scheme's default port (or
+        # the one the proxy reports) is this site, not other local ports.
+        elif origin_port == default_port or (forwarded_port or "").strip() == str(origin_port):
             return True
     return False
 

@@ -459,6 +459,8 @@ def on_app_started(_: gr.Blocks, app: FastAPI):
         except Exception as e:
             return {"success": False, "message": str(e)}
 
+
+def _initialize_translation():
     try:
         translate_api = Storage.get('translateApi')
         if translate_api == 'mbart50':
@@ -493,6 +495,9 @@ try:
         # the Gradio login (when set) and refuse cross-site writes; the routes
         # hold prompt history and API keys.
         guard_routes(app, ("/physton_prompt/",))
+        # Only now: loading mbart50 can take minutes (download), and the
+        # routes are already being served.
+        _initialize_translation()
 
     script_callbacks.on_app_started(on_app_started_guarded)
     script_callbacks.on_ui_settings(on_ui_settings)

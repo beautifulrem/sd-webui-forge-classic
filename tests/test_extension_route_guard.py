@@ -74,8 +74,11 @@ def test_proxies_and_cors_allow_list():
     def request(origin, host, **headers):
         return SimpleNamespace(method="POST", headers={"origin": origin, "host": host, **headers})
 
-    # nginx "Host: $host" drops the public port.
-    assert not is_cross_site(request("https://example.com:8443", "example.com"))
+    # nginx "Host: $host" drops the port; "$host:$server_port" keeps 443.
+    assert not is_cross_site(request("https://example.com", "example.com"))
+    assert not is_cross_site(request("https://example.com", "example.com:443"))
+    assert not is_cross_site(request("https://example.com:8443", "example.com", **{"x-forwarded-port": "8443"}))
+    assert is_cross_site(request("http://localhost:3000", "localhost"))  # another local port
     assert not is_cross_site(request("https://a.com", "backend:7860", **{"x-forwarded-host": "a.com, a.com"}))
     assert not is_cross_site(request("https://a.com", "backend:7860", forwarded='for=1.2.3.4;host="a.com"'))
     assert is_cross_site(request("http://localhost:3000", "localhost:7860"))
