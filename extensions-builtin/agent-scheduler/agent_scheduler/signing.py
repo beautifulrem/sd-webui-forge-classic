@@ -4,8 +4,8 @@ Script params are pickled, and unpickling runs arbitrary code. Params this
 server stores are signed with a per-install secret; exports carry the
 signature and /import refuses anything that does not verify, so a crafted
 import never reaches pickle. Stored params without a valid signature (written
-before signing existed, or under a replaced key) are only loaded through the
-restricted legacy unpickler.
+before signing existed, or under a replaced key) are refused too, unless the
+user starts once with --agent-scheduler-trust-unsigned-params.
 
 The key lives next to the database, so it travels with the data; the file
 guard keeps both away from Gradio's /file= route, which serves the data dir.
@@ -51,10 +51,8 @@ def protected_files():
     """Files that must never be served: the key and the task databases."""
     from .db.base import legacy_db_file
 
-    files = [key_file()]
-    for db_file in (_db_file(), os.path.abspath(legacy_db_file)):
-        files += [db_file, db_file + "-journal", db_file + "-wal", db_file + "-shm"]
-    return files
+    # The file guard also refuses names these are a prefix of (journals).
+    return [key_file(), _db_file(), os.path.abspath(legacy_db_file)]
 
 
 # False while the key file cannot be kept from Gradio's /file= route: /import
@@ -82,8 +80,7 @@ def _load_key() -> bytes:
             except OSError as error:
                 from .helpers import log
 
-                # Stored params then verify only in this session; afterwards
-                # they load through the legacy unpickler.
+                # Params stored this session then verify only in this session.
                 log.warning(f"[AgentScheduler] Cannot use the signing key file ({error}); using a session key")
                 _KEY = secrets.token_bytes(_KEY_SIZE)
         return _KEY
@@ -91,17 +88,25 @@ def _load_key() -> bytes:
 
 def _read_key(path: str, wait: bool):
     # On filesystems without hard links a key being created by another
-    # process may briefly be empty (see below).
+    # process may briefly be empty (see below); antivirus or backup tools may
+    # briefly lock it on Windows.
+    error = None
     for _ in range(50 if wait else 1):
         try:
             with open(path, "rb") as handle:
                 key = handle.read()
         except FileNotFoundError:
             return None
+        except OSError as e:
+            error, key = e, b""
+        else:
+            error = None
         if len(key) >= _KEY_SIZE:
             return key
         if wait:
             time.sleep(0.02)
+    if error is not None:
+        raise error
     return b""
 
 
@@ -138,7 +143,7 @@ def _read_or_create_key(path: str) -> bytes:
             key = _read_key(path, wait=True)
         if not key:
             # Damaged (e.g. a crash while it was written): replace it. Params
-            # signed with the lost key fall back to the legacy unpickler.
+            # signed with the lost key can only be trusted again explicitly.
             os.replace(temp, path)
             key = _read_key(path, wait=False)
     finally:

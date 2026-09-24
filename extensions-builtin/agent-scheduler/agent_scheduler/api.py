@@ -29,8 +29,7 @@ from modules import shared, progress, sd_models, sd_samplers
 
 from .db import Task, TaskStatus, task_manager
 from . import signing
-from .legacy_pickle import legacy_load
-from .signing import sign, strip_signature, verified_payload, verify
+from .signing import verified_payload
 from .models import (
     Txt2ImgApiTaskArgs,
     Img2ImgApiTaskArgs,
@@ -43,21 +42,6 @@ from .models import (
 from .task_runner import TaskRunner
 from .helpers import log, request_with_retry
 from .task_helpers import encode_image_to_base64, img2img_image_args_by_mode
-
-
-def _exported(task: Task) -> dict:
-    """Task JSON for /export. Rows stored unsigned (or under a replaced key)
-    are signed if the legacy unpickler accepts them, so they import again;
-    anything it refuses stays unsigned and /import will refuse it too."""
-    if verified_payload(task.script_params) is None:
-        payload = strip_signature(task.script_params)
-        try:
-            legacy_load(payload)
-        except Exception:
-            pass
-        else:
-            task.script_params = sign(payload)
-    return task.to_json()
 
 
 def api_callback(callback_url: str, task_id: str, status: TaskStatus, images: list):
@@ -227,7 +211,7 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
     @app.get("/agent-scheduler/v1/export", dependencies=deps)
     def export_queue(limit: int = 1000, offset: int = 0):
         pending_tasks = task_manager.get_tasks(status=TaskStatus.PENDING, limit=limit, offset=offset)
-        pending_tasks = [_exported(Task.from_table(t)) for t in pending_tasks]
+        pending_tasks = [Task.from_table(t).to_json() for t in pending_tasks]
         return pending_tasks
 
     class StringRequestBody(BaseModel):
@@ -240,6 +224,7 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
         try:
             objList = json.loads(queue.content)
             taskList: List[Task] = []
+            refused = 0
             for obj in objList:
                 if "id" not in obj or not obj["id"] or obj["id"] == "":
                     obj["id"] = str(uuid4())
@@ -248,10 +233,9 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
                 task = Task.from_json(obj)
                 # Script params are pickles: only accept ones this server
                 # signed, never foreign blobs.
-                try:
-                    verify(task.script_params)
-                except ValueError as error:
-                    return {"success": False, "message": f"Import refused: {error}"}
+                if verified_payload(task.script_params) is None:
+                    refused += 1
+                    continue
                 taskList.append(task)
 
             for task in taskList:
@@ -260,6 +244,11 @@ def regsiter_apis(app: App, task_runner: TaskRunner):
                     task_manager.update_task(task)
                 else:
                     task_manager.add_task(task)
+            if refused:
+                return {
+                    "success": bool(taskList),
+                    "message": f"Imported {len(taskList)} task(s); refused {refused} not signed by this install",
+                }
             return {"success": True, "message": "Queue imported"}
         except Exception as e:
             print(e)

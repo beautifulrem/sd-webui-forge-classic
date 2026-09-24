@@ -1,6 +1,8 @@
 import importlib.util
+import os
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
 from fastapi.testclient import TestClient
@@ -15,11 +17,12 @@ SPEC.loader.exec_module(file_guard)
 def _app():
     app = FastAPI()
 
-    # Same shapes as Gradio's file routes.
+    # Same shapes as Gradio's file routes; the path is opened unnormalised.
     @app.head("/file={path_or_url:path}")
     @app.get("/file={path_or_url:path}")
     async def file(path_or_url: str):
-        return PlainTextResponse(Path(path_or_url).read_text())
+        with open(path_or_url) as handle:
+            return PlainTextResponse(handle.read())
 
     @app.get("/file/{path:path}")
     async def file_deprecated(path: str):
@@ -28,20 +31,48 @@ def _app():
     return app
 
 
-def test_protected_files_are_refused_under_any_spelling(tmp_path):
+@pytest.fixture()
+def setup(tmp_path):
     data = tmp_path / "data"
-    data.mkdir()
-    key = data / "signing.key"
+    store = data / "extension-data" / "agent-scheduler"
+    store.mkdir(parents=True)
+    key = store / "signing.key"
     key.write_text("secret")
+    db = store / "tasks.sqlite3"
+    db.write_text("db")
     (data / "public.txt").write_text("hello")
-    (tmp_path / "alias").symlink_to(data)
     app = _app()
+    assert file_guard.install(app, lambda: [str(key), str(db)]) == 3
+    assert file_guard.install(app, lambda: [str(key), str(db)]) == 0  # idempotent
+    return TestClient(app), data, store
 
-    assert file_guard.install(app, lambda: [str(key)]) == 3
-    assert file_guard.install(app, lambda: [str(key)]) == 0  # idempotent
-    client = TestClient(app)
 
-    for spelling in (str(key), f"{data}/./signing.key", str(tmp_path / "alias" / "signing.key")):
-        assert client.get(f"/file={spelling}").status_code == 403
-        assert client.get(f"/file/{spelling}").status_code == 403
+def test_protected_files_are_refused_under_any_spelling(setup, tmp_path):
+    client, data, store = setup
+    (tmp_path / "alias").symlink_to(data)
+    # data/link -> data/extension-data/agent-scheduler: "link/../.." is
+    # resolved after the symlink by the OS, not collapsed by text.
+    (data / "link").symlink_to(store)
+    spellings = [
+        str(store / "signing.key"),
+        f"{store}/./signing.key",
+        str(tmp_path / "alias" / "extension-data" / "agent-scheduler" / "signing.key"),
+        f"{data}/link/../agent-scheduler/signing.key",
+    ]
+    for spelling in spellings:
+        assert os.path.exists(spelling), spelling
+        # %2E keeps HTTP clients from collapsing dot segments (curl --path-as-is).
+        raw = spelling.replace(".", "%2E")
+        assert client.get(f"/file={raw}").status_code == 403, spelling
+        assert client.get(f"/file/{raw}").status_code == 403, spelling
     assert client.get(f"/file={data / 'public.txt'}").text == "hello"
+
+
+def test_journals_created_later_are_refused(setup):
+    client, data, store = setup
+    client.get(f"/file={data / 'public.txt'}")  # warm the cache
+    journal = store / "tasks.sqlite3-journal"
+    journal.write_text("pages")
+
+    assert client.get(f"/file={journal}").status_code == 403
+    assert client.get(f"/file={store / 'TASKS.SQLITE3-WAL'}").status_code in (403, 404)

@@ -1,6 +1,8 @@
 from pathlib import Path
 from sqlalchemy import create_engine, inspect, text, String, Text
 
+from modules import shared
+
 from .base import Base, metadata, db_file
 from .app_state import AppStateKey, AppState, AppStateManager
 from .task import TaskStatus, Task, TaskManager
@@ -71,6 +73,32 @@ def init():
             transaction.commit()
 
         conn.close()
+
+    if getattr(shared.cmd_opts, "agent_scheduler_trust_unsigned_params", False):
+        _trust_unsigned_script_params(engine)
+
+
+def _trust_unsigned_script_params(engine):
+    """Sign every stored script param without a valid signature, on the
+    user's explicit word that this database holds no crafted imports."""
+    from ..helpers import log
+    from ..signing import sign, strip_signature, verified_payload
+
+    signed = 0
+    with engine.begin() as conn:
+        rows = conn.execute(text("SELECT id, script_params FROM task")).fetchall()
+        for task_id, script_params in rows:
+            if script_params is None or verified_payload(script_params) is not None:
+                continue
+            conn.execute(
+                text("UPDATE task SET script_params = :value WHERE id = :id"),
+                {"value": sign(strip_signature(script_params)), "id": task_id},
+            )
+            signed += 1
+    log.warning(
+        f"[AgentScheduler] Trusted and signed {signed} stored task(s); "
+        "remove --agent-scheduler-trust-unsigned-params for later starts"
+    )
 
 
 __all__ = [

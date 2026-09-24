@@ -3,8 +3,8 @@
 Forge adds the data dir to Gradio's allowed_paths, and Gradio's blocked_paths
 compare paths lexically, which a different spelling of the same file defeats
 on case-insensitive filesystems (or via Windows short names and streams).
-The file routes are wrapped instead, refusing any request whose target is the
-same file as a protected one.
+The file routes are wrapped instead, refusing any request whose target is a
+protected file (or one derived from it, such as a SQLite journal).
 """
 
 import os
@@ -25,33 +25,63 @@ def _identity(path: str):
     return stat.st_dev, stat.st_ino
 
 
+def _name_key(name: str) -> str:
+    # Case-insensitive filesystems; on Windows also alternate data streams
+    # ("x:stream") and the ignored trailing dots / spaces ("x. ").
+    if os.name == "nt":
+        name = name.split(":", 1)[0].rstrip(" .")
+    return name.casefold()
+
+
 class ProtectedFiles:
-    """File identities (device, inode) of the protected paths, re-read at
-    most every couple of seconds, so a request costs one stat."""
+    """Refuses requests for protected files under any spelling.
+
+    Requests are resolved like the file route resolves them: the OS follows
+    symlinks before "..", so the path is not normalised first. Only requests
+    that land in a folder holding protected files (identity cached; folders
+    are stable) are checked further, by name, including files created since,
+    such as SQLite journals, and by file identity (e.g. Windows short names).
+    """
 
     def __init__(self, paths: Callable[[], Iterable[str]]):
         self._paths = paths
-        self._ids = frozenset()
+        self._dirs = frozenset()
         self._checked = float("-inf")
 
-    def ids(self):
+    def _folders(self):
         now = time.monotonic()
         if now - self._checked >= _REFRESH_SECONDS:
-            ids = set()
+            dirs = set()
             for path in self._paths():
                 try:
-                    ids.add(_identity(path))
+                    dirs.add(_identity(os.path.dirname(path)))
                 except (OSError, ValueError):
                     pass
-            self._ids, self._checked = frozenset(ids), now
-        return self._ids
+            self._dirs, self._checked = frozenset(dirs), now
+        return self._dirs
 
     def contains(self, requested: str) -> bool:
+        path = os.path.join(os.getcwd(), requested)
         try:
-            target = _identity(os.path.abspath(requested))
+            if _identity(os.path.dirname(path)) not in self._folders():
+                return False
+            name = _name_key(os.path.basename(path))
+            for protected in self._paths():
+                protected_name = _name_key(os.path.basename(protected))
+                # Prefix: SQLite journals ("db-journal", "db-wal", ...) and
+                # temp files ("key.<pid>.tmp") of protected files.
+                if name.startswith(protected_name):
+                    return True
+            target = _identity(path)
         except (OSError, ValueError):
             return False  # Gradio cannot serve what cannot be stat'ed either
-        return target in self.ids()
+        for protected in self._paths():
+            try:
+                if _identity(protected) == target:
+                    return True
+            except (OSError, ValueError):
+                continue
+        return False
 
 
 def install(app, protected: Callable[[], Iterable[str]]) -> int:

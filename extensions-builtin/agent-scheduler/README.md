@@ -29,3 +29,14 @@ git clone https://github.com/cataclisma/sd-webui-agent-scheduler-neo.git" extens
 ```
 
 (The second argument specifies the name of the folder, you can choose whatever you like).
+
+## Stored tasks and queue import
+
+Task script params are stored as pickles, and loading a pickle can run code, so
+this build signs them with a per-install key (`agent_scheduler_signing.key`,
+next to the task database). Queue exports carry the signature; `/import`
+accepts only tasks exported from the same install.
+
+Tasks saved by older versions have no signature and will not run. If nobody
+else could have imported tasks into your database, start once with
+`--agent-scheduler-trust-unsigned-params` to sign them, then remove the flag.
