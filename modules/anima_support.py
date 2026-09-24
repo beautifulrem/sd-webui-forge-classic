@@ -82,31 +82,3 @@ def require_anima_flow_denoiser(model, feature: str) -> None:
             f"{feature} requires Anima's discrete rectified-flow predictor"
         )
 
-
-_NO_INSTANCE_FORWARD = object()
-
-
-def install_forward_override(module, forward):
-    """Install an instance-level ``forward`` and return a restore token.
-
-    The token records whether the instance already had its own ``forward``.
-    Restoring with :func:`restore_forward_override` deletes the override
-    instead of pinning the old bound method on the instance, so later
-    class-level ``forward`` patches (e.g. NegPiP) keep working.
-    """
-
-    previous = module.__dict__.get("forward", _NO_INSTANCE_FORWARD)
-    module.forward = forward
-    return previous
-
-
-def restore_forward_override(module, forward, previous) -> bool:
-    """Undo :func:`install_forward_override` while ``forward`` is still active."""
-
-    if module.__dict__.get("forward") is not forward:
-        return False
-    if previous is _NO_INSTANCE_FORWARD:
-        del module.__dict__["forward"]
-    else:
-        module.__dict__["forward"] = previous
-    return True

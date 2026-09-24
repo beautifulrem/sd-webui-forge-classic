@@ -18,6 +18,7 @@ from einops import rearrange
 from backend.nn.anima import SelfCrossAttention
 from backend.sampling import condition, sampling_function
 from modules import shared
+from modules.forward_override import install_forward_override, restore_forward_override
 
 
 def patch_anima_negpip(cls: "NegPiP", *, unpatch=False):
@@ -39,19 +40,19 @@ def patch_anima_negpip(cls: "NegPiP", *, unpatch=False):
 
 def _hook_get_learned_conditioning(model: "AnimaEngine", remove: bool):
     if remove:
-        if hasattr(model, "orig_forward"):
-            model.get_learned_conditioning = model.orig_forward
-            del model.orig_forward
+        restore = model.__dict__.pop("_negpip_restore_conditioning", None)
+        if restore is not None:
+            restore_forward_override(model, *restore, name="get_learned_conditioning")
         return
 
-    model.orig_forward = model.get_learned_conditioning
+    orig_get_learned_conditioning = model.get_learned_conditioning
 
     engine: "AnimaTextProcessingEngine" = model.text_processing_engine_anima
 
     @torch.inference_mode()
-    @wraps(model.orig_forward)
+    @wraps(orig_get_learned_conditioning)
     def negpip_learned_conditioning(prompt: "SdConditioning"):
-        conds = model.orig_forward(prompt)
+        conds = orig_get_learned_conditioning(prompt)
         assert isinstance(conds, list)
         assert len(prompt) == len(conds)
 
@@ -87,7 +88,10 @@ def _hook_get_learned_conditioning(model: "AnimaEngine", remove: bool):
             "c_negpip_mask": torch.stack(negpip_mask, dim=0),
         }
 
-    model.get_learned_conditioning = negpip_learned_conditioning
+    model._negpip_restore_conditioning = (
+        negpip_learned_conditioning,
+        install_forward_override(model, negpip_learned_conditioning, name="get_learned_conditioning"),
+    )
 
 
 def _build_negpip_mask(
@@ -120,16 +124,17 @@ def _build_negpip_mask(
 
 def _hook_dit_forward(dit: "Anima", remove: bool):
     if remove:
-        if hasattr(dit, "orig_forward"):
-            if getattr(dit.forward, "_negpip", False):
-                dit.forward = dit.orig_forward
-            del dit.orig_forward
+        # Remove the instance override instead of pinning the old bound method;
+        # the wrapper keeps its own reference to the original forward.
+        restore = dit.__dict__.pop("_negpip_restore", None)
+        if restore is not None:
+            restore_forward_override(dit, *restore)
         return
 
-    dit.orig_forward = dit.forward
+    orig_forward = dit.forward
 
     @torch.inference_mode()
-    @wraps(dit.orig_forward)
+    @wraps(orig_forward)
     def negpip_forward(
         x: torch.Tensor,
         timesteps: torch.Tensor,
@@ -152,10 +157,10 @@ def _hook_dit_forward(dit: "Anima", remove: bool):
         transformer_options["negpip_mask"] = negpip_mask
         kwargs["transformer_options"] = transformer_options
 
-        return dit.orig_forward(x, timesteps, context, padding_mask, **kwargs)
+        return orig_forward(x, timesteps, context, padding_mask, **kwargs)
 
     negpip_forward._negpip = True
-    dit.forward = negpip_forward
+    dit._negpip_restore = (negpip_forward, install_forward_override(dit, negpip_forward))
 
 
 def _hook_forwards(remove: bool):

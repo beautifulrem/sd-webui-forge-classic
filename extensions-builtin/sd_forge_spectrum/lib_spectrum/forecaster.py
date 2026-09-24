@@ -332,12 +332,10 @@ class SpectrumNode:
         required = ("final_layer", "t_embedder", "t_embedding_norm", "unpatchify")
         feature_cache = dit is not None and predictor is not None and all(hasattr(dit, name) for name in required)
 
+        # Every pass starts from forge_objects_after_applying_lora, so any
+        # existing wrapper was installed in this pass (scripts run in load
+        # order, e.g. Guidance/Regional before Spectrum) and must be kept.
         old_wrapper = new_model.model_options.get("model_function_wrapper")
-        # process_before_every_sampling runs again for hires/img2img passes. Do
-        # not retain pass-scoped Spectrum/Regional/Modulation closures from the
-        # prior pass; they are rebuilt in sorting-priority order below.
-        while getattr(old_wrapper, "__forge_pass_wrapper_kind__", None) in {"spectrum", "anima_modulation", "anima_regional"}:
-            old_wrapper = getattr(old_wrapper, "__forge_previous_wrapper__", None)
         tail_from_fraction = max(0, int(steps) - int(math.ceil(float(steps) * float(stop_caching_step))))
         tail_actual_steps = max(int(tail_actual_steps), tail_from_fraction)
         calibration = None

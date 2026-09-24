@@ -15,7 +15,7 @@ import torch.nn.functional as F
 from backend.operations import main_stream_worker, weights_manual_cast
 from backend.patcher.base import LowVramPatch, OnlineLoRAPatch
 from backend.patcher.lora import merge_lora_to_weight
-from modules.anima_support import install_forward_override, restore_forward_override
+from modules.forward_override import install_forward_override, restore_forward_override
 from .masks import fit_mask_batch, generate_masks
 
 logger = logging.getLogger("AnimaFreeFuse")
@@ -589,6 +589,12 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
     dit = patched.model.diffusion_model
     state.validate_patches(patched)
     previous = patched.model_options.get("model_function_wrapper")
+    # Walk the DiT once per pass instead of on every model call.
+    linear_modules = [
+        (module_name, module)
+        for module_name, module in dit.named_modules()
+        if isinstance(module, torch.nn.Linear)
+    ]
 
     def wrapper(model_function, args):
         with _PATCH_LOCK:
@@ -603,9 +609,7 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
                     originals.append(
                         (cross, forward, install_forward_override(cross, forward))
                     )
-                for module_name, module in dit.named_modules():
-                    if not isinstance(module, torch.nn.Linear):
-                        continue
+                for module_name, module in linear_modules:
                     forward = _make_linear_forward(
                         module.forward,
                         module,

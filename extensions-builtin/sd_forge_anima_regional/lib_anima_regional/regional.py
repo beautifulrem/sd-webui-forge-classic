@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import torch
 
-from modules.anima_support import install_forward_override, restore_forward_override
+from modules.forward_override import install_forward_override, restore_forward_override
 
 
 _PATCH_LOCK = threading.RLock()

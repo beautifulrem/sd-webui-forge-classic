@@ -137,6 +137,54 @@ class ForecasterTests(unittest.TestCase):
         self.assertEqual(len(calls), 4)
         self.assertTrue(torch.allclose(outputs[3], torch.full((1, 1), 4.0), atol=1e-3))
 
+    def test_wrappers_installed_earlier_in_the_pass_are_kept(self):
+        class FakePatcher:
+            def __init__(self, previous):
+                self.model = SimpleNamespace(diffusion_model=torch.nn.Identity(), predictor=object())
+                self.model_options = {"model_function_wrapper": previous}
+                self.wrapper = None
+
+            def clone(self):
+                return self
+
+            def set_model_unet_function_wrapper(self, wrapper):
+                self.wrapper = wrapper
+
+        calls = []
+
+        def regional(model_function, args):
+            calls.append("regional")
+            return model_function(args["input"], args["timestep"], **args["c"])
+
+        regional.__forge_pass_wrapper_kind__ = "anima_regional"
+        patcher = SpectrumNode.patch(
+            FakePatcher(regional),
+            steps=4,
+            weight=1.0,
+            degree=1,
+            lam=0.1,
+            window_size=2,
+            flex_window=0.0,
+            warmup_steps=1,
+            stop_caching_step=1.0,
+            tail_actual_steps=1,
+            history_size=3,
+            schedule="Window",
+            refresh_ratio=0.0,
+            sea_beta=2.0,
+            compat_policy="Conservative",
+            verbose=False,
+            sea_cache_dir="unused",
+            sea_cache_context={},
+            process=SimpleNamespace(),
+        )
+        patcher.wrapper(
+            lambda x, t, **c: x,
+            {"input": torch.zeros(1, 1), "timestep": torch.ones(1), "c": {}, "cond_or_uncond": [0]},
+        )
+
+        self.assertEqual(calls, ["regional"])
+
 
 if __name__ == "__main__":
     unittest.main()

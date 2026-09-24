@@ -352,10 +352,8 @@ class AnimaFreeFuseScript(scripts.Script):
 
     @staticmethod
     def _configure_sampling(p, values):
-        if p.extra_generation_params.get("Anima regional enabled") is True:
-            raise ValueError(
-                "Anima FreeFuse and Anima Regional Conditioning cannot run in the same pass"
-            )
+        # Regional runs after FreeFuse (script load order) and yields to it via
+        # ``p._anima_freefuse_enabled``; Artist Mixer runs first and is checked here.
         artist_state = p.extra_generation_params.get("Anima Artist Mixer")
         if artist_state and not str(artist_state).startswith("disabled:"):
             raise ValueError(

@@ -11,6 +11,7 @@ import torch
 
 from lib_negpip import IS_NEO
 from modules import shared
+from modules.forward_override import install_forward_override, restore_forward_override
 
 if IS_NEO:
     from backend.attention import attention_function as optimized_attention
@@ -52,17 +53,16 @@ class Counter:
 
 def _hook_forward(cls: "NegPiP", module: "CrossAttention", remove: bool):
     if remove:
-        if hasattr(module, "orig_forward"):
-            module.forward = module.orig_forward
-            del module.orig_forward
+        # Remove the instance override instead of pinning the old bound method.
+        restore = module.__dict__.pop("_negpip_restore", None)
+        if restore is not None:
+            restore_forward_override(module, *restore)
         return
 
     counter = Counter(cls.is_xl)
 
-    module.orig_forward = module.forward
-
     @torch.inference_mode()
-    @wraps(module.orig_forward)
+    @wraps(module.forward)
     def forward(x, context=None, value=None, mask=None, *args, **kwargs):
 
         @torch.inference_mode()
@@ -118,7 +118,7 @@ def _hook_forward(cls: "NegPiP", module: "CrossAttention", remove: bool):
             cls.uc_tokens[0] if len(cls.unconds) > 0 else None,
         )
 
-    module.forward = forward
+    module._negpip_restore = (forward, install_forward_override(module, forward))
 
 
 @torch.inference_mode()

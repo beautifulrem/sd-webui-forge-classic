@@ -163,6 +163,10 @@ class NegPiP(scripts.Script):
     def postprocess(self, *args, **kwargs):
         self.reset()
 
+    def cleanup(self, *args, **kwargs):
+        # Runs even when generation raises, so hooks never outlive a failed run.
+        self.reset()
+
     def before_hr(self, *args, **kwargs):
         self.is_hr = True
 

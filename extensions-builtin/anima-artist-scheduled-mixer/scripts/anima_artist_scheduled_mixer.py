@@ -13,7 +13,7 @@ import torch
 from modules import script_callbacks, scripts, shared
 from modules.anima_feature_conflicts import register_exclusive_component
 from modules.anima_presets import register_preset_control
-from modules.anima_support import install_forward_override, restore_forward_override
+from modules.forward_override import install_forward_override, restore_forward_override
 
 
 logger = logging.getLogger("anima_artist_scheduled_mixer")
@@ -1814,6 +1814,12 @@ def _install_model_wrapper(unet, dm, state):
     had_wrapper = "model_function_wrapper" in options
 
     def model_wrapper(apply_model, args):
+        if _ACTIVE_STATE is not state:
+            # A wrapper that outlived its run (e.g. on a clone taken before
+            # cleanup) must not re-patch the blocks with stale artists.
+            if existing is not None:
+                return existing(apply_model, args)
+            return apply_model(args.get("input"), args.get("timestep"), **args.get("c", {}))
         state.wrapper_checks += 1
         if not _PATCHED_MODULES:
             _install_cross_attn_patch_no_unpatch(dm, state)

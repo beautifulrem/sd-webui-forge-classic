@@ -37,6 +37,8 @@ from lib_anima_guidance.nag import NAGAttentionModifier
 from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS
 from modules import paths, script_callbacks, scripts
 from modules.anima_feature_conflicts import (
+    SMC_GUIDANCE,
+    STANDARD_GUIDANCE,
     record_conflict_resolution,
     resolve_guidance_conflicts,
 )
@@ -647,6 +649,9 @@ class AnimaGuidanceScript(scripts.Script):
             if getattr(p, "is_hr_pass", False)
             else p.sampler_name
         )
+        # SMC with alpha <= 0 installs nothing, so it must not evict Momentum.
+        if str(guidance_mode) == SMC_GUIDANCE and float(smc_alpha) <= 0.0:
+            guidance_mode = STANDARD_GUIDANCE
         conflict_state = resolve_guidance_conflicts(
             sampler=str(active_sampler),
             mode=str(guidance_mode),
@@ -656,7 +661,7 @@ class AnimaGuidanceScript(scripts.Script):
         guidance_mode = conflict_state.mode
         momentum_enable = conflict_state.momentum
         dcw_enable = conflict_state.dcw
-        smc_enabled = guidance_mode == "SMC-CFG" and float(smc_alpha) > 0.0
+        smc_enabled = guidance_mode == SMC_GUIDANCE and float(smc_alpha) > 0.0
         fdg_enabled = guidance_mode == "FDG (experimental)"
         dcw_enabled = bool(dcw_enable) and not math.isclose(float(dcw_lambda), 0.0)
         cns_selected = active_sampler == "Anima ER SDE CNS"

@@ -338,7 +338,8 @@
     async function runner(state) {
         if (dispatched) {
             const mine = state.items.find(function (i) { return i.id === dispatched.id; });
-            if (!mine || mine.status !== "running") {
+            // A stale-timeout failure can still be overturned by our /finish.
+            if (!mine || (mine.status !== "running" && !mine.stale)) {
                 dispatched = null; // removed or finished elsewhere
                 return;
             }

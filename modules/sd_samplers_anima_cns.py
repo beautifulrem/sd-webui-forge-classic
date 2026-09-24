@@ -142,7 +142,9 @@ class CNSRecolorer:
                 _record_cns_fallback(process, reason)
                 return None
         try:
-            recolorer = cls.calibrated(strength)
+            # Only fetching/reading the artifact falls back; errors in the
+            # recolorer itself are real bugs and must surface.
+            arrays = load_gamma_arrays()
         except Exception as error:
             _GAMMA_FAILED_AT = time.monotonic()
             reason = f"gamma file unavailable ({type(error).__name__})"
@@ -150,7 +152,7 @@ class CNSRecolorer:
             _record_cns_fallback(process, reason)
             return None
         _GAMMA_FAILED_AT = None
-        return recolorer
+        return cls(arrays["gamma"], arrays["aspects"], arrays["sigmas"], strength)
 
     def _select_aspect(self, height: int, width: int) -> None:
         aspect = width / max(height, 1)
