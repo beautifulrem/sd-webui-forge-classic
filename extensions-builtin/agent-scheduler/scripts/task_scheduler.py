@@ -25,6 +25,8 @@ from agent_scheduler.task_runner import TaskRunner, get_instance
 from agent_scheduler.helpers import get_default_config_dependencies, log, compare_components_with_ids, get_components_by_ids, is_macos
 from agent_scheduler.db import init as init_db, task_manager, TaskStatus
 from agent_scheduler.api import regsiter_apis
+from agent_scheduler import file_guard
+from agent_scheduler.signing import protected_files
 
 is_sdnext = parser.description == "SD.Next"
 ToolButton = gr.Button if is_sdnext else ui_components.ToolButton
@@ -793,6 +795,11 @@ def on_ui_settings():
 
 def on_app_started(block: gr.Blocks, app):
     global task_runner
+
+    # Forge serves the data dir through /file=: hide the task DB and key.
+    if not file_guard.install(app, protected_files) and block is not None:
+        log.warning("[AgentScheduler] Could not protect the task database from Gradio's /file= route")
+
     task_runner = get_instance(block)
     task_runner.execute_pending_tasks_threading()
     regsiter_apis(app, task_runner)

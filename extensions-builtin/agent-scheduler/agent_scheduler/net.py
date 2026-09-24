@@ -4,8 +4,9 @@ Checking a URL's DNS answer before requesting it is not enough: the request
 resolves the host again, and a rebinding DNS server can answer differently the
 second time. These sessions check the peer address of every connection they
 open instead. Through a configured proxy the proxy is the peer, so there the
-target host must resolve locally to allowed addresses before it is sent (the
-proxy resolves it again; an IP literal target is always checked exactly).
+target is checked by resolving it locally before sending: IP literals exactly,
+host names as far as local DNS can see them (a name only the proxy resolves
+is left to the proxy's own policy, as with any other client behind it).
 """
 
 import ipaddress
@@ -112,9 +113,7 @@ class _CheckedAdapter(HTTPAdapter):
             try:
                 addresses = [info[4][0] for info in socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)]
             except OSError:
-                addresses = []
-            if not addresses:
-                raise AddressNotAllowed(f"cannot check {host}: it does not resolve here")
+                addresses = []  # only the proxy resolves it
             for address in addresses:
                 if not self._allowed(address):
                     raise AddressNotAllowed(f"requests to {host} ({address}) are not allowed")

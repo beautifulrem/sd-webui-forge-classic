@@ -23,7 +23,8 @@ from modules.api.models import (
 
 from .helpers import log, get_dict_attribute
 from .net import global_address_allowed, guarded_session
-from .signing import strip_signature
+from .legacy_pickle import legacy_load
+from .signing import sign, strip_signature, verified_payload
 
 img2img_image_args_by_mode: Dict[int, List[List[str]]] = {
     0: [["init_img"]],
@@ -259,14 +260,18 @@ def serialize_script_args(script_args: List):
         if type(a).__name__ in ("UiControlNetUnit", "ControlNetUnit"):
             script_args[i] = serialize_controlnet_args(a)
 
-    return zlib.compress(pickle.dumps(script_args))
+    return sign(zlib.compress(pickle.dumps(script_args)))
 
 
 def deserialize_script_args(script_args: Union[bytes, List], UiControlNetUnit = None):
     if type(script_args) is bytes:
-        # Stored params come from this server only: /import verifies the
-        # signature of exported params before they reach the database.
-        script_args = pickle.loads(zlib.decompress(strip_signature(script_args)))
+        payload = verified_payload(script_args)
+        if payload is not None:
+            script_args = pickle.loads(zlib.decompress(payload))
+        else:
+            # Stored before signing (or under a replaced key): such rows cannot
+            # be told apart from crafted imports, so only plain data loads.
+            script_args = legacy_load(strip_signature(script_args))
 
     for i, a in enumerate(script_args):
         if isinstance(a, dict) and a.get("is_cnet", False):
