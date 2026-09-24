@@ -13,7 +13,7 @@ from typing import Iterable
 from urllib.parse import urlparse
 
 
-def refusal(app, request) -> tuple[int, str] | None:
+def refusal(app, request, require_login: bool = True) -> tuple[int, str] | None:
     """(status, reason) when ``request`` must be refused, else None."""
     if request.method not in ("GET", "HEAD", "OPTIONS"):
         origin = request.headers.get("origin")
@@ -22,6 +22,8 @@ def refusal(app, request) -> tuple[int, str] | None:
             origin and (origin == "null" or urlparse(origin).netloc not in hosts)
         ):
             return 403, "Cross-site request refused"
+    if not require_login:
+        return None
     auth_dependency = getattr(app, "auth_dependency", None)
     if auth_dependency is not None:
         user = auth_dependency(request)
@@ -36,22 +38,19 @@ def refusal(app, request) -> tuple[int, str] | None:
     return None if user is not None else (401, "Not authenticated")
 
 
-def guard_routes(app, prefixes: Iterable[str]) -> int:
-    """Wrap every route of ``app`` under ``prefixes``; returns how many."""
+def _wrap(app, routes, require_login: bool) -> int:
     from starlette.requests import Request
     from starlette.responses import PlainTextResponse
 
-    prefixes = tuple(prefixes)
     wrapped = 0
-    for route in getattr(app, "router", app).routes:
-        path = getattr(route, "path", "")
-        if not path.startswith(prefixes) or getattr(route, "_forge_route_guarded", False):
+    for route in routes:
+        if getattr(route, "_forge_route_guarded", False) or not hasattr(route, "app"):
             continue
         original = route.app
 
         async def guarded(scope, receive, send, original=original):
             if scope.get("type") == "http":
-                refused = refusal(app, Request(scope, receive))
+                refused = refusal(app, Request(scope, receive), require_login)
                 if refused is not None:
                     status, reason = refused
                     await PlainTextResponse(reason, status_code=status)(scope, receive, send)
@@ -62,3 +61,31 @@ def guard_routes(app, prefixes: Iterable[str]) -> int:
         route._forge_route_guarded = True
         wrapped += 1
     return wrapped
+
+
+def _routes(app):
+    return list(getattr(app, "router", app).routes)
+
+
+def guard_routes(app, prefixes: Iterable[str]) -> int:
+    """Login + cross-site checks for UI-only routes under ``prefixes``;
+    returns how many were wrapped."""
+    prefixes = tuple(prefixes)
+    return _wrap(app, [r for r in _routes(app) if getattr(r, "path", "").startswith(prefixes)], True)
+
+
+def snapshot_routes(app) -> set:
+    return {id(route) for route in _routes(app)}
+
+
+def guard_new_routes(app, before: set, exclude: Iterable[str] = ()) -> int:
+    """Cross-site checks for every route added since ``before`` (i.e. by
+    extensions), except under ``exclude``. No login requirement: extension
+    APIs may serve non-browser clients, which send no Origin header."""
+    exclude = tuple(exclude)
+    routes = [
+        route
+        for route in _routes(app)
+        if id(route) not in before and not (exclude and getattr(route, "path", "").startswith(exclude))
+    ]
+    return _wrap(app, routes, False)

@@ -27,6 +27,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
 from modules import paths_internal, script_callbacks, shared
+from modules.extension_route_guard import guard_routes
 
 try:
     from modules import progress as webui_progress
@@ -419,4 +420,7 @@ def on_ui_tabs():
 
 
 script_callbacks.on_app_started(register_api)
+# Registered after the routes: they drive the UI's Generate button, so they
+# require the Gradio login (when set) and refuse cross-site writes.
+script_callbacks.on_app_started(lambda _demo, app: guard_routes(app, ("/prompt-queue/",)))
 script_callbacks.on_ui_tabs(on_ui_tabs)

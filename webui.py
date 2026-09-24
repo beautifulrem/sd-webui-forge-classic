@@ -10,7 +10,7 @@ from fastapi import Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
-from modules import initialize, initialize_util, timer
+from modules import extension_route_guard, initialize, initialize_util, timer
 from modules_forge.initialization import initialize_forge
 
 startup_timer = timer.startup_timer
@@ -59,7 +59,9 @@ def api_only_worker():
     from modules import script_callbacks
 
     script_callbacks.before_ui_callback()
+    routes_before = extension_route_guard.snapshot_routes(app)
     script_callbacks.app_started_callback(None, app)
+    extension_route_guard.guard_new_routes(app, routes_before)
 
     print(f"Startup time: {startup_timer.summary()}.")
     api.launch(server_name=initialize_util.gradio_server_name(), port=cmd_opts.port if cmd_opts.port else 7861, root_path=f"/{cmd_opts.subpath}" if cmd_opts.subpath else "")
@@ -145,7 +147,11 @@ def webui_worker():
         startup_timer.record("add APIs")
 
         with startup_timer.subcategory("app_started_callback"):
+            routes_before = extension_route_guard.snapshot_routes(app)
             script_callbacks.app_started_callback(shared.demo, app)
+            # Routes added by extensions: refuse cross-site writes (CORS only
+            # hides responses from other sites, it does not stop requests).
+            extension_route_guard.guard_new_routes(app, routes_before)
 
         timer.startup_record = startup_timer.dump()
         print(f"Startup time: {startup_timer.summary()}.")
