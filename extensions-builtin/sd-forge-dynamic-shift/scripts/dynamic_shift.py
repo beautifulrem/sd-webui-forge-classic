@@ -205,15 +205,16 @@ class DynamicShiftScript(scripts.Script):
             p.extra_generation_params["DynShift disabled"] = reason
             logger.warning("%s; Dynamic Shift skipped", reason)
             return
+        # Check ownership before touching the scheduler so a skipped run keeps the user's choice.
+        if p.sampler_noise_scheduler_override is not None:
+            logger.warning("Another script already overrides the noise scheduler; Dynamic Shift skipped")
+            return
+
         if conflict_state.scheduler != str(getattr(p, "scheduler", "Automatic")):
             p.extra_generation_params["DynShift replaced scheduler"] = getattr(
                 p, "scheduler", "Automatic"
             )
             p.scheduler = conflict_state.scheduler
-
-        if p.sampler_noise_scheduler_override is not None:
-            logger.warning("Another script already overrides the noise scheduler; Dynamic Shift skipped")
-            return
 
         if curve not in CURVES:
             curve = "Linear"

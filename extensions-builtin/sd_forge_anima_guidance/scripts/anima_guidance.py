@@ -867,20 +867,9 @@ class AnimaGuidanceScript(scripts.Script):
         if smc_enabled or fdg_enabled or skim_enable or guidance_range_enable:
             unet.set_model_sampler_cfg_function(active_cfg_function, disable_cfg1_optimization=True)
 
-        momentum_samplers = {"Euler", "Anima Flow Euler", "Anima FreeFuse Euler"}
-        momentum_enabled = (
-            bool(momentum_enable)
-            and not (smc_enabled or fdg_enabled)
-            and active_sampler in momentum_samplers
-        )
-        if momentum_enable and not momentum_enabled:
-            reason = (
-                f"incompatible CFG mode {guidance_mode}"
-                if smc_enabled or fdg_enabled
-                else f"sampler {active_sampler} performs unsupported intermediate evaluations"
-            )
-            p.extra_generation_params["Anima Momentum Guidance"] = f"disabled: {reason}"
-            logger.warning("Anima Momentum Guidance was disabled: %s", reason)
+        # resolve_guidance_conflicts() already dropped Momentum for unsupported
+        # samplers and SMC/FDG modes, and recorded why.
+        momentum_enabled = bool(momentum_enable)
         if momentum_enabled:
             momentum_state = MomentumGuidanceState(
                 momentum=float(momentum_strength),

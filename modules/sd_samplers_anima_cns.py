@@ -7,7 +7,9 @@ The recoloring numerics are adapted from sorryhyun/ComfyUI-Spectrum-KSampler
 from __future__ import annotations
 
 import hashlib
+import logging
 import threading
+import time
 import urllib.request
 from pathlib import Path
 from typing import Optional
@@ -28,6 +30,10 @@ GAMMA_SHA256 = "538d5fad8253a8799600d4ff2e1a89a79e770f5a684d52f01f16e628299a7e7e
 GAMMA_MAX_BYTES = 1024 * 1024
 _GAMMA_LOCK = threading.RLock()
 _GAMMA_ARRAYS: Optional[dict[str, np.ndarray]] = None
+_GAMMA_RETRY_SECONDS = 600.0
+_GAMMA_FAILED_AT: Optional[float] = None
+
+logger = logging.getLogger(__name__)
 
 
 def _gamma_path() -> Path:
@@ -123,6 +129,29 @@ class CNSRecolorer:
         arrays = load_gamma_arrays()
         return cls(arrays["gamma"], arrays["aspects"], arrays["sigmas"], strength)
 
+    @classmethod
+    def try_calibrated(cls, strength: float, process=None) -> Optional["CNSRecolorer"]:
+        """Return a recolorer, or ``None`` (plain ER-SDE noise) when the gamma
+        artifact is unavailable, e.g. offline. Failed downloads are not retried
+        for ``_GAMMA_RETRY_SECONDS`` so each generation does not stall."""
+
+        global _GAMMA_FAILED_AT
+        if _GAMMA_ARRAYS is None and _GAMMA_FAILED_AT is not None:
+            if time.monotonic() - _GAMMA_FAILED_AT < _GAMMA_RETRY_SECONDS:
+                reason = "gamma file unavailable (retry pending)"
+                _record_cns_fallback(process, reason)
+                return None
+        try:
+            recolorer = cls.calibrated(strength)
+        except Exception as error:
+            _GAMMA_FAILED_AT = time.monotonic()
+            reason = f"gamma file unavailable ({type(error).__name__})"
+            logger.warning("Anima CNS falls back to white noise: %s: %s", reason, error)
+            _record_cns_fallback(process, reason)
+            return None
+        _GAMMA_FAILED_AT = None
+        return recolorer
+
     def _select_aspect(self, height: int, width: int) -> None:
         aspect = width / max(height, 1)
         calibrated = self.aspects[:, 1] / np.maximum(self.aspects[:, 0], 1.0)
@@ -166,6 +195,12 @@ class CNSRecolorer:
         return colored.to(dtype=white.dtype)
 
 
+def _record_cns_fallback(process, reason: str) -> None:
+    params = getattr(process, "extra_generation_params", None)
+    if isinstance(params, dict):
+        params["Anima CNS"] = f"white-noise fallback: {reason}"
+
+
 def _require_anima_flow(model) -> None:
     require_anima_flow_denoiser(model, "Anima ER SDE CNS")
 
@@ -195,7 +230,11 @@ def sample_anima_er_sde_cns(
     _require_anima_flow(model)
     extra_args = {} if extra_args is None else extra_args
     noise_sampler = default_noise_sampler(x) if noise_sampler is None else noise_sampler
-    recolorer = CNSRecolorer.calibrated(cns_strength) if cns_strength > 0.0 else None
+    recolorer = (
+        CNSRecolorer.try_calibrated(cns_strength, getattr(model, "p", None))
+        if cns_strength > 0.0
+        else None
+    )
     s_in = x.new_ones([x.shape[0]])
 
     def default_er_sde_noise_scaler(value):

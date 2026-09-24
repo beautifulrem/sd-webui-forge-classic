@@ -10,6 +10,10 @@ import torch
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
+from unittest import mock
+from types import SimpleNamespace
+
+from modules import sd_samplers_anima_cns
 from modules.sd_samplers_anima_cns import CNSRecolorer, radial_bins
 
 
@@ -38,6 +42,17 @@ class CNSTests(unittest.TestCase):
         self.assertTrue(torch.isfinite(result).all())
         std = result.float().std(dim=(-2, -1))
         self.assertTrue(torch.allclose(std, torch.ones_like(std), atol=1e-4, rtol=1e-4))
+
+    def test_unavailable_gamma_falls_back_without_retrying_every_run(self):
+        process = SimpleNamespace(extra_generation_params={})
+        failing = mock.Mock(side_effect=OSError("offline"))
+        with mock.patch.object(sd_samplers_anima_cns, "_GAMMA_ARRAYS", None), mock.patch.object(
+            sd_samplers_anima_cns, "_GAMMA_FAILED_AT", None
+        ), mock.patch.object(sd_samplers_anima_cns, "load_gamma_arrays", failing):
+            self.assertIsNone(CNSRecolorer.try_calibrated(1.0, process))
+            self.assertIsNone(CNSRecolorer.try_calibrated(1.0, process))
+        self.assertEqual(failing.call_count, 1)
+        self.assertIn("white-noise fallback", process.extra_generation_params["Anima CNS"])
 
 
 if __name__ == "__main__":

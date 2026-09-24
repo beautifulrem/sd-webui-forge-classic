@@ -197,20 +197,34 @@ class _Store:
             self.enabled = bool(enabled)
             self._bump()
 
+    def _touch_running(self, now):
+        """Record that a running item is still alive (the webui is working on it)."""
+        for i in self.items:
+            if i["status"] == "running":
+                i["active"] = now
+
     def pop_next(self):
         """Atomically hand the next pending item to the runner, or None."""
         with self.lock:
-            if not self.enabled or webui_is_busy() or agent_scheduler_has_pending_work():
-                return None
             now = time.time()
+            if webui_is_busy():
+                self._touch_running(now)
+                return None
+            if not self.enabled or agent_scheduler_has_pending_work():
+                return None
             for i in self.items:
                 if i["status"] == "running":
                     # A runner already owns an item. If it looks abandoned
                     # (e.g. the browser tab was closed mid-dispatch), fail it
                     # and move on; otherwise refuse to double-dispatch.
-                    if now - (i.get("started") or now) > STALE_RUNNING_SECONDS:
+                    # Staleness counts from the last time the webui was seen
+                    # busy, not from dispatch, so long generations whose
+                    # /finish is still in flight are not failed.
+                    last_seen = i.get("active") or i.get("started") or now
+                    if now - last_seen > STALE_RUNNING_SECONDS:
                         i["status"] = "failed"
                         i["finished"] = now
+                        i["stale"] = True
                     else:
                         return None
             for i in self.items:
@@ -224,7 +238,9 @@ class _Store:
     def finish(self, item_id, status):
         with self.lock:
             for i in self.items:
-                if i["id"] == item_id and i["status"] == "running":
+                # A late /finish still wins over a stale-timeout failure.
+                if i["id"] == item_id and (i["status"] == "running" or i.get("stale")):
+                    i.pop("stale", None)
                     i["status"] = status if status in ("done", "failed") else "done"
                     i["finished"] = time.time()
                     self._prune_finished()
@@ -234,10 +250,13 @@ class _Store:
 
     def snapshot(self):
         with self.lock:
+            busy = webui_is_busy()
+            if busy:
+                self._touch_running(time.time())
             return {
                 "version": self.version,
                 "enabled": self.enabled,
-                "busy": webui_is_busy(),
+                "busy": busy,
                 "max": MAX_PENDING,
                 "pending": len(self._pending()),
                 "items": [dict(i) for i in self.items],

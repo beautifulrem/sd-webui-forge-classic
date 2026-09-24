@@ -301,40 +301,18 @@ class PromptAnchorScript(scripts.Script):
                 # with the per-image prompt list we just rewrote.
                 p.main_prompt = p.all_prompts[0]
 
-            # Hires-fix has its own separate prompt fields (`hr_prompt`
-            # and `all_hr_prompts`). When the user enables hires fix
-            # without specifying a separate hires prompt, the webui
-            # fills these with copies of the main prompt -- BUT it does
-            # that copy in `setup_prompts()` which runs AFTER our
-            # process(). So we need to handle two cases:
-            #
-            #   (a) `hr_prompt` already differs from `prompt` -- the
-            #       user wrote a distinct hires prompt. Prepend our
-            #       anchor to that one too, so the hires pass also gets
-            #       the styles.
-            #   (b) `hr_prompt` is empty or matches the original
-            #       `prompt` -- it'll be auto-filled later from
-            #       `p.prompt`, which we've already prepended into. Do
-            #       NOTHING here; otherwise we'd double-prepend.
-            #
-            # We detect (a) by checking the hr_prompt against the
-            # ORIGINAL prompt (the one before we joined). If they're
-            # different and hr_prompt is non-empty, the user customised
-            # the hires prompt and we should prepend separately.
+            # Hires-fix has its own prompt fields (`hr_prompt` and
+            # `all_hr_prompts`). process_images() runs setup_prompts()
+            # BEFORE scripts.process(), so both are already filled here
+            # (copied from the original prompt when the user left the
+            # hires prompt empty). Prepend unconditionally so the base
+            # and hires passes use the same anchored conditioning.
             hr_prompt = getattr(p, "hr_prompt", None)
-            # Stash a reference to the pre-joined prompt for the
-            # comparison. (We've already overwritten p.prompt above.)
-            # The simplest check: if hr_prompt is non-empty AND doesn't
-            # start with our anchor text, it must be a user-authored
-            # distinct hires prompt -- prepend.
-            if hr_prompt and not hr_prompt.startswith(text):
+            if isinstance(hr_prompt, str) and hr_prompt:
                 p.hr_prompt = _join(text, hr_prompt, sep)
-                all_hr = getattr(p, "all_hr_prompts", None)
-                if all_hr:
-                    p.all_hr_prompts = [
-                        _join(text, hp or "", sep) if hp and not hp.startswith(text) else hp
-                        for hp in all_hr
-                    ]
+            all_hr = getattr(p, "all_hr_prompts", None)
+            if all_hr:
+                p.all_hr_prompts = [_join(text, hp or "", sep) for hp in all_hr]
 
             # Record in infotext so the value survives into PNG metadata
             # and "send to txt2img" round-trips. Wrap in double quotes
