@@ -822,6 +822,9 @@ export default {
                     if (typeof TAC_CFG === 'object' && typeof QUEUE_FILE_LOAD === 'object') {
                         QUEUE_FILE_LOAD.push(() => {
                             if (typeof TAC_CFG.translation !== 'object' || typeof TAC_CFG.translation.translationFile !== 'string') return
+                            // TAC re-runs QUEUE_FILE_LOAD on every embedding refresh; load once.
+                            if (window.__paioTacTranslationLoaded) return
+                            window.__paioTacTranslationLoaded = true
                             const filename = TAC_CFG.translation.translationFile
                             if (!filename || filename === 'None') return
                             this.gradioAPI.getCSVs().then(csvs => {

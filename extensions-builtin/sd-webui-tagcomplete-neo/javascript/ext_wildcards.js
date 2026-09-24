@@ -101,7 +101,7 @@ class WildcardFileParser extends BaseTagParser {
 async function load() {
     if (wildcardFiles.length === 0 && wildcardExtFiles.length === 0) {
         try {
-            let wcFileArr = await loadCSV(`${tagBasePath}/temp/wc.txt`);
+            let wcFileArr = await loadCSV(`${tagTempPath}/wc.txt`);
             if (wcFileArr && wcFileArr.length > 0) {
                 let wcBasePath = wcFileArr[0][0].trim(); // First line should be the base path
                 wildcardFiles = wcFileArr.slice(1)
@@ -110,7 +110,7 @@ async function load() {
             }
 
             // To support multiple sources, we need to separate them using the provided "-----" strings
-            let wcExtFileArr = await loadCSV(`${tagBasePath}/temp/wce.txt`);
+            let wcExtFileArr = await loadCSV(`${tagTempPath}/wce.txt`);
             let splitIndices = [];
             for (let index = 0; index < wcExtFileArr.length; index++) {
                 if (wcExtFileArr[index][0].trim() === "-----") {
@@ -134,7 +134,7 @@ async function load() {
             }
 
             // Load the yaml wildcard json file and append it as a wildcard file, appending each key as a path component until we reach the end
-            yamlWildcards = await readFile(`${tagBasePath}/temp/wc_yaml.json`, true);
+            yamlWildcards = await readFile(`${tagTempPath}/wc_yaml.json`, true);
 
             // Append each key as a path component until we reach a leaf
             Object.keys(yamlWildcards).forEach(file => {

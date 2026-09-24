@@ -424,7 +424,9 @@ async function processQueue(queue, context, ...args) {
 // Parallel version for independent loads (e.g. QUEUE_FILE_LOAD)
 async function processQueueParallel(queue, context, ...args) {
     await Promise.all(queue.map(fn =>
-        fn.call(context, ...args).catch(err => {
+        // Queue entries may be synchronous (e.g. added by other extensions)
+        // or throw synchronously; normalize to a promise before .catch.
+        Promise.resolve().then(() => fn.call(context, ...args)).catch(err => {
             console.error('[TAC] Queue function error:', err);
             // Swallow so one failure doesn't break the others
         })

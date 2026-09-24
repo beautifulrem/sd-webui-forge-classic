@@ -1,6 +1,7 @@
 // Core components
 var TAC_CFG = null;
 var tagBasePath = "";
+var tagTempPath = "";
 var modelKeywordPath = "";
 var tacSelfTrigger = false;
 

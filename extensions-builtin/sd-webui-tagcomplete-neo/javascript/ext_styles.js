@@ -42,7 +42,7 @@ class StyleParser extends BaseTagParser {
 async function load(force = false) {
     if (styleNames.length === 0 || force) {
         try {
-            styleNames = (await loadCSV(`${tagBasePath}/temp/styles.txt`))
+            styleNames = (await loadCSV(`${tagTempPath}/styles.txt`))
                 .filter(x => x[0]?.trim().length > 0) // Remove empty lines
                 .filter(x => x[0] !== "None") // Remove "None" style
                 .map(x => [x[0].trim()]); // Trim name

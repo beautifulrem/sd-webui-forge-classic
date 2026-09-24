@@ -257,7 +257,7 @@ export default {
                     setTimeout(setLoading, 100, num + 1)
                 }
                 setLoading(0)
-                selectCheckpoint(data.name || data.basename)
+                selectCheckpoint(data.checkpoint_title || data.name || data.basename)
                 return
             }
             let indexes = this._groupTagsExtraNetworkTagsIndexes(data)

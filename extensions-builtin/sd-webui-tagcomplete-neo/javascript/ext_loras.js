@@ -55,7 +55,7 @@ const loraAliasMap = {};
 async function load() {
     if (loras.length === 0) {
         try {
-            const rows = (await loadCSV(`${tagBasePath}/temp/lora.txt`))
+            const rows = (await loadCSV(`${tagTempPath}/lora.txt`))
                 .filter(x => x[0]?.trim().length > 0); // Remove empty lines
             loras = rows.map(x => [x[0]?.trim(), x[1], x[2]]);
             // Build stem -> alias lookup from column 4

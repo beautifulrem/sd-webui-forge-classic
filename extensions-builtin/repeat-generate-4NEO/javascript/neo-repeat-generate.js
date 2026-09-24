@@ -486,8 +486,12 @@
         if (promptQueue && promptQueue.enabled && (promptQueue.pending > 0 || promptQueueRunning)) {
             return "Prompt Queue is active; pause it before starting Repeat.";
         }
-        if (agentQueue && !agentQueue.paused &&
-            (agentQueue.current_task_id || agentQueue.total_pending_tasks > 0)) {
+        const agentActive = agentQueue
+            ? !agentQueue.paused && (agentQueue.current_task_id || agentQueue.total_pending_tasks > 0)
+            // The scheduler API may be unreachable (e.g. 401 under --api-auth);
+            // fall back to Prompt Queue's server-side check.
+            : Boolean(promptQueue && promptQueue.agent_scheduler_active);
+        if (agentActive) {
             return "Agent Scheduler is active; pause it before starting Repeat.";
         }
         return null;
@@ -499,8 +503,18 @@
             requestStop(tabName);
             return;
         }
+        // Clicks while the conflict check is in flight must not start twice.
+        if (state.starting) {
+            return;
+        }
 
-        const conflict = await conflictingQueueReason();
+        state.starting = true;
+        let conflict;
+        try {
+            conflict = await conflictingQueueReason();
+        } finally {
+            state.starting = false;
+        }
         if (conflict) {
             setStatus(tabName, conflict);
             log(tabName, "repeat start blocked", { reason: conflict });

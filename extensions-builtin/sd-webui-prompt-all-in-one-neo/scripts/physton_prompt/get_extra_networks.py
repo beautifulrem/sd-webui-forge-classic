@@ -50,6 +50,20 @@ def _resolve_prompt_expression(expression):
         return ''
 
 
+def _normalized_path(filename):
+    return os.path.normcase(os.path.abspath(filename))
+
+
+def _checkpoint_titles():
+    """Map checkpoint file paths to their unique selectCheckpoint() titles."""
+    try:
+        from modules import sd_models
+
+        return {_normalized_path(info.filename): info.title for info in sd_models.checkpoints_list.values()}
+    except Exception:
+        return {}
+
+
 def get_extra_networks():
     result = []
     try:
@@ -59,6 +73,9 @@ def get_extra_networks():
                 'title': extra_page.title,
                 'items': []
             }
+            # Unique checkpoint titles for selectCheckpoint(); short names
+            # (name_for_extra) collide across folders.
+            checkpoint_titles = _checkpoint_titles() if extra_page.name == 'checkpoints' else {}
             for oriItem in extra_page.list_items():
                 item = copy.deepcopy(oriItem)
                 # 解析metadata
@@ -72,6 +89,8 @@ def get_extra_networks():
                     pass
                 item['output_name'] = output_name
                 item['prompt_text'] = _resolve_prompt_expression(item.get('prompt', ''))
+                if checkpoint_titles and item.get('filename'):
+                    item['checkpoint_title'] = checkpoint_titles.get(_normalized_path(item['filename']))
 
                 # 获取civitai.info
                 item['civitai_info'] = {}

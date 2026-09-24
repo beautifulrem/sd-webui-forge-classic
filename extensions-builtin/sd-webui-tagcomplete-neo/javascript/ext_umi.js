@@ -210,7 +210,7 @@ function updateUmiTags(tagType, sanitizedText, newPrompt, textArea) {
 async function load() {
     if (umiWildcards.length === 0) {
         try {
-            let umiTags = (await readFile(`${tagBasePath}/temp/umi_tags.txt`)).split("\n");
+            let umiTags = (await readFile(`${tagTempPath}/umi_tags.txt`)).split("\n");
             // Split into tag, count pairs
             umiWildcards = umiTags.map(x => x
                 .trim()

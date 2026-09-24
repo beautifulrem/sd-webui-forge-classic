@@ -465,9 +465,12 @@ def get_style_names():
         return None
 
 def write_tag_base_path():
-    """Writes the tag base path to a fixed location temporary file"""
+    """Writes the tag and temp-list base paths to fixed location temporary files"""
     with open(STATIC_TEMP_PATH.joinpath('tagAutocompletePath.txt'), 'w', encoding="utf-8") as f:
         f.write(TAGS_PATH.as_posix())
+    # Generated lists live in the isolated state dir, not under tags/temp.
+    with open(STATIC_TEMP_PATH.joinpath('tagAutocompleteTempPath.txt'), 'w', encoding="utf-8") as f:
+        f.write(TEMP_PATH.as_posix())
 
 
 def write_to_temp_file(name, data):
@@ -1010,23 +1013,32 @@ def api_tac(_: gr.Blocks, app: FastAPI):
     async def get_thumb_preview_blob(filename, type):
         return await get_preview_thumbnail(get_path_for_type(type), filename, True)
 
+    def _is_within(path: Path, root: Path) -> bool:
+        return path == root or root in path.parents
+
     @app.get("/tacapi/v1/wildcard-contents")
     async def get_wildcard_contents(basepath: str, filename: str):
         if basepath is None or basepath == "":
             return Response(status_code=404)
 
-        base = Path(basepath)
-        if base is None or (not base.exists()):
-            return Response(status_code=404)
-
         try:
-            wildcard_path = base.joinpath(filename)
-            if wildcard_path.exists() and wildcard_path.is_file():
+            # Only serve files inside the registered wildcard folders; basepath
+            # and filename come from the client.
+            roots = [root.resolve() for root in [WILDCARD_PATH, *(WILDCARD_EXT_PATHS or [])] if root.exists()]
+            base = Path(basepath)
+            if not base.is_absolute():
+                base = FILE_DIR.joinpath(base)
+            base = base.resolve()
+            if not any(_is_within(base, root) for root in roots):
+                return Response(status_code=404)
+
+            wildcard_path = base.joinpath(filename).resolve()
+            if _is_within(wildcard_path, base) and wildcard_path.is_file():
                 return FileResponse(wildcard_path)
             else:
                 return Response(status_code=404)
         except Exception as e:
-            return JSONResponse({"error": e}, status_code=500)
+            return JSONResponse({"error": str(e)}, status_code=500)
 
     @app.get("/tacapi/v1/refresh-styles-if-changed")
     async def refresh_styles_if_changed():

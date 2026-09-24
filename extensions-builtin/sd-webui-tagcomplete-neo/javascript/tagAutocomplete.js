@@ -1899,6 +1899,8 @@ onUiUpdate(async () => {
     // Get our tag base path from the temp file.
     // .trim() guards against any trailing whitespace/newline (#302 hardening).
     tagBasePath = (await readFile(`tmp/tagAutocompletePath.txt`))?.trim();
+    // Generated lists (emb/lora/wildcards/...) live in the extension's state dir.
+    tagTempPath = (await readFile(`tmp/tagAutocompleteTempPath.txt`))?.trim() || `${tagBasePath}/temp`;
     // Load config from webui opts
     await syncOptions();
     // Await setup() so tacLoading stays true until fully done (#328).

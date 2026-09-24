@@ -54,7 +54,7 @@ const lycoAliasMap = {};
 async function load() {
     if (lycos.length === 0) {
         try {
-            const rows = (await loadCSV(`${tagBasePath}/temp/lyco.txt`))
+            const rows = (await loadCSV(`${tagTempPath}/lyco.txt`))
                 .filter(x => x[0]?.trim().length > 0); // Remove empty lines
             lycos = rows.map(x => [x[0]?.trim(), x[1], x[2]]);
             // Build stem -> alias lookup from column 4
