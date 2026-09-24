@@ -58,6 +58,8 @@ def protected_files():
 # False while the key file cannot be kept from Gradio's /file= route: /import
 # then refuses everything (a downloaded key would sign crafted pickles).
 imports_allowed = True
+# False when the key file could not be used and a per-session key signs.
+key_is_persistent = True
 
 
 def ensure_key() -> None:
@@ -65,7 +67,7 @@ def ensure_key() -> None:
 
 
 def _load_key() -> bytes:
-    global _KEY
+    global _KEY, key_is_persistent
     with _KEY_LOCK:
         if _KEY is None:
             for stale in _stale_key_files():
@@ -83,6 +85,7 @@ def _load_key() -> bytes:
                 # Params stored this session then verify only in this session.
                 log.warning(f"[AgentScheduler] Cannot use the signing key file ({error}); using a session key")
                 _KEY = secrets.token_bytes(_KEY_SIZE)
+                key_is_persistent = False
         return _KEY
 
 
@@ -172,14 +175,6 @@ def verified_payload(data):
     mac = data[len(_MAGIC) : len(_MAGIC) + _DIGEST_SIZE]
     blob = data[len(_MAGIC) + _DIGEST_SIZE :]
     return blob if hmac.compare_digest(mac, _mac(blob)) else None
-
-
-def verify(data) -> bytes:
-    """Return the signed payload, or raise ValueError if it is not ours."""
-    blob = verified_payload(data)
-    if blob is None:
-        raise ValueError("task script params are not signed by this server")
-    return blob
 
 
 def strip_signature(data) -> bytes:

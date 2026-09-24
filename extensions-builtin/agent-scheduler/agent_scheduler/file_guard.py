@@ -33,55 +33,66 @@ def _name_key(name: str) -> str:
     return name.casefold()
 
 
+def _folder_key(path: str) -> str:
+    return os.path.normcase(path).casefold()
+
+
+def _served_path(requested: str) -> str:
+    """The path Gradio's file route will open for ``requested``."""
+    try:
+        from gradio import utils
+
+        return str(utils.abspath(requested))
+    except ImportError:
+        return os.path.abspath(requested)
+
+
 class ProtectedFiles:
     """Refuses requests for protected files under any spelling.
 
-    Requests are resolved like the file route resolves them: the OS follows
-    symlinks before "..", so the path is not normalised first. Only requests
-    that land in a folder holding protected files (identity cached; folders
-    are stable) are checked further, by name, including files created since,
-    such as SQLite journals, and by file identity (e.g. Windows short names).
+    The request is first turned into the path the file route will open (with
+    Gradio's own function), then canonicalised with realpath, which follows
+    symlinks and, on Windows, expands short (8.3) names. A request is refused
+    when it lands in a protected file's folder under a name starting with that
+    file's name (so SQLite journals and temp files created later count too),
+    or when it is the same file as a protected one.
     """
 
     def __init__(self, paths: Callable[[], Iterable[str]]):
         self._paths = paths
-        self._dirs = frozenset()
+        self._entries = ()
+        self._ids = frozenset()
         self._checked = float("-inf")
 
-    def _folders(self):
+    def _refresh(self):
         now = time.monotonic()
-        if now - self._checked >= _REFRESH_SECONDS:
-            dirs = set()
-            for path in self._paths():
-                try:
-                    dirs.add(_identity(os.path.dirname(path)))
-                except (OSError, ValueError):
-                    pass
-            self._dirs, self._checked = frozenset(dirs), now
-        return self._dirs
+        if now - self._checked < _REFRESH_SECONDS:
+            return
+        entries, ids = set(), set()
+        for path in self._paths():
+            real = os.path.realpath(path)
+            entries.add((_folder_key(os.path.dirname(real)), _name_key(os.path.basename(real))))
+            try:
+                ids.add(_identity(real))
+            except (OSError, ValueError):
+                pass
+        self._entries, self._ids, self._checked = tuple(entries), frozenset(ids), now
 
     def contains(self, requested: str) -> bool:
-        path = os.path.join(os.getcwd(), requested)
         try:
-            if _identity(os.path.dirname(path)) not in self._folders():
-                return False
-            name = _name_key(os.path.basename(path))
-            for protected in self._paths():
-                protected_name = _name_key(os.path.basename(protected))
-                # Prefix: SQLite journals ("db-journal", "db-wal", ...) and
-                # temp files ("key.<pid>.tmp") of protected files.
-                if name.startswith(protected_name):
-                    return True
-            target = _identity(path)
+            path = _served_path(requested)
+            if not os.path.exists(path):
+                return False  # the route answers 404
+            real = os.path.realpath(path)
+            target = _identity(real)
         except (OSError, ValueError):
-            return False  # Gradio cannot serve what cannot be stat'ed either
-        for protected in self._paths():
-            try:
-                if _identity(protected) == target:
-                    return True
-            except (OSError, ValueError):
-                continue
-        return False
+            return True  # exists, but cannot be checked: refuse
+        self._refresh()
+        if target in self._ids:
+            return True
+        folder = _folder_key(os.path.dirname(real))
+        name = _name_key(os.path.basename(real))
+        return any(folder == entry_folder and name.startswith(entry_name) for entry_folder, entry_name in self._entries)
 
 
 def install(app, protected: Callable[[], Iterable[str]]) -> int:

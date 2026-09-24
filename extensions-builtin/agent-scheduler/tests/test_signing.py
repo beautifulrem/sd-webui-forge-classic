@@ -30,7 +30,6 @@ def test_signed_blobs_round_trip_and_key_is_private(signing, tmp_path):
 
     signed = signing.sign(blob)
 
-    assert signing.verify(signed) == blob
     assert signing.verified_payload(signed) == blob
     assert signing.strip_signature(signed) == blob == signing.strip_signature(blob)
     key = tmp_path / "signing.key"
@@ -47,8 +46,6 @@ def test_unsigned_tampered_and_foreign_blobs_are_refused(signing, tmp_path, monk
 
     for data in (blob, tampered, foreign):
         assert signing.verified_payload(data) is None
-        with pytest.raises(ValueError):
-            signing.verify(data)
 
 
 def test_keys_of_earlier_versions_are_deleted_not_used(signing, tmp_path):
@@ -64,7 +61,7 @@ def test_keys_of_earlier_versions_are_deleted_not_used(signing, tmp_path):
 def test_damaged_key_is_replaced(signing, tmp_path):
     (tmp_path / "signing.key").write_bytes(b"")
 
-    assert signing.verify(signing.sign(b"blob")) == b"blob"
+    assert signing.verified_payload(signing.sign(b"blob")) == b"blob"
     assert len((tmp_path / "signing.key").read_bytes()) == 32
 
 
