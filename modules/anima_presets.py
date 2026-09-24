@@ -94,7 +94,7 @@ SAFE_BASE_AESTHETIC_PRESET: dict[str, object] = {
     "compile.preset": "Automatic",
     # Spatial and post-processing stacks.
     "regional.enabled": False,
-    "regional.blocks": "0-39",
+    "regional.blocks": "0-51",
     "regional.start": 0.0,
     "regional.end": 0.65,
     "regional.feather": 0.03,
@@ -136,7 +136,7 @@ SAFE_BASE_AESTHETIC_PRESET: dict[str, object] = {
     "freefuse.routing_end": 1.0,
     "freefuse.bias_scale": 6.0,
     "freefuse.positive_bias": 1.0,
-    "freefuse.bias_blocks": "0-39",
+    "freefuse.bias_blocks": "0-51",
     "pid.enabled": False,
     "pid.degrade_sigma": 0.0,
     "pid.color_correction": True,

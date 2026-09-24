@@ -54,8 +54,8 @@ class SafeBaseAestheticPresetTests(unittest.TestCase):
             self.assertEqual(SAFE_BASE_AESTHETIC_PRESET[name], value)
 
     def test_spatial_defaults_cover_both_28_and_40_block_anima_models(self):
-        self.assertEqual(SAFE_BASE_AESTHETIC_PRESET["regional.blocks"], "0-39")
-        self.assertEqual(SAFE_BASE_AESTHETIC_PRESET["freefuse.bias_blocks"], "0-39")
+        self.assertEqual(SAFE_BASE_AESTHETIC_PRESET["regional.blocks"], "0-51")
+        self.assertEqual(SAFE_BASE_AESTHETIC_PRESET["freefuse.bias_blocks"], "0-51")
 
     def test_registry_keeps_component_order_and_resolves_values(self):
         first = object()

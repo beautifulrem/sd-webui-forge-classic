@@ -61,9 +61,9 @@ class AnimaRegionalScript(scripts.Script):
             )
             with gr.Row():
                 blocks = gr.Textbox(
-                    "0-39",
+                    "0-51",
                     label="Anima blocks",
-                    info="Covers every block on both 28-block and 40-block Anima models; out-of-range indices are ignored.",
+                    info="Covers every block on 28-block, 40-block and 52-block Anima models; out-of-range indices are ignored.",
                 )
                 start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="Start progress")
                 end = gr.Slider(0.0, 1.0, value=0.65, step=0.01, label="End progress")

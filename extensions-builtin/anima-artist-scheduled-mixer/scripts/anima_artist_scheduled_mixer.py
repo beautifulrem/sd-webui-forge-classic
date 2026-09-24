@@ -284,7 +284,7 @@ HELP_EN = """
 
 `Artist`: one artist prompt per row. It may include an inline row multiplier such as `(wlop:1.2)`, `[wlop:0.8]`, or `wlop:1.2`; the final row strength is `Weight x inline multiplier`. Keep comma-separated chains for quick migration if needed, but one artist per row gives the cleanest control.
 
-`Weight` controls this artist's relative and absolute contribution. `Blocks` accepts `0-39`, `0,3,5-12`, or negative indices such as `-1`; out-of-range indices are ignored on 28-block models. `Start` and `End` are denoise progress values from 0 to 1. `Peak` is the point inside that window where the row reaches full strength; it matters most for Smooth and Triangle curves.
+`Weight` controls this artist's relative and absolute contribution. `Blocks` accepts `0-51`, `0,3,5-12`, or negative indices such as `-1`; out-of-range indices are ignored on 28-block and 40-block models. `Start` and `End` are denoise progress values from 0 to 1. `Peak` is the point inside that window where the row reaches full strength; it matters most for Smooth and Triangle curves.
 
 `Curve` shapes the row strength inside the Start/End window. Hold stays at full strength for the whole window. Smooth fades in and out around the peak. Triangle rises and falls linearly. Front loaded starts strong and fades later; Back loaded does the opposite.
 
@@ -314,7 +314,7 @@ HELP_ZH = """
 
 `画师` 每行建议填一个画师提示词。可以直接写行内倍率，例如 `(wlop:1.2)`、`[wlop:0.8]` 或 `wlop:1.2`；最终强度是 `权重 x 行内倍率`。为了迁移旧画师串，逗号分隔仍可用，但每行一个画师最方便单独控制。
 
-`权重` 控制该画师的相对比例，也会在总权重低于 1 时降低实际介入。`层数` 支持 `0-39`、`0,3,5-12`，也支持 `-1` 这种倒数索引；28 层模型会忽略越界索引。`开始` 和 `结束` 是 0 到 1 的去噪进度。`峰值` 表示这一行在窗口内达到满强度的位置，对平滑和三角峰曲线最明显。
+`权重` 控制该画师的相对比例，也会在总权重低于 1 时降低实际介入。`层数` 支持 `0-51`、`0,3,5-12`，也支持 `-1` 这种倒数索引；28 层和 40 层模型会忽略越界索引。`开始` 和 `结束` 是 0 到 1 的去噪进度。`峰值` 表示这一行在窗口内达到满强度的位置，对平滑和三角峰曲线最明显。
 
 `曲线` 决定窗口内强度怎样变化。保持会在整个窗口内满强度。平滑会围绕峰值淡入淡出。三角峰会线性升到峰值再线性降下。前段强化是一开始更强、后面变弱；后段强化则相反。
 
@@ -597,7 +597,7 @@ def _default_blocks_for_optimization(optimization):
     optimization = _option_key("optimization", optimization, OPT_BALANCE)
     if optimization == OPT_PERFORMANCE:
         return "10-18"
-    return "0-39"
+    return "0-51"
 
 
 def _apply_optimization_to_block_timing_components(count, shift, optimization, *values):

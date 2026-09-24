@@ -277,13 +277,13 @@ Spectrum 与 compile 可以技术上组合：前者减少完整前向次数，�
 
 ## 区域、画师与多 LoRA
 
-Remi 会按 checkpoint 实际结构识别 28 层和 40 层/2.9B Anima。完整的旧 28 层 LoRA 只会在当前模型明确为 40 层时做保守重映射；原生 40 层 LoRA 和无法判断来源的部分层 LoRA 保持原样。GUI 中的 `0-39` 全层默认在 28 层模型上会自动忽略越界层。
+Remi 会按 checkpoint 实际结构识别 28 层、40 层/2.9B 和 52 层/3.8B Anima。LoRA 按其最大 block 编号判断来源层数，较小的 LoRA 会映射到当前较大的模型（28→40、28→52、40→52，使用 Forge Neo 上游的映射表）；较大的 LoRA 无法用于较小的模型，会被跳过并报错。GUI 中的 `0-51` 全层默认在 28 层和 40 层模型上会自动忽略越界层。
 
 ### Anima Regional Conditioning
 
 适合把最多三个独立 prompt 路由到矩形区域。保守起点就是默认值：
 
-- blocks `0-39`（28 层模型会自动忽略 28-39）；
+- blocks `0-51`（28 层和 40 层模型会自动忽略越界层）；
 - progress `0.0–0.65`；
 - feather `0.03`；
 - base preserve `0.15`；
