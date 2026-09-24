@@ -8,6 +8,9 @@ from dataclasses import dataclass
 
 import torch
 
+from modules.anima_support import install_forward_override, restore_forward_override
+
+
 _PATCH_LOCK = threading.RLock()
 
 
@@ -155,7 +158,6 @@ def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_
         regional_average = numerator / denominator.clamp_min(1e-6)
         return base * (1.0 - blend) + regional_average * blend
 
-    wrapped.__anima_regional_temporary__ = True
     return wrapped
 
 
@@ -174,9 +176,8 @@ def apply_regional_patch(model, state: RegionalState):
             try:
                 for index in state.blocks:
                     module = dit.blocks[index].cross_attn
-                    original = module.forward
-                    module.forward = _make_cross_attention_wrapper(original, state, index)
-                    originals.append((module, original))
+                    forward = _make_cross_attention_wrapper(module.forward, state, index)
+                    originals.append((module, forward, install_forward_override(module, forward)))
                 adjusted = dict(args)
                 adjusted["c"] = dict(args["c"])
                 options = dict(adjusted["c"].get("transformer_options", {}))
@@ -184,9 +185,8 @@ def apply_regional_patch(model, state: RegionalState):
                 adjusted["c"]["transformer_options"] = options
                 return previous(model_function, adjusted) if previous is not None else model_function(adjusted["input"], adjusted["timestep"], **adjusted["c"])
             finally:
-                for module, original in reversed(originals):
-                    if getattr(module.forward, "__anima_regional_temporary__", False):
-                        module.forward = original
+                for module, forward, previous in reversed(originals):
+                    restore_forward_override(module, forward, previous)
                 state.current_masks = None
 
     wrapper.__forge_pass_wrapper_kind__ = "anima_regional"

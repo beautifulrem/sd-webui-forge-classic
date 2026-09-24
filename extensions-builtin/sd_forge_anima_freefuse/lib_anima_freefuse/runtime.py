@@ -15,6 +15,7 @@ import torch.nn.functional as F
 from backend.operations import main_stream_worker, weights_manual_cast
 from backend.patcher.base import LowVramPatch, OnlineLoRAPatch
 from backend.patcher.lora import merge_lora_to_weight
+from modules.anima_support import install_forward_override, restore_forward_override
 from .masks import fit_mask_batch, generate_masks
 
 logger = logging.getLogger("AnimaFreeFuse")
@@ -476,7 +477,6 @@ def _make_cross_attention_forward(
             mask=bias,
         )
 
-    wrapped.__anima_freefuse_temporary__ = True
     return MethodType(wrapped, module)
 
 
@@ -581,7 +581,6 @@ def _make_linear_forward(
                 output = output + contribution
             return output
 
-    wrapped.__anima_freefuse_temporary__ = True
     return MethodType(wrapped, module)
 
 
@@ -598,22 +597,24 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
             try:
                 for index, block in enumerate(dit.blocks):
                     cross = block.cross_attn
-                    original = cross.forward
-                    cross.forward = _make_cross_attention_forward(
-                        original, cross, state, index
+                    forward = _make_cross_attention_forward(
+                        cross.forward, cross, state, index
                     )
-                    originals.append((cross, original))
+                    originals.append(
+                        (cross, forward, install_forward_override(cross, forward))
+                    )
                 for module_name, module in dit.named_modules():
                     if not isinstance(module, torch.nn.Linear):
                         continue
-                    original = module.forward
-                    module.forward = _make_linear_forward(
-                        original,
+                    forward = _make_linear_forward(
+                        module.forward,
                         module,
                         state,
                         module_name,
                     )
-                    originals.append((module, original))
+                    originals.append(
+                        (module, forward, install_forward_override(module, forward))
+                    )
                 adjusted = dict(args)
                 adjusted["c"] = dict(args["c"])
                 options = dict(adjusted["c"].get("transformer_options", {}))
@@ -626,9 +627,8 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
                     adjusted["input"], adjusted["timestep"], **adjusted["c"]
                 )
             finally:
-                for module, original in reversed(originals):
-                    if getattr(module.forward, "__anima_freefuse_temporary__", False):
-                        module.forward = original
+                for module, forward, previous in reversed(originals):
+                    restore_forward_override(module, forward, previous)
 
     wrapper.__forge_pass_wrapper_kind__ = "anima_freefuse"
     wrapper.__forge_previous_wrapper__ = previous

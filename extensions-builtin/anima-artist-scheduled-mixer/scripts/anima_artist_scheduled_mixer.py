@@ -13,6 +13,7 @@ import torch
 from modules import script_callbacks, scripts, shared
 from modules.anima_feature_conflicts import register_exclusive_component
 from modules.anima_presets import register_preset_control
+from modules.anima_support import install_forward_override, restore_forward_override
 
 
 logger = logging.getLogger("anima_artist_scheduled_mixer")
@@ -1732,10 +1733,9 @@ _RUN_STATES = []
 
 def _unpatch_cross_attn():
     global _PATCHED_MODULES, _PATCHED_MODEL_WRAPPERS
-    for module, original in reversed(_PATCHED_MODULES):
+    for module, forward, previous in reversed(_PATCHED_MODULES):
         try:
-            if getattr(module.forward, "_anima_artist_mixer_wrapper", False):
-                module.forward = original
+            restore_forward_override(module, forward, previous)
         except Exception:
             logger.exception("Failed to restore Anima artist mixer cross-attn wrapper")
     _PATCHED_MODULES = []
@@ -1780,36 +1780,8 @@ def _validate_anima_unet(unet):
 
 def _install_cross_attn_patch(dm, state):
     _unpatch_cross_attn()
-    target_blocks = state.target_blocks()
-    patched = []
-    for idx, block in enumerate(getattr(dm, "blocks", [])):
-        if idx not in target_blocks or not hasattr(block, "cross_attn"):
-            continue
-        module = block.cross_attn
-        original = module.forward
-
-        def make_wrapper(original_forward, layer_idx):
-            def wrapped(x, context=None, rope_emb=None, transformer_options={}):
-                return _dispatch_cross_attn(
-                    original_forward,
-                    layer_idx,
-                    state,
-                    x,
-                    context=context,
-                    rope_emb=rope_emb,
-                    transformer_options=transformer_options,
-                )
-
-            wrapped._anima_artist_mixer_wrapper = True
-            return wrapped
-
-        module.forward = make_wrapper(original, idx)
-        _PATCHED_MODULES.append((module, original))
-        patched.append(idx)
-    state.patched_blocks = patched
-    if patched:
-        logger.info("Anima artist mixer patched %d cross-attn blocks: %s", len(patched), _summarize_blocks(patched))
-    else:
+    _install_cross_attn_patch_no_unpatch(dm, state)
+    if not state.patched_blocks:
         logger.warning("Anima artist mixer found no target cross-attn blocks to patch.")
 
 
@@ -1868,7 +1840,6 @@ def _install_cross_attn_patch_no_unpatch(dm, state):
         if idx not in target_blocks or not hasattr(block, "cross_attn"):
             continue
         module = block.cross_attn
-        original = module.forward
 
         def make_wrapper(original_forward, layer_idx):
             def wrapped(x, context=None, rope_emb=None, transformer_options={}):
@@ -1882,15 +1853,14 @@ def _install_cross_attn_patch_no_unpatch(dm, state):
                     transformer_options=transformer_options,
                 )
 
-            wrapped._anima_artist_mixer_wrapper = True
             return wrapped
 
-        module.forward = make_wrapper(original, idx)
-        _PATCHED_MODULES.append((module, original))
+        forward = make_wrapper(module.forward, idx)
+        _PATCHED_MODULES.append((module, forward, install_forward_override(module, forward)))
         patched.append(idx)
     state.patched_blocks = patched
     if patched:
-        logger.info("Anima artist mixer re-patched %d cross-attn blocks at model call: %s", len(patched), _summarize_blocks(patched))
+        logger.info("Anima artist mixer patched %d cross-attn blocks: %s", len(patched), _summarize_blocks(patched))
 
 
 def _broadcast_batch(tensor, batch_size):
