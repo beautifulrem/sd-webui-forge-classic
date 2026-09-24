@@ -25,6 +25,7 @@ from agent_scheduler.task_runner import TaskRunner, get_instance
 from agent_scheduler.helpers import get_default_config_dependencies, log, compare_components_with_ids, get_components_by_ids, is_macos
 from agent_scheduler.db import init as init_db, task_manager, TaskStatus
 from agent_scheduler.api import regsiter_apis
+from agent_scheduler.signing import key_file
 
 is_sdnext = parser.description == "SD.Next"
 ToolButton = gr.Button if is_sdnext else ui_components.ToolButton
@@ -793,6 +794,15 @@ def on_ui_settings():
 
 def on_app_started(block: gr.Blocks, app):
     global task_runner
+
+    # The script params signing key lives in the data dir, which Gradio's
+    # /file= route serves by default; a leaked key would re-enable pickle RCE.
+    blocked_paths = getattr(block, "blocked_paths", None)
+    if isinstance(blocked_paths, list):
+        blocked_paths.append(key_file())
+    else:
+        log.warning("[AgentScheduler] Could not hide the script params signing key from /file=")
+
     task_runner = get_instance(block)
     task_runner.execute_pending_tasks_threading()
     regsiter_apis(app, task_runner)

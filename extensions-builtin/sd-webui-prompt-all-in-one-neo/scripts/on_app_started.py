@@ -24,7 +24,7 @@ from scripts.physton_prompt.mbart50 import initialize as mbart50_initialize, tra
 from scripts.physton_prompt.get_group_tags import get_group_tags
 from modules import shared
 from scripts.physton_prompt.get_quality_presets import (
-    load_presets, save_presets, detect_preset_for_checkpoint,
+    load_presets, save_client_presets, detect_preset_for_checkpoint, STORAGE_KEY as QUALITY_PRESETS_KEY,
     get_current_checkpoint_path, BUILTIN_TEMPLATES,
     get_installed_checkpoints, scan_checkpoint, resolve_installed_checkpoint_path,
 )
@@ -140,7 +140,10 @@ def on_app_started(_: gr.Blocks, app: FastAPI):
         if 'data' not in data:
             return {"success": False, "message": get_lang('is_required', {'0': 'data'})}
         data['data'] = unprotected_translate_api_config(data['key'], data['data'])
-        Storage.set(data['key'], data['data'])
+        if data['key'] == QUALITY_PRESETS_KEY and isinstance(data['data'], dict):
+            save_client_presets(data['data'])
+        else:
+            Storage.set(data['key'], data['data'])
         return {"success": True}
 
     @app.post("/physton_prompt/set_datas")
@@ -150,7 +153,10 @@ def on_app_started(_: gr.Blocks, app: FastAPI):
             return {"success": False, "message": get_lang('is_not_dict', {'0': 'data'})}
         for key in data:
             data[key] = unprotected_translate_api_config(key, data[key])
-            Storage.set(key, data[key])
+            if key == QUALITY_PRESETS_KEY and isinstance(data[key], dict):
+                save_client_presets(data[key])
+            else:
+                Storage.set(key, data[key])
         return {"success": True}
 
     @app.get("/physton_prompt/get_data_list_item")
@@ -421,7 +427,7 @@ def on_app_started(_: gr.Blocks, app: FastAPI):
         data = await request.json()
         if not isinstance(data, dict):
             return {"success": False, "message": "Invalid data"}
-        save_presets(data)
+        save_client_presets(data)
         return {"success": True}
 
     @app.get("/physton_prompt/get_builtin_templates")

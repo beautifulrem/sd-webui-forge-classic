@@ -343,9 +343,10 @@ class TaskRunner:
                     # must fail on its own instead of killing the runner and
                     # staying at the head of the queue forever.
                     log.error(f"[AgentScheduler] Task {task_id} could not be loaded: {error}")
-                    # It was registered in progress.pending_tasks when queued;
-                    # drop it or the WebUI looks busy forever.
+                    # It was registered in progress.pending_tasks when queued:
+                    # report it as finished, or the WebUI keeps waiting on it.
                     progress.pending_tasks.pop(task_id, None)
+                    progress.finish_task(task_id)
                     task.status = TaskStatus.FAILED
                     task.result = f"Could not load task: {error}"
                     task_manager.update_task(task)

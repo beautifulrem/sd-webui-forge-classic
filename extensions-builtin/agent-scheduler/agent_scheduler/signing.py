@@ -11,13 +11,15 @@ import hashlib
 import hmac
 import os
 import secrets
+import threading
 
 _MAGIC = b"ASSIG1"
 _DIGEST_SIZE = hashlib.sha256().digest_size
 _KEY = None
+_KEY_LOCK = threading.Lock()
 
 
-def _key_file() -> str:
+def key_file() -> str:
     from .db.base import db_file
 
     return os.path.join(os.path.dirname(os.path.abspath(db_file)), "agent_scheduler_script_params.key")
@@ -25,26 +27,43 @@ def _key_file() -> str:
 
 def migration_marker() -> str:
     """File recording that pre-signing rows were signed (done once)."""
-    return _key_file() + ".migrated"
+    return key_file() + ".migrated"
 
 
 def _load_key() -> bytes:
     global _KEY
-    if _KEY is not None:
+    with _KEY_LOCK:
+        if _KEY is None:
+            _KEY = _read_or_create_key(key_file())
         return _KEY
-    path = _key_file()
+
+
+def _read_or_create_key(path: str) -> bytes:
+    # Write the key to a private temp file first and publish it with an
+    # exclusive link, so no reader (or a crash) ever sees a partial key.
+    temp = f"{path}.{os.getpid()}.{secrets.token_hex(4)}.tmp"
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        pass
-    else:
         with os.fdopen(fd, "wb") as handle:
             handle.write(secrets.token_bytes(32))
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temp, path)
+        except FileExistsError:
+            pass
+        except OSError:
+            # No hard links on this filesystem (e.g. exFAT): an atomic rename
+            # still never exposes a partial key.
+            if not os.path.exists(path):
+                os.replace(temp, path)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
     with open(path, "rb") as handle:
         key = handle.read()
     if len(key) < 32:
-        raise RuntimeError(f"Agent Scheduler signing key is invalid: {path}")
-    _KEY = key
+        raise RuntimeError(f"Agent Scheduler signing key is invalid (delete it to regenerate): {path}")
     return key
 
 

@@ -22,6 +22,7 @@ from modules.api.models import (
 )
 
 from .helpers import log, get_dict_attribute
+from .net import global_address_allowed, guarded_session
 from .signing import sign, verify
 
 img2img_image_args_by_mode: Dict[int, List[List[str]]] = {
@@ -62,7 +63,7 @@ def resolved_addresses(url: str):
 def url_is_global(url: str) -> bool:
     """Like Forge's verify_url, but checks every address family (AAAA too)."""
     addresses = resolved_addresses(url)
-    return bool(addresses) and all(address.is_global for address in addresses)
+    return bool(addresses) and all(global_address_allowed(address) for address in addresses)
 
 
 def load_image_from_url(url: str):
@@ -70,15 +71,18 @@ def load_image_from_url(url: str):
     try:
         if not getattr(shared.opts, "api_enable_requests", False):
             raise ValueError("requests are disabled (Settings > API)")
-        if getattr(shared.opts, "api_forbid_local_requests", True) and not url_is_global(url):
+        forbid_local = getattr(shared.opts, "api_forbid_local_requests", True)
+        if forbid_local and not url_is_global(url):
             raise ValueError("requests to local addresses are forbidden")
-        # Redirects are not followed: each hop would need the same local check.
-        response = requests.get(
-            url,
-            timeout=30,
-            allow_redirects=False,
-            headers={"user-agent": getattr(shared.opts, "api_useragent", "") or "agent-scheduler"},
-        )
+        # Also checked on the connected socket: DNS may rebind after the check.
+        with guarded_session(global_address_allowed) if forbid_local else requests.Session() as session:
+            # Redirects are not followed: each hop would need the same check.
+            response = session.get(
+                url,
+                timeout=30,
+                allow_redirects=False,
+                headers={"user-agent": getattr(shared.opts, "api_useragent", "") or "agent-scheduler"},
+            )
         if response.is_redirect:
             raise ValueError("redirects are not followed")
         response.raise_for_status()

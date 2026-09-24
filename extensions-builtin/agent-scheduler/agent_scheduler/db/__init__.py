@@ -76,9 +76,13 @@ def init():
 
 
 def _sign_existing_script_params(engine):
-    """Sign script params stored before signing existed (created by this
-    install), so they keep loading. Runs once: anything unsigned that shows
-    up later is refused instead of being trusted."""
+    """Sign script params stored before signing existed, so the queue and
+    history keep working. Runs once: anything unsigned that shows up later is
+    refused instead of being trusted.
+
+    Failed tasks are left unsigned: the previous pickle filter refused crafted
+    imports by failing them, and signing those would let a requeue run them.
+    """
     import os
 
     from ..signing import is_signed, migration_marker, sign
@@ -87,7 +91,10 @@ def _sign_existing_script_params(engine):
     if os.path.exists(marker):
         return
     with engine.begin() as conn:
-        rows = conn.execute(text("SELECT id, script_params FROM task")).fetchall()
+        rows = conn.execute(
+            text("SELECT id, script_params FROM task WHERE status != :failed"),
+            {"failed": "failed"},
+        ).fetchall()
         for task_id, script_params in rows:
             if script_params is not None and not is_signed(script_params):
                 conn.execute(

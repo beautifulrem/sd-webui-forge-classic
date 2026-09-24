@@ -2,7 +2,6 @@ import io
 import os
 import json
 import base64
-import requests
 import threading
 from uuid import uuid4
 from zipfile import ZipFile
@@ -11,6 +10,7 @@ from secrets import compare_digest
 from typing import Optional, Dict, List
 from datetime import datetime, timezone
 from collections import defaultdict
+from contextlib import ExitStack
 from gradio.routes import App
 from PIL import Image
 from fastapi import Depends
@@ -43,40 +43,30 @@ from .helpers import log, request_with_retry
 from .task_helpers import encode_image_to_base64, img2img_image_args_by_mode
 
 
-def _callback_target_allowed(callback_url: str) -> bool:
-    """Loopback / LAN callbacks are a supported use case (local clients), but
-    link-local (cloud metadata), multicast and reserved targets never are."""
-    from .task_helpers import resolved_addresses
-
-    addresses = resolved_addresses(callback_url)
-    return bool(addresses) and not any(
-        address.is_link_local or address.is_multicast or address.is_reserved or address.is_unspecified
-        for address in addresses
-    )
-
-
 def api_callback(callback_url: str, task_id: str, status: TaskStatus, images: list):
-    if not callback_url.startswith(("http://", "https://")) or not _callback_target_allowed(callback_url):
-        raise ValueError(f"callback URL not allowed: {callback_url}")
-    files = []
-    for img in images:
-        img_path = Path(img)
-        ext = img_path.suffix.lower()
-        content_type = f"image/{ext[1:]}"
-        files.append(
-            (
-                "files",
-                (img_path.name, open(os.path.abspath(img), "rb"), content_type),
-            )
-        )
+    from .net import callback_address_allowed, guarded_session
 
-    return requests.post(
-        callback_url,
-        timeout=5,
-        allow_redirects=False,  # a redirect could retarget the POST
-        data={"task_id": task_id, "status": status.value},
-        files=files,
-    )
+    if not callback_url.lower().startswith(("http://", "https://")):
+        raise ValueError(f"callback URL not allowed: {callback_url}")
+    with ExitStack() as stack:
+        files = []
+        for img in images:
+            img_path = Path(img)
+            ext = img_path.suffix.lower()
+            content_type = f"image/{ext[1:]}"
+            handle = stack.enter_context(open(os.path.abspath(img), "rb"))
+            files.append(("files", (img_path.name, handle, content_type)))
+
+        # The target address is checked on the connected socket (DNS
+        # rebinding safe); a DNS failure stays a retryable ConnectionError.
+        session = stack.enter_context(guarded_session(callback_address_allowed))
+        return session.post(
+            callback_url,
+            timeout=5,
+            allow_redirects=False,  # a redirect could retarget the POST
+            data={"task_id": task_id, "status": status.value},
+            files=files,
+        )
 
 
 def on_task_finished(

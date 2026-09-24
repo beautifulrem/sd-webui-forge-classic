@@ -200,44 +200,61 @@ def _civitai_headers(api_key: str = '') -> dict:
     return headers
 
 
-# sha256 -> (base_model, monotonic time). The frontend polls detection every
-# few seconds; definitive answers (found / unknown to CivitAI) are cached, an
-# unknown model is re-asked after _BASE_MODEL_MISS_TTL. Transient failures
-# (timeouts, 429, auth) are not cached.
+# sha256 -> (base_model, definitive, monotonic time, ttl). The frontend polls detection
+# every few seconds, so every answer is cached: a found base model for good,
+# "unknown to CivitAI" for _BASE_MODEL_MISS_TTL, and transient failures
+# (offline, timeouts, 429, auth) for _BASE_MODEL_RETRY_TTL.
 _BASE_MODEL_CACHE = {}
 _BASE_MODEL_MISS_TTL = 600.0
+_BASE_MODEL_RETRY_TTL = 60.0
+
+
+def _query_base_model(sha256: str, api_key: str) -> tuple:
+    """(base_model, definitive): definitive is False for transient failures."""
+    url = f'https://civitai.com/api/v1/model-versions/by-hash/{sha256}'
+    try:
+        resp = requests.get(url, headers=_civitai_headers(api_key), timeout=(15, 30))
+    except Exception:
+        return '', False
+    if resp.status_code == 404:
+        return '', True
+    if resp.status_code != 200:
+        return '', False
+    try:
+        data = resp.json()
+    except ValueError:
+        return '', False
+    if not isinstance(data, dict) or 'error' in data:
+        return '', True
+    return data.get('baseModel', '') or '', True
+
+
+def lookup_base_model(sha256: str, api_key: str = '', force: bool = False) -> tuple:
+    """(base_model, definitive) for a checkpoint hash; ``force`` skips the
+    cache (explicit user scans)."""
+    if not sha256 or len(sha256) != 64:
+        return '', True
+    import time
+
+    now = time.monotonic()
+    cached = _BASE_MODEL_CACHE.get(sha256)
+    if not force and cached is not None and now - cached[2] < cached[3]:
+        return cached[0], cached[1]
+    base_model, definitive = _query_base_model(sha256, api_key)
+    if base_model:
+        ttl = float('inf')
+    else:
+        ttl = _BASE_MODEL_MISS_TTL if definitive else _BASE_MODEL_RETRY_TTL
+    _BASE_MODEL_CACHE[sha256] = (base_model, definitive, now, ttl)
+    return base_model, definitive
 
 
 def fetch_base_model_from_civitai(sha256: str, api_key: str = '', force: bool = False) -> str:
     """
     Query CivitAI /api/v1/model-versions/by-hash/{sha256}.
     Returns the raw baseModel string (e.g. 'NoobAI', 'Pony') or '' on failure.
-    ``force`` skips the cache (explicit user scans).
     """
-    if not sha256 or len(sha256) != 64:
-        return ''
-    import time
-
-    cached = _BASE_MODEL_CACHE.get(sha256)
-    if not force and cached is not None and (cached[0] or time.monotonic() - cached[1] < _BASE_MODEL_MISS_TTL):
-        return cached[0]
-    url = f'https://civitai.com/api/v1/model-versions/by-hash/{sha256}'
-    try:
-        resp = requests.get(url, headers=_civitai_headers(api_key), timeout=(15, 30))
-    except Exception:
-        return ''
-    base_model = ''
-    if resp.status_code == 200:
-        try:
-            data = resp.json()
-        except ValueError:
-            return ''
-        if 'error' not in data:
-            base_model = data.get('baseModel', '') or ''
-    elif resp.status_code != 404:
-        return ''
-    _BASE_MODEL_CACHE[sha256] = (base_model, time.monotonic())
-    return base_model
+    return lookup_base_model(sha256, api_key, force)[0]
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +283,15 @@ _PRESETS_LOCK = threading.RLock()
 def save_presets(data: dict) -> None:
     with _PRESETS_LOCK:
         Storage.set(STORAGE_KEY, data)
+
+
+def save_client_presets(data: dict) -> None:
+    """Save presets edited in the UI. ``checkpoint_cache`` is written only by
+    scans on the server; the client's copy may predate a scan, so keep ours."""
+    with _PRESETS_LOCK:
+        data = dict(data)
+        data['checkpoint_cache'] = load_presets().get('checkpoint_cache', {})
+        save_presets(data)
 
 
 # ---------------------------------------------------------------------------
@@ -458,7 +484,7 @@ def scan_checkpoint(filepath: str) -> dict:
     if not sha256:
         return {'filename': os.path.basename(filepath), 'sha256': '', 'base_model': ''}
 
-    base_model = fetch_base_model_from_civitai(sha256, api_key, force=True)
+    base_model, definitive = lookup_base_model(sha256, api_key, force=True)
 
     import time
     # Re-read under the lock after the (slow) network call so presets saved
@@ -466,6 +492,15 @@ def scan_checkpoint(filepath: str) -> dict:
     with _PRESETS_LOCK:
         storage = load_presets()
         cache = storage.get('checkpoint_cache', {})
+        if not definitive:
+            # CivitAI could not be asked (offline, rate limit): keep what an
+            # earlier scan found instead of recording "unknown".
+            known = cache.get(sha256)
+            return {
+                'filename':   os.path.basename(filepath),
+                'sha256':     sha256,
+                'base_model': known.get('base_model', '') if isinstance(known, dict) else '',
+            }
         cache[sha256] = {
             'base_model':  base_model,
             'filename':    os.path.basename(filepath),
