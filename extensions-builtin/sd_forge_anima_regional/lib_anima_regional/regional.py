@@ -185,8 +185,8 @@ def apply_regional_patch(model, state: RegionalState):
                 adjusted["c"]["transformer_options"] = options
                 return previous(model_function, adjusted) if previous is not None else model_function(adjusted["input"], adjusted["timestep"], **adjusted["c"])
             finally:
-                for module, forward, previous in reversed(originals):
-                    restore_forward_override(module, forward, previous)
+                for module, forward, restore_token in reversed(originals):
+                    restore_forward_override(module, forward, restore_token)
                 state.current_masks = None
 
     wrapper.__forge_pass_wrapper_kind__ = "anima_regional"

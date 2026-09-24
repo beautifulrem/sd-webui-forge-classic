@@ -184,7 +184,6 @@ def chromatic_aberration(arr, amount=2.0, radial=True):
         cx, cy = (w - 1) / 2.0, (h - 1) / 2.0
         dx = (xx - cx) / max(cx, 1.0)
         dy = (yy - cy) / max(cy, 1.0)
-        scale = amount / max(w, h)
         for ch, sgn in ((0, 1.0), (2, -1.0)):
             mapx = np.clip(xx + dx * amount * sgn, 0, w - 1)
             mapy = np.clip(yy + dy * amount * sgn, 0, h - 1)

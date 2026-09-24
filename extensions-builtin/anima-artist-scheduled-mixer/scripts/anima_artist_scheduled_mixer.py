@@ -1802,7 +1802,6 @@ def _summarize_blocks(blocks):
 
 
 def _install_model_wrapper(unet, dm, state):
-    global _PATCHED_MODEL_WRAPPERS
     options = getattr(unet, "model_options", None)
     if not isinstance(options, dict):
         return

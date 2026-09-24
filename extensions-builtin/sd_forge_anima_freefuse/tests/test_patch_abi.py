@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -91,3 +92,48 @@ def test_lowvram_patches_expose_their_patch_list():
     assert key == "layer.weight"
     assert patches is patcher.patches["layer.weight"]
     assert runtime._lora_function_patches(lambda weight: weight) is None
+
+
+class _WrapperPatcher:
+    def __init__(self, dit, options=None):
+        self.model = SimpleNamespace(diffusion_model=dit)
+        self.model_options = dict(options or {})
+
+    def clone(self):
+        return _WrapperPatcher(self.model.diffusion_model, self.model_options)
+
+    def set_model_unet_function_wrapper(self, wrapper):
+        self.model_options["model_function_wrapper"] = wrapper
+
+
+def test_model_wrapper_runs_and_restores_every_forward():
+    runtime, _, _ = _load()
+    block = torch.nn.Module()
+    block.cross_attn = torch.nn.Linear(2, 2)
+    dit = torch.nn.Module()
+    dit.blocks = torch.nn.ModuleList([block])
+    state = SimpleNamespace(
+        phase="collect",
+        validate_patches=lambda patcher: None,
+        update_grid=lambda input_x, model: None,
+    )
+    calls = []
+
+    def previous(apply_model, args):
+        calls.append("previous")
+        return apply_model(args["input"], args["timestep"], **args["c"])
+
+    def model_function(x, t, **c):
+        calls.append(c["transformer_options"]["anima_freefuse_phase"])
+        assert "forward" in block.cross_attn.__dict__
+        return x
+
+    for options in ({}, {"model_function_wrapper": previous}):
+        patched = runtime.apply_freefuse_patch(_WrapperPatcher(dit, options), state)
+        patched.model_options["model_function_wrapper"](
+            model_function,
+            {"input": torch.zeros(1), "timestep": torch.ones(1), "c": {}},
+        )
+
+    assert calls == ["collect", "previous", "collect"]
+    assert all("forward" not in module.__dict__ for module in dit.modules())

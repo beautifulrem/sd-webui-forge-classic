@@ -627,8 +627,8 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
                     adjusted["input"], adjusted["timestep"], **adjusted["c"]
                 )
             finally:
-                for module, forward, previous in reversed(originals):
-                    restore_forward_override(module, forward, previous)
+                for module, forward, restore_token in reversed(originals):
+                    restore_forward_override(module, forward, restore_token)
 
     wrapper.__forge_pass_wrapper_kind__ = "anima_freefuse"
     wrapper.__forge_previous_wrapper__ = previous
