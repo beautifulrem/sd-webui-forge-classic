@@ -61,12 +61,13 @@ def read_arbitrary_config(directory: os.PathLike) -> dict:
 def load_torch_file(ckpt: str, *, safe_load=True, device=None, return_metadata=False) -> dict[str, torch.Tensor]:
     """https://github.com/Comfy-Org/ComfyUI/blob/v0.10.0/comfy/utils.py#L59"""
 
-    device = device or torch.device("cpu")
+    # callers pass torch.device or str (e.g. map_location="cpu"); keep the index ("cuda:1")
+    device = torch.device(device or "cpu")
     metadata = None
 
     if ckpt.lower().endswith((".safetensors", ".sft")):
         try:
-            with safetensors.safe_open(ckpt, framework="pt", device=device.type) as f:
+            with safetensors.safe_open(ckpt, framework="pt", device=str(device)) as f:
                 sd = {}
                 for k in f.keys():
                     tensor = f.get_tensor(k)

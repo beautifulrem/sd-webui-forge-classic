@@ -42,29 +42,28 @@ except Exception:
     version = ""
 
 
+# PyTorch parses only the first of these that is set (c10/core/AllocatorConfig.cpp);
+# the legacy names come first, PYTORCH_ALLOC_CONF is the current one
+_ALLOC_CONF_VARS = ("PYTORCH_CUDA_ALLOC_CONF", "PYTORCH_HIP_ALLOC_CONF", "PYTORCH_ALLOC_CONF")
+
+
+def _append_alloc_conf(option: str):
+    """Add ``option`` to the allocator config PyTorch will actually read, so it
+    neither hides nor is hidden by a config the user set under another name"""
+    name = next((var for var in _ALLOC_CONF_VARS if var in os.environ), "PYTORCH_ALLOC_CONF")
+    env_var = os.environ.get(name)
+    os.environ[name] = option if not env_var else f"{env_var},{option}"
+
+
 def try_cuda_malloc():
     if not cuda_malloc_supported():
         return
 
-    env_var = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", None)
-
-    if env_var is None:
-        env_var = "backend:cudaMallocAsync"
-    else:
-        env_var += ",backend:cudaMallocAsync"
-
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = env_var
+    _append_alloc_conf("backend:cudaMallocAsync")
 
 
 def try_expandable_segments():
-    env_var = os.environ.get("PYTORCH_ALLOC_CONF", None)
-
-    if env_var is None:
-        env_var = "expandable_segments:True"
-    else:
-        env_var += ",expandable_segments:True"
-
-    os.environ["PYTORCH_ALLOC_CONF"] = env_var
+    _append_alloc_conf("expandable_segments:True")
 
 
 def get_torch_version() -> str:
