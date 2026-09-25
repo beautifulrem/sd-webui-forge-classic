@@ -128,7 +128,11 @@ def weights_manual_cast(
     if skip_bias_dtype or bias_has_function:
         bias_args.pop("dtype")
 
-    if stream.should_use_stream():
+    # Resident weights are cast on the main stream; only an actual transfer needs the
+    # offload stream (and its three cross-stream waits per layer call)
+    moving = (layer.weight is not None and layer.weight.device != target_device) or (layer.bias is not None and layer.bias.device != target_device)
+
+    if moving and stream.should_use_stream():
         offload_stream = memory_management.get_offload_stream(target_device)
         context = stream.stream_context()(offload_stream)
     else:
@@ -538,15 +542,19 @@ def fp8_linear(self: torch.nn.Linear, input: torch.Tensor):
     if dtype is not torch.float8_e4m3fn:
         return None
 
+    # LoRA / lowvram patches return a patched weight in the input dtype, not FP8
+    if self.weight_function or self.bias_function:
+        return None
+
     input_dtype = input.dtype
     input_shape = input.shape
-    tensor_3d = input.ndim == 3
-
-    if tensor_3d:
-        input = input.reshape(-1, input_shape[2])
-
-    if input.ndim != 2:
+    if input.ndim < 2:
         return None
+
+    # Like F.linear, accept (*, in): e.g. Anima's MLP runs on B,T,H,W,D tensors
+    reshaped_nd = input.ndim >= 3
+    if reshaped_nd:
+        input = input.reshape(-1, input_shape[-1])
 
     scale_weight = torch.ones((), device=input.device, dtype=torch.float32)
     scale_input = torch.ones((), device=input.device, dtype=torch.float32)
@@ -554,7 +562,11 @@ def fp8_linear(self: torch.nn.Linear, input: torch.Tensor):
     w, bias, signal = weights_manual_cast(self, input, dtype=dtype)
 
     with main_stream_worker(w, bias, signal):
-        input = torch.clamp(input, min=-448, max=448, out=input)
+        if len(input_shape) > 3:
+            # reshape may return a view of the caller's tensor; do not clamp it in place
+            input = torch.clamp(input, min=-448, max=448)
+        else:
+            input = torch.clamp(input, min=-448, max=448, out=input)
         input_fp8 = input.to(dtype).contiguous()
         layout_params_input = TensorCoreFP8Layout.Params(scale=scale_input, orig_dtype=input_dtype, orig_shape=tuple(input_fp8.shape))
         quantized_input = QuantizedTensor(input_fp8, "TensorCoreFP8Layout", layout_params_input)
@@ -563,10 +575,13 @@ def fp8_linear(self: torch.nn.Linear, input: torch.Tensor):
         quantized_weight = QuantizedTensor(w, "TensorCoreFP8Layout", layout_params_weight)
         o = torch.nn.functional.linear(quantized_input, quantized_weight, bias)
 
-    if tensor_3d:
-        o = o.reshape((input_shape[0], input_shape[1], w.shape[0]))
+    if reshaped_nd:
+        o = o.reshape((*input_shape[:-1], w.shape[0]))
 
     return o
+
+
+_fp8_linear_errors: set[str] = set()
 
 
 class ForgeOperationsFP8(ForgeOperations):
@@ -576,7 +591,9 @@ class ForgeOperationsFP8(ForgeOperations):
                 if (out := fp8_linear(self, x)) is not None:
                     return out
             except Exception as e:
-                memory_management.logger.error(f"Error during fp8_fast: {e}")
+                if (message := str(e)) not in _fp8_linear_errors:
+                    _fp8_linear_errors.add(message)
+                    memory_management.logger.error(f"Error during fp8_fast: {e}")
 
             return super().forward(x)
 
