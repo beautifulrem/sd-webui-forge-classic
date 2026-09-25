@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -10,12 +9,36 @@ from pathlib import Path
 import gradio as gr
 import torch
 
+from lib_artist_mixer.contexts import (
+    ensure_3d as _ensure_3d,
+    to_context as _to_context,
+    to_context_like as _to_context_like,
+    context_token_dim as _context_token_dim,
+    concat_contexts as _concat_contexts,
+    artist_mask_like as _artist_mask_like,
+    joined_mask as _joined_mask,
+    with_negpip_mask as _with_negpip_mask,
+    norm_limited_delta as _norm_limited_delta,
+    resolve_row_mask as _resolve_row_mask,
+)
+from lib_artist_mixer.schedule import (
+    CURVE_BACK,
+    CURVE_FRONT,
+    CURVE_HOLD,
+    CURVE_SMOOTH,
+    CURVE_TRIANGLE,
+    curve_factor,
+    clamp as _clamp,
+    to_float as _to_float,
+    parse_inline_weight as _parse_inline_weight,
+    parse_blocks as _parse_blocks,
+)
 from modules import script_callbacks, scripts, sd_models, shared, spectrum_force
 from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, is_feature_active, register_exclusive_component, set_feature_active
 from modules.anima_lora_support import stage_window
 from modules.anima_user_data import UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
-from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, call_model_wrapper, negpip_mask_for, register_negpip_prompts, split_conditioning
+from modules.anima_support import call_model_wrapper, effective_prompt_batch, negpip_mask_for, register_negpip_prompts, split_conditioning
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
@@ -35,8 +58,6 @@ def _current_settings_file():
 REFERENCE_URL = "https://github.com/An1X3R/Anima-Artist-Mixer"
 
 LANGUAGE_OPTION = "anima_artist_scheduled_mixer_language"
-LAST_TEMPLATE_OPTION = "anima_artist_scheduled_mixer_last_template"
-LAST_TEMPLATE_TARGET_OPTION = "anima_artist_scheduled_mixer_last_template_target"
 LANGUAGE_CHOICES = ("zh", "en")
 
 FUSION_INTERPOLATE = "interpolate"
@@ -48,23 +69,15 @@ BASE_CONTEXT_FUSIONS = {FUSION_CONCAT_WITH_BASE}
 COMBINE_OUTPUT_AVG = "output_avg"
 COMBINE_CONCAT = "concat"
 
-CURVE_SMOOTH = "Smooth"
-CURVE_HOLD = "Hold"
-CURVE_TRIANGLE = "Triangle"
-CURVE_FRONT = "Front loaded"
-CURVE_BACK = "Back loaded"
-CURVE_CHOICES = [CURVE_SMOOTH, CURVE_HOLD, CURVE_TRIANGLE, CURVE_FRONT, CURVE_BACK]
 
 PRESET_CUSTOM = "Custom"
 PRESET_COMPOSITION = "Composition"
 PRESET_CHARACTER = "Character"
 PRESET_STYLE = "Style"
-STAGE_PRESETS = [PRESET_CUSTOM, PRESET_COMPOSITION, PRESET_CHARACTER, PRESET_STYLE]
 
 OPT_PERFORMANCE = "Performance"
 OPT_BALANCE = "Balance"
 OPT_QUALITY = "Quality"
-OPT_PRESETS = [OPT_PERFORMANCE, OPT_BALANCE, OPT_QUALITY]
 
 APPLY_BASE = "Base"
 APPLY_HIRES = "Hires"
@@ -86,18 +99,6 @@ TABLE_HEADERS = [
     "Auto Shift",
 ]
 
-TABLE_DATATYPES = [
-    "str",
-    "str",
-    "number",
-    "str",
-    "number",
-    "number",
-    "number",
-    "str",
-    "str",
-    "str",
-]
 
 OPTION_LABELS = {
     "optimization": OrderedDict(
@@ -397,35 +398,6 @@ def _save_ui_language(language):
         return _intro_text(language_code), LANG[language_code]["language_save_failed"]
 
 
-def _set_persistent_option(name, value):
-    if name in shared.opts.data_labels:
-        shared.opts.set(name, value, run_callbacks=False)
-    else:
-        shared.opts.data[name] = value
-
-
-def _last_template_name():
-    name = str(getattr(shared.opts, LAST_TEMPLATE_OPTION, "") or "").strip()
-    return name if name in _template_data() else None
-
-
-def _last_template_target():
-    return _option_key("apply_target", getattr(shared.opts, LAST_TEMPLATE_TARGET_OPTION, APPLY_BASE), APPLY_BASE)
-
-
-def _remember_template(name, target):
-    name = str(name or "").strip()
-    if not name:
-        return
-    target_key = _option_key("apply_target", target, APPLY_BASE)
-    try:
-        _set_persistent_option(LAST_TEMPLATE_OPTION, name)
-        _set_persistent_option(LAST_TEMPLATE_TARGET_OPTION, target_key)
-        shared.opts.save(shared.config_filename)
-    except Exception:
-        logger.exception("Failed to remember last Anima artist mixer template")
-
-
 def _bool_label(value, language=None):
     language = language or _language()
     return ("是" if _to_bool(value, True) else "否") if language == "zh" else ("Yes" if _to_bool(value, True) else "No")
@@ -461,11 +433,6 @@ def _option_choices(group, language=None):
     return [_option_label(group, key, language) for key in OPTION_LABELS.get(group, {})]
 
 
-def _table_headers(language=None):
-    language = language or _language()
-    return [TABLE_HEADER_LABELS[h].get(language, h) for h in TABLE_HEADERS]
-
-
 def _row_component_headers(language=None):
     language = language or _language()
     headers = TABLE_HEADER_LABELS
@@ -493,27 +460,6 @@ def _header_key(value):
         if folded in {str(item).strip().casefold() for item in candidates if item is not None}:
             return key
     return text
-
-
-def _normalize_bool_display(value, fallback=True):
-    if isinstance(value, str):
-        text = value.strip().casefold()
-        if text in {"yes", "no", "是", "否"}:
-            return value.strip()
-    return _bool_label(_to_bool(value, fallback))
-
-
-def _rows_for_display(rows, language=None):
-    out = []
-    for row in _coerce_table(rows):
-        row += [None] * (len(TABLE_HEADERS) - len(row))
-        new_row = list(row[: len(TABLE_HEADERS)])
-        new_row[0] = _bool_label(new_row[0], language)
-        new_row[7] = _option_label("curve", new_row[7], language)
-        new_row[8] = _option_label("stage", new_row[8], language)
-        new_row[9] = _bool_label(new_row[9], language)
-        out.append(new_row)
-    return out
 
 
 def _rows_from_components(*values):
@@ -848,56 +794,9 @@ def _register_ui_settings():
                 category_id="system",
             ).needs_reload_ui(),
         )
-    if LAST_TEMPLATE_OPTION not in shared.opts.data_labels:
-        shared.opts.add_option(
-            LAST_TEMPLATE_OPTION,
-            shared.OptionInfo(
-                "",
-                "Last applied Anima Artist Scheduled Mixer template / 上次应用的 Anima 画师串模板",
-                gr.Textbox,
-                {"visible": False},
-                section=("anima-artist-scheduled-mixer", "Anima Artist Scheduled Mixer"),
-                category_id="system",
-            ),
-        )
-    if LAST_TEMPLATE_TARGET_OPTION not in shared.opts.data_labels:
-        shared.opts.add_option(
-            LAST_TEMPLATE_TARGET_OPTION,
-            shared.OptionInfo(
-                APPLY_BASE,
-                "Last Anima Artist Scheduled Mixer template target / 上次模板应用目标",
-                gr.Textbox,
-                {"visible": False},
-                section=("anima-artist-scheduled-mixer", "Anima Artist Scheduled Mixer"),
-                category_id="system",
-            ),
-        )
 
 
 script_callbacks.on_ui_settings(_register_ui_settings)
-
-
-def _root_block_load(*args, **kwargs):
-    try:
-        from modules_forge.main_entry import Context
-
-        if getattr(Context, "root_block", None) is not None:
-            Context.root_block.load(*args, **kwargs)
-    except Exception:
-        logger.exception("Failed to register Anima artist mixer UI load callback")
-
-
-def _clamp(value, low, high):
-    return max(low, min(high, value))
-
-
-def _to_float(value, fallback=0.0):
-    try:
-        if value is None or value == "":
-            return fallback
-        return float(value)
-    except Exception:
-        return fallback
 
 
 def _to_bool(value, fallback=False):
@@ -913,64 +812,9 @@ def _to_bool(value, fallback=False):
     return fallback
 
 
-def _format_float(value):
-    text = f"{_to_float(value):.6f}".rstrip("0").rstrip(".")
-    return text if text not in {"", "-0"} else "0"
-
-
 def _split_artist_chain(chain):
     source = str(chain or "").replace("，", ",").replace("\r", "\n").replace("\n", ",")
     return [part.strip() for part in source.split(",") if part.strip()]
-
-
-def _parse_inline_weight(text):
-    value = str(text or "").strip()
-    if not value:
-        return "", 1.0
-    number = r"([-+]?(?:\d+(?:\.\d*)?|\.\d+))"
-    wrapped = re.fullmatch(rf"[\(\[](.+?)[：:]\s*{number}[\)\]]", value)
-    if wrapped:
-        return wrapped.group(1).strip(), _to_float(wrapped.group(2), 1.0)
-    if not (value.startswith("<") and value.endswith(">")):
-        trailing = re.fullmatch(rf"(.+?)[：:]\s*{number}", value)
-        if trailing:
-            return trailing.group(1).strip(), _to_float(trailing.group(2), 1.0)
-    return value, 1.0
-
-
-def _parse_blocks(text, num_blocks):
-    source = str(text or "").replace("，", ",").replace(" ", "")
-    if not source:
-        return set(range(num_blocks))
-    result = set()
-    for token in source.split(","):
-        if not token:
-            continue
-        if "-" in token[1:]:
-            dash = token.index("-", 1)
-            try:
-                start = int(token[:dash])
-                end = int(token[dash + 1 :])
-            except Exception:
-                continue
-            if start < 0:
-                start += num_blocks
-            if end < 0:
-                end += num_blocks
-            if start > end:
-                start, end = end, start
-            for idx in range(max(0, start), min(num_blocks - 1, end) + 1):
-                result.add(idx)
-        else:
-            try:
-                idx = int(token)
-            except Exception:
-                continue
-            if idx < 0:
-                idx += num_blocks
-            if 0 <= idx < num_blocks:
-                result.add(idx)
-    return result or set(range(num_blocks))
 
 
 def _auto_stage_values(stage, shift_value):
@@ -980,36 +824,7 @@ def _auto_stage_values(stage, shift_value):
 
 
 def _curve_factor(progress, start, end, peak, curve):
-    if progress is None:
-        return 1.0
-    start = _clamp(start, 0.0, 1.0)
-    end = _clamp(end, 0.0, 1.0)
-    if end < start:
-        start, end = end, start
-    if progress < start or progress > end:
-        return 0.0
-    if end - start <= 1e-6:
-        return 1.0
-    local = (progress - start) / max(end - start, 1e-6)
-    curve = _option_key("curve", curve, CURVE_SMOOTH)
-    if curve == CURVE_HOLD:
-        return 1.0
-    if curve == CURVE_FRONT:
-        return 1.0 - 0.75 * local
-    if curve == CURVE_BACK:
-        return 0.25 + 0.75 * local
-    peak = _clamp(peak, start, end)
-    peak_local = (peak - start) / max(end - start, 1e-6)
-    if curve == CURVE_TRIANGLE:
-        if local <= peak_local:
-            return local / max(peak_local, 1e-6)
-        return (1.0 - local) / max(1.0 - peak_local, 1e-6)
-    if local <= peak_local:
-        raw = local / max(peak_local, 1e-6)
-    else:
-        raw = (1.0 - local) / max(1.0 - peak_local, 1e-6)
-    raw = _clamp(raw, 0.0, 1.0)
-    return raw * raw * (3.0 - 2.0 * raw)
+    return curve_factor(progress, start, end, peak, _option_key("curve", curve, CURVE_SMOOTH))
 
 
 def _default_rows(count=DEFAULT_ARTIST_ROWS, shift=3.0, optimization=OPT_BALANCE):
@@ -1515,7 +1330,7 @@ def _reset_all_defaults_ui():
     return _default_state_updates()
 
 
-def _apply_template_updates(name, target, base_row_count, hires_row_count, current_base_shift, current_hires_shift, current_optimization, component_values, remember=False, status_text=None):
+def _apply_template_updates(name, target, base_row_count, hires_row_count, current_base_shift, current_hires_shift, current_optimization, component_values, status_text=None):
     base_values = component_values[: MAX_ARTIST_ROWS * 10]
     hires_values = component_values[MAX_ARTIST_ROWS * 10 : MAX_ARTIST_ROWS * 20]
     base_current = _rows_from_components(*base_values)
@@ -1560,8 +1375,6 @@ def _apply_template_updates(name, target, base_row_count, hires_row_count, curre
         optimization_key if has_hires_rows or has_base_rows else fallback_optimization,
     )
     target = _option_key("apply_target", target, APPLY_BASE)
-    if remember:
-        _remember_template(name, target)
     base_count_value = max(1, len(base_tpl)) if target in {APPLY_BASE, APPLY_BOTH} else max(1, int(_to_float(base_row_count, 1)))
     hires_count_value = max(1, len(hires_tpl)) if target in {APPLY_HIRES, APPLY_BOTH} else max(1, int(_to_float(hires_row_count, 1)))
     base_updates = [gr.update() for _ in range(MAX_ARTIST_ROWS * 10)]
@@ -1599,52 +1412,6 @@ def _apply_template_ui(name, target, base_row_count, hires_row_count, current_ba
         current_hires_shift,
         current_optimization,
         component_values,
-        remember=True,
-    )
-
-
-def _blank_template_updates(status_text=""):
-    return (
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        status_text,
-        *[gr.update() for _ in range(MAX_ARTIST_ROWS * 20)],
-    )
-
-
-def _apply_last_template_on_load_ui(base_row_count, hires_row_count, current_base_shift, current_hires_shift, current_optimization, *component_values):
-    name = _last_template_name()
-    target = _last_template_target()
-    if not name:
-        return (
-            gr.update(),
-            gr.update(),
-            *_blank_template_updates(""),
-        )
-    return (
-        gr.update(value=name),
-        gr.update(value=_option_label("apply_target", target)),
-        *_apply_template_updates(
-            name,
-            target,
-            base_row_count,
-            hires_row_count,
-            current_base_shift,
-            current_hires_shift,
-            current_optimization,
-            component_values,
-            status_text="",
-        ),
     )
 
 
@@ -1661,20 +1428,9 @@ def _extract_cond_tensor(value):
     return None
 
 
-def _ensure_3d(tensor):
-    if tensor is None:
-        return None
-    if tensor.dim() == 2:
-        return tensor.unsqueeze(0)
-    if tensor.dim() == 4 and tensor.shape[1] == 1:
-        return tensor.squeeze(1)
-    if tensor.dim() == 3:
-        return tensor
-    return tensor.reshape(1, tensor.shape[-2], tensor.shape[-1])
-
-
 _COND_CACHE = OrderedDict()
 _COND_CACHE_LIMIT = 64
+_COND_CACHE_BYTES = 256 * 1024 * 1024  # CPU memory the cached artist conditionings may hold
 
 
 def _cache_key(p, texts):
@@ -1728,7 +1484,11 @@ def _encode_text_batch(p, texts, use_cache=True):
     result = (batch, negpip_mask)
     if use_cache:
         _COND_CACHE[key] = result
-        while len(_COND_CACHE) > _COND_CACHE_LIMIT:
+
+        def cached_bytes():
+            return sum(cond.nbytes + (0 if mask is None else mask.nbytes) for cond, mask in _COND_CACHE.values())
+
+        while len(_COND_CACHE) > 1 and (len(_COND_CACHE) > _COND_CACHE_LIMIT or cached_bytes() > _COND_CACHE_BYTES):
             _COND_CACHE.popitem(last=False)
     return result
 
@@ -1781,6 +1541,12 @@ class MixerState:
     wrapper_checks: int = 0
     diff_probe: tuple[float, float] | None = None
     mask_probe: tuple[int, int] | None = None
+    # The generation's infotext, to report a runtime failure
+    infotext: dict | None = None
+    # Row masks already on the device, keyed by (mask, device)
+    row_masks: dict = field(default_factory=dict)
+    # Aligned artist contexts of the current model call (see _artist_kv)
+    call_contexts: dict = field(default_factory=dict)
     superseded: bool = False
     # (sigmas, sampling_sigmas, progress) of the current model call: every
     # block of a call sees the same tensors, so progress is read once
@@ -1830,6 +1596,9 @@ def _cleanup_runtime():
     _unpatch_cross_attn()
     _ACTIVE_STATE = None
     _RUN_STATES.clear()
+    for state in states:  # device tensors of the finished run
+        state.call_contexts.clear()
+        state.row_masks.clear()
     return states
 
 
@@ -1939,31 +1708,6 @@ def _install_cross_attn_patch_no_unpatch(dm, state):
         logger.info("Anima artist mixer patched %d cross-attn blocks: %s", len(patched), _summarize_blocks(patched))
 
 
-def _broadcast_batch(tensor, batch_size):
-    if tensor.shape[0] == batch_size:
-        return tensor
-    if tensor.shape[0] == 1:
-        return tensor.expand(batch_size, -1, -1)
-    if batch_size % tensor.shape[0] == 0:
-        return tensor.repeat(batch_size // tensor.shape[0], 1, 1)
-    return tensor[:1].expand(batch_size, -1, -1)
-
-
-def _resolve_row_mask(cond_or_uncond, batch_size, apply_uncond):
-    if not cond_or_uncond:
-        return [True] * batch_size
-    markers = list(cond_or_uncond)
-    if len(markers) == batch_size:
-        return [apply_uncond or marker == 0 for marker in markers]
-    if batch_size % len(markers) == 0:
-        each = batch_size // len(markers)
-        mask = []
-        for marker in markers:
-            mask.extend([apply_uncond or marker == 0] * each)
-        return mask
-    return [True] * batch_size
-
-
 def _current_progress(transformer_options, state):
     if not isinstance(transformer_options, dict):
         return None
@@ -2006,82 +1750,41 @@ def _active_artists(state, layer_idx, progress):
     return active
 
 
-def _to_context(tensor, context):
-    tensor = _ensure_3d(tensor)
-    return tensor.to(device=context.device, dtype=context.dtype, non_blocking=True)
-
-
-def _to_context_like(tensor, context):
-    artist = _broadcast_batch(_to_context(tensor, context), context.shape[0])
-    if artist.shape[-1] != context.shape[-1]:
-        raise RuntimeError(f"Artist context dim {artist.shape[-1]} does not match base context dim {context.shape[-1]}")
-    while artist.dim() < context.dim():
-        artist = artist.unsqueeze(1)
-    if artist.dim() != context.dim():
-        raise RuntimeError(f"Artist context rank {artist.dim()} does not match base context rank {context.dim()}")
-    expand_shape = list(artist.shape)
-    for dim in range(1, context.dim() - 2):
-        if artist.shape[dim] == context.shape[dim]:
-            continue
-        if artist.shape[dim] != 1:
-            raise RuntimeError(f"Cannot align artist context shape {tuple(artist.shape)} to base context shape {tuple(context.shape)}")
-        expand_shape[dim] = context.shape[dim]
-    return artist.expand(*expand_shape)
-
-
-def _context_token_dim(context):
-    return max(1, context.dim() - 2)
-
-
-def _concat_contexts(base_context, artist_context):
-    return torch.cat([base_context, artist_context], dim=_context_token_dim(base_context))
-
-
-def _artist_mask_like(mask, artist_context):
-    """An artist's NegPiP V-mask aligned with ``artist_context``, or None."""
-
-    if mask is None:
-        return None
-    return _broadcast_batch(_to_context(mask, artist_context), artist_context.shape[0])
-
-
-def _joined_mask(parts, dim):
-    """NegPiP mask for contexts joined along ``dim``; ones fill parts without one."""
-
-    if all(mask is None for _, mask in parts):
-        return None
-    masks = [
-        mask if mask is not None else torch.ones_like(part[..., :1])
-        for part, mask in parts
-    ]
-    return torch.cat(masks, dim=dim)
-
-
-def _with_negpip_mask(transformer_options, mask):
-    """Options for a foreign context: its own mask replaces the base prompt's."""
-
-    options = dict(transformer_options) if isinstance(transformer_options, dict) else {}
-    options[NEGPIP_CONTEXT_MASK_KEY] = mask
-    return options
-
-
-def _artist_forward_batched(original_forward, x, context, rope_emb, transformer_options, artists, weights, fusion_mode):
-    batch_size = context.shape[0]
+def _artist_kv(state, artist, context, transformer_options, base_fusion):
+    """``(kv, kv_mask)`` an artist attends with: its context aligned to
+    ``context`` (joined after it for base fusions) and the matching NegPiP
+    mask. Every patched block of a model call gets the same ``context``, so
+    the aligned / joined tensors are built once per call."""
+    cache = state.call_contexts
+    if cache.get("context") is not context:
+        cache.clear()
+        cache["context"] = context
+    key = id(artist)
+    if key not in cache:
+        artist_context = _to_context_like(artist.cond_like(context), context)
+        cache[key] = (artist_context, _artist_mask_like(artist.mask_like(artist_context), artist_context))
+    artist_context, artist_mask = cache[key]
+    if not base_fusion:
+        return artist_context, artist_mask
+    base_mask = negpip_mask_for(context, transformer_options)
+    if base_mask is None and artist_mask is None:
+        joined_key = ("joined", key)
+        if joined_key not in cache:
+            cache[joined_key] = _concat_contexts(context, artist_context)
+        return cache[joined_key], None
     token_dim = _context_token_dim(context)
+    return _concat_contexts(context, artist_context), _joined_mask([(context, base_mask), (artist_context, artist_mask)], token_dim)
+
+
+def _artist_forward_batched(state, original_forward, x, context, rope_emb, transformer_options, artists, weights, fusion_mode):
+    batch_size = context.shape[0]
     base_fusion = fusion_mode in BASE_CONTEXT_FUSIONS
-    base_mask = negpip_mask_for(context, transformer_options) if base_fusion else None
     contexts = []
     masks = []
     for artist, _ in artists:
-        artist_context = _to_context_like(artist.cond_like(context), context)
-        artist_mask = _artist_mask_like(artist.mask_like(artist_context), artist_context)
-        if base_fusion:
-            contexts.append(_concat_contexts(context, artist_context))
-            mask = _joined_mask([(context, base_mask), (artist_context, artist_mask)], token_dim)
-        else:
-            contexts.append(artist_context)
-            mask = artist_mask
-        masks.append((contexts[-1], mask))
+        kv, mask = _artist_kv(state, artist, context, transformer_options, base_fusion)
+        contexts.append(kv)
+        masks.append((kv, mask))
     lengths = {item.shape[_context_token_dim(item)] for item in contexts}
     if len(lengths) > 1:
         raise RuntimeError(f"Cannot batch artist contexts with different token lengths: {lengths}")
@@ -2098,23 +1801,11 @@ def _artist_forward_batched(original_forward, x, context, rope_emb, transformer_
         opts["cond_or_uncond"] = list(cou) * count
     out = original_forward(x_rep, context=context_rep, rope_emb=rope_rep, transformer_options=opts)
     out = out.view(count, batch_size, *out.shape[1:])
-    w = torch.tensor(weights, device=out.device, dtype=out.dtype).view(count, *([1] * (out.dim() - 1)))
-    return (out * w).sum(dim=0)
-
-
-def _norm_limited_delta(base_out, artist_out, strength, max_ratio=0.6):
-    delta = artist_out - base_out
-    if delta.numel() == 0:
-        return base_out
-    with torch.no_grad():
-        flat_delta = delta.detach().float().flatten(1)
-        flat_base = base_out.detach().float().flatten(1)
-        delta_norm = flat_delta.norm(dim=1).clamp_min(1e-6)
-        base_norm = flat_base.norm(dim=1).clamp_min(1e-6)
-        limit = base_norm * float(max_ratio)
-        scale = torch.minimum(torch.ones_like(delta_norm), limit / delta_norm)
-        shape = [scale.shape[0]] + [1] * (delta.dim() - 1)
-    return base_out + delta * scale.to(device=delta.device, dtype=delta.dtype).view(*shape) * float(strength)
+    # Python-float weights: no host-to-device copy per block
+    total = out[0] * weights[0]
+    for index in range(1, count):
+        total = total + out[index] * weights[index]
+    return total
 
 
 def _dispatch_cross_attn(original_forward, layer_idx, state, x, context=None, rope_emb=None, transformer_options={}):
@@ -2133,8 +1824,13 @@ def _dispatch_cross_attn(original_forward, layer_idx, state, x, context=None, ro
             return _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_options, active)
         return _dispatch_output_avg(original_forward, state, x, context, rope_emb, transformer_options, active)
     except Exception as exc:
+        # Stop for the rest of the run instead of failing (and logging) in
+        # every block of every step, and say so in the infotext.
         state.fallback_calls += 1
-        logger.exception("Anima artist mixer failed at block %s, falling back to original cross-attn: %s", layer_idx, exc)
+        state.enabled = False
+        if state.infotext is not None:
+            state.infotext["Anima Artist Mixer"] = f"disabled: {type(exc).__name__} at block {layer_idx}"
+        logger.exception("Anima artist mixer failed at block %s and is off for this run: %s", layer_idx, exc)
         return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
 
 
@@ -2159,6 +1855,7 @@ def _dispatch_output_avg(original_forward, state, x, context, rope_emb, transfor
     if state.batched and len(active) > 1 and not state.batched_disabled:
         try:
             artist_total = _artist_forward_batched(
+                state,
                 original_forward,
                 x,
                 context,
@@ -2175,17 +1872,9 @@ def _dispatch_output_avg(original_forward, state, x, context, rope_emb, transfor
     if artist_total is None:
         artist_options = dict(transformer_options)
         artist_options["anima_nag_skip"] = "artist_context"
-        token_dim = _context_token_dim(context)
         base_fusion = state.fusion_mode in BASE_CONTEXT_FUSIONS
-        base_mask = negpip_mask_for(context, transformer_options) if base_fusion else None
         for (artist, _), weight in zip(active, weights):
-            artist_context = _to_context_like(artist.cond_like(context), context)
-            artist_mask = _artist_mask_like(artist.mask_like(artist_context), artist_context)
-            if base_fusion:
-                kv = _concat_contexts(context, artist_context)
-                kv_mask = _joined_mask([(context, base_mask), (artist_context, artist_mask)], token_dim)
-            else:
-                kv, kv_mask = artist_context, artist_mask
+            kv, kv_mask = _artist_kv(state, artist, context, transformer_options, base_fusion)
             out_i = original_forward(x, context=kv, rope_emb=rope_emb, transformer_options=_with_negpip_mask(artist_options, kv_mask))
             artist_total = out_i * weight if artist_total is None else artist_total + out_i * weight
     base_out = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
@@ -2211,8 +1900,8 @@ def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_
     token_dim = _context_token_dim(context)
     parts = []
     for artist, weight in active:
-        artist_context = _to_context_like(artist.cond_like(context), context)
-        parts.append((artist_context * (weight / denom), _artist_mask_like(artist.mask_like(artist_context), artist_context)))
+        artist_context, artist_mask = _artist_kv(state, artist, context, transformer_options, False)
+        parts.append((artist_context * (weight / denom), artist_mask))
     combined = torch.cat([part for part, _ in parts], dim=token_dim)
     combined_mask = _joined_mask(parts, token_dim)
     if state.fusion_mode in BASE_CONTEXT_FUSIONS:
@@ -2232,7 +1921,8 @@ def _blend_rows(state, base_out, artist_out, mask, total_influence):
     for the whole batch at once (both blends are computed per row)."""
 
     strength = _clamp(float(state.global_strength), 0.0, 1.0 if state.fusion_mode == FUSION_QUALITY_DELTA else 2.0) * total_influence
-    if state.diff_probe is None:
+    if state.diff_probe is None and logger.isEnabledFor(logging.DEBUG):
+        # Two syncs and full-size temporaries: only for debug logging
         with torch.no_grad():
             delta_norm = (artist_out - base_out).detach().float().flatten(1).norm(dim=1).mean().item()
             base_norm = base_out.detach().float().flatten(1).norm(dim=1).mean().clamp_min(1e-6).item()
@@ -2245,19 +1935,11 @@ def _blend_rows(state, base_out, artist_out, mask, total_influence):
         blended = base_out * (1.0 - strength) + artist_out * strength
     if all(mask):
         return blended
-    rows = torch.tensor(mask, device=base_out.device).view(-1, *([1] * (base_out.dim() - 1)))
+    key = (tuple(mask), base_out.device)
+    if key not in state.row_masks:
+        state.row_masks[key] = torch.tensor(mask, device=base_out.device)
+    rows = state.row_masks[key].view(-1, *([1] * (base_out.dim() - 1)))
     return torch.where(rows, blended, base_out)
-
-
-def _current_prompts(p):
-    if getattr(p, "is_hr_pass", False):
-        prompts = getattr(p, "hr_prompts", None) or getattr(p, "all_hr_prompts", None)
-    else:
-        prompts = getattr(p, "prompts", None) or getattr(p, "all_prompts", None)
-    if isinstance(prompts, list) and prompts:
-        return [str(item) for item in prompts]
-    prompt = getattr(p, "prompt", "")
-    return [str(prompt or "")]
 
 
 def _artist_entries(rows, shift, optimization):
@@ -2275,7 +1957,7 @@ def _artist_entries(rows, shift, optimization):
 
 
 def _build_artists(p, rows, num_blocks, shift, optimization, use_cache):
-    prompts = _current_prompts(p)
+    prompts = effective_prompt_batch(p)[0]
     artists = []
     for row, clean_name, inline_weight in _artist_entries(rows, shift, optimization):
         enabled, artist_text, weight, blocks_text, start, end, peak, curve, _stage, _auto = row
@@ -2794,6 +2476,7 @@ class Script(scripts.Script):
             apply_uncond=bool(apply_uncond),
             batched=bool(defaults["batched"]),
             artists=artists,
+            infotext=p.extra_generation_params,
         )
         previous_states = list(_RUN_STATES)
         for previous in previous_states:
@@ -2844,7 +2527,7 @@ class Script(scripts.Script):
                     state.fusion_mode in BASE_CONTEXT_FUSIONS,
                 )
                 if state.diff_probe is not None:
-                    logger.info(
+                    logger.debug(
                         "Anima artist mixer diff probe: artist_delta_norm=%.4f artist_delta_ratio=%.4f",
                         state.diff_probe[0],
                         state.diff_probe[1],
