@@ -1,8 +1,13 @@
+import os
+
 import gradio as gr
+from lib_spectrum import logger
 from lib_spectrum.forecaster import SpectrumNode
+from lib_spectrum.pass_context import resolve_pass_context
 from lib_spectrum.presets import PresetManager
 
-from modules import scripts, shared
+from modules import paths, scripts, shared
+from modules.anima_presets import register_preset_control
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -32,7 +37,7 @@ class SpectrumForForge(scripts.Script):
                 m = gr.Slider(
                     minimum=1,
                     maximum=8,
-                    value=6,
+                    value=4,
                     step=1,
                     label="Polynomial Degree",
                     info="higher = complex & subtle patterns ; lower = stable & faster",
@@ -41,7 +46,7 @@ class SpectrumForForge(scripts.Script):
                 lam = gr.Slider(
                     minimum=0.0,
                     maximum=2.0,
-                    value=0.5,
+                    value=0.1,
                     step=0.05,
                     label="Regularization",
                     info="higher = reduce overfitting ; lower = fit more data",
@@ -79,6 +84,55 @@ class SpectrumForForge(scripts.Script):
                     label="Stop Caching Step",
                     info="Run the full model for the last few steps",
                 )
+            with gr.Row():
+                tail_actual_steps = gr.Slider(
+                    minimum=0,
+                    maximum=12,
+                    value=3,
+                    step=1,
+                    label="Minimum Tail Actual Steps",
+                    info="Always run at least this many final DiT steps; combined with Stop Caching Step using the safer value.",
+                )
+                history_size = gr.Slider(
+                    minimum=3,
+                    maximum=32,
+                    value=10,
+                    step=1,
+                    label="Feature History",
+                    info="Must be at least Polynomial Degree + 2. Larger values use more VRAM.",
+                )
+
+            with gr.Accordion("Schedule & compatibility", open=False):
+                with gr.Row():
+                    schedule = gr.Dropdown(
+                        ["Window", "SEA (auto-calibrated)"],
+                        value="Window",
+                        label="Refresh Schedule",
+                        info="SEA learns a content-aware threshold on the first matching run, then reuses it.",
+                    )
+                    refresh_ratio = gr.Slider(
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=0.0,
+                        step=0.01,
+                        label="SEA Refresh Ratio",
+                        info="0 matches the Window schedule's compute budget automatically; otherwise sets the target actual-forward fraction.",
+                    )
+                    sea_beta = gr.Slider(
+                        minimum=0.5,
+                        maximum=4.0,
+                        value=2.0,
+                        step=0.1,
+                        label="SEA Spectral Beta",
+                        info="Natural-image spectral slope used only for SEA decisions.",
+                    )
+                compat_policy = gr.Dropdown(
+                    ["Conservative", "Strict", "Legacy / fastest"],
+                    value="Conservative",
+                    label="Compatibility Policy",
+                    info="Conservative caches only simple Forge CFG batches and cache-safe wrapper chains. Strict currently runs actual steps because Forge has no stable branch UUIDs.",
+                )
+                verbose = gr.Checkbox(False, label="Verbose Spectrum decisions")
 
             with gr.Accordion("Presets", open=False):
                 _preset = gr.Dropdown(
@@ -95,7 +149,22 @@ class SpectrumForForge(scripts.Script):
                 for comp in (_preset, _load, _save, _del):
                     comp.do_not_save_to_config = True
 
-                args = (w, m, lam, window_size, flex_window, warmup_steps, stop_caching_step)
+                args = (
+                    w,
+                    m,
+                    lam,
+                    window_size,
+                    flex_window,
+                    warmup_steps,
+                    stop_caching_step,
+                    tail_actual_steps,
+                    history_size,
+                    schedule,
+                    refresh_ratio,
+                    sea_beta,
+                    compat_policy,
+                    verbose,
+                )
 
                 _load.click(
                     fn=lambda name: PresetManager.get_preset(name),
@@ -124,22 +193,111 @@ class SpectrumForForge(scripts.Script):
             PasteField(flex_window, "spec_flex_window"),
             PasteField(warmup_steps, "spec_warmup_steps"),
             PasteField(stop_caching_step, "spec_stop_caching_step"),
+            PasteField(tail_actual_steps, "spec_tail_actual_steps"),
+            PasteField(history_size, "spec_history_size"),
+            PasteField(schedule, "spec_schedule"),
+            PasteField(refresh_ratio, "spec_refresh_ratio"),
+            PasteField(sea_beta, "spec_sea_beta"),
+            PasteField(compat_policy, "spec_compat_policy"),
+            PasteField(verbose, "spec_verbose"),
         ]
         self.paste_field_names = [field.label for field in self.infotext_fields]
 
-        return [enable, w, m, lam, window_size, flex_window, warmup_steps, stop_caching_step]
+        for name, component in {
+            "spectrum.enabled": enable,
+            "spectrum.weight": w,
+            "spectrum.degree": m,
+            "spectrum.regularization": lam,
+            "spectrum.window": window_size,
+            "spectrum.window_growth": flex_window,
+            "spectrum.warmup": warmup_steps,
+            "spectrum.stop": stop_caching_step,
+            "spectrum.tail_actual": tail_actual_steps,
+            "spectrum.history": history_size,
+            "spectrum.schedule": schedule,
+            "spectrum.refresh_ratio": refresh_ratio,
+            "spectrum.sea_beta": sea_beta,
+            "spectrum.policy": compat_policy,
+            "spectrum.verbose": verbose,
+        }.items():
+            register_preset_control(self.tabname, name, component)
+
+        return [
+            enable,
+            w,
+            m,
+            lam,
+            window_size,
+            flex_window,
+            warmup_steps,
+            stop_caching_step,
+            tail_actual_steps,
+            history_size,
+            schedule,
+            refresh_ratio,
+            sea_beta,
+            compat_policy,
+            verbose,
+        ]
+
+    def cleanup(self, p, *args, **kwargs):
+        # The wrapper (and its GPU feature history) stays on forge_objects
+        # until the next generation; drop the history as soon as this one ends.
+        for state in getattr(p, "_spectrum_states", None) or ():
+            state.reset()
+        p._spectrum_states = []
 
     def process_before_every_sampling(self, p, enable: bool, *args, **kwargs):
         if not enable:
             return
 
+        args = list(args)
+        minimum_history = int(args[1]) + 2
+        if int(args[8]) < minimum_history:
+            logger.warning("Feature History was raised to %d for Polynomial Degree %d.", minimum_history, int(args[1]))
+            args[8] = minimum_history
+        args = tuple(args)
+
         if shared.opts.skip_early_cond > 0.0 or shared.opts.s_min_uncond > 0.0:
-            print('Spectrum does not support "Ignore/Skip Negative Prompt" optimizations...')
+            logger.warning('Spectrum does not support "Ignore/Skip Negative Prompt" optimizations.')
             return
 
+        x = kwargs.get("x")
+        latent_shape = tuple(x.shape[-2:]) if x is not None else None
+        pass_context = resolve_pass_context(p)
+        sea_context = {
+            "pass": "hires" if pass_context.is_hires else "base",
+            "sampler": pass_context.sampler,
+            "cfg": round(pass_context.cfg, 4),
+            "latent_batch": int(x.shape[0]) if x is not None else None,
+            "latent_hw": latent_shape,
+        }
         unet = p.sd_model.forge_objects.unet
-        unet = SpectrumNode.patch(unet, p.steps, *args)
+        unet = SpectrumNode.patch(
+            unet,
+            pass_context.steps,
+            *args,
+            sea_cache_dir=os.path.join(paths.data_path, "cache", "spectrum-sea"),
+            sea_cache_context=sea_context,
+            process=p,
+        )
         p.sd_model.forge_objects.unet = unet
 
-        for k, v in zip(["spec_w", "spec_m", "spec_lam", "spec_window_size", "spec_flex_window", "spec_warmup_steps", "spec_stop_caching_step"], args):
+        keys = [
+            "spec_w",
+            "spec_m",
+            "spec_lam",
+            "spec_window_size",
+            "spec_flex_window",
+            "spec_warmup_steps",
+            "spec_stop_caching_step",
+            "spec_tail_actual_steps",
+            "spec_history_size",
+            "spec_schedule",
+            "spec_refresh_ratio",
+            "spec_sea_beta",
+            "spec_compat_policy",
+            "spec_verbose",
+        ]
+        for k, v in zip(keys, args):
             p.extra_generation_params[k] = v

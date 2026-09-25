@@ -1,0 +1,31 @@
+# Spectrum vNext for Anima
+
+Forge Neo's built-in Spectrum panel forecasts the hidden feature immediately
+before Anima's final DiT layer. A cached step still executes Anima's timestep
+embedding, AdaLN final layer, unpatchify operation, and native flow-prediction
+conversion. This avoids reusing a denoised output that belongs to an earlier
+timestep. Other model architectures fall back to forecasting the whole model
+output, like upstream Forge Neo's Spectrum.
+
+Two refresh schedules are available:
+
+- **Window** uses Spectrum's growing skip window.
+- **SEA (auto-calibrated)** filters the current latent with SeaCache's
+  spectral-evolution-aware metric. The first run of a matching
+  sampler/CFG/resolution configuration measures a threshold; later runs load
+  that threshold from `data/cache/spectrum-sea`.
+
+Base, img2img and Hires passes use their actual, independent step count (img2img
+counts only the steps its denoising strength runs), sampler and CFG values when building the forecast and SEA calibration state.
+
+`Conservative` is the default compatibility policy. It forecasts only simple
+one-branch or standard two-branch Forge CFG batches, invalidates history when
+the latent shape or text conditioning changes, and refuses unknown model
+wrappers. `Strict` currently keeps every step actual because Forge does not
+expose stable per-conditioning UUIDs. `Legacy / fastest` is an explicit
+quality-risk opt-in for complex wrapper chains.
+
+The minimum history is `Polynomial Degree + 2`. History tensors remain large,
+but prediction computes regression weights in the small history space and then
+accumulates features one at a time, avoiding a second stacked history tensor
+and a full coefficient matrix at peak VRAM.

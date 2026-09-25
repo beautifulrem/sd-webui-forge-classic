@@ -1,6 +1,9 @@
 # https://github.com/Comfy-Org/ComfyUI/blob/master/comfy_extras/nodes_torch_compile.py
 
 import logging
+import shutil
+import sys
+import weakref
 from functools import wraps
 from typing import TYPE_CHECKING
 
@@ -14,9 +17,12 @@ from backend.args import args as cmd_args
 from backend.logging import setup_logger
 from backend.utils import get_attr, set_attr_raw
 from modules import scripts
+from modules.anima_support import is_anima_engine
+from modules.anima_presets import register_preset_control
+from anima_block_compile import AnimaBlockCompileManager, needs_eager
 
 try:
-    import triton
+    import triton  # noqa: F401 -- importing is the backend availability probe
 except ImportError:
     TRITON_AVAILABLE = False
 else:
@@ -32,6 +38,12 @@ setup_logger(logger)
 
 def skip_torch_compile_dict(guard_entries):
     return [("transformer_options" not in entry.name) for entry in guard_entries]
+
+
+def _windows_cpp_compiler_available() -> bool:
+    if sys.platform != "win32":
+        return True
+    return any(shutil.which(name) for name in ("cl", "clang-cl", "g++"))
 
 
 class TorchCompileForForge(scripts.Script):
@@ -55,6 +67,7 @@ class TorchCompileForForge(scripts.Script):
                 choices=[
                     "Automatic",
                     "Disable",
+                    "Anima per-block",
                     "guard_filter_fn",
                     "dynamic",
                     "max-autotune",
@@ -75,32 +88,89 @@ class TorchCompileForForge(scripts.Script):
 - **max-autotune:** Best Runtime Speed ; {_indynamic} ; {_no_malloc}
 - **max-autotune-no-cudagraphs:** {_dynamic} ; Faster than **dynamic** ; Even Slower to Compile
 - **reduce-overhead:** Similar to **max-autotune** ; {_indynamic} ; {_no_malloc}
+- **Anima per-block:** Compile each Anima transformer block separately; fixed resolution/batch, lower graph-break risk than whole-model compile
             """)
+
+        register_preset_control(self.tabname, "compile.preset", preset)
 
         return [preset]
 
     def process_batch(self, p, preset: str, **kwargs):
-        if preset == "Automatic":
-            return
-
         kmodel: "KModel" = p.sd_model.forge_objects.unet.model
         prev_config: tuple[str] = getattr(kmodel, _COMPILE_CONFIG_KEY, None)
 
+        # The handler outlives this generation on the model: hold p weakly so
+        # the finished generation (images, prompts) can be freed.
+        process_ref = weakref.ref(p)
+
+        def compile_fallback(error):
+            message = f"Anima per-block fell back to eager: {type(error).__name__}"
+            process = process_ref()
+            if process is not None:
+                process.extra_generation_params["Torch compile"] = message
+            logger.error(
+                message,
+                exc_info=(type(error), error, error.__traceback__),
+            )
+
+        if preset == "Automatic":
+            if AnimaBlockCompileManager.is_installed(kmodel):
+                AnimaBlockCompileManager.update_fallback_handler(
+                    kmodel, compile_fallback
+                )
+                reason = AnimaBlockCompileManager.fallback_reason(kmodel)
+                if reason is not None:
+                    p.extra_generation_params["Torch compile"] = (
+                        f"Anima per-block using eager fallback: {reason}"
+                    )
+            return
+
         if preset == "Disable":
             self._remove_compile_wrapper(kmodel)
+            return
+
+        if preset == "Anima per-block" and not is_anima_engine(p.sd_model):
+            logger.warning("Anima per-block compile was ignored because the active model is not Anima")
+            p.extra_generation_params["Torch compile"] = "Anima per-block ignored: non-Anima model"
+            return
+
+        if preset == "Anima per-block" and not _windows_cpp_compiler_available():
+            self._remove_compile_wrapper(kmodel)
+            message = "Anima per-block disabled: no C++ compiler found (install Visual Studio Build Tools)"
+            logger.error(message)
+            p.extra_generation_params["Torch compile"] = message
             return
 
         if preset in ("max-autotune", "reduce-overhead") and cmd_args.cuda_malloc:
             logger.error(f"{preset} does not support --cuda-malloc\nModel is not compiled...")
             return
 
-        if prev_config == preset and getattr(kmodel, _ORIG_APPLY_KEY, None) is not None:
+        if prev_config == preset and (
+            getattr(kmodel, _ORIG_APPLY_KEY, None) is not None
+            or AnimaBlockCompileManager.is_installed(kmodel)
+        ):
+            if preset == "Anima per-block":
+                AnimaBlockCompileManager.update_fallback_handler(
+                    kmodel, compile_fallback
+                )
+                reason = AnimaBlockCompileManager.fallback_reason(kmodel)
+                if reason is not None:
+                    p.extra_generation_params["Torch compile"] = (
+                        f"Anima per-block using eager fallback: {reason}"
+                    )
             return
 
         if prev_config is not None:
             self._remove_compile_wrapper(kmodel)
 
         match preset:
+            case "Anima per-block":
+                config = dict(
+                    backend="inductor",
+                    dynamic=False,
+                    fullgraph=False,
+                    options={"guard_filter_fn": skip_torch_compile_dict},
+                )
             case "guard_filter_fn":
                 config = dict(backend="inductor", dynamic=False, fullgraph=False, options={"guard_filter_fn": skip_torch_compile_dict})
             case "dynamic":
@@ -112,7 +182,15 @@ class TorchCompileForForge(scripts.Script):
             case "reduce-overhead":
                 config = dict(backend="inductor", mode="reduce-overhead", dynamic=False, fullgraph=False, options={"guard_filter_fn": skip_torch_compile_dict})
 
-        self._wrap_apply_model(kmodel, config)
+        if preset == "Anima per-block":
+            AnimaBlockCompileManager.install(
+                kmodel,
+                config,
+                preset,
+                on_fallback=compile_fallback,
+            )
+        else:
+            self._wrap_apply_model(kmodel, config)
         setattr(kmodel, _COMPILE_CONFIG_KEY, preset)
 
         logger.info(f"Model Compiled ({preset})")
@@ -125,6 +203,11 @@ class TorchCompileForForge(scripts.Script):
         @wraps(original_apply_model)
         def apply_model_with_compile(*args, **kwargs):
             orig_model = get_attr(kmodel, "diffusion_model")
+            # The guard filter drops guards on transformer_options: calls with
+            # per-generation attention options or patched modules run eager.
+            model_ids = {id(module) for module in orig_model.modules()}
+            if needs_eager(args, kwargs, model_ids):
+                return original_apply_model(*args, **kwargs)
 
             if not hasattr(kmodel, "_forge_compiled_model"):
                 setattr(kmodel, "_forge_compiled_model", torch.compile(orig_model, **compile_config))
@@ -142,6 +225,7 @@ class TorchCompileForForge(scripts.Script):
 
     @staticmethod
     def _remove_compile_wrapper(kmodel: "KModel"):
+        AnimaBlockCompileManager.remove(kmodel)
         if hasattr(kmodel, "_forge_compiled_model"):
             delattr(kmodel, "_forge_compiled_model")
 

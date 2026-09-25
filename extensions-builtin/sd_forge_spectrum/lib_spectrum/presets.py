@@ -7,7 +7,23 @@ import gradio as gr
 from lib_spectrum import logger
 
 PRESET_FILE: Final[os.PathLike] = os.path.join(os.path.dirname(os.path.dirname(__file__)), "presets.json")
-PARAMS: Final[list[type]] = [float, int, float, int, float, int, float]
+PARAMS: Final[list[type]] = [float, int, float, int, float, int, float, int, int, str, float, float, str, bool]
+DEFAULTS: Final[list] = [
+    0.25,
+    4,
+    0.1,
+    2,
+    0.0,
+    6,
+    0.9,
+    3,
+    10,
+    "Window",
+    0.0,
+    2.0,
+    "Conservative",
+    False,
+]
 
 
 class PresetManager:
@@ -45,7 +61,9 @@ class PresetManager:
             logger.error(f'Preset "{preset_name}" was not found...')
             return [gr.skip()] * len(PARAMS)
 
-        return [gr.update(value=obj(val)) for obj, val in zip(PARAMS, preset)]
+        # Presets from the previous seven-control Spectrum UI remain valid.
+        values = [*preset, *DEFAULTS[len(preset) :]]
+        return [gr.update(value=obj(val)) for obj, val in zip(PARAMS, values)]
 
     @classmethod
     def save_preset(cls, preset_name: str, *args: float) -> list[str]:
