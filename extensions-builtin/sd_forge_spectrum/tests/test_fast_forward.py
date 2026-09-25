@@ -90,6 +90,20 @@ class FastForwardTests(unittest.TestCase):
             other = _fast_forward(self.dit, self.predictor, other_sigma, x, feature)
         self.assertGreater((other - expected).abs().max().item(), 1e-2)
 
+    def test_fast_forward_keeps_compute_dtype_with_bf16_storage(self):
+        # Manual cast: bf16-stored weights, fp32 compute. The real forward runs
+        # final_layer in fp32, so the cached step must not downcast the feature
+        # to the parameters' storage dtype (it drifted ~1e-2; FP8 raised).
+        self.dit.to(torch.bfloat16)
+        x = torch.randn(2, 4, 1, 16, 12, generator=self.generator)
+        sigma = torch.tensor([0.8, 0.35])
+        context = torch.randn(2, 7, 64, generator=self.generator)
+        feature, expected = self._check_matches_real_forward(x, sigma, context)
+        self.assertEqual(feature.dtype, torch.float32)
+        with torch.inference_mode():
+            storage_dtype = _fast_forward(self.dit, self.predictor, sigma, x, feature.to(torch.bfloat16))
+        self.assertGreater((storage_dtype - expected).abs().max().item(), 1e-3)
+
 
 if __name__ == "__main__":
     unittest.main()

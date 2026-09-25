@@ -1,14 +1,18 @@
 import math
 import pathlib
 import sys
+import tempfile
 import unittest
+from types import SimpleNamespace
 
 import torch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from lib_spectrum.forecaster import SpectrumState
 from lib_spectrum.sea import (
+    SeaCalibration,
     count_refreshes,
     flow_time,
     l1rel,
@@ -52,6 +56,90 @@ class SeaTests(unittest.TestCase):
     def test_window_fraction_is_bounded(self):
         fraction = window_refresh_fraction(30, 6, 3, 2.0, 0.25)
         self.assertTrue(0.0 <= fraction <= 1.0)
+
+
+SEA = "SEA (auto-calibrated)"
+
+
+def _calibration(cache_dir, steps=10):
+    return SeaCalibration(
+        cache_dir=cache_dir,
+        context={"model": "Test"},
+        steps=steps,
+        warmup_steps=2,
+        tail_actual_steps=2,
+        window_size=2.0,
+        flex_window=0.0,
+        refresh_ratio=0.0,
+    )
+
+
+def _state(calibration, steps=10):
+    return SpectrumState(
+        steps=steps,
+        window_size=2.0,
+        flex_window=0.0,
+        warmup_steps=2,
+        tail_actual_steps=2,
+        schedule=SEA,
+        sea_beta=2.0,
+        sea_calibration=calibration,
+        verbose=False,
+    )
+
+
+def _run(state, steps=10, batch=lambda step: 1):
+    generator = torch.Generator().manual_seed(0)
+    image = torch.randn(1, 4, 1, 8, 8, generator=generator)
+    for step in range(steps):
+        sigma = 1.0 - step / steps
+        noise = torch.randn(image.shape, generator=generator)
+        latent = (1.0 - sigma) * image + sigma * noise
+        # Branch copies of x are identical, as Forge batches them.
+        state.advance(sigma, latent.repeat(batch(step), 1, 1, 1, 1))
+
+
+class SeaStateTests(unittest.TestCase):
+    def test_calibration_is_saved_once_and_loaded_by_the_next_generation(self):
+        with tempfile.TemporaryDirectory() as cache_dir:
+            state = _state(_calibration(cache_dir))
+            self.assertIsNone(state.sea_delta)
+            _run(state)
+            # Distances from the cacheable steps [warmup, stop_at) only.
+            self.assertEqual(len(state.sea_distances), state.stop_at - state.warmup_steps)
+            self.assertTrue(state.sea_saved)
+            self.assertTrue(state.sea_delta > 0)
+            self.assertTrue(pathlib.Path(state.sea_calibration.path).is_file())
+
+            again = _state(_calibration(cache_dir))
+            self.assertEqual(again.sea_delta, state.sea_delta)
+            _run(again)
+            self.assertEqual(again.sea_distances, [])  # calibrated: nothing re-collected
+            self.assertIsNone(_state(_calibration(cache_dir, steps=12)).sea_delta)  # other config
+
+    def test_refresh_decision_follows_the_accumulated_distance(self):
+        state = _state(None)
+        state.sea_delta = 0.5
+        state.forecasters[0] = SimpleNamespace(ready=True)
+        state.step = state.warmup_steps
+        state.sea_accumulated = 0.4
+        self.assertEqual(state.decide([0]), "cached")
+        state.sea_accumulated = 0.5
+        self.assertEqual(state.decide([0]), "actual")
+        state.actual_completed()
+        self.assertEqual(state.sea_accumulated, 0.0)
+        self.assertEqual(state.decide([0]), "cached")
+        state.step = state.stop_at
+        self.assertEqual(state.decide([0]), "actual")  # tail steps are always actual
+
+    def test_uncond_dropping_out_of_the_batch_keeps_measuring(self):
+        # Anima's CFG active range: cond+uncond (2 rows), then cond only.
+        dropped = _state(None)
+        _run(dropped, batch=lambda step: 2 if step < 5 else 1)
+        single = _state(None)
+        _run(single)
+        self.assertEqual(dropped.sea_distances, single.sea_distances)
+        self.assertAlmostEqual(dropped.sea_accumulated, single.sea_accumulated)
 
 
 if __name__ == "__main__":

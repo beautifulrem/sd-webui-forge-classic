@@ -4,7 +4,7 @@ import gradio as gr
 from lib_spectrum import logger
 from lib_spectrum.forecaster import SpectrumNode
 from lib_spectrum.pass_context import resolve_pass_context
-from lib_spectrum.presets import PresetManager
+from lib_spectrum.presets import CONTROLS, DEFAULT, INFOTEXT_KEYS, PresetManager
 
 from modules import paths, scripts, shared
 from modules.anima_presets import register_preset_control
@@ -13,25 +13,6 @@ from modules.ui_components import InputAccordion
 
 PresetManager.load_presets()
 
-
-
-# Infotext labels of the script arguments after ``enable``, in order
-INFOTEXT_KEYS = (
-    "spec_w",
-    "spec_m",
-    "spec_lam",
-    "spec_window_size",
-    "spec_flex_window",
-    "spec_warmup_steps",
-    "spec_stop_caching_step",
-    "spec_tail_actual_steps",
-    "spec_history_size",
-    "spec_schedule",
-    "spec_refresh_ratio",
-    "spec_sea_beta",
-    "spec_compat_policy",
-    "spec_verbose",
-)
 
 class SpectrumForForge(scripts.Script):
     sorting_priority = 2026
@@ -48,7 +29,7 @@ class SpectrumForForge(scripts.Script):
                 w = gr.Slider(
                     minimum=0.0,
                     maximum=1.0,
-                    value=0.25,
+                    value=DEFAULT["spec_w"],
                     step=0.05,
                     label="Prediction Weighting",
                     info="higher = long-term trend ; lower = short-term changes",
@@ -56,7 +37,7 @@ class SpectrumForForge(scripts.Script):
                 m = gr.Slider(
                     minimum=1,
                     maximum=8,
-                    value=4,
+                    value=DEFAULT["spec_m"],
                     step=1,
                     label="Polynomial Degree",
                     info="higher = complex & subtle patterns ; lower = stable & faster",
@@ -65,7 +46,7 @@ class SpectrumForForge(scripts.Script):
                 lam = gr.Slider(
                     minimum=0.0,
                     maximum=2.0,
-                    value=0.1,
+                    value=DEFAULT["spec_lam"],
                     step=0.05,
                     label="Regularization",
                     info="higher = reduce overfitting ; lower = fit more data",
@@ -73,7 +54,7 @@ class SpectrumForForge(scripts.Script):
                 window_size = gr.Slider(
                     minimum=1,
                     maximum=10,
-                    value=2,
+                    value=DEFAULT["spec_window_size"],
                     step=1,
                     label="Cache Window",
                     info="higher = skip more steps ; lower = slower but more accurate",
@@ -81,7 +62,7 @@ class SpectrumForForge(scripts.Script):
             flex_window = gr.Slider(
                 minimum=0.0,
                 maximum=2.0,
-                value=0.0,
+                value=DEFAULT["spec_flex_window"],
                 step=0.05,
                 label="Window Growth",
                 info="higher = more speed & less accurate ; lower = more consistent accuracy but less speed gain",
@@ -90,7 +71,7 @@ class SpectrumForForge(scripts.Script):
                 warmup_steps = gr.Slider(
                     minimum=0,
                     maximum=20,
-                    value=6,
+                    value=DEFAULT["spec_warmup_steps"],
                     step=1,
                     label="Warmup Steps",
                     info="Run the full model before caching starts",
@@ -98,7 +79,7 @@ class SpectrumForForge(scripts.Script):
                 stop_caching_step = gr.Slider(
                     minimum=0.0,
                     maximum=1.0,
-                    value=0.9,
+                    value=DEFAULT["spec_stop_caching_step"],
                     step=0.05,
                     label="Stop Caching Step",
                     info="Run the full model for the last few steps",
@@ -107,7 +88,7 @@ class SpectrumForForge(scripts.Script):
                 tail_actual_steps = gr.Slider(
                     minimum=0,
                     maximum=12,
-                    value=3,
+                    value=DEFAULT["spec_tail_actual_steps"],
                     step=1,
                     label="Minimum Tail Actual Steps",
                     info="Always run at least this many final DiT steps; combined with Stop Caching Step using the safer value.",
@@ -115,7 +96,7 @@ class SpectrumForForge(scripts.Script):
                 history_size = gr.Slider(
                     minimum=3,
                     maximum=32,
-                    value=10,
+                    value=DEFAULT["spec_history_size"],
                     step=1,
                     label="Feature History",
                     info="Must be at least Polynomial Degree + 2. Larger values use more VRAM.",
@@ -125,14 +106,14 @@ class SpectrumForForge(scripts.Script):
                 with gr.Row():
                     schedule = gr.Dropdown(
                         ["Window", "SEA (auto-calibrated)"],
-                        value="Window",
+                        value=DEFAULT["spec_schedule"],
                         label="Refresh Schedule",
                         info="SEA learns a content-aware threshold on the first matching run, then reuses it.",
                     )
                     refresh_ratio = gr.Slider(
                         minimum=0.0,
                         maximum=1.0,
-                        value=0.0,
+                        value=DEFAULT["spec_refresh_ratio"],
                         step=0.01,
                         label="SEA Refresh Ratio",
                         info="0 matches the Window schedule's compute budget automatically; otherwise sets the target actual-forward fraction.",
@@ -140,18 +121,18 @@ class SpectrumForForge(scripts.Script):
                     sea_beta = gr.Slider(
                         minimum=0.5,
                         maximum=4.0,
-                        value=2.0,
+                        value=DEFAULT["spec_sea_beta"],
                         step=0.1,
                         label="SEA Spectral Beta",
                         info="Natural-image spectral slope used only for SEA decisions.",
                     )
                 compat_policy = gr.Dropdown(
                     ["Conservative", "Strict", "Legacy / fastest"],
-                    value="Conservative",
+                    value=DEFAULT["spec_compat_policy"],
                     label="Compatibility Policy",
                     info="Conservative caches only simple Forge CFG batches and cache-safe wrapper chains. Strict currently runs actual steps because Forge has no stable branch UUIDs.",
                 )
-                verbose = gr.Checkbox(False, label="Verbose Spectrum decisions")
+                verbose = gr.Checkbox(DEFAULT["spec_verbose"], label="Verbose Spectrum decisions")
 
             with gr.Accordion("Presets", open=False):
                 _preset = gr.Dropdown(
@@ -168,32 +149,18 @@ class SpectrumForForge(scripts.Script):
                 for comp in (_preset, _load, _save, _del):
                     comp.do_not_save_to_config = True
 
-                args = (
-                    w,
-                    m,
-                    lam,
-                    window_size,
-                    flex_window,
-                    warmup_steps,
-                    stop_caching_step,
-                    tail_actual_steps,
-                    history_size,
-                    schedule,
-                    refresh_ratio,
-                    sea_beta,
-                    compat_policy,
-                    verbose,
-                )
+                # The script arguments after ``enable``, in CONTROLS order.
+                controls = [w, m, lam, window_size, flex_window, warmup_steps, stop_caching_step, tail_actual_steps, history_size, schedule, refresh_ratio, sea_beta, compat_policy, verbose]
 
                 _load.click(
                     fn=lambda name: PresetManager.get_preset(name),
                     inputs=[_preset],
-                    outputs=[*args],
+                    outputs=controls,
                     queue=False,
                 )
                 _save.click(
                     fn=lambda *args: PresetManager.save_preset(*args),
-                    inputs=[_preset, *args],
+                    inputs=[_preset, *controls],
                     outputs=[_preset],
                     queue=False,
                 )
@@ -204,46 +171,14 @@ class SpectrumForForge(scripts.Script):
                     queue=False,
                 )
 
-        controls = [w, m, lam, window_size, flex_window, warmup_steps, stop_caching_step, tail_actual_steps, history_size, schedule, refresh_ratio, sea_beta, compat_policy, verbose]
         self.infotext_fields = [PasteField(component, key) for component, key in zip(controls, INFOTEXT_KEYS)]
         self.paste_field_names = [field.label for field in self.infotext_fields]
 
-        for name, component in {
-            "spectrum.enabled": enable,
-            "spectrum.weight": w,
-            "spectrum.degree": m,
-            "spectrum.regularization": lam,
-            "spectrum.window": window_size,
-            "spectrum.window_growth": flex_window,
-            "spectrum.warmup": warmup_steps,
-            "spectrum.stop": stop_caching_step,
-            "spectrum.tail_actual": tail_actual_steps,
-            "spectrum.history": history_size,
-            "spectrum.schedule": schedule,
-            "spectrum.refresh_ratio": refresh_ratio,
-            "spectrum.sea_beta": sea_beta,
-            "spectrum.policy": compat_policy,
-            "spectrum.verbose": verbose,
-        }.items():
+        register_preset_control(self.tabname, "spectrum.enabled", enable)
+        for (_, name, _, _), component in zip(CONTROLS, controls):
             register_preset_control(self.tabname, name, component)
 
-        return [
-            enable,
-            w,
-            m,
-            lam,
-            window_size,
-            flex_window,
-            warmup_steps,
-            stop_caching_step,
-            tail_actual_steps,
-            history_size,
-            schedule,
-            refresh_ratio,
-            sea_beta,
-            compat_policy,
-            verbose,
-        ]
+        return [enable, *controls]
 
     def cleanup(self, p, *args, **kwargs):
         # The wrapper (and its GPU feature history) stays on forge_objects

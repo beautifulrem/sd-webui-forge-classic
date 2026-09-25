@@ -133,11 +133,9 @@ def _ensure_capture_hook(dit) -> None:
 
 
 def _fast_forward(dit, predictor, sigma, input_x, feature):
-    model_dtype = next(
-        (parameter.dtype for parameter in dit.final_layer.parameters() if parameter.dtype.is_floating_point),
-        feature.dtype,
-    )
-    feature = feature.to(model_dtype)
+    # The feature keeps the compute dtype final_layer saw in the real forward
+    # (Anima casts to the context dtype); the parameters' storage dtype (bf16,
+    # FP8, ...) is not what the manual-cast layers compute in.
     internal_timestep = predictor.timestep(sigma).float()
     if internal_timestep.ndim == 1:
         internal_timestep = internal_timestep.unsqueeze(1)
@@ -252,8 +250,13 @@ class SpectrumState:
         self.last_sigma = sigma
         if self.schedule == "SEA (auto-calibrated)":
             current = sea_filter(latent, flow_time(sigma, self.flow_sigmas), self.sea_beta)
-            if self.sea_previous is not None:
-                distance = l1rel(current, self.sea_previous)
+            previous = self.sea_previous
+            if previous is not None and current.shape[1:] == previous.shape[1:]:
+                # A CFG range can drop the uncond copies (batch 2 -> 1). Every
+                # branch chunk is the same x, so row i is image i % batch in
+                # both: compare the rows the two steps share.
+                rows = min(current.shape[0], previous.shape[0])
+                distance = l1rel(current[:rows], previous[:rows])
                 self.sea_accumulated += distance
                 if self.warmup_steps <= self.step < self.stop_at and self.sea_delta is None:
                     self.sea_distances.append(distance)

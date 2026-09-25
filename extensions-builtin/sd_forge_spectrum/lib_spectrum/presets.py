@@ -7,23 +7,28 @@ import gradio as gr
 from lib_spectrum import logger
 
 PRESET_FILE: Final[os.PathLike] = os.path.join(os.path.dirname(os.path.dirname(__file__)), "presets.json")
-PARAMS: Final[list[type]] = [float, int, float, int, float, int, float, int, int, str, float, float, str, bool]
-DEFAULTS: Final[list] = [
-    0.25,
-    4,
-    0.1,
-    2,
-    0.0,
-    6,
-    0.9,
-    3,
-    10,
-    "Window",
-    0.0,
-    2.0,
-    "Conservative",
-    False,
-]
+# The script arguments after ``enable``, in API order:
+# (infotext key, Anima preset control name, type, default)
+CONTROLS: Final[tuple] = (
+    ("spec_w", "spectrum.weight", float, 0.25),
+    ("spec_m", "spectrum.degree", int, 4),
+    ("spec_lam", "spectrum.regularization", float, 0.1),
+    ("spec_window_size", "spectrum.window", int, 2),
+    ("spec_flex_window", "spectrum.window_growth", float, 0.0),
+    ("spec_warmup_steps", "spectrum.warmup", int, 6),
+    ("spec_stop_caching_step", "spectrum.stop", float, 0.9),
+    ("spec_tail_actual_steps", "spectrum.tail_actual", int, 3),
+    ("spec_history_size", "spectrum.history", int, 10),
+    ("spec_schedule", "spectrum.schedule", str, "Window"),
+    ("spec_refresh_ratio", "spectrum.refresh_ratio", float, 0.0),
+    ("spec_sea_beta", "spectrum.sea_beta", float, 2.0),
+    ("spec_compat_policy", "spectrum.policy", str, "Conservative"),
+    ("spec_verbose", "spectrum.verbose", bool, False),
+)
+INFOTEXT_KEYS: Final[tuple[str, ...]] = tuple(control[0] for control in CONTROLS)
+PARAMS: Final[list[type]] = [control[2] for control in CONTROLS]
+DEFAULTS: Final[list] = [control[3] for control in CONTROLS]
+DEFAULT: Final[dict] = dict(zip(INFOTEXT_KEYS, DEFAULTS))
 
 
 class PresetManager:
