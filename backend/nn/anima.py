@@ -27,7 +27,34 @@ from backend.quant_ops import ck
 from backend.utils import pad_to_patch_size
 
 
+_FUSED_ADALN_BACKENDS: dict[tuple, bool] = {}
+
+
+def _has_fused_adaln(x: torch.Tensor) -> bool:
+    """Whether comfy-kitchen runs ``adaln`` on a real kernel (CUDA / Triton) for ``x``;
+    its eager fallback is one kernel slower than ``addcmul``"""
+    key = (x.device, x.dtype)
+    if (fused := _FUSED_ADALN_BACKENDS.get(key)) is None:
+        try:
+            fused = ck.registry.get_capable_backend("adaln", {"x": x, "scale": x, "shift": x}) != "eager"
+        except Exception:
+            fused = False
+        _FUSED_ADALN_BACKENDS[key] = fused
+    return fused
+
+
 def _fn(x: torch.Tensor, _norm: nn.Module, y: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+    # LayerNorm + modulation in one pass instead of three kernels; kept native under
+    # torch.compile, where Inductor fuses it (an opaque custom op would block that)
+    if isinstance(_norm, nn.LayerNorm) and _norm.weight is None and _norm.bias is None and not torch.compiler.is_compiling():
+        # the kernel takes one dtype: only when upcasting y / z to x's dtype is exact
+        if _norm.normalized_shape == x.shape[-1:] and torch.promote_types(torch.promote_types(y.dtype, z.dtype), x.dtype) == x.dtype and _has_fused_adaln(x):
+            # keep ``1 + y`` rounded in y's dtype like the native path (subtracting 1 again
+            # in the wider dtype is exact). When y already has x's dtype (all-bf16), the
+            # kernel skips the native path's intermediate bf16 roundings: not bit-identical
+            # to CPU / eager, slightly more accurate
+            scale = y if y.dtype == x.dtype else (1 + y).to(x.dtype) - 1
+            return ck.adaln(x, scale, z.to(x.dtype), _norm.eps)
     return torch.addcmul(z, _norm(x), 1 + y)
 
 
