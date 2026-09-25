@@ -177,6 +177,19 @@ def _conditioning_signature(conditioning):
     return tuple(context.shape), str(context.dtype), sample
 
 
+def _branch_signatures(conditioning, branches: Sequence[int]):
+    """Per-branch conditioning signatures, or None when they cannot be split."""
+    if not isinstance(conditioning, dict) or not branches:
+        return None
+    context = conditioning.get("c_crossattn")
+    if not torch.is_tensor(context) or context.shape[0] % len(branches):
+        return None
+    return {
+        key: _conditioning_signature({"c_crossattn": chunk})
+        for key, chunk in zip(branches, context.chunk(len(branches), dim=0))
+    }
+
+
 class SpectrumState:
     def __init__(
         self,
@@ -403,12 +416,25 @@ class SpectrumNode:
             new_step = state.advance(sigma_value, input_x)
 
             shape_changed = state.input_shape is not None and tuple(input_x.shape[1:]) != state.input_shape
-            conditioning_signature = _conditioning_signature(args.get("c"))
-            conditioning_changed = state.conditioning_signature is not None and conditioning_signature != state.conditioning_signature
-            if shape_changed or conditioning_changed:
-                state.forecasters.clear()
+            signatures = _branch_signatures(args.get("c"), branches) if valid_branches else None
+            previous_signatures = state.conditioning_signature
+            if shape_changed or signatures is None or previous_signatures is None:
+                if shape_changed or signatures != previous_signatures:
+                    state.forecasters.clear()
+                state.conditioning_signature = signatures
+            else:
+                # Per branch: the unconditional one may drop out of a step
+                # (CFG 1, a limited CFG range) without invalidating the
+                # conditional forecaster's history.
+                for key, signature in signatures.items():
+                    if key in previous_signatures and previous_signatures[key] != signature:
+                        state.forecasters.pop(key, None)
+                state.conditioning_signature = {**previous_signatures, **signatures}
+            if new_step:
+                # A branch missing from a step would forecast across the gap.
+                for key in [key for key in state.forecasters if key not in branches]:
+                    del state.forecasters[key]
             state.input_shape = tuple(input_x.shape[1:])
-            state.conditioning_signature = conditioning_signature
 
             compatible = valid_branches
             transformer_options = args.get("c", {}).get("transformer_options", {})

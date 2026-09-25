@@ -137,6 +137,45 @@ class ForecasterTests(unittest.TestCase):
         self.assertEqual(len(calls), 4)
         self.assertTrue(torch.allclose(outputs[3], torch.full((1, 1), 4.0), atol=1e-3))
 
+    def test_unconditional_branch_dropping_out_keeps_the_conditional_history(self):
+        class FakePatcher:
+            def __init__(self):
+                self.model = SimpleNamespace(diffusion_model=torch.nn.Identity(), predictor=object())
+                self.model_options = {}
+                self.wrapper = None
+
+            def clone(self):
+                return self
+
+            def set_model_unet_function_wrapper(self, wrapper):
+                self.wrapper = wrapper
+
+        def actual_calls(change_cond):
+            patcher = SpectrumNode.patch(
+                FakePatcher(), steps=10, weight=1.0, degree=1, lam=1e-6, window_size=2,
+                flex_window=0.0, warmup_steps=3, stop_caching_step=1.0, tail_actual_steps=1,
+                history_size=3, schedule="Window", refresh_ratio=0.0, sea_beta=2.0,
+                compat_policy="Conservative", verbose=False, sea_cache_dir="unused",
+                sea_cache_context={}, process=SimpleNamespace(),
+            )
+            calls = []
+
+            def model_function(x, timestep, **_kwargs):
+                calls.append(x.shape[0])
+                return torch.full_like(x, float(len(calls)))
+
+            cond, uncond = torch.ones(1, 4, 8), torch.zeros(1, 4, 8)
+            for step in range(10):
+                sigma = torch.tensor([1.0 - step * 0.1])
+                if step < 3:  # CFG steps, then e.g. outside a limited CFG range
+                    args = {"input": torch.zeros(2, 1), "c": {"c_crossattn": torch.cat([cond, uncond])}, "cond_or_uncond": [0, 1]}
+                else:
+                    args = {"input": torch.zeros(1, 1), "c": {"c_crossattn": cond + 1 if change_cond else cond}, "cond_or_uncond": [0]}
+                patcher.wrapper(model_function, {**args, "timestep": sigma})
+            return len(calls)
+
+        self.assertLess(actual_calls(change_cond=False), actual_calls(change_cond=True))
+
     def test_wrappers_installed_earlier_in_the_pass_are_kept(self):
         class FakePatcher:
             def __init__(self, previous):
