@@ -248,6 +248,20 @@ def model_lora_keys_unet(model, key_map={}):
                 key_map["lycoris_{}".format(key_lora.replace(".", "_"))] = to
                 key_map[key_lora] = to
 
+    if "anima" in _model_name:
+        # Anima LoRAs come from several trainers: ComfyUI / diffusion-pipe
+        # ("diffusion_model."), kohya ("lora_unet_", above), PEFT / SimpleTuner
+        # ("transformer."), LyCORIS ("lycoris_"), OneTrainer
+        # ("lora_transformer_"), native Cosmos code ("net.") and bare keys.
+        for k in sdk:
+            if k.startswith("diffusion_model.") and k.endswith(".weight"):
+                key_lora = k[len("diffusion_model.") : -len(".weight")]
+                key_map["transformer.{}".format(key_lora)] = k
+                key_map["net.{}".format(key_lora)] = k
+                key_map["lycoris_{}".format(key_lora.replace(".", "_"))] = k
+                key_map["lora_transformer_{}".format(key_lora.replace(".", "_"))] = k
+                key_map[key_lora] = k
+
     if "ernie" in _model_name:
         for k in sdk:
             if k.startswith("diffusion_model.") and k.endswith(".weight"):
