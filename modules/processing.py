@@ -834,6 +834,9 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
                 if sd_vae.reload_vae_weights(override):
                     _overridden_modules.append(override)
 
+        if p.scripts is not None:
+            p.scripts.after_model_load(p)
+
         # backwards compatibility, fix sampler and scheduler if invalid
         sd_samplers.fix_p_invalid_sampler_and_scheduler(p)
 
@@ -841,6 +844,8 @@ def process_images(p: StableDiffusionProcessing) -> Processed:
             res = process_images_inner(p)
 
     finally:
+        if p.scripts is not None:
+            p.scripts.cleanup(p)
         # restore original options
         if p.override_settings_restore_afterwards:
             set_config(stored_opts, save_config=False)
@@ -1402,8 +1407,9 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
         fp_additional_modules = getattr(shared.opts, "forge_additional_modules")
 
         reload = False
-        if "Use same choices" not in (getattr(self, "hr_additional_modules", []) or []):
-            modules_changed = main_entry.modules_change(self.hr_additional_modules, preset=None, save=False, refresh=False)
+        hr_additional_modules = getattr(self, "hr_additional_modules", None)
+        if hr_additional_modules is not None and "Use same choices" not in hr_additional_modules:
+            modules_changed = main_entry.modules_change(hr_additional_modules, preset=None, save=False, refresh=False)
             if modules_changed:
                 reload = True
 

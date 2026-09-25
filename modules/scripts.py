@@ -14,6 +14,10 @@ topological_sort = util.topological_sort
 AlwaysVisible = object()
 
 
+class ScriptAbort(RuntimeError):
+    """Stop the current generation when continuing would produce invalid output."""
+
+
 class MaskBlendArgs:
     def __init__(self, current_latent, nmask, init_latent, mask, blended_latent, denoiser=None, sigma=None):
         self.current_latent = current_latent
@@ -158,6 +162,11 @@ class Script:
 
         pass
 
+    def after_model_load(self, p, *args):
+        """Run after checkpoint overrides have loaded the active model."""
+
+        pass
+
     def process(self, p, *args):
         """
         This function is called before processing begins for AlwaysVisible scripts.
@@ -292,6 +301,16 @@ class Script:
         """
         This function is called after processing ends for AlwaysVisible scripts.
         args contains all values returned by components from ui()
+        """
+
+        pass
+
+    def cleanup(self, p, *args):
+        """Release per-generation resources even when processing raises.
+
+        Unlike ``postprocess``, this hook is guaranteed to run from
+        ``process_images``' ``finally`` block. Implementations must be
+        idempotent because successful generations call ``postprocess`` first.
         """
 
         pass
@@ -838,6 +857,14 @@ class ScriptRunner:
             except Exception:
                 errors.report(f"Error running before_process: {script.filename}", exc_info=True)
 
+    def after_model_load(self, p):
+        for script in self.ordered_scripts("after_model_load"):
+            try:
+                script_args = p.script_args[script.args_from : script.args_to]
+                script.after_model_load(p, *script_args)
+            except Exception:
+                errors.report(f"Error running after_model_load: {script.filename}", exc_info=True)
+
     def process(self, p):
         for script in self.ordered_scripts("process"):
             try:
@@ -859,6 +886,8 @@ class ScriptRunner:
             try:
                 script_args = p.script_args[script.args_from : script.args_to]
                 script.before_process_batch(p, *script_args, **kwargs)
+            except ScriptAbort:
+                raise
             except Exception:
                 errors.report(f"Error running before_process_batch: {script.filename}", exc_info=True)
 
@@ -886,14 +915,6 @@ class ScriptRunner:
             except Exception:
                 errors.report(f"Error running process_batch: {script.filename}", exc_info=True)
 
-    def process_before_every_sampling(self, p, **kwargs):
-        for script in self.alwayson_scripts:
-            try:
-                script_args = p.script_args[script.args_from : script.args_to]
-                script.process_before_every_sampling(p, *script_args, **kwargs)
-            except Exception:
-                errors.report(f"Error running process_before_every_sampling: {script.filename}", exc_info=True)
-
     def postprocess(self, p, processed):
         for script in self.ordered_scripts("postprocess"):
             try:
@@ -901,6 +922,17 @@ class ScriptRunner:
                 script.postprocess(p, processed, *script_args)
             except Exception:
                 errors.report(f"Error running postprocess: {script.filename}", exc_info=True)
+
+    def cleanup(self, p):
+        from modules.script_cleanup import run_script_cleanup
+
+        run_script_cleanup(
+            self.ordered_scripts("cleanup"),
+            p,
+            lambda script: errors.report(
+                f"Error running cleanup: {script.filename}", exc_info=True
+            ),
+        )
 
     def postprocess_batch(self, p, images, **kwargs):
         for script in self.ordered_scripts("postprocess_batch"):
