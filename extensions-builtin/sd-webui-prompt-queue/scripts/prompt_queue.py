@@ -1,0 +1,431 @@
+"""
+Prompt Queue — queue up prompts for txt2img / img2img and run them back-to-back.
+
+Backend design:
+  * A small thread-safe in-memory store, persisted under Forge's user-data
+    directory (survives webui restarts without modifying built-in sources).
+  * A handful of lightweight FastAPI endpoints under /prompt-queue/*.
+    All rendering is done client-side (javascript/prompt_queue.js) against
+    /prompt-queue/state, which is cheap to poll: the response carries a
+    `version` counter, so the UI only re-renders when something changed.
+  * The actual generation is driven from the browser (fill prompt fields,
+    click Generate). The server decides *when* it is safe to dispatch the
+    next item via an atomic /pop that checks the webui's real busy state
+    (shared.state.job + modules.progress task registry).
+"""
+
+import json
+import os
+import shutil
+import threading
+import time
+import uuid
+from typing import Optional
+
+import gradio as gr
+from fastapi import FastAPI
+from pydantic import BaseModel, Field
+
+from modules import paths_internal, script_callbacks, shared
+from modules.extension_route_guard import guard_routes
+
+try:
+    from modules import progress as webui_progress
+except Exception:
+    webui_progress = None
+
+
+MAX_PENDING = 100          # hard cap requested by the user
+MAX_FINISHED_KEPT = 50     # finished/failed history kept for display
+STALE_RUNNING_SECONDS = 120
+
+EXT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATE_DIR = os.path.join(
+    paths_internal.data_path, "extension-data", "sd-webui-prompt-queue"
+)
+STATE_FILE = os.path.join(STATE_DIR, "queue.json")
+LEGACY_STATE_FILE = os.path.join(EXT_DIR, "queue.json")
+
+
+def _migrate_legacy_state():
+    if os.path.exists(STATE_FILE) or not os.path.isfile(LEGACY_STATE_FILE):
+        return
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        shutil.copy2(LEGACY_STATE_FILE, STATE_FILE)
+    except OSError as e:
+        print(f"[Prompt Queue] failed to migrate legacy queue.json: {e}")
+
+
+_migrate_legacy_state()
+
+VALID_TABS = ("txt2img", "img2img")
+
+
+class _Store:
+    """Thread-safe queue state."""
+
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.items = []          # list of dicts, oldest first
+        self.enabled = True      # auto-run toggle
+        self.version = 0
+        self._load()
+
+    # ---------- persistence ----------
+
+    def _load(self):
+        path = STATE_FILE if os.path.isfile(STATE_FILE) else LEGACY_STATE_FILE
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                self.items = [i for i in data.get("items", []) if isinstance(i, dict)]
+                # Anything that was mid-flight when the webui stopped goes back to pending.
+                restored_pending = False
+                for item in self.items:
+                    if item.get("status") == "running":
+                        item["status"] = "pending"
+                    if item.get("status") == "pending":
+                        restored_pending = True
+                # Don't surprise the user with generations right after a restart:
+                # if we restored unfinished work, start paused.
+                if restored_pending:
+                    self.enabled = False
+        except Exception as e:
+            print(f"[Prompt Queue] failed to load {STATE_FILE}: {e}")
+            self.items = []
+
+    def _save(self):
+        try:
+            os.makedirs(STATE_DIR, exist_ok=True)
+            tmp = STATE_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"items": self.items}, f, ensure_ascii=False)
+            os.replace(tmp, STATE_FILE)
+        except Exception as e:
+            print(f"[Prompt Queue] failed to save {STATE_FILE}: {e}")
+
+    def _bump(self):
+        self.version += 1
+        self._save()
+
+    # ---------- helpers ----------
+
+    def _pending(self):
+        return [i for i in self.items if i["status"] == "pending"]
+
+    def _prune_finished(self):
+        finished = [i for i in self.items if i["status"] in ("done", "failed")]
+        overflow = len(finished) - MAX_FINISHED_KEPT
+        if overflow > 0:
+            drop_ids = {i["id"] for i in finished[:overflow]}
+            self.items = [i for i in self.items if i["id"] not in drop_ids]
+
+    # ---------- mutations ----------
+
+    def add(
+        self,
+        tab,
+        prompt,
+        negative,
+        anchor=None,
+        anchor_enabled=None,
+        anchor_separator=None,
+    ):
+        with self.lock:
+            if len(self._pending()) >= MAX_PENDING:
+                return None, f"Queue is full ({MAX_PENDING} prompts max)."
+            item = {
+                "id": uuid.uuid4().hex[:12],
+                "tab": tab,
+                "prompt": prompt or "",
+                "negative": negative or "",
+                "status": "pending",
+                "created": time.time(),
+                "started": None,
+                "finished": None,
+            }
+            # Prompt Anchor is optional. Only persist its fields when the
+            # caller actually supplied them, keeping old queue files and
+            # installs without that built-in fully compatible.
+            if anchor_enabled is not None:
+                item["anchor"] = anchor or ""
+                item["anchor_enabled"] = bool(anchor_enabled)
+                item["anchor_separator"] = (
+                    anchor_separator if anchor_separator is not None else ", "
+                )
+            self.items.append(item)
+            self._prune_finished()
+            self._bump()
+            return item, None
+
+    def remove(self, item_id):
+        with self.lock:
+            before = len(self.items)
+            self.items = [i for i in self.items if i["id"] != item_id]
+            if len(self.items) != before:
+                self._bump()
+                return True
+            return False
+
+    def move(self, item_id, direction):
+        """Reorder within pending items only."""
+        with self.lock:
+            pending = self._pending()
+            idx = next((k for k, i in enumerate(pending) if i["id"] == item_id), None)
+            if idx is None:
+                return False
+            swap = idx - 1 if direction == "up" else idx + 1
+            if swap < 0 or swap >= len(pending):
+                return False
+            a, b = pending[idx], pending[swap]
+            ia, ib = self.items.index(a), self.items.index(b)
+            self.items[ia], self.items[ib] = self.items[ib], self.items[ia]
+            self._bump()
+            return True
+
+    def clear(self, which):
+        with self.lock:
+            if which == "pending":
+                self.items = [i for i in self.items if i["status"] != "pending"]
+            elif which == "finished":
+                self.items = [i for i in self.items if i["status"] not in ("done", "failed")]
+            self._bump()
+
+    def set_enabled(self, enabled):
+        with self.lock:
+            self.enabled = bool(enabled)
+            self._bump()
+
+    def _touch_running(self, now):
+        """Record that a running item is still alive (the webui is working on it)."""
+        for i in self.items:
+            if i["status"] == "running":
+                i["active"] = now
+
+    def pop_next(self):
+        """Atomically hand the next pending item to the runner, or None."""
+        with self.lock:
+            now = time.time()
+            if webui_is_busy():
+                self._touch_running(now)
+                return None
+            if not self.enabled or agent_scheduler_has_pending_work():
+                return None
+            failed_stale = False
+            for i in self.items:
+                if i["status"] == "running":
+                    # A runner already owns an item. If it looks abandoned
+                    # (e.g. the browser tab was closed mid-dispatch), fail it
+                    # and move on; otherwise refuse to double-dispatch.
+                    # Staleness counts from the last time the webui was seen
+                    # busy, not from dispatch, so long generations whose
+                    # /finish is still in flight are not failed.
+                    last_seen = i.get("active") or i.get("started") or now
+                    if now - last_seen > STALE_RUNNING_SECONDS:
+                        i["status"] = "failed"
+                        i["finished"] = now
+                        i["stale"] = True
+                        failed_stale = True
+                    else:
+                        return None
+            for i in self.items:
+                if i["status"] == "pending":
+                    i["status"] = "running"
+                    i["started"] = now
+                    self._bump()
+                    return dict(i)
+            if failed_stale:
+                self._bump()
+            return None
+
+    def finish(self, item_id, status):
+        with self.lock:
+            for i in self.items:
+                # A late /finish still wins over a stale-timeout failure.
+                if i["id"] == item_id and (i["status"] == "running" or i.get("stale")):
+                    i.pop("stale", None)
+                    i["status"] = status if status in ("done", "failed") else "done"
+                    i["finished"] = time.time()
+                    self._prune_finished()
+                    self._bump()
+                    return True
+            return False
+
+    def pending_count(self):
+        with self.lock:
+            return len(self._pending())
+
+    def snapshot(self):
+        # SQLite query outside the store lock; /state is polled per tab.
+        agent_scheduler_active = agent_scheduler_has_pending_work()
+        with self.lock:
+            busy = webui_is_busy()
+            if busy:
+                self._touch_running(time.time())
+            return {
+                "version": self.version,
+                "enabled": self.enabled,
+                "busy": busy,
+                # Server-side view for clients that cannot call the (possibly
+                # --api-auth protected) Agent Scheduler API themselves.
+                "agent_scheduler_active": agent_scheduler_active,
+                "max": MAX_PENDING,
+                "pending": len(self._pending()),
+                "items": [dict(i) for i in self.items],
+            }
+
+
+def webui_is_busy():
+    """True while the webui is generating or has its own tasks queued."""
+    try:
+        if getattr(shared.state, "job", ""):
+            return True
+    except Exception:
+        pass
+    if webui_progress is not None:
+        try:
+            if webui_progress.current_task:
+                return True
+            if webui_progress.pending_tasks:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def agent_scheduler_has_pending_work():
+    """Let the server-side Agent Scheduler drain before browser queues.
+
+    Imports only its backend package, never its WebUI script, so this cannot
+    duplicate extension callbacks. Missing/disabled Scheduler installs are a
+    normal no-op.
+    """
+    try:
+        from agent_scheduler.db import task_manager
+        from agent_scheduler.task_runner import TaskRunner
+
+        runner = getattr(TaskRunner, "instance", None)
+        if runner is not None and runner.paused:
+            return False
+        # A running task keeps status "pending" until it finishes.
+        return task_manager.count_tasks(status="pending") > 0
+    except Exception:
+        return False
+
+
+STORE = _Store()
+
+
+# ---------------------------------------------------------------- API
+
+class AddRequest(BaseModel):
+    tab: str = Field(...)
+    prompt: str = Field(default="")
+    negative: str = Field(default="")
+    anchor: Optional[str] = None
+    anchor_enabled: Optional[bool] = None
+    anchor_separator: Optional[str] = None
+
+
+class IdRequest(BaseModel):
+    id: str
+
+
+class MoveRequest(BaseModel):
+    id: str
+    direction: str  # "up" | "down"
+
+
+class RunRequest(BaseModel):
+    enabled: bool
+
+
+class ClearRequest(BaseModel):
+    which: str  # "pending" | "finished"
+
+
+class FinishRequest(BaseModel):
+    id: str
+    status: str = "done"
+
+
+def register_api(_demo, app: FastAPI):
+    prefix = "/prompt-queue"
+
+    @app.get(prefix + "/state")
+    def state():
+        return STORE.snapshot()
+
+    @app.post(prefix + "/add")
+    def add(req: AddRequest):
+        tab = req.tab if req.tab in VALID_TABS else "txt2img"
+        has_anchor_prompt = bool(req.anchor_enabled and (req.anchor or "").strip())
+        if (
+            not (req.prompt or "").strip()
+            and not (req.negative or "").strip()
+            and not has_anchor_prompt
+        ):
+            return {"ok": False, "error": "Prompt is empty."}
+        item, err = STORE.add(
+            tab,
+            req.prompt,
+            req.negative,
+            req.anchor,
+            req.anchor_enabled,
+            req.anchor_separator,
+        )
+        if err:
+            return {"ok": False, "error": err}
+        return {"ok": True, "item": item, "pending": STORE.pending_count()}
+
+    @app.post(prefix + "/remove")
+    def remove(req: IdRequest):
+        return {"ok": STORE.remove(req.id)}
+
+    @app.post(prefix + "/move")
+    def move(req: MoveRequest):
+        return {"ok": STORE.move(req.id, "up" if req.direction == "up" else "down")}
+
+    @app.post(prefix + "/clear")
+    def clear(req: ClearRequest):
+        STORE.clear("pending" if req.which == "pending" else "finished")
+        return {"ok": True}
+
+    @app.post(prefix + "/run")
+    def run(req: RunRequest):
+        STORE.set_enabled(req.enabled)
+        return {"ok": True, "enabled": STORE.enabled}
+
+    @app.post(prefix + "/pop")
+    def pop():
+        return {"item": STORE.pop_next()}
+
+    @app.post(prefix + "/finish")
+    def finish(req: FinishRequest):
+        return {"ok": STORE.finish(req.id, req.status)}
+
+
+# ---------------------------------------------------------------- UI tab
+
+def on_ui_tabs():
+    with gr.Blocks(analytics_enabled=False) as tab:
+        gr.HTML(
+            '<div id="prompt-queue-root">'
+            '<div class="pq-loading">Loading queue…</div>'
+            "</div>"
+        )
+    return [(tab, "Queue", "prompt_queue")]
+
+
+def register_api_guarded(demo, app: FastAPI):
+    register_api(demo, app)
+    # Right after registering (callback order is configurable): the routes
+    # drive the UI's Generate button, so they require the Gradio login (when
+    # set) and refuse cross-site writes.
+    guard_routes(app, ("/prompt-queue/",))
+
+
+script_callbacks.on_app_started(register_api_guarded)
+script_callbacks.on_ui_tabs(on_ui_tabs)
