@@ -182,3 +182,77 @@ def make_fdg_cfg_function(high_frequency_scale: float):
         return args["input"] - denoised
 
     return cfg_function
+
+
+def cfg_zero_star_scale(cond: torch.Tensor, uncond: torch.Tensor) -> torch.Tensor:
+    """Per-sample s* = <cond, uncond> / ||uncond||^2 (CFG-Zero*, eq. 11)."""
+
+    cond_flat = cond.reshape(cond.shape[0], -1).float()
+    uncond_flat = uncond.reshape(uncond.shape[0], -1).float()
+    dot = (cond_flat * uncond_flat).sum(dim=1)
+    # A zero unconditional velocity gives s* = 0, not NaN.
+    scale = dot / uncond_flat.square().sum(dim=1).clamp_min(1e-12)
+    return scale.reshape(-1, *([1] * (cond.ndim - 1))).to(cond.dtype)
+
+
+def cfg_zero_star_combine(
+    cond: torch.Tensor,
+    uncond: torch.Tensor,
+    guidance_scale: float,
+) -> torch.Tensor:
+    """CFG-Zero* optimized-scale combine of two velocity predictions.
+
+    ``uncond * s* + w * (cond - uncond * s*)``, written so that ``w = 1``
+    returns ``cond`` exactly.  s* is invariant to a positive per-sample
+    factor, so ``sigma * v`` residuals combine the same way as velocities.
+    """
+
+    scaled_uncond = uncond * cfg_zero_star_scale(cond, uncond)
+    return cond + (float(guidance_scale) - 1.0) * (cond - scaled_uncond)
+
+
+class CFGZeroStarState:
+    """Counts the sampler steps of one pass for CFG-Zero*'s zero-init.
+
+    A step is a distinct sigma: exact for single-evaluation samplers, while
+    the extra sigmas of multi-evaluation samplers count as steps too.
+    """
+
+    def __init__(self, zero_init_steps: int = 1):
+        self.zero_init_steps = max(int(zero_init_steps), 0)
+        self._sigmas: list[float] = []
+
+    def reset(self) -> None:
+        self._sigmas = []
+
+    def zero_init(self, sigma: float, *, update_state: bool = True) -> bool:
+        if sigma in self._sigmas:
+            return True
+        if update_state and len(self._sigmas) < self.zero_init_steps:
+            self._sigmas.append(sigma)
+            return True
+        return False
+
+
+def make_cfg_zero_star_cfg_function(state: CFGZeroStarState, process=None):
+    """Forge CFG hook for CFG-Zero* (arXiv:2503.18886).
+
+    Forge's ``cond``/``uncond`` residuals are ``x - denoised = sigma * v`` for
+    Anima's rectified flow, so the combine runs on them directly.  During the
+    zero-init steps the velocity is zero: ``denoised = x`` and the solver
+    leaves the latent unchanged.
+    """
+
+    @torch.no_grad()
+    def cfg_function(args):
+        x = args["input"]
+        sigma = sigma_value(args.get("sigma", args.get("timestep")))
+        if state.zero_init(sigma, update_state=not is_anima_auxiliary_denoiser(process)):
+            return torch.zeros_like(x)
+        return cfg_zero_star_combine(
+            x - args["cond_denoised"],
+            x - args["uncond_denoised"],
+            float(args["cond_scale"]),
+        )
+
+    return cfg_function

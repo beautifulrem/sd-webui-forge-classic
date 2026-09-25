@@ -3,6 +3,7 @@ from __future__ import annotations
 import pathlib
 import sys
 import threading
+import types
 import unittest
 
 import torch
@@ -11,6 +12,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from lib_anima_guidance.modulation import (
+    ModulationPatch,
     _expand_rows,
     _modulation_pre_hook,
     prepare_modulation_vectors,
@@ -69,6 +71,31 @@ class ModulationTests(unittest.TestCase):
     def test_single_prompt_expands_to_batch(self):
         expanded = _expand_rows(torch.ones(1, 6), 3)
         self.assertEqual(expanded.shape, (3, 6))
+
+    def test_spectrum_cache_safety_follows_the_wrapped_wrapper(self):
+        class Patcher:
+            def __init__(self, previous):
+                dit = types.SimpleNamespace(
+                    blocks=[torch.nn.Identity(), torch.nn.Identity()],
+                    final_layer=types.SimpleNamespace(hidden_size=2),
+                )
+                self.model = types.SimpleNamespace(diffusion_model=dit)
+                self.model_options = {} if previous is None else {"model_function_wrapper": previous}
+
+            def clone(self):
+                return self
+
+            def set_model_unet_function_wrapper(self, wrapper):
+                self.model_options["model_function_wrapper"] = wrapper
+
+        def safe(model_function, args):
+            return model_function(args["input"], args["timestep"], **args["c"])
+
+        safe.__spectrum_cache_safe__ = True
+        patch = ModulationPatch(torch.zeros(1, 3), torch.zeros(1, 3), torch.ones(2, 6), 0, -1)
+        for previous, expected in ((None, True), (safe, True), (lambda function, args: None, False)):
+            patched, _, _ = patch.apply(Patcher(previous))
+            self.assertIs(patched.model_options["model_function_wrapper"].__spectrum_cache_safe__, expected)
 
 
 if __name__ == "__main__":

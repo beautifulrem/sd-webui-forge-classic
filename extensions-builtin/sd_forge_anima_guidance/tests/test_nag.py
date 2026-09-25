@@ -96,6 +96,19 @@ class NAGTests(unittest.TestCase):
         modifier(fake_attention, self.q[:1], self.k[:1], self.v[:1], transformer_options=options, is_self_attention=False)
         self.assertEqual(reports, [True])
 
+    def test_uncond_only_call_of_a_split_batch_is_not_reported(self):
+        # Forge split the CFG batch for VRAM: the negative half has no rows
+        # to guide, and the positive half applies NAG on its own.
+        reports = []
+        modifier = NAGAttentionModifier(
+            scale=2.0, tau=2.5, alpha=0.5, sigma_start=0.0, sigma_end=1.0,
+            on_unbatched=lambda: reports.append(True),
+        )
+        options = {"cond_or_uncond": [1], "sigmas": torch.tensor([0.5])}
+        base = fake_attention(self.q[1:], self.k[1:], self.v[1:])
+        actual = modifier(fake_attention, self.q[1:], self.k[1:], self.v[1:], transformer_options=options, is_self_attention=False)
+        self.assertTrue(torch.equal(actual, base))
+        self.assertEqual(reports, [])
 
     def test_positive_only_call_matches_batched_nag_via_negative_context(self):
         modifier = NAGAttentionModifier(scale=1.5, tau=2.0, alpha=0.7, sigma_start=0.0, sigma_end=1.0)

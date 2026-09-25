@@ -96,7 +96,11 @@ class NAGAttentionModifier:
             return base
 
         markers = tuple(transformer_options.get("cond_or_uncond", ()))
-        if 0 not in markers or q.shape[0] % len(markers) != 0:
+        if markers and 0 not in markers:
+            # No positive rows (the negative half of a split CFG batch): NAG
+            # runs in the positive-only call, so there is nothing to do here.
+            return base
+        if not markers or q.shape[0] % len(markers) != 0:
             self._report_unbatched()
             return base
         group = q.shape[0] // len(markers)

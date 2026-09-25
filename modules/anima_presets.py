@@ -64,6 +64,7 @@ SAFE_BASE_AESTHETIC_PRESET: dict[str, object] = {
     "guidance.momentum_strength": 0.5,
     "guidance.momentum_ema": 0.6,
     "guidance.fdg_detail": 2.0,
+    "guidance.cfg_zero_init_steps": 1,
     "guidance.range_enabled": False,
     "guidance.range_start": 0.0,
     "guidance.range_end": 1.0,

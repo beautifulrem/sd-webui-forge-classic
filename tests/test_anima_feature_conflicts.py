@@ -101,6 +101,35 @@ class GuidanceConflictTests(unittest.TestCase):
         self.assertFalse(state.momentum)
         self.assertFalse(state.momentum_interactive)
 
+    def test_cfg_zero_star_is_a_combine_mode_that_excludes_momentum_only(self):
+        state = resolve_guidance_conflicts(
+            sampler="Anima Flow Euler",
+            mode="CFG-Zero*",
+            momentum=True,
+            dcw=True,
+        )
+
+        self.assertEqual(state.mode, "CFG-Zero*")
+        self.assertFalse(state.momentum)
+        self.assertTrue(state.dcw)
+        self.assertTrue(state.dcw_interactive)
+        self.assertEqual(state.messages, ("Momentum disabled: incompatible with CFG-Zero*",))
+
+        # Unlike FDG it stays available with DCW and the CNS sampler.
+        state = resolve_guidance_conflicts(sampler="Anima ER SDE CNS", mode="CFG-Zero*", momentum=False, dcw=True)
+        self.assertEqual(state.mode, "CFG-Zero*")
+        self.assertIn("CFG-Zero*", state.mode_choices)
+
+        state = resolve_guidance_conflicts(
+            sampler="Anima Flow Euler",
+            mode="CFG-Zero*",
+            momentum=True,
+            dcw=False,
+            selected="momentum",
+        )
+        self.assertEqual(state.mode, "Standard / preserve existing")
+        self.assertTrue(state.momentum)
+
     def test_cli_runtime_keeps_cfg_mode_and_drops_incompatible_switches(self):
         state = resolve_guidance_conflicts(
             sampler="Anima Flow Euler",
@@ -235,11 +264,13 @@ def test_sampler_names_match_the_registered_samplers():
 def test_active_features_are_recorded_per_process():
     from types import SimpleNamespace
 
-    from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, is_feature_active, set_feature_active
+    from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is_feature_active, set_feature_active
 
     first, second = SimpleNamespace(), SimpleNamespace()
     set_feature_active(first, FREEFUSE)
+    set_feature_active(first, REGIONAL)
     assert is_feature_active(first, FREEFUSE) and not is_feature_active(second, FREEFUSE)
     assert not is_feature_active(first, ARTIST_MIXER)
     set_feature_active(first, FREEFUSE, False)
-    assert not is_feature_active(first, FREEFUSE)
+    assert not is_feature_active(first, FREEFUSE) and is_feature_active(first, REGIONAL)
+    assert len({FREEFUSE, REGIONAL, ARTIST_MIXER}) == 3

@@ -10,8 +10,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from lib_anima_guidance.advanced import (
+    CFGZeroStarState,
     MomentumGuidanceState,
+    cfg_zero_star_combine,
+    cfg_zero_star_scale,
     fdg_combine,
+    make_cfg_zero_star_cfg_function,
     IGNORES_UNCOND,
     make_guidance_range_cfg_function,
     make_guidance_range_uncond_skip,
@@ -69,6 +73,80 @@ class FrequencyDecoupledGuidanceTests(unittest.TestCase):
         result = fdg_combine(cond, uncond, 4.0, 2.0)
         self.assertEqual(result.shape, cond.shape)
         self.assertTrue(torch.isfinite(result).all())
+
+
+class CFGZeroStarTests(unittest.TestCase):
+    def test_scale_one_reproduces_plain_cfg(self):
+        # cond = uncond + a component orthogonal to uncond, so s* = 1.
+        uncond = torch.tensor([[1.0, 2.0, 0.0, 0.0]]).reshape(1, 1, 2, 2)
+        cond = uncond + torch.tensor([[0.0, 0.0, 3.0, -1.0]]).reshape(1, 1, 2, 2)
+        self.assertTrue(torch.allclose(cfg_zero_star_scale(cond, uncond), torch.ones(1, 1, 1, 1)))
+        actual = cfg_zero_star_combine(cond, uncond, 4.5)
+        self.assertTrue(torch.allclose(actual, uncond + 4.5 * (cond - uncond)))
+
+    def test_orthogonal_predictions_give_zero_scale(self):
+        cond = torch.tensor([[1.0, 0.0], [0.0, 2.0]]).reshape(2, 1, 1, 2)
+        uncond = torch.tensor([[0.0, 3.0], [5.0, 0.0]]).reshape(2, 1, 1, 2)
+        self.assertTrue(torch.equal(cfg_zero_star_scale(cond, uncond), torch.zeros(2, 1, 1, 1)))
+        # s* = 0 drops the unconditional term: w * cond.
+        self.assertTrue(torch.allclose(cfg_zero_star_combine(cond, uncond, 4.0), 4.0 * cond))
+
+    def test_scale_is_per_sample_and_cfg_one_is_the_conditional_prediction(self):
+        torch.manual_seed(3)
+        cond, uncond = torch.randn(2, 4, 1, 3, 5), torch.randn(2, 4, 1, 3, 5)
+        scale = cfg_zero_star_scale(cond, uncond)
+        for index in range(2):
+            expected = (cond[index] * uncond[index]).sum() / uncond[index].square().sum()
+            self.assertTrue(torch.allclose(scale[index].flatten(), expected.reshape(1)))
+        self.assertTrue(torch.equal(cfg_zero_star_combine(cond, uncond, 1.0), cond))
+        # Forge's CFG 1 placeholder (zero uncond) stays finite.
+        self.assertTrue(torch.equal(cfg_zero_star_combine(cond, torch.zeros_like(cond), 1.0), cond))
+
+    def test_cfg_function_works_on_velocity_residuals(self):
+        torch.manual_seed(4)
+        x = torch.randn(1, 4, 8, 8)
+        sigma = 0.7
+        v_cond, v_uncond = torch.randn_like(x), torch.randn_like(x)
+        args = {
+            "input": x,
+            "sigma": torch.tensor([sigma]),
+            "cond_denoised": x - sigma * v_cond,
+            "uncond_denoised": x - sigma * v_uncond,
+            "cond_scale": 4.0,
+        }
+        residual = make_cfg_zero_star_cfg_function(CFGZeroStarState(0))(args)
+        # Forge's residual is x - denoised = sigma * v for rectified flow.
+        expected = sigma * cfg_zero_star_combine(v_cond, v_uncond, 4.0)
+        self.assertTrue(torch.allclose(residual, expected, atol=1e-5))
+
+    def test_zero_init_zeroes_the_first_steps_only(self):
+        state = CFGZeroStarState(2)
+        cfg = make_cfg_zero_star_cfg_function(state)
+        x = torch.ones(1, 1, 2, 2)
+        base = {"input": x, "cond_denoised": x * 0.5, "uncond_denoised": x * 0.25, "cond_scale": 3.0}
+        residuals = [cfg({**base, "sigma": torch.tensor([sigma])}) for sigma in (1.0, 1.0, 0.8, 0.6)]
+        # Two steps (the repeated 1.0 is another evaluation of step 0) output
+        # zero velocity, i.e. denoised = x and an unchanged latent.
+        for residual in residuals[:3]:
+            self.assertTrue(torch.equal(residual, torch.zeros_like(x)))
+        self.assertFalse(torch.equal(residuals[3], torch.zeros_like(x)))
+        state.reset()
+        self.assertTrue(torch.equal(cfg({**base, "sigma": torch.tensor([0.6])}), torch.zeros_like(x)))
+
+    def test_auxiliary_probe_does_not_consume_zero_init_steps(self):
+        from types import SimpleNamespace
+
+        process = SimpleNamespace()
+        state = CFGZeroStarState(1)
+        cfg = make_cfg_zero_star_cfg_function(state, process=process)
+        x = torch.ones(1, 1, 2, 2)
+        base = {"input": x, "cond_denoised": x * 0.5, "uncond_denoised": x * 0.25, "cond_scale": 3.0}
+        from modules import anima_support
+
+        setattr(process, anima_support._AUXILIARY_DENOISER_ATTRIBUTE, True)
+        self.assertFalse(torch.equal(cfg({**base, "sigma": torch.tensor([0.9])}), torch.zeros_like(x)))
+        setattr(process, anima_support._AUXILIARY_DENOISER_ATTRIBUTE, False)
+        self.assertTrue(torch.equal(cfg({**base, "sigma": torch.tensor([1.0])}), torch.zeros_like(x)))
 
 
 class GuidanceRangeTests(unittest.TestCase):

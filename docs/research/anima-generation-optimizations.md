@@ -10,10 +10,11 @@
 
 本报告中进入移植队列的项目已按默认关闭、生成级隔离和明确互斥的原则集成到 `remi` 工作区：
 
-- NAG 通过 Anima 原生 attention modifier chain 接入，不覆盖 Regional、Artist Mixer 或 FreeFuse 的 wrapper；合成的 Regional/Artist context 与 NAG 隔离，低显存导致正负分支无法合批时会明确记录 inactive；
+- NAG 通过 Anima 原生 attention modifier chain 接入，不覆盖 Regional、Artist Mixer 或 FreeFuse 的 wrapper；合成的 Regional/Artist context 与 NAG 隔离；低显存导致正负分支被拆分时，正向调用用该层 K/V 投影负向 prompt context 继续生效，只有无法取得负向 context 时才记录 inactive；
 - Momentum Guidance 在 flow velocity 空间维护每次生成独立的 EMA，限于单次评估的 Euler/Anima Flow Euler/FreeFuse Euler，FreeFuse probe 后会重置状态；
 - Anima per-block compile 作为现有 Compile 内置插件的互斥预设，调用期临时替换 block，并在 `finally` 中恢复；Windows 先预检 C++ 编译器，Dynamo/Inductor 懒编译失败则回退 eager；
 - FDG 作为实验 CFG controller，使用纯 PyTorch 两层频带分解，不增加 Kornia 硬依赖，并与 DCW/CNS 显式互斥；
+- CFG-Zero* 依论文独立实现为同一下拉框中的 CFG combine 模式（与 SMC/FDG 天然互斥，禁用 Momentum）：逐样本最优缩放 s* 在 Forge 的 `x - denoised = sigma * v` 残差上计算，可选 zero-init 前 N 步（默认 1）；
 - Guidance Active Range 使用归一化采样进度映射当前 scheduler sigma；
 - 现有 PiD 后处理器修复了类级结果泄漏和多批次 prompt/seed 错位，并在 GUI 中明示 Hires 互斥与权重许可限制。
 
@@ -176,7 +177,7 @@ PPM 的 AttentionCouple 和 NegPiP 已分别被当前 Regional 与 NegPiP 覆盖
 
 这些论文有研究价值，但没有证据证明可直接套用当前 Anima，暂不进入移植队列：
 
-- [CFG-Zero*](https://arxiv.org/abs/2503.18886)：针对 flow matching 的早期 zero-init 和优化 guidance scale；在 Flux/SD3 等模型上有结果，适合与现有 Flow controls 做独立数学复核。
+- [CFG-Zero*](https://arxiv.org/abs/2503.18886)：针对 flow matching 的早期 zero-init 和优化 guidance scale；在 Flux/SD3 等模型上有结果。**已实现**：依论文 Algorithm 1 独立编写（未复制无许可证的作者仓库），作为 `CFG-Zero*` CFG 模式加入 Anima Guidance。s* = ⟨v_cond, v_uncond⟩ / ‖v_uncond‖² 逐样本计算；由于 Anima 为 rectified flow，Forge CFG hook 的残差 `x - denoised` 等于 `sigma * v`，而 s* 对同一正比例因子不变，故直接在残差上组合（ComfyUI `CFGZeroStar` 是在 x0 空间的 post-CFG 近似，两者不完全等价）。zero-init 让前 N 个不同 sigma 的采样步输出零速度（`denoised = x`，latent 不变），PC3 辅助探测不计步。仍待 GPU 固定 seed 矩阵验证 Anima 上的收益。
 - [On the Guidance of Flow Matching](https://arxiv.org/abs/2502.02150)：给出一般 flow guidance 框架，更适合作为校验现有/未来引导算法的理论参考。
 - [Token Perturbation Guidance（TPG）论文](https://arxiv.org/abs/2506.10036)及其 [MIT 官方实现](https://github.com/TaatiTeam/Token-Perturbation-Guidance)：对中间 token 做保持范数的 shuffle，以原始/扰动预测之差产生 guidance。官方只验证 SDXL、SD2.1；Anima 需要选定 block、增加额外预测，并会与 Spectrum、FreeFuse、Modulation 共用 block/attention seam，只适合开发者研究开关。
 - [Perturbed Attention Guidance（PAG）论文](https://arxiv.org/abs/2403.17377)及 [Diffusers 官方管线](https://huggingface.co/docs/diffusers/api/pipelines/pag)：理论上可作用于 Anima self-attention，但没有 Anima 实证，会增加预测成本，并与 FreeFuse/Spectrum 的 attention/cache 路径高度敏感，优先级低于 NAG、MG、FDG。
@@ -188,7 +189,7 @@ PPM 的 AttentionCouple 和 NegPiP 已分别被当前 Regional 与 NegPiP 覆盖
 1. **Anima NAG**：独立 commit；先加入可组合 attention override，再实现 UI 与范围控制。
 2. **Momentum Guidance 原型**：从 Flow Euler 开始，证明状态不会被 PC3 auxiliary call、Spectrum 或 Hires 污染后再独立 commit。
 3. **Anima per-block compile**：独立 commit；作为现有 Compile 插件预设，明确这只是速度优化。
-4. **FDG 实验模式**：先做无 `kornia` 的最小原型，并与 SMC/CFG-Zero*/APG 强制互斥。
+4. **FDG 实验模式**：先做无 `kornia` 的最小原型，并与 SMC/CFG-Zero*/APG 强制互斥（已实现；CFG-Zero* 与 FDG 同属一个模式下拉框）。
 5. **Guidance active range 原型**：先本地实验，不默认启用；证据充分后再 commit。
 6. **PiD GPU 验证**：已作为可选内置后处理器；补齐权重、显存、中断和批次实测。
 7. **Layer Replay**：仅在 GPU 对照实验证明收益后 clean-room 实现。

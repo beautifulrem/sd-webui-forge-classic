@@ -199,6 +199,17 @@ SMC-CFG 会占用 CFG combine，并自动禁用 Momentum。不要同时选择 FD
 - 选择 `Anima ER SDE CNS` 时 FDG 会被禁用；
 - 不建议再叠加频域锐化或强后处理。
 
+### CFG-Zero*
+
+用途：CFG-Zero*（arXiv:2503.18886）按样本求出无条件预测的最佳缩放 `s*`，再在 `cond - s*·uncond` 上施加 guidance；前 `zero-init steps` 步输出零速度（该步 latent 不变）。不增加前向次数，Base/Aesthetic、CFG 4–7 才有意义，Turbo CFG 1 下与普通 CFG 等价。
+
+建议：`zero-init steps` 保持默认 `1`；步数很少时设为 `0`。尚无 Anima GPU 量化结论，按研究 A/B 使用。
+
+硬限制：
+
+- 与 SMC-CFG、FDG 在同一个下拉框中互斥；
+- 自动禁用 Momentum；可与 DCW、CNS、Skimmed CFG 和 active range 共用。
+
 ### Limit CFG to a sampling range
 
 用途：只在采样中段使用 CFG，减少早期或末期过强引导。Base/Aesthetic、CFG 4–7 才值得试；Turbo CFG 1 基本没有收益。
@@ -385,8 +396,8 @@ Remi 会在 GUI 中采用“最后选择的功能获胜”：冲突项会被自�
 | `Beta57` + `Anima Flow Euler/UniPC2/PC3` | Flow sampler 锁定 scheduler，Beta57 不生效 |
 | Dynamic Shift + `Anima Flow *` | 被 scheduler lock 忽略 |
 | Dynamic Shift + Beta57 | Dynamic Shift override 实际接管 schedule；不要当作双重增强 |
-| SMC + FDG | 互斥模式 |
-| Momentum + SMC/FDG | 自动禁用 Momentum |
+| SMC / FDG / CFG-Zero* | 同一下拉框，互斥模式 |
+| Momentum + SMC/FDG/CFG-Zero* | 自动禁用 Momentum |
 | Momentum + UniPC2/PC3/Heun/DPM2 | 不支持，自动禁用 |
 | FDG + DCW | 自动禁用 DCW |
 | FDG + CNS | 自动禁用 FDG |

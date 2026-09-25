@@ -7,7 +7,6 @@ import os
 import logging
 
 import gradio as gr
-import torch
 
 from backend import memory_management
 from backend.logging import setup_logger
@@ -23,24 +22,28 @@ from lib_anima_guidance.modulation import (
     prepare_modulation_vectors,
     resolve_artifact,
 )
-from lib_anima_guidance.skim import apply_skim_to_predictions
+from lib_anima_guidance.skim import make_skim_cfg_function
 from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
 from lib_anima_guidance.dcw import DCWState, parse_band_mask
 from lib_anima_guidance.advanced import (
     IGNORES_UNCOND,
+    CFGZeroStarState,
     MomentumGuidanceState,
+    make_cfg_zero_star_cfg_function,
     make_fdg_cfg_function,
     make_guidance_range_cfg_function,
     make_guidance_range_uncond_skip,
     make_momentum_post_cfg_function,
     sigma_value,
-    standard_cfg_residual,
 )
 from lib_anima_guidance.nag import NAGAttentionModifier
 from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS
 from modules import paths, script_callbacks, scripts, spectrum_force
 from modules.anima_guidance_state import clear_stateful_guidance, register_stateful_guidance
 from modules.anima_feature_conflicts import (
+    CFG_ZERO_STAR_GUIDANCE,
+    FDG_GUIDANCE,
+    GUIDANCE_MODES,
     SMC_GUIDANCE,
     STANDARD_GUIDANCE,
     record_conflict_resolution,
@@ -90,60 +93,6 @@ def _stash_nag_negative(params) -> None:
 script_callbacks.on_cfg_denoiser(_stash_nag_negative, name="anima_nag_negative_context")
 
 
-_active_for_sigma = spectrum_force.in_sigma_window
-
-
-def _make_skim_cfg_function(
-    previous_cfg_function,
-    *,
-    sigma_start: float,
-    sigma_end: float,
-    skimming_scale: float,
-    full_skim_negative: bool,
-    disable_flipping_filter: bool,
-    flip_sigma: float | None,
-):
-    """Build a Forge CFG hook while preserving an existing CFG hook.
-
-    Forge expects ``sampler_cfg_function`` to return a residual which is
-    subtracted from the sampler input.  Existing CFG functions are called with
-    adjusted cond/uncond predictions, so Skimmed CFG composes before their
-    combine rather than silently replacing them.
-    """
-
-    @torch.no_grad()
-    def cfg_function(args):
-        x_orig = args["input"]
-        sigma = sigma_value(args.get("sigma", args.get("timestep")))
-
-        adjusted_args = args
-        if _active_for_sigma(sigma, sigma_start, sigma_end):
-            flip_filter = bool(disable_flipping_filter)
-            if flip_sigma is not None and sigma > flip_sigma:
-                flip_filter = not flip_filter
-
-            cond, uncond = apply_skim_to_predictions(
-                x_orig,
-                args["cond_denoised"],
-                args["uncond_denoised"],
-                float(args["cond_scale"]),
-                float(skimming_scale),
-                full_skim_negative=bool(full_skim_negative),
-                disable_flipping_filter=flip_filter,
-            )
-            adjusted_args = dict(args)
-            adjusted_args["cond_denoised"] = cond
-            adjusted_args["uncond_denoised"] = uncond
-            adjusted_args["cond"] = x_orig - cond
-            adjusted_args["uncond"] = x_orig - uncond
-
-        if previous_cfg_function is not None:
-            return previous_cfg_function(adjusted_args)
-        return standard_cfg_residual(adjusted_args)
-
-    return cfg_function
-
-
 class AnimaGuidanceScript(scripts.Script):
     sorting_priority = 2030
 
@@ -168,10 +117,10 @@ class AnimaGuidanceScript(scripts.Script):
             )
             conflict_status = gr.Markdown("")
             guidance_mode = gr.Dropdown(
-                ["Standard / preserve existing", "SMC-CFG", "FDG (experimental)"],
-                value="Standard / preserve existing",
+                list(GUIDANCE_MODES),
+                value=STANDARD_GUIDANCE,
                 label="CFG guidance mode",
-                info="SMC-CFG and FDG are mutually exclusive combine modes. Skimmed CFG is applied before the selected combine.",
+                info="SMC-CFG, CFG-Zero* and FDG are mutually exclusive combine modes. Skimmed CFG is applied before the selected combine.",
             )
             with gr.Row():
                 smc_alpha = gr.Slider(
@@ -193,7 +142,7 @@ class AnimaGuidanceScript(scripts.Script):
                 gr.Markdown(
                     "NAG modifies cross-attention; Momentum modifies the final flow velocity. "
                     "NAG guides the base prompt path while synthetic Regional/Artist branches stay isolated. "
-                    "Momentum is limited to single-evaluation Euler samplers and is disabled with SMC-CFG or FDG."
+                    "Momentum is limited to single-evaluation Euler samplers and requires the Standard CFG mode."
                 )
                 nag_enable = gr.Checkbox(False, label="Enable NAG attention guidance")
                 with gr.Row():
@@ -214,6 +163,14 @@ class AnimaGuidanceScript(scripts.Script):
                     step=0.1,
                     label="FDG detail guidance",
                     info="Used only by FDG. FDG takes priority over DCW and is disabled with the CNS sampler.",
+                )
+                cfg_zero_init_steps = gr.Slider(
+                    0,
+                    10,
+                    value=1,
+                    step=1,
+                    label="CFG-Zero* zero-init steps",
+                    info="Used only by CFG-Zero*. The first N sampler steps output zero velocity (the latent is left unchanged); 0 keeps only the optimized scale.",
                 )
                 guidance_range_enable = gr.Checkbox(False, label="Limit CFG to a sampling range")
                 with gr.Row():
@@ -410,7 +367,7 @@ class AnimaGuidanceScript(scripts.Script):
                 )
                 if state.messages:
                     status = "**Compatibility:** " + "; ".join(state.messages)
-                elif state.mode == "FDG (experimental)":
+                elif state.mode == FDG_GUIDANCE:
                     status = "**Compatibility:** FDG owns CFG combine; Momentum and DCW are locked."
                 elif state.momentum:
                     status = "**Compatibility:** Momentum requires Standard CFG guidance."
@@ -445,7 +402,9 @@ class AnimaGuidanceScript(scripts.Script):
                 )
 
         # One row per control, in script-argument order:
-        # (component, infotext key, preset name or None)
+        # (component, infotext key or None, preset name or None). The local
+        # modulation file paths have no key: they are never written to
+        # infotext, and a pasted PNG must not pick which local file is loaded.
         fields = [
             (enable, "Anima guidance enabled", "guidance.enabled"),
             (guidance_mode, "Anima CFG guidance mode", "guidance.mode"),
@@ -478,9 +437,9 @@ class AnimaGuidanceScript(scripts.Script):
             (modulation_positive, "Anima modulation positive direction", None),
             (modulation_negative, "Anima modulation negative direction", None),
             (adapter_mode, "Anima modulation adapter mode", "guidance.modulation_adapter_mode"),
-            (adapter_path, "Anima modulation adapter path", None),
+            (adapter_path, None, None),
             (clip_mode, "Anima modulation CLIP mode", "guidance.modulation_clip_mode"),
-            (clip_path, "Anima modulation CLIP path", None),
+            (clip_path, None, None),
             (nag_enable, "Anima NAG", "guidance.nag_enabled"),
             (nag_scale, "Anima NAG scale", "guidance.nag_scale"),
             (nag_tau, "Anima NAG tau", "guidance.nag_tau"),
@@ -494,12 +453,13 @@ class AnimaGuidanceScript(scripts.Script):
             (guidance_range_enable, "Anima CFG active range", "guidance.range_enabled"),
             (guidance_range_start, "Anima CFG range start", "guidance.range_start"),
             (guidance_range_end, "Anima CFG range end", "guidance.range_end"),
+            (cfg_zero_init_steps, "Anima CFG-Zero* zero-init steps", "guidance.cfg_zero_init_steps"),
         ]
         for component, _, preset_name in fields:
             if preset_name is not None:
                 register_preset_control(self.tabname, preset_name, component)
-        self.infotext_fields = [PasteField(component, key) for component, key, _ in fields]
-        self.paste_field_names = [key for _, key, _ in fields]
+        self.infotext_fields = [PasteField(component, key) for component, key, _ in fields if key is not None]
+        self.paste_field_names = [key for _, key, _ in fields if key is not None]
         return [component for component, _, _ in fields]
 
     def process_before_every_sampling(
@@ -552,6 +512,7 @@ class AnimaGuidanceScript(scripts.Script):
         guidance_range_enable: bool = False,
         guidance_range_start: float = 0.0,
         guidance_range_end: float = 1.0,
+        cfg_zero_init_steps: int = 1,
         *args,
         **kwargs,
     ):
@@ -579,7 +540,8 @@ class AnimaGuidanceScript(scripts.Script):
         momentum_enable = conflict_state.momentum
         dcw_enable = conflict_state.dcw
         smc_enabled = guidance_mode == SMC_GUIDANCE and float(smc_alpha) > 0.0
-        fdg_enabled = guidance_mode == "FDG (experimental)"
+        fdg_enabled = guidance_mode == FDG_GUIDANCE
+        cfg_zero_enabled = guidance_mode == CFG_ZERO_STAR_GUIDANCE
         dcw_enabled = bool(dcw_enable) and not math.isclose(float(dcw_lambda), 0.0)
         cns_selected = active_sampler == "Anima ER SDE CNS"
         if not enable or not _is_anima(p):
@@ -635,7 +597,9 @@ class AnimaGuidanceScript(scripts.Script):
             )
 
         modulation_enabled = bool(modulation_enable)
-        advanced_enabled = bool(nag_enable) or bool(momentum_enable) or fdg_enabled or bool(guidance_range_enable)
+        advanced_enabled = (
+            bool(nag_enable) or bool(momentum_enable) or fdg_enabled or cfg_zero_enabled or bool(guidance_range_enable)
+        )
         if not skim_enable and not smc_enabled and not dcw_enabled and not modulation_enabled and not advanced_enabled:
             return
 
@@ -714,10 +678,11 @@ class AnimaGuidanceScript(scripts.Script):
             nag_sigma_start = float(predictor.percent_to_sigma(float(nag_start)))
             nag_sigma_end = float(predictor.percent_to_sigma(float(nag_end)))
             def report_unbatched_nag(p=process_ref(p)):
-                message = "inactive: positive/negative branches could not be GPU-batched"
+                message = "inactive: no negative context for a positive-only call"
                 p.extra_generation_params["Anima NAG"] = message
                 logger.warning(
-                    "Anima NAG is inactive for this generation because Forge split the positive and negative branches; reduce batch/resolution or free VRAM"
+                    "Anima NAG was skipped: a model call had no negative-prompt context to guide against "
+                    "(no unconditional rows and no stashed negative context, or an unknown batch layout)"
                 )
 
             nag_modifier = NAGAttentionModifier(
@@ -758,15 +723,27 @@ class AnimaGuidanceScript(scripts.Script):
                 )
         elif fdg_enabled:
             active_cfg_function = make_fdg_cfg_function(float(fdg_high_scale))
-            p.extra_generation_params["Anima CFG guidance mode"] = "FDG (experimental)"
+            p.extra_generation_params["Anima CFG guidance mode"] = FDG_GUIDANCE
             p.extra_generation_params["Anima FDG detail guidance"] = float(fdg_high_scale)
+            if previous is not None:
+                p.extra_generation_params["Anima CFG replaced existing"] = getattr(
+                    previous, "__name__", type(previous).__name__
+                )
+        elif cfg_zero_enabled:
+            zero_init_steps = max(0, int(cfg_zero_init_steps))
+            active_cfg_function = make_cfg_zero_star_cfg_function(
+                register_stateful_guidance(p, CFGZeroStarState(zero_init_steps)),
+                process=process_ref(p),
+            )
+            p.extra_generation_params["Anima CFG guidance mode"] = CFG_ZERO_STAR_GUIDANCE
+            p.extra_generation_params["Anima CFG-Zero* zero-init steps"] = zero_init_steps
             if previous is not None:
                 p.extra_generation_params["Anima CFG replaced existing"] = getattr(
                     previous, "__name__", type(previous).__name__
                 )
 
         if skim_enable:
-            active_cfg_function = _make_skim_cfg_function(
+            active_cfg_function = make_skim_cfg_function(
                 active_cfg_function,
                 sigma_start=sigma_start,
                 sigma_end=sigma_end,
@@ -788,11 +765,12 @@ class AnimaGuidanceScript(scripts.Script):
             p.extra_generation_params["Anima CFG range start"] = float(guidance_range_start)
             p.extra_generation_params["Anima CFG range end"] = float(guidance_range_end)
 
-        if smc_enabled or fdg_enabled or skim_enable or guidance_range_enable:
-            # At CFG 1 Skimmed CFG and the CFG range both reduce to the
-            # conditional prediction, so only SMC / FDG (which still use the
-            # unconditional one there) keep Forge from skipping that pass. A
-            # wrapped hook from another extension set its own flag already.
+        if smc_enabled or fdg_enabled or cfg_zero_enabled or skim_enable or guidance_range_enable:
+            # At CFG 1 Skimmed CFG, CFG-Zero* and the CFG range all reduce to
+            # the conditional prediction (CFG-Zero*'s zero-init reads neither),
+            # so only SMC / FDG (which still use the unconditional one there)
+            # keep Forge from skipping that pass. A wrapped hook from another
+            # extension set its own flag already.
             unet.set_model_sampler_cfg_function(
                 active_cfg_function,
                 disable_cfg1_optimization=bool(smc_enabled or fdg_enabled),

@@ -284,6 +284,7 @@ class ModulationPatch:
                 for index in range(start, end + 1):
                     dit.blocks[index]._forge_anima_modulation_local.delta = None
 
-        wrapper.__spectrum_cache_safe__ = True
+        # Safe only if the wrapper it delegates to is safe too.
+        wrapper.__spectrum_cache_safe__ = previous is None or getattr(previous, "__spectrum_cache_safe__", False)
         patched.set_model_unet_function_wrapper(wrapper)
         return patched, start, end

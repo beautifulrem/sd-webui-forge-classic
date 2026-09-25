@@ -39,6 +39,71 @@ SMC-CFG is explicitly selected, it replaces an existing CFG function and the
 replacement is recorded in generation metadata. Skimmed CFG remains
 composable and is applied to the cond/uncond predictions before SMC-CFG.
 
+## CFG-Zero*
+
+`CFG-Zero*` ([arXiv:2503.18886](https://arxiv.org/abs/2503.18886)) is a CFG
+combine mode written from the paper. Per sample it projects the conditional
+velocity onto the unconditional one, `s* = <v_cond, v_uncond> / ||v_uncond||^2`,
+and guides with `v_uncond * s* + w * (v_cond - v_uncond * s*)`. Forge's CFG
+hook residual is `x - denoised = sigma * v` for Anima's rectified flow and
+`s*` ignores a common per-sample factor, so the combine runs on those
+residuals directly. With `s* = 1` it is plain CFG; at CFG 1 it returns the
+conditional prediction, so Forge still skips the negative pass there.
+
+`Zero-init steps` (default 1, the paper's default) outputs zero velocity for
+the first N sampler steps: `denoised = x`, so the solver leaves the latent
+unchanged. A step is a distinct sigma, which is exact for single-evaluation
+samplers; the extra sigmas of multi-evaluation samplers count as steps too.
+PC3 probes do not consume steps. `0` keeps only the optimized scale.
+
+Like SMC-CFG and FDG it replaces an existing CFG function (recorded in
+metadata) and disables Momentum; Skimmed CFG, the CFG range and DCW compose.
+
+## FDG (experimental)
+
+Frequency-Decoupled Guidance splits the CFG update `cond - uncond` (in
+denoised space) into a low band (2x2 average pool, bilinear upsample) and the
+high-frequency remainder. The low band uses the normal CFG scale; the high
+band uses `FDG detail guidance` (default 2.0). Equal scales reproduce plain
+CFG. It is pure PyTorch, owns the CFG combine like SMC-CFG, and is disabled
+with DCW (DCW wins only when it is the last switch changed), Momentum and the
+`Anima ER SDE CNS` sampler.
+
+## NAG
+
+Normalized Attention Guidance works inside Anima's cross-attention rather than
+on the CFG combine, so it also acts at CFG 1 (Turbo). For the positive rows it
+extrapolates away from the negative prompt's attention output,
+`z + scale * (z - z_neg)`, clamps the L1-norm growth to `tau`, and blends the
+result back with `alpha` (defaults: scale 2.0, tau 2.5, alpha 0.5, active
+over the first half of sampling, start 0.0 to end 0.5). Unconditional rows
+and self-attention are untouched.
+
+When the negative branch is in the same batch its K/V are reused. On
+positive-only calls (CFG 1, or the positive half of a batch Forge split for
+VRAM) the negative prompt's context is projected with the layer's K/V
+weights, so no extra unconditional pass is needed. If neither is available
+the generation records `Anima NAG: inactive: ...` in its metadata.
+Regional/Artist Mixer synthetic branches are not guided.
+
+## Momentum Guidance
+
+Momentum keeps an EMA of the final (post-CFG) flow velocity across steps and
+adds `strength * (v - EMA)` to the current velocity (defaults: strength 0.5,
+EMA decay 0.6); the first step is unchanged. It adds no model forwards and
+needs no negative pass at CFG 1. The state is per generation and PC3 probes do
+not advance it. It is limited to single-evaluation Euler samplers (`Euler`,
+`Anima Flow Euler`, `Anima FreeFuse Euler`) and requires the Standard CFG
+mode.
+
+## CFG active range
+
+`Limit CFG to a sampling range` applies the CFG combine (including SMC-CFG,
+CFG-Zero*, FDG and Skimmed CFG) only between `CFG range start` and `CFG range
+end`, given as fractions of sampling progress (defaults 0.0 and 1.0).
+Outside it the conditional prediction is used alone, and the negative forward
+pass is skipped on those steps as long as no other hook still reads it.
+
 ## DCW
 
 DCW applies the previous step's SNR-t bias correction to the mutable sampler

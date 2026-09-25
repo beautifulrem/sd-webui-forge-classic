@@ -16,7 +16,9 @@ from typing import Any
 STANDARD_GUIDANCE = "Standard / preserve existing"
 SMC_GUIDANCE = "SMC-CFG"
 FDG_GUIDANCE = "FDG (experimental)"
-GUIDANCE_MODES = (STANDARD_GUIDANCE, SMC_GUIDANCE, FDG_GUIDANCE)
+CFG_ZERO_STAR_GUIDANCE = "CFG-Zero*"
+# One dropdown: the CFG combine modes are mutually exclusive by construction.
+GUIDANCE_MODES = (STANDARD_GUIDANCE, SMC_GUIDANCE, CFG_ZERO_STAR_GUIDANCE, FDG_GUIDANCE)
 
 FLOW_SAMPLERS = frozenset(
     {"Anima Flow Euler", "Anima Flow UniPC2", "Anima Flow PC3"}
@@ -66,9 +68,11 @@ class FreeFuseRefinerConflictState:
     messages: tuple[str, ...]
 
 
-# Spatial-routing features that cannot share a pass. FreeFuse wins when it is
-# on; Regional and Artist Mixer then yield. Scripts mark what actually runs.
+# Spatial-routing features that cannot share a pass. Headless runs keep the
+# UI group's order (FreeFuse > Regional > Artist Mixer): the others yield to
+# the first one that is on. Scripts mark what actually runs.
 FREEFUSE = "Anima FreeFuse"
+REGIONAL = "Anima Regional Conditioning"
 ARTIST_MIXER = "Anima Artist Mixer"
 _ACTIVE_FEATURES = "_anima_active_features"
 
@@ -172,7 +176,7 @@ def resolve_guidance_conflicts(
     if selected == "momentum" and momentum and mode != STANDARD_GUIDANCE:
         mode = STANDARD_GUIDANCE
         messages.append("CFG guidance mode reset: Momentum requires Standard")
-    elif mode in {SMC_GUIDANCE, FDG_GUIDANCE} and momentum:
+    elif mode != STANDARD_GUIDANCE and momentum:
         momentum = False
         messages.append(f"Momentum disabled: incompatible with {mode}")
 
