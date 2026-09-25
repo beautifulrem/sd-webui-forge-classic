@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import sys
+import weakref
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,7 +12,21 @@ import gradio as gr
 
 from backend.args import dynamic_args
 from modules import script_callbacks, script_loading, scripts, shared
-from modules.anima_lora_support import active_template_parts, anima_lora_block_count, anima_source_block, current_sampling_position
+from modules.anima_lora_support import (
+    lora_file_names as _names_for_lora_file,
+    active_template_parts,
+    anima_lora_block_count,
+    anima_source_block,
+    current_sampling_position,
+    compact_text as _compact_text,
+    is_plain_number as _is_plain_number,
+    module_key as _module_key,
+    block_index_from_key as _block_index_from_key,
+    module_factor as _module_factor,
+    model_key as _model_key,
+    qwen_layer_index as _qwen_layer_index,
+    stage_window,
+)
 from modules.anima_presets import register_preset_control
 
 
@@ -226,11 +241,6 @@ EXTENSION_DIR = Path(__file__).resolve().parents[1]
 TEMPLATE_FILE = EXTENSION_DIR / "templates.json"
 
 LORA_TAG_RE = re.compile(r"<lora:([^:>]+)(?::([^>]*))?>")
-ANIMA_BLOCK_RE = re.compile(r"(?:^|\.)(?:diffusion_model\.)?(?:net\.)?blocks\.(\d+)\.")
-QWEN_LAYER_RE = re.compile(r"(?:^|\.)(?:text_encoders\.)?qwen3_06b\.model\.layers\.(\d+)\.")
-GENERIC_QWEN_LAYER_RE = re.compile(r"(?:^|\.)(?:text_encoders\.)?qwen3_06b\.(?:model\.)?layers\.(\d+)\.")
-QWEN_ADAPTER_BLOCK_RE = re.compile(r"(?:^|\.)(?:text_encoders\.)?qwen3_06b\.llm_adapter\.blocks\.(\d+)\.")
-LEGACY_QWEN_ADAPTER_BLOCK_RE = re.compile(r"(?:^|\.)(?:diffusion_model\.)?llm_adapter\.blocks\.(\d+)\.")
 
 MODE_AUTO_ANIMA = "自动识别 Anima LoRA"
 MODE_PROMPT_ALL = "提示词中的全部 LoRA"
@@ -407,10 +417,6 @@ def _to_float(value, fallback=0.0):
         return fallback
 
 
-def _is_plain_number(text) -> bool:
-    return re.fullmatch(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)\s*", str(text or "")) is not None
-
-
 def _format_float(value):
     text = f"{_to_float(value):.8f}".rstrip("0").rstrip(".")
     return text if text not in {"", "-0"} else "0"
@@ -435,18 +441,6 @@ def _parse_targets(text) -> set[str]:
     return {x for x in targets if x}
 
 
-def _compact_text(text) -> str:
-    return " ".join(str(text or "").replace("\r", "\n").split())
-
-
-def _model_key(key) -> str:
-    if isinstance(key, str):
-        return key
-    if isinstance(key, tuple) and key:
-        return str(key[0])
-    return str(key or "")
-
-
 @dataclass
 class LayerWeights:
     default: float = 1.0
@@ -454,26 +448,6 @@ class LayerWeights:
 
     def factor(self, index: int) -> float:
         return self.values.get(index, self.default)
-
-
-def _module_key(name: str) -> str:
-    key = str(name or "").strip().lower().replace("-", "_").replace(" ", "_")
-    aliases = {
-        "self": "self_attn",
-        "selfattn": "self_attn",
-        "self_attention": "self_attn",
-        "cross": "cross_attn",
-        "crossattn": "cross_attn",
-        "cross_attention": "cross_attn",
-        "ada": "adaln",
-        "adaln_modulation": "adaln",
-        "modulation": "adaln",
-        "norms": "norm",
-        "layernorm": "norm",
-        "feedforward": "mlp",
-        "ffn": "mlp",
-    }
-    return aliases.get(key, key)
 
 
 def _looks_like_layer_weights(text) -> bool:
@@ -580,72 +554,6 @@ def _split_panel_weight_sections(text: str) -> dict[str, str]:
             sections["blocks"] = ";".join(bare_parts)
 
     return sections
-
-
-def _block_index_from_key(key: str) -> int | None:
-    key_text = str(key or "")
-    match = ANIMA_BLOCK_RE.search(key_text)
-    if match:
-        return int(match.group(1))
-
-    normalized = key_text.lower().replace(".", "_")
-    match = re.search(r"(?:^|_)blocks_(\d+)(?:_|$)", normalized)
-    if not match:
-        return None
-    return int(match.group(1))
-
-
-def _module_name_from_block_tail(module: str) -> str | None:
-    if module.startswith("adaln_modulation"):
-        return "adaln"
-    if module.startswith("norm"):
-        return "norm"
-    if module.startswith("self_attn"):
-        return "self_attn"
-    if module.startswith("cross_attn"):
-        return "cross_attn"
-    if module.startswith("mlp"):
-        return "mlp"
-    return None
-
-
-def _module_from_key(key: str) -> str | None:
-    key_text = str(key or "")
-    marker = re.search(r"blocks\.\d+\.([^.]+)", key_text)
-    if marker:
-        module = _module_name_from_block_tail(marker.group(1))
-        return module or _module_key(marker.group(1))
-
-    normalized = key_text.lower().replace(".", "_")
-    marker = re.search(r"(?:^|_)blocks_\d+_(.+)", normalized)
-    if not marker:
-        return None
-
-    return _module_name_from_block_tail(marker.group(1))
-
-
-def _module_factor(key: str, module_weights: dict[str, float]) -> float:
-    module = _module_from_key(key)
-    if not module:
-        return 1.0
-    return module_weights.get(module, 1.0)
-
-
-def _qwen_layer_index(key: str) -> int | None:
-    key_text = str(key or "")
-    match = QWEN_LAYER_RE.search(key_text) or GENERIC_QWEN_LAYER_RE.search(key_text) or QWEN_ADAPTER_BLOCK_RE.search(key_text) or LEGACY_QWEN_ADAPTER_BLOCK_RE.search(key_text)
-    if match:
-        return int(match.group(1))
-
-    normalized = key_text.lower().replace(".", "_")
-    match = (
-        re.search(r"qwen3_06b_(?:model_)?layers_(\d+)", normalized)
-        or re.search(r"qwen3_06b_llm_adapter_blocks_(\d+)", normalized)
-        or re.search(r"(?:^|_)llm_adapter_blocks_(\d+)", normalized)
-    )
-    if not match:
-        return None
-    return int(match.group(1))
 
 
 @dataclass
@@ -936,28 +844,8 @@ def _template_stage_from_name(name: str, fallback=STAGE_CHARACTER) -> str:
 
 
 def _auto_stage_values(stage: str, shift_value) -> tuple[float, float, float, float]:
-    shift = _clamp(_to_float(shift_value, 3.0), 1.0, 24.0)
-    # Shift 3.0 is Forge's common default. Higher Shift usually keeps useful
-    # structure later in the denoise path, so template windows move slightly later.
-    move = _clamp((shift - 3.0) / 21.0, -0.10, 1.0) * 0.12
-
-    if stage == STAGE_COMPOSITION:
-        start = 0.0
-        end = _clamp(0.32 + move, 0.22, 0.46)
-        peak = _clamp(0.08 + move * 0.25, start, end)
-        strength = 1.0
-    elif stage == STAGE_STYLE:
-        start = _clamp(0.62 + move, 0.48, 0.82)
-        end = 1.0
-        peak = _clamp(0.86 + move * 0.35, start, end)
-        strength = 1.0
-    else:
-        start = _clamp(0.20 + move * 0.65, 0.12, 0.36)
-        end = _clamp(0.74 + move * 0.45, 0.58, 0.88)
-        peak = _clamp((start + end) * 0.5, start, end)
-        strength = 1.0
-
-    return start, end, peak, strength
+    kind = {STAGE_COMPOSITION: "composition", STAGE_STYLE: "style"}.get(stage, "character")
+    return (*stage_window(kind, _to_float(shift_value, 3.0)), 1.0)
 
 
 def _apply_template_ui(template_name, shift_value):
@@ -1194,40 +1082,20 @@ def _delete_template_ui(name):
     return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), f"已删除模板：{name}"
 
 
+_LAYER_WEIGHT_MODULE = []
+
+
 def _layer_weight_module():
-    for module in getattr(script_loading, "loaded_scripts", {}).values():
-        if hasattr(module, "_is_anima_adapter_file") and hasattr(module, "_names_for_lora_file"):
-            return module
-    for module in list(sys.modules.values()):
-        if hasattr(module, "_is_anima_adapter_file") and hasattr(module, "_names_for_lora_file"):
-            return module
-    return None
-
-
-def _names_for_lora_file(filename) -> set[str]:
-    layer_module = _layer_weight_module()
-    if layer_module is not None:
-        try:
-            return set(layer_module._names_for_lora_file(filename))
-        except Exception:
-            pass
-
-    path = Path(str(filename or ""))
-    names = {str(path).lower(), path.name.lower(), path.stem.lower()}
-    try:
-        import networks
-
-        for name, entry in getattr(networks, "available_networks", {}).items():
-            try:
-                if os.path.abspath(str(entry.filename)) == os.path.abspath(str(filename)):
-                    names.add(str(name).lower())
-                    names.add(str(getattr(entry, "alias", "")).lower())
-                    names.add(str(entry.get_alias()).lower())
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return {x for x in names if x}
+    """The loaded layer-weight extension (its cached LoRA file analysis), found once."""
+    if _LAYER_WEIGHT_MODULE and _LAYER_WEIGHT_MODULE[0] is not None:
+        return _LAYER_WEIGHT_MODULE[0]
+    found = None
+    for module in (*getattr(script_loading, "loaded_scripts", {}).values(), *list(sys.modules.values())):
+        if hasattr(module, "_is_anima_adapter_file"):
+            found = module
+            break
+    _LAYER_WEIGHT_MODULE[:] = [found]
+    return found
 
 
 def _resolve_lora_filename(name: str):
@@ -1252,10 +1120,29 @@ def _resolve_lora_filename(name: str):
         return None
 
 
+_ANIMA_LORA_FILES: dict[str, tuple[tuple, bool]] = {}
+
+
 def _is_anima_lora_file(filename) -> bool:
+    """Whether a LoRA file targets Anima; cached per file version."""
     if not filename:
         return False
+    path = str(filename)
+    try:
+        stat = os.stat(path)
+        version = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return False
+    cached = _ANIMA_LORA_FILES.get(path)
+    if cached is not None and cached[0] == version:
+        return cached[1]
+    result = _scan_anima_lora_file(filename)
+    _ANIMA_LORA_FILES[path] = (version, result)
+    return result
 
+
+def _scan_anima_lora_file(filename) -> bool:
+    # The layer-weight extension's analysis is cached and more complete
     layer_module = _layer_weight_module()
     if layer_module is not None:
         try:
@@ -1594,7 +1481,7 @@ class RuntimeState:
     hr_disable_tags: list[str]
     original_online_lora: bool
     current_activation_pass: str | None = None
-    wrappers: list[ScheduledStrength] = field(default_factory=list)
+    wrappers: list[weakref.ref] = field(default_factory=list)
     warned_offline: bool = False
     yielded_to_lora_control: set = field(default_factory=set)
 
@@ -1612,10 +1499,18 @@ class RuntimeState:
         return "base"
 
     def register(self, wrapper: ScheduledStrength):
-        self.wrappers.append(wrapper)
+        # Weakly: a LoRA reload drops its patches (and their strengths), which
+        # must then stop being updated every step.
+        self.wrappers.append(weakref.ref(wrapper))
+
+    def live_wrappers(self) -> list[ScheduledStrength]:
+        alive = [ref() for ref in self.wrappers]
+        if None in alive:
+            self.wrappers = [ref for ref, wrapper in zip(self.wrappers, alive) if wrapper is not None]
+        return [wrapper for wrapper in alive if wrapper is not None]
 
     def set_factor(self, factor: float):
-        for wrapper in self.wrappers:
+        for wrapper in self.live_wrappers():
             wrapper.factor = factor
 
     @property
@@ -1883,11 +1778,16 @@ def _denoiser_callback(params):
 
     pass_name = state.current_pass_name()
     step, total_steps = current_sampling_position(params)
-    for wrapper in state.wrappers:
-        if wrapper.pass_name == pass_name:
-            wrapper.factor = _stage_curve_factor(wrapper.config, step, total_steps)
-        else:
+    # Hundreds of strengths share one or a few pass configs: one curve each
+    factors: dict[int, float] = {}
+    for wrapper in state.live_wrappers():
+        if wrapper.pass_name != pass_name:
             wrapper.factor = 0.0
+            continue
+        config_id = id(wrapper.config)
+        if config_id not in factors:
+            factors[config_id] = _stage_curve_factor(wrapper.config, step, total_steps)
+        wrapper.factor = factors[config_id]
 
 
 def _register_cfg_callback_once():

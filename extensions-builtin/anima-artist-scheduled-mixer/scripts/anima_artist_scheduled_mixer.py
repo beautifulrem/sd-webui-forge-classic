@@ -14,6 +14,7 @@ import torch
 
 from modules import script_callbacks, scripts, sd_models, shared, spectrum_force
 from modules.anima_feature_conflicts import register_exclusive_component
+from modules.anima_lora_support import stage_window
 from modules.anima_presets import register_preset_control
 from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, negpip_mask_for, register_negpip_prompts, split_conditioning
 from modules.forward_override import install_forward_override, restore_forward_override
@@ -504,10 +505,6 @@ def _rows_for_display(rows, language=None):
     return out
 
 
-def _rows_for_storage(rows, shift=3.0, optimization=OPT_BALANCE):
-    return _normalize_rows(rows, None, shift, optimization, display=False)
-
-
 def _rows_from_components(*values):
     rows = []
     per_row = 10
@@ -967,21 +964,8 @@ def _parse_blocks(text, num_blocks):
 
 def _auto_stage_values(stage, shift_value):
     stage = _option_key("stage", stage, PRESET_CUSTOM)
-    shift = _clamp(_to_float(shift_value, 3.0), 1.0, 24.0)
-    move = _clamp((shift - 3.0) / 21.0, -0.10, 1.0) * 0.12
-    if stage == PRESET_COMPOSITION:
-        start = 0.0
-        end = _clamp(0.32 + move, 0.22, 0.46)
-        peak = _clamp(0.08 + move * 0.25, start, end)
-    elif stage == PRESET_STYLE:
-        start = _clamp(0.62 + move, 0.48, 0.82)
-        end = 1.0
-        peak = _clamp(0.86 + move * 0.35, start, end)
-    else:
-        start = _clamp(0.20 + move * 0.65, 0.12, 0.36)
-        end = _clamp(0.74 + move * 0.45, 0.58, 0.88)
-        peak = _clamp((start + end) * 0.5, start, end)
-    return start, end, peak
+    kind = {PRESET_COMPOSITION: "composition", PRESET_STYLE: "style"}.get(stage, "character")
+    return stage_window(kind, _to_float(shift_value, 3.0))
 
 
 def _curve_factor(progress, start, end, peak, curve):
@@ -1762,6 +1746,21 @@ class ArtistRuntime:
     cond: torch.Tensor
     # NegPiP V-mask for this artist's tokens (None without negative weights).
     negpip_mask: torch.Tensor | None = None
+    # Device copies of cond / mask for the attention context's device and
+    # dtype (kept on the CPU otherwise): uploaded once, not per block
+    on_device: dict = field(default_factory=dict, repr=False)
+
+    def cond_like(self, context):
+        return self._like("cond", self.cond, context)
+
+    def mask_like(self, context):
+        return None if self.negpip_mask is None else self._like("mask", self.negpip_mask, context)
+
+    def _like(self, name, tensor, context):
+        key = (name, context.device, context.dtype)
+        if key not in self.on_device:
+            self.on_device[key] = _to_context(tensor, context)
+        return self.on_device[key]
 
 
 @dataclass
@@ -1784,6 +1783,9 @@ class MixerState:
     diff_probe: tuple[float, float] | None = None
     mask_probe: tuple[int, int] | None = None
     superseded: bool = False
+    # (sigmas, sampling_sigmas, progress) of the current model call: every
+    # block of a call sees the same tensors, so progress is read once
+    progress_cache: tuple | None = None
 
     def target_blocks(self):
         blocks = set()
@@ -1974,6 +1976,15 @@ def _current_progress(transformer_options, state):
     all_sigmas = transformer_options.get("sampling_sigmas")
     if cur is None or all_sigmas is None:
         return None
+    cached = state.progress_cache
+    if cached is not None and cached[0] is cur and cached[1] is all_sigmas:
+        return cached[2]
+    progress = _read_progress(cur, all_sigmas, state)
+    state.progress_cache = (cur, all_sigmas, progress)
+    return progress
+
+
+def _read_progress(cur, all_sigmas, state):
     try:
         cur_value = float(cur.flatten()[0].detach().float().cpu().item()) if torch.is_tensor(cur) else float(cur[0])
         sigmas = all_sigmas.detach().float().cpu() if torch.is_tensor(all_sigmas) else torch.tensor(list(all_sigmas), dtype=torch.float32)
@@ -2031,12 +2042,12 @@ def _concat_contexts(base_context, artist_context):
     return torch.cat([base_context, artist_context], dim=_context_token_dim(base_context))
 
 
-def _artist_mask_like(artist, artist_context):
-    """The artist's NegPiP V-mask aligned with ``artist_context``, or None."""
+def _artist_mask_like(mask, artist_context):
+    """An artist's NegPiP V-mask aligned with ``artist_context``, or None."""
 
-    if artist.negpip_mask is None:
+    if mask is None:
         return None
-    return _broadcast_batch(_to_context(artist.negpip_mask, artist_context), artist_context.shape[0])
+    return _broadcast_batch(_to_context(mask, artist_context), artist_context.shape[0])
 
 
 def _joined_mask(parts, dim):
@@ -2067,8 +2078,8 @@ def _artist_forward_batched(original_forward, x, context, rope_emb, transformer_
     contexts = []
     masks = []
     for artist, _ in artists:
-        artist_context = _to_context_like(artist.cond, context)
-        artist_mask = _artist_mask_like(artist, artist_context)
+        artist_context = _to_context_like(artist.cond_like(context), context)
+        artist_mask = _artist_mask_like(artist.mask_like(artist_context), artist_context)
         if base_fusion:
             contexts.append(_concat_contexts(context, artist_context))
             mask = _joined_mask([(context, base_mask), (artist_context, artist_mask)], token_dim)
@@ -2173,8 +2184,8 @@ def _dispatch_output_avg(original_forward, state, x, context, rope_emb, transfor
         base_fusion = state.fusion_mode in BASE_CONTEXT_FUSIONS
         base_mask = negpip_mask_for(context, transformer_options) if base_fusion else None
         for (artist, _), weight in zip(active, weights):
-            artist_context = _to_context_like(artist.cond, context)
-            artist_mask = _artist_mask_like(artist, artist_context)
+            artist_context = _to_context_like(artist.cond_like(context), context)
+            artist_mask = _artist_mask_like(artist.mask_like(artist_context), artist_context)
             if base_fusion:
                 kv = _concat_contexts(context, artist_context)
                 kv_mask = _joined_mask([(context, base_mask), (artist_context, artist_mask)], token_dim)
@@ -2182,21 +2193,8 @@ def _dispatch_output_avg(original_forward, state, x, context, rope_emb, transfor
                 kv, kv_mask = artist_context, artist_mask
             out_i = original_forward(x, context=kv, rope_emb=rope_emb, transformer_options=_with_negpip_mask(artist_options, kv_mask))
             artist_total = out_i * weight if artist_total is None else artist_total + out_i * weight
-    strength = _clamp(float(state.global_strength), 0.0, 1.0 if state.fusion_mode == FUSION_QUALITY_DELTA else 2.0) * total_influence
     base_out = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
-    if state.diff_probe is None:
-        with torch.no_grad():
-            delta_norm = (artist_total - base_out).detach().float().flatten(1).norm(dim=1).mean().item()
-            base_norm = base_out.detach().float().flatten(1).norm(dim=1).mean().clamp_min(1e-6).item()
-            state.diff_probe = (float(delta_norm), float(delta_norm / base_norm))
-    out = base_out.clone()
-    for idx, hit in enumerate(mask):
-        if hit:
-            if state.fusion_mode == FUSION_QUALITY_DELTA:
-                out[idx] = _norm_limited_delta(base_out[idx : idx + 1], artist_total[idx : idx + 1], strength)[0]
-            else:
-                out[idx] = base_out[idx] * (1.0 - strength) + artist_total[idx] * strength
-    return out
+    return _blend_rows(state, base_out, artist_total, mask, total_influence)
 
 
 def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_options, active):
@@ -2218,8 +2216,8 @@ def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_
     token_dim = _context_token_dim(context)
     parts = []
     for artist, weight in active:
-        artist_context = _to_context_like(artist.cond, context)
-        parts.append((artist_context * (weight / denom), _artist_mask_like(artist, artist_context)))
+        artist_context = _to_context_like(artist.cond_like(context), context)
+        parts.append((artist_context * (weight / denom), _artist_mask_like(artist.mask_like(artist_context), artist_context)))
     combined = torch.cat([part for part, _ in parts], dim=token_dim)
     combined_mask = _joined_mask(parts, token_dim)
     if state.fusion_mode in BASE_CONTEXT_FUSIONS:
@@ -2230,21 +2228,30 @@ def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_
     artist_options = _with_negpip_mask(transformer_options, kv_mask)
     artist_options["anima_nag_skip"] = "artist_context"
     artist_out = original_forward(x, context=kv, rope_emb=rope_emb, transformer_options=artist_options)
-    strength = _clamp(float(state.global_strength), 0.0, 1.0 if state.fusion_mode == FUSION_QUALITY_DELTA else 2.0) * total_influence
     base_out = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
+    return _blend_rows(state, base_out, artist_out, mask, total_influence)
+
+
+def _blend_rows(state, base_out, artist_out, mask, total_influence):
+    """Mix the artist output into ``base_out`` on the rows ``mask`` selects,
+    for the whole batch at once (both blends are computed per row)."""
+
+    strength = _clamp(float(state.global_strength), 0.0, 1.0 if state.fusion_mode == FUSION_QUALITY_DELTA else 2.0) * total_influence
     if state.diff_probe is None:
         with torch.no_grad():
             delta_norm = (artist_out - base_out).detach().float().flatten(1).norm(dim=1).mean().item()
             base_norm = base_out.detach().float().flatten(1).norm(dim=1).mean().clamp_min(1e-6).item()
             state.diff_probe = (float(delta_norm), float(delta_norm / base_norm))
-    out = base_out.clone()
-    for idx, hit in enumerate(mask):
-        if hit:
-            if state.fusion_mode == FUSION_QUALITY_DELTA:
-                out[idx] = _norm_limited_delta(base_out[idx : idx + 1], artist_out[idx : idx + 1], strength)[0]
-            else:
-                out[idx] = base_out[idx] * (1.0 - strength) + artist_out[idx] * strength
-    return out
+    if not any(mask):
+        return base_out
+    if state.fusion_mode == FUSION_QUALITY_DELTA:
+        blended = _norm_limited_delta(base_out, artist_out, strength)
+    else:
+        blended = base_out * (1.0 - strength) + artist_out * strength
+    if all(mask):
+        return blended
+    rows = torch.tensor(mask, device=base_out.device).view(-1, *([1] * (base_out.dim() - 1)))
+    return torch.where(rows, blended, base_out)
 
 
 def _current_prompts(p):

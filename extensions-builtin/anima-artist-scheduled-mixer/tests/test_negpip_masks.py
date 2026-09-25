@@ -1,6 +1,5 @@
 import ast
 from pathlib import Path
-from types import SimpleNamespace
 
 import torch
 
@@ -11,17 +10,16 @@ _HELPERS = {"_ensure_3d", "_to_context", "_broadcast_batch", "_artist_mask_like"
 _tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
 _nodes = [node for node in _tree.body if isinstance(node, ast.FunctionDef) and node.name in _HELPERS]
 _ns = {"torch": torch, "NEGPIP_CONTEXT_MASK_KEY": "negpip_context_mask"}
-exec(compile(ast.Module(_nodes, []), str(SCRIPT), "exec"), _ns)
+exec(compile(ast.Module(_nodes, []), str(SCRIPT), "exec"), _ns)  # noqa: S102 - our own source file
 
 
 def test_artist_mask_is_aligned_to_the_artist_context_batch():
-    artist = SimpleNamespace(negpip_mask=torch.tensor([[[1.0], [-1.0]]]))
     context = torch.zeros(4, 2, 3)
 
-    mask = _ns["_artist_mask_like"](artist, context)
+    mask = _ns["_artist_mask_like"](torch.tensor([[[1.0], [-1.0]]]), context)
 
     assert mask.shape == (4, 2, 1)
-    assert _ns["_artist_mask_like"](SimpleNamespace(negpip_mask=None), context) is None
+    assert _ns["_artist_mask_like"](None, context) is None
 
 
 def test_joined_mask_fills_parts_without_a_mask_with_ones():

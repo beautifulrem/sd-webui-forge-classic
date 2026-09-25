@@ -102,3 +102,21 @@ def test_reference_blocks_land_on_the_original_block():
     for model_blocks in (40, 52):
         for index in range(28):
             assert anima_source_block(anima_model_block(index, 28, model_blocks), 28, model_blocks) == index
+
+
+def test_lora_file_names_follow_the_network_index(monkeypatch, tmp_path):
+    import sys
+
+    from modules.anima_lora_support import lora_file_names
+
+    path = tmp_path / "Cute_Style.safetensors"
+    entry = SimpleNamespace(filename=str(path), alias="cute", get_alias=lambda: "CuteAlias")
+    networks = SimpleNamespace(available_networks={"Cute_Style": entry})
+    monkeypatch.setitem(sys.modules, "networks", networks)
+
+    names = lora_file_names(path)
+    assert {"cute_style.safetensors", "cute_style", "cute", "cutealias"} <= names
+    assert lora_file_names(path) is names  # cached
+
+    networks.available_networks = {}  # index refreshed: recomputed
+    assert "cute" not in lora_file_names(path)

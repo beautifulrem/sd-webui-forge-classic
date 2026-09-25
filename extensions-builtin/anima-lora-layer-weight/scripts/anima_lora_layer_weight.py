@@ -8,7 +8,20 @@ from pathlib import Path
 import gradio as gr
 
 from modules import script_callbacks, scripts, shared
-from modules.anima_lora_support import anima_lora_block_count, anima_source_block, merge_consistent_rules
+from modules.anima_lora_support import (
+    lora_file_names as _names_for_lora_file,
+    anima_lora_block_count,
+    anima_source_block,
+    merge_consistent_rules,
+    compact_text as _compact_text,
+    is_plain_number as _is_plain_number,
+    module_key as _module_key,
+    block_index_from_key as _block_index_from_key,
+    module_from_key as _module_from_key,
+    module_factor as _module_factor,
+    model_key as _model_key,
+    qwen_layer_index as _qwen_layer_index,
+)
 from modules.anima_presets import register_preset_control
 
 
@@ -130,11 +143,6 @@ def _register_ui_settings():
 
 script_callbacks.on_ui_settings(_register_ui_settings)
 
-ANIMA_BLOCK_RE = re.compile(r"(?:^|\.)(?:diffusion_model\.)?(?:net\.)?blocks\.(\d+)\.")
-QWEN_LAYER_RE = re.compile(r"(?:^|\.)(?:text_encoders\.)?qwen3_06b\.model\.layers\.(\d+)\.")
-GENERIC_QWEN_LAYER_RE = re.compile(r"(?:^|\.)(?:text_encoders\.)?qwen3_06b\.(?:model\.)?layers\.(\d+)\.")
-QWEN_ADAPTER_BLOCK_RE = re.compile(r"(?:^|\.)(?:text_encoders\.)?qwen3_06b\.llm_adapter\.blocks\.(\d+)\.")
-LEGACY_QWEN_ADAPTER_BLOCK_RE = re.compile(r"(?:^|\.)(?:diffusion_model\.)?llm_adapter\.blocks\.(\d+)\.")
 LORA_MARKERS = (".lora_a.weight", ".lora_b.weight", ".lora_down.weight", ".lora_up.weight")
 LOKR_MARKERS = (".lokr_",)
 INLINE_LORA_RE = re.compile(r"<lora:([^:>]+):([^>]+)>")
@@ -391,10 +399,6 @@ class ActiveRule:
         return factor
 
 
-def _compact_text(text) -> str:
-    return " ".join(str(text or "").replace("\r", "\n").split())
-
-
 def _parse_targets(text) -> set[str]:
     normalized = str(text or "").replace("，", ",").replace("；", ";")
     parts = re.split(r"[,;\n]+", normalized)
@@ -415,10 +419,6 @@ def _parse_float(value, fallback=1.0) -> float:
         return float(str(value).strip())
     except Exception:
         return fallback
-
-
-def _is_plain_number(text) -> bool:
-    return re.fullmatch(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)\s*", str(text or "")) is not None
 
 
 def _looks_like_layer_weights(text) -> bool:
@@ -487,26 +487,6 @@ def _parse_layer_weights(text, fallback_text) -> LayerWeights:
         values.update({i: v for i, v in enumerate(bare_values)})
 
     return LayerWeights(default=default, values=values, inline=_looks_like_layer_weights(text))
-
-
-def _module_key(name: str) -> str:
-    key = str(name or "").strip().lower().replace("-", "_").replace(" ", "_")
-    aliases = {
-        "self": "self_attn",
-        "selfattn": "self_attn",
-        "self_attention": "self_attn",
-        "cross": "cross_attn",
-        "crossattn": "cross_attn",
-        "cross_attention": "cross_attn",
-        "ada": "adaln",
-        "adaln_modulation": "adaln",
-        "modulation": "adaln",
-        "norms": "norm",
-        "layernorm": "norm",
-        "feedforward": "mlp",
-        "ffn": "mlp",
-    }
-    return aliases.get(key, key)
 
 
 def _parse_module_weights(text) -> dict[str, float]:
@@ -706,55 +686,6 @@ def _apply_preset_to_prompt_text(
     return PROMPT_LORA_RE.sub(replace, prompt_text)
 
 
-def _block_index_from_key(key: str) -> int | None:
-    key_text = str(key or "")
-    match = ANIMA_BLOCK_RE.search(key_text)
-    if match:
-        return int(match.group(1))
-
-    normalized = key_text.lower().replace(".", "_")
-    match = re.search(r"(?:^|_)blocks_(\d+)(?:_|$)", normalized)
-    if not match:
-        return None
-    return int(match.group(1))
-
-
-def _module_name_from_block_tail(module: str) -> str | None:
-    if module.startswith("adaln_modulation"):
-        return "adaln"
-    if module.startswith("norm"):
-        return "norm"
-    if module.startswith("self_attn"):
-        return "self_attn"
-    if module.startswith("cross_attn"):
-        return "cross_attn"
-    if module.startswith("mlp"):
-        return "mlp"
-    return None
-
-
-def _module_from_key(key: str) -> str | None:
-    key_text = str(key or "")
-    marker = re.search(r"blocks\.\d+\.([^.]+)", key_text)
-    if marker:
-        module = _module_name_from_block_tail(marker.group(1))
-        return module or _module_key(marker.group(1))
-
-    normalized = key_text.lower().replace(".", "_")
-    marker = re.search(r"(?:^|_)blocks_\d+_(.+)", normalized)
-    if not marker:
-        return None
-
-    return _module_name_from_block_tail(marker.group(1))
-
-
-def _module_factor(key: str, module_weights: dict[str, float]) -> float:
-    module = _module_from_key(key)
-    if not module:
-        return 1.0
-    return module_weights.get(module, 1.0)
-
-
 def _filter_layer_weights(weights: LayerWeights, trained_layers: set[int]) -> LayerWeights:
     if not trained_layers:
         return LayerWeights()
@@ -766,33 +697,6 @@ def _filter_module_weights(weights: dict[str, float], trained_modules: set[str])
     if not weights or not trained_modules:
         return {}
     return {module: value for module, value in weights.items() if module in trained_modules}
-
-
-def _model_key(key) -> str:
-    if isinstance(key, str):
-        return key
-    if isinstance(key, tuple) and key:
-        return str(key[0])
-    return str(key or "")
-
-
-def _names_for_lora_file(filename) -> set[str]:
-    path = Path(str(filename))
-    names = {str(path).lower(), path.name.lower(), path.stem.lower()}
-
-    networks_module = sys.modules.get("networks")
-    if networks_module is not None:
-        available = getattr(networks_module, "available_networks", {})
-        for name, entry in available.items():
-            try:
-                if os.path.abspath(str(entry.filename)) == os.path.abspath(str(filename)):
-                    names.add(str(name).lower())
-                    names.add(str(getattr(entry, "alias", "")).lower())
-                    names.add(str(entry.get_alias()).lower())
-            except Exception:
-                continue
-
-    return {name for name in names if name}
 
 
 def _safe_open_keys(filename: str) -> list[str]:
@@ -851,23 +755,6 @@ def _adapter_kind_for_file(filename) -> str | None:
     adapter_kind = "lokr" if has_lokr else "lora" if has_lora else None
     _KIND_CACHE[cache_key] = adapter_kind
     return adapter_kind
-
-
-def _qwen_layer_index(key: str) -> int | None:
-    key_text = str(key or "")
-    match = QWEN_LAYER_RE.search(key_text) or GENERIC_QWEN_LAYER_RE.search(key_text) or QWEN_ADAPTER_BLOCK_RE.search(key_text) or LEGACY_QWEN_ADAPTER_BLOCK_RE.search(key_text)
-    if match:
-        return int(match.group(1))
-
-    normalized = key_text.lower().replace(".", "_")
-    match = (
-        re.search(r"qwen3_06b_(?:model_)?layers_(\d+)", normalized)
-        or re.search(r"qwen3_06b_llm_adapter_blocks_(\d+)", normalized)
-        or re.search(r"(?:^|_)llm_adapter_blocks_(\d+)", normalized)
-    )
-    if not match:
-        return None
-    return int(match.group(1))
 
 
 def _lora_coverage(filename, adapter_kind: str = "lora") -> LoraCoverage:
@@ -1149,14 +1036,19 @@ def install_patch():
         # with the stage scheduler regardless of extension load order.
         blocks = getattr(getattr(getattr(self, "model", None), "diffusion_model", None), "blocks", None)
         model_blocks = len(blocks) if blocks is not None else None
-        loaded = set()
+        # One call per distinct strength, not per key: every call rebuilds the
+        # model's state_dict (and runs any wrapper below), and each key keeps
+        # its own patch list, so grouping changes nothing else.
+        groups: dict[float, dict] = {}
         for patch_key, patch_value in patches.items():
             model_key = patch_key if isinstance(patch_key, str) else patch_key[0]
-            key_strength = rule.factor_for_key(model_key, decision, model_blocks)
+            groups.setdefault(rule.factor_for_key(model_key, decision, model_blocks), {})[patch_key] = patch_value
+        loaded = set()
+        for key_strength, group in groups.items():
             loaded.update(
                 _ORIGINAL_ADD_PATCHES(
                     self,
-                    {patch_key: patch_value},
+                    group,
                     strength_patch=key_strength,
                     strength_model=strength_model,
                     filename=filename,
