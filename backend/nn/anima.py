@@ -358,15 +358,24 @@ class Block(nn.Module):
         adaln_lora_B_T_3D: Optional[torch.Tensor] = None,
         extra_per_block_pos_emb: Optional[torch.Tensor] = None,
         transformer_options: Optional[dict] = {},
+        silu_emb_B_T_D: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         residual_dtype = x_B_T_H_W_D.dtype
         compute_dtype = emb_B_T_D.dtype
         if extra_per_block_pos_emb is not None:
             x_B_T_H_W_D = x_B_T_H_W_D + extra_per_block_pos_emb
 
-        shift_self_attn_B_T_D, scale_self_attn_B_T_D, gate_self_attn_B_T_D = (self.adaln_modulation_self_attn(emb_B_T_D) + adaln_lora_B_T_3D).chunk(3, dim=-1)
-        shift_cross_attn_B_T_D, scale_cross_attn_B_T_D, gate_cross_attn_B_T_D = (self.adaln_modulation_cross_attn(emb_B_T_D) + adaln_lora_B_T_3D).chunk(3, dim=-1)
-        shift_mlp_B_T_D, scale_mlp_B_T_D, gate_mlp_B_T_D = (self.adaln_modulation_mlp(emb_B_T_D) + adaln_lora_B_T_3D).chunk(3, dim=-1)
+        # Every modulation MLP starts with SiLU(emb), and emb is the same for
+        # all blocks: the model passes it in once instead of 3 per block.
+        if silu_emb_B_T_D is None:
+            silu_emb_B_T_D = nn.functional.silu(emb_B_T_D)
+
+        def modulation(mlp: nn.Sequential) -> torch.Tensor:
+            return mlp[2](mlp[1](silu_emb_B_T_D))
+
+        shift_self_attn_B_T_D, scale_self_attn_B_T_D, gate_self_attn_B_T_D = (modulation(self.adaln_modulation_self_attn) + adaln_lora_B_T_3D).chunk(3, dim=-1)
+        shift_cross_attn_B_T_D, scale_cross_attn_B_T_D, gate_cross_attn_B_T_D = (modulation(self.adaln_modulation_cross_attn) + adaln_lora_B_T_3D).chunk(3, dim=-1)
+        shift_mlp_B_T_D, scale_mlp_B_T_D, gate_mlp_B_T_D = (modulation(self.adaln_modulation_mlp) + adaln_lora_B_T_3D).chunk(3, dim=-1)
 
         shift_self_attn_B_T_1_1_D = shift_self_attn_B_T_D[:, :, None, None, :]
         scale_self_attn_B_T_1_1_D = scale_self_attn_B_T_D[:, :, None, None, :]
@@ -543,6 +552,7 @@ class Anima(nn.Module):
             "adaln_lora_B_T_3D": adaln_lora_B_T_3D,
             "extra_per_block_pos_emb": extra_pos_emb_None,
             "transformer_options": transformer_options,
+            "silu_emb_B_T_D": nn.functional.silu(t_embedding_B_T_D),
         }
 
         # To make fp16 compute_dtype work, we keep the residual stream in fp32 but run attention and MLP modules in fp16.
