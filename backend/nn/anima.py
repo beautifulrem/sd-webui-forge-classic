@@ -58,9 +58,22 @@ class VideoRopePosition3DEmb(nn.Module):
         self.h_ntk_factor = h_extrapolation_ratio ** (dim_h / (dim_h - 2))
         self.w_ntk_factor = w_extrapolation_ratio ** (dim_w / (dim_w - 2))
         self.t_ntk_factor = t_extrapolation_ratio ** (dim_t / (dim_t - 2))
+        # The embedding depends only on the latent grid: every sampling step
+        # at a resolution reuses it instead of rebuilding it (~15 kernels).
+        self._cache: dict[tuple, torch.Tensor] = {}
 
     def forward(self, x_B_T_H_W_C: torch.Tensor, device: torch.device) -> torch.Tensor:
         B, T, H, W, _ = x_B_T_H_W_C.shape
+        key = (T, H, W, torch.device(device), torch.is_inference_mode_enabled())
+        cached = self._cache.get(key)
+        if cached is None:
+            cached = self._build(T, H, W, device)
+            if len(self._cache) >= 4:  # e.g. base + hires resolutions
+                self._cache.pop(next(iter(self._cache)))
+            self._cache[key] = cached
+        return cached
+
+    def _build(self, T: int, H: int, W: int, device: torch.device) -> torch.Tensor:
 
         h_theta = 10000.0 * self.h_ntk_factor
         w_theta = 10000.0 * self.w_ntk_factor
