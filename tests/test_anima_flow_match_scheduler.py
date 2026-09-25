@@ -1,0 +1,56 @@
+import sys
+from types import SimpleNamespace
+
+import pytest
+import torch
+
+import k_diffusion.sampling  # noqa: F401  (sd_schedulers reads k_diffusion.sampling at import)
+
+pytest.importorskip("diffusers")
+TOGGLES = ("use_dynamic_shifting", "invert_sigmas", "use_karras_sigmas", "use_exponential_sigmas", "use_beta_sigmas", "stochastic_sampling")
+
+
+@pytest.fixture
+def sd_schedulers(monkeypatch):
+    """The module imported against stand-in options (it reads them at import)."""
+    from modules import shared
+
+    monkeypatch.setattr(shared, "opts", SimpleNamespace(hide_schedulers=[], **dict.fromkeys(TOGGLES, False)))
+    monkeypatch.delitem(sys.modules, "modules.sd_schedulers", raising=False)
+    import modules.sd_schedulers
+
+    return modules.sd_schedulers
+
+
+def _inner_model(*, use_shift, shift=3.0):
+    predictor = SimpleNamespace(shift=shift)
+    unet = SimpleNamespace(model=SimpleNamespace(predictor=predictor))
+    return SimpleNamespace(inner_model=SimpleNamespace(use_shift=use_shift, forge_objects=SimpleNamespace(unet=unet)))
+
+
+def test_non_flow_models_fall_back_to_the_simple_schedule(sd_schedulers, monkeypatch):
+    calls = []
+    monkeypatch.setattr(sd_schedulers, "simple_scheduler", lambda *args: calls.append(args) or torch.ones(3))
+    model = _inner_model(use_shift=False)
+
+    result = sd_schedulers.anima_flow_match_scheduler(4, 0.03, 14.6, model, "cpu")
+
+    assert torch.equal(result, torch.ones(3))
+    assert calls == [(4, 0.03, 14.6, model, "cpu")]
+
+
+def test_anima_grid_ignores_the_global_schedule_toggles(sd_schedulers, monkeypatch):
+    model = _inner_model(use_shift=True)
+    plain = sd_schedulers.flow_match_euler_discrete_scheduler(8, 0.0, 1.0, model, "cpu")
+    monkeypatch.setattr(sd_schedulers.shared.opts, "use_karras_sigmas", True)
+
+    anima = sd_schedulers.anima_flow_match_scheduler(8, 0.0, 1.0, model, "cpu")
+
+    assert torch.equal(anima, plain)
+    assert not torch.equal(sd_schedulers.flow_match_euler_discrete_scheduler(8, 0.0, 1.0, model, "cpu"), plain)
+    # Diffusers' grid: t runs linearly from 1 to the shifted smallest training
+    # sigma, then shift 3 maps it to 3t / (1 + 2t); a final 0 is appended.
+    shift = lambda t: 3 * t / (1 + 2 * t)  # noqa: E731
+    t = torch.linspace(1.0, shift(1.0 / 1000), 8)
+    assert torch.allclose(anima[:-1], shift(t), atol=1e-5)
+    assert anima[-1] == 0
