@@ -35,9 +35,10 @@ def test_fp8_linear_flattens_any_leading_dims(recorded_linear, shape):
     assert len(recorded_linear) == 1 and len(recorded_linear[0]) == 2
 
 
-def test_fp8_linear_does_not_clamp_a_caller_nd_tensor(recorded_linear):
+@pytest.mark.parametrize("shape", [(2, 8), (1, 3, 8), (1, 2, 2, 2, 8)])
+def test_fp8_linear_does_not_clamp_the_caller_tensor(recorded_linear, shape):
     layer = _fp8_layer()
-    x = torch.full((1, 2, 2, 2, 8), 1000.0, dtype=torch.bfloat16)
+    x = torch.full(shape, 1000.0, dtype=torch.bfloat16)
 
     fp8_linear(layer, x)
 

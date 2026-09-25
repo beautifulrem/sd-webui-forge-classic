@@ -562,11 +562,9 @@ def fp8_linear(self: torch.nn.Linear, input: torch.Tensor):
     w, bias, signal = weights_manual_cast(self, input, dtype=dtype)
 
     with main_stream_worker(w, bias, signal):
-        if len(input_shape) > 3:
-            # reshape may return a view of the caller's tensor; do not clamp it in place
-            input = torch.clamp(input, min=-448, max=448)
-        else:
-            input = torch.clamp(input, min=-448, max=448, out=input)
+        # Out of place: the input (or its reshaped view) is the caller's tensor, e.g.
+        # a text context shared by every block's K/V projection
+        input = torch.clamp(input, min=-448, max=448)
         input_fp8 = input.to(dtype).contiguous()
         layout_params_input = TensorCoreFP8Layout.Params(scale=scale_input, orig_dtype=input_dtype, orig_shape=tuple(input_fp8.shape))
         quantized_input = QuantizedTensor(input_fp8, "TensorCoreFP8Layout", layout_params_input)

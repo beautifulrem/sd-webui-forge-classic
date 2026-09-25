@@ -35,6 +35,18 @@ forge_unet_storage_dtype_options: dict[str, tuple[torch.dtype, bool]] = {
     "float8-e4m3fn (fp16 LoRA)": (torch.float8_e4m3fn, True),
     "float8-e5m2": (torch.float8_e5m2, False),
     "float8-e5m2 (fp16 LoRA)": (torch.float8_e5m2, True),
+    "float8-e4m3fn (Anima scaled)": (torch.float8_e4m3fn, False),
+    "float8-e4m3fn (Anima scaled, fp16 LoRA)": (torch.float8_e4m3fn, True),
+    "int8 (Anima ConvRot)": (None, False),
+    "int8 (Anima ConvRot, fp16 LoRA)": (None, True),
+}
+# Options that quantize an Anima DiT while loading (backend/nn/anima.py); other
+# models load with the option's plain storage dtype
+anima_quant_options: dict[str, str] = {
+    "float8-e4m3fn (Anima scaled)": "scaled_fp8",
+    "float8-e4m3fn (Anima scaled, fp16 LoRA)": "scaled_fp8",
+    "int8 (Anima ConvRot)": "int8_convrot",
+    "int8 (Anima ConvRot, fp16 LoRA)": "int8_convrot",
 }
 
 
@@ -117,9 +129,8 @@ def refresh_model_loading_parameters(*, refresh: bool = True):
     unet_storage_dtype, lora_fp16 = forge_unet_storage_dtype_options.get(shared.opts.forge_unet_storage_dtype, (None, False))
 
     model_data.forge_loading_parameters = dict(checkpoint_info=checkpoint_info, additional_modules=shared.opts.forge_additional_modules, unet_storage_dtype=unet_storage_dtype)
-    if unet_storage_dtype is torch.float8_e4m3fn and getattr(shared.opts, "anima_scaled_fp8", False):
-        # part of the parameters, so toggling it reloads the model
-        model_data.forge_loading_parameters["anima_scaled_fp8"] = True
+    if anima_quant := anima_quant_options.get(shared.opts.forge_unet_storage_dtype):
+        model_data.forge_loading_parameters["anima_quant"] = anima_quant
 
     ckpt: str = checkpoint_info.filename
     modules: list[str] = [os.path.basename(x) for x in shared.opts.forge_additional_modules]
