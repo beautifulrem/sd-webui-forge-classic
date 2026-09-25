@@ -36,9 +36,10 @@ Forge Neo Remi 是 [Forge Neo](https://github.com/Haoming02/sd-webui-forge-class
 | 采样 | Beta57、Flow Euler、UniPC2、PC3、ER SDE、Dynamic Shift |
 | 引导 | NAG、Momentum Guidance、Skimmed CFG、SMC、FDG、DCW、CNS |
 | 空间控制 | Regional Conditioning、FreeFuse 多 LoRA 路由、Artist Scheduled Mixer |
-| LoRA 工作流 | 分层权重、阶段调度、28 到 40 层兼容、提示词缩放 |
+| LoRA 工作流 | 分层权重、阶段调度、2B LoRA 用于 2.9B/3.8B（28/40/52 层）、提示词缩放 |
 | 稳定性 | 功能冲突解析、Hires Guard、生成元数据、安全回退 |
 | 加速 | Spectrum 预测，以及适合重复固定工作负载的 Anima per-block `torch.compile` |
+| 低比特加载 | **Diffusion in Low Bits** 中的 `float8-e4m3fn (Anima scaled)`（按张量缩放的 FP8，显存与普通 FP8 相同、精度更高）和 `int8 (Anima ConvRot)`（INT8 矩阵乘；需要 CUDA 13 或 `--enable-triton-backend`，SM 8.0+） |
 
 组合实验性方法前，请先阅读 [Remi Anima 生成与参数指南](docs/remi-anima-generation-guide.zh-CN.md)。
 
@@ -46,7 +47,7 @@ Forge Neo Remi 是 [Forge Neo](https://github.com/Haoming02/sd-webui-forge-class
 
 Remi 保留 Forge Neo 对现代模型的支持重点，并对 Anima 提供更深入的集成。
 
-- Anima 和 Anima Edit，包括 28 层与 40 层/2.9B checkpoint
+- Anima 和 Anima Edit：2B（28 层）、2.9B（40 层）与 3.8B（52 层）checkpoint
 - SD 1.x 和高级 SDXL 变体
 - Krea 2 和 Krea 2 Identity Edit
 - FLUX Kontext 和 FLUX.2 Klein
@@ -153,6 +154,7 @@ Remi 加固了内置扩展添加到 WebUI 服务器上的接口。使用 `--shar
 
 - [Remi Anima 生成与参数指南](docs/remi-anima-generation-guide.zh-CN.md)
 - [Anima 生成优化技术研究](docs/research/anima-generation-optimizations.md)
+- [Remi 架构说明](docs/remi-architecture-notes.md)：功能接入点与有意保留的取舍
 - [Forge Neo Wiki](https://github.com/Haoming02/sd-webui-forge-classic/wiki)
 - [模型下载](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Download-Models)
 - [推理参考](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Inference-References)

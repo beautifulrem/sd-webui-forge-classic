@@ -36,9 +36,10 @@ Forge Neo Remi is a downstream distribution of [Forge Neo](https://github.com/Ha
 | Sampling | Beta57, Flow Euler, UniPC2, PC3, ER SDE, Dynamic Shift |
 | Guidance | NAG, Momentum Guidance, Skimmed CFG, SMC, FDG, DCW, CNS |
 | Spatial control | Regional Conditioning, FreeFuse multi-LoRA routing, Artist Scheduled Mixer |
-| LoRA workflow | Layer weights, stage scheduling, 28-to-40-block compatibility, prompt rescaling |
+| LoRA workflow | Layer weights, stage scheduling, 2B LoRAs on 2.9B/3.8B (28/40/52 blocks), prompt rescaling |
 | Reliability | Feature conflict resolver, Hires Guard, generation metadata, safe fallbacks |
 | Acceleration | Spectrum forecasting and Anima per-block `torch.compile` for suitable repeated workloads |
+| Low-bit loading | **Diffusion in Low Bits**: `float8-e4m3fn (Anima scaled)` (per-tensor scaled FP8, same VRAM as plain FP8, more precise) and `int8 (Anima ConvRot)` (INT8 GEMMs; CUDA 13 or `--enable-triton-backend`, SM 8.0+) |
 
 Read the [Remi Anima generation and parameter guide](docs/remi-anima-generation-guide.zh-CN.md) before combining experimental methods.
 
@@ -46,7 +47,7 @@ Read the [Remi Anima generation and parameter guide](docs/remi-anima-generation-
 
 Remi retains Forge Neo's modern-model focus and adds deeper Anima integration.
 
-- Anima and Anima Edit, including 28-block and 40-block/2.9B checkpoints
+- Anima and Anima Edit: 2B (28 blocks), 2.9B (40) and 3.8B (52) checkpoints
 - SD 1.x and advanced SDXL variants
 - Krea 2 and Krea 2 Identity Edit
 - FLUX Kontext and FLUX.2 Klein
@@ -153,6 +154,7 @@ Tasks saved before signing existed will not run and fail with a message saying s
 
 - [Remi Anima generation and parameter guide](docs/remi-anima-generation-guide.zh-CN.md)
 - [Anima generation optimization research](docs/research/anima-generation-optimizations.md)
+- [Remi architecture notes](docs/remi-architecture-notes.md): feature seams and deliberate trade-offs
 - [Forge Neo Wiki](https://github.com/Haoming02/sd-webui-forge-classic/wiki)
 - [Model downloads](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Download-Models)
 - [Inference references](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Inference-References)

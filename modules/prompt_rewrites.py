@@ -7,6 +7,10 @@ rewrite its own output on the next run. Scripts record their rewrites here
 and every participant restores in before_process(), which runs before the
 prompts are rebuilt; chained rewrites by several scripts restore to the
 value before the first one.
+
+Restoring every prompt field in process_images() instead would also undo
+changes made on purpose between runs (Loopback appending an interrogated
+prompt), so only recorded rewrites that nobody changed since are undone.
 """
 
 _KEY = "_script_prompt_rewrites"
