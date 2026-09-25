@@ -152,6 +152,8 @@ class dynamic_args(metaclass=_DynamicArgsMeta):
     """set in modules/sd_models/forge_model_reload"""
     forge_unet_storage_dtype: "torch.dtype" = None
     """set in modules/sd_models/forge_model_reload"""
+    anima_scaled_fp8: bool = False
+    """set in modules/sd_models/forge_model_reload"""
     online_lora: bool = False
     """patch LoRAs on-the-fly"""
     kontext: bool = False

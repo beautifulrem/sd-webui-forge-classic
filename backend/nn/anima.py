@@ -95,6 +95,41 @@ def keep_sensitive_weights_precise(model: nn.Module, dtype: torch.dtype) -> int:
     return kept
 
 
+_FP8_E4M3_MAX = float(torch.finfo(torch.float8_e4m3fn).max)
+
+
+def scale_fp8_state_dict(state_dict: dict[str, torch.Tensor], *, fp8_matmul: bool) -> int:
+    """Quantize the block Linear weights of a full-precision state dict to
+    per-tensor scaled ``float8_e4m3fn`` in the ``comfy_quant`` layout, in place.
+
+    A plain ``.to(float8)`` cast leaves most of FP8's range unused for small DiT
+    weights (many fall below e4m3's smallest normal); scaling each tensor by
+    ``absmax / 448`` keeps them at full relative precision for the same VRAM.
+    The precision-sensitive parts stay unquantized, as with plain FP8 storage.
+    ``fp8_matmul`` keeps FP8 GEMMs (``--fast-fp8``); otherwise weights are
+    dequantized for a regular matmul. Returns how many weights were quantized."""
+
+    import json
+
+    conf = {"format": "float8_e4m3fn"}
+    if not fp8_matmul:
+        conf["full_precision_matrix_mult"] = True
+    conf_tensor = torch.tensor(list(json.dumps(conf).encode("utf-8")), dtype=torch.uint8)
+
+    quantized = 0
+    for key in [k for k in state_dict if k.startswith("blocks.") and k.endswith(".weight")]:
+        weight = state_dict[key]
+        prefix = key[: -len("weight")]
+        if weight.ndim != 2 or not weight.is_floating_point() or weight.dtype in _FP8_DTYPES or key.startswith(_PRECISION_SENSITIVE_PREFIXES):
+            continue
+        scale = weight.abs().amax().float().clamp_min(1e-12) / _FP8_E4M3_MAX
+        state_dict[key] = (weight.float() / scale).clamp_(-_FP8_E4M3_MAX, _FP8_E4M3_MAX).to(torch.float8_e4m3fn)
+        state_dict[f"{prefix}weight_scale"] = scale
+        state_dict[f"{prefix}comfy_quant"] = conf_tensor
+        quantized += 1
+    return quantized
+
+
 # region DiT
 
 

@@ -117,6 +117,9 @@ def refresh_model_loading_parameters(*, refresh: bool = True):
     unet_storage_dtype, lora_fp16 = forge_unet_storage_dtype_options.get(shared.opts.forge_unet_storage_dtype, (None, False))
 
     model_data.forge_loading_parameters = dict(checkpoint_info=checkpoint_info, additional_modules=shared.opts.forge_additional_modules, unet_storage_dtype=unet_storage_dtype)
+    if unet_storage_dtype is torch.float8_e4m3fn and getattr(shared.opts, "anima_scaled_fp8", False):
+        # part of the parameters, so toggling it reloads the model
+        model_data.forge_loading_parameters["anima_scaled_fp8"] = True
 
     ckpt: str = checkpoint_info.filename
     modules: list[str] = [os.path.basename(x) for x in shared.opts.forge_additional_modules]

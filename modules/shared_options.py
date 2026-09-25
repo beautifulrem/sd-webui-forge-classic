@@ -13,6 +13,12 @@ from modules_forge import shared_options as forge_shared_options
 options_templates = {}
 hide_dirs = shared.hide_dirs
 
+
+def _refresh_model_loading_parameters():
+    from modules_forge import main_entry
+
+    main_entry.refresh_model_loading_parameters()
+
 restricted_opts = {
     "clean_temp_dir_at_start",
     "directories_filename_pattern",
@@ -253,6 +259,7 @@ options_templates.update(
             "divmisc": OptionDiv(),
             "qwen_vae_resize": OptionInfo(False, "[Qwen-Image-Edit] Resize input image to 1 megapixel for ref_latent"),
             "klein_do_reference": OptionInfo(True, "[Klein] Enable Reference").info("enable Edit ; disable img2img").info("pin to <b>Quicksettings</b> is recommended if changed often"),
+            "anima_scaled_fp8": OptionInfo(False, "[Anima] Scaled FP8 for float8-e4m3fn Low Bits", onchange=_refresh_model_loading_parameters).info("per-tensor scaled weights: more precise than a plain FP8 cast at the same VRAM ; reloads the model ; needs a bf16-capable GPU"),
             "anima_do_reference": OptionInfo(False, "[Anima] Enable Reference").info("enable Edit ; disable img2img").info("pin to <b>Quicksettings</b> is recommended if changed often").info("requires specfic Edit LoRA"),
             "krea2_do_reference": OptionInfo(False, "[Krea2] Enable Reference").info("enable Edit ; disable img2img").info("pin to <b>Quicksettings</b> is recommended if changed often").info("requires specfic Edit LoRA"),
             "reference_explanation": OptionHTML("<b>Note:</b> Remember to change the setting before txt2img to clear the references"),
