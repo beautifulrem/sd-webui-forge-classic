@@ -21,6 +21,12 @@ def _inputs():
 
 
 class SkimmedCFGTests(unittest.TestCase):
+    def test_cfg_one_leaves_the_conditional_prediction_alone(self):
+        # Forge skips the negative pass at CFG 1 and passes zeros instead.
+        x, cond, _ = _inputs()
+        new_cond, _ = apply_skim_to_predictions(x, cond, torch.zeros_like(cond), 1.0, 2.0)
+        self.assertTrue(torch.equal(new_cond, cond))
+
     def test_inputs_are_not_mutated(self):
         x, cond, uncond = _inputs()
         cond_before = cond.clone()

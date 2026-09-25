@@ -885,7 +885,14 @@ class AnimaGuidanceScript(scripts.Script):
             p.extra_generation_params["Anima CFG range end"] = float(guidance_range_end)
 
         if smc_enabled or fdg_enabled or skim_enable or guidance_range_enable:
-            unet.set_model_sampler_cfg_function(active_cfg_function, disable_cfg1_optimization=True)
+            # At CFG 1 Skimmed CFG and the CFG range both reduce to the
+            # conditional prediction, so only SMC / FDG (which still use the
+            # unconditional one there) keep Forge from skipping that pass. A
+            # wrapped hook from another extension set its own flag already.
+            unet.set_model_sampler_cfg_function(
+                active_cfg_function,
+                disable_cfg1_optimization=bool(smc_enabled or fdg_enabled),
+            )
         if guidance_range_enable:
             # Outside the window only the conditional prediction is used, so
             # the unconditional forward pass is skipped on those steps.

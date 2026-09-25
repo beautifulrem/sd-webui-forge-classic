@@ -82,6 +82,14 @@ class GuidanceRangeTests(unittest.TestCase):
         self.assertTrue(torch.equal(hook({**base, "sigma": torch.tensor([0.9])}), x - cond))
 
 
+    def test_cfg_one_does_not_need_the_unconditional_prediction(self):
+        # Forge skips the negative pass at CFG 1 and passes zeros instead.
+        cfg = make_guidance_range_cfg_function(None, sigma_start=0.2, sigma_end=0.8)
+        x, cond = torch.randn(1, 4, 8, 8), torch.randn(1, 4, 8, 8)
+        args = {"input": x, "cond_denoised": cond, "uncond_denoised": torch.zeros_like(cond), "cond_scale": 1.0}
+        for sigma in (0.5, 0.9):
+            self.assertTrue(torch.allclose(cfg({**args, "sigma": torch.tensor([sigma])}), x - cond))
+
 class GuidanceRangeUncondSkipTests(unittest.TestCase):
     def setUp(self):
         self.cfg = make_guidance_range_cfg_function(None, sigma_start=0.2, sigma_end=0.8)
