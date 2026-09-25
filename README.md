@@ -23,7 +23,7 @@ Forge Neo Remi is a downstream distribution of [Forge Neo](https://github.com/Ha
 ## Why Remi?
 
 - **Anima-first inference:** native samplers, guidance methods, spatial conditioning, LoRA controls, Hires safeguards, and acceleration paths.
-- **28/40-block support:** detects original and 2.9B Anima architectures; structurally complete legacy 28-block LoRAs can be remapped when a 40-block model is active.
+- **28/40/52-block support:** detects original, 2.9B and 3.8B Anima architectures; 28-block LoRAs are remapped onto the expanded models, and Layer Weight, stage-scheduler block weights and FreeFuse's collect block keep following the 28-block layout there.
 - **Conflict-aware UI and runtime:** mutually exclusive features are locked or resolved before they can form undefined sampling stacks.
 - **One-click safe baseline:** **Anima Remi Presets** provides a conservative starting profile without replacing prompts, LoRA names, or model paths.
 - **Batteries included:** frequently used Neo-compatible extensions are shipped as built-ins.
@@ -107,6 +107,8 @@ The first launch installs the required Python packages. Place checkpoints and co
 5. Add one advanced feature at a time and compare with the same seed.
 
 The safe preset starts from `ER SDE`, `36` steps, `CFG 4.5`, and the model's standard shift behavior. It configures inactive modules reproducibly but does not silently enable experimental stacks.
+
+For Anima-Turbo checkpoints pick **Official Turbo** (`Euler`, `10` steps, `CFG 1`), or **Turbo + NAG** to keep the negative prompt at CFG 1 through Normalized Attention Guidance, which needs no unconditional model pass. A warning is logged when a Turbo checkpoint runs with Base settings or the reverse.
 
 ## Built-in Extensions
 

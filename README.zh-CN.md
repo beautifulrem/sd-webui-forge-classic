@@ -23,7 +23,7 @@ Forge Neo Remi 是 [Forge Neo](https://github.com/Haoming02/sd-webui-forge-class
 ## 为什么选择 Remi？
 
 - **Anima 优先推理：** 内置采样器、引导方法、空间控制、LoRA 管理、高分辨率保护和加速路径。
-- **28/40 层架构兼容：** 自动识别原始 Anima 和 2.9B 架构；当 40 层模型激活时，可对结构完整的旧 28 层 LoRA 进行重映射。
+- **28/40/52 层架构兼容：** 自动识别原始 Anima、2.9B 和 3.8B 架构；28 层 LoRA 会重映射到扩展模型上，分层权重、阶段调度器的 block 权重和 FreeFuse 的采集层在扩展模型上仍按 28 层布局解释。
 - **GUI 与运行时冲突管理：** 互斥功能会在组成未定义采样链之前被锁定或自动解决。
 - **一键安全基线：** **Anima Remi Presets** 提供保守的推荐起点，不会覆盖提示词、LoRA 名称或模型路径。
 - **常用功能内置：** 常用的 Neo 适配扩展随 Remi 一起版本化。
@@ -107,6 +107,8 @@ uv venv venv --python 3.13 --seed
 5. 每次只增加一个高级功能，并用相同种子对比。
 
 安全预设以 `ER SDE`、`36` 步、`CFG 4.5` 和模型标准 shift 行为为起点。它会为尚未启用的模块写入可复现默认值，但不会暗中启用实验性功能链。
+
+Anima-Turbo checkpoint 请选择 **Official Turbo**（`Euler`、`10` 步、`CFG 1`），或选择 **Turbo + NAG**，通过 Normalized Attention Guidance 在 CFG 1 下保留负面提示词，且不需要额外的无条件前向。Turbo checkpoint 使用 Base 参数（或反过来）时会在日志中给出提醒。
 
 ## 内置扩展
 
