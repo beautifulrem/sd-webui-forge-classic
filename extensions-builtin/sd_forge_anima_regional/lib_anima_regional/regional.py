@@ -4,35 +4,16 @@ from __future__ import annotations
 
 import math
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
 
 from modules import spectrum_force
-from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY
+from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
 _PATCH_LOCK = threading.RLock()
-
-
-def parse_blocks(text: str, total: int) -> set[int]:
-    result = set()
-    for part in str(text).split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if "-" in part:
-            left, right = part.split("-", 1)
-            start, end = int(left), int(right)
-            result.update(range(max(0, start), min(total - 1, end) + 1))
-        else:
-            value = int(part)
-            if 0 <= value < total:
-                result.add(value)
-    if not result:
-        raise ValueError("Anima Regional Conditioning block selection is empty")
-    return result
 
 
 def rectangle_token_mask(*, latent_t, latent_h, latent_w, patch_t, patch_h, x, y, width, height, feather, device, dtype):
@@ -55,13 +36,10 @@ def rectangle_token_mask(*, latent_t, latent_h, latent_w, patch_t, patch_h, x, y
 
 
 def conditioning_rows(cond_or_uncond, total_batch: int, device, dtype):
-    markers = [int(item) for item in cond_or_uncond]
-    if not markers or total_batch % len(markers) != 0:
-        return torch.ones((total_batch, 1, 1), device=device, dtype=dtype)
-    chunk = total_batch // len(markers)
-    values = []
-    for marker in markers:
-        values.extend([1.0 if marker == 0 else 0.0] * chunk)
+    """(batch, 1, 1) gate: 1 on positive-prompt rows (all rows when the
+    ``cond_or_uncond`` markers do not describe the batch)."""
+    rows = branch_rows(cond_or_uncond, total_batch)
+    values = [1.0] * total_batch if rows is None else [1.0 if row in rows else 0.0 for row in range(total_batch)]
     return torch.tensor(values, device=device, dtype=dtype).reshape(total_batch, 1, 1)
 
 
@@ -99,6 +77,19 @@ class RegionalState:
     start_sigma: float
     end_sigma: float
     current_masks: list[torch.Tensor] | None = None
+    # Per model call: whether each region's mask covers any token, and device
+    # copies of row gates / region contexts shared by all blocks of the call
+    region_nonempty: list[bool] = field(default_factory=list)
+    call_cache: dict = field(default_factory=dict)
+
+    def cached(self, key, build):
+        if key not in self.call_cache:
+            self.call_cache[key] = build()
+        return self.call_cache[key]
+
+    def end_call(self) -> None:
+        self.current_masks = None
+        self.call_cache.clear()
 
     def active(self, sigma: float) -> bool:
         return spectrum_force.in_sigma_window(sigma, self.start_sigma, self.end_sigma)
@@ -107,7 +98,8 @@ class RegionalState:
         latent_t = int(input_x.shape[-3])
         latent_h = int(input_x.shape[-2])
         latent_w = int(input_x.shape[-1])
-        self.current_masks = [
+        # Built on the CPU so the emptiness check below needs no device sync
+        masks = [
             rectangle_token_mask(
                 latent_t=latent_t,
                 latent_h=latent_h,
@@ -119,11 +111,14 @@ class RegionalState:
                 width=region.width,
                 height=region.height,
                 feather=self.feather,
-                device=input_x.device,
-                dtype=input_x.dtype,
+                device="cpu",
+                dtype=torch.float32,
             )
             for region in self.regions
         ]
+        self.region_nonempty = [bool((mask > 0).any()) and float(region.strength) > 0 for mask, region in zip(masks, self.regions)]
+        self.current_masks = [mask.to(device=input_x.device, dtype=input_x.dtype) for mask in masks]
+        self.call_cache.clear()
 
 
 def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_index: int):
@@ -131,32 +126,33 @@ def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_
         if context is None or state.current_masks is None or block_index not in state.blocks:
             return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
         base = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
-        row_mask = conditioning_rows(
-            transformer_options.get("cond_or_uncond", []),
-            base.shape[0],
-            base.device,
-            base.dtype,
-        )
+        batch = base.shape[0]
+        markers = tuple(transformer_options.get("cond_or_uncond", []))
+        if branch_rows(markers, batch) == []:
+            return base  # no positive-prompt row: every alpha would be zero
+        row_mask = state.cached(("rows", markers, batch, base.device, base.dtype), lambda: conditioning_rows(markers, batch, base.device, base.dtype))
         numerator = torch.zeros_like(base)
         denominator = torch.zeros((base.shape[0], base.shape[1], 1), device=base.device, dtype=base.dtype)
-        for region, spatial_mask in zip(state.regions, state.current_masks):
+        for index, (region, spatial_mask) in enumerate(zip(state.regions, state.current_masks)):
+            if not state.region_nonempty[index]:
+                continue
             if spatial_mask.shape[1] != base.shape[1]:
                 if base.shape[1] % spatial_mask.shape[1] != 0:
                     raise RuntimeError(
                         f"Regional token mask {spatial_mask.shape[1]} does not match Anima sequence {base.shape[1]}"
                     )
                 spatial_mask = spatial_mask.repeat(1, base.shape[1] // spatial_mask.shape[1], 1)
-            alpha = spatial_mask.to(base) * max(0.0, float(region.strength)) * row_mask
-            if not torch.any(alpha > 0):
-                continue
-            regional_context = fit_context(region.conditioning, base.shape[0], context)
+            alpha = spatial_mask.to(base) * float(region.strength) * row_mask
+            regional_context = state.cached(("context", index, batch, context.device, context.dtype), lambda: fit_context(region.conditioning, batch, context))
             regional_options = dict(transformer_options)
             # NAG's negative branch is meaningful for the base positive/negative
             # pair, not for synthetic regional contexts repeated across rows.
             regional_options["anima_nag_skip"] = "regional_context"
             # The base prompt's NegPiP mask describes other tokens.
             regional_options[NEGPIP_CONTEXT_MASK_KEY] = (
-                None if region.negpip_mask is None else fit_context(region.negpip_mask, base.shape[0], context)
+                None
+                if region.negpip_mask is None
+                else state.cached(("negpip", index, batch, context.device, context.dtype), lambda: fit_context(region.negpip_mask, batch, context))
             )
             regional = original_forward(x, context=regional_context, rope_emb=rope_emb, transformer_options=regional_options)
             numerator = numerator + regional * alpha
@@ -189,7 +185,7 @@ def apply_regional_patch(model, state: RegionalState):
             finally:
                 for module, forward, restore_token in reversed(originals):
                     restore_forward_override(module, forward, restore_token)
-                state.current_masks = None
+                state.end_call()
 
     # Outside its window the wrapper is a pass-through, and the request below
     # forces actual forwards inside it, so Spectrum may cache the other steps.

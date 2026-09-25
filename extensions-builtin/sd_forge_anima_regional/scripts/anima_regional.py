@@ -8,11 +8,11 @@ import gradio as gr
 import torch
 
 from backend.logging import setup_logger
-from lib_anima_regional.regional import Region, RegionalState, apply_regional_patch, parse_blocks
+from lib_anima_regional.regional import Region, RegionalState, apply_regional_patch
 from modules import prompt_parser, scripts
 from modules.anima_feature_conflicts import register_exclusive_component
 from modules.anima_presets import register_preset_control
-from modules.anima_support import is_anima_engine, register_negpip_prompts, split_conditioning
+from modules.anima_support import is_anima_engine, parse_block_list, register_negpip_prompts, split_conditioning
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -162,7 +162,7 @@ class AnimaRegionalScript(scripts.Script):
             return
         unet = p.sd_model.forge_objects.unet
         total_blocks = len(unet.model.diffusion_model.blocks)
-        selected_blocks = parse_blocks(str(blocks), total_blocks)
+        selected_blocks = parse_block_list(str(blocks), total_blocks, feature="Anima Regional Conditioning")
         regions = []
         for active, text, x, y, width, height, strength in _region_rows(region_values):
             if not _region_is_used(active, text, width, height, strength):

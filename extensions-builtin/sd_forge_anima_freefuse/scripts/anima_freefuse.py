@@ -24,31 +24,13 @@ from modules.anima_feature_conflicts import (
     register_exclusive_component,
     resolve_freefuse_refiner_conflicts,
 )
-from modules.anima_support import effective_prompt_batch, is_anima_engine, register_negpip_prompts
+from modules.anima_support import effective_prompt_batch, is_anima_engine, parse_block_list, register_negpip_prompts
 from modules.anima_presets import register_preset_control
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
 logger = logging.getLogger("AnimaFreeFuse")
 setup_logger(logger)
-
-
-def _parse_blocks(text: str, total: int) -> set[int]:
-    result = set()
-    for item in str(text).split(","):
-        item = item.strip()
-        if not item:
-            continue
-        if "-" in item:
-            left, right = item.split("-", 1)
-            result.update(range(max(0, int(left)), min(total - 1, int(right)) + 1))
-        else:
-            index = int(item)
-            if 0 <= index < total:
-                result.add(index)
-    if not result:
-        raise ValueError("Anima FreeFuse attention-bias block selection is empty")
-    return result
 
 
 class AnimaFreeFuseScript(scripts.Script):
@@ -345,9 +327,7 @@ class AnimaFreeFuseScript(scripts.Script):
             sd_model.current_lora_hash = f"anima-freefuse:{uuid.uuid4().hex}"
 
     def process_before_every_sampling(self, p, enable, *values, **kwargs):
-        if not enable:
-            return
-        if not getattr(p, "_anima_freefuse_enabled", False):
+        if not enable or not getattr(p, "_anima_freefuse_enabled", False):
             return
         try:
             self._configure_sampling(p, values)
@@ -367,10 +347,6 @@ class AnimaFreeFuseScript(scripts.Script):
         if artist_state and not str(artist_state).startswith("disabled:"):
             raise ValueError(
                 "Anima FreeFuse and Anima Artist Mixer cannot run in the same pass"
-            )
-        if getattr(p, "refiner_checkpoint", None) not in (None, "", "None", "none"):
-            raise ValueError(
-                "Anima FreeFuse does not support switching checkpoints with Refiner during its two-pass sampler"
             )
 
         adapter_values = values[:9]
@@ -456,7 +432,7 @@ class AnimaFreeFuseScript(scripts.Script):
             routing_end=float(routing_end),
             bias_scale=float(bias_scale),
             positive_bias=float(positive_bias),
-            bias_blocks=_parse_blocks(str(bias_blocks), total_blocks),
+            bias_blocks=parse_block_list(str(bias_blocks), total_blocks, feature="Anima FreeFuse attention-bias"),
         )
         p.sd_model.forge_objects.unet = apply_freefuse_patch(unet, state)
         p.extra_generation_params["Anima FreeFuse"] = (
@@ -507,6 +483,8 @@ class AnimaFreeFuseScript(scripts.Script):
             )
         p._anima_freefuse_enabled = False
 
+    # postprocess restores the online-LoRA mode before later scripts' postprocess
+    # (which may start nested generations); cleanup covers runs that raise.
     def postprocess(self, p, processed, *args, **kwargs):
         self._cleanup_runtime(p)
 

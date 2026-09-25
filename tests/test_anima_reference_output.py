@@ -73,3 +73,21 @@ def test_one_reference_latent_serves_a_cfg_batch_of_several_images():
         dynamic_args.ref_latents[:] = saved
     assert batched.shape == x.shape
     assert torch.allclose(batched[1:2], single, atol=1e-5)
+
+
+def test_value_context_projects_only_v_from_the_other_context():
+    model, generator = _model()
+    attention = model.blocks[0].cross_attn
+    x = torch.randn(2, 10, 256, generator=generator)
+    context = torch.randn(2, 7, 64, generator=generator)
+    mask = torch.where(torch.rand(2, 7, 1, generator=generator) < 0.3, -1.0, 1.0)
+    heads = (attention.n_heads, attention.head_dim)
+
+    with torch.inference_mode():
+        q, k, v = attention.compute_qkv(x, context, value_context=context * mask)
+        # The hand-written NegPiP / FreeFuse projection this replaces
+        expected_q = attention.q_norm(attention.q_proj(x).unflatten(-1, heads))
+        expected_k = attention.k_norm(attention.k_proj(context).unflatten(-1, heads))
+        expected_v = attention.v_norm(attention.v_proj(context * mask).unflatten(-1, heads))
+
+    assert torch.equal(q, expected_q) and torch.equal(k, expected_k) and torch.equal(v, expected_v)

@@ -16,7 +16,7 @@ from backend.operations import main_stream_worker, weights_manual_cast
 from backend.patcher.base import LowVramPatch, OnlineLoRAPatch
 from backend.patcher.lora import merge_lora_to_weight
 from modules import spectrum_force
-from modules.anima_support import negpip_mask_for
+from modules.anima_support import branch_rows, negpip_mask_for
 from modules.forward_override import install_forward_override, restore_forward_override
 from .masks import fit_mask_batch, generate_masks
 
@@ -116,15 +116,7 @@ def _selector_matches(selector: str, filename: str | None) -> bool:
 
 
 def _conditioning_indices(markers, batch: int, device) -> torch.Tensor:
-    markers = [int(value) for value in markers or []]
-    if not markers or batch % len(markers):
-        return torch.empty(0, device=device, dtype=torch.long)
-    chunk = batch // len(markers)
-    indices = []
-    for group, marker in enumerate(markers):
-        if marker == 0:
-            indices.extend(range(group * chunk, (group + 1) * chunk))
-    return torch.tensor(indices, device=device, dtype=torch.long)
+    return torch.tensor(branch_rows(markers, batch) or [], device=device, dtype=torch.long)
 
 
 @dataclass
@@ -153,6 +145,11 @@ class AnimaFreeFuseState:
     background_samples: list[torch.Tensor] = field(default_factory=list)
     masks: dict[str, torch.Tensor] = field(default_factory=dict)
     matched_files: dict[str, set[str]] = field(default_factory=dict)
+    # Per-generation caches: patch -> adapter (patch objects are kept alive in
+    # the entry, so an id is never reused), and fitted masks / attention biases
+    # of the current mask set, keyed by shape, dtype and device.
+    _adapter_by_patch: dict[int, tuple] = field(default_factory=dict, repr=False)
+    _fitted: dict[tuple, torch.Tensor | None] = field(default_factory=dict, repr=False)
 
     def configure_steps(self, total_steps: int) -> None:
         self.total_steps = max(1, int(total_steps))
@@ -164,6 +161,7 @@ class AnimaFreeFuseState:
         self.similarity_samples = {adapter.name: [] for adapter in self.adapters}
         self.background_samples = []
         self.masks = {}
+        self._fitted.clear()
 
     def finish_collection(self) -> None:
         missing = [
@@ -197,6 +195,7 @@ class AnimaFreeFuseState:
             )
         self.phase = "generate"
         self.current_step = 0
+        self._fitted.clear()
 
     def complete(self) -> None:
         self.phase = "complete"
@@ -204,6 +203,7 @@ class AnimaFreeFuseState:
     def abort(self) -> None:
         self.phase = "aborted"
         self.masks = {}
+        self._fitted.clear()
 
     def routing_active(self) -> bool:
         if self.phase != "generate" or not self.masks:
@@ -212,17 +212,17 @@ class AnimaFreeFuseState:
         return progress <= min(max(float(self.routing_end), 0.0), 1.0) + 1e-8
 
     def adapter_for_patch(self, patch) -> str | None:
-        filename = _patch_filename(patch[1]) if len(patch) > 1 else None
-        for adapter in self.adapters:
-            if _selector_matches(adapter.selector, filename):
-                if filename:
-                    self.matched_files.setdefault(adapter.name, set()).add(filename)
-                return adapter.name
-        return None
+        cached = self._adapter_by_patch.get(id(patch))
+        if cached is None or cached[0] is not patch:
+            filename = _patch_filename(patch[1]) if len(patch) > 1 else None
+            name = next((adapter.name for adapter in self.adapters if _selector_matches(adapter.selector, filename)), None)
+            cached = self._adapter_by_patch[id(patch)] = (patch, name)
+        return cached[1]
 
     def validate_patches(self, patcher) -> None:
         self.matched_files = {adapter.name: set() for adapter in self.adapters}
-        offline = []
+        self._adapter_by_patch.clear()
+        offline = False
         ambiguous = []
         # Offline patches live in ``patcher.patches``; online LoRAs are
         # ``OnlineLoRAPatch`` weight wrappers holding a single patch each.
@@ -249,8 +249,7 @@ class AnimaFreeFuseState:
             elif len(matches) == 1:
                 filename = _patch_filename(patch[1])
                 self.matched_files[matches[0]].add(filename or "unknown")
-                if not online:
-                    offline.append(matches[0])
+                offline = offline or not online
                 if not math.isclose(float(patch[2]), 1.0):
                     raise ValueError(
                         "Anima FreeFuse supports standard additive LoRA patches with strength_model = 1"
@@ -329,46 +328,21 @@ class AnimaFreeFuseState:
         concept_scores = {name: scores[name] for name in positions}
         count = len(concept_scores)
         hidden = hidden.float()
-        for name, own in concept_scores.items():
-            competitive = own * count - sum(
-                other
-                for other_name, other in concept_scores.items()
-                if other_name != name
-            )
-            selected = max(
-                1, int(spatial_tokens * min(max(self.top_k_ratio, 0.01), 0.5))
-            )
-            indices = competitive.topk(selected, dim=-1).indices
-            gathered = torch.gather(
-                hidden,
-                1,
-                indices.unsqueeze(-1).expand(-1, -1, hidden.shape[-1]),
-            )
-            core = gathered.mean(dim=1, keepdim=True)
-            similarity = torch.bmm(core, hidden.transpose(1, 2)).squeeze(1)
-            similarity = (similarity / max(float(self.temperature), 1e-3)).softmax(
-                dim=-1
-            )
-            self.similarity_samples[name].append(similarity.detach())
+        selected = max(1, int(spatial_tokens * min(max(self.top_k_ratio, 0.01), 0.5)))
+        temperature = max(float(self.temperature), 1e-3)
 
-        bg_indices = (
-            scores["__background__"]
-            .topk(
-                max(1, int(spatial_tokens * min(max(self.top_k_ratio, 0.01), 0.5))),
-                dim=-1,
-            )
-            .indices
-        )
-        bg_core = torch.gather(
-            hidden,
-            1,
-            bg_indices.unsqueeze(-1).expand(-1, -1, hidden.shape[-1]),
-        ).mean(dim=1, keepdim=True)
-        bg_similarity = torch.bmm(bg_core, hidden.transpose(1, 2)).squeeze(1)
-        bg_similarity = (bg_similarity / max(float(self.temperature), 1e-3)).softmax(
-            dim=-1
-        )
-        self.background_samples.append(bg_similarity.detach())
+        def similarity_to_top_tokens(score: torch.Tensor) -> torch.Tensor:
+            """Softmax similarity of every image token to the mean hidden
+            state of the ``selected`` best-scoring tokens."""
+            indices = score.topk(selected, dim=-1).indices
+            core = torch.gather(hidden, 1, indices.unsqueeze(-1).expand(-1, -1, hidden.shape[-1])).mean(dim=1, keepdim=True)
+            similarity = torch.bmm(core, hidden.transpose(1, 2)).squeeze(1)
+            return (similarity / temperature).softmax(dim=-1).detach()
+
+        for name, own in concept_scores.items():
+            competitive = own * count - sum(other for other_name, other in concept_scores.items() if other_name != name)
+            self.similarity_samples[name].append(similarity_to_top_tokens(competitive))
+        self.background_samples.append(similarity_to_top_tokens(scores["__background__"]))
 
     def mask_for_output(
         self,
@@ -379,6 +353,12 @@ class AnimaFreeFuseState:
     ) -> torch.Tensor | None:
         if not spatial_capable:
             return None
+        key = ("mask", name, tuple(output.shape[:-1]), self.grid_height, self.grid_width, output.dtype, output.device)
+        if key not in self._fitted:
+            self._fitted[key] = self._fit_mask(name, output)
+        return self._fitted[key]
+
+    def _fit_mask(self, name: str, output: torch.Tensor) -> torch.Tensor | None:
         mask = self.masks.get(name)
         if mask is None:
             return None
@@ -406,13 +386,19 @@ class AnimaFreeFuseState:
         spatial = self.grid_height * self.grid_width
         if q.shape[1] % spatial:
             return None
+        markers = tuple(transformer_options.get("cond_or_uncond", []))
+        key = ("bias", markers, tuple(q.shape[:2]), text_length, self.grid_height, self.grid_width, q.dtype, q.device)
+        if key not in self._fitted:
+            self._fitted[key] = self._build_attention_bias(q, text_length, markers)
+        return self._fitted[key]
+
+    def _build_attention_bias(self, q: torch.Tensor, text_length: int, markers) -> torch.Tensor:
+        spatial = self.grid_height * self.grid_width
         repeats = q.shape[1] // spatial
         bias = torch.zeros(
             (q.shape[0], 1, q.shape[1], text_length), device=q.device, dtype=q.dtype
         )
-        cond = _conditioning_indices(
-            transformer_options.get("cond_or_uncond", []), q.shape[0], q.device
-        )
+        cond = _conditioning_indices(markers, q.shape[0], q.device)
         row_gate = torch.zeros((q.shape[0], 1, 1, 1), device=q.device, dtype=q.dtype)
         row_gate[cond] = 1.0
         for adapter in self.adapters:
@@ -425,12 +411,10 @@ class AnimaFreeFuseState:
                 .reshape(q.shape[0], 1, spatial, 1)
                 .repeat(1, 1, repeats, 1)
             )
+            term = (-float(self.bias_scale) * (1.0 - mask) + float(self.positive_bias) * mask) * row_gate
             for position in self.token_positions[adapter.name]:
                 if 0 <= position < text_length:
-                    bias[..., position : position + 1] += (
-                        -float(self.bias_scale) * (1.0 - mask)
-                        + float(self.positive_bias) * mask
-                    ) * row_gate
+                    bias[..., position : position + 1] += term
         return bias
 
 
@@ -446,9 +430,7 @@ def apply_freefuse_rejection(model, error: Exception):
     """Ensure a caught Script callback error still aborts the selected sampler."""
 
     patched = model.clone()
-    options = dict(patched.model_options.get("transformer_options", {}))
-    options["anima_freefuse_state"] = RejectedFreeFuseState(str(error))
-    patched.model_options["transformer_options"] = options
+    patched.set_transformer_option("anima_freefuse_state", RejectedFreeFuseState(str(error)))
     return patched
 
 
@@ -466,15 +448,12 @@ def _make_cross_attention_forward(
         # This override replaces the class forward NegPiP hooks, so apply its
         # V-only negation here: K keeps the sign-restored tokens.
         negpip_mask = negpip_mask_for(context, transformer_options)
-        if negpip_mask is None:
-            q, k, v = self.compute_qkv(x, context, rope_emb=rope_emb)
-        else:
-            # Cross-attention branch of SelfCrossAttention.compute_qkv, with V
-            # projected from the masked context in the same single pass.
-            heads = (self.n_heads, self.head_dim)
-            q = self.q_norm(self.q_proj(x).unflatten(-1, heads))
-            k = self.k_norm(self.k_proj(context).unflatten(-1, heads))
-            v = self.v_norm(self.v_proj(context * negpip_mask).unflatten(-1, heads))
+        q, k, v = self.compute_qkv(
+            x,
+            context,
+            rope_emb=rope_emb,
+            value_context=None if negpip_mask is None else context * negpip_mask,
+        )
         if block_index == state.collect_block:
             state.collect_similarity(x, q, k, transformer_options)
         bias = (
@@ -512,16 +491,15 @@ def _make_linear_forward(
 
     def wrapped(self, x):
         weight_functions = list(getattr(self, "weight_function", []))
-        routed = []
+        # (function, key, [(patch, adapter name or None)]), resolved once per call
+        resolved = []
         for function in weight_functions:
             entry = _lora_function_patches(function)
             if entry is None:
-                continue
-            for patch in entry[1]:
-                name = state.adapter_for_patch(patch)
-                if name is not None:
-                    routed.append((function, patch, name))
-        if not routed:
+                resolved.append((function, None, None))
+            else:
+                resolved.append((function, entry[0], [(patch, state.adapter_for_patch(patch)) for patch in entry[1]]))
+        if not any(name for _, _, patches in resolved if patches for _, name in patches):
             return original(x)
 
         saved_weight = self.weight_function
@@ -543,15 +521,12 @@ def _make_linear_forward(
             unpatched_weight = raw_weight
             base_weight = raw_weight.clone()
             deltas = {}
-            for function in weight_functions:
-                entry = _lora_function_patches(function)
-                if entry is None:
+            for function, key, patches in resolved:
+                if patches is None:
                     base_weight = function(base_weight)
                     continue
-                key, patches = entry
                 non_target = []
-                for patch in patches:
-                    name = state.adapter_for_patch(patch)
+                for patch, name in patches:
                     if name is None:
                         non_target.append(patch)
                         continue
@@ -581,8 +556,6 @@ def _make_linear_forward(
                 return output
             strength = min(max(float(state.routing_strength), 0.0), 1.0)
             for name, delta in deltas.items():
-                if not torch.any(delta):
-                    continue
                 contribution = F.linear(x, delta.to(dtype=x.dtype), None)
                 mask = state.mask_for_output(
                     name,
@@ -642,9 +615,7 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
                     restore_forward_override(module, forward, restore_token)
 
     patched.set_model_unet_function_wrapper(wrapper)
-    options = dict(patched.model_options.get("transformer_options", {}))
-    options["anima_freefuse_state"] = state
-    patched.model_options["transformer_options"] = options
+    patched.set_transformer_option("anima_freefuse_state", state)
     # Spectrum wraps this wrapper, so it must see the request on the patcher.
     spectrum_force.request(patched, "anima_freefuse")
     return patched

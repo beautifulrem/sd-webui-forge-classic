@@ -5,12 +5,8 @@ from __future__ import annotations
 import torch
 
 from backend.nn.anima_attention import ANIMA_PROJECT_KV
-from modules.anima_support import conditioning_context
+from modules.anima_support import branch_rows, conditioning_context
 from modules.spectrum_force import in_sigma_window
-
-
-def _rows(markers: tuple, mark: int, group: int) -> list[int]:
-    return [i * group + j for i, value in enumerate(markers) if value == mark for j in range(group)]
 
 
 def _indexer(rows: list[int]):
@@ -104,7 +100,7 @@ class NAGAttentionModifier:
             self._report_unbatched()
             return base
         group = q.shape[0] // len(markers)
-        positive = _rows(markers, 0, group)
+        positive = branch_rows(markers, q.shape[0])
 
         if 1 not in markers:
             # Positive-only call (CFG 1, or a split batch): project the stashed

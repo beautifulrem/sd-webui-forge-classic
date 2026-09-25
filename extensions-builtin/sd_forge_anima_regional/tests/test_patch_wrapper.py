@@ -33,6 +33,9 @@ class _State:
     def prepare_masks(self, input_x, dit):
         self.current_masks = []
 
+    def end_call(self):
+        self.current_masks = None
+
 
 def _dit():
     block = torch.nn.Module()

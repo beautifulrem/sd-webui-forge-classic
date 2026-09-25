@@ -11,6 +11,7 @@ from lib_negpip.sd import patch_sd_negpip
 from lib_negpip.utils import NEG_PATTERN, any_negative, hr_dealer, reset_prompt_cache
 
 from modules import scripts
+from modules.anima_support import is_anima_engine
 from modules.prompt_parser import (
     SdConditioning,
     get_learned_conditioning,
@@ -102,7 +103,7 @@ class NegPiP(scripts.Script):
             return
 
         if IS_NEO and not p.sd_model.is_webui_legacy_model():
-            self.is_anima = type(p.sd_model).__name__ == "Anima"
+            self.is_anima = is_anima_engine(p.sd_model)
             if self.is_anima:
                 patch_anima_negpip(NegPiP)
                 reset_prompt_cache(p)
@@ -161,6 +162,7 @@ class NegPiP(scripts.Script):
             print(f"NegPiP Enable (Negative: {self.unconds_all[0][0][1][0][1]})")
 
     def postprocess(self, *args, **kwargs):
+        # Unhook before later scripts' postprocess, which may start nested generations
         self.reset()
 
     def cleanup(self, *args, **kwargs):

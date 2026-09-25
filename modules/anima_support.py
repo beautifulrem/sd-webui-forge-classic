@@ -101,8 +101,6 @@ def require_anima_flow_denoiser(model, feature: str) -> None:
         )
 
 
-
-
 NEGPIP_MASK_KEY = "negpip_mask"  # base prompt mask, set by NegPiP's DiT hook
 # Mask for a context a wrapper swapped in (Regional, Artist Mixer); None means
 # "no negative weights here". Kept apart so the base mask cannot leak onto it.
@@ -179,3 +177,35 @@ def negpip_mask_for(context, transformer_options):
             return None
         mask = mask.repeat(context.shape[0] // mask.shape[0], *([1] * (mask.ndim - 1)))
     return mask.to(context)
+
+
+def parse_block_list(text: str, total: int, *, feature: str) -> set[int]:
+    """Parse ``"0-3,7"`` into block indices below ``total``; out-of-range parts
+    are clipped away. Raises when nothing is left."""
+
+    result = set()
+    for part in str(text).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            left, right = part.split("-", 1)
+            result.update(range(max(0, int(left)), min(total - 1, int(right)) + 1))
+        else:
+            index = int(part)
+            if 0 <= index < total:
+                result.add(index)
+    if not result:
+        raise ValueError(f"{feature} block selection is empty")
+    return result
+
+
+def branch_rows(markers, batch: int, mark: int = 0) -> list[int] | None:
+    """Rows of a CFG batch whose ``cond_or_uncond`` group is ``mark`` (0 is the
+    positive prompt), or None when the markers are empty or do not divide it."""
+
+    markers = [int(value) for value in markers or ()]
+    if not markers or batch % len(markers):
+        return None
+    group = batch // len(markers)
+    return [index * group + row for index, value in enumerate(markers) if value == mark for row in range(group)]

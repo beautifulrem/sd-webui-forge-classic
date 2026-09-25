@@ -105,6 +105,12 @@ class _WrapperPatcher:
     def set_model_unet_function_wrapper(self, wrapper):
         self.model_options["model_function_wrapper"] = wrapper
 
+    def set_transformer_option(self, key, value):
+        # The real clone() deep-copies model_options; copy the nested dict here
+        options = dict(self.model_options.get("transformer_options", {}))
+        options[key] = value
+        self.model_options["transformer_options"] = options
+
 
 def test_model_wrapper_runs_and_restores_every_forward():
     runtime, _, _ = _load()
@@ -163,3 +169,43 @@ def test_cross_attention_applies_negpip_to_values_only():
     _, _, expected_v = attention.compute_qkv(x, context * mask)
     assert torch.allclose(captured["k"], expected_k)
     assert torch.allclose(captured["v"], expected_v)
+
+
+def test_adapter_lookup_is_cached_per_patch_object():
+    runtime, _, _ = _load()
+    state = _state(runtime)
+    patch = (1.0, torch.zeros(1), 1.0)
+    runtime._tag_patch_value(patch[1], "cat.safetensors")
+    calls = []
+    original = runtime._selector_matches
+    runtime._selector_matches = lambda *args: calls.append(args) or original(*args)
+    try:
+        assert state.adapter_for_patch(patch) == "A"
+        assert state.adapter_for_patch(patch) == "A"
+        other = (1.0, torch.zeros(1), 1.0)  # untagged: no adapter
+        assert state.adapter_for_patch(other) is None
+    finally:
+        runtime._selector_matches = original
+    assert len(calls) == 2  # one match per distinct patch
+
+
+def test_attention_bias_is_reused_until_the_mask_set_changes():
+    runtime, _, _ = _load()
+    state = _state(runtime)
+    state.token_positions = {"A": [1]}
+    state.bias_scale = 1.0
+    state.grid_height = state.grid_width = 2
+    state.masks = {"A": torch.tensor([[1.0, 0.0, 0.0, 1.0]])}
+    state.phase = "generate"
+    q = torch.zeros(2, 4, 1, 1)
+    options = {"cond_or_uncond": [0, 1]}
+
+    first = state.attention_bias(q, 3, options)
+    assert state.attention_bias(q, 3, options) is first
+    assert torch.equal(first[0, 0, :, 1], torch.tensor([0.0, -1.0, -1.0, 0.0]))
+    assert torch.equal(first[1], torch.zeros_like(first[1]))  # uncond row
+
+    state.abort()
+    state.masks = {"A": torch.tensor([[0.0, 0.0, 0.0, 0.0]])}
+    state.phase = "generate"
+    assert state.attention_bias(q, 3, options) is not first

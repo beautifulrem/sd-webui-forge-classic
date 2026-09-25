@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 import torch
 import torch.nn.functional as F
-from einops import rearrange
 
 from backend.nn.anima import SelfCrossAttention
 from backend.sampling import condition, sampling_function
@@ -237,34 +236,13 @@ def _hook_forwards(remove: bool):
     ):
         if detached[0] or self.is_SelfAttn:
             return original(self, x, context, rope_emb, transformer_options)
-
-        q = self.q_proj(x)
-        context_k = x if context is None else context
-        context_v = context_k
         # The mask describes one context's tokens (base prompt, or a region /
         # artist context that sets its own); it only applies to that context.
         negpip_mask = negpip_mask_for(context, transformer_options)
-        if negpip_mask is not None:
-            context_v = context_v * negpip_mask
-
-        k = self.k_proj(context_k)
-        v = self.v_proj(context_v)
-
-        q, k, v = map(
-            lambda t: rearrange(
-                t, "b ... (h d) -> b ... h d", h=self.n_heads, d=self.head_dim
-            ),
-            (q, k, v),
-        )
-
-        q = self.q_norm(q)
-        k = self.k_norm(k)
-        v = self.v_norm(v)
-
-        if self.is_SelfAttn and rope_emb is not None:
-            q = self.apply_rotary_pos_emb(q, rope_emb)
-            k = self.apply_rotary_pos_emb(k, rope_emb)
-
+        if negpip_mask is None:
+            return original(self, x, context, rope_emb, transformer_options)
+        # K keeps the sign-restored tokens; only V is negated.
+        q, k, v = self.compute_qkv(x, context, rope_emb=rope_emb, value_context=context * negpip_mask)
         return self.compute_attention(q, k, v, transformer_options=transformer_options)
 
     SelfCrossAttention.forward = negpip_forward

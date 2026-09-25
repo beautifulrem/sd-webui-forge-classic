@@ -349,10 +349,12 @@ class SelfCrossAttention(nn.Module):
         self.output_proj = nn.Linear(inner_dim, query_dim, bias=False)
         self.output_dropout = nn.Dropout(dropout) if dropout > 1e-4 else nn.Identity()
 
-    def compute_qkv(self, x: torch.Tensor, context: Optional[torch.Tensor] = None, rope_emb: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def compute_qkv(self, x: torch.Tensor, context: Optional[torch.Tensor] = None, rope_emb: Optional[torch.Tensor] = None, value_context: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """``value_context`` projects V from another context than K (NegPiP
+        negates V only, with its sign mask applied to the context)."""
         q = self.q_proj(x)
         k = self.k_proj(x if context is None else context)
-        v = self.v_proj(x if context is None else context)
+        v = self.v_proj(value_context if value_context is not None else (x if context is None else context))
         heads = (self.n_heads, self.head_dim)
         q, k, v = q.unflatten(-1, heads), k.unflatten(-1, heads), v.unflatten(-1, heads)
 
