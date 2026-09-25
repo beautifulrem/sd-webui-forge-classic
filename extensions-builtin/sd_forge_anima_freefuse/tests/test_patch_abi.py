@@ -67,6 +67,7 @@ def test_online_lora_wrappers_are_validated_and_routed():
     state.validate_patches(patcher)
 
     assert state.matched_files["A"] == {"/loras/cat.safetensors"}
+    assert state.routed_weight_keys == {"layer.weight"}
     (function,) = patcher.weight_wrapper_patches["layer.weight"]
     key, patches = runtime._lora_function_patches(function)
     assert key == "layer.weight"
@@ -121,6 +122,7 @@ def test_model_wrapper_runs_and_restores_every_forward():
     state = SimpleNamespace(
         phase="collect",
         validate_patches=lambda patcher: None,
+        routed_weight_keys=set(),
         update_grid=lambda input_x, model: None,
     )
     calls = []
@@ -209,3 +211,44 @@ def test_attention_bias_is_reused_until_the_mask_set_changes():
     state.masks = {"A": torch.tensor([[0.0, 0.0, 0.0, 0.0]])}
     state.phase = "generate"
     assert state.attention_bias(q, 3, options) is not first
+
+
+def _routed_linear(runtime, ModelPatcher, state):
+    patcher = _patcher(ModelPatcher, online=True)
+    state.validate_patches(patcher)
+    layer = patcher.model.layer
+    layer.weight_function = list(patcher.weight_wrapper_patches["layer.weight"])
+    layer.bias_function = []
+    forward = runtime._make_linear_forward(layer.forward, layer, state, "blocks.0.mlp.layer1")
+    return layer, forward
+
+
+def test_linear_routing_scales_the_adapter_delta_by_its_mask():
+    runtime, ModelPatcher, _ = _load()
+    state = _state(runtime)
+    state.routing_strength = 0.5
+    layer, forward = _routed_linear(runtime, ModelPatcher, state)
+    state.grid_height, state.grid_width = 1, 2
+    state.masks = {"A": torch.tensor([[1.0, 0.0]])}
+    state.phase = "generate"
+    x = torch.tensor([[[1.0, 2.0], [3.0, 4.0]]])  # two spatial tokens
+
+    output = forward(x)
+
+    base = torch.nn.functional.linear(x, layer.weight)
+    delta = torch.nn.functional.linear(x, torch.ones(2, 2))  # the "diff" patch
+    factors = torch.tensor([1.0, 0.5]).view(1, 2, 1)  # (1 - s) + mask * s
+    assert torch.allclose(output, base + delta * factors)
+    assert len(layer.weight_function) == 1 and layer.bias_function == []  # restored
+
+
+def test_linear_routing_leaves_adapters_out_while_collecting():
+    runtime, ModelPatcher, _ = _load()
+    state = _state(runtime)
+    layer, forward = _routed_linear(runtime, ModelPatcher, state)
+    state.phase = "collect"
+    weight_before = layer.weight.detach().clone()
+    x = torch.randn(1, 2, 2)
+
+    assert torch.allclose(forward(x), torch.nn.functional.linear(x, layer.weight))
+    assert torch.equal(layer.weight, weight_before)  # merged into a copy only

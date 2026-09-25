@@ -145,6 +145,8 @@ class AnimaFreeFuseState:
     background_samples: list[torch.Tensor] = field(default_factory=list)
     masks: dict[str, torch.Tensor] = field(default_factory=dict)
     matched_files: dict[str, set[str]] = field(default_factory=dict)
+    # Patcher weight keys carrying one of the adapters (set by validate_patches)
+    routed_weight_keys: set[str] = field(default_factory=set)
     # Per-generation caches: patch -> adapter (patch objects are kept alive in
     # the entry, so an id is never reused), and fitted masks / attention biases
     # of the current mask set, keyed by shape, dtype and device.
@@ -221,24 +223,25 @@ class AnimaFreeFuseState:
 
     def validate_patches(self, patcher) -> None:
         self.matched_files = {adapter.name: set() for adapter in self.adapters}
+        self.routed_weight_keys = set()
         self._adapter_by_patch.clear()
         offline = False
         ambiguous = []
         # Offline patches live in ``patcher.patches``; online LoRAs are
         # ``OnlineLoRAPatch`` weight wrappers holding a single patch each.
         entries = [
-            (patch, False)
-            for patches in patcher.patches.values()
+            (key, patch, False)
+            for key, patches in patcher.patches.items()
             for patch in patches
         ]
         entries.extend(
-            (patch, True)
-            for functions in getattr(patcher, "weight_wrapper_patches", {}).values()
+            (key, patch, True)
+            for key, functions in getattr(patcher, "weight_wrapper_patches", {}).items()
             for function in functions
             if isinstance(function, OnlineLoRAPatch)
             for patch in function.patch
         )
-        for patch, online in entries:
+        for key, patch, online in entries:
             matches = [
                 adapter.name
                 for adapter in self.adapters
@@ -249,6 +252,7 @@ class AnimaFreeFuseState:
             elif len(matches) == 1:
                 filename = _patch_filename(patch[1])
                 self.matched_files[matches[0]].add(filename or "unknown")
+                self.routed_weight_keys.add(key)
                 offline = offline or not online
                 if not math.isclose(float(patch[2]), 1.0):
                     raise ValueError(
@@ -518,11 +522,16 @@ def _make_linear_forward(
             self.bias_function = saved_bias
 
         with main_stream_worker(raw_weight, raw_bias, signal):
+            # raw_weight is a private copy; it becomes the base weight as is
+            # unless something else must be merged into it (the deltas below
+            # still need it unpatched).
             unpatched_weight = raw_weight
-            base_weight = raw_weight.clone()
+            base_weight = raw_weight
             deltas = {}
             for function, key, patches in resolved:
                 if patches is None:
+                    if base_weight is unpatched_weight:
+                        base_weight = base_weight.clone()
                     base_weight = function(base_weight)
                     continue
                 non_target = []
@@ -532,15 +541,16 @@ def _make_linear_forward(
                         continue
                     if state.phase == "collect":
                         continue
-                    patched = merge_lora_to_weight(
+                    delta = merge_lora_to_weight(
                         [patch], unpatched_weight.clone(), key
-                    )
-                    delta = patched - unpatched_weight
+                    ).sub_(unpatched_weight)
                     if name in deltas:
                         deltas[name].add_(delta)
                     else:
                         deltas[name] = delta
                 if non_target:
+                    if base_weight is unpatched_weight:
+                        base_weight = base_weight.clone()
                     base_weight = merge_lora_to_weight(
                         non_target, base_weight, key
                     )
@@ -585,10 +595,13 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
         )
         for index, block in enumerate(dit.blocks)
     ]
+    # Only layers that carry an adapter's LoRA are routed; the rest keep
+    # their normal forward and cost nothing per call.
     overrides.extend(
         (module, _make_linear_forward(module.forward, module, state, module_name))
         for module_name, module in dit.named_modules()
         if isinstance(module, torch.nn.Linear)
+        and f"diffusion_model.{module_name}.weight" in state.routed_weight_keys
     )
 
     def wrapper(model_function, args):
