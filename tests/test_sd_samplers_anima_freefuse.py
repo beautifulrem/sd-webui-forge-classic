@@ -1,6 +1,10 @@
 from types import SimpleNamespace
 
-from modules.anima_guidance_state import reset_stateful_guidance
+from modules.anima_guidance_state import (
+    clear_stateful_guidance,
+    register_stateful_guidance,
+    reset_stateful_guidance,
+)
 
 
 class _State:
@@ -11,21 +15,23 @@ class _State:
         self.reset_calls += 1
 
 
-def test_probe_reset_includes_momentum_post_cfg_state():
-    momentum = _State()
+def test_probe_reset_resets_every_registered_state():
+    process = SimpleNamespace()
+    momentum, smc = _State(), _State()
+    assert register_stateful_guidance(process, momentum) is momentum
+    register_stateful_guidance(process, smc)
 
-    def post_cfg(args):
-        return args["denoised"]
+    reset_stateful_guidance(SimpleNamespace(p=process))
 
-    post_cfg._anima_momentum_state = momentum
-    unet = SimpleNamespace(
-        model_options={"sampler_post_cfg_function": [post_cfg]}
-    )
-    process = SimpleNamespace(
-        sd_model=SimpleNamespace(forge_objects=SimpleNamespace(unet=unet))
-    )
-    model = SimpleNamespace(p=process)
+    assert (momentum.reset_calls, smc.reset_calls) == (1, 1)
 
-    reset_stateful_guidance(model)
 
-    assert momentum.reset_calls == 1
+def test_a_new_pass_starts_without_the_previous_states():
+    process = SimpleNamespace()
+    stale = register_stateful_guidance(process, _State())
+    clear_stateful_guidance(process)
+
+    reset_stateful_guidance(SimpleNamespace(p=process))
+    reset_stateful_guidance(SimpleNamespace(p=None))  # no process: nothing to do
+
+    assert stale.reset_calls == 0

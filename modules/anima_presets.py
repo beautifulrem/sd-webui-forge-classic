@@ -9,7 +9,6 @@ extension modules or coupling their runtimes together.
 
 from __future__ import annotations
 
-from collections import OrderedDict
 from typing import Any
 
 
@@ -184,7 +183,7 @@ TURBO_NAG_OVERRIDES: dict[str, object] = {
 
 # Label -> overrides applied on top of SAFE_BASE_AESTHETIC_PRESET, in menu
 # order. Overrides only name fields of the base preset.
-PRESETS: "OrderedDict[str, dict[str, object]]" = OrderedDict(
+PRESETS: dict[str, dict[str, object]] = dict(
     (
         (SAFE_BASE_AESTHETIC_LABEL, {}),
         (TURBO_LABEL, TURBO_OVERRIDES),
@@ -260,13 +259,13 @@ PRESET_CONFLICT_CONTROLS = frozenset(
 
 
 _DEFAULT_VALUE = object()
-_CONTROLS: dict[str, OrderedDict[str, tuple[Any, object]]] = {}
+_CONTROLS: dict[str, dict[str, tuple[Any, object]]] = {}
 
 
 def reset_preset_controls(tab: str) -> None:
     """Start a fresh registry for a newly built txt2img/img2img tab."""
 
-    _CONTROLS[tab] = OrderedDict()
+    _CONTROLS[tab] = {}
 
 
 def register_preset_control(
@@ -281,13 +280,13 @@ def register_preset_control(
         raise KeyError(f"Unknown Anima preset field: {name}")
     if value is _DEFAULT_VALUE:
         value = SAFE_BASE_AESTHETIC_PRESET[name]
-    _CONTROLS.setdefault(tab, OrderedDict())[name] = (component, value)
+    _CONTROLS.setdefault(tab, {})[name] = (component, value)
 
 
 def preset_controls(tab: str) -> tuple[tuple[str, ...], tuple[Any, ...], tuple[object, ...]]:
     """Return a stable component/value snapshot suitable for a Gradio event."""
 
-    controls = _CONTROLS.get(tab, OrderedDict())
+    controls = _CONTROLS.get(tab, {})
     names = tuple(controls)
     return (
         names,

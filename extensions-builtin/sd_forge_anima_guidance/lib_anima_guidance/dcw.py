@@ -95,6 +95,11 @@ class DCWState:
         self.current_sigma: Optional[float] = None
         self._odd_shape_warned = False
 
+    def reset(self) -> None:
+        """Drop the step history (e.g. after a FreeFuse probe pass)."""
+        self.last_denoised = None
+        self.current_sigma = None
+
     def schedule_value(self, sigma: Optional[float]) -> float:
         if sigma is None:
             return 0.0

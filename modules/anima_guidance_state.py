@@ -2,27 +2,29 @@
 
 from __future__ import annotations
 
+_STATEFUL_GUIDANCE = "_anima_stateful_guidance"
+
+
+def clear_stateful_guidance(process) -> None:
+    """Start a sampling pass with no registered guidance state."""
+
+    setattr(process, _STATEFUL_GUIDANCE, [])
+
+
+def register_stateful_guidance(process, state):
+    """Register an object with ``reset()`` whose history spans sampling steps
+    (DCW, SMC-CFG, Momentum), so probe passes can discard it. Returns ``state``."""
+
+    registered = getattr(process, _STATEFUL_GUIDANCE, None)
+    if registered is None:
+        registered = []
+        setattr(process, _STATEFUL_GUIDANCE, registered)
+    registered.append(state)
+    return state
+
 
 def reset_stateful_guidance(model) -> None:
     """Discard auxiliary/probe-pass history before a real sampling pass."""
 
-    process = getattr(model, "p", None)
-    dcw = getattr(process, "_anima_dcw_state", None)
-    if dcw is not None:
-        dcw.last_denoised = None
-        dcw.current_sigma = None
-
-    sd_model = getattr(process, "sd_model", None)
-    unet = getattr(getattr(sd_model, "forge_objects", None), "unet", None)
-    model_options = getattr(unet, "model_options", {})
-    cfg_function = model_options.get("sampler_cfg_function")
-    while cfg_function is not None:
-        smc = getattr(cfg_function, "_anima_smc_state", None)
-        if smc is not None and hasattr(smc, "reset"):
-            smc.reset()
-        cfg_function = getattr(cfg_function, "_anima_wrapped_cfg", None)
-
-    for post_function in model_options.get("sampler_post_cfg_function", ()):
-        momentum = getattr(post_function, "_anima_momentum_state", None)
-        if momentum is not None and hasattr(momentum, "reset"):
-            momentum.reset()
+    for state in getattr(getattr(model, "p", None), _STATEFUL_GUIDANCE, ()):
+        state.reset()

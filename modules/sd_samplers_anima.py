@@ -34,12 +34,6 @@ _TAIL_GAP = 0.65
 _TAIL_GAP_SIGMA = 0.25
 
 
-def _require_discrete_flow(model):
-    """Reject non-Anima and VP/VE models before treating sigma as RF time."""
-
-    require_anima_flow_denoiser(model, "Anima Flow samplers")
-
-
 def _rf_lambda(t):
     t = torch.clamp(torch.as_tensor(t), min=_EPS, max=1.0 - _EPS)
     return torch.log1p(-t) - torch.log(t)
@@ -55,8 +49,6 @@ def _rms(value):
 
 
 def _euler_step(x, denoised, t, t_next):
-    if _scalar(t_next) <= 0.0 or _scalar(t) <= 0.0:
-        return denoised
     return x + (t_next - t) * (x - denoised) / t
 
 
@@ -69,23 +61,43 @@ def _set_denoiser_step(model, step, total_steps):
         model.total_steps = int(total_steps)
 
 
+def _denoise(model, x, sigmas, i, extra_args, callback):
+    """The model call and callback every Flow sampler step starts with."""
+
+    t = sigmas[i]
+    _set_denoiser_step(model, i, len(sigmas) - 1)
+    denoised = model(x, t * x.new_ones([x.shape[0]]), **extra_args)
+    if callback is not None:
+        callback({"x": x, "i": i, "sigma": t, "sigma_hat": t, "denoised": denoised})
+    return denoised
+
+
+def _schedule_values(sigmas):
+    """Branch decisions need plain floats: read the schedule once, not per step.
+
+    ``lambda_gaps[i]`` is computed like ``_rf_lambda(sigmas[i + 1]) -
+    _rf_lambda(sigmas[i])``, elementwise in the schedule's dtype."""
+
+    values = sigmas.tolist()
+    lambda_gaps = (_rf_lambda(sigmas[1:]) - _rf_lambda(sigmas[:-1])).tolist()
+    return values, lambda_gaps
+
+
 @torch.no_grad()
 def sample_anima_flow_euler(
     model, x, sigmas, extra_args=None, callback=None, disable=None
 ):
     """Official Anima FlowMatch Euler path without stochastic churn."""
 
-    _require_discrete_flow(model)
+    require_anima_flow_denoiser(model, "Anima Flow samplers")
     extra_args = {} if extra_args is None else extra_args
-    s_in = x.new_ones([x.shape[0]])
-    total_steps = len(sigmas) - 1
-    for i in trange(total_steps, disable=disable):
-        t, t_next = sigmas[i], sigmas[i + 1]
-        _set_denoiser_step(model, i, total_steps)
-        denoised = model(x, t * s_in, **extra_args)
-        if callback is not None:
-            callback({"x": x, "i": i, "sigma": t, "sigma_hat": t, "denoised": denoised})
-        x = _euler_step(x, denoised, t, t_next)
+    values, _ = _schedule_values(sigmas)
+    for i in trange(len(sigmas) - 1, disable=disable):
+        denoised = _denoise(model, x, sigmas, i, extra_args, callback)
+        if values[i + 1] <= 0.0 or values[i] <= 0.0:
+            x = denoised
+        else:
+            x = _euler_step(x, denoised, sigmas[i], sigmas[i + 1])
     return x
 
 
@@ -99,10 +111,7 @@ class _UniPCState:
     this_order: int = 1
 
 
-def _tail_policy(t, t_next):
-    t_value = _scalar(t)
-    t_next_value = _scalar(t_next)
-    lambda_gap = _scalar(_rf_lambda(t_next) - _rf_lambda(t))
+def _tail_policy(t_value, t_next_value, lambda_gap):
     terminal = t_next_value <= 0.0
     tail_interval = (
         terminal
@@ -116,18 +125,11 @@ def _tail_policy(t, t_next):
 def _bh_rhos(hh, *, order, like, predictor, solver_type, rks=()):
     hh = hh.to(device=like.device, dtype=like.dtype)
     h_phi_1 = torch.expm1(hh)
-    if solver_type == "bh1":
-        b_h = hh
-    elif solver_type == "bh2":
-        b_h = h_phi_1
-    else:
-        raise ValueError("Anima Flow UniPC solver type must be 'bh1' or 'bh2'")
+    b_h = hh if solver_type == "bh1" else h_phi_1
 
-    if order <= 1:
-        return h_phi_1, b_h, [like.new_tensor(0.5)]
     # The Diffusers-grid variant deliberately caps body order at two. Its
     # predictor coefficient has the closed-form UniP value 1/2.
-    if predictor:
+    if order <= 1 or predictor:
         return h_phi_1, b_h, [like.new_tensor(0.5)]
 
     rks = torch.stack([value.to(like) for value in rks] + [like.new_tensor(1.0)])
@@ -204,13 +206,13 @@ def _unipc_correct(
         like=state.last_sample,
         predictor=False,
         solver_type=solver_type,
-        rks=(rk,) if order >= 2 and d1s else (),
+        rks=(rk,) if order >= 2 else (),
     )
     base = (current_t / previous_t) * state.last_sample - (
         1.0 - current_t
     ) * h_phi_1 * previous_denoised
     residual = rhos[-1] * (current_denoised - previous_denoised)
-    if order >= 2 and d1s:
+    if order >= 2:
         residual = residual + rhos[0] * d1s[0]
     return base - (1.0 - current_t) * b_h * residual
 
@@ -247,11 +249,11 @@ def sample_anima_flow_unipc2(
 ):
     """Anima RF x0 UniPC2 with conservative Diffusers-grid tail handling."""
 
-    _require_discrete_flow(model)
+    require_anima_flow_denoiser(model, "Anima Flow samplers")
     extra_args = {} if extra_args is None else extra_args
     state = _UniPCState()
-    s_in = x.new_ones([x.shape[0]])
     total_steps = len(sigmas) - 1
+    values, lambda_gaps = _schedule_values(sigmas)
     solver_type = str(flow_unipc_solver_type)
     if solver_type not in {"bh1", "bh2"}:
         raise ValueError("Anima Flow UniPC solver type must be 'bh1' or 'bh2'")
@@ -265,21 +267,17 @@ def sample_anima_flow_unipc2(
 
     for i in trange(total_steps, disable=disable):
         t, t_next = sigmas[i], sigmas[i + 1]
-        _set_denoiser_step(model, i, total_steps)
-        denoised = model(x, t * s_in, **extra_args)
-        if callback is not None:
-            callback({"x": x, "i": i, "sigma": t, "sigma_hat": t, "denoised": denoised})
+        denoised = _denoise(model, x, sigmas, i, extra_args, callback)
         model_output = (
             _threshold_sample(denoised, threshold_ratio, threshold_maximum)
             if bool(flow_unipc_thresholding)
             else denoised
         )
 
-        tail_interval, tail_corrector = _tail_policy(t, t_next)
+        tail_interval, tail_corrector = _tail_policy(values[i], values[i + 1], lambda_gaps[i])
         current_t = torch.clamp(t.to(x), min=_EPS, max=1.0 - _EPS)
         current_lambda = _rf_lambda(t).to(x)
-        available = 1 + int(state.model_outputs[-1] is not None)
-        available += int(state.model_outputs[-2] is not None)
+        available = 1 + sum(output is not None for output in state.model_outputs)
 
         x_corrected = x
         use_corrector = (
@@ -305,7 +303,7 @@ def sample_anima_flow_unipc2(
         times = (state.times[-1], current_t)
         lambdas = (state.lambdas[-1], current_lambda)
 
-        if _scalar(t_next) <= 0.0:
+        if values[i + 1] <= 0.0:
             x_next = model_output
             predictor_order = 1
         else:
@@ -354,9 +352,6 @@ def _pc3_next_state(state, denoised, t):
 
 
 def _pc3_predict(x, denoised, t, t_next, state, max_order):
-    if _scalar(t_next) <= 0.0:
-        return denoised, 1
-
     t = torch.clamp(t.to(x), min=_EPS)
     t_next = torch.clamp(t_next.to(x), min=0.0)
     current_lambda = _rf_lambda(t).to(x)
@@ -486,11 +481,11 @@ def sample_anima_flow_pc3(
 ):
     """Anima damped PC3 with upstream's conservative Diffusers-tail policy."""
 
-    _require_discrete_flow(model)
+    require_anima_flow_denoiser(model, "Anima Flow samplers")
     extra_args = {} if extra_args is None else extra_args
     state = _PC3State()
-    s_in = x.new_ones([x.shape[0]])
     total_steps = len(sigmas) - 1
+    values, lambda_gaps = _schedule_values(sigmas)
     max_gamma = float(flow_pc3_gamma)
     tolerance = float(flow_pc3_tolerance)
     if not 0.0 <= max_gamma <= 1.0:
@@ -500,15 +495,12 @@ def sample_anima_flow_pc3(
 
     for i in trange(total_steps, disable=disable):
         t, t_next = sigmas[i], sigmas[i + 1]
-        _set_denoiser_step(model, i, total_steps)
-        denoised = model(x, t * s_in, **extra_args)
-        if callback is not None:
-            callback({"x": x, "i": i, "sigma": t, "sigma_hat": t, "denoised": denoised})
-        if _scalar(t_next) <= 0.0:
+        denoised = _denoise(model, x, sigmas, i, extra_args, callback)
+        if values[i + 1] <= 0.0:
             x = denoised
             continue
 
-        tail_interval, _ = _tail_policy(t, t_next)
+        tail_interval, _ = _tail_policy(values[i], values[i + 1], lambda_gaps[i])
         max_order = 2 if total_steps - i <= 2 else 3
         if tail_interval:
             max_order = 1
@@ -524,7 +516,7 @@ def sample_anima_flow_pc3(
         if can_correct:
             _set_denoiser_step(model, min(i + 1, total_steps - 1), total_steps)
             with anima_auxiliary_denoiser(model):
-                denoised_pred = model(x_pred, t_next * s_in, **extra_args)
+                denoised_pred = model(x_pred, t_next * x.new_ones([x.shape[0]]), **extra_args)
             x_next = _pc3_correct(
                 x,
                 denoised,

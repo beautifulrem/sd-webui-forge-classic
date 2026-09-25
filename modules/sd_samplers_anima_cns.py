@@ -1,7 +1,7 @@
 """Anima-calibrated Colored Noise Sampling for Forge Neo's ER-SDE solver.
 
 The recoloring numerics are adapted from sorryhyun/ComfyUI-Spectrum-KSampler
-(MIT) and the sampler loop follows Forge Neo's existing ER-SDE implementation.
+(MIT); the solver is Forge Neo's own ER-SDE, with its noise draws recolored.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from typing import Optional
 
 import numpy as np
 import torch
-from tqdm.auto import trange
 
 from modules import paths_internal
 from modules.anima_artifacts import ensure_pinned_download
@@ -177,10 +176,6 @@ def _record_cns_fallback(process, reason: str) -> None:
         params["Anima CNS"] = f"white-noise fallback: {reason}"
 
 
-def _require_anima_flow(model) -> None:
-    require_anima_flow_denoiser(model, "Anima ER SDE CNS")
-
-
 @torch.no_grad()
 def sample_anima_er_sde_cns(
     model,
@@ -195,73 +190,35 @@ def sample_anima_er_sde_cns(
     max_stage=3,
     cns_strength=1.0,
 ):
-    """Forge ER-SDE with its per-step white-noise draw CNS-recolored."""
+    """Forge's ER-SDE with its per-step white-noise draw CNS-recolored.
 
-    from k_diffusion.sampling import (
-        default_noise_sampler,
-        offset_first_sigma_for_snr,
-        sigma_to_half_log_snr,
-    )
+    The solver is Forge's own ``sample_er_sde``; only the noise sampler it
+    calls once per step (``noise_sampler(sigma, sigma_next)``) is wrapped.
+    """
 
-    _require_anima_flow(model)
-    extra_args = {} if extra_args is None else extra_args
-    noise_sampler = default_noise_sampler(x) if noise_sampler is None else noise_sampler
+    from k_diffusion.sampling import default_noise_sampler, sample_er_sde
+
+    require_anima_flow_denoiser(model, "Anima ER SDE CNS")
     recolorer = (
         CNSRecolorer.try_calibrated(cns_strength, getattr(model, "p", None))
         if cns_strength > 0.0
         else None
     )
-    s_in = x.new_ones([x.shape[0]])
+    if recolorer is not None:
+        white_noise = default_noise_sampler(x) if noise_sampler is None else noise_sampler
 
-    def default_er_sde_noise_scaler(value):
-        return value * ((value**0.3).exp() + 10.0)
+        def noise_sampler(sigma, sigma_next):
+            return recolorer.recolor(white_noise(sigma, sigma_next), float(sigma))
 
-    noise_scaler = default_er_sde_noise_scaler if noise_scaler is None else noise_scaler
-    integration_points = 200.0
-    point_indices = torch.arange(0, integration_points, dtype=torch.float32, device=x.device)
-
-    model_sampling = model.inner_model.predictor
-    sigmas = offset_first_sigma_for_snr(sigmas, model_sampling)
-    half_log_snrs = sigma_to_half_log_snr(sigmas, model_sampling)
-    er_lambdas = half_log_snrs.neg().exp()
-    old_denoised = None
-    old_denoised_d = None
-
-    for index in trange(len(sigmas) - 1, disable=disable):
-        denoised = model(x, sigmas[index] * s_in, **extra_args)
-        if callback is not None:
-            callback({"x": x, "i": index, "sigma": sigmas[index], "sigma_hat": sigmas[index], "denoised": denoised})
-        stage_used = min(max_stage, index + 1)
-        if sigmas[index + 1] == 0:
-            x = denoised
-        else:
-            er_lambda_s, er_lambda_t = er_lambdas[index], er_lambdas[index + 1]
-            alpha_s = sigmas[index] / er_lambda_s
-            alpha_t = sigmas[index + 1] / er_lambda_t
-            ratio_alpha = alpha_t / alpha_s
-            ratio = noise_scaler(er_lambda_t) / noise_scaler(er_lambda_s)
-            x = ratio_alpha * ratio * x + alpha_t * (1 - ratio) * denoised
-
-            if stage_used >= 2:
-                delta = er_lambda_t - er_lambda_s
-                lambda_step = -delta / integration_points
-                lambda_position = er_lambda_t + point_indices * lambda_step
-                scaled_position = noise_scaler(lambda_position)
-                integral = torch.sum(1 / scaled_position) * lambda_step
-                denoised_d = (denoised - old_denoised) / (er_lambda_s - er_lambdas[index - 1])
-                x = x + alpha_t * (delta + integral * noise_scaler(er_lambda_t)) * denoised_d
-
-                if stage_used >= 3:
-                    integral_u = torch.sum((lambda_position - er_lambda_s) / scaled_position) * lambda_step
-                    denoised_u = (denoised_d - old_denoised_d) / ((er_lambda_s - er_lambdas[index - 2]) / 2)
-                    x = x + alpha_t * ((delta**2) / 2 + integral_u * noise_scaler(er_lambda_t)) * denoised_u
-                old_denoised_d = denoised_d
-
-            if s_noise > 0:
-                noise = noise_sampler(sigmas[index], sigmas[index + 1])
-                if recolorer is not None:
-                    noise = recolorer.recolor(noise, float(sigmas[index]))
-                variance = (er_lambda_t**2 - er_lambda_s**2 * ratio**2).sqrt().nan_to_num(nan=0.0)
-                x = x + alpha_t * noise * s_noise * variance
-        old_denoised = denoised
-    return x
+    return sample_er_sde(
+        model,
+        x,
+        sigmas,
+        extra_args=extra_args,
+        callback=callback,
+        disable=disable,
+        s_noise=s_noise,
+        noise_sampler=noise_sampler,
+        noise_scaler=noise_scaler,
+        max_stage=max_stage,
+    )

@@ -51,7 +51,6 @@ def make_guidance_range_cfg_function(
         return args["input"] - args["cond_denoised"]
 
     cfg_function._anima_guidance_range = (low, high)
-    cfg_function._anima_wrapped_cfg = previous_cfg_function
     return cfg_function
 
 
@@ -139,7 +138,6 @@ def make_momentum_post_cfg_function(state: MomentumGuidanceState, process=None):
             update_state=True,
         )
 
-    post_cfg._anima_momentum_state = state
     # Momentum only reads the combined prediction.
     setattr(post_cfg, IGNORES_UNCOND, True)
     return post_cfg

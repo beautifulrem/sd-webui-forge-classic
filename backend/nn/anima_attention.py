@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from functools import partial
 from typing import Any
 
 import torch
@@ -51,30 +52,8 @@ def run_anima_attention(
             transformer_options=options,
         )
 
-    modifiers: Sequence[Callable[..., torch.Tensor]] = tuple(
-        options.get(ANIMA_ATTENTION_MODIFIERS, ())
-    )
+    modifiers: Sequence[Callable[..., torch.Tensor]] = options.get(ANIMA_ATTENTION_MODIFIERS) or ()
     call = base
-    for modifier in reversed(modifiers):
-        next_attention = call
-
-        def call(
-            q_value,
-            k_value,
-            v_value,
-            *,
-            mask=None,
-            _modifier=modifier,
-            _next=next_attention,
-        ):
-            return _modifier(
-                _next,
-                q_value,
-                k_value,
-                v_value,
-                mask=mask,
-                transformer_options=options,
-                is_self_attention=is_self_attention,
-            )
-
+    for modifier in reversed(tuple(modifiers)):
+        call = partial(modifier, call, transformer_options=options, is_self_attention=is_self_attention)
     return call(q, k, v, mask=mask)

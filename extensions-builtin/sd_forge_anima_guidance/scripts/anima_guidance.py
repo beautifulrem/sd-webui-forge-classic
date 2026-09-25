@@ -39,6 +39,7 @@ from lib_anima_guidance.advanced import (
 from lib_anima_guidance.nag import NAGAttentionModifier
 from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS
 from modules import paths, script_callbacks, scripts, spectrum_force
+from modules.anima_guidance_state import clear_stateful_guidance, register_stateful_guidance
 from modules.anima_feature_conflicts import (
     SMC_GUIDANCE,
     STANDARD_GUIDANCE,
@@ -140,7 +141,6 @@ def _make_skim_cfg_function(
             return previous_cfg_function(adjusted_args)
         return standard_cfg_residual(adjusted_args)
 
-    cfg_function._anima_wrapped_cfg = previous_cfg_function
     return cfg_function
 
 
@@ -560,6 +560,7 @@ class AnimaGuidanceScript(scripts.Script):
         # must not keep correcting towards the previous pass's history.
         p._anima_dcw_state = None
         p._anima_nag_modifier = None
+        clear_stateful_guidance(p)
         active_sampler = (
             (getattr(p, "hr_sampler_name", None) or p.sampler_name)
             if getattr(p, "is_hr_pass", False)
@@ -745,7 +746,7 @@ class AnimaGuidanceScript(scripts.Script):
         active_cfg_function = previous
         if smc_enabled:
             active_cfg_function = make_smc_cfg_function(
-                SMCCFGState(lam=float(smc_lambda), alpha=float(smc_alpha)),
+                register_stateful_guidance(p, SMCCFGState(lam=float(smc_lambda), alpha=float(smc_alpha))),
                 process=process_ref(p),
             )
             p.extra_generation_params["Anima CFG guidance mode"] = "SMC-CFG"
@@ -807,9 +808,12 @@ class AnimaGuidanceScript(scripts.Script):
         # samplers and SMC/FDG modes, and recorded why.
         momentum_enabled = bool(momentum_enable)
         if momentum_enabled:
-            momentum_state = MomentumGuidanceState(
-                momentum=float(momentum_strength),
-                ema_decay=float(momentum_ema),
+            momentum_state = register_stateful_guidance(
+                p,
+                MomentumGuidanceState(
+                    momentum=float(momentum_strength),
+                    ema_decay=float(momentum_ema),
+                ),
             )
             # Momentum reads only the combined prediction, so it needs no
             # unconditional pass at CFG 1 (or outside the CFG range).
@@ -822,10 +826,13 @@ class AnimaGuidanceScript(scripts.Script):
             p.extra_generation_params["Anima Momentum EMA"] = float(momentum_ema)
 
         if dcw_enabled:
-            dcw_state = DCWState(
-                lam=float(dcw_lambda),
-                schedule=str(dcw_schedule),
-                bands=parse_band_mask(str(dcw_bands)),
+            dcw_state = register_stateful_guidance(
+                p,
+                DCWState(
+                    lam=float(dcw_lambda),
+                    schedule=str(dcw_schedule),
+                    bands=parse_band_mask(str(dcw_bands)),
+                ),
             )
             p._anima_dcw_state = dcw_state
             # DCW only reads the final (post-CFG) prediction, so at CFG 1 it

@@ -68,5 +68,4 @@ def make_smc_cfg_function(state: SMCCFGState, process=None):
         # Forge computes cfg_result = x_in - returned_residual.
         return sig * v_out
 
-    cfg_function._anima_smc_state = state
     return cfg_function

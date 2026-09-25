@@ -88,7 +88,7 @@ def test_pc3_marks_endpoint_correction_as_auxiliary(monkeypatch):
             )
             return x * 0.9
 
-    monkeypatch.setattr(anima_samplers, "_require_discrete_flow", lambda _model: None)
+    monkeypatch.setattr(anima_samplers, "require_anima_flow_denoiser", lambda _model, _feature: None)
     model = FakeModel()
     x = torch.ones(1, 1, 2, 2)
     sigmas = torch.tensor([0.95, 0.9, 0.85, 0.8, 0.75, 0.0])
@@ -107,7 +107,7 @@ def test_unipc_applies_dynamic_thresholding_on_terminal_step(monkeypatch):
         def __call__(self, _x, _sigma, **_extra_args):
             return self.output
 
-    monkeypatch.setattr(anima_samplers, "_require_discrete_flow", lambda _model: None)
+    monkeypatch.setattr(anima_samplers, "require_anima_flow_denoiser", lambda _model, _feature: None)
     denoised = torch.tensor([[[[-4.0, 2.0]]], [[[-40.0, 20.0]]]])
     model = FakeModel(denoised)
 

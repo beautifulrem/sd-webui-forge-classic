@@ -162,15 +162,7 @@ def beta57_scheduler(n, sigma_min, sigma_max, inner_model, device):
     beta=0.7)``. Keeping it as a distinct scheduler makes Anima workflows
     reproducible without changing the user's configurable generic Beta preset.
     """
-    return beta_scheduler(
-        n=n,
-        sigma_min=sigma_min,
-        sigma_max=sigma_max,
-        inner_model=inner_model,
-        device=device,
-        alpha=0.5,
-        beta=0.7,
-    )
+    return beta_scheduler(n, sigma_min, sigma_max, inner_model, device, alpha=0.5, beta=0.7)
 
 
 def turbo_scheduler(n, sigma_min, sigma_max, inner_model, device):
@@ -255,17 +247,20 @@ def _flow_match_euler_discrete_scheduler(n, inner_model, device, *, use_global_o
 
     unet = inner_model.inner_model.forge_objects.unet
 
+    def option(name: str) -> bool:
+        return getattr(shared.opts, name) if use_global_options else False
+
     config = {
         "num_train_timesteps": 1000,
         "shift": getattr(unet.model.predictor, "shift", 1.0),
-        "use_dynamic_shifting": shared.opts.use_dynamic_shifting if use_global_options else False,
-        "invert_sigmas": shared.opts.invert_sigmas if use_global_options else False,
+        "use_dynamic_shifting": option("use_dynamic_shifting"),
+        "invert_sigmas": option("invert_sigmas"),
         "shift_terminal": None,
-        "use_karras_sigmas": shared.opts.use_karras_sigmas if use_global_options else False,
-        "use_exponential_sigmas": shared.opts.use_exponential_sigmas if use_global_options else False,
-        "use_beta_sigmas": shared.opts.use_beta_sigmas if use_global_options else False,
+        "use_karras_sigmas": option("use_karras_sigmas"),
+        "use_exponential_sigmas": option("use_exponential_sigmas"),
+        "use_beta_sigmas": option("use_beta_sigmas"),
         "time_shift_type": "exponential",
-        "stochastic_sampling": shared.opts.stochastic_sampling if use_global_options else False,
+        "stochastic_sampling": option("stochastic_sampling"),
     }
 
     scheduler = FlowMatchEulerDiscreteScheduler.from_config(config)

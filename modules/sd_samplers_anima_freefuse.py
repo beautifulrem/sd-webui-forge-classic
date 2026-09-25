@@ -23,19 +23,6 @@ def _runtime_state(model):
     return options.get("transformer_options", {}).get("anima_freefuse_state")
 
 
-def _restore_online_after_error(model) -> None:
-    process = getattr(model, "p", None)
-    if process is None or not getattr(process, "_anima_freefuse_enabled", False):
-        return
-    if getattr(process, "_anima_freefuse_borrowed_online", False):
-        return
-    from backend.args import dynamic_args
-
-    dynamic_args.online_lora = bool(
-        getattr(process, "_anima_freefuse_original_online", False)
-    )
-
-
 @torch.no_grad()
 def sample_anima_freefuse_euler(
     model,
@@ -71,19 +58,16 @@ def sample_anima_freefuse_euler(
             s_noise=s_noise,
         )
 
+    # On any error, FreeFuse's Script.cleanup (run by process_images' finally)
+    # restores the online-LoRA mode it switched on for this generation.
     if float(s_churn) != 0.0:
-        _restore_online_after_error(model)
         raise ValueError(
             "Anima FreeFuse Euler requires S-churn = 0 so both passes share the same deterministic path"
         )
 
     extra_args = {} if extra_args is None else extra_args
     total_steps = len(sigmas) - 1
-    try:
-        runtime.configure_steps(total_steps)
-    except Exception:
-        _restore_online_after_error(model)
-        raise
+    runtime.configure_steps(total_steps)
     collect_steps = min(total_steps, runtime.collect_step + 1)
     s_in = x.new_ones([x.shape[0]])
     initial_x = x.detach().clone()
@@ -104,7 +88,6 @@ def sample_anima_freefuse_euler(
         runtime.finish_collection()
     except Exception:
         runtime.abort()
-        _restore_online_after_error(model)
         raise
 
     # CFGDenoiser owns prompt schedule state; the probe pass must be invisible
@@ -134,7 +117,6 @@ def sample_anima_freefuse_euler(
             )
     except Exception:
         runtime.abort()
-        _restore_online_after_error(model)
         raise
     runtime.complete()
     return result
