@@ -1,5 +1,6 @@
 # https://github.com/david419kr/sd-webui-negpip/blob/main/scripts/negpip.py
 
+import logging
 import weakref
 from functools import wraps
 from typing import TYPE_CHECKING, Optional
@@ -20,6 +21,8 @@ from backend.sampling import condition, sampling_function
 from modules import shared
 from modules.anima_support import NEGPIP_MASK_KEY, negpip_mask_for
 from modules.forward_override import install_forward_override, restore_forward_override
+
+logger = logging.getLogger(__name__)
 
 
 # Weak refs to the (engine, dit) patched by the active hook, so unpatching
@@ -118,7 +121,7 @@ def _hook_get_learned_conditioning(model: "AnimaEngine", remove: bool):
         if _count > 0:
             _NEGATIVES_SEEN[0] = True
             key = "Negative" if prompt.is_negative_prompt else "Positive"
-            print(f"NegPiP Enable ({key}: {_count})")
+            logger.info("NegPiP Enable (%s: %d)", key, _count)
 
         return {
             "crossattn": torch.stack(crossattn, dim=0),
@@ -277,7 +280,9 @@ def _hook_compile_conditions(remove: bool):
             cross_attn = cond["crossattn"]
             model_conds = {"c_crossattn": condition.ConditionCrossAttn(cross_attn)}
             if "c_negpip_mask" in cond:
-                model_conds["c_negpip_mask"] = condition.Condition(
+                # Tiled like the context, so prompts of different token
+                # lengths still batch cond and uncond into one call.
+                model_conds["c_negpip_mask"] = condition.ConditionCrossAttn(
                     cond["c_negpip_mask"]
                 )
             return [dict(cross_attn=cross_attn, model_conds=model_conds)]

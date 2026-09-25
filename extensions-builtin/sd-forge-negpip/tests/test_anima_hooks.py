@@ -187,6 +187,15 @@ def test_patch_and_unpatch_round_trip(monkeypatch, negatives_seen):
         (compiled,) = condition.compile_conditions({"crossattn": crossattn, "c_negpip_mask": mask})
         assert compiled["cross_attn"] is crossattn
         assert compiled["model_conds"]["c_negpip_mask"].cond is mask
+
+        # A shorter prompt (e.g. the negative) still batches with it: the mask
+        # tiles along the tokens exactly like its context.
+        (short,) = condition.compile_conditions({"crossattn": torch.ones(1, 1, 4), "c_negpip_mask": torch.ones(1, 1, 1)})
+        long_conds, short_conds = compiled["model_conds"], short["model_conds"]
+        for key in ("c_crossattn", "c_negpip_mask"):
+            assert long_conds[key].can_concat(short_conds[key])
+        merged = long_conds["c_negpip_mask"].concat([short_conds["c_negpip_mask"]])
+        assert merged[:, :, 0].tolist() == [[-1.0, -1.0], [1.0, 1.0]]
     finally:
         negpip_anima.patch_anima_negpip(NegPiP, unpatch=True)
 

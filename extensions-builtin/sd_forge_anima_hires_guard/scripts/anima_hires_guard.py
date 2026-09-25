@@ -7,7 +7,7 @@ import logging
 import gradio as gr
 
 from lib_anima_hires import GuardLimits, guard_dimensions
-from modules import scripts
+from modules import scripts, shared
 from modules.anima_support import is_anima_engine
 from modules.anima_presets import register_preset_control
 from modules.ui_components import InputAccordion
@@ -116,6 +116,13 @@ class AnimaHiresGuardScript(scripts.Script):
         **kwargs,
     ):
         if not enabled or not _is_anima(process):
+            return
+        if getattr(process, "enable_hr", False) and getattr(shared.opts, "use_old_hires_fix_width_height", False):
+            # Width/height are then the final hires size and processing
+            # derives the first pass (and hr_resize_x/y) from them later.
+            reason = "skipped: the legacy hires width/height setting is on"
+            process.extra_generation_params["Anima Hires adjustments"] = reason
+            logger.warning("Anima Hires Guard %s", reason)
             return
 
         limits = PRESETS.get(str(preset))
