@@ -11,7 +11,7 @@ import gradio as gr
 
 from backend.args import dynamic_args
 from modules import script_callbacks, script_loading, scripts, shared
-from modules.anima_lora_support import active_template_parts, current_sampling_position
+from modules.anima_lora_support import active_template_parts, anima_lora_block_count, anima_source_block, current_sampling_position
 from modules.anima_presets import register_preset_control
 
 
@@ -666,7 +666,7 @@ class PanelWeightSpec:
     def prompt_multiplier(self) -> float:
         return self.numeric if self.numeric is not None else 1.0
 
-    def strength_for_key(self, key, fallback):
+    def strength_for_key(self, key, fallback, lora_blocks=None, model_blocks=None):
         if self.numeric is not None:
             return self.numeric
 
@@ -677,6 +677,9 @@ class PanelWeightSpec:
 
         block_index = _block_index_from_key(model_key)
         if block_index is not None:
+            # Block weights are written in the LoRA's own layout (see
+            # anima_source_block for depth-expanded models).
+            block_index = anima_source_block(block_index, lora_blocks, model_blocks)
             factor = self.block_weights.factor(block_index) if self.has_block else 1.0
             if self.has_module:
                 factor *= _module_factor(model_key, self.module_weights)
@@ -1281,6 +1284,41 @@ def _is_anima_lora_file(filename) -> bool:
     return False
 
 
+_LORA_BLOCK_COUNTS: dict[str, tuple[int, int | None]] = {}
+
+
+def _lora_block_count(filename) -> int | None:
+    """The Anima depth (28/40/52) a LoRA file was trained for."""
+    if not filename:
+        return None
+    path = str(filename)
+    try:
+        stamp = os.stat(path).st_mtime_ns
+    except OSError:
+        return None
+    cached = _LORA_BLOCK_COUNTS.get(path)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+
+    blocks = set()
+    try:
+        from safetensors import safe_open
+
+        with safe_open(path, framework="pt", device="cpu") as f:
+            for key in f.keys():
+                lower = key.lower()
+                if "llm_adapter" in lower or "qwen" in lower:
+                    continue
+                index = _block_index_from_key(key)
+                if index is not None:
+                    blocks.add(index)
+    except Exception:
+        blocks = set()
+    count = anima_lora_block_count(blocks)
+    _LORA_BLOCK_COUNTS[path] = (stamp, count)
+    return count
+
+
 def _is_unet_patch_key(key) -> bool:
     text = str(key or "").lower()
     if "qwen" in text or "text_encoder" in text or "text_encoders" in text:
@@ -1694,7 +1732,7 @@ def _rewrite_batch_prompts(p, state: RuntimeState):
         state.hires.prompt_names.update(_collect_prompt_names(p.hr_prompts))
 
 
-def _patch_added_strengths(patch_destination, before_counts, state: RuntimeState, config: PassConfig, online_mode):
+def _patch_added_strengths(patch_destination, before_counts, state: RuntimeState, config: PassConfig, online_mode, lora_blocks=None, model_blocks=None):
     pass_name = state.current_pass_name()
 
     def scheduled_patch(key, patch):
@@ -1704,7 +1742,7 @@ def _patch_added_strengths(patch_destination, before_counts, state: RuntimeState
         strength_patch, patch_value, strength_model, offset, function = patch[:5]
         forge_fields = tuple(patch[5:])
         model_key = _model_key(key)
-        base_strength = config.panel_weight.strength_for_key(model_key, strength_patch) if config.panel_weight_nonzero else strength_patch
+        base_strength = config.panel_weight.strength_for_key(model_key, strength_patch, lora_blocks, model_blocks) if config.panel_weight_nonzero else strength_patch
 
         if _is_unet_patch_key(model_key):
             if online_mode:
@@ -1776,7 +1814,12 @@ def install_patch():
             loaded = _ORIGINAL_ADD_PATCHES(self, patches, strength_patch=strength_patch, strength_model=strength_model, filename=filename, online_mode=online_mode)
 
             if should_control:
-                _patch_added_strengths(patch_destination, before_counts, state, lora_config, bool(online_mode))
+                lora_blocks = model_blocks = None
+                if lora_config.panel_weight.has_block:
+                    blocks = getattr(getattr(getattr(self, "model", None), "diffusion_model", None), "blocks", None)
+                    model_blocks = len(blocks) if blocks is not None else None
+                    lora_blocks = _lora_block_count(filename)
+                _patch_added_strengths(patch_destination, before_counts, state, lora_config, bool(online_mode), lora_blocks, model_blocks)
 
             return loaded
 
