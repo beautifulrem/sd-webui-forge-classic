@@ -98,3 +98,38 @@ def test_all_positive_masks_are_dropped_and_extra_prompts_registered():
     register_negpip_prompts(process, "regional", ["(hat:-1)", None, ""])
     register_negpip_prompts(process, "regional", ["(cap:-1)"])  # replaced, not appended
     assert process.negpip_extra_prompts == {"regional": ["(cap:-1)"]}
+
+
+def test_process_ref_does_not_keep_the_process_alive():
+    import gc
+
+    from modules.anima_support import is_anima_auxiliary_denoiser, process_ref
+
+    class Process:
+        _anima_auxiliary_denoiser = True
+
+    process = Process()
+    proxy = process_ref(process)
+    assert is_anima_auxiliary_denoiser(proxy)
+
+    del process
+    gc.collect()
+    # The hook outlived its generation: no error, just "not a probe".
+    assert is_anima_auxiliary_denoiser(proxy) is False
+
+
+def test_process_ref_falls_back_for_objects_without_weakrefs():
+    from modules.anima_support import process_ref
+
+    process = SimpleNamespace(x=1)
+    assert process_ref(process) is process
+    assert process_ref(None) is None
+
+
+def test_conditioning_context_unwraps_negpip_dicts():
+    from modules.anima_support import conditioning_context
+
+    tensor = torch.zeros(1, 2, 3)
+    assert conditioning_context(tensor) is tensor
+    assert conditioning_context({"crossattn": tensor, "c_negpip_mask": tensor}) is tensor
+    assert conditioning_context({"c_crossattn": tensor}) is tensor

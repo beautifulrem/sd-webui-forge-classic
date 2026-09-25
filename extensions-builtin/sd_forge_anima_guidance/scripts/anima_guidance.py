@@ -23,17 +23,18 @@ from lib_anima_guidance.modulation import (
     prepare_modulation_vectors,
     resolve_artifact,
 )
-from lib_anima_guidance.prompts import effective_prompt_batch
 from lib_anima_guidance.skim import apply_skim_to_predictions
 from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
 from lib_anima_guidance.dcw import DCWState, parse_band_mask
 from lib_anima_guidance.advanced import (
+    IGNORES_UNCOND,
     MomentumGuidanceState,
     make_fdg_cfg_function,
-    IGNORES_UNCOND,
     make_guidance_range_cfg_function,
     make_guidance_range_uncond_skip,
     make_momentum_post_cfg_function,
+    sigma_value,
+    standard_cfg_residual,
 )
 from lib_anima_guidance.nag import NAGAttentionModifier
 from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS
@@ -45,7 +46,7 @@ from modules.anima_feature_conflicts import (
     resolve_guidance_conflicts,
 )
 from modules.anima_presets import register_preset_control
-from modules.anima_support import is_anima_auxiliary_denoiser, is_anima_engine
+from modules.anima_support import effective_prompt_batch, is_anima_auxiliary_denoiser, is_anima_engine, process_ref
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -64,9 +65,7 @@ def _dcw_before_denoiser(params) -> None:
     state = getattr(process, "_anima_dcw_state", None)
     if state is None:
         return
-    sigma = params.sigma
-    sigma_value = float(sigma.flatten()[0]) if torch.is_tensor(sigma) else float(sigma)
-    state.before_denoiser(params.x, sigma_value)
+    state.before_denoiser(params.x, sigma_value(params.sigma))
 
 
 def _capture_dcw_denoised(process, state: DCWState, denoised):
@@ -114,8 +113,7 @@ def _make_skim_cfg_function(
     @torch.no_grad()
     def cfg_function(args):
         x_orig = args["input"]
-        sigma_tensor = args.get("sigma", args.get("timestep"))
-        sigma = float(sigma_tensor.flatten()[0]) if torch.is_tensor(sigma_tensor) else float(sigma_tensor)
+        sigma = sigma_value(args.get("sigma", args.get("timestep")))
 
         adjusted_args = args
         if _active_for_sigma(sigma, sigma_start, sigma_end):
@@ -140,13 +138,8 @@ def _make_skim_cfg_function(
 
         if previous_cfg_function is not None:
             return previous_cfg_function(adjusted_args)
+        return standard_cfg_residual(adjusted_args)
 
-        cond = adjusted_args["cond_denoised"]
-        uncond = adjusted_args["uncond_denoised"]
-        denoised = uncond + (cond - uncond) * float(adjusted_args["cond_scale"])
-        return x_orig - denoised
-
-    cfg_function._anima_skimmed_cfg = True
     cfg_function._anima_wrapped_cfg = previous_cfg_function
     return cfg_function
 
@@ -451,153 +444,63 @@ class AnimaGuidanceScript(scripts.Script):
                     show_progress=False,
                 )
 
-        controls = [
-            enable,
-            guidance_mode,
-            smc_alpha,
-            smc_lambda,
-            skim_enable,
-            skim_scale,
-            full_negative,
-            disable_flip_filter,
-            start_percent,
-            end_percent,
-            flip_percent,
-            dcw_enable,
-            dcw_lambda,
-            dcw_schedule,
-            dcw_bands,
-            cns_strength,
-            flow_unipc_solver_type,
-            flow_unipc_disable_corrector_first,
-            flow_unipc_thresholding,
-            flow_unipc_dynamic_thresholding_ratio,
-            flow_unipc_sample_max_value,
-            flow_pc3_gamma,
-            flow_pc3_tolerance,
-            modulation_enable,
-            modulation_weight,
-            modulation_start,
-            modulation_end,
-            modulation_base,
-            modulation_positive,
-            modulation_negative,
-            adapter_mode,
-            adapter_path,
-            clip_mode,
-            clip_path,
-            nag_enable,
-            nag_scale,
-            nag_tau,
-            nag_alpha,
-            nag_start,
-            nag_end,
-            momentum_enable,
-            momentum_strength,
-            momentum_ema,
-            fdg_high_scale,
-            guidance_range_enable,
-            guidance_range_start,
-            guidance_range_end,
+        # One row per control, in script-argument order:
+        # (component, infotext key, preset name or None)
+        fields = [
+            (enable, "Anima guidance enabled", "guidance.enabled"),
+            (guidance_mode, "Anima CFG guidance mode", "guidance.mode"),
+            (smc_alpha, "Anima SMC alpha", "guidance.smc_alpha"),
+            (smc_lambda, "Anima SMC lambda", "guidance.smc_lambda"),
+            (skim_enable, "Anima Skimmed CFG", "guidance.skim_enabled"),
+            (skim_scale, "Anima skim CFG", "guidance.skim_scale"),
+            (full_negative, "Anima skim full negative", "guidance.skim_full_negative"),
+            (disable_flip_filter, "Anima skim disable flip filter", "guidance.skim_disable_flip"),
+            (start_percent, "Anima skim start", "guidance.skim_start"),
+            (end_percent, "Anima skim end", "guidance.skim_end"),
+            (flip_percent, "Anima skim flip", "guidance.skim_flip"),
+            (dcw_enable, "Anima DCW", "guidance.dcw_enabled"),
+            (dcw_lambda, "Anima DCW lambda", "guidance.dcw_lambda"),
+            (dcw_schedule, "Anima DCW schedule", "guidance.dcw_schedule"),
+            (dcw_bands, "Anima DCW bands", "guidance.dcw_bands"),
+            (cns_strength, "Anima CNS strength", "guidance.cns_strength"),
+            (flow_unipc_solver_type, "Anima Flow UniPC solver type", "guidance.unipc_solver"),
+            (flow_unipc_disable_corrector_first, "Anima Flow UniPC disabled correctors", "guidance.unipc_disabled_correctors"),
+            (flow_unipc_thresholding, "Anima Flow UniPC thresholding", "guidance.unipc_thresholding"),
+            (flow_unipc_dynamic_thresholding_ratio, "Anima Flow UniPC threshold percentile", "guidance.unipc_threshold_ratio"),
+            (flow_unipc_sample_max_value, "Anima Flow UniPC threshold maximum", "guidance.unipc_threshold_max"),
+            (flow_pc3_gamma, "Anima Flow PC3 gamma", "guidance.pc3_gamma"),
+            (flow_pc3_tolerance, "Anima Flow PC3 tolerance", "guidance.pc3_tolerance"),
+            (modulation_enable, "Anima modulation guidance", "guidance.modulation_enabled"),
+            (modulation_weight, "Anima modulation weight", "guidance.modulation_weight"),
+            (modulation_start, "Anima modulation start block", "guidance.modulation_start"),
+            (modulation_end, "Anima modulation end block", "guidance.modulation_end"),
+            (modulation_base, "Anima modulation base prompt", None),
+            (modulation_positive, "Anima modulation positive direction", None),
+            (modulation_negative, "Anima modulation negative direction", None),
+            (adapter_mode, "Anima modulation adapter mode", "guidance.modulation_adapter_mode"),
+            (adapter_path, "Anima modulation adapter path", None),
+            (clip_mode, "Anima modulation CLIP mode", "guidance.modulation_clip_mode"),
+            (clip_path, "Anima modulation CLIP path", None),
+            (nag_enable, "Anima NAG", "guidance.nag_enabled"),
+            (nag_scale, "Anima NAG scale", "guidance.nag_scale"),
+            (nag_tau, "Anima NAG tau", "guidance.nag_tau"),
+            (nag_alpha, "Anima NAG alpha", "guidance.nag_alpha"),
+            (nag_start, "Anima NAG start", "guidance.nag_start"),
+            (nag_end, "Anima NAG end", "guidance.nag_end"),
+            (momentum_enable, "Anima Momentum Guidance", "guidance.momentum_enabled"),
+            (momentum_strength, "Anima Momentum strength", "guidance.momentum_strength"),
+            (momentum_ema, "Anima Momentum EMA", "guidance.momentum_ema"),
+            (fdg_high_scale, "Anima FDG detail guidance", "guidance.fdg_detail"),
+            (guidance_range_enable, "Anima CFG active range", "guidance.range_enabled"),
+            (guidance_range_start, "Anima CFG range start", "guidance.range_start"),
+            (guidance_range_end, "Anima CFG range end", "guidance.range_end"),
         ]
-        preset_controls = {
-            "guidance.enabled": enable,
-            "guidance.mode": guidance_mode,
-            "guidance.smc_alpha": smc_alpha,
-            "guidance.smc_lambda": smc_lambda,
-            "guidance.skim_enabled": skim_enable,
-            "guidance.skim_scale": skim_scale,
-            "guidance.skim_full_negative": full_negative,
-            "guidance.skim_disable_flip": disable_flip_filter,
-            "guidance.skim_start": start_percent,
-            "guidance.skim_end": end_percent,
-            "guidance.skim_flip": flip_percent,
-            "guidance.dcw_enabled": dcw_enable,
-            "guidance.dcw_lambda": dcw_lambda,
-            "guidance.dcw_schedule": dcw_schedule,
-            "guidance.dcw_bands": dcw_bands,
-            "guidance.cns_strength": cns_strength,
-            "guidance.unipc_solver": flow_unipc_solver_type,
-            "guidance.unipc_disabled_correctors": flow_unipc_disable_corrector_first,
-            "guidance.unipc_thresholding": flow_unipc_thresholding,
-            "guidance.unipc_threshold_ratio": flow_unipc_dynamic_thresholding_ratio,
-            "guidance.unipc_threshold_max": flow_unipc_sample_max_value,
-            "guidance.pc3_gamma": flow_pc3_gamma,
-            "guidance.pc3_tolerance": flow_pc3_tolerance,
-            "guidance.modulation_enabled": modulation_enable,
-            "guidance.modulation_weight": modulation_weight,
-            "guidance.modulation_start": modulation_start,
-            "guidance.modulation_end": modulation_end,
-            "guidance.modulation_adapter_mode": adapter_mode,
-            "guidance.modulation_clip_mode": clip_mode,
-            "guidance.nag_enabled": nag_enable,
-            "guidance.nag_scale": nag_scale,
-            "guidance.nag_tau": nag_tau,
-            "guidance.nag_alpha": nag_alpha,
-            "guidance.nag_start": nag_start,
-            "guidance.nag_end": nag_end,
-            "guidance.momentum_enabled": momentum_enable,
-            "guidance.momentum_strength": momentum_strength,
-            "guidance.momentum_ema": momentum_ema,
-            "guidance.fdg_detail": fdg_high_scale,
-            "guidance.range_enabled": guidance_range_enable,
-            "guidance.range_start": guidance_range_start,
-            "guidance.range_end": guidance_range_end,
-        }
-        for name, component in preset_controls.items():
-            register_preset_control(self.tabname, name, component)
-        keys = [
-            "Anima guidance enabled",
-            "Anima CFG guidance mode",
-            "Anima SMC alpha",
-            "Anima SMC lambda",
-            "Anima Skimmed CFG",
-            "Anima skim CFG",
-            "Anima skim full negative",
-            "Anima skim disable flip filter",
-            "Anima skim start",
-            "Anima skim end",
-            "Anima skim flip",
-            "Anima DCW",
-            "Anima DCW lambda",
-            "Anima DCW schedule",
-            "Anima DCW bands",
-            "Anima CNS strength",
-            "Anima Flow UniPC solver type",
-            "Anima Flow UniPC disabled correctors",
-            "Anima Flow UniPC thresholding",
-            "Anima Flow UniPC threshold percentile",
-            "Anima Flow UniPC threshold maximum",
-            "Anima Flow PC3 gamma",
-            "Anima Flow PC3 tolerance",
-            "Anima modulation guidance",
-            "Anima modulation weight",
-            "Anima modulation start block",
-            "Anima modulation end block",
-            "Anima modulation base prompt",
-            "Anima modulation positive direction",
-            "Anima modulation negative direction",
-            "Anima modulation adapter mode",
-            "Anima modulation adapter path",
-            "Anima modulation CLIP mode",
-            "Anima modulation CLIP path",
-            "Anima NAG",
-            "Anima NAG scale",
-            "Anima NAG tau",
-            "Anima NAG alpha",
-            "Anima NAG start",
-            "Anima NAG end",
-            "Anima Momentum Guidance",
-            "Anima Momentum strength",
-            "Anima Momentum EMA",
-            "Anima FDG detail guidance",
-            "Anima CFG active range",
-            "Anima CFG range start",
-            "Anima CFG range end",
-        ]
-        self.infotext_fields = [PasteField(component, key) for component, key in zip(controls, keys)]
-        self.paste_field_names = keys
-        return controls
+        for component, _, preset_name in fields:
+            if preset_name is not None:
+                register_preset_control(self.tabname, preset_name, component)
+        self.infotext_fields = [PasteField(component, key) for component, key, _ in fields]
+        self.paste_field_names = [key for _, key, _ in fields]
+        return [component for component, _, _ in fields]
 
     def process_before_every_sampling(
         self,
@@ -809,7 +712,7 @@ class AnimaGuidanceScript(scripts.Script):
         if nag_enable:
             nag_sigma_start = float(predictor.percent_to_sigma(float(nag_start)))
             nag_sigma_end = float(predictor.percent_to_sigma(float(nag_end)))
-            def report_unbatched_nag():
+            def report_unbatched_nag(p=process_ref(p)):
                 message = "inactive: positive/negative branches could not be GPU-batched"
                 p.extra_generation_params["Anima NAG"] = message
                 logger.warning(
@@ -843,7 +746,7 @@ class AnimaGuidanceScript(scripts.Script):
         if smc_enabled:
             active_cfg_function = make_smc_cfg_function(
                 SMCCFGState(lam=float(smc_lambda), alpha=float(smc_alpha)),
-                process=p,
+                process=process_ref(p),
             )
             p.extra_generation_params["Anima CFG guidance mode"] = "SMC-CFG"
             p.extra_generation_params["Anima SMC alpha"] = float(smc_alpha)
@@ -911,7 +814,7 @@ class AnimaGuidanceScript(scripts.Script):
             # Momentum reads only the combined prediction, so it needs no
             # unconditional pass at CFG 1 (or outside the CFG range).
             unet.set_model_sampler_post_cfg_function(
-                make_momentum_post_cfg_function(momentum_state, process=p),
+                make_momentum_post_cfg_function(momentum_state, process=process_ref(p)),
             )
             spectrum_force.request(unet, "anima_momentum")
             p.extra_generation_params["Anima Momentum Guidance"] = True
@@ -927,7 +830,7 @@ class AnimaGuidanceScript(scripts.Script):
             p._anima_dcw_state = dcw_state
             # DCW only reads the final (post-CFG) prediction, so at CFG 1 it
             # does not need the unconditional pass Forge otherwise skips.
-            def dcw_post_cfg(hook_args, p=p, dcw_state=dcw_state):
+            def dcw_post_cfg(hook_args, p=process_ref(p), dcw_state=dcw_state):
                 return _capture_dcw_denoised(p, dcw_state, hook_args["denoised"])
 
             setattr(dcw_post_cfg, IGNORES_UNCOND, True)

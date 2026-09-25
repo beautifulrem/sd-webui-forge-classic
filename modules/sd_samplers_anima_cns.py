@@ -6,11 +6,9 @@ The recoloring numerics are adapted from sorryhyun/ComfyUI-Spectrum-KSampler
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import threading
 import time
-import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -19,6 +17,7 @@ import torch
 from tqdm.auto import trange
 
 from modules import paths_internal
+from modules.anima_artifacts import ensure_pinned_download
 from modules.anima_support import require_anima_flow_denoiser
 
 
@@ -40,43 +39,19 @@ def _gamma_path() -> Path:
     return Path(paths_internal.models_path) / "anima_cns" / "cns_gamma.npz"
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(128 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def ensure_gamma_file() -> Path:
     """Return a verified gamma artifact, downloading the pinned file if absent."""
 
-    target = _gamma_path()
-    with _GAMMA_LOCK:
-        if target.is_file() and _sha256(target) == GAMMA_SHA256:
-            return target
-
-        target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = target.with_suffix(".npz.download")
-        request = urllib.request.Request(GAMMA_URL, headers={"User-Agent": "forge-neo-anima-cns/1"})
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response, temporary.open("wb") as output:
-                received = 0
-                while True:
-                    chunk = response.read(64 * 1024)
-                    if not chunk:
-                        break
-                    received += len(chunk)
-                    if received > GAMMA_MAX_BYTES:
-                        raise RuntimeError("Anima CNS gamma download exceeded the 1 MiB safety limit")
-                    output.write(chunk)
-            if _sha256(temporary) != GAMMA_SHA256:
-                raise RuntimeError("Anima CNS gamma checksum mismatch")
-            temporary.replace(target)
-        except Exception:
-            temporary.unlink(missing_ok=True)
-            raise
-        return target
+    return Path(
+        ensure_pinned_download(
+            path=str(_gamma_path()),
+            url=GAMMA_URL,
+            sha256=GAMMA_SHA256,
+            maximum_bytes=GAMMA_MAX_BYTES,
+            timeout=30,
+            user_agent="forge-neo-anima-cns/1",
+        )
+    )
 
 
 def load_gamma_arrays() -> dict[str, np.ndarray]:
@@ -125,8 +100,7 @@ class CNSRecolorer:
         self.bin_cache: dict[tuple[int, int, str], torch.Tensor] = {}
 
     @classmethod
-    def calibrated(cls, strength: float, arrays: Optional[dict[str, np.ndarray]] = None) -> "CNSRecolorer":
-        arrays = load_gamma_arrays() if arrays is None else arrays
+    def calibrated(cls, strength: float, arrays: dict[str, np.ndarray]) -> "CNSRecolorer":
         return cls(arrays["gamma"], arrays["aspects"], arrays["sigmas"], strength)
 
     @classmethod

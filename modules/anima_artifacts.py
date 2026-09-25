@@ -1,4 +1,5 @@
-"""Pinned and checksum-verified artifacts used by Anima modulation guidance."""
+"""Pinned, checksum-verified downloads for Anima features (modulation guidance
+weights, the CNS gamma table)."""
 
 from __future__ import annotations
 
@@ -15,13 +16,15 @@ _DOWNLOAD_LOCK = threading.Lock()
 _VERIFIED: dict[tuple, str] = {}
 
 
-def _file_version(path: str) -> tuple:
+def file_version(path: str) -> tuple:
+    """``(path, mtime_ns, size)``: changes whenever the file is replaced."""
+
     stat = os.stat(path)
     return path, stat.st_mtime_ns, stat.st_size
 
 
 def _cached_sha256(path: str) -> str:
-    version = _file_version(path)
+    version = file_version(path)
     digest = _VERIFIED.get(version)
     if digest is None:
         digest = sha256_file(path)
@@ -37,7 +40,7 @@ def sha256_file(path: str) -> str:
     return digest.hexdigest()
 
 
-def ensure_pinned_download(*, path: str, url: str, sha256: str, maximum_bytes: int) -> str:
+def ensure_pinned_download(*, path: str, url: str, sha256: str, maximum_bytes: int, timeout: float = 180, user_agent: str = "Forge-Neo-Anima-Mod-Guidance/1") -> str:
     """Return a verified artifact, downloading atomically when necessary."""
     path = os.path.abspath(path)
     with _DOWNLOAD_LOCK:
@@ -45,12 +48,12 @@ def ensure_pinned_download(*, path: str, url: str, sha256: str, maximum_bytes: i
             return path
 
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        descriptor, temporary = tempfile.mkstemp(prefix="anima-mod-", suffix=".part", dir=os.path.dirname(path))
+        descriptor, temporary = tempfile.mkstemp(prefix="anima-download-", suffix=".part", dir=os.path.dirname(path))
         try:
             digest = hashlib.sha256()
             total = 0
-            request = urllib.request.Request(url, headers={"User-Agent": "Forge-Neo-Anima-Mod-Guidance/1"})
-            with urllib.request.urlopen(request, timeout=180) as response, os.fdopen(descriptor, "wb") as output:
+            request = urllib.request.Request(url, headers={"User-Agent": user_agent})
+            with urllib.request.urlopen(request, timeout=timeout) as response, os.fdopen(descriptor, "wb") as output:
                 descriptor = -1
                 for chunk in iter(lambda: response.read(1024 * 1024), b""):
                     total += len(chunk)

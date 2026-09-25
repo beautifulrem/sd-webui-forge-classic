@@ -11,6 +11,7 @@ from typing import Optional
 
 import torch
 
+from lib_anima_guidance.advanced import sigma_broadcast
 from modules.anima_support import is_anima_auxiliary_denoiser
 
 
@@ -51,15 +52,7 @@ def make_smc_cfg_function(state: SMCCFGState, process=None):
     @torch.no_grad()
     def cfg_function(args):
         x_in = args["input"]
-        sigma = args.get("sigma", args.get("timestep"))
-        if torch.is_tensor(sigma):
-            sig = sigma.reshape(-1, *([1] * (x_in.ndim - 1))).to(
-                device=x_in.device,
-                dtype=x_in.dtype,
-            )
-            sig = sig.clamp_min(torch.finfo(x_in.dtype).tiny)
-        else:
-            sig = max(float(sigma), 1e-12)
+        sig = sigma_broadcast(args.get("sigma", args.get("timestep")), x_in)
 
         cond = args.get("cond_denoised", args["cond"])
         uncond = args.get("uncond_denoised", args["uncond"])
@@ -75,6 +68,5 @@ def make_smc_cfg_function(state: SMCCFGState, process=None):
         # Forge computes cfg_result = x_in - returned_residual.
         return sig * v_out
 
-    cfg_function._anima_smc_cfg = True
     cfg_function._anima_smc_state = state
     return cfg_function

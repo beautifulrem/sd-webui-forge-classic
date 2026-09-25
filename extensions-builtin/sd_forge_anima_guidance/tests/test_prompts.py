@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from lib_anima_guidance.prompts import effective_prompt_batch
+from modules.anima_support import effective_prompt_batch
 
 
 def test_hires_pass_uses_hires_prompt_batch():

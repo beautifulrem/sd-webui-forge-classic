@@ -58,28 +58,23 @@ def skim_prediction(
     if abs(float(cond_scale)) < 1e-8:
         return cond.clone()
 
-    result = cond.clone()
     mask = get_skimming_mask(
         x_orig,
-        result,
+        cond,
         uncond,
         float(cond_scale),
         disable_flipping_filter=disable_flipping_filter,
     )
-    if not torch.any(mask):
-        return result
-
     guided = x_orig - (
         (x_orig - uncond)
-        + cond_scale * ((x_orig - result) - (x_orig - uncond))
+        + cond_scale * ((x_orig - cond) - (x_orig - uncond))
     )
     fallback = x_orig - (
         (x_orig - uncond)
-        + skimming_scale * ((x_orig - result) - (x_orig - uncond))
+        + skimming_scale * ((x_orig - cond) - (x_orig - uncond))
     )
-    correction = guided - fallback
-    result[mask] = result[mask] - correction[mask] / cond_scale
-    return result
+    # torch.where instead of boolean indexing: same values, no host sync
+    return torch.where(mask, cond - (guided - fallback) / cond_scale, cond)
 
 
 @torch.no_grad()
@@ -95,30 +90,28 @@ def apply_skim_to_predictions(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Apply upstream's two-sided Skimmed CFG transform.
 
-    The conditional prediction is skimmed first, followed by the negative
-    prediction using the already-adjusted conditional result.  Cloning is
-    deliberate: predictions may be reused by post-CFG hooks.
+    The negative prediction is skimmed first, then the conditional one
+    against the already-adjusted negative.  Both results are new tensors:
+    predictions may be reused by post-CFG hooks.
     """
 
-    cond = cond_denoised.clone()
-    uncond = uncond_denoised.clone()
     scale = float(cond_scale)
     practical = float(skimming_scale)
 
     if scale <= 1.0:
-        return cond, uncond
+        return cond_denoised.clone(), uncond_denoised.clone()
 
     uncond = skim_prediction(
         x_orig,
-        uncond,
-        cond,
+        uncond_denoised,
+        cond_denoised,
         scale,
         0.0 if full_skim_negative else practical,
         disable_flipping_filter=disable_flipping_filter,
     )
     cond = skim_prediction(
         x_orig,
-        cond,
+        cond_denoised,
         uncond,
         scale - 1.0,
         practical,

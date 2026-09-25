@@ -17,7 +17,7 @@ import torch
 import torch.nn.functional as F
 from safetensors.torch import load_file
 
-from lib_anima_guidance.artifacts import ensure_pinned_download
+from modules.anima_artifacts import ensure_pinned_download, file_version
 
 logger = logging.getLogger("AnimaGuidance")
 
@@ -43,11 +43,10 @@ _ENCODE_LOCK = threading.Lock()
 # frees the previous weights instead of pinning every one for good.
 _ADAPTER_CACHE: dict[tuple, dict[str, torch.Tensor]] = {}
 _CLIP_CACHE: dict[tuple, tuple[torch.nn.Module, object]] = {}
-
-
-def _cache_key(path: str) -> tuple:
-    stat = os.stat(path)
-    return path, stat.st_mtime_ns, stat.st_size
+# Pooled outputs of recent prompt batches: a hires pass or a rerun with the
+# same prompts skips moving CLIP-L to the GPU and back.
+_POOLED_CACHE: dict[tuple, torch.Tensor] = {}
+_POOLED_CACHE_SIZE = 8
 
 
 def resolve_artifact(mode: str, local_path: str, automatic_path: str, *, url: str, sha256: str, maximum_bytes: int) -> str:
@@ -64,7 +63,7 @@ def resolve_artifact(mode: str, local_path: str, automatic_path: str, *, url: st
 def _load_adapter(path: str) -> dict[str, torch.Tensor]:
     path = os.path.abspath(path)
     with _LOAD_LOCK:
-        cache_key = _cache_key(path)
+        cache_key = file_version(path)
         cached = _ADAPTER_CACHE.get(cache_key)
         if cached is not None:
             return cached
@@ -107,7 +106,7 @@ def _validate_adapter_tensors(state):
 def _load_clip(path: str, config_dir: str, tokenizer_dir: str):
     path = os.path.abspath(path)
     with _LOAD_LOCK:
-        cache_key = _cache_key(path)
+        cache_key = file_version(path)
         cached = _CLIP_CACHE.get(cache_key)
         if cached is not None:
             return cached
@@ -142,8 +141,13 @@ def _load_clip(path: str, config_dir: str, tokenizer_dir: str):
 
 @torch.inference_mode()
 def encode_clip_pooled(prompts, *, clip_path: str, config_dir: str, tokenizer_dir: str, device) -> torch.Tensor:
-    model, tokenizer = _load_clip(clip_path, config_dir, tokenizer_dir)
     device = torch.device(device)
+    prompts = tuple(str(prompt) for prompt in prompts)
+    cache_key = (file_version(os.path.abspath(clip_path)), config_dir, tokenizer_dir, device.type, prompts)
+    cached = _POOLED_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    model, tokenizer = _load_clip(clip_path, config_dir, tokenizer_dir)
     compute_dtype = torch.float32 if device.type == "cpu" else torch.float16
     with _ENCODE_LOCK:
         if device.type != "cpu":
@@ -164,9 +168,13 @@ def encode_clip_pooled(prompts, *, clip_path: str, config_dir: str, tokenizer_di
                 attention_mask=tokens.attention_mask.to(device),
                 return_dict=True,
             )
-            return outputs.pooler_output.detach().float().cpu().contiguous()
+            pooled = outputs.pooler_output.detach().float().cpu().contiguous()
         finally:
             model.to(device="cpu", dtype=torch.float16)
+    if len(_POOLED_CACHE) >= _POOLED_CACHE_SIZE:
+        _POOLED_CACHE.pop(next(iter(_POOLED_CACHE)))
+    _POOLED_CACHE[cache_key] = pooled
+    return pooled
 
 
 def project_pooled(pooled: torch.Tensor, adapter: dict[str, torch.Tensor]) -> torch.Tensor:
@@ -252,6 +260,14 @@ class ModulationPatch:
         _ensure_hooks(dit)
 
         previous = patched.model_options.get("model_function_wrapper")
+        on_device: dict[tuple, tuple[torch.Tensor, ...]] = {}
+
+        def vectors_for(reference: torch.Tensor) -> tuple[torch.Tensor, ...]:
+            key = (reference.device, reference.dtype)
+            if key not in on_device:
+                on_device.clear()
+                on_device[key] = tuple(t.to(reference) for t in (self.positive, self.negative, self.scales))
+            return on_device[key]
 
         def wrapper(model_function, args):
             branches = [int(item) for item in args.get("cond_or_uncond", [])]
@@ -260,14 +276,11 @@ class ModulationPatch:
                 logger.warning("Anima modulation skipped a non-divisible conditioning batch.")
                 return previous(model_function, args) if previous is not None else model_function(input_x, args["timestep"], **args["c"])
             chunk = input_x.shape[0] // len(branches)
-            rows = []
-            for branch in branches:
-                rows.append(_expand_rows(self.positive if branch == 0 else self.negative, chunk))
-            pooled = torch.cat(rows, dim=0)
-            scales = self.scales.to(device=input_x.device, dtype=input_x.dtype)
+            positive, negative, scales = vectors_for(input_x)
+            pooled = torch.cat([_expand_rows(positive if branch == 0 else negative, chunk) for branch in branches], dim=0)
             try:
                 for index in range(start, end + 1):
-                    dit.blocks[index]._forge_anima_modulation_local.delta = (pooled.to(input_x) * scales[index]).unsqueeze(1)
+                    dit.blocks[index]._forge_anima_modulation_local.delta = (pooled * scales[index]).unsqueeze(1)
                 return previous(model_function, args) if previous is not None else model_function(input_x, args["timestep"], **args["c"])
             finally:
                 for index in range(start, end + 1):

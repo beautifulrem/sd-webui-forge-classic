@@ -10,13 +10,13 @@ import torch.nn.functional as F
 from modules.anima_support import is_anima_auxiliary_denoiser
 
 
-def _sigma_value(value) -> float:
+def sigma_value(value) -> float:
     if torch.is_tensor(value):
         return float(value.detach().flatten()[0])
     return float(value)
 
 
-def _sigma_broadcast(value, reference: torch.Tensor):
+def sigma_broadcast(value, reference: torch.Tensor):
     if torch.is_tensor(value):
         return value.reshape(-1, *([1] * (reference.ndim - 1))).to(
             device=reference.device, dtype=reference.dtype
@@ -24,7 +24,7 @@ def _sigma_broadcast(value, reference: torch.Tensor):
     return max(float(value), 1e-12)
 
 
-def _standard_cfg_residual(args) -> torch.Tensor:
+def standard_cfg_residual(args) -> torch.Tensor:
     cond = args["cond_denoised"]
     uncond = args["uncond_denoised"]
     denoised = uncond + (cond - uncond) * float(args["cond_scale"])
@@ -43,11 +43,11 @@ def make_guidance_range_cfg_function(
 
     @torch.no_grad()
     def cfg_function(args):
-        sigma = _sigma_value(args.get("sigma", args.get("timestep")))
+        sigma = sigma_value(args.get("sigma", args.get("timestep")))
         if low <= sigma <= high:
             if previous_cfg_function is not None:
                 return previous_cfg_function(args)
-            return _standard_cfg_residual(args)
+            return standard_cfg_residual(args)
         return args["input"] - args["cond_denoised"]
 
     cfg_function._anima_guidance_range = (low, high)
@@ -73,7 +73,7 @@ def make_guidance_range_uncond_skip(cfg_function: Callable):
     def pre_cfg_function(model, cond, uncond, x, timestep, model_options):
         if (
             uncond is not None
-            and not low <= _sigma_value(timestep) <= high
+            and not low <= sigma_value(timestep) <= high
             and model_options.get("sampler_cfg_function") is cfg_function
             and all(
                 getattr(fn, IGNORES_UNCOND, False)
@@ -105,7 +105,7 @@ class MomentumGuidanceState:
         *,
         update_state: bool = True,
     ) -> torch.Tensor:
-        sig = _sigma_broadcast(sigma, input_x)
+        sig = sigma_broadcast(sigma, input_x)
         velocity = (input_x - denoised) / sig
         if self._ema is not None and (
             self._ema.shape != velocity.shape
@@ -182,5 +182,4 @@ def make_fdg_cfg_function(high_frequency_scale: float):
         )
         return args["input"] - denoised
 
-    cfg_function._anima_fdg = True
     return cfg_function

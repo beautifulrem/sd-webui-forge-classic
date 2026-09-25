@@ -15,7 +15,25 @@ def is_anima_engine(model) -> bool:
 def is_anima_auxiliary_denoiser(process) -> bool:
     """Return whether the current denoiser call is a solver-only probe."""
 
-    return bool(getattr(process, _AUXILIARY_DENOISER_ATTRIBUTE, False))
+    try:
+        return bool(getattr(process, _AUXILIARY_DENOISER_ATTRIBUTE, False))
+    except ReferenceError:  # a ``process_ref`` whose generation has ended
+        return False
+
+
+def process_ref(process):
+    """A weak proxy of ``p`` for hooks stored on the model patcher.
+
+    Those hooks outlive the generation (until the next one replaces the
+    patcher); a strong reference would keep the finished ``p`` alive with its
+    latents, conds and init images."""
+
+    import weakref
+
+    try:
+        return weakref.proxy(process)
+    except TypeError:  # None, or an object without weakref support
+        return process
 
 
 def effective_prompt_batch(process) -> tuple[list[str], list[str]]:
@@ -125,7 +143,16 @@ def split_conditioning(conds):
     mask = conds.get("c_negpip_mask")
     if not torch.is_tensor(mask) or not bool((mask < 0).any()):
         mask = None
-    return conds.get("crossattn", conds.get("c_crossattn")), mask
+    return conditioning_context(conds), mask
+
+
+def conditioning_context(conds):
+    """The cross-attention context of ``get_learned_conditioning`` output
+    (the plain tensor, or ``crossattn`` of NegPiP's dict form)."""
+
+    if isinstance(conds, dict):
+        return conds.get("crossattn", conds.get("c_crossattn"))
+    return conds
 
 
 def negpip_mask_for(context, transformer_options):

@@ -36,6 +36,22 @@ class NAGTests(unittest.TestCase):
         self.assertTrue(torch.equal(actual[1], base[1]))
         self.assertTrue(torch.all(actual[0] > base[0]))
 
+    def test_sigma_window_is_read_once_per_model_call(self):
+        from lib_anima_guidance import nag
+
+        modifier = NAGAttentionModifier(scale=1.0, tau=100.0, alpha=1.0, sigma_start=0.0, sigma_end=1.0)
+        calls = []
+        original = nag.in_sigma_window
+        nag.in_sigma_window = lambda *args: calls.append(args) or original(*args)
+        try:
+            for _ in range(3):  # three attention layers of one model call
+                modifier(fake_attention, self.q, self.k, self.v, transformer_options=self.options, is_self_attention=False)
+            next_call = dict(self.options, sigmas=torch.tensor([0.5]))
+            modifier(fake_attention, self.q, self.k, self.v, transformer_options=next_call, is_self_attention=False)
+        finally:
+            nag.in_sigma_window = original
+        self.assertEqual(len(calls), 2)
+
     def test_self_attention_and_outside_range_are_noops(self):
         modifier = NAGAttentionModifier(scale=2.0, tau=2.5, alpha=0.5, sigma_start=0.0, sigma_end=0.4)
         base = fake_attention(self.q, self.k, self.v)
