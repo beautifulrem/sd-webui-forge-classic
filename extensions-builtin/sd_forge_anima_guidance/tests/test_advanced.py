@@ -15,6 +15,7 @@ from lib_anima_guidance.advanced import (
     IGNORES_UNCOND,
     make_guidance_range_cfg_function,
     make_guidance_range_uncond_skip,
+    make_momentum_post_cfg_function,
 )
 
 
@@ -114,6 +115,10 @@ class GuidanceRangeUncondSkipTests(unittest.TestCase):
 
         setattr(safe, IGNORES_UNCOND, True)
         self.assertIsNone(self.uncond_after(0.9, sampler_post_cfg_function=[safe]))
+
+    def test_momentum_does_not_keep_the_unconditional_pass(self):
+        momentum = make_momentum_post_cfg_function(MomentumGuidanceState())
+        self.assertIsNone(self.uncond_after(0.9, sampler_post_cfg_function=[momentum]))
 
 
 if __name__ == "__main__":

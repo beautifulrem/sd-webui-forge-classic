@@ -908,9 +908,10 @@ class AnimaGuidanceScript(scripts.Script):
                 momentum=float(momentum_strength),
                 ema_decay=float(momentum_ema),
             )
+            # Momentum reads only the combined prediction, so it needs no
+            # unconditional pass at CFG 1 (or outside the CFG range).
             unet.set_model_sampler_post_cfg_function(
                 make_momentum_post_cfg_function(momentum_state, process=p),
-                disable_cfg1_optimization=True,
             )
             spectrum_force.request(unet, "anima_momentum")
             p.extra_generation_params["Anima Momentum Guidance"] = True

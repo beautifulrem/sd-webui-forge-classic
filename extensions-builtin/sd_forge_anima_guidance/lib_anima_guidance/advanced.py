@@ -140,6 +140,8 @@ def make_momentum_post_cfg_function(state: MomentumGuidanceState, process=None):
         )
 
     post_cfg._anima_momentum_state = state
+    # Momentum only reads the combined prediction.
+    setattr(post_cfg, IGNORES_UNCOND, True)
     return post_cfg
 
 
