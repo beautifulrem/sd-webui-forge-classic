@@ -183,10 +183,8 @@ class SelfCrossAttention(nn.Module):
         q = self.q_proj(x)
         k = self.k_proj(x if context is None else context)
         v = self.v_proj(x if context is None else context)
-        q, k, v = map(
-            lambda t: rearrange(t, "b ... (h d) -> b ... h d", h=self.n_heads, d=self.head_dim),
-            (q, k, v),
-        )
+        heads = (self.n_heads, self.head_dim)
+        q, k, v = q.unflatten(-1, heads), k.unflatten(-1, heads), v.unflatten(-1, heads)
 
         if self.is_SelfAttn and rope_emb is not None:
             q_scale, _, q_offload_stream = weights_manual_cast(self.q_norm, q)
@@ -315,7 +313,7 @@ class FinalLayer(nn.Module):
 
     def forward(self, x_B_T_H_W_D: torch.Tensor, emb_B_T_D: torch.Tensor, adaln_lora_B_T_3D: Optional[torch.Tensor] = None):
         shift_B_T_D, scale_B_T_D = (self.adaln_modulation(emb_B_T_D) + adaln_lora_B_T_3D[:, :, : 2 * self.hidden_size]).chunk(2, dim=-1)
-        shift_B_T_1_1_D, scale_B_T_1_1_D = rearrange(shift_B_T_D, "b t d -> b t 1 1 d"), rearrange(scale_B_T_D, "b t d -> b t 1 1 d")
+        shift_B_T_1_1_D, scale_B_T_1_1_D = shift_B_T_D[:, :, None, None, :], scale_B_T_D[:, :, None, None, :]
 
         x_B_T_H_W_D = _fn(x_B_T_H_W_D, self.layer_norm, scale_B_T_1_1_D, shift_B_T_1_1_D)
         x_B_T_H_W_O = self.linear(x_B_T_H_W_D)
@@ -370,17 +368,17 @@ class Block(nn.Module):
         shift_cross_attn_B_T_D, scale_cross_attn_B_T_D, gate_cross_attn_B_T_D = (self.adaln_modulation_cross_attn(emb_B_T_D) + adaln_lora_B_T_3D).chunk(3, dim=-1)
         shift_mlp_B_T_D, scale_mlp_B_T_D, gate_mlp_B_T_D = (self.adaln_modulation_mlp(emb_B_T_D) + adaln_lora_B_T_3D).chunk(3, dim=-1)
 
-        shift_self_attn_B_T_1_1_D = rearrange(shift_self_attn_B_T_D, "b t d -> b t 1 1 d")
-        scale_self_attn_B_T_1_1_D = rearrange(scale_self_attn_B_T_D, "b t d -> b t 1 1 d")
-        gate_self_attn_B_T_1_1_D = rearrange(gate_self_attn_B_T_D, "b t d -> b t 1 1 d")
+        shift_self_attn_B_T_1_1_D = shift_self_attn_B_T_D[:, :, None, None, :]
+        scale_self_attn_B_T_1_1_D = scale_self_attn_B_T_D[:, :, None, None, :]
+        gate_self_attn_B_T_1_1_D = gate_self_attn_B_T_D[:, :, None, None, :]
 
-        shift_cross_attn_B_T_1_1_D = rearrange(shift_cross_attn_B_T_D, "b t d -> b t 1 1 d")
-        scale_cross_attn_B_T_1_1_D = rearrange(scale_cross_attn_B_T_D, "b t d -> b t 1 1 d")
-        gate_cross_attn_B_T_1_1_D = rearrange(gate_cross_attn_B_T_D, "b t d -> b t 1 1 d")
+        shift_cross_attn_B_T_1_1_D = shift_cross_attn_B_T_D[:, :, None, None, :]
+        scale_cross_attn_B_T_1_1_D = scale_cross_attn_B_T_D[:, :, None, None, :]
+        gate_cross_attn_B_T_1_1_D = gate_cross_attn_B_T_D[:, :, None, None, :]
 
-        shift_mlp_B_T_1_1_D = rearrange(shift_mlp_B_T_D, "b t d -> b t 1 1 d")
-        scale_mlp_B_T_1_1_D = rearrange(scale_mlp_B_T_D, "b t d -> b t 1 1 d")
-        gate_mlp_B_T_1_1_D = rearrange(gate_mlp_B_T_D, "b t d -> b t 1 1 d")
+        shift_mlp_B_T_1_1_D = shift_mlp_B_T_D[:, :, None, None, :]
+        scale_mlp_B_T_1_1_D = scale_mlp_B_T_D[:, :, None, None, :]
+        gate_mlp_B_T_1_1_D = gate_mlp_B_T_D[:, :, None, None, :]
 
         B, T, H, W, D = x_B_T_H_W_D.shape
 
@@ -390,34 +388,22 @@ class Block(nn.Module):
             scale_self_attn_B_T_1_1_D,
             shift_self_attn_B_T_1_1_D,
         )
-        result_B_T_H_W_D = rearrange(
-            self.self_attn(
-                rearrange(normalized_x_B_T_H_W_D.to(compute_dtype), "b t h w d -> b (t h w) d"),
-                None,
-                rope_emb=rope_emb_L_1_1_D,
-                transformer_options=transformer_options,
-            ),
-            "b (t h w) d -> b t h w d",
-            t=T,
-            h=H,
-            w=W,
-        )
+        result_B_T_H_W_D = self.self_attn(
+            normalized_x_B_T_H_W_D.to(compute_dtype).flatten(1, 3),
+            None,
+            rope_emb=rope_emb_L_1_1_D,
+            transformer_options=transformer_options,
+        ).unflatten(1, (T, H, W))
         x_B_T_H_W_D = torch.addcmul(x_B_T_H_W_D, gate_self_attn_B_T_1_1_D.to(residual_dtype), result_B_T_H_W_D.to(residual_dtype))
 
         def _x_fn(_x_B_T_H_W_D: torch.Tensor, layer_norm_cross_attn: Callable, _scale_cross_attn_B_T_1_1_D: torch.Tensor, _shift_cross_attn_B_T_1_1_D: torch.Tensor, transformer_options: Optional[dict] = {}) -> torch.Tensor:
             _normalized_x_B_T_H_W_D = _fn(_x_B_T_H_W_D, layer_norm_cross_attn, _scale_cross_attn_B_T_1_1_D, _shift_cross_attn_B_T_1_1_D)
-            _result_B_T_H_W_D = rearrange(
-                self.cross_attn(
-                    rearrange(_normalized_x_B_T_H_W_D.to(compute_dtype), "b t h w d -> b (t h w) d"),
-                    crossattn_emb,
-                    rope_emb=rope_emb_L_1_1_D,
-                    transformer_options=transformer_options,
-                ),
-                "b (t h w) d -> b t h w d",
-                t=T,
-                h=H,
-                w=W,
-            )
+            _result_B_T_H_W_D = self.cross_attn(
+                _normalized_x_B_T_H_W_D.to(compute_dtype).flatten(1, 3),
+                crossattn_emb,
+                rope_emb=rope_emb_L_1_1_D,
+                transformer_options=transformer_options,
+            ).unflatten(1, (T, H, W))
             return _result_B_T_H_W_D
 
         result_B_T_H_W_D = _x_fn(
