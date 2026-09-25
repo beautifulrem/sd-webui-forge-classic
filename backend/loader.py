@@ -715,7 +715,12 @@ def process_anima(dit: dict[str, torch.Tensor], enc: dict[str, torch.Tensor]):
     keys = list(dit.keys())
     for k in keys:
         if k.startswith("llm_adapter"):
-            enc[k] = dit.pop(k)
+            value = dit.pop(k)
+            # A GGUF DiT quantizes the adapter too; dequantize it (it is small)
+            # so the text encoder is not switched to GGUF ops just for it.
+            if hasattr(value, "dequantize_as_pytorch_parameter"):
+                value = value.dequantize_as_pytorch_parameter()
+            enc[k] = value
 
 
 def process_pid(state_dict: dict[str, torch.Tensor]):
