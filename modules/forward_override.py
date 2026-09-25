@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import weakref
+from contextlib import contextmanager
 
 
 _NO_INSTANCE_FORWARD = object()
@@ -58,3 +59,18 @@ def restore_forward_override(module, forward, previous, name: str = "forward") -
     except TypeError:
         pass
     return True
+
+
+@contextmanager
+def forward_overrides(pairs, name: str = "forward"):
+    """Install ``(module, forward)`` overrides for the ``with`` block; they are
+    restored in reverse order on exit, also when the block raises."""
+
+    installed = []
+    try:
+        for module, forward in pairs:
+            installed.append((module, forward, install_forward_override(module, forward, name)))
+        yield
+    finally:
+        for module, forward, previous in reversed(installed):
+            restore_forward_override(module, forward, previous, name)

@@ -10,7 +10,7 @@ import torch
 
 from modules import spectrum_force
 from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows, call_model_wrapper
-from modules.forward_override import install_forward_override, restore_forward_override
+from modules.forward_override import forward_overrides
 
 
 _PATCH_LOCK = threading.RLock()
@@ -35,14 +35,6 @@ def rectangle_token_mask(*, latent_t, latent_h, latent_w, patch_t, patch_h, x, y
     return mask.to(dtype=dtype)
 
 
-def conditioning_rows(cond_or_uncond, total_batch: int, device, dtype):
-    """(batch, 1, 1) gate: 1 on positive-prompt rows (all rows when the
-    ``cond_or_uncond`` markers do not describe the batch)."""
-    rows = branch_rows(cond_or_uncond, total_batch)
-    values = [1.0] * total_batch if rows is None else [1.0 if row in rows else 0.0 for row in range(total_batch)]
-    return torch.tensor(values, device=device, dtype=dtype).reshape(total_batch, 1, 1)
-
-
 def fit_context(context: torch.Tensor, batch: int, like: torch.Tensor) -> torch.Tensor:
     context = context.to(device=like.device, dtype=like.dtype)
     if context.ndim == 4 and context.shape[1] == 1:
@@ -54,6 +46,12 @@ def fit_context(context: torch.Tensor, batch: int, like: torch.Tensor) -> torch.
     if context.shape[0] == batch:
         return context
     raise RuntimeError(f"Regional prompt batch {context.shape[0]} does not match attention batch {batch}")
+
+
+def fit_context_rows(context: torch.Tensor, batch: int, rows, like: torch.Tensor) -> torch.Tensor:
+    """:func:`fit_context`, keeping only ``rows`` of the batch (all when None)."""
+    context = fit_context(context, batch, like)
+    return context if rows is None else context[list(rows)]
 
 
 @dataclass
@@ -77,24 +75,28 @@ class RegionalState:
     start_sigma: float
     end_sigma: float
     current_masks: list[torch.Tensor] | None = None
-    # Per model call: whether each region's mask covers any token, and device
-    # copies of row gates / region contexts shared by all blocks of the call
+    # Whether each region's current mask covers any token
     region_nonempty: list[bool] = field(default_factory=list)
-    call_cache: dict = field(default_factory=dict)
+    # Device copies of masks, row indices and region contexts, keyed by shape,
+    # device and dtype; the state lives for one sampling pass.
+    cache: dict = field(default_factory=dict)
 
     def cached(self, key, build):
-        if key not in self.call_cache:
-            self.call_cache[key] = build()
-        return self.call_cache[key]
+        if key not in self.cache:
+            self.cache[key] = build()
+        return self.cache[key]
 
     def end_call(self) -> None:
         self.current_masks = None
-        self.call_cache.clear()
 
     def active(self, sigma: float) -> bool:
         return spectrum_force.in_sigma_window(sigma, self.start_sigma, self.end_sigma)
 
     def prepare_masks(self, input_x: torch.Tensor, dit):
+        key = ("masks", tuple(input_x.shape[-3:]), input_x.device, input_x.dtype)
+        self.current_masks, self.region_nonempty = self.cached(key, lambda: self._build_masks(input_x, dit))
+
+    def _build_masks(self, input_x: torch.Tensor, dit):
         latent_t = int(input_x.shape[-3])
         latent_h = int(input_x.shape[-2])
         latent_w = int(input_x.shape[-1])
@@ -116,9 +118,8 @@ class RegionalState:
             )
             for region in self.regions
         ]
-        self.region_nonempty = [bool((mask > 0).any()) and float(region.strength) > 0 for mask, region in zip(masks, self.regions)]
-        self.current_masks = [mask.to(device=input_x.device, dtype=input_x.dtype) for mask in masks]
-        self.call_cache.clear()
+        nonempty = [bool((mask > 0).any()) and float(region.strength) > 0 for mask, region in zip(masks, self.regions)]
+        return [mask.to(device=input_x.device, dtype=input_x.dtype) for mask in masks], nonempty
 
 
 def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_index: int):
@@ -128,13 +129,19 @@ def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_
         base = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
         batch = base.shape[0]
         markers = tuple(transformer_options.get("cond_or_uncond", []))
-        if branch_rows(markers, batch) == []:
-            return base  # no positive-prompt row: every alpha would be zero
-        row_mask = state.cached(("rows", markers, batch, base.device, base.dtype), lambda: conditioning_rows(markers, batch, base.device, base.dtype))
-        numerator = torch.zeros_like(base)
-        denominator = torch.zeros((base.shape[0], base.shape[1], 1), device=base.device, dtype=base.dtype)
-        for index, (region, spatial_mask) in enumerate(zip(state.regions, state.current_masks)):
-            if not state.region_nonempty[index]:
+        rows = branch_rows(markers, batch)
+        if rows == []:
+            return base  # no positive-prompt row: nothing to blend
+        # Regional contexts only run on the positive-prompt rows (every row
+        # when the markers do not describe the batch); the others keep ``base``.
+        rows = tuple(rows) if rows is not None and len(rows) < batch else None
+        index = None if rows is None else state.cached(("rows", rows, base.device), lambda: torch.tensor(rows, device=base.device))
+        region_x = x if index is None else x.index_select(0, index)
+        region_base = base if index is None else base.index_select(0, index)
+        numerator = torch.zeros_like(region_base)
+        denominator = torch.zeros((region_base.shape[0], region_base.shape[1], 1), device=base.device, dtype=base.dtype)
+        for number, (region, spatial_mask) in enumerate(zip(state.regions, state.current_masks)):
+            if not state.region_nonempty[number]:
                 continue
             if spatial_mask.shape[1] != base.shape[1]:
                 if base.shape[1] % spatial_mask.shape[1] != 0:
@@ -142,9 +149,12 @@ def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_
                         f"Regional token mask {spatial_mask.shape[1]} does not match Anima sequence {base.shape[1]}"
                     )
                 spatial_mask = spatial_mask.repeat(1, base.shape[1] // spatial_mask.shape[1], 1)
-            alpha = spatial_mask.to(base) * float(region.strength) * row_mask
-            regional_context = state.cached(("context", index, batch, context.device, context.dtype), lambda: fit_context(region.conditioning, batch, context))
+            alpha = spatial_mask.to(base) * float(region.strength)
+            key = (number, batch, rows, context.device, context.dtype)
+            regional_context = state.cached(("context", *key), lambda: fit_context_rows(region.conditioning, batch, rows, context))
             regional_options = dict(transformer_options)
+            if rows is not None:
+                regional_options["cond_or_uncond"] = [0] * sum(int(marker) == 0 for marker in markers)
             # NAG's negative branch is meaningful for the base positive/negative
             # pair, not for synthetic regional contexts repeated across rows.
             regional_options["anima_nag_skip"] = "regional_context"
@@ -152,14 +162,15 @@ def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_
             regional_options[NEGPIP_CONTEXT_MASK_KEY] = (
                 None
                 if region.negpip_mask is None
-                else state.cached(("negpip", index, batch, context.device, context.dtype), lambda: fit_context(region.negpip_mask, batch, context))
+                else state.cached(("negpip", *key), lambda: fit_context_rows(region.negpip_mask, batch, rows, context))
             )
-            regional = original_forward(x, context=regional_context, rope_emb=rope_emb, transformer_options=regional_options)
+            regional = original_forward(region_x, context=regional_context, rope_emb=rope_emb, transformer_options=regional_options)
             numerator = numerator + regional * alpha
             denominator = denominator + alpha
         blend = denominator.clamp(0.0, 1.0) * (1.0 - min(max(float(state.base_preserve), 0.0), 1.0))
         regional_average = numerator / denominator.clamp_min(1e-6)
-        return base * (1.0 - blend) + regional_average * blend
+        mixed = region_base * (1.0 - blend) + regional_average * blend
+        return mixed if index is None else base.index_copy(0, index, mixed)
 
     return wrapped
 
@@ -168,6 +179,17 @@ def apply_regional_patch(model, state: RegionalState):
     patched = model.clone()
     dit = patched.model.diffusion_model
     previous = patched.model_options.get("model_function_wrapper")
+    # block index -> (forward it wraps, wrapper), rebuilt only when the
+    # module's own forward changes (e.g. a later class-level patch)
+    wrappers = {}
+
+    def override(index):
+        module = dit.blocks[index].cross_attn
+        original = module.forward
+        cached = wrappers.get(index)
+        if cached is None or cached[0] != original:
+            cached = wrappers[index] = (original, _make_cross_attention_wrapper(original, state, index))
+        return module, cached[1]
 
     def wrapper(model_function, args):
         sigma = float(args["timestep"].flatten()[0].item())
@@ -175,16 +197,10 @@ def apply_regional_patch(model, state: RegionalState):
             return call_model_wrapper(previous, model_function, args)
         with _PATCH_LOCK:
             state.prepare_masks(args["input"], dit)
-            originals = []
             try:
-                for index in state.blocks:
-                    module = dit.blocks[index].cross_attn
-                    forward = _make_cross_attention_wrapper(module.forward, state, index)
-                    originals.append((module, forward, install_forward_override(module, forward)))
-                return call_model_wrapper(previous, model_function, args)
+                with forward_overrides(override(index) for index in state.blocks):
+                    return call_model_wrapper(previous, model_function, args)
             finally:
-                for module, forward, restore_token in reversed(originals):
-                    restore_forward_override(module, forward, restore_token)
                 state.end_call()
 
     # Outside its window the wrapper is a pass-through, and the request below

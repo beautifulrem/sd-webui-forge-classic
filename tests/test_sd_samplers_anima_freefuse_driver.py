@@ -11,12 +11,6 @@ from modules.anima_guidance_state import register_stateful_guidance
 SIGMAS = torch.tensor([1.0, 0.7, 0.4, 0.0])  # 3 steps; collect_step=1 -> 2 probe steps
 
 
-@pytest.fixture(autouse=True)
-def _webui_state(monkeypatch):
-    # modules.shared.state is only created by the WebUI launcher.
-    monkeypatch.setattr(freefuse, "webui_state", SimpleNamespace(interrupted=False, skipped=False))
-
-
 class _Runtime:
     collect_step = 1
 
@@ -152,3 +146,19 @@ def test_without_freefuse_runtime_falls_back_to_plain_euler(s_churn, caplog):
 
     assert torch.equal(result, expected)
     assert "without an active FreeFuse panel" in caplog.text
+
+
+def test_in_place_input_edits_in_the_probe_pass_do_not_reach_the_real_pass():
+    class EditingModel(_Model):
+        def __call__(self, x, sigma, **extra):
+            if "begin_generate" not in events:
+                x.add_(1.0)  # e.g. a denoiser callback correcting the latent
+            return super().__call__(x, sigma, **extra)
+
+    events = []
+    x = _noise()
+    original = x.clone()
+
+    freefuse.sample_anima_freefuse_euler(EditingModel(_Runtime(events)), x, SIGMAS, disable=True)
+
+    assert torch.equal(x, original)

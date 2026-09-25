@@ -34,7 +34,7 @@ from lib_artist_mixer.schedule import (
     parse_blocks as _parse_blocks,
 )
 from modules import script_callbacks, scripts, sd_models, shared, spectrum_force
-from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, is_feature_active, register_exclusive_component, set_feature_active
+from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
 from modules.anima_lora_support import stage_window
 from modules.anima_user_data import UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
@@ -1846,7 +1846,8 @@ def _dispatch_output_avg(original_forward, state, x, context, rope_emb, transfor
     )
     raw_weights = [float(weight) for _, weight in active]
     total_abs = sum(abs(w) for w in raw_weights)
-    if total_abs <= 1e-8:
+    # No row to mix into (e.g. an uncond-only call): skip the artist forwards
+    if total_abs <= 1e-8 or not any(mask):
         return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
     total_influence = _clamp(total_abs, 0.0, 1.0)
     denom = total_abs
@@ -1893,7 +1894,8 @@ def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_
     )
     raw_weights = [float(weight) for _, weight in active]
     total_abs = sum(abs(w) for w in raw_weights)
-    if total_abs <= 1e-8:
+    # No row to mix into (e.g. an uncond-only call): skip the artist forwards
+    if total_abs <= 1e-8 or not any(mask):
         return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
     total_influence = _clamp(total_abs, 0.0, 1.0)
     denom = total_abs
@@ -1917,8 +1919,8 @@ def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_
 
 
 def _blend_rows(state, base_out, artist_out, mask, total_influence):
-    """Mix the artist output into ``base_out`` on the rows ``mask`` selects,
-    for the whole batch at once (both blends are computed per row)."""
+    """Mix the artist output into ``base_out`` on the rows ``mask`` selects
+    (at least one), for the whole batch at once (both blends are computed per row)."""
 
     strength = _clamp(float(state.global_strength), 0.0, 1.0 if state.fusion_mode == FUSION_QUALITY_DELTA else 2.0) * total_influence
     if state.diff_probe is None and logger.isEnabledFor(logging.DEBUG):
@@ -1927,8 +1929,6 @@ def _blend_rows(state, base_out, artist_out, mask, total_influence):
             delta_norm = (artist_out - base_out).detach().float().flatten(1).norm(dim=1).mean().item()
             base_norm = base_out.detach().float().flatten(1).norm(dim=1).mean().clamp_min(1e-6).item()
             state.diff_probe = (float(delta_norm), float(delta_norm / base_norm))
-    if not any(mask):
-        return base_out
     if state.fusion_mode == FUSION_QUALITY_DELTA:
         blended = _norm_limited_delta(base_out, artist_out, strength)
     else:
@@ -2353,8 +2353,8 @@ class Script(scripts.Script):
     def process(self, p, *args, **kwargs):
         # Runs before NegPiP's process_batch: let a negative weight in an
         # artist name that will actually be encoded enable NegPiP.
-        # Mirrors process_before_every_sampling's gating; FreeFuse (which runs
-        # later) clears this registration when it takes priority.
+        # Mirrors process_before_every_sampling's gating; FreeFuse and Regional
+        # (which run later) clear this registration when they take priority.
         names = []
         if (
             len(args) >= 13
@@ -2429,8 +2429,9 @@ class Script(scripts.Script):
         set_feature_active(p, ARTIST_MIXER, False)
         if not enable:
             return
-        if is_feature_active(p, FREEFUSE):
-            message = "disabled: Anima FreeFuse has priority in headless processing"
+        owner = next((feature for feature in (FREEFUSE, REGIONAL) if is_feature_active(p, feature)), None)
+        if owner is not None:
+            message = f"disabled: {owner} has priority in headless processing"
             p.extra_generation_params["Anima Artist Mixer"] = message
             logger.warning("Anima Artist Mixer %s", message)
             return

@@ -146,6 +146,17 @@ def test_model_wrapper_runs_and_restores_every_forward():
     assert calls == ["collect", "previous", "collect"]
     assert all("forward" not in module.__dict__ for module in dit.modules())
 
+    def failing(x, t, **c):
+        raise RuntimeError("model call failed")
+
+    patched = runtime.apply_freefuse_patch(_WrapperPatcher(dit), state)
+    with pytest.raises(RuntimeError, match="model call failed"):
+        patched.model_options["model_function_wrapper"](
+            failing,
+            {"input": torch.zeros(1), "timestep": torch.ones(1), "c": {}},
+        )
+    assert all("forward" not in module.__dict__ for module in dit.modules())
+
 
 def test_cross_attention_applies_negpip_to_values_only():
     runtime, _, _ = _load()

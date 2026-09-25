@@ -76,3 +76,21 @@ def test_wrapper_runs_with_and_without_previous_wrapper_and_restores_forward():
     assert seen == ["called", "called"]
     assert previous_calls == [True]
     assert "forward" not in dit.blocks[0].cross_attn.__dict__
+
+
+def test_wrapper_restores_forward_when_the_model_call_raises():
+    import pytest
+
+    dit = _dit()
+    state = _State()
+    ended = []
+    state.end_call = lambda: ended.append(True)
+
+    def model_function(x, t, **c):
+        raise RuntimeError("model call failed")
+
+    wrapper = apply_regional_patch(_Patcher(dit), state).model_options["model_function_wrapper"]
+    with pytest.raises(RuntimeError, match="model call failed"):
+        wrapper(model_function, _args())
+    assert "forward" not in dit.blocks[0].cross_attn.__dict__
+    assert ended == [True]

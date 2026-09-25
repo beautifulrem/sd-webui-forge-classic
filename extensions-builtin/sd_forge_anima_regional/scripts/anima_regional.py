@@ -10,7 +10,7 @@ import torch
 from backend.logging import setup_logger
 from lib_anima_regional.regional import Region, RegionalState, apply_regional_patch
 from modules import prompt_parser, scripts
-from modules.anima_feature_conflicts import FREEFUSE, is_feature_active, register_exclusive_component
+from modules.anima_feature_conflicts import FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
 from modules.anima_presets import register_preset_control
 from modules.anima_support import is_anima_engine, parse_block_list, register_negpip_prompts, split_conditioning
 from modules.infotext_utils import PasteField
@@ -151,6 +151,14 @@ class AnimaRegionalScript(scripts.Script):
                 if _region_is_used(active, text, width, height, strength)
             ]
         register_negpip_prompts(p, "anima_regional", prompts)
+        # Runs before every sampling hook: Artist Mixer sees this and yields,
+        # so its artist prompts (registered earlier) must not enable NegPiP.
+        set_feature_active(p, REGIONAL, bool(prompts))
+        if prompts:
+            register_negpip_prompts(p, "anima_artist_mixer", [])
+
+    def postprocess(self, p, processed, *args, **kwargs):
+        set_feature_active(p, REGIONAL, False)
 
     def process_before_every_sampling(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
         if not enable or not is_anima_engine(getattr(p, "sd_model", None)):

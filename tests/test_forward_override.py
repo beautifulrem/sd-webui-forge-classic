@@ -62,3 +62,18 @@ def test_active_overrides_are_tracked_until_restored():
     assert module in overridden_modules()
     assert restore_forward_override(module, first, first_token)
     assert module not in overridden_modules()
+
+
+def test_forward_overrides_restore_in_reverse_when_the_block_raises():
+    import pytest
+
+    from modules.forward_override import forward_overrides
+
+    module = torch.nn.Identity()
+    outer = lambda x: x + 1
+    inner = lambda x: x + 2
+    with pytest.raises(RuntimeError):
+        with forward_overrides([(module, outer), (module, inner)]):
+            assert module.__dict__["forward"] is inner
+            raise RuntimeError("model call failed")
+    assert "forward" not in module.__dict__

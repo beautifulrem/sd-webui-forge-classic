@@ -7,7 +7,6 @@ import logging
 import torch
 from tqdm.auto import trange
 
-from modules.shared import state as webui_state
 from modules.anima_guidance_state import reset_stateful_guidance
 from k_diffusion.sampling import sample_euler, to_d
 
@@ -68,17 +67,15 @@ def sample_anima_freefuse_euler(
     runtime.configure_steps(total_steps)
     collect_steps = min(total_steps, runtime.collect_step + 1)
     s_in = x.new_ones([x.shape[0]])
-    initial_x = x.detach().clone()
     original_model_step = int(getattr(model, "step", 0))
 
+    # Both passes start from ``x``. The probe gets its own copy: denoiser
+    # callbacks (on_cfg_denoiser, DCW) may change the model input in place.
+    # CFGDenoiser raises on Interrupt / Skip at the start of each model call.
     runtime.begin_collect()
-    probe = initial_x.detach().clone()
+    probe = x.clone()
     try:
         for index in range(collect_steps):
-            if webui_state.interrupted or webui_state.skipped:
-                from modules.sd_samplers_common import InterruptedException
-
-                raise InterruptedException
             runtime.current_step = index
             sigma = sigmas[index]
             denoised = model(probe, sigma * s_in, **extra_args)
@@ -94,7 +91,7 @@ def sample_anima_freefuse_euler(
     reset_stateful_guidance(model)
     runtime.begin_generate()
 
-    result = initial_x
+    result = x
     try:
         for index in trange(total_steps, disable=disable):
             runtime.current_step = index

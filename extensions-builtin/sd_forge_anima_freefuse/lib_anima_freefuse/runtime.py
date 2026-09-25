@@ -17,7 +17,7 @@ from backend.patcher.base import LowVramPatch, OnlineLoRAPatch
 from backend.patcher.lora import merge_lora_to_weight
 from modules import spectrum_force
 from modules.anima_support import branch_rows, call_model_wrapper, negpip_mask_for
-from modules.forward_override import install_forward_override, restore_forward_override
+from modules.forward_override import forward_overrides
 from .masks import fit_mask_batch, generate_masks
 
 logger = logging.getLogger("AnimaFreeFuse")
@@ -98,7 +98,6 @@ def install_patch_metadata_hook() -> None:
         )
 
     add_patches_with_metadata._anima_freefuse_metadata = True
-    add_patches_with_metadata._anima_freefuse_previous = current
     add_patches_with_metadata.__wrapped__ = current
     ModelPatcher.add_patches = add_patches_with_metadata
 
@@ -607,21 +606,13 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
     def wrapper(model_function, args):
         with _PATCH_LOCK:
             state.update_grid(args["input"], dit)
-            originals = []
-            try:
-                for module, forward in overrides:
-                    originals.append(
-                        (module, forward, install_forward_override(module, forward))
-                    )
+            with forward_overrides(overrides):
                 adjusted = dict(args)
                 adjusted["c"] = dict(args["c"])
                 options = dict(adjusted["c"].get("transformer_options", {}))
                 options["anima_freefuse_phase"] = state.phase
                 adjusted["c"]["transformer_options"] = options
                 return call_model_wrapper(previous, model_function, adjusted)
-            finally:
-                for module, forward, restore_token in reversed(originals):
-                    restore_forward_override(module, forward, restore_token)
 
     patched.set_model_unet_function_wrapper(wrapper)
     patched.set_transformer_option("anima_freefuse_state", state)
