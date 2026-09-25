@@ -138,10 +138,45 @@ def split_conditioning(conds):
 
     if not isinstance(conds, dict):
         return conds, None
-    mask = conds.get("c_negpip_mask")
+    context, mask = conditioning_context(conds), conds.get("c_negpip_mask")
+    if isinstance(context, (list, tuple)):  # prompts padded to different lengths
+        context = _stack_tiled(context)
+        mask = _stack_tiled(mask) if isinstance(mask, (list, tuple)) else None
     if not torch.is_tensor(mask) or not bool((mask < 0).any()):
         mask = None
-    return conditioning_context(conds), mask
+    return context, mask
+
+
+def _stack_tiled(values):
+    """Stack per-prompt ``(tokens, ...)`` tensors, tiling each along the tokens
+    to their least common multiple like Forge's ``ConditionCrossAttn``.
+    Repeating a whole key/value sequence leaves attention unchanged."""
+
+    import math
+
+    import torch
+
+    length = math.lcm(*(value.shape[0] for value in values))
+    return torch.stack([value.repeat(length // value.shape[0], *([1] * (value.ndim - 1))) for value in values])
+
+
+@contextmanager
+def preserved_reference_latents(sd_model):
+    """Encode extra prompts (Regional, Artist Mixer) without touching the
+    reference latents the main prompt set up: Anima's positive-prompt
+    ``get_learned_conditioning`` resets them and consumes ``ini_latent``."""
+
+    from backend.args import dynamic_args
+
+    references = list(dynamic_args.ref_latents)
+    missing = object()
+    initial = getattr(sd_model, "ini_latent", missing)
+    try:
+        yield
+    finally:
+        dynamic_args.ref_latents = references
+        if initial is not missing:
+            sd_model.ini_latent = initial
 
 
 def conditioning_context(conds):

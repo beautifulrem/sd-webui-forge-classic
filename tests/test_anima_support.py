@@ -133,3 +133,36 @@ def test_conditioning_context_unwraps_negpip_dicts():
     assert conditioning_context(tensor) is tensor
     assert conditioning_context({"crossattn": tensor, "c_negpip_mask": tensor}) is tensor
     assert conditioning_context({"c_crossattn": tensor}) is tensor
+
+
+def test_split_conditioning_batches_prompts_of_different_lengths():
+    short, long = torch.randn(2, 3), torch.randn(3, 3)
+    masks = [torch.tensor([[1.0], [-1.0]]), torch.ones(3, 1)]
+
+    context, mask = split_conditioning({"crossattn": [short, long], "c_negpip_mask": masks})
+
+    assert context.shape == (2, 6, 3) and mask.shape == (2, 6, 1)
+    assert torch.equal(context[0], short.repeat(3, 1)) and torch.equal(context[1], long.repeat(2, 1))
+    assert mask[0, :, 0].tolist() == [1.0, -1.0] * 3
+    # Tiling a whole key/value sequence leaves attention unchanged
+    query = torch.randn(1, 4, 3)
+    plain = torch.nn.functional.scaled_dot_product_attention(query, short[None], short[None])
+    tiled = torch.nn.functional.scaled_dot_product_attention(query, context[:1], context[:1])
+    assert torch.allclose(plain, tiled, atol=1e-6)
+
+
+def test_extra_prompt_encoding_keeps_the_reference_latents(monkeypatch):
+    from types import SimpleNamespace
+
+    from backend.args import dynamic_args
+    from modules.anima_support import preserved_reference_latents
+
+    reference, initial = torch.ones(1), torch.zeros(1)
+    monkeypatch.setattr(dynamic_args, "ref_latents", [reference])
+    sd_model = SimpleNamespace(ini_latent=initial)
+
+    with preserved_reference_latents(sd_model):
+        dynamic_args.ref_latents.clear()  # what a positive-prompt encode does
+        sd_model.ini_latent = None
+
+    assert dynamic_args.ref_latents == [reference] and sd_model.ini_latent is initial

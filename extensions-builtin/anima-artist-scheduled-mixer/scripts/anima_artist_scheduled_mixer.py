@@ -38,7 +38,7 @@ from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is
 from modules.anima_lora_support import stage_window
 from modules.anima_user_data import UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
-from modules.anima_support import call_model_wrapper, effective_prompt_batch, negpip_mask_for, register_negpip_prompts, split_conditioning
+from modules.anima_support import call_model_wrapper, effective_prompt_batch, negpip_mask_for, preserved_reference_latents, register_negpip_prompts, split_conditioning
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
@@ -1468,7 +1468,8 @@ def _encode_text_batch(p, texts, use_cache=True):
         height=getattr(p, "height", None),
         distilled_cfg_scale=getattr(p, "distilled_cfg_scale", None),
     )
-    conds = p.sd_model.get_learned_conditioning(conditioning)
+    with preserved_reference_latents(p.sd_model):
+        conds = p.sd_model.get_learned_conditioning(conditioning)
     tensors = []
     # NegPiP returns {"crossattn", "c_negpip_mask"}; keep the mask so the
     # artist context gets the same negative-weight semantics as the prompt.

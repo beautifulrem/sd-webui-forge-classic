@@ -12,7 +12,7 @@ from lib_anima_regional.regional import Region, RegionalState, apply_regional_pa
 from modules import prompt_parser, scripts, shared
 from modules.anima_feature_conflicts import FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
 from modules.anima_presets import register_preset_control
-from modules.anima_support import is_anima_engine, parse_block_list, register_negpip_prompts, split_conditioning
+from modules.anima_support import is_anima_engine, parse_block_list, preserved_reference_latents, register_negpip_prompts, split_conditioning
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -68,7 +68,8 @@ def _encode(p, text: str):
         height=p.height,
         distilled_cfg_scale=getattr(p, "distilled_cfg_scale", None),
     )
-    result = p.sd_model.get_learned_conditioning(value)
+    with preserved_reference_latents(p.sd_model):
+        result = p.sd_model.get_learned_conditioning(value)
     cond, mask = _extract_conditioning(result)
     if mask is not None:
         mask = mask.detach().float().cpu().contiguous()
