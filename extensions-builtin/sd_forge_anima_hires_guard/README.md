@@ -17,6 +17,8 @@ Every selected limit and applied adjustment is recorded in image metadata.
 Alignment is ceiling-aware: if nearest-grid rounding would cross an MP or
 per-axis limit, the guard rounds downward. A target that would become smaller
 than the base on either axis falls back to the already-safe base rectangle.
+txt2img's Upscale button starts from a finished image, so there the image
+size is kept and only the Hires target relative to it is guarded.
 
 The 16-pixel alignment follows Anima's 8x spatial VAE reduction followed by
 the transformer's 2x spatial patch embedding. Existing 64-pixel Anima presets

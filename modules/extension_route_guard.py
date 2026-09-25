@@ -10,6 +10,7 @@ state-changing requests. :func:`guard_routes` wraps such routes.
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 import sys
 from typing import Iterable
@@ -53,22 +54,47 @@ def _is_loopback_name(hostname: str) -> bool:
         return False
 
 
+def _bind_host(cmd_opts) -> str | None:
+    """The address the server listens on; None for all interfaces."""
+    from modules.initialize_util import gradio_server_name
+
+    host = gradio_server_name()  # what webui.py passes to Gradio / uvicorn
+    if host:
+        return host
+    if getattr(cmd_opts, "nowebui", False):
+        return None  # uvicorn binds every interface for host=None
+    # Gradio's own fallback (gradio/http_server.py)
+    return os.environ.get("GRADIO_SERVER_NAME", "127.0.0.1")
+
+
+def _is_loopback_only(cmd_opts) -> bool:
+    if getattr(cmd_opts, "share", None) or getattr(cmd_opts, "ngrok", None):
+        return False  # also reached through the tunnel's host name
+    host = _bind_host(cmd_opts)
+    return bool(host) and _is_loopback_name(host.strip("[]").lower())
+
+
 def is_rebound_host(request) -> bool:
     """A request to a loopback-only server under a foreign ``Host`` name.
 
     DNS rebinding re-points a site's name at 127.0.0.1, so its requests look
-    same-origin to the browser. A server that only listens on loopback (no
-    --listen / --server-name / --share / --ngrok) is only reached as
-    localhost, or under a name allowed with --cors-allow-origins."""
+    same-origin to the browser. A server that only listens on loopback (by
+    default, or with a loopback --server-name; no --share / --ngrok) is only
+    reached as localhost, or under a name allowed with
+    --cors-allow-origins(-regex)."""
 
     cmd_opts = _cmd_opts()
-    if cmd_opts is None or any(getattr(cmd_opts, name, None) for name in ("listen", "server_name", "share", "ngrok")):
+    if cmd_opts is None or not _is_loopback_only(cmd_opts):
         return False
-    hostname = _hostname(request.headers.get("host") or "")
+    host = request.headers.get("host") or ""
+    hostname = _hostname(host)
     if not hostname or _is_loopback_name(hostname):
         return False
     allowed = {_hostname(urlparse(origin).netloc or "") for origin in _cors_origins(cmd_opts)}
-    return hostname not in allowed
+    if hostname in allowed:
+        return False
+    # A page from an allowed origin served under this Host would send it as Origin
+    return not any(_allowed_by_cors(f"{scheme}://{host}") for scheme in ("http", "https"))
 
 
 _DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}

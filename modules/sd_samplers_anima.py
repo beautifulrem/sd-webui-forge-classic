@@ -143,13 +143,22 @@ def _bh_rhos(hh, *, order, like, predictor, solver_type, rks=()):
     if order <= 1 or predictor:
         return h_phi_1, b_h, [like.new_tensor(0.5)]
 
-    rks = torch.stack([value.to(like) for value in rks] + [like.new_tensor(1.0)])
+    (rk,) = rks
+    rk = rk.to(like)
     h_phi_2 = h_phi_1 / hh - 1.0
     h_phi_3 = h_phi_2 / hh - 0.5
-    matrix = torch.stack([torch.ones_like(rks), rks])
-    vector = torch.stack([h_phi_2 / b_h, 2.0 * h_phi_3 / b_h]).to(like)
-    rhos = torch.linalg.solve(matrix, vector)
-    return h_phi_1, b_h, list(rhos)
+    v0 = (h_phi_2 / b_h).to(like)
+    v1 = (2.0 * h_phi_3 / b_h).to(like)
+    # Solves [[1, 1], [rk, 1]] @ rhos = [v0, v1] without torch.linalg.solve,
+    # which syncs with the host on CUDA every step. Eliminates in LAPACK's
+    # order (partial pivoting, reciprocal scaling) so the rounding matches it.
+    swap = torch.abs(rk) > 1.0
+    inv_rk = 1.0 / rk
+    first, second = torch.where(swap, v1, v0), torch.where(swap, v0, v1)
+    multiplier = torch.where(swap, inv_rk, rk)
+    rho1 = (second - multiplier * first) * (1.0 / (1.0 - multiplier))
+    rho0 = (first - rho1) * torch.where(swap, inv_rk, torch.ones_like(rk))
+    return h_phi_1, b_h, [rho0, rho1]
 
 
 def _unipc_predict(
@@ -440,19 +449,18 @@ def _pc3_correct(
     t_next,
     state,
     x_pred,
-    predictor_order,
     *,
     max_gamma,
     tolerance,
     schedule,
     step,
 ):
+    """Damped correction of a third-order prediction; _pc3_predict only
+    returns order 3 when neither neighbouring step gap is empty."""
+
     current_lambda = _rf_lambda(t).to(x)
     lambda_next = _rf_lambda(t_next).to(x)
     h = lambda_next - current_lambda
-    if schedule.gap(step, step + 1) <= _EPS or schedule.gap(step - 1, step) <= _EPS:
-        return x_pred
-
     t_current = torch.clamp(t.to(x), min=_EPS)
     t_next = torch.clamp(t_next.to(x), min=0.0)
     ratio = t_next / t_current
@@ -483,20 +491,17 @@ def _pc3_correct(
     )
     gamma = float(max_gamma) * gamma_lambda * gamma_error
 
-    if predictor_order >= 3:
-        # Cap the correction relative to the predictor step; skipped (via
-        # where, without a host sync) when the correction is negligible.
-        correction_rms = _rms(x_corrected - x_pred)
-        predictor_step_rms = _rms(x_pred - x)
-        anchor_rms = torch.maximum(_rms(x_pred), _rms(x))
-        cap_ratio = 0.65 if float(schedule.lambdas[step + 1]) >= 3.5 else 0.90
-        correction_cap = torch.maximum(
-            predictor_step_rms * cap_ratio, anchor_rms * 0.015
-        )
-        capped = gamma * torch.clamp(
-            correction_cap / (torch.abs(gamma) * correction_rms + _EPS), 0.0, 1.0
-        )
-        gamma = torch.where(correction_rms > _EPS, capped, gamma)
+    # Cap the correction relative to the predictor step; skipped (via where,
+    # without a host sync) when the correction is negligible.
+    correction_rms = _rms(x_corrected - x_pred)
+    predictor_step_rms = _rms(x_pred - x)
+    anchor_rms = torch.maximum(_rms(x_pred), _rms(x))
+    cap_ratio = 0.65 if float(schedule.lambdas[step + 1]) >= 3.5 else 0.90
+    correction_cap = torch.maximum(predictor_step_rms * cap_ratio, anchor_rms * 0.015)
+    capped = gamma * torch.clamp(
+        correction_cap / (torch.abs(gamma) * correction_rms + _EPS), 0.0, 1.0
+    )
+    gamma = torch.where(correction_rms > _EPS, capped, gamma)
     return x_pred + gamma * (x_corrected - x_pred)
 
 
@@ -540,14 +545,8 @@ def sample_anima_flow_pc3(
             x, denoised, t, t_next, state, max_order, schedule=schedule, step=i
         )
 
-        can_correct = (
-            not tail_interval
-            and total_steps - i > 2
-            and predictor_order >= 3
-            and state.previous_previous_denoised is not None
-            and max_gamma > 0.0
-        )
-        if can_correct:
+        # Order 3 implies a non-tail step with two previous outputs
+        if predictor_order >= 3 and max_gamma > 0.0:
             _set_denoiser_step(model, min(i + 1, total_steps - 1), total_steps)
             with anima_auxiliary_denoiser(model):
                 denoised_pred = model(x_pred, t_next * x.new_ones([x.shape[0]]), **extra_args)
@@ -559,7 +558,6 @@ def sample_anima_flow_pc3(
                 t_next,
                 state,
                 x_pred,
-                predictor_order,
                 max_gamma=max_gamma,
                 tolerance=tolerance,
                 schedule=schedule,

@@ -20,3 +20,22 @@ def test_rope_embedding_is_built_once_per_grid_and_matches():
         with torch.inference_mode():
             emb(torch.zeros(1, 1, size, size, 8), device=x.device)
     assert len(emb._cache) <= 4
+
+
+def test_moving_or_casting_the_module_drops_cached_embeddings():
+    """The cache is a plain dict, so ``.to()`` would not move it: offloading
+    the model must not keep embeddings on the old device."""
+    emb = VideoRopePosition3DEmb(head_dim=128, h_extrapolation_ratio=4.0, w_extrapolation_ratio=4.0, t_extrapolation_ratio=1.0)
+    parent = torch.nn.Sequential(emb)
+    x = torch.zeros(1, 1, 4, 4, 8)
+
+    with torch.inference_mode():
+        emb(x, device=x.device)
+    assert emb._cache
+    parent.to("cpu")  # recurses through _apply
+    assert not emb._cache
+
+    with torch.inference_mode():
+        emb(x, device=x.device)
+    parent.half()
+    assert not emb._cache

@@ -74,7 +74,7 @@ def test_websocket_handshakes_get_the_same_checks(monkeypatch):
 
     # The test client's handshake always says "Host: testserver", which a
     # loopback-only server would refuse as a rebound name: act as --listen.
-    options = SimpleNamespace(listen=True, cors_allow_origins=None, cors_allow_origins_regex=None)
+    options = SimpleNamespace(listen=True, server_name=None, cors_allow_origins=None, cors_allow_origins_regex=None)
     monkeypatch.setitem(sys.modules, "modules.shared_cmd_options", SimpleNamespace(cmd_opts=options))
 
     app = FastAPI()
@@ -160,3 +160,59 @@ def test_loopback_only_server_refuses_rebound_host_names(monkeypatch):
     # Malformed ports are refused, not a server error
     assert is_cross_site(SimpleNamespace(method="POST", headers={"origin": "http://a.com:99999", "host": "a.com"}))
     assert is_cross_site(SimpleNamespace(method="POST", headers={"origin": "http://a.com", "host": "a.com:x"}))
+
+
+def _guard_options(monkeypatch, **overrides):
+    import sys
+    from types import SimpleNamespace
+
+    values = dict(listen=False, server_name=None, share=False, ngrok=None, nowebui=False, cors_allow_origins=None, cors_allow_origins_regex=None)
+    options = SimpleNamespace(**(values | overrides))
+    monkeypatch.setitem(sys.modules, "modules.shared_cmd_options", SimpleNamespace(cmd_opts=options))
+    monkeypatch.delenv("GRADIO_SERVER_NAME", raising=False)
+    return options
+
+
+def _get(host):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(method="GET", headers={"host": host}, cookies={})
+
+
+def test_loopback_server_name_keeps_dns_rebinding_protection(monkeypatch):
+    from modules.extension_route_guard import is_rebound_host
+
+    for server_name in ("127.0.0.1", "localhost", "[::1]", "::1"):
+        _guard_options(monkeypatch, server_name=server_name)
+        assert is_rebound_host(_get("evil.example:7860")), server_name
+        assert not is_rebound_host(_get("127.0.0.1:7860"))
+    for server_name in ("0.0.0.0", "192.168.1.5", "my-box.lan"):
+        _guard_options(monkeypatch, server_name=server_name)
+        assert not is_rebound_host(_get("my-box.lan:7860")), server_name
+
+
+def test_bind_address_follows_what_gradio_and_uvicorn_do(monkeypatch):
+    from modules.extension_route_guard import is_rebound_host
+
+    _guard_options(monkeypatch)
+    monkeypatch.setenv("GRADIO_SERVER_NAME", "0.0.0.0")  # Gradio then listens on every interface
+    assert not is_rebound_host(_get("192.168.1.5:7860"))
+    monkeypatch.setenv("GRADIO_SERVER_NAME", "127.0.0.1")
+    assert is_rebound_host(_get("192.168.1.5:7860"))
+
+    # --nowebui: uvicorn gets host=None and listens on every interface
+    _guard_options(monkeypatch, nowebui=True)
+    assert not is_rebound_host(_get("192.168.1.5:7861"))
+    _guard_options(monkeypatch, share=True)
+    assert not is_rebound_host(_get("abc.gradio.live"))
+
+
+def test_rebound_host_check_honours_the_cors_regex(monkeypatch):
+    from modules.extension_route_guard import is_rebound_host
+
+    _guard_options(monkeypatch, cors_allow_origins_regex=r"https://[a-z]+\.ui\.example")
+    assert not is_rebound_host(_get("studio.ui.example"))
+    assert is_rebound_host(_get("studio.ui.example:7860"))  # the regex names no port
+    assert is_rebound_host(_get("evil.example"))
+    _guard_options(monkeypatch, cors_allow_origins_regex=r"http://studio\.lan:\d+")
+    assert not is_rebound_host(_get("studio.lan:7860"))

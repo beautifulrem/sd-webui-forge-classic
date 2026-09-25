@@ -86,16 +86,53 @@ def test_after_model_load_runs_scripts_and_reports_failures(runner, monkeypatch)
     assert runner.reported == ["Error running after_model_load: broken.py"]
 
 
-def test_after_model_load_is_called_after_the_checkpoint_reload():
-    # process_images needs a real model to run: check the call order instead
+def _process_images(calls, *, fail_in=None):
+    """Run processing.py's real ``process_images`` against stubs: the module
+    itself only imports inside an initialised WebUI."""
+    import __future__
     import ast
+    import contextlib
     from pathlib import Path
 
-    source = (Path(__file__).parents[1] / "modules" / "processing.py").read_text(encoding="utf-8")
-    process_images = next(node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef) and node.name == "process_images")
-    calls = {
-        (node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)): node.lineno
-        for node in ast.walk(process_images)
-        if isinstance(node, ast.Call)
+    path = Path(__file__).parents[1] / "modules" / "processing.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "process_images")
+
+    def step(name):
+        def run(*_args, **_kwargs):
+            calls.append(name)
+            if name == fail_in:
+                raise RuntimeError(name)
+            return name
+
+        return run
+
+    namespace = {
+        "opts": SimpleNamespace(data={}, get_default=lambda key: None),
+        "sd_models": SimpleNamespace(checkpoint_aliases={}),
+        "set_config": lambda *args, **kwargs: None,
+        "manage_model_and_prompt_cache": step("load model"),
+        "sd_samplers": SimpleNamespace(fix_p_invalid_sampler_and_scheduler=lambda p: None),
+        "profiling": SimpleNamespace(Profiler=contextlib.nullcontext),
+        "process_images_inner": step("sample"),
     }
-    assert calls["after_model_load"] > calls["manage_model_and_prompt_cache"]
+    code = compile(ast.Module([function], []), str(path), "exec", flags=__future__.annotations.compiler_flag, dont_inherit=True)
+    exec(code, namespace)  # noqa: S102 - our own source file
+
+    hooks = SimpleNamespace(**{name: step(name) for name in ("before_process", "after_model_load", "cleanup")})
+    p = SimpleNamespace(scripts=hooks, override_settings={}, override_settings_restore_afterwards=True)
+    return namespace["process_images"](p)
+
+
+def test_process_images_runs_after_model_load_after_the_reload_and_cleanup_last():
+    calls = []
+    assert _process_images(calls) == "sample"
+    assert calls == ["before_process", "load model", "after_model_load", "sample", "cleanup"]
+
+
+@pytest.mark.parametrize("fail_in", ["load model", "after_model_load", "sample"])
+def test_process_images_runs_cleanup_even_when_the_run_raises(fail_in):
+    calls = []
+    with pytest.raises(RuntimeError, match=fail_in):
+        _process_images(calls, fail_in=fail_in)
+    assert calls[-2:] == [fail_in, "cleanup"]

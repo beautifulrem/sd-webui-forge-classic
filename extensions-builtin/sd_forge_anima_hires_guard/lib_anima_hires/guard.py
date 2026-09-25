@@ -102,24 +102,31 @@ def guard_dimensions(
     hr_resize_x: int,
     hr_resize_y: int,
     limits: GuardLimits,
+    fixed_base: bool = False,
 ) -> GuardResult:
     """Return safe base/Hires dimensions without mutating a processing object.
 
     An explicit Hires target follows Forge's one-axis inference rules. A scale
     target is derived from the guarded base. Both passes retain their aspect
     ratio while respecting pixel and per-axis upscale caps.
+
+    ``fixed_base``: the base is an existing image (txt2img's Upscale button),
+    not a pass to generate, so only the Hires target relative to it is guarded.
     """
 
     limits = limits.validated()
     align = limits.alignment
     minimum = max(limits.minimum_side, align)
     original_base = (int(width), int(height))
-    base = _fit(
-        *original_base,
-        max_pixels=limits.base_megapixels * 1_000_000,
-        alignment=align,
-        minimum_side=minimum,
-    )
+    if fixed_base:
+        base = original_base
+    else:
+        base = _fit(
+            *original_base,
+            max_pixels=limits.base_megapixels * 1_000_000,
+            alignment=align,
+            minimum_side=minimum,
+        )
     changes: list[str] = []
     if base != original_base:
         changes.append(f"base {original_base[0]}x{original_base[1]} -> {base[0]}x{base[1]}")

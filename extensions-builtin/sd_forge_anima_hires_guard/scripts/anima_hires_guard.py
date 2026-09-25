@@ -136,6 +136,9 @@ class AnimaHiresGuardScript(scripts.Script):
                 alignment=1,
             )
         limits = limits.validated()
+        # txt2img's Upscale button: width/height are the finished image's size
+        # (modules/txt2img.py) and there is no base pass to shrink.
+        upscaling_image = bool(getattr(process, "txt2img_upscale", False)) or getattr(process, "firstpass_image", None) is not None
 
         result = guard_dimensions(
             process.width,
@@ -145,6 +148,7 @@ class AnimaHiresGuardScript(scripts.Script):
             hr_resize_x=int(getattr(process, "hr_resize_x", 0) or 0),
             hr_resize_y=int(getattr(process, "hr_resize_y", 0) or 0),
             limits=limits,
+            fixed_base=upscaling_image,
         )
         # Same keys as ``self.infotext_fields``, so pasted parameters restore the panel
         values = (True, str(policy), str(preset), bool(align), float(base_mp), float(hires_mp), float(max_upscale))

@@ -270,6 +270,12 @@ class VideoRopePosition3DEmb(nn.Module):
         # at a resolution reuses it instead of rebuilding it (~15 kernels).
         self._cache: dict[tuple, torch.Tensor] = {}
 
+    def _apply(self, fn, *args, **kwargs):
+        # A plain dict is not a buffer: moving the model (e.g. offloading it)
+        # would leave the cached embeddings on the old device.
+        self._cache.clear()
+        return super()._apply(fn, *args, **kwargs)
+
     def forward(self, x_B_T_H_W_C: torch.Tensor, device: torch.device) -> torch.Tensor:
         B, T, H, W, _ = x_B_T_H_W_C.shape
         key = (T, H, W, torch.device(device), torch.is_inference_mode_enabled())

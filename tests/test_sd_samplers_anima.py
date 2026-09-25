@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 import modules.sd_samplers_anima as anima_samplers
@@ -37,6 +38,32 @@ def test_unipc_bh_selector_changes_integration_coefficient():
     assert torch.allclose(bh2, torch.expm1(hh))
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+def test_unipc_corrector_rhos_match_linalg_solve_without_calling_it(monkeypatch, dtype):
+    """The order-2 system is always [[1, 1], [rk, 1]]; its closed form must
+    round like torch.linalg.solve (which syncs with the host on CUDA)."""
+
+    generator = torch.Generator().manual_seed(0)
+    hhs = -torch.rand(64, generator=generator, dtype=dtype) * 2.0 - 0.01
+    rks = torch.cat([torch.linspace(-3.0, 0.9, 32), torch.linspace(1.1, 3.0, 32)]).to(dtype)
+    expected = []
+    for hh, rk in zip(hhs, rks):
+        h_phi_1 = torch.expm1(hh)
+        h_phi_2 = h_phi_1 / hh - 1.0
+        h_phi_3 = h_phi_2 / hh - 0.5
+        matrix = torch.stack([torch.ones(2, dtype=dtype), torch.stack([rk, rk.new_tensor(1.0)])])
+        expected.append(torch.linalg.solve(matrix, torch.stack([h_phi_2 / h_phi_1, 2.0 * h_phi_3 / h_phi_1])))
+
+    def no_solve(*_args, **_kwargs):
+        raise AssertionError("torch.linalg.solve syncs with the host on CUDA")
+
+    monkeypatch.setattr(torch.linalg, "solve", no_solve)
+    like = torch.zeros(1, dtype=dtype)
+    for hh, rk, reference in zip(hhs, rks, expected):
+        _, _, rhos = _bh_rhos(hh, order=2, like=like, predictor=False, solver_type="bh2", rks=(rk,))
+        assert torch.equal(torch.stack(rhos), reference)
+
+
 def test_dynamic_thresholding_is_independent_per_batch_row():
     sample = torch.tensor([[[-4.0, 2.0]], [[-40.0, 20.0]]])
 
@@ -67,7 +94,6 @@ def test_pc3_zero_gamma_returns_predictor_exactly():
         torch.tensor(0.5),
         state,
         x_pred,
-        3,
         max_gamma=0.0,
         tolerance=0.005,
         schedule=_Schedule(torch.tensor([0.9, 0.8, 0.7, 0.5])),
