@@ -20,7 +20,7 @@ from modules.prompt_parser import (
 from modules.script_callbacks import CFGDenoiserParams, on_cfg_denoiser
 
 
-def _verify_ext(p: " StableDiffusionProcessing"):
+def _verify_ext(p: "StableDiffusionProcessing"):
     for ext in p.scripts.scripts:
         if ext.title() not in INCOMPATIBLE_EXTENSIONS:
             continue

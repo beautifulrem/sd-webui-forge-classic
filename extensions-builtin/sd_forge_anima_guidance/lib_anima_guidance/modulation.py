@@ -68,10 +68,7 @@ def _load_adapter(path: str) -> dict[str, torch.Tensor]:
         cached = _ADAPTER_CACHE.get(cache_key)
         if cached is not None:
             return cached
-        try:
-            raw = torch.load(path, map_location="cpu", weights_only=True)
-        except TypeError as error:
-            raise RuntimeError("Anima modulation requires a PyTorch build with safe weights_only loading") from error
+        raw = torch.load(path, map_location="cpu", weights_only=True)
         if not isinstance(raw, dict):
             raise RuntimeError("Anima modulation adapter must contain a tensor dictionary")
         missing = [key for key in EXPECTED_ADAPTER_KEYS if key not in raw]

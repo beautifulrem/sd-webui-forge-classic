@@ -38,8 +38,8 @@ FIELDS = (
 
 
 class AnimaHiresGuardScript(scripts.Script):
-    # Run after the bundled resolution randomizer (priority 0), so the guard
-    # validates the dimensions that will actually enter processing.
+    # Panel position only. The guard checks the final dimensions because it
+    # runs in after_model_load, after the resolution randomizer's before_process.
     sorting_priority = 2100
 
     def title(self):

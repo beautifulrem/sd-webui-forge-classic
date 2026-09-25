@@ -9,7 +9,7 @@ from tqdm.auto import trange
 
 from modules.shared import state as webui_state
 from modules.anima_guidance_state import reset_stateful_guidance
-from modules_forge.packages.k_diffusion.sampling import to_d
+from k_diffusion.sampling import sample_euler, to_d
 
 logger = logging.getLogger("AnimaFreeFuseSampler")
 
@@ -40,8 +40,6 @@ def sample_anima_freefuse_euler(
 
     runtime = _runtime_state(model)
     if runtime is None:
-        from k_diffusion.sampling import sample_euler
-
         logger.warning(
             "Anima FreeFuse Euler selected without an active FreeFuse panel; using ordinary Euler."
         )

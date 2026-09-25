@@ -38,8 +38,8 @@ setup_logger(logger)
 
 
 class AnimaFreeFuseScript(scripts.Script):
-    # After Spectrum, Regional, Artist Mixer and Guidance so conflicts can be
-    # diagnosed from the actual pass configuration.
+    # Panel position only (sorting_priority orders the UI, not the hooks):
+    # below Spectrum, Regional and Guidance, whose options conflict with it.
     sorting_priority = 2040
 
     def __init__(self):
