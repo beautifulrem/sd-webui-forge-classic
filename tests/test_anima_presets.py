@@ -4,7 +4,12 @@ import unittest
 
 from modules.anima_presets import (
     PRESET_CONFLICT_CONTROLS,
+    PRESET_DESCRIPTIONS,
+    PRESETS,
+    SAFE_BASE_AESTHETIC_LABEL,
     SAFE_BASE_AESTHETIC_PRESET,
+    TURBO_LABEL,
+    preset_value,
     preset_controls,
     register_preset_control,
     reset_preset_controls,
@@ -77,6 +82,20 @@ class SafeBaseAestheticPresetTests(unittest.TestCase):
 
     def test_every_unlockable_conflict_control_has_a_preset_value(self):
         self.assertLessEqual(PRESET_CONFLICT_CONTROLS, SAFE_BASE_AESTHETIC_PRESET.keys())
+
+
+class PresetMenuTests(unittest.TestCase):
+    def test_every_preset_overrides_known_fields_and_is_described(self):
+        for label, overrides in PRESETS.items():
+            self.assertLessEqual(overrides.keys(), SAFE_BASE_AESTHETIC_PRESET.keys(), label)
+            self.assertIn(label, PRESET_DESCRIPTIONS)
+
+    def test_turbo_follows_the_distilled_model_card(self):
+        self.assertEqual(preset_value(TURBO_LABEL, "native.cfg", 4.5), 1.0)
+        self.assertTrue(8 <= preset_value(TURBO_LABEL, "native.steps", 36) <= 12)
+        # Everything else comes from the (possibly localized) base value.
+        self.assertEqual(preset_value(TURBO_LABEL, "artist.optimization", "平衡"), "平衡")
+        self.assertEqual(preset_value(SAFE_BASE_AESTHETIC_LABEL, "native.cfg", 4.5), 4.5)
 
 
 if __name__ == "__main__":

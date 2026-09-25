@@ -158,6 +158,47 @@ SAFE_BASE_AESTHETIC_PRESET: dict[str, object] = {
     "lora_layer.lokr_enabled": False,
 }
 
+TURBO_LABEL = "Official Turbo — Fast (CFG 1 · 10 steps)"
+
+# Anima-Turbo (v1.0 / v1.1) is step- and CFG-distilled: the model card
+# recommends CFG 1 and 8-12 steps, and Euler for the stable Turbo/Aesthetic
+# versions. At CFG 1 Forge skips the unconditional pass, which is where most
+# of Turbo's speed comes from, so every CFG-dependent stack stays off.
+TURBO_OVERRIDES: dict[str, object] = {
+    "native.sampler": "Euler",
+    "native.steps": 10,
+    "native.cfg": 1.0,
+}
+
+# Label -> overrides applied on top of SAFE_BASE_AESTHETIC_PRESET, in menu
+# order. Overrides only name fields of the base preset.
+PRESETS: "OrderedDict[str, dict[str, object]]" = OrderedDict(
+    (
+        (SAFE_BASE_AESTHETIC_LABEL, {}),
+        (TURBO_LABEL, TURBO_OVERRIDES),
+    )
+)
+
+PRESET_DESCRIPTIONS: dict[str, str] = {
+    SAFE_BASE_AESTHETIC_LABEL: (
+        "**Base / Aesthetic:** ER SDE · 36 steps · CFG 4.5 · Automatic scheduler."
+    ),
+    TURBO_LABEL: (
+        "**Turbo (distilled):** Euler · 10 steps · CFG 1 · Automatic scheduler. "
+        "Use only with Anima-Turbo checkpoints; CFG above 1 or extra guidance "
+        "over-cooks distilled models."
+    ),
+}
+
+
+def preset_value(label: str, name: str, registered: object) -> object:
+    """The value ``label`` gives the control registered with ``registered``
+    (the base preset value, possibly localized by the extension)."""
+
+    overrides = PRESETS.get(label, {})
+    return overrides.get(name, registered)
+
+
 # Only these controls are ever locked by Remi's mutual-exclusion GUI. The
 # preset unlocks them after moving the whole set back to a compatible state;
 # all other components keep their extension-defined interactivity.

@@ -7,8 +7,11 @@ import gradio as gr
 from modules import scripts
 from modules.anima_presets import (
     PRESET_CONFLICT_CONTROLS,
+    PRESET_DESCRIPTIONS,
+    PRESETS,
     SAFE_BASE_AESTHETIC_LABEL,
     preset_controls,
+    preset_value,
     register_preset_control,
     reset_preset_controls,
 )
@@ -57,41 +60,49 @@ class AnimaRemiPresetScript(scripts.Script):
 
         with gr.Accordion(self.title(), open=False):
             preset = gr.Dropdown(
-                choices=[SAFE_BASE_AESTHETIC_LABEL],
+                choices=list(PRESETS),
                 value=SAFE_BASE_AESTHETIC_LABEL,
                 label="Preset",
-                interactive=False,
             )
+            description = gr.Markdown(PRESET_DESCRIPTIONS[SAFE_BASE_AESTHETIC_LABEL])
             gr.Markdown(
-                "**Recommended baseline:** ER SDE · 36 steps · CFG 4.5 · "
-                "Automatic scheduler. Optional guidance, cache, spatial, Hires, "
-                "Refiner and post-processing stacks start disabled. Applying it "
+                "Optional guidance, cache, spatial, Hires, Refiner and "
+                "post-processing stacks start disabled. Applying a preset "
                 "preserves prompt text, model paths and LoRA/artist names."
             )
-            apply = gr.Button("Apply recommended preset", variant="primary")
+            apply = gr.Button("Apply preset", variant="primary")
             status = gr.Markdown("")
 
         preset.do_not_save_to_config = True
+        description.do_not_save_to_config = True
         apply.do_not_save_to_config = True
         status.do_not_save_to_config = True
 
-        def apply_recommended():
-            updates = [
-                gr.update(value=value, interactive=True)
-                if name in PRESET_CONFLICT_CONTROLS
-                else gr.update(value=value)
-                for name, value in zip(names, values)
-            ]
+        preset.change(
+            fn=lambda label: gr.update(value=PRESET_DESCRIPTIONS.get(label, "")),
+            inputs=[preset],
+            outputs=[description],
+            queue=False,
+            show_progress=False,
+        )
+
+        def apply_preset(label):
+            label = label if label in PRESETS else SAFE_BASE_AESTHETIC_LABEL
+            updates = []
+            for name, value in zip(names, values):
+                value = preset_value(label, name, value)
+                if name in PRESET_CONFLICT_CONTROLS:
+                    updates.append(gr.update(value=value, interactive=True))
+                else:
+                    updates.append(gr.update(value=value))
             return [
                 *updates,
-                gr.update(
-                    value=f"**Applied:** {SAFE_BASE_AESTHETIC_LABEL} ({len(names)} controls)"
-                ),
+                gr.update(value=f"**Applied:** {label} ({len(names)} controls)"),
             ]
 
         apply.click(
-            fn=apply_recommended,
-            inputs=[],
+            fn=apply_preset,
+            inputs=[preset],
             outputs=[*components, status],
             queue=False,
             show_progress=False,
