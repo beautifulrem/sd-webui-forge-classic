@@ -54,3 +54,12 @@ def test_anima_grid_ignores_the_global_schedule_toggles(sd_schedulers, monkeypat
     t = torch.linspace(1.0, shift(1.0 / 1000), 8)
     assert torch.allclose(anima[:-1], shift(t), atol=1e-5)
     assert anima[-1] == 0
+
+
+def test_beta57_is_registered_as_the_fixed_beta_preset(sd_schedulers, monkeypatch):
+    calls = []
+    monkeypatch.setattr(sd_schedulers, "beta_scheduler", lambda *args, **kwargs: calls.append(kwargs) or "sigmas")
+    scheduler = sd_schedulers.schedulers_map["beta57"]
+
+    assert scheduler.function(8, 0.03, 14.6, None, "cpu") == "sigmas"
+    assert calls == [{"alpha": 0.5, "beta": 0.7}]
