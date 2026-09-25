@@ -97,9 +97,11 @@ def process_anima(lora: dict[str, torch.Tensor], blocks: int) -> bool:
     for target, source in enumerate(mapping):
         reverse.setdefault(source, []).append(target)
 
+    # Inserted blocks share their source block's tensors: patches only read
+    # them, so a copy per target would just double the LoRA's memory.
     for k, (source, tail) in parsed.items():
         for target in reverse.get(source, []):
-            lora[f"{prefix}{target}{sep}{tail}"] = temp[k].clone()
+            lora[f"{prefix}{target}{sep}{tail}"] = temp[k]
 
     del temp
     return True

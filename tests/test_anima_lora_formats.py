@@ -46,3 +46,13 @@ def test_block_remap_and_adapter_move_work_for_every_prefix():
         assert process_anima(lora, 40)
         assert f"{prefix}39{sep}mlp.lora_down.weight" in lora, prefix
         assert "text_encoders.qwen3_06b.llm_adapter.x.lora_down.weight" in lora
+
+
+def test_remapped_blocks_carry_their_source_block_without_copies():
+    from modules.anima_lora_support import ANIMA_BLOCK_MAPPINGS
+
+    lora = {f"diffusion_model.blocks.{i}.mlp.lora_down.weight": torch.full((1,), float(i)) for i in range(28)}
+    originals = {i: lora[f"diffusion_model.blocks.{i}.mlp.lora_down.weight"] for i in range(28)}
+    assert process_anima(lora, 40)
+    for target, source in enumerate(ANIMA_BLOCK_MAPPINGS[(28, 40)]):
+        assert lora[f"diffusion_model.blocks.{target}.mlp.lora_down.weight"] is originals[source]
