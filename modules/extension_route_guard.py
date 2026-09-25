@@ -9,23 +9,66 @@ state-changing requests. :func:`guard_routes` wraps such routes.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 import sys
 from typing import Iterable
 from urllib.parse import urlparse
 
 
+def _cmd_opts():
+    # Only if the WebUI loaded it: importing it parses the command line.
+    return getattr(sys.modules.get("modules.shared_cmd_options"), "cmd_opts", None)
+
+
+def _cors_origins(cmd_opts) -> list[str]:
+    return [value.strip() for value in (getattr(cmd_opts, "cors_allow_origins", None) or "").split(",")]
+
+
 def _allowed_by_cors(origin: str) -> bool:
     """Origins the admin allowed with --cors-allow-origins(-regex)."""
-    # Only if the WebUI loaded it: importing it parses the command line.
-    cmd_opts = getattr(sys.modules.get("modules.shared_cmd_options"), "cmd_opts", None)
+    cmd_opts = _cmd_opts()
     if cmd_opts is None:
         return False
-    allowed = [value.strip() for value in (getattr(cmd_opts, "cors_allow_origins", None) or "").split(",")]
+    allowed = _cors_origins(cmd_opts)
     if "*" in allowed or origin in allowed:
         return True
     pattern = getattr(cmd_opts, "cors_allow_origins_regex", None)
     return bool(pattern) and re.fullmatch(pattern, origin) is not None
+
+
+def _hostname(value: str) -> str | None:
+    try:
+        return urlparse("//" + value).hostname
+    except ValueError:
+        return None
+
+
+def _is_loopback_name(hostname: str) -> bool:
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
+def is_rebound_host(request) -> bool:
+    """A request to a loopback-only server under a foreign ``Host`` name.
+
+    DNS rebinding re-points a site's name at 127.0.0.1, so its requests look
+    same-origin to the browser. A server that only listens on loopback (no
+    --listen / --server-name / --share / --ngrok) is only reached as
+    localhost, or under a name allowed with --cors-allow-origins."""
+
+    cmd_opts = _cmd_opts()
+    if cmd_opts is None or any(getattr(cmd_opts, name, None) for name in ("listen", "server_name", "share", "ngrok")):
+        return False
+    hostname = _hostname(request.headers.get("host") or "")
+    if not hostname or _is_loopback_name(hostname):
+        return False
+    allowed = {_hostname(urlparse(origin).netloc or "") for origin in _cors_origins(cmd_opts)}
+    return hostname not in allowed
 
 
 _DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
@@ -34,7 +77,10 @@ _DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
 def _same_origin(origin: str, request) -> bool:
     target = urlparse(origin)
     default_port = _DEFAULT_PORTS.get(target.scheme)
-    origin_port = target.port or default_port
+    try:
+        origin_port = target.port or default_port
+    except ValueError:  # out-of-range or non-numeric port
+        return False
     forwarded_port = request.headers.get("x-forwarded-port")
     candidates = [request.headers.get("host") or ""]
     # Proxies: X-Forwarded-Host may list several hops (first is the client's),
@@ -46,11 +92,15 @@ def _same_origin(origin: str, request) -> bool:
             if key.lower() == "host":
                 candidates.append(value.strip('"'))
     for host in filter(None, candidates):
-        parsed = urlparse("//" + host)
+        try:
+            parsed = urlparse("//" + host)
+            port = parsed.port
+        except ValueError:
+            continue
         if parsed.hostname is None or parsed.hostname != target.hostname:
             continue
-        if parsed.port is not None:
-            if parsed.port == origin_port:  # "a.com:443" is https://a.com
+        if port is not None:
+            if port == origin_port:  # "a.com:443" is https://a.com
                 return True
         # A proxy's "$host" has no port: only the scheme's default port (or
         # the one the proxy reports) is this site, not other local ports.
@@ -74,6 +124,8 @@ def is_cross_site(request) -> bool:
 
 def refusal(app, request, require_login: bool = True) -> tuple[int, str] | None:
     """(status, reason) when ``request`` must be refused, else None."""
+    if is_rebound_host(request):
+        return 403, "Unknown host refused"
     if is_cross_site(request):
         return 403, "Cross-site request refused"
     if not require_login:
