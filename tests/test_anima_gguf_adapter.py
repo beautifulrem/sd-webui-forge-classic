@@ -1,19 +1,10 @@
-import ast
-from pathlib import Path
-
 import numpy as np
 import torch
 from gguf import GGMLQuantizationType, quants
 
+from backend.loader import process_anima
 from backend.operations_gguf import ParameterGGUF
 from backend.utils import weight_dtype
-
-# backend.loader imports the whole WebUI; only its Anima helper is needed.
-_SOURCE = Path(__file__).parents[1] / "backend" / "loader.py"
-_tree = ast.parse(_SOURCE.read_text(encoding="utf-8"))
-_ns = {"torch": torch}
-exec(compile(ast.Module([n for n in _tree.body if isinstance(n, ast.FunctionDef) and n.name == "process_anima"], []), str(_SOURCE), "exec"), _ns)
-process_anima = _ns["process_anima"]
 
 
 def test_gguf_adapter_is_dequantized_when_moved_to_the_text_encoder():

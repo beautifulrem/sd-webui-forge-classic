@@ -15,7 +15,11 @@ AlwaysVisible = object()
 
 
 class ScriptAbort(RuntimeError):
-    """Stop the current generation when continuing would produce invalid output."""
+    """Stop the current generation when continuing would produce invalid output.
+
+    Only ``before_process_batch`` re-raises it (other hooks report and go on):
+    that is where per-batch settings, e.g. conflicting LoRA rules, are known.
+    """
 
 
 class MaskBlendArgs:
@@ -924,15 +928,12 @@ class ScriptRunner:
                 errors.report(f"Error running postprocess: {script.filename}", exc_info=True)
 
     def cleanup(self, p):
-        from modules.script_cleanup import run_script_cleanup
-
-        run_script_cleanup(
-            self.ordered_scripts("cleanup"),
-            p,
-            lambda script: errors.report(
-                f"Error running cleanup: {script.filename}", exc_info=True
-            ),
-        )
+        for script in self.ordered_scripts("cleanup"):
+            try:
+                script_args = p.script_args[script.args_from : script.args_to]
+                script.cleanup(p, *script_args)
+            except Exception:
+                errors.report(f"Error running cleanup: {script.filename}", exc_info=True)
 
     def postprocess_batch(self, p, images, **kwargs):
         for script in self.ordered_scripts("postprocess_batch"):
