@@ -123,3 +123,57 @@ def test_lora_file_names_follow_the_network_index(monkeypatch, tmp_path):
     networks.available_networks["Cute_Style"] = renamed
     names = lora_file_names(path)
     assert "kawaii" in names and "cute" not in names
+
+
+def test_an_unparsable_layer_weight_is_skipped_with_a_warning(caplog):
+    from modules.anima_lora_support import parse_layer_weights
+
+    weights = parse_layer_weights("all=0.8, 0-9=O.5, 12=0.25")
+
+    assert weights.values == {12: 0.25} and weights.factor(3) == 0.8  # not a silent 1.0
+    assert "0-9=O.5" in caplog.text
+
+
+def test_weight_sections():
+    from modules.anima_lora_support import split_weight_sections
+
+    assert split_weight_sections("blocks=0-9=0.8,10-27=1;modules=mlp=0.5；qwen=0-3=0") == {"blocks": "0-9=0.8,10-27=1", "modules": "mlp=0.5", "qwen": "0-3=0"}
+    assert split_weight_sections("0-7=0.6;8-20=1.0") == {"blocks": "0-7=0.6;8-20=1.0"}
+    assert split_weight_sections("block：0.5 0.6;modules=cross=1;20-27=0.7") == {"blocks": "0.5 0.6;20-27=0.7", "modules": "cross=1"}
+    assert split_weight_sections("block_lrs=0.5 0.5") == {"blocks": "block_lrs=0.5 0.5"}
+    assert split_weight_sections("") == {}
+
+
+def test_lora_name_keys_and_targets():
+    from modules.anima_lora_support import name_keys, parse_targets
+
+    assert name_keys(" Sub/Cat.safetensors ") == {"sub/cat.safetensors", "cat.safetensors", "cat"}
+    assert name_keys("") == set()
+    assert parse_targets("Cat，sub/dog.safetensors；\nbird") == {"cat", "sub/dog.safetensors", "dog.safetensors", "dog", "bird"}
+
+
+def test_prompt_names_resolve_like_the_lora_loader(monkeypatch):
+    import sys
+
+    from modules.anima_lora_support import resolve_network
+
+    cat, alias_owner, stem_owner = SimpleNamespace(filename="cat"), SimpleNamespace(filename="a"), SimpleNamespace(filename="b")
+    refreshed = []
+
+    def update_available_networks_by_names(names):
+        refreshed.extend(names)
+        if names == ["late"]:
+            networks.available_network_aliases["late"] = cat
+
+    networks = SimpleNamespace(
+        available_networks={"cat": cat, "style": stem_owner},
+        available_network_aliases={"cat": cat, "style": alias_owner},
+        forbidden_network_aliases={"none", "style"},
+        update_available_networks_by_names=update_available_networks_by_names,
+    )
+    monkeypatch.setitem(sys.modules, "networks", networks)
+
+    assert resolve_network(" cat ") is cat
+    assert resolve_network("style") is stem_owner  # an alias shared by two files: the network name wins
+    assert resolve_network("Cat") is None  # load_networks does not match case-insensitively either
+    assert resolve_network("late") is cat and refreshed == ["Cat", "late"]

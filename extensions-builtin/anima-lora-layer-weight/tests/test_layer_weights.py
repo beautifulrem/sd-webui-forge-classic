@@ -116,7 +116,7 @@ def test_prompt_rewrite_moves_inline_weights_into_rules(module, monkeypatch):
     monkeypatch.setattr(module, "_prompt_lora_is_controlled", lambda name, *args: name.startswith("sub/cat"))
     prompts = ["<lora:sub/cat.safetensors:0-9=0.5;modules=mlp=0.2> <lora:dog:0-9=0.5>", "<lora:sub/cat.safetensors:0.6>"]
 
-    rewritten, rules = module._rewrite_lora_prompts(prompts, "", "lora", "legacy")
+    rewritten, rules = module._rewrite_lora_prompts(prompts, "", "lora")
 
     assert rewritten == ["<lora:sub/cat.safetensors:1.0> <lora:dog:0-9=0.5>", "<lora:sub/cat.safetensors:1.0>"]
     assert set(rules) == {"sub/cat.safetensors", "cat.safetensors", "cat"}

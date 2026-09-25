@@ -150,3 +150,60 @@ def test_batch_rewrite_touches_the_current_batch_and_hires_tags_can_be_dropped(m
     p.all_hr_prompts = ["x <lora:cat:1>"]
     module._remove_hires_lora_tags(p, state)
     assert p.all_hr_prompts == ["x "]
+
+
+@pytest.mark.parametrize(
+    "hires_panel, loads_per_batch",
+    [
+        (BLOCKS, [1, 0]),  # same panel (other template and shift): one set of patches serves both passes
+        ("0.5", [4, 4]),  # other panel: the patches differ, so each pass change rebuilds them
+    ],
+)
+def test_hires_fix_reloads_loras_only_when_the_passes_differ(module, monkeypatch, hires_panel, loads_per_batch):
+    from backend.patcher.base import ModelPatcher
+    from modules import extra_networks
+
+    sd_model = SimpleNamespace(current_lora_hash=None)
+    loads = []
+
+    def load_networks(p, extra_network_data):  # an unchanged LoRA set: rebuilt only after a hash reset
+        if sd_model.current_lora_hash != "compiled":
+            loads[-1] += 1
+            sd_model.current_lora_hash = "compiled"
+
+    monkeypatch.setattr(ModelPatcher, "add_patches", ModelPatcher.add_patches)
+    monkeypatch.setattr(extra_networks, "activate", load_networks)
+    module.install_patch()
+    base_data, hires_data = object(), object()
+    p = SimpleNamespace(sd_model=sd_model, enable_hr=True, extra_network_data=base_data, hr_extra_network_data=hires_data)
+    base = _config(module, module.PRESET_CHARACTER_ALLOW, panel=BLOCKS)
+    hires = _config(module, module.PRESET_STYLE_ALLOW, panel=hires_panel, shift=5.0)
+    p._anima_lora_stage_scheduler_state = module.RuntimeState(p, "run", True, base, hires, module.DISABLE_NONE, [], False)
+
+    for _batch in range(2):
+        loads.append(0)
+        # processing.py: the batch, setup_conds (hires conds, then base again), sample_hr_pass
+        for data in (base_data, hires_data, base_data, hires_data):
+            extra_networks.activate(p, data)
+
+    assert loads == loads_per_batch
+
+
+def test_shared_patches_follow_the_timing_of_the_current_pass(module, monkeypatch):
+    p = SimpleNamespace(is_hr_pass=False)
+    base = _config(module, module.PRESET_CHARACTER_ALLOW, panel=BLOCKS)  # window 0.20-0.74
+    hires = _config(module, module.PRESET_STYLE_ALLOW, panel=BLOCKS)  # window 0.62-1.00
+    state = module.RuntimeState(p, "run", True, base, hires, module.DISABLE_NONE, [], False)
+    strength = module.ScheduledStrength(1.0, "x.safetensors", state.patch_pass("base"))
+    state.register(strength)
+    monkeypatch.setattr(module, "_ACTIVE_STATE", state)
+
+    def factor_at(step):
+        denoiser = SimpleNamespace(p=p, step=step, total_steps=101)
+        module._denoiser_callback(SimpleNamespace(denoiser=denoiser, sampling_step=step, total_sampling_steps=101))
+        return strength.factor
+
+    assert strength.pass_name == module.BOTH_PASSES
+    assert factor_at(47) == pytest.approx(1.0) and factor_at(90) == 0.0
+    p.is_hr_pass = True
+    assert factor_at(47) == 0.0 and factor_at(90) > 0.0

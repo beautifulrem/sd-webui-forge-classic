@@ -133,6 +133,56 @@ def lora_file_names(filename) -> frozenset[str]:
     return frozenset(name for name in names if name)
 
 
+def name_keys(name) -> set[str]:
+    """A LoRA name as written, lower-cased, plus its file name and stem."""
+
+    from pathlib import Path
+
+    clean = str(name or "").strip().lower()
+    if not clean:
+        return set()
+    path = Path(clean)
+    return {key for key in (clean, path.name.lower(), path.stem.lower()) if key}
+
+
+def parse_targets(text) -> set[str]:
+    """``name_keys`` of every name in a comma / semicolon / line separated list."""
+
+    targets = set()
+    for part in re.split(r"[,;\n]+", str(text or "").replace("，", ",").replace("；", ";")):
+        targets |= name_keys(part)
+    return targets
+
+
+def resolve_network(name):
+    """The sd_forge_lora index entry ``<lora:name:...>`` loads, looked up the
+    way networks.load_networks does (forbidden aliases by network name, others
+    by alias, then a rescan by file stem); None when there is none."""
+
+    import sys
+
+    networks = sys.modules.get("networks")
+    try:
+        if networks is None:
+            import networks  # type: ignore
+        key = str(name or "").strip()
+        if not key:
+            return None
+
+        def lookup():
+            if key.lower() in networks.forbidden_network_aliases:
+                return networks.available_networks.get(key)
+            return networks.available_network_aliases.get(key)
+
+        entry = lookup()
+        if entry is None:
+            networks.update_available_networks_by_names([key])
+            entry = lookup()
+        return entry
+    except Exception:
+        return None
+
+
 # region LoRA key layout
 # Shared by the layer-weight and stage-scheduler extensions: where a LoRA key
 # sits in the Anima DiT (block, module) or in the Qwen3 text encoder / adapter.
@@ -299,7 +349,8 @@ def parse_layer_weights(text) -> LayerWeights:
         try:
             value = float(right)
         except ValueError:
-            value = 1.0
+            logger.warning("Ignored invalid Anima layer weight: %s", token)
+            continue
         if left in {"*", "all", "default"}:
             default = value
         elif range_match := re.match(r"^(\d+)\s*-\s*(\d+)$", left):
@@ -312,6 +363,32 @@ def parse_layer_weights(text) -> LayerWeights:
     if bare_values and not values:
         values.update(enumerate(bare_values))
     return LayerWeights(default=default, values=values)
+
+
+def split_weight_sections(text) -> dict[str, str]:
+    """``blocks`` / ``modules`` / ``qwen`` sections of a weight text such as
+    "blocks=0-9=0.8,10-27=1;modules=mlp=0.5;qwen=0-3=0". Parts without a
+    section name (and the "block_lrs=" form) are block weights."""
+
+    sections: dict[str, str] = {}
+    bare_parts = []
+    for part in [p.strip() for p in re.split(r"[;；]+", str(text or "")) if p.strip()]:
+        if "=" in part or "：" in part:
+            left, right = part.split("=" if "=" in part else "：", 1)
+            key = left.strip().lower()
+            if key in {"blocks", "block", "layers", "layer"}:
+                sections["blocks"] = right.strip()
+                continue
+            if key in {"modules", "module", "mods", "mod"}:
+                sections["modules"] = right.strip()
+                continue
+            if key in {"qwen", "text", "text_encoder", "text_layers", "te"}:
+                sections["qwen"] = right.strip()
+                continue
+        bare_parts.append(part)
+    if bare_parts:
+        sections["blocks"] = ";".join([sections["blocks"], *bare_parts] if "blocks" in sections else bare_parts)
+    return sections
 
 
 def parse_module_weights(text) -> dict[str, float]:

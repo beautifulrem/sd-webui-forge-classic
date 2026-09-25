@@ -56,6 +56,12 @@ def merge_lora_to_weight(patches: list[tuple], weight: torch.Tensor, key: str, c
             v = (merge_lora_to_weight(v[1:], v[0][1](memory_management.cast_to_device(v[0][0], weight.device, computation_dtype, copy=True), inplace=True), key, computation_dtype=computation_dtype),)
 
         if isinstance(v, weight_adapter.WeightAdapterBase):
+            # Strength 0 (e.g. outside a stage-scheduler window) adds nothing:
+            # skip the upload and matmuls. A LoRA that pads the weight still runs.
+            if strength == 0.0 and not (isinstance(v, weight_adapter.LoRAAdapter) and v.weights[5] is not None):
+                if old_weight is not None:
+                    weight = old_weight
+                continue
             output = v.calculate_weight(weight, key, strength, strength_model, offset, function, computation_dtype)
             if output is None:
                 logger.error("Calculate Weight Failed: {} {}".format(v.name, key))

@@ -1,8 +1,6 @@
 import logging
 import re
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 
 import gradio as gr
 
@@ -13,6 +11,10 @@ from modules.anima_lora_support import (
     parse_layer_weights,
     parse_module_weights,
     lora_file_names as _names_for_lora_file,
+    name_keys,
+    parse_targets as _parse_targets,
+    resolve_network,
+    split_weight_sections,
     anima_lora_block_count,
     anima_source_block,
     merge_consistent_rules,
@@ -273,7 +275,7 @@ class AdapterRule:
                 self.adapter_kind,
                 "1" if self.enabled else "0",
                 _compact_text(target_loras),
-                "target_mode=legacy",
+                "target_mode=legacy",  # the only mode left; kept so infotexts stay comparable
                 "block=1" if self.block_enabled else "block=0",
                 _compact_text(block_weights),
                 "module=1" if self.module_enabled else "module=0",
@@ -364,21 +366,6 @@ class ActiveRule:
         return factor
 
 
-def _parse_targets(text) -> set[str]:
-    normalized = str(text or "").replace("，", ",").replace("；", ";")
-    parts = re.split(r"[,;\n]+", normalized)
-    targets = set()
-    for part in parts:
-        name = part.strip().lower()
-        if not name:
-            continue
-        targets.add(name)
-        path = Path(name)
-        targets.add(path.name.lower())
-        targets.add(path.stem.lower())
-    return {target for target in targets if target}
-
-
 # Modules a LoRA can train in an Anima block (its LayerNorms have no weights)
 _DEFAULT_MODULE_FACTORS = dict.fromkeys(("self_attn", "cross_attn", "mlp", "adaln"), 1.0)
 
@@ -396,29 +383,7 @@ def _preset_key(name: str) -> str:
 
 
 def _parse_preset_sections(text: str) -> PresetWeights:
-    sections: dict[str, str] = {}
-    bare_parts = []
-    for part in [p.strip() for p in re.split(r"[;；]+", str(text or "")) if p.strip()]:
-        if "=" in part or "：" in part:
-            if "=" in part:
-                left, right = part.split("=", 1)
-            else:
-                left, right = part.split("：", 1)
-            key = left.strip().lower()
-            if key in {"blocks", "block", "layers", "layer"}:
-                sections["blocks"] = right.strip()
-                continue
-            if key in {"modules", "module", "mods", "mod"}:
-                sections["modules"] = right.strip()
-                continue
-            if key in {"qwen", "text", "text_encoder", "text_layers", "te"}:
-                continue  # Qwen layer weights come from the panel only
-        bare_parts.append(part)
-    if bare_parts:
-        if "blocks" in sections:
-            sections["blocks"] = ";".join([sections["blocks"], *bare_parts])
-        else:
-            sections["blocks"] = ";".join(bare_parts)
+    sections = split_weight_sections(text)  # Qwen layer weights come from the panel only
     return PresetWeights(
         block_weights=sections.get("blocks") or None,
         module_weights=sections.get("modules") or None,
@@ -463,10 +428,6 @@ def _preset_dropdown_update(text: str, current_value: str = ""):
         choices = [current_value] + choices
     value = current_value if current_value in choices else (choices[0] if choices else "")
     return gr.update(choices=choices, value=value)
-
-
-def _targets_for_preset_scope(scope: str, target_loras: str) -> str:
-    return "" if scope in {PRESET_SCOPE_ALL, PRESET_SCOPE_ALL_EN} else target_loras
 
 
 def _preset_target_mode(scope: str) -> str:
@@ -518,9 +479,9 @@ def _apply_preset_to_prompt_text(
 
         if target_mode == "targets":
             detected_kind = _adapter_kind_for_prompt_name(name)
-            controlled = (detected_kind in {None, adapter_kind}) and bool(targets) and bool(_parse_targets(name) & targets)
+            controlled = (detected_kind in {None, adapter_kind}) and bool(targets) and bool(name_keys(name) & targets)
         else:
-            controlled = _prompt_lora_is_controlled(name, targets, adapter_kind, target_mode)
+            controlled = _prompt_lora_is_controlled(name, set(), adapter_kind)
 
         if not controlled:
             return match.group(0)
@@ -547,80 +508,26 @@ def _filter_module_weights(weights: dict[str, float], trained_modules: set[str])
     return {module: value for module, value in weights.items() if module in trained_modules}
 
 
-def _network_on_disk_for_prompt_name(name):
-    networks_module = sys.modules.get("networks")
-    if networks_module is None:
-        try:
-            import networks as networks_module  # type: ignore
-        except Exception:
-            return None
-
-    try:
-        available = getattr(networks_module, "available_networks", {})
-        aliases = getattr(networks_module, "available_network_aliases", {})
-        forbidden = getattr(networks_module, "forbidden_network_aliases", set())
-
-        name_text = str(name)
-        name_lower = name_text.lower()
-        if name_lower in forbidden:
-            entry = _dict_get_case_insensitive(available, name_text)
-        else:
-            entry = _dict_get_case_insensitive(aliases, name_text) or _dict_get_case_insensitive(available, name_text)
-
-        if entry is None and hasattr(networks_module, "update_available_networks_by_names"):
-            networks_module.update_available_networks_by_names([name_text])
-            available = getattr(networks_module, "available_networks", {})
-            aliases = getattr(networks_module, "available_network_aliases", {})
-            entry = _dict_get_case_insensitive(aliases, name_text) or _dict_get_case_insensitive(available, name_text)
-        return entry
-    except Exception:
-        return None
-
-
-def _dict_get_case_insensitive(mapping, key):
-    if key in mapping:
-        return mapping[key]
-
-    key_lower = str(key).lower()
-    for item_key, value in mapping.items():
-        if str(item_key).lower() == key_lower:
-            return value
-
-    key_stem = Path(str(key)).stem.lower()
-    for item_key, value in mapping.items():
-        if Path(str(item_key)).stem.lower() == key_stem:
-            return value
-
-    return None
-
-
 def _adapter_kind_for_prompt_name(name: str) -> str | None:
-    entry = _network_on_disk_for_prompt_name(name)
+    entry = resolve_network(name)
     if entry is None:
         return None
     return _adapter_kind_for_file(getattr(entry, "filename", ""))
 
 
 def _is_anima_prompt_lora(name: str, adapter_kind: str = "lora") -> bool:
-    entry = _network_on_disk_for_prompt_name(name)
+    entry = resolve_network(name)
     if entry is None:
         return False
     return _is_anima_adapter_file(getattr(entry, "filename", ""), adapter_kind)
 
 
-def _prompt_lora_is_controlled(name: str, targets: set[str], adapter_kind: str = "lora", target_mode: str = "legacy") -> bool:
+def _prompt_lora_is_controlled(name: str, targets: set[str], adapter_kind: str = "lora") -> bool:
+    """A listed target, or with no targets any Anima adapter of the kind."""
     if _adapter_kind_for_prompt_name(name) != adapter_kind:
         return False
-
-    if target_mode == "all":
-        return _is_anima_prompt_lora(name, adapter_kind)
-
-    name_keys = _parse_targets(name)
-    if target_mode == "targets":
-        return bool(targets) and bool(name_keys & targets)
-
     if targets:
-        return bool(name_keys & targets)
+        return bool(name_keys(name) & targets)
     return _is_anima_prompt_lora(name, adapter_kind)
 
 
@@ -633,16 +540,7 @@ def _first_inline_rule(names: set[str], inline_rules: dict[str, PromptRule]) -> 
 
 
 def _register_inline_rule(rules: dict[str, PromptRule], name: str, rule: PromptRule):
-    clean_name = str(name or "").strip().lower()
-    if not clean_name:
-        return
-    path = Path(clean_name)
-    aliases = {
-        key: rule
-        for key in {clean_name, path.name.lower(), path.stem.lower()}
-        if key
-    }
-    merge_consistent_rules(rules, aliases, label="Anima adapter")
+    merge_consistent_rules(rules, dict.fromkeys(name_keys(name), rule), label="Anima adapter")
 
 
 def _split_lora_args(text: str) -> tuple[str, list[str]]:
@@ -650,32 +548,8 @@ def _split_lora_args(text: str) -> tuple[str, list[str]]:
     return parts[0].strip(), parts[1:]
 
 
-def _split_inline_sections(text: str) -> dict[str, str]:
-    sections: dict[str, str] = {}
-    bare_parts = []
-    for part in [p.strip() for p in re.split(r"[;；]+", str(text or "")) if p.strip()]:
-        if "=" in part:
-            left, right = part.split("=", 1)
-            key = left.strip().lower()
-            if key in {"blocks", "block", "layers", "layer"}:
-                sections["blocks"] = right.strip()
-                continue
-            if key in {"modules", "module", "mods", "mod"}:
-                sections["modules"] = right.strip()
-                continue
-            if key in {"qwen", "text", "text_encoder", "text_layers", "te"}:
-                continue
-        bare_parts.append(part)
-    if bare_parts:
-        if "blocks" in sections:
-            sections["blocks"] = ";".join([sections["blocks"], *bare_parts])
-        else:
-            sections["blocks"] = ";".join(bare_parts)
-    return sections
-
-
 def _parse_inline_prompt_rule(text: str) -> PromptRule | None:
-    sections = _split_inline_sections(text)
+    sections = split_weight_sections(text)  # a qwen= section is ignored: the panel owns it
     block_text = sections.get("blocks", "")
     module_text = sections.get("modules", "")
     if not block_text and not module_text:
@@ -688,7 +562,7 @@ def _parse_inline_prompt_rule(text: str) -> PromptRule | None:
     return PromptRule(block_weights=block_weights, module_weights=module_weights)
 
 
-def _rewrite_lora_prompts(prompts, target_loras: str, adapter_kind: str, target_mode: str) -> tuple[list[str], dict[str, PromptRule]]:
+def _rewrite_lora_prompts(prompts, target_loras: str, adapter_kind: str) -> tuple[list[str], dict[str, PromptRule]]:
     targets = _parse_targets(target_loras)
     inline_rules: dict[str, PromptRule] = {}
 
@@ -696,7 +570,7 @@ def _rewrite_lora_prompts(prompts, target_loras: str, adapter_kind: str, target_
         def replace(match):
             name = match.group(1).strip()
             weight_text, extra_args = _split_lora_args(match.group(2).strip())
-            controlled = _prompt_lora_is_controlled(name, targets, adapter_kind, target_mode)
+            controlled = _prompt_lora_is_controlled(name, targets, adapter_kind)
 
             rule = _parse_inline_prompt_rule(weight_text)
             if rule is not None and controlled:
@@ -780,29 +654,26 @@ def _reset_lora_cache_if_needed(p, signature: str):
         sd_model.current_lora_hash = f"anima-layer-weight:{signature}"
 
 
-def _apply_prompt_rewrite(p, target_loras: str, adapter_kind: str, target_mode: str) -> dict[str, PromptRule]:
+def _apply_prompt_rewrite(p, target_loras: str, adapter_kind: str) -> dict[str, PromptRule]:
     inline_rules = {}
     start = getattr(p, "iteration", 0) * getattr(p, "batch_size", 1)
     end = start + getattr(p, "batch_size", 1)
     replacements = []
 
     if hasattr(p, "prompts") and p.prompts:
-        rewritten, rules = _rewrite_lora_prompts(p.prompts, target_loras, adapter_kind, target_mode)
+        rewritten, rules = _rewrite_lora_prompts(p.prompts, target_loras, adapter_kind)
         merge_consistent_rules(inline_rules, rules, label="Anima adapter")
         replacements.append(("prompts", None, rewritten))
 
     if hasattr(p, "all_prompts") and p.all_prompts:
-        current, rules = _rewrite_lora_prompts(p.all_prompts[start:end], target_loras, adapter_kind, target_mode)
+        current, rules = _rewrite_lora_prompts(p.all_prompts[start:end], target_loras, adapter_kind)
         merge_consistent_rules(inline_rules, rules, label="Anima adapter")
         replacements.append(("all_prompts", slice(start, end), current))
 
-    if hasattr(p, "hr_prompts") and p.hr_prompts:
-        rewritten, rules = _rewrite_lora_prompts(p.hr_prompts, target_loras, adapter_kind, target_mode)
-        merge_consistent_rules(inline_rules, rules, label="Anima adapter")
-        replacements.append(("hr_prompts", None, rewritten))
-
+    # p.hr_prompts is not rewritten: parse_extra_network_prompts re-slices it
+    # from all_hr_prompts after this hook.
     if hasattr(p, "all_hr_prompts") and p.all_hr_prompts:
-        current, rules = _rewrite_lora_prompts(p.all_hr_prompts[start:end], target_loras, adapter_kind, target_mode)
+        current, rules = _rewrite_lora_prompts(p.all_hr_prompts[start:end], target_loras, adapter_kind)
         merge_consistent_rules(inline_rules, rules, label="Anima adapter")
         replacements.append(("all_hr_prompts", slice(start, end), current))
 
@@ -1004,10 +875,9 @@ class Script(scripts.Script):
         p._anima_lora_inline_rules = {}
         # The hidden preset switches keep their argument slots for API callers,
         # but presets are only applied to the prompt, by their button.
-        target_mode = "legacy"
         try:
-            lora_inline_rules = _apply_prompt_rewrite(p, lora_target_loras, "lora", target_mode) if lora_enabled else {}
-            lokr_inline_rules = _apply_prompt_rewrite(p, lokr_target_loras, "lokr", target_mode) if lokr_enabled else {}
+            lora_inline_rules = _apply_prompt_rewrite(p, lora_target_loras, "lora") if lora_enabled else {}
+            lokr_inline_rules = _apply_prompt_rewrite(p, lokr_target_loras, "lokr") if lokr_enabled else {}
         except ValueError as error:
             raise scripts.ScriptAbort(str(error)) from error
         _ACTIVE_RULE = ActiveRule(
