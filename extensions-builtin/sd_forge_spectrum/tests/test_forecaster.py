@@ -20,6 +20,19 @@ class ForecasterTests(unittest.TestCase):
         self.assertTrue(forecaster.ready)
         self.assertTrue(torch.allclose(prediction, torch.full_like(prediction, 6.0), atol=2e-2))
 
+    def test_blend_equals_explicit_taylor_and_chebyshev_mix(self):
+        torch.manual_seed(0)
+        features = [torch.randn(2, 3) for _ in range(5)]
+        blended = ChebyshevForecaster(degree=2, history_size=5, lam=1e-3, steps=12, weight=0.3)
+        chebyshev = ChebyshevForecaster(degree=2, history_size=5, lam=1e-3, steps=12, weight=1.0)
+        for step, feature in zip((0, 1, 2, 4, 5), features):
+            blended.update(step, feature)
+            chebyshev.update(step, feature)
+
+        taylor = features[-1] + 2.0 * (features[-1] - features[-2])  # step 7, dt 1
+        expected = 0.7 * taylor + 0.3 * chebyshev.predict(7)
+        self.assertTrue(torch.allclose(blended.predict(7), expected, atol=1e-5))
+
     def test_shape_change_resets_history(self):
         forecaster = ChebyshevForecaster(degree=1, history_size=4, lam=0.1, steps=10, weight=0.5)
         forecaster.update(0, torch.zeros(1, 2))

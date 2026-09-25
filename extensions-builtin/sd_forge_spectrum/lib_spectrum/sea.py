@@ -21,7 +21,18 @@ def radial_frequency(height: int, width: int, device) -> torch.Tensor:
     return torch.sqrt(gy.square() + gx.square())
 
 
+def flow_time(sigma: float, flow: bool) -> float:
+    """The noise fraction ``t`` of ``x = (1 - t) x0 + t noise`` that the SEA
+    gain is written for. A variance-exploding sigma (``x = x0 + sigma noise``,
+    eps/v models) has the same SNR at ``t = sigma / (1 + sigma)``."""
+
+    sigma = float(sigma)
+    return sigma if flow else sigma / (1.0 + sigma)
+
+
 def sea_gain(height: int, width: int, sigma: float, beta: float, device) -> torch.Tensor:
+    """Wiener-style gain for a flow latent at noise fraction ``sigma``."""
+
     signal = 1.0 - float(sigma)
     noise = float(sigma)
     frequency = radial_frequency(height, width, device)

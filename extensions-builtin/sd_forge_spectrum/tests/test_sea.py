@@ -10,8 +10,10 @@ sys.path.insert(0, str(ROOT))
 
 from lib_spectrum.sea import (
     count_refreshes,
+    flow_time,
     l1rel,
     sea_filter,
+    sea_gain,
     solve_delta_for_refresh_ratio,
     window_refresh_fraction,
 )
@@ -37,6 +39,15 @@ class SeaTests(unittest.TestCase):
         delta = solve_delta_for_refresh_ratio(distances, 0.5)
         self.assertTrue(math.isfinite(delta) and delta > 0)
         self.assertLessEqual(count_refreshes(distances, delta), round(len(distances) * 0.5))
+
+    def test_variance_exploding_sigmas_map_into_the_flow_range(self):
+        self.assertEqual(flow_time(0.25, flow=True), 0.25)
+        for sigma in (0.03, 1.0, 14.6):
+            t = flow_time(sigma, flow=False)
+            self.assertTrue(0.0 < t < 1.0)
+            self.assertAlmostEqual((1.0 - t) / t, 1.0 / sigma)  # same SNR
+            gain = sea_gain(8, 8, t, 2.0, "cpu")
+            self.assertTrue(torch.isfinite(gain).all() and (gain > 0).all())
 
     def test_window_fraction_is_bounded(self):
         fraction = window_refresh_fraction(30, 6, 3, 2.0, 0.25)

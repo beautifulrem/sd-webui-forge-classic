@@ -17,7 +17,7 @@ from collections.abc import Hashable, Sequence
 
 import torch
 
-from lib_spectrum.sea import SeaCalibration, l1rel, sea_filter
+from lib_spectrum.sea import SeaCalibration, flow_time, l1rel, sea_filter
 from modules import spectrum_force
 from modules.anima_support import call_model_wrapper, is_anima_auxiliary_denoiser, process_ref
 
@@ -85,30 +85,34 @@ class ChebyshevForecaster:
             history_projection = torch.cholesky_solve(design.T, factor)
         except (RuntimeError, torch.linalg.LinAlgError):
             history_projection = torch.linalg.pinv(normal) @ design.T
-        history_weights = (query_design @ history_projection).squeeze(0)
-        # The fitted value is a weighted sum of observations. Computing those
-        # weights in the tiny history space avoids materializing H x feature
-        # elements plus a degree x feature coefficient matrix on the GPU.
-        chebyshev = torch.zeros_like(self.features[-1], dtype=torch.float32)
-        for weight, feature in zip(history_weights.tolist(), self.features):
-            chebyshev.add_(feature, alpha=float(weight))
-        chebyshev = chebyshev.reshape(-1)
-
+        weights = (query_design @ history_projection).squeeze(0).tolist()
+        # The forecast is a weighted sum of the stored features: the
+        # Chebyshev fit and the Taylor extrapolation
+        # ``latest + scale * (latest - previous)`` are both linear in them.
+        # Blending in this tiny weight space leaves one accumulator as the
+        # only feature-sized temporary.
         if len(self.features) >= 2 and self.weight < 1.0:
-            latest = self.features[-1].reshape(-1).float()
-            previous = self.features[-2].reshape(-1).float()
             dt = max(self.times[-1] - self.times[-2], 1e-8)
             scale = (float(step) - self.times[-1]) / dt
-            taylor = latest + scale * (latest - previous)
-            prediction = (1.0 - self.weight) * taylor + self.weight * chebyshev
-        else:
-            prediction = chebyshev
+            taylor_share = 1.0 - self.weight
+            weights = [self.weight * weight for weight in weights]
+            weights[-1] += taylor_share * (1.0 + scale)
+            weights[-2] -= taylor_share * scale
+        prediction = torch.zeros_like(self.features[-1], dtype=torch.float32)
+        for weight, feature in zip(weights, self.features):
+            prediction.add_(feature, alpha=float(weight))
         return prediction.to(original_dtype).reshape(self.shape)
 
     def clear(self) -> None:
         self.features.clear()
         self.times.clear()
         self.shape = None
+
+
+def _is_flow_predictor(predictor) -> bool:
+    from backend.modules.k_prediction import PredictionDiscreteFlow, PredictionFlux
+
+    return isinstance(predictor, (PredictionDiscreteFlow, PredictionFlux))
 
 
 def _capture_feature(module, args):
@@ -204,6 +208,7 @@ class SpectrumState:
         sea_beta,
         sea_calibration,
         verbose,
+        flow_sigmas=True,
     ):
         self.steps = int(steps)
         self.window_size = float(window_size)
@@ -213,6 +218,7 @@ class SpectrumState:
         self.schedule = str(schedule)
         self.sea_beta = float(sea_beta)
         self.sea_calibration = sea_calibration
+        self.flow_sigmas = bool(flow_sigmas)
         self.verbose = bool(verbose)
         self.forecasters: dict[Hashable, ChebyshevForecaster] = {}
         self.sea_distances: list[float] = []
@@ -245,7 +251,7 @@ class SpectrumState:
         self.step += 1
         self.last_sigma = sigma
         if self.schedule == "SEA (auto-calibrated)":
-            current = sea_filter(latent, sigma, self.sea_beta)
+            current = sea_filter(latent, flow_time(sigma, self.flow_sigmas), self.sea_beta)
             if self.sea_previous is not None:
                 distance = l1rel(current, self.sea_previous)
                 self.sea_accumulated += distance
@@ -362,6 +368,7 @@ class SpectrumNode:
             sea_beta=sea_beta,
             sea_calibration=calibration,
             verbose=verbose,
+            flow_sigmas=_is_flow_predictor(predictor),
         )
         if feature_cache:
             _ensure_capture_hook(dit)
