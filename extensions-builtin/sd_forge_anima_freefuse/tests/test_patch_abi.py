@@ -132,7 +132,7 @@ def test_model_wrapper_runs_and_restores_every_forward():
         return apply_model(args["input"], args["timestep"], **args["c"])
 
     def model_function(x, t, **c):
-        calls.append(c["transformer_options"]["anima_freefuse_phase"])
+        calls.append("model")
         assert "forward" in block.cross_attn.__dict__
         return x
 
@@ -143,7 +143,7 @@ def test_model_wrapper_runs_and_restores_every_forward():
             {"input": torch.zeros(1), "timestep": torch.ones(1), "c": {}},
         )
 
-    assert calls == ["collect", "previous", "collect"]
+    assert calls == ["model", "previous", "model"]
     assert all("forward" not in module.__dict__ for module in dit.modules())
 
     def failing(x, t, **c):

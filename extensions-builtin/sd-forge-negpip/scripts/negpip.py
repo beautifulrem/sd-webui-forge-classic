@@ -1,3 +1,4 @@
+import logging
 import re
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,8 @@ from modules.prompt_parser import (
     get_learned_conditioning_prompt_schedules,
 )
 from modules.script_callbacks import CFGDenoiserParams, on_cfg_denoiser
+
+logger = logging.getLogger(__name__)
 
 
 def _verify_ext(p: "StableDiffusionProcessing"):
@@ -99,7 +102,7 @@ class NegPiP(scripts.Script):
             return
 
         if not _verify_ext(p):
-            print("NegPiP Disabled")
+            logger.warning("NegPiP Disabled: an incompatible extension is enabled")
             return
 
         if IS_NEO and not p.sd_model.is_webui_legacy_model():
@@ -157,9 +160,9 @@ class NegPiP(scripts.Script):
         self.active = True
 
         if len(self.conds_all[0][0][1]) > 0:
-            print(f"NegPiP Enable (Positive: {self.conds_all[0][0][1][0][1]})")
+            logger.info("NegPiP Enable (Positive: %s)", self.conds_all[0][0][1][0][1])
         if len(self.unconds_all[0][0][1]) > 0:
-            print(f"NegPiP Enable (Negative: {self.unconds_all[0][0][1][0][1]})")
+            logger.info("NegPiP Enable (Negative: %s)", self.unconds_all[0][0][1][0][1])
 
     def postprocess(self, *args, **kwargs):
         # Unhook before later scripts' postprocess, which may start nested generations

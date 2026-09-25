@@ -174,3 +174,41 @@ def test_artist_mixer_yields_to_regional_in_headless_runs():
     message = "disabled: Anima Regional Conditioning has priority in headless processing"
     assert p.extra_generation_params["Anima Artist Mixer"] == message
     assert not is_feature_active(p, ARTIST_MIXER)
+
+
+def test_blocks_are_unpatched_after_the_batch_before_postprocess_image():
+    # ADetailer's inner runs (postprocess_image) skip this script by default,
+    # so they must not inherit the artist cross-attn overrides.
+    from types import SimpleNamespace
+
+    attention = torch.nn.Module()
+    dm = SimpleNamespace(blocks=[SimpleNamespace(cross_attn=attention)])
+    state = _state()
+    mixer._install_cross_attn_patch(dm, state)
+    mixer._ACTIVE_STATE = state
+    mixer._RUN_STATES.append(state)
+    try:
+        assert "forward" in attention.__dict__
+        mixer.Script().postprocess_batch(SimpleNamespace(), images=None, batch_number=0)
+
+        assert "forward" not in attention.__dict__
+        assert mixer._ACTIVE_STATE is None
+        assert mixer._RUN_STATES == [state]  # kept for postprocess's run summary
+    finally:
+        mixer._cleanup_runtime()
+
+
+def test_conditioning_cache_key_follows_the_text_encoder_patches(monkeypatch):
+    # Qwen layer weights re-apply the TE LoRA patches; by sampling time the
+    # LoRA hash is back to the plain LoRA list, so it cannot tell them apart.
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(mixer, "sd_models", SimpleNamespace(model_data=SimpleNamespace(forge_hash="h")))
+    patcher = SimpleNamespace(patches_uuid="te-1")
+    model = SimpleNamespace(current_lora_hash="['a.safetensors']", forge_objects=SimpleNamespace(clip=SimpleNamespace(patcher=patcher)))
+    p = SimpleNamespace(sd_model=model)
+
+    first = mixer._cache_key(p, ["artist"])
+    assert mixer._cache_key(p, ["artist"]) == first
+    patcher.patches_uuid = "te-2"
+    assert mixer._cache_key(p, ["artist"]) != first

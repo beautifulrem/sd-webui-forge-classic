@@ -22,7 +22,8 @@ counts only the steps its denoising strength runs), sampler and CFG values when 
 one-branch or standard two-branch Forge CFG batches, invalidates history when
 the latent shape or text conditioning changes, and refuses unknown model
 wrappers. `Strict` currently keeps every step actual because Forge does not
-expose stable per-conditioning UUIDs. `Legacy / fastest` is an explicit
+expose stable per-conditioning UUIDs, so Spectrum is not installed at all
+(the option stays for API and infotext compatibility). `Legacy / fastest` is an explicit
 quality-risk opt-in for complex wrapper chains.
 
 The minimum history is `Polynomial Degree + 2`. History tensors remain large,

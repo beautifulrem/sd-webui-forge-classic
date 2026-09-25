@@ -9,7 +9,7 @@ import torch
 
 from backend.logging import setup_logger
 from lib_anima_regional.regional import Region, RegionalState, apply_regional_patch
-from modules import prompt_parser, scripts
+from modules import prompt_parser, scripts, shared
 from modules.anima_feature_conflicts import FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
 from modules.anima_presets import register_preset_control
 from modules.anima_support import is_anima_engine, parse_block_list, register_negpip_prompts, split_conditioning
@@ -29,6 +29,36 @@ def _extract_conditioning(value):
     if torch.is_tensor(value):
         return value, mask
     raise RuntimeError("Could not extract Anima regional conditioning tensor")
+
+
+def _encode_key(p, text: str):
+    """What the encoding of ``text`` depends on besides the text itself."""
+
+    sd_model = p.sd_model
+    clip = getattr(getattr(sd_model, "forge_objects", None), "clip", None)
+    return (
+        str(text),
+        str(getattr(getattr(sd_model, "sd_checkpoint_info", None), "filename", None)),
+        str(getattr(sd_model, "current_lora_hash", "")),
+        # A new id whenever text-encoder LoRA patches (and so their Qwen layer
+        # weights) are applied, which the LoRA hash alone does not reflect.
+        getattr(getattr(clip, "patcher", None), "patches_uuid", None),
+        str(getattr(shared.opts, "emphasis", "")),
+        # NegPiP replaces get_learned_conditioning while it is active.
+        "get_learned_conditioning" in getattr(sd_model, "__dict__", {}),
+    )
+
+
+def _encode_cached(p, text: str):
+    """:func:`_encode`, reused across the batches and passes of one generation."""
+
+    cache = getattr(p, "_anima_regional_conds", None)
+    if cache is None:
+        cache = p._anima_regional_conds = {}
+    key = _encode_key(p, text)
+    if key not in cache:
+        cache[key] = _encode(p, text)
+    return cache[key]
 
 
 def _encode(p, text: str):
@@ -175,7 +205,7 @@ class AnimaRegionalScript(scripts.Script):
         for active, text, x, y, width, height, strength in _region_rows(region_values):
             if not _region_is_used(active, text, width, height, strength):
                 continue
-            cond, negpip_mask = _encode(p, str(text))
+            cond, negpip_mask = _encode_cached(p, str(text))
             regions.append(Region(cond, float(x), float(y), float(width), float(height), float(strength), negpip_mask))
         if not regions:
             logger.warning("Anima Regional Conditioning was enabled but no active non-empty region exists.")

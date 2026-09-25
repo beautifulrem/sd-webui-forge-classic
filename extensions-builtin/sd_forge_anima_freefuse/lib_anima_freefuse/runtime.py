@@ -607,12 +607,7 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
         with _PATCH_LOCK:
             state.update_grid(args["input"], dit)
             with forward_overrides(overrides):
-                adjusted = dict(args)
-                adjusted["c"] = dict(args["c"])
-                options = dict(adjusted["c"].get("transformer_options", {}))
-                options["anima_freefuse_phase"] = state.phase
-                adjusted["c"]["transformer_options"] = options
-                return call_model_wrapper(previous, model_function, adjusted)
+                return call_model_wrapper(previous, model_function, args)
 
     patched.set_model_unet_function_wrapper(wrapper)
     patched.set_transformer_option("anima_freefuse_state", state)

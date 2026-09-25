@@ -130,7 +130,7 @@ class SpectrumForForge(scripts.Script):
                     ["Conservative", "Strict", "Legacy / fastest"],
                     value=DEFAULT["spec_compat_policy"],
                     label="Compatibility Policy",
-                    info="Conservative caches only simple Forge CFG batches and cache-safe wrapper chains. Strict currently runs actual steps because Forge has no stable branch UUIDs.",
+                    info="Conservative caches only simple Forge CFG batches and cache-safe wrapper chains. Strict runs every step actual (Spectrum off) because Forge has no stable branch UUIDs.",
                 )
                 verbose = gr.Checkbox(DEFAULT["spec_verbose"], label="Verbose Spectrum decisions")
 

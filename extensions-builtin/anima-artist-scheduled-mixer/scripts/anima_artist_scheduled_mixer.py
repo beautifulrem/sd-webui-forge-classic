@@ -1439,10 +1439,14 @@ def _cache_key(p, texts):
     # matches twice; key on the checkpoint, text encoder and LoRA set instead.
     # forge_hash encodes the checkpoint and additional modules (text encoder).
     checkpoint = getattr(getattr(sd_model, "sd_checkpoint_info", None), "filename", None)
+    clip = getattr(getattr(sd_model, "forge_objects", None), "clip", None)
     model_key = (
         str(checkpoint),
         str(getattr(sd_models.model_data, "forge_hash", "")),
         str(getattr(sd_model, "current_lora_hash", "")),
+        # A new uuid whenever text-encoder LoRA patches are applied, e.g. when
+        # Qwen layer weights change the encoding but not the LoRA hash.
+        str(getattr(getattr(clip, "patcher", None), "patches_uuid", None)),
         # Encoding also depends on the emphasis mode and on hooks such as
         # NegPiP replacing get_learned_conditioning for this run.
         str(getattr(shared.opts, "emphasis", "")),
@@ -2495,6 +2499,15 @@ class Script(scripts.Script):
             f"{len(artists)} artists, strength={state.global_strength:.2f}, "
             f"{state.combine_mode}/{state.fusion_mode}, preset={optimization}, shift={shift:.2f}"
         )
+
+    def postprocess_batch(self, p, *args, **kwargs):
+        # Sampling (hires included) is over for this batch. Unpatch before
+        # postprocess_image, where e.g. ADetailer runs inner generations
+        # without this script; the next batch re-installs in
+        # process_before_every_sampling. The run states stay for postprocess.
+        global _ACTIVE_STATE
+        _unpatch_cross_attn()
+        _ACTIVE_STATE = None
 
     def postprocess(self, p, processed, *args, **kwargs):
         states = _cleanup_runtime()

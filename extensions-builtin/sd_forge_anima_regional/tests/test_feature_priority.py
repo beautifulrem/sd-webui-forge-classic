@@ -57,3 +57,37 @@ def test_regional_stays_inactive_without_a_used_region_or_under_freefuse():
     set_feature_active(p, FREEFUSE)
     _process(p, *REGION)
     assert not is_feature_active(p, REGIONAL)
+
+
+def test_region_prompts_are_encoded_once_until_the_text_encoder_changes():
+    import torch
+
+    calls = []
+
+    class Model:
+        current_lora_hash = "[]"
+
+        def __init__(self):
+            self.forge_objects = SimpleNamespace(clip=SimpleNamespace(patcher=SimpleNamespace(patches_uuid="te-1")))
+
+        def get_learned_conditioning(self, prompt):
+            calls.append(list(prompt))
+            return [torch.full((1, 3, 2), float(len(calls)))]
+
+    p = SimpleNamespace(sd_model=Model(), width=64, height=64)
+    first, _ = regional._encode_cached(p, "a red cat")
+    again, _ = regional._encode_cached(p, "a red cat")  # next batch / hires pass
+    assert again is first and calls == [["a red cat"]]
+
+    regional._encode_cached(p, "a blue dog")
+    assert len(calls) == 2
+
+    # Qwen layer weights re-apply the TE LoRA patches without changing its hash
+    p.sd_model.forge_objects.clip.patcher.patches_uuid = "te-2"
+    assert regional._encode_cached(p, "a red cat")[0] is not first
+    p.sd_model.current_lora_hash = "['other.safetensors']"
+    regional._encode_cached(p, "a red cat")
+    # NegPiP's conditioning hook changes the output format
+    p.sd_model.get_learned_conditioning = p.sd_model.get_learned_conditioning
+    regional._encode_cached(p, "a red cat")
+    assert len(calls) == 5

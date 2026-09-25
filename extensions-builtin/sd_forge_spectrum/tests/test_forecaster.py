@@ -236,6 +236,41 @@ class ForecasterTests(unittest.TestCase):
 
         self.assertEqual(calls, ["regional"])
 
+    def test_strict_policy_leaves_the_model_unpatched(self):
+        class FakePatcher:
+            def __init__(self):
+                self.model = SimpleNamespace(diffusion_model=torch.nn.Identity(), predictor=object())
+                self.model_options = {}
+
+            def clone(self):
+                raise AssertionError("Strict never caches, so it must not patch")
+
+        model = FakePatcher()
+        patched = SpectrumNode.patch(
+            model,
+            steps=4,
+            weight=1.0,
+            degree=1,
+            lam=0.1,
+            window_size=2,
+            flex_window=0.0,
+            warmup_steps=1,
+            stop_caching_step=1.0,
+            tail_actual_steps=1,
+            history_size=3,
+            schedule="SEA (auto-calibrated)",
+            refresh_ratio=0.0,
+            sea_beta=2.0,
+            compat_policy="Strict",
+            verbose=False,
+            sea_cache_dir="unused",
+            sea_cache_context={},
+            process=SimpleNamespace(),
+        )
+
+        self.assertIs(patched, model)
+        self.assertEqual(model.model_options, {})
+
     def test_callable_force_flag_is_evaluated_per_step(self):
         class FakePatcher:
             def __init__(self):

@@ -329,6 +329,11 @@ class SpectrumNode:
         if compat_policy not in COMPAT_POLICIES:
             logger.warning("Unknown Spectrum compatibility policy %r; using Conservative.", compat_policy)
             compat_policy = "Conservative"
+        if compat_policy == "Strict":
+            # Forge exposes no stable per-conditioning UUIDs, so Strict never
+            # caches: skip the wrapper and its per-call bookkeeping entirely.
+            logger.info("Spectrum Strict policy runs every step actual; Spectrum is not installed for this pass.")
+            return model
 
         new_model = model.clone()
         kmodel = new_model.model
@@ -439,8 +444,6 @@ class SpectrumNode:
                     if not state.warned_wrapper:
                         logger.warning("Spectrum conservative mode is using actual forwards because an earlier model wrapper is not cache-safe.")
                         state.warned_wrapper = True
-            if compat_policy == "Strict":
-                compatible = False  # Forge currently exposes no stable per-conditioning UUIDs.
 
             if new_step:
                 state.mode = state.decide(branches) if compatible else "actual"

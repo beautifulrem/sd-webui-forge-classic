@@ -66,6 +66,14 @@ class RegionalTests(unittest.TestCase):
         self.assertTrue(torch.equal(first, second))
         # The negative-prompt row is untouched by regional blending
         self.assertTrue(torch.equal(first[1], attention(x, context=context)[1]))
+        # The positive row, by hand: 4x4 tokens, region 1 covers the left two
+        # columns fully (feather 0.02 < half a token); region 2 is skipped.
+        # There blend = 0.8 * (1 - 0.25) and the regional output replaces 60%.
+        base_row = x[0] * context[0].mean()
+        regional_row = x[0] * regions[0].conditioning.mean()
+        inside = torch.tensor([1.0, 1.0, 0.0, 0.0]).repeat(4).view(16, 1)
+        expected = base_row * (1 - 0.6 * inside) + regional_row * (0.6 * inside)
+        self.assertTrue(torch.allclose(first[0], expected, atol=1e-6))
         # The regional forward runs on the positive-prompt row only
         self.assertEqual(seen_batches[:2], [2, 1])
         masks = state.current_masks

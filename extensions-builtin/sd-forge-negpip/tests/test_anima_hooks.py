@@ -98,6 +98,40 @@ def test_conditioning_hook_restores_signs_and_returns_the_v_mask(negatives_seen)
     assert isinstance(model.get_learned_conditioning(_Prompt(["dog"])), list)
 
 
+def test_conditioning_hook_keeps_prompts_of_different_padded_lengths(negatives_seen):
+    from modules import prompt_parser
+
+    lengths = {"short": 512, "long": 600}  # Anima pads to max(512, tokens)
+
+    class Model:
+        def __init__(self):
+            self.text_processing_engine_anima = _Engine({"short": [[]], "long": [[-1.0]]})
+
+        def get_learned_conditioning(self, prompt):
+            return [torch.ones(1, lengths[line], 2) for line in prompt]
+
+    model = Model()
+    negpip_anima._hook_get_learned_conditioning(model, False)
+    try:
+        conds = model.get_learned_conditioning(_Prompt(["short", "long"]))
+        assert [c.shape for c in conds["crossattn"]] == [(512, 2), (600, 2)]
+        assert [m.shape for m in conds["c_negpip_mask"]] == [(512, 1), (600, 1)]
+        assert conds["c_negpip_mask"][1][0, 0] == -1.0
+
+        # A prompt scheduled across the 512 boundary, batched with a short one
+        prompts = prompt_parser.SdConditioning(["[short:long:5]", "short"])
+        multicond = prompt_parser.get_multicond_learned_conditioning(model, prompts, 10)
+        _, early = prompt_parser.reconstruct_multicond_batch(multicond, 2)
+        _, late = prompt_parser.reconstruct_multicond_batch(multicond, 8)
+    finally:
+        negpip_anima._hook_get_learned_conditioning(model, True)
+
+    assert early["crossattn"].shape == (2, 512, 2)
+    assert late["crossattn"].shape == (2, 600, 2)
+    assert late["c_negpip_mask"].shape == (2, 600, 1)
+    assert late["c_negpip_mask"][:, 0, 0].tolist() == [-1.0, 1.0]
+
+
 def test_dit_hook_passes_the_mask_only_once_a_negative_was_seen(negatives_seen):
     class DiT(torch.nn.Module):
         def forward(self, x, timesteps, context, padding_mask=None, **kwargs):
