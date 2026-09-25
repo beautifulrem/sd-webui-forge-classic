@@ -20,9 +20,13 @@ from lib_anima_freefuse.runtime import install_patch_metadata_hook
 from modules import scripts
 from modules.anima_lora_support import anima_model_block
 from modules.anima_feature_conflicts import (
+    ARTIST_MIXER,
+    FREEFUSE,
+    is_feature_active,
     record_conflict_resolution,
     register_exclusive_component,
     resolve_freefuse_refiner_conflicts,
+    set_feature_active,
 )
 from modules.anima_support import effective_prompt_batch, is_anima_engine, parse_block_list, register_negpip_prompts
 from modules.anima_presets import register_preset_control
@@ -307,7 +311,7 @@ class AnimaFreeFuseScript(scripts.Script):
         )
         p._anima_freefuse_original_online = bool(dynamic_args.online_lora)
         p._anima_freefuse_borrowed_online = borrowed_online
-        p._anima_freefuse_enabled = True
+        set_feature_active(p, FREEFUSE)
         # Artist Mixer (its process() ran earlier) yields to FreeFuse, so its
         # artist prompts will not be encoded and must not enable NegPiP.
         register_negpip_prompts(p, "anima_artist_mixer", [])
@@ -327,7 +331,7 @@ class AnimaFreeFuseScript(scripts.Script):
             sd_model.current_lora_hash = f"anima-freefuse:{uuid.uuid4().hex}"
 
     def process_before_every_sampling(self, p, enable, *values, **kwargs):
-        if not enable or not getattr(p, "_anima_freefuse_enabled", False):
+        if not enable or not is_feature_active(p, FREEFUSE):
             return
         try:
             self._configure_sampling(p, values)
@@ -341,10 +345,9 @@ class AnimaFreeFuseScript(scripts.Script):
 
     @staticmethod
     def _configure_sampling(p, values):
-        # Regional runs after FreeFuse (script load order) and yields to it via
-        # ``p._anima_freefuse_enabled``; Artist Mixer runs first and is checked here.
-        artist_state = p.extra_generation_params.get("Anima Artist Mixer")
-        if artist_state and not str(artist_state).startswith("disabled:"):
+        # Regional runs after FreeFuse (script load order) and yields to it;
+        # Artist Mixer runs first, yields too, and is checked here.
+        if is_feature_active(p, ARTIST_MIXER):
             raise ValueError(
                 "Anima FreeFuse and Anima Artist Mixer cannot run in the same pass"
             )
@@ -473,7 +476,7 @@ class AnimaFreeFuseScript(scripts.Script):
 
     @staticmethod
     def _cleanup_runtime(p):
-        if not getattr(p, "_anima_freefuse_enabled", False):
+        if not is_feature_active(p, FREEFUSE):
             return
         # The stage scheduler owns the online-LoRA lease when it was active at
         # entry; otherwise FreeFuse restores the user's original global mode.
@@ -481,7 +484,7 @@ class AnimaFreeFuseScript(scripts.Script):
             dynamic_args.online_lora = bool(
                 getattr(p, "_anima_freefuse_original_online", False)
             )
-        p._anima_freefuse_enabled = False
+        set_feature_active(p, FREEFUSE, False)
 
     # postprocess restores the online-LoRA mode before later scripts' postprocess
     # (which may start nested generations); cleanup covers runs that raise.

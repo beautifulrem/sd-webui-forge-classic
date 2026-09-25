@@ -10,7 +10,7 @@ import torch
 from backend.logging import setup_logger
 from lib_anima_regional.regional import Region, RegionalState, apply_regional_patch
 from modules import prompt_parser, scripts
-from modules.anima_feature_conflicts import register_exclusive_component
+from modules.anima_feature_conflicts import FREEFUSE, is_feature_active, register_exclusive_component
 from modules.anima_presets import register_preset_control
 from modules.anima_support import is_anima_engine, parse_block_list, register_negpip_prompts, split_conditioning
 from modules.infotext_utils import PasteField
@@ -144,7 +144,7 @@ class AnimaRegionalScript(scripts.Script):
         # Runs before NegPiP's process_batch: let a negative weight in a region
         # prompt that will actually be encoded enable NegPiP.
         prompts = []
-        if enable and is_anima_engine(getattr(p, "sd_model", None)) and not getattr(p, "_anima_freefuse_enabled", False):
+        if enable and is_anima_engine(getattr(p, "sd_model", None)) and not is_feature_active(p, FREEFUSE):
             prompts = [
                 text
                 for active, text, x, y, width, height, strength in _region_rows(region_values)
@@ -155,7 +155,7 @@ class AnimaRegionalScript(scripts.Script):
     def process_before_every_sampling(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
         if not enable or not is_anima_engine(getattr(p, "sd_model", None)):
             return
-        if getattr(p, "_anima_freefuse_enabled", False):
+        if is_feature_active(p, FREEFUSE):
             message = "disabled: Anima FreeFuse has priority in headless processing"
             p.extra_generation_params["Anima regional conditioning"] = message
             logger.warning("Anima Regional Conditioning %s", message)

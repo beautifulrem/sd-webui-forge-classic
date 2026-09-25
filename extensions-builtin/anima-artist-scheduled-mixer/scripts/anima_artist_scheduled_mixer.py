@@ -13,7 +13,7 @@ import gradio as gr
 import torch
 
 from modules import script_callbacks, scripts, sd_models, shared, spectrum_force
-from modules.anima_feature_conflicts import register_exclusive_component
+from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, is_feature_active, register_exclusive_component, set_feature_active
 from modules.anima_lora_support import stage_window
 from modules.anima_presets import register_preset_control
 from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, call_model_wrapper, negpip_mask_for, register_negpip_prompts, split_conditioning
@@ -2745,9 +2745,10 @@ class Script(scripts.Script):
 
         _unpatch_cross_attn()
         _ACTIVE_STATE = None
+        set_feature_active(p, ARTIST_MIXER, False)
         if not enable:
             return
-        if getattr(p, "_anima_freefuse_enabled", False):
+        if is_feature_active(p, FREEFUSE):
             message = "disabled: Anima FreeFuse has priority in headless processing"
             p.extra_generation_params["Anima Artist Mixer"] = message
             logger.warning("Anima Artist Mixer %s", message)
@@ -2806,6 +2807,7 @@ class Script(scripts.Script):
         _install_model_wrapper(unet, dm, state)
         _ACTIVE_STATE = state
         _RUN_STATES.append(state)
+        set_feature_active(p, ARTIST_MIXER)
         p.extra_generation_params["Anima Artist Mixer"] = (
             f"{len(artists)} artists, strength={state.global_strength:.2f}, "
             f"{state.combine_mode}/{state.fusion_mode}, preset={optimization}, shift={shift:.2f}"
@@ -2858,3 +2860,4 @@ class Script(scripts.Script):
 
     def cleanup(self, p, *args, **kwargs):
         _cleanup_runtime()
+        set_feature_active(p, ARTIST_MIXER, False)

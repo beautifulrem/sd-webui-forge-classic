@@ -66,6 +66,28 @@ class FreeFuseRefinerConflictState:
     messages: tuple[str, ...]
 
 
+# Spatial-routing features that cannot share a pass. FreeFuse wins when it is
+# on; Regional and Artist Mixer then yield. Scripts mark what actually runs.
+FREEFUSE = "Anima FreeFuse"
+ARTIST_MIXER = "Anima Artist Mixer"
+_ACTIVE_FEATURES = "_anima_active_features"
+
+
+def set_feature_active(process: Any, feature: str, active: bool = True) -> None:
+    """Record whether ``feature`` runs in the current generation of ``process``."""
+
+    features = set(getattr(process, _ACTIVE_FEATURES, None) or ())
+    if active:
+        features.add(feature)
+    else:
+        features.discard(feature)
+    setattr(process, _ACTIVE_FEATURES, features)
+
+
+def is_feature_active(process: Any, feature: str) -> bool:
+    return feature in (getattr(process, _ACTIVE_FEATURES, None) or ())
+
+
 def record_conflict_resolution(process: Any, *messages: str) -> None:
     """Append unique compatibility decisions to generation infotext."""
 

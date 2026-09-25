@@ -202,3 +202,44 @@ class FreeFuseRefinerConflictTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_sampler_names_match_the_registered_samplers():
+    # The resolver stays dependency-free, so its sampler sets are constants;
+    # keep them in step with the sampler table (a literal list; the module
+    # itself only imports inside the initialised WebUI).
+    import ast
+    from pathlib import Path
+
+    from modules.anima_feature_conflicts import CNS_SAMPLER, FLOW_SAMPLERS, MOMENTUM_SAMPLERS
+
+    source = (Path(__file__).parents[1] / "modules" / "sd_samplers_kdiffusion.py").read_text(encoding="utf-8")
+    table = next(
+        node.value
+        for node in ast.parse(source).body
+        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) == "samplers_k_diffusion"
+    )
+    labels, locked = set(), set()
+    for entry in table.elts:
+        label, options = entry.elts[0], ast.literal_eval(entry.elts[3])
+        if isinstance(label, ast.Constant):
+            labels.add(label.value)
+            if options.get("lock_scheduler_override"):
+                locked.add(label.value)
+
+    assert FLOW_SAMPLERS == locked
+    assert CNS_SAMPLER in labels
+    assert MOMENTUM_SAMPLERS <= labels
+
+
+def test_active_features_are_recorded_per_process():
+    from types import SimpleNamespace
+
+    from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, is_feature_active, set_feature_active
+
+    first, second = SimpleNamespace(), SimpleNamespace()
+    set_feature_active(first, FREEFUSE)
+    assert is_feature_active(first, FREEFUSE) and not is_feature_active(second, FREEFUSE)
+    assert not is_feature_active(first, ARTIST_MIXER)
+    set_feature_active(first, FREEFUSE, False)
+    assert not is_feature_active(first, FREEFUSE)
