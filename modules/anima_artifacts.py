@@ -10,7 +10,10 @@ import threading
 import urllib.request
 
 
-_DOWNLOAD_LOCK = threading.Lock()
+# One lock per target file: a long download or first hash of one artifact
+# must not block callers that need another, already verified one.
+_LOCKS_GUARD = threading.Lock()
+_DOWNLOAD_LOCKS: dict[str, threading.Lock] = {}
 # (path, mtime, size) -> sha256 of files already hashed: guidance asks for its
 # artifacts (~430 MB) on every sampling pass; re-hash only changed files.
 _VERIFIED: dict[tuple, str] = {}
@@ -43,7 +46,9 @@ def sha256_file(path: str) -> str:
 def ensure_pinned_download(*, path: str, url: str, sha256: str, maximum_bytes: int, timeout: float = 180, user_agent: str = "Forge-Neo-Anima-Mod-Guidance/1") -> str:
     """Return a verified artifact, downloading atomically when necessary."""
     path = os.path.abspath(path)
-    with _DOWNLOAD_LOCK:
+    with _LOCKS_GUARD:
+        lock = _DOWNLOAD_LOCKS.setdefault(path, threading.Lock())
+    with lock:
         if os.path.isfile(path) and _cached_sha256(path) == sha256:
             return path
 

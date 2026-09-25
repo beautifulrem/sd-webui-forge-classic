@@ -143,6 +143,7 @@ class NAGAttentionModifier:
         ).clamp_min(1e-6)
         ratio = norm_guided / norm_positive
         normalized = ratio.clamp(max=self.tau) / ratio * guided
-        # ``base`` is this call's fresh attention output: update it in place
-        base[rows] = positive_attention.lerp(normalized, self.alpha)
-        return base
+        # A copy: ``base`` may be shared by another modifier or cache
+        result = base.clone()
+        result[rows] = positive_attention.lerp(normalized, self.alpha)
+        return result

@@ -1086,8 +1086,9 @@ _LAYER_WEIGHT_MODULE = []
 
 
 def _layer_weight_module():
-    """The loaded layer-weight extension (its cached LoRA file analysis), found once."""
-    if _LAYER_WEIGHT_MODULE and _LAYER_WEIGHT_MODULE[0] is not None:
+    """The loaded layer-weight extension (its cached LoRA file analysis), or
+    None; searched once, at generation time when every script is loaded."""
+    if _LAYER_WEIGHT_MODULE:
         return _LAYER_WEIGHT_MODULE[0]
     found = None
     for module in (*getattr(script_loading, "loaded_scripts", {}).values(), *list(sys.modules.values())):

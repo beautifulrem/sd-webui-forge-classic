@@ -116,7 +116,10 @@ def test_lora_file_names_follow_the_network_index(monkeypatch, tmp_path):
 
     names = lora_file_names(path)
     assert {"cute_style.safetensors", "cute_style", "cute", "cutealias"} <= names
-    assert lora_file_names(path) is names  # cached
 
-    networks.available_networks = {}  # index refreshed: recomputed
-    assert "cute" not in lora_file_names(path)
+    # sd_forge_lora refreshes its index in place
+    renamed = SimpleNamespace(filename=str(path), alias="kawaii", get_alias=lambda: "kawaii")
+    networks.available_networks.clear()
+    networks.available_networks["Cute_Style"] = renamed
+    names = lora_file_names(path)
+    assert "kawaii" in names and "cute" not in names

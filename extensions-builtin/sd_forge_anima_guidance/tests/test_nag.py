@@ -52,6 +52,19 @@ class NAGTests(unittest.TestCase):
             nag.in_sigma_window = original
         self.assertEqual(len(calls), 2)
 
+    def test_the_inner_attention_output_is_not_modified(self):
+        modifier = NAGAttentionModifier(scale=1.0, tau=100.0, alpha=1.0, sigma_start=0.0, sigma_end=1.0)
+        shared = fake_attention(self.q, self.k, self.v)
+        before = shared.clone()
+
+        def attention(q, k, v, mask=None):  # the full-batch call returns a shared buffer
+            return shared if q.shape[0] == self.q.shape[0] else fake_attention(q, k, v, mask=mask)
+
+        result = modifier(attention, self.q, self.k, self.v, transformer_options=self.options, is_self_attention=False)
+
+        self.assertTrue(torch.equal(shared, before))
+        self.assertFalse(torch.equal(result, before))
+
     def test_self_attention_and_outside_range_are_noops(self):
         modifier = NAGAttentionModifier(scale=2.0, tau=2.5, alpha=0.5, sigma_start=0.0, sigma_end=0.4)
         base = fake_attention(self.q, self.k, self.v)

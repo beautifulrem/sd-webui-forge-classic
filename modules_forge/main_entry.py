@@ -115,9 +115,25 @@ def refresh_models() -> tuple[list[os.PathLike], list[os.PathLike]]:
     return sorted(ckpt_list), sorted(module_list.keys())
 
 
+def _migrate_scaled_fp8_setting(opts, config_filename):
+    """remi briefly had a separate "[Anima] Scaled FP8" setting; turn an enabled
+    one into the matching "Diffusion in Low Bits" choice."""
+    if not opts.data.pop("anima_scaled_fp8", False):
+        return
+    migrated = {
+        "float8-e4m3fn": "float8-e4m3fn (Anima scaled)",
+        "float8-e4m3fn (fp16 LoRA)": "float8-e4m3fn (Anima scaled, fp16 LoRA)",
+    }.get(opts.forge_unet_storage_dtype)
+    if migrated is not None:
+        opts.set("forge_unet_storage_dtype", migrated)
+    opts.save(config_filename)
+
+
 def refresh_model_loading_parameters(*, refresh: bool = True):
     if not refresh:
         return
+
+    _migrate_scaled_fp8_setting(shared.opts, shared.config_filename)
 
     from modules.sd_models import model_data, select_checkpoint
 

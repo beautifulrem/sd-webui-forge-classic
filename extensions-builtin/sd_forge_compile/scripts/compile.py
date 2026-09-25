@@ -3,7 +3,6 @@
 import logging
 import shutil
 import sys
-import weakref
 from functools import wraps
 from typing import TYPE_CHECKING
 
@@ -17,7 +16,7 @@ from backend.args import args as cmd_args
 from backend.logging import setup_logger
 from backend.utils import get_attr, set_attr_raw
 from modules import scripts
-from modules.anima_support import is_anima_engine
+from modules.anima_support import is_anima_engine, process_ref
 from modules.anima_presets import register_preset_control
 from anima_block_compile import AnimaBlockCompileManager, needs_eager
 
@@ -101,13 +100,14 @@ class TorchCompileForForge(scripts.Script):
 
         # The handler outlives this generation on the model: hold p weakly so
         # the finished generation (images, prompts) can be freed.
-        process_ref = weakref.ref(p)
+        process = process_ref(p)
 
         def compile_fallback(error):
             message = f"Anima per-block fell back to eager: {type(error).__name__}"
-            process = process_ref()
-            if process is not None:
+            try:
                 process.extra_generation_params["Torch compile"] = message
+            except ReferenceError:  # the generation has ended
+                pass
             logger.error(
                 message,
                 exc_info=(type(error), error, error.__traceback__),

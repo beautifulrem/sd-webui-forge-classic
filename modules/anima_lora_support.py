@@ -107,13 +107,10 @@ def stage_window(stage: str, shift: float) -> tuple[float, float, float]:
     return start, end, clamp((start + end) * 0.5, start, end)
 
 
-_FILE_NAMES: dict[tuple, tuple] = {}
-
-
 def lora_file_names(filename) -> frozenset[str]:
     """Lower-case names a LoRA file can be referred to by in prompts and
     target lists: its path, file name and stem, plus its network names and
-    aliases in sd_forge_lora's index. Cached until that index changes."""
+    aliases in sd_forge_lora's index (refreshed in place, so not cached)."""
 
     import os
     import sys
@@ -121,11 +118,6 @@ def lora_file_names(filename) -> frozenset[str]:
 
     available = getattr(sys.modules.get("networks"), "available_networks", None) or {}
     target = os.path.abspath(str(filename))
-    key = (target, id(available), len(available))
-    cached = _FILE_NAMES.get(key)
-    if cached is not None and cached[0] is available:
-        return cached[1]
-
     path = Path(str(filename))
     names = {str(path).lower(), path.name.lower(), path.stem.lower()}
     for name, entry in available.items():
@@ -134,11 +126,7 @@ def lora_file_names(filename) -> frozenset[str]:
                 names.update((str(name).lower(), str(getattr(entry, "alias", "")).lower(), str(entry.get_alias()).lower()))
         except Exception:
             continue
-    result = frozenset(name for name in names if name)
-    if len(_FILE_NAMES) > 256:
-        _FILE_NAMES.clear()
-    _FILE_NAMES[key] = (available, result)
-    return result
+    return frozenset(name for name in names if name)
 
 
 # region LoRA key layout

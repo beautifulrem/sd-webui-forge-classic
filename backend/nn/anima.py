@@ -123,7 +123,8 @@ def _comfy_quant_conf(conf: dict) -> torch.Tensor:
 
 def _block_linear_weights(state_dict: dict[str, torch.Tensor]):
     """``(key, prefix, weight)`` for full-precision block Linear weights outside
-    the precision-sensitive parts."""
+    the precision-sensitive parts. Lazily, over a fixed key list: callers
+    replace each weight as they go, so the originals are freed one by one."""
 
     for key in [k for k in state_dict if k.startswith("blocks.") and k.endswith(".weight")]:
         weight = state_dict[key]
@@ -148,7 +149,7 @@ def scale_fp8_state_dict(state_dict: dict[str, torch.Tensor], *, fp8_matmul: boo
     full_gemm = _comfy_quant_conf({"format": "float8_e4m3fn", "full_precision_matrix_mult": True})
 
     quantized = 0
-    for key, prefix, weight in list(_block_linear_weights(state_dict)):
+    for key, prefix, weight in _block_linear_weights(state_dict):
         scale = weight.abs().amax().float().clamp_min(1e-12) / _FP8_E4M3_MAX
         state_dict[key] = (weight.float() / scale).clamp_(-_FP8_E4M3_MAX, _FP8_E4M3_MAX).to(torch.float8_e4m3fn)
         state_dict[f"{prefix}weight_scale"] = scale
@@ -172,7 +173,7 @@ def quantize_int8_convrot_state_dict(state_dict: dict[str, torch.Tensor], *, dev
 
     conf = _comfy_quant_conf({"format": "int8_tensorwise", "convrot": True, "convrot_groupsize": _INT8_CONVROT_GROUP})
     quantized = 0
-    for key, prefix, weight in list(_block_linear_weights(state_dict)):
+    for key, prefix, weight in _block_linear_weights(state_dict):
         if not key.endswith(_INT8_LINEAR_SUFFIXES) or weight.shape[1] % _INT8_CONVROT_GROUP:
             continue
         qdata, params = TensorWiseINT8Layout.quantize(
