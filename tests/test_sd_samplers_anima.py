@@ -125,3 +125,28 @@ def test_unipc_applies_dynamic_thresholding_on_terminal_step(monkeypatch):
     )
 
     assert torch.equal(result, _threshold_sample(denoised, 1.0, 10.0))
+
+
+def test_higher_order_samplers_converge_faster_than_euler(monkeypatch):
+    """Gaussian data has a closed-form RF denoiser and ODE solution: the
+    probability-flow ODE maps noise ``eps`` to ``mu + std * eps``."""
+
+    monkeypatch.setattr(anima_samplers, "require_anima_flow_denoiser", lambda _model, _feature: None)
+    mu, std = 0.7, 0.4
+
+    def model(x, sigma, **_extra_args):
+        t = sigma.view(-1, *([1] * (x.ndim - 1)))
+        return mu + (1 - t) * std**2 / ((1 - t) ** 2 * std**2 + t**2) * (x - (1 - t) * mu)
+
+    noise = torch.randn(2, 4, 8, 8, generator=torch.Generator().manual_seed(0), dtype=torch.float64)
+    exact = mu + std * noise
+
+    def error(sampler, steps):
+        t = torch.linspace(1.0, 0.0, steps + 1, dtype=torch.float64)
+        sigmas = 3 * t / (1 + 2 * t)  # Anima's shift 3
+        return float((sampler(model, noise.clone(), sigmas, disable=True) - exact).abs().max())
+
+    euler = error(anima_samplers.sample_anima_flow_euler, 20)
+    for sampler in (anima_samplers.sample_anima_flow_unipc2, anima_samplers.sample_anima_flow_pc3):
+        assert error(sampler, 20) < euler / 2
+        assert error(sampler, 20) < error(sampler, 10) / 2
