@@ -65,9 +65,17 @@ def test_new_extension_routes_refuse_cross_site_writes_only():
     assert client.post("/core", headers={"origin": "https://evil.example"}).json() == "core"
 
 
-def test_websocket_handshakes_get_the_same_checks():
+def test_websocket_handshakes_get_the_same_checks(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
     import pytest
     from starlette.websockets import WebSocket, WebSocketDisconnect
+
+    # The test client's handshake always says "Host: testserver", which a
+    # loopback-only server would refuse as a rebound name: act as --listen.
+    options = SimpleNamespace(listen=True, cors_allow_origins=None, cors_allow_origins_regex=None)
+    monkeypatch.setitem(sys.modules, "modules.shared_cmd_options", SimpleNamespace(cmd_opts=options))
 
     app = FastAPI()
     app.auth = [("user", "pw")]
@@ -93,7 +101,6 @@ def test_websocket_handshakes_get_the_same_checks():
             pass
     assert refused.value.code == 1008  # cross-site
 
-    # The test client's handshake always says "Host: testserver"
     with client.websocket_connect("/ext/ws", headers={"origin": "http://testserver"}) as websocket:
         assert websocket.receive_text() == "hello"
 
