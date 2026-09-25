@@ -65,6 +65,39 @@ def test_new_extension_routes_refuse_cross_site_writes_only():
     assert client.post("/core", headers={"origin": "https://evil.example"}).json() == "core"
 
 
+def test_websocket_handshakes_get_the_same_checks():
+    import pytest
+    from starlette.websockets import WebSocket, WebSocketDisconnect
+
+    app = FastAPI()
+    app.auth = [("user", "pw")]
+    app.cookie_id = "cid"
+    app.tokens = {"good": "user"}
+
+    @app.websocket("/ext/ws")
+    async def socket(websocket: WebSocket):
+        await websocket.accept()
+        await websocket.send_text("hello")
+        await websocket.close()
+
+    assert guard_routes(app, ("/ext/",)) == 1
+    client = TestClient(app, base_url="http://127.0.0.1:7860")
+    with pytest.raises(WebSocketDisconnect) as refused:
+        with client.websocket_connect("/ext/ws"):
+            pass
+    assert refused.value.code == 1008  # no login
+
+    client.cookies.set("access-token-cid", "good")
+    with pytest.raises(WebSocketDisconnect) as refused:
+        with client.websocket_connect("/ext/ws", headers={"origin": "https://evil.example"}):
+            pass
+    assert refused.value.code == 1008  # cross-site
+
+    # The test client's handshake always says "Host: testserver"
+    with client.websocket_connect("/ext/ws", headers={"origin": "http://testserver"}) as websocket:
+        assert websocket.receive_text() == "hello"
+
+
 def test_proxies_and_cors_allow_list():
     import sys
     from types import SimpleNamespace

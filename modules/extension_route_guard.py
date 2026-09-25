@@ -60,8 +60,9 @@ def _same_origin(origin: str, request) -> bool:
 
 
 def is_cross_site(request) -> bool:
-    """A state-changing request a browser sent from another site."""
-    if request.method in ("GET", "HEAD", "OPTIONS"):
+    """A state-changing request, or a WebSocket handshake (browsers send those
+    with cookies and no CORS check), that a browser sent from another site."""
+    if getattr(request, "method", None) in ("GET", "HEAD", "OPTIONS"):
         return False
     origin = request.headers.get("origin")
     if origin and origin != "null" and _allowed_by_cors(origin):
@@ -92,8 +93,9 @@ def refusal(app, request, require_login: bool = True) -> tuple[int, str] | None:
 
 
 def _wrap(app, routes, require_login: bool) -> int:
-    from starlette.requests import Request
+    from starlette.requests import HTTPConnection, Request
     from starlette.responses import PlainTextResponse
+    from starlette.websockets import WebSocketClose
 
     wrapped = 0
     for route in routes:
@@ -102,11 +104,17 @@ def _wrap(app, routes, require_login: bool) -> int:
         original = route.app
 
         async def guarded(scope, receive, send, original=original):
-            if scope.get("type") == "http":
+            kind = scope.get("type")
+            if kind == "http":
                 refused = refusal(app, Request(scope, receive), require_login)
                 if refused is not None:
                     status, reason = refused
                     await PlainTextResponse(reason, status_code=status)(scope, receive, send)
+                    return
+            elif kind == "websocket":
+                refused = refusal(app, HTTPConnection(scope), require_login)
+                if refused is not None:
+                    await WebSocketClose(code=1008, reason=refused[1])(scope, receive, send)
                     return
             await original(scope, receive, send)
 
