@@ -18,9 +18,7 @@ Anima LoRA 阶段介入是一个 Forge/WebUI 插件，用于控制 Anima LoRA �
 
 ## 安装
 
-1. 将插件文件夹复制到 `stable-diffusion-webui/extensions` 或 `sd-webui-forge-neo/extensions`。
-2. 重启 WebUI，或使用 Reload UI。
-3. 打开 txt2img 或 img2img，展开 **Anima LoRA 阶段介入** 面板。
+已内置于 Forge Neo Remi：打开 txt2img 或 img2img，展开 **Anima LoRA 阶段介入** 面板。
 
 ## 基础使用
 

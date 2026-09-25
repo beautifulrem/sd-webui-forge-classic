@@ -1,5 +1,4 @@
 import logging
-import os
 import re
 import sys
 from dataclasses import dataclass
@@ -9,19 +8,24 @@ import gradio as gr
 
 from modules import script_callbacks, scripts, shared
 from modules.anima_lora_support import (
+    LayerWeights,
+    looks_like_layer_weights as _looks_like_layer_weights,
+    parse_layer_weights,
+    parse_module_weights,
     lora_file_names as _names_for_lora_file,
     anima_lora_block_count,
     anima_source_block,
     merge_consistent_rules,
     compact_text as _compact_text,
     is_plain_number as _is_plain_number,
-    module_key as _module_key,
     block_index_from_key as _block_index_from_key,
-    module_from_key as _module_from_key,
     module_factor as _module_factor,
     model_key as _model_key,
     qwen_layer_index as _qwen_layer_index,
 )
+from modules.anima_lora_files import adapter_kind_for_file as _adapter_kind_for_file
+from modules.anima_lora_files import is_anima_adapter_file as _is_anima_adapter_file
+from modules.anima_lora_files import lora_coverage as _lora_coverage
 from modules.anima_presets import register_preset_control
 
 
@@ -46,7 +50,7 @@ LANG = {
         "module_weights": "模块权重",
         "qwen_weights": "Qwen 文本编码器层权重",
         "block_placeholder": "示例: 0-5=0.6, 6-20=1.0, 21-27=0.8",
-        "module_placeholder": "self_attn/cross_attn/mlp/adaln/norm",
+        "module_placeholder": "self_attn/cross_attn/mlp/adaln",
         "qwen_placeholder": "留空=文本编码器保持原权重；示例: 0-31=1.0",
         "preset_enabled": "启用预设",
         "preset_name": "预设名称",
@@ -54,7 +58,7 @@ LANG = {
         "scope_all": "提示词里的全部同类型",
         "scope_targets": "仅目标列表",
         "custom_presets": "自定义预设",
-        "preset_placeholder": "每行一个预设：名称=blocks=...;modules=...;qwen=...",
+        "preset_placeholder": "每行一个预设：名称=blocks=...;modules=...",
         "apply_preset": "应用预设到提示词",
         "lora_usage": "LoRA 使用教程",
         "lokr_usage": "LoKR 使用教程",
@@ -76,7 +80,7 @@ LANG = {
         "module_weights": "Module weights",
         "qwen_weights": "Qwen text-encoder layer weights",
         "block_placeholder": "Example: 0-5=0.6, 6-20=1.0, 21-27=0.8",
-        "module_placeholder": "self_attn/cross_attn/mlp/adaln/norm",
+        "module_placeholder": "self_attn/cross_attn/mlp/adaln",
         "qwen_placeholder": "Empty = keep text encoder unchanged; example: 0-31=1.0",
         "preset_enabled": "Enable preset",
         "preset_name": "Preset name",
@@ -84,7 +88,7 @@ LANG = {
         "scope_all": "All matching type in prompt",
         "scope_targets": "Target list only",
         "custom_presets": "Custom presets",
-        "preset_placeholder": "One preset per line: name=blocks=...;modules=...;qwen=...",
+        "preset_placeholder": "One preset per line: name=blocks=...;modules=...",
         "apply_preset": "Apply preset to prompt",
         "lora_usage": "LoRA usage guide",
         "lokr_usage": "LoKR usage guide",
@@ -143,8 +147,6 @@ def _register_ui_settings():
 
 script_callbacks.on_ui_settings(_register_ui_settings)
 
-LORA_MARKERS = (".lora_a.weight", ".lora_b.weight", ".lora_down.weight", ".lora_up.weight")
-LOKR_MARKERS = (".lokr_",)
 INLINE_LORA_RE = re.compile(r"<lora:([^:>]+):([^>]+)>")
 PROMPT_LORA_RE = re.compile(r"<lora:([^:>]+)(?::([^>]*))?>")
 
@@ -155,7 +157,6 @@ DEFAULT_MODULE_WEIGHTS = "\n".join(
         "cross_attn=1.0",
         "mlp=1.0",
         "adaln=1.0",
-        "norm=1.0",
     ]
 )
 PRESET_SCOPE_ALL = "提示词里的全部同类型"
@@ -164,7 +165,7 @@ PRESET_SCOPE_ALL_EN = "All matching type in prompt"
 PRESET_SCOPE_TARGETS_EN = "Target list only"
 DEFAULT_PRESETS_TEXT = "\n".join(
     [
-        "平衡=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,cross_attn=1.0,mlp=1.0,adaln=1.0,norm=1.0",
+        "平衡=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,cross_attn=1.0,mlp=1.0,adaln=1.0",
         "保构图=blocks=0-9=0.35,10-18=1.0,19-27=0.7",
         "强画风=blocks=0-9=0.7,10-18=1.0,19-27=0.9",
     ]
@@ -183,7 +184,7 @@ USAGE_TEXT = """使用方式:
 11. 也可以在提示词里同时写 block 和模块权重，例如 <lora:灵魂潮汐:blocks=0-9=0.8,10-18=1.0,19-27=0.7;modules=self_attn=1.0,mlp=0.8,cross_attn=0.6>。
 12. 使用提示词内联分层时，该文件会跳过对应选项卡里的 blocks 和模块设置，只使用提示词内写的 block/模块权重；Qwen 仍只读取插件面板设置。
 13. 内联 block 分层也支持直接写 28 个数字，例如 <lora:灵魂潮汐:1,1,0.9,0.9,0.8,...>，顺序对应 blocks 0 到 27。在 40/52 层的扩展模型（Anima 2.9B/3.8B）上使用 28 层 LoRA 时，block 编号仍按 LoRA 自己的 28 层计算，插入的复制层跟随其来源层。
-14. 可以在预设列表里写多行命名预设，例如 平衡=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,mlp=0.8;qwen=0-5=1.0。
+14. 可以在预设列表里写多行命名预设，例如 平衡=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,mlp=0.8。预设只含 blocks 和 modules，Qwen 层权重始终来自面板。
 15. 点击“应用预设到提示词”会把当前页正向提示词中命中的 LoRA/LoKR 权重替换成该预设的 blocks/modules 内联分层语法。
 16. 预设应用范围选择“提示词里的全部同类型”时，会替换提示词里所有同类型的 Anima LoRA/LoKR；选择“仅目标列表”时，只替换目标框里填入的 LoRA/LoKR。
 """
@@ -201,7 +202,7 @@ USAGE_TEXT_EN = """Usage:
 11. Inline syntax can also combine blocks and modules, for example <lora:name:blocks=0-9=0.8,10-18=1.0,19-27=0.7;modules=self_attn=1.0,mlp=0.8,cross_attn=0.6>.
 12. Inline block/module weights override the corresponding tab settings for that file. Qwen weights still come from the panel.
 13. Inline block weights also support 28 comma-separated numbers in block order from 0 to 27. On depth-expanded models (Anima 2.9B/3.8B) a 28-block LoRA keeps its own block numbering; inserted copies follow the block they were copied from.
-14. Presets can be written one per line, for example Balanced=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,mlp=0.8;qwen=0-5=1.0.
+14. Presets can be written one per line, for example Balanced=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,mlp=0.8. Presets hold blocks and modules; Qwen layer weights always come from the panel.
 15. "Apply preset to prompt" replaces matching LoRA/LoKR prompt weights with the preset's inline blocks/modules syntax.
 16. The apply scope can affect all matching adapters in the prompt, or only the adapters listed in the target field.
 """
@@ -213,24 +214,6 @@ def _usage_text():
 _ORIGINAL_ADD_PATCHES = None
 _ACTIVE_RULE = None
 _LAST_SIGNATURE = None
-_SCAN_CACHE = {}
-_KIND_CACHE = {}
-_QWEN_SCAN_CACHE = {}
-_COVERAGE_CACHE = {}
-
-
-@dataclass
-class LayerWeights:
-    default: float = 1.0
-    values: dict[int, float] = None
-    inline: bool = False
-
-    def __post_init__(self):
-        if self.values is None:
-            self.values = {}
-
-    def factor(self, index: int) -> float:
-        return self.values.get(index, self.default)
 
 
 @dataclass
@@ -243,14 +226,6 @@ class PromptRule:
 class PresetWeights:
     block_weights: str | None = None
     module_weights: str | None = None
-    text_layer_weights: str | None = None
-
-
-@dataclass
-class LoraCoverage:
-    blocks: set[int]
-    modules: set[str]
-    text_layers: set[int]
 
 
 @dataclass
@@ -269,7 +244,6 @@ class AdapterRule:
         adapter_kind: str,
         enabled: bool,
         target_loras: str,
-        target_mode: str,
         block_enabled: bool,
         block_weights: str,
         module_enabled: bool,
@@ -280,7 +254,6 @@ class AdapterRule:
     ):
         self.adapter_kind = adapter_kind
         self.enabled = bool(enabled)
-        self.target_mode = target_mode or "auto"
         self.targets = _parse_targets(target_loras)
         self.block_enabled = bool(block_enabled)
         self.module_enabled = bool(module_enabled)
@@ -289,9 +262,9 @@ class AdapterRule:
         self.module_weights = _parse_module_weights(module_weights) if self.module_enabled else {}
         self.text_layer_weights = _parse_layer_weights(text_layer_weights, "") if self.text_layer_enabled else LayerWeights()
         self.inline_rules = inline_rules
-        self.signature = self._make_signature(target_loras, target_mode, block_weights, module_weights, text_layer_weights)
+        self.signature = self._make_signature(target_loras, block_weights, module_weights, text_layer_weights)
 
-    def _make_signature(self, target_loras, target_mode, block_weights, module_weights, text_layer_weights):
+    def _make_signature(self, target_loras, block_weights, module_weights, text_layer_weights):
         inline_sig = ",".join(
             sorted(f"{name}:{rule.block_weights.default}:{rule.block_weights.values}:{rule.module_weights}" for name, rule in self.inline_rules.items())
         )
@@ -300,7 +273,7 @@ class AdapterRule:
                 self.adapter_kind,
                 "1" if self.enabled else "0",
                 _compact_text(target_loras),
-                f"target_mode={target_mode}",
+                "target_mode=legacy",
                 "block=1" if self.block_enabled else "block=0",
                 _compact_text(block_weights),
                 "module=1" if self.module_enabled else "module=0",
@@ -325,13 +298,7 @@ class AdapterRule:
         if inline_rule is not None:
             return LoraDecision(True, _filter_layer_weights(inline_rule.block_weights, coverage.blocks), _filter_module_weights(inline_rule.module_weights, coverage.modules), text_layer_weights, "prompt", anima_lora_block_count(coverage.blocks))
 
-        if self.target_mode == "targets":
-            if not self.targets or not any(name in self.targets for name in names):
-                return LoraDecision(False, self.block_weights, self.module_weights, self.text_layer_weights, "not-target")
-        elif self.target_mode == "all":
-            if not _is_anima_adapter_file(filename, self.adapter_kind):
-                return LoraDecision(False, self.block_weights, self.module_weights, self.text_layer_weights, "not-anima")
-        elif self.targets:
+        if self.targets:
             if not any(name in self.targets for name in names):
                 return LoraDecision(False, self.block_weights, self.module_weights, self.text_layer_weights, "not-target")
         elif not _is_anima_adapter_file(filename, self.adapter_kind):
@@ -344,7 +311,6 @@ class ActiveRule:
         self,
         lora_enabled: bool,
         lora_targets: str,
-        lora_target_mode: str,
         lora_block_enabled: bool,
         lora_block_weights: str,
         lora_module_enabled: bool,
@@ -354,7 +320,6 @@ class ActiveRule:
         lora_inline_rules: dict[str, PromptRule],
         lokr_enabled: bool,
         lokr_targets: str,
-        lokr_target_mode: str,
         lokr_block_enabled: bool,
         lokr_block_weights: str,
         lokr_module_enabled: bool,
@@ -363,8 +328,8 @@ class ActiveRule:
         lokr_text_layer_weights: str,
         lokr_inline_rules: dict[str, PromptRule],
     ):
-        self.lora_rule = AdapterRule("lora", lora_enabled, lora_targets, lora_target_mode, lora_block_enabled, lora_block_weights, lora_module_enabled, lora_module_weights, lora_text_layer_enabled, lora_text_layer_weights, lora_inline_rules)
-        self.lokr_rule = AdapterRule("lokr", lokr_enabled, lokr_targets, lokr_target_mode, lokr_block_enabled, lokr_block_weights, lokr_module_enabled, lokr_module_weights, lokr_text_layer_enabled, lokr_text_layer_weights, lokr_inline_rules)
+        self.lora_rule = AdapterRule("lora", lora_enabled, lora_targets, lora_block_enabled, lora_block_weights, lora_module_enabled, lora_module_weights, lora_text_layer_enabled, lora_text_layer_weights, lora_inline_rules)
+        self.lokr_rule = AdapterRule("lokr", lokr_enabled, lokr_targets, lokr_block_enabled, lokr_block_weights, lokr_module_enabled, lokr_module_weights, lokr_text_layer_enabled, lokr_text_layer_weights, lokr_inline_rules)
         self.rules = {
             "lora": self.lora_rule,
             "lokr": self.lokr_rule,
@@ -414,98 +379,16 @@ def _parse_targets(text) -> set[str]:
     return {target for target in targets if target}
 
 
-def _parse_float(value, fallback=1.0) -> float:
-    try:
-        return float(str(value).strip())
-    except Exception:
-        return fallback
-
-
-def _looks_like_layer_weights(text) -> bool:
-    value = str(text or "").strip()
-    if not value or _is_plain_number(value):
-        return False
-
-    tokens = [t for t in re.split(r"[\s,，;；]+", value) if t]
-    selector_found = False
-    numeric_count = 0
-
-    for token in tokens:
-        if "=" in token:
-            left, _ = token.split("=", 1)
-            left = left.strip().lower()
-            if left in {"*", "all", "default"} or left.isdigit() or re.fullmatch(r"\d+\s*-\s*\d+", left):
-                selector_found = True
-                break
-            continue
-
-        if _is_plain_number(token):
-            numeric_count += 1
-
-    return selector_found or numeric_count >= 2
+# Modules a LoRA can train in an Anima block (its LayerNorms have no weights)
+_DEFAULT_MODULE_FACTORS = dict.fromkeys(("self_attn", "cross_attn", "mlp", "adaln"), 1.0)
 
 
 def _parse_layer_weights(text, fallback_text) -> LayerWeights:
-    source = str(text or "").strip() or fallback_text
-    source = source.replace("，", ",").replace("；", ";").replace("：", "=")
-    tokens = [t for t in re.split(r"[\s,;]+", source) if t]
-    values = {}
-    default = 1.0
-    bare_values = []
-
-    for token in tokens:
-        if "=" not in token:
-            try:
-                bare_values.append(float(token))
-            except Exception:
-                logger.warning("Ignored invalid layer weight token: %s", token)
-            continue
-
-        left, right = token.split("=", 1)
-        left = left.strip().lower()
-        value = _parse_float(right, 1.0)
-
-        if left in {"*", "all", "default"}:
-            default = value
-            continue
-
-        range_match = re.match(r"^(\d+)\s*-\s*(\d+)$", left)
-        if range_match:
-            start, end = int(range_match.group(1)), int(range_match.group(2))
-            if start > end:
-                start, end = end, start
-            for index in range(start, end + 1):
-                values[index] = value
-            continue
-
-        if left.isdigit():
-            values[int(left)] = value
-        else:
-            logger.warning("Ignored invalid layer selector: %s", left)
-
-    if bare_values and not values:
-        values.update({i: v for i, v in enumerate(bare_values)})
-
-    return LayerWeights(default=default, values=values, inline=_looks_like_layer_weights(text))
+    return parse_layer_weights(str(text or "").strip() or fallback_text)
 
 
 def _parse_module_weights(text) -> dict[str, float]:
-    weights = {
-        "self_attn": 1.0,
-        "cross_attn": 1.0,
-        "mlp": 1.0,
-        "adaln": 1.0,
-        "norm": 1.0,
-    }
-    source = str(text or DEFAULT_MODULE_WEIGHTS).replace("，", ",").replace("；", ";").replace("：", "=")
-
-    for token in [t for t in re.split(r"[\n,;]+", source) if t.strip()]:
-        if "=" not in token:
-            continue
-        left, right = token.split("=", 1)
-        weights[_module_key(left)] = _parse_float(right, 1.0)
-
-    return weights
+    return {**_DEFAULT_MODULE_FACTORS, **parse_module_weights(text or DEFAULT_MODULE_WEIGHTS)}
 
 
 def _preset_key(name: str) -> str:
@@ -529,8 +412,7 @@ def _parse_preset_sections(text: str) -> PresetWeights:
                 sections["modules"] = right.strip()
                 continue
             if key in {"qwen", "text", "text_encoder", "text_layers", "te"}:
-                sections["qwen"] = right.strip()
-                continue
+                continue  # Qwen layer weights come from the panel only
         bare_parts.append(part)
     if bare_parts:
         if "blocks" in sections:
@@ -540,7 +422,6 @@ def _parse_preset_sections(text: str) -> PresetWeights:
     return PresetWeights(
         block_weights=sections.get("blocks") or None,
         module_weights=sections.get("modules") or None,
-        text_layer_weights=sections.get("qwen") or None,
     )
 
 
@@ -584,45 +465,12 @@ def _preset_dropdown_update(text: str, current_value: str = ""):
     return gr.update(choices=choices, value=value)
 
 
-def _apply_preset_values(
-    enabled: bool,
-    preset_name: str,
-    presets_text: str,
-    block_enabled: bool,
-    block_weights: str,
-    module_enabled: bool,
-    module_weights: str,
-    text_layer_enabled: bool,
-    text_layer_weights: str,
-) -> tuple[bool, str, bool, str, bool, str]:
-    if not enabled:
-        return block_enabled, block_weights, module_enabled, module_weights, text_layer_enabled, text_layer_weights
-
-    presets = _parse_presets(presets_text)
-    preset_name_key = _preset_key(preset_name)
-    preset = presets.get(preset_name_key) if preset_name_key else next(iter(presets.values()), None)
-    if preset is None:
-        if preset_name_key:
-            logger.warning("Anima layer weight preset not found: %s", preset_name)
-        return block_enabled, block_weights, module_enabled, module_weights, text_layer_enabled, text_layer_weights
-
-    return (
-        True if preset.block_weights is not None else block_enabled,
-        preset.block_weights if preset.block_weights is not None else block_weights,
-        True if preset.module_weights is not None else module_enabled,
-        preset.module_weights if preset.module_weights is not None else module_weights,
-        True if preset.text_layer_weights is not None else text_layer_enabled,
-        preset.text_layer_weights if preset.text_layer_weights is not None else text_layer_weights,
-    )
-
-
 def _targets_for_preset_scope(scope: str, target_loras: str) -> str:
     return "" if scope in {PRESET_SCOPE_ALL, PRESET_SCOPE_ALL_EN} else target_loras
 
 
-def _target_mode_for_preset(enabled: bool, scope: str) -> str:
-    if not enabled:
-        return "legacy"
+def _preset_target_mode(scope: str) -> str:
+    """Which prompt adapters the "Apply preset to prompt" button rewrites."""
     return "all" if scope in {PRESET_SCOPE_ALL, PRESET_SCOPE_ALL_EN} else "targets"
 
 
@@ -661,7 +509,7 @@ def _apply_preset_to_prompt_text(
         return prompt_text
 
     targets = _parse_targets(target_loras)
-    target_mode = _target_mode_for_preset(True, preset_scope)
+    target_mode = _preset_target_mode(preset_scope)
 
     def replace(match):
         name = match.group(1).strip()
@@ -690,155 +538,13 @@ def _filter_layer_weights(weights: LayerWeights, trained_layers: set[int]) -> La
     if not trained_layers:
         return LayerWeights()
     values = {index: value for index, value in weights.values.items() if index in trained_layers}
-    return LayerWeights(default=weights.default, values=values, inline=weights.inline)
+    return LayerWeights(default=weights.default, values=values)
 
 
 def _filter_module_weights(weights: dict[str, float], trained_modules: set[str]) -> dict[str, float]:
     if not weights or not trained_modules:
         return {}
     return {module: value for module, value in weights.items() if module in trained_modules}
-
-
-def _safe_open_keys(filename: str) -> list[str]:
-    from safetensors import safe_open
-
-    with safe_open(filename, framework="pt", device="cpu") as f:
-        return list(f.keys())
-
-
-def _lora_cache_key(filename):
-    path = str(filename)
-    if Path(path).suffix.lower() != ".safetensors":
-        return None
-
-    try:
-        stat = os.stat(path)
-    except OSError:
-        return None
-
-    return (os.path.abspath(path), stat.st_mtime, stat.st_size)
-
-
-def _is_lora_weight_key(key: str) -> bool:
-    key_lower = str(key or "").lower()
-    return any(marker in key_lower for marker in LORA_MARKERS)
-
-
-def _is_lokr_weight_key(key: str) -> bool:
-    key_lower = str(key or "").lower()
-    return any(marker in key_lower for marker in LOKR_MARKERS)
-
-
-def _is_adapter_weight_key(key: str, adapter_kind: str) -> bool:
-    if adapter_kind == "lokr":
-        return _is_lokr_weight_key(key)
-    return _is_lora_weight_key(key)
-
-
-def _adapter_kind_for_file(filename) -> str | None:
-    cache_key = _lora_cache_key(filename)
-    if cache_key is None:
-        return None
-
-    cached = _KIND_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
-
-    try:
-        keys = _safe_open_keys(str(filename))
-    except Exception:
-        _KIND_CACHE[cache_key] = None
-        return None
-
-    has_lokr = any(_is_lokr_weight_key(key) for key in keys)
-    has_lora = any(_is_lora_weight_key(key) for key in keys)
-    adapter_kind = "lokr" if has_lokr else "lora" if has_lora else None
-    _KIND_CACHE[cache_key] = adapter_kind
-    return adapter_kind
-
-
-def _lora_coverage(filename, adapter_kind: str = "lora") -> LoraCoverage:
-    cache_key = _lora_cache_key(filename)
-    if cache_key is None:
-        return LoraCoverage(blocks=set(), modules=set(), text_layers=set())
-
-    coverage_key = (cache_key, adapter_kind)
-    cached = _COVERAGE_CACHE.get(coverage_key)
-    if cached is not None:
-        return cached
-
-    try:
-        keys = _safe_open_keys(str(filename))
-    except Exception:
-        coverage = LoraCoverage(blocks=set(), modules=set(), text_layers=set())
-        _COVERAGE_CACHE[coverage_key] = coverage
-        return coverage
-
-    blocks = set()
-    modules = set()
-    text_layers = set()
-
-    for key in keys:
-        if not _is_adapter_weight_key(key, adapter_kind):
-            continue
-
-        text_layer = _qwen_layer_index(key)
-        if text_layer is not None:
-            text_layers.add(text_layer)
-            continue
-
-        block_index = _block_index_from_key(key)
-        if block_index is not None:
-            blocks.add(block_index)
-            module = _module_from_key(key)
-            if module:
-                modules.add(module)
-
-    coverage = LoraCoverage(blocks=blocks, modules=modules, text_layers=text_layers)
-    _COVERAGE_CACHE[coverage_key] = coverage
-    return coverage
-
-
-def _is_anima_adapter_file(filename, adapter_kind: str) -> bool:
-    path = str(filename)
-    cache_key = _lora_cache_key(path)
-    if cache_key is None:
-        return False
-
-    scan_key = (cache_key, adapter_kind)
-    cached = _SCAN_CACHE.get(scan_key)
-    if cached is not None:
-        return cached
-
-    coverage = _lora_coverage(path, adapter_kind)
-    is_anima = bool(coverage.blocks)
-    _SCAN_CACHE[scan_key] = is_anima
-    return is_anima
-
-
-def _is_anima_lora_file(filename) -> bool:
-    return _is_anima_adapter_file(filename, "lora")
-
-
-def _is_anima_lokr_file(filename) -> bool:
-    return _is_anima_adapter_file(filename, "lokr")
-
-
-def _has_qwen_text_encoder_file(filename) -> bool:
-    path = str(filename)
-    cache_key = _lora_cache_key(path)
-    if cache_key is None:
-        return False
-
-    adapter_kind = _adapter_kind_for_file(path) or "lora"
-    scan_key = (cache_key, adapter_kind)
-    cached = _QWEN_SCAN_CACHE.get(scan_key)
-    if cached is not None:
-        return cached
-
-    has_qwen = bool(_lora_coverage(path, adapter_kind).text_layers)
-    _QWEN_SCAN_CACHE[scan_key] = has_qwen
-    return has_qwen
 
 
 def _network_on_disk_for_prompt_name(name):
@@ -1296,41 +1002,17 @@ class Script(scripts.Script):
         install_patch()
         _ACTIVE_RULE = None
         p._anima_lora_inline_rules = {}
-        lora_preset_enabled = False
-        lokr_preset_enabled = False
-        lora_target_mode = _target_mode_for_preset(lora_preset_enabled, lora_preset_scope)
-        lokr_target_mode = _target_mode_for_preset(lokr_preset_enabled, lokr_preset_scope)
-        lora_block_enabled, lora_block_weights, lora_module_enabled, lora_module_weights, lora_text_layer_enabled, lora_text_layer_weights = _apply_preset_values(
-            lora_preset_enabled,
-            lora_preset_name,
-            lora_preset_text,
-            lora_block_enabled,
-            lora_block_weights,
-            lora_module_enabled,
-            lora_module_weights,
-            lora_text_layer_enabled,
-            lora_text_layer_weights,
-        )
-        lokr_block_enabled, lokr_block_weights, lokr_module_enabled, lokr_module_weights, lokr_text_layer_enabled, lokr_text_layer_weights = _apply_preset_values(
-            lokr_preset_enabled,
-            lokr_preset_name,
-            lokr_preset_text,
-            lokr_block_enabled,
-            lokr_block_weights,
-            lokr_module_enabled,
-            lokr_module_weights,
-            lokr_text_layer_enabled,
-            lokr_text_layer_weights,
-        )
+        # The hidden preset switches keep their argument slots for API callers,
+        # but presets are only applied to the prompt, by their button.
+        target_mode = "legacy"
         try:
-            lora_inline_rules = _apply_prompt_rewrite(p, lora_target_loras, "lora", lora_target_mode) if lora_enabled else {}
-            lokr_inline_rules = _apply_prompt_rewrite(p, lokr_target_loras, "lokr", lokr_target_mode) if lokr_enabled else {}
+            lora_inline_rules = _apply_prompt_rewrite(p, lora_target_loras, "lora", target_mode) if lora_enabled else {}
+            lokr_inline_rules = _apply_prompt_rewrite(p, lokr_target_loras, "lokr", target_mode) if lokr_enabled else {}
         except ValueError as error:
             raise scripts.ScriptAbort(str(error)) from error
         _ACTIVE_RULE = ActiveRule(
             lora_enabled,
             lora_target_loras,
-            lora_target_mode,
             lora_block_enabled,
             lora_block_weights,
             lora_module_enabled,
@@ -1340,7 +1022,6 @@ class Script(scripts.Script):
             lora_inline_rules,
             lokr_enabled,
             lokr_target_loras,
-            lokr_target_mode,
             lokr_block_enabled,
             lokr_block_weights,
             lokr_module_enabled,

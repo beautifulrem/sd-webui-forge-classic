@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import re
-import sys
 import weakref
 import uuid
 from dataclasses import dataclass, field
@@ -11,8 +10,13 @@ from pathlib import Path
 import gradio as gr
 
 from backend.args import dynamic_args
-from modules import script_callbacks, script_loading, scripts, shared
+from modules import script_callbacks, scripts, shared
+from modules.anima_lora_files import adapter_kind_for_file, is_anima_adapter_file, lora_coverage
 from modules.anima_lora_support import (
+    LayerWeights,
+    looks_like_layer_weights as _looks_like_layer_weights,
+    parse_layer_weights as _parse_layer_weights,
+    parse_module_weights as _parse_module_weights,
     lora_file_names as _names_for_lora_file,
     active_template_parts,
     anima_lora_block_count,
@@ -20,7 +24,6 @@ from modules.anima_lora_support import (
     current_sampling_position,
     compact_text as _compact_text,
     is_plain_number as _is_plain_number,
-    module_key as _module_key,
     block_index_from_key as _block_index_from_key,
     module_factor as _module_factor,
     model_key as _model_key,
@@ -441,90 +444,6 @@ def _parse_targets(text) -> set[str]:
     return {x for x in targets if x}
 
 
-@dataclass
-class LayerWeights:
-    default: float = 1.0
-    values: dict[int, float] = field(default_factory=dict)
-
-    def factor(self, index: int) -> float:
-        return self.values.get(index, self.default)
-
-
-def _looks_like_layer_weights(text) -> bool:
-    value = str(text or "").strip()
-    value = re.sub(r"\bblock_lrs?\s*=", "", value, flags=re.IGNORECASE)
-    if not value or _is_plain_number(value):
-        return False
-
-    tokens = [t for t in re.split(r"[\s,，;；]+", value) if t]
-    numeric_count = 0
-    for token in tokens:
-        if "=" in token:
-            left, _ = token.split("=", 1)
-            left = left.strip().lower()
-            if left in {"*", "all", "default"} or left.isdigit() or re.fullmatch(r"\d+\s*-\s*\d+", left):
-                return True
-            continue
-        if _is_plain_number(token):
-            numeric_count += 1
-
-    return numeric_count >= 2
-
-
-def _parse_layer_weights(text) -> LayerWeights:
-    source = str(text or "").strip().replace("，", ",").replace("；", ";").replace("：", "=")
-    source = re.sub(r"\bblock_lrs?\s*=", "", source, flags=re.IGNORECASE)
-    values = {}
-    default = 1.0
-    bare_values = []
-
-    for token in [t for t in re.split(r"[\s,;]+", source) if t]:
-        if "=" not in token:
-            try:
-                bare_values.append(float(token))
-            except Exception:
-                logger.warning("Ignored invalid Anima stage layer token: %s", token)
-            continue
-
-        left, right = token.split("=", 1)
-        left = left.strip().lower()
-        value = _to_float(right, 1.0)
-
-        if left in {"*", "all", "default"}:
-            default = value
-            continue
-
-        range_match = re.match(r"^(\d+)\s*-\s*(\d+)$", left)
-        if range_match:
-            start, end = int(range_match.group(1)), int(range_match.group(2))
-            if start > end:
-                start, end = end, start
-            for index in range(start, end + 1):
-                values[index] = value
-            continue
-
-        if left.isdigit():
-            values[int(left)] = value
-        else:
-            logger.warning("Ignored invalid Anima stage layer selector: %s", left)
-
-    if bare_values and not values:
-        values.update({i: v for i, v in enumerate(bare_values)})
-
-    return LayerWeights(default=default, values=values)
-
-
-def _parse_module_weights(text) -> dict[str, float]:
-    weights = {}
-    source = str(text or "").replace("，", ",").replace("；", ";").replace("：", "=")
-    for token in [t for t in re.split(r"[\n,;]+", source) if t.strip()]:
-        if "=" not in token:
-            continue
-        left, right = token.split("=", 1)
-        weights[_module_key(left)] = _to_float(right, 1.0)
-    return weights
-
-
 def _split_panel_weight_sections(text: str) -> dict[str, str]:
     sections: dict[str, str] = {}
     bare_parts = []
@@ -575,25 +494,28 @@ class PanelWeightSpec:
         return self.numeric if self.numeric is not None else 1.0
 
     def strength_for_key(self, key, fallback, lora_blocks=None, model_blocks=None):
+        """This panel's strength for ``key``. Parts the panel does not set keep
+        ``fallback``, the strength handed down the add_patches chain (e.g. a
+        layer-weight factor)."""
         if self.numeric is not None:
             return self.numeric
 
         model_key = _model_key(key)
         qwen_layer = _qwen_layer_index(model_key)
         if qwen_layer is not None:
-            return self.qwen_weights.factor(qwen_layer) if self.has_qwen else 1.0
+            return self.qwen_weights.factor(qwen_layer) if self.has_qwen else fallback
 
         block_index = _block_index_from_key(model_key)
         if block_index is not None:
             # Block weights are written in the LoRA's own layout (see
             # anima_source_block for depth-expanded models).
             block_index = anima_source_block(block_index, lora_blocks, model_blocks)
-            factor = self.block_weights.factor(block_index) if self.has_block else 1.0
+            factor = self.block_weights.factor(block_index) if self.has_block else fallback
             if self.has_module:
-                factor *= _module_factor(model_key, self.module_weights)
+                factor = factor * _module_factor(model_key, self.module_weights)
             return factor
 
-        return 1.0
+        return fallback
 
 
 def _parse_panel_weight(text) -> PanelWeightSpec:
@@ -1082,21 +1004,15 @@ def _delete_template_ui(name):
     return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), f"已删除模板：{name}"
 
 
-_LAYER_WEIGHT_MODULE = []
+def _is_anima_lora_file(filename) -> bool:
+    return bool(filename) and is_anima_adapter_file(filename, "lora")
 
 
-def _layer_weight_module():
-    """The loaded layer-weight extension (its cached LoRA file analysis), or
-    None; searched once, at generation time when every script is loaded."""
-    if _LAYER_WEIGHT_MODULE:
-        return _LAYER_WEIGHT_MODULE[0]
-    found = None
-    for module in (*getattr(script_loading, "loaded_scripts", {}).values(), *list(sys.modules.values())):
-        if hasattr(module, "_is_anima_adapter_file"):
-            found = module
-            break
-    _LAYER_WEIGHT_MODULE[:] = [found]
-    return found
+def _lora_block_count(filename) -> int | None:
+    """The Anima depth (28/40/52) a LoRA file was trained for."""
+    if not filename:
+        return None
+    return anima_lora_block_count(lora_coverage(filename, adapter_kind_for_file(filename) or "lora").blocks)
 
 
 def _resolve_lora_filename(name: str):
@@ -1119,92 +1035,6 @@ def _resolve_lora_filename(name: str):
         return getattr(entry, "filename", None) if entry is not None else None
     except Exception:
         return None
-
-
-_ANIMA_LORA_FILES: dict[str, tuple[tuple, bool]] = {}
-
-
-def _is_anima_lora_file(filename) -> bool:
-    """Whether a LoRA file targets Anima; cached per file version."""
-    if not filename:
-        return False
-    path = str(filename)
-    try:
-        stat = os.stat(path)
-        version = (stat.st_mtime_ns, stat.st_size)
-    except OSError:
-        return False
-    cached = _ANIMA_LORA_FILES.get(path)
-    if cached is not None and cached[0] == version:
-        return cached[1]
-    result = _scan_anima_lora_file(filename)
-    _ANIMA_LORA_FILES[path] = (version, result)
-    return result
-
-
-def _scan_anima_lora_file(filename) -> bool:
-    # The layer-weight extension's analysis is cached and more complete
-    layer_module = _layer_weight_module()
-    if layer_module is not None:
-        try:
-            return bool(layer_module._is_anima_adapter_file(filename, "lora"))
-        except Exception:
-            pass
-
-    path = Path(str(filename))
-    if path.suffix.lower() != ".safetensors" or not path.exists():
-        return False
-
-    try:
-        from safetensors import safe_open
-
-        with safe_open(str(path), framework="pt", device="cpu") as f:
-            for key in f.keys():
-                lower = key.lower()
-                if "qwen3_06b" in lower:
-                    return True
-                if "diffusion_model.net.blocks." in lower or "diffusion_model.blocks." in lower:
-                    return True
-                if re.search(r"(?:^|\.)blocks\.\d+\.", lower) and ("lora" in lower or "lokr" in lower):
-                    return True
-    except Exception:
-        return False
-    return False
-
-
-_LORA_BLOCK_COUNTS: dict[str, tuple[int, int | None]] = {}
-
-
-def _lora_block_count(filename) -> int | None:
-    """The Anima depth (28/40/52) a LoRA file was trained for."""
-    if not filename:
-        return None
-    path = str(filename)
-    try:
-        stamp = os.stat(path).st_mtime_ns
-    except OSError:
-        return None
-    cached = _LORA_BLOCK_COUNTS.get(path)
-    if cached is not None and cached[0] == stamp:
-        return cached[1]
-
-    blocks = set()
-    try:
-        from safetensors import safe_open
-
-        with safe_open(path, framework="pt", device="cpu") as f:
-            for key in f.keys():
-                lower = key.lower()
-                if "llm_adapter" in lower or "qwen" in lower:
-                    continue
-                index = _block_index_from_key(key)
-                if index is not None:
-                    blocks.add(index)
-    except Exception:
-        blocks = set()
-    count = anima_lora_block_count(blocks)
-    _LORA_BLOCK_COUNTS[path] = (stamp, count)
-    return count
 
 
 def _is_unet_patch_key(key) -> bool:

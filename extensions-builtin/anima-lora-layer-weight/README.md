@@ -8,19 +8,17 @@ Anima LoRA/LoKR Layer Weight is a Forge/WebUI extension for controlling Anima Lo
 
 - Separate tabs for regular LoRA and LoKR.
 - Target all detected Anima adapters, or only specified file names and aliases.
-- Block weights for all detected Anima blocks, including 28-block and 40-block models.
-- Module weights for `self_attn`, `cross_attn`, `mlp`, `adaln`, and `norm`.
+- Block weights for all detected Anima blocks: 2B (28), 2.9B (40) and 3.8B (52) models. A 2B LoRA keeps its own block numbering on the deeper models.
+- Module weights for `self_attn`, `cross_attn`, `mlp` and `adaln` (Anima's block LayerNorms have no weights, so there is no `norm` module).
 - Optional Qwen text-encoder layer weights.
 - Inline prompt syntax for per-LoRA block/module weights.
 - Named presets and an **Apply preset to prompt** button.
 - Automatic cache invalidation when the active weight signature changes.
 - Settings-page UI language switch: `zh` and `en`.
 
-## Installation
+## Usage
 
-1. Copy this folder to your WebUI/Forge `extensions` directory.
-2. Restart WebUI, or use Reload UI.
-3. Expand **Anima LoRA/LoKR Layer Weight** in txt2img or img2img.
+Built into Forge Neo Remi: expand **Anima LoRA/LoKR Layer Weight** in txt2img or img2img.
 
 ## Weight Syntax
 
@@ -37,14 +35,15 @@ self_attn=1.0
 cross_attn=1.0
 mlp=0.8
 adaln=1.0
-norm=1.0
 ```
 
 Preset lines:
 
 ```text
-Balanced=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,mlp=0.8;qwen=0-5=1.0
+Balanced=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,mlp=0.8
 ```
+
+Presets hold blocks and modules; Qwen layer weights always come from the panel.
 
 Inline prompt syntax:
 

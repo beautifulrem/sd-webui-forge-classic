@@ -62,3 +62,20 @@ def test_step_factors_are_computed_once_per_pass_config(monkeypatch):
     assert len(calls) == 2  # one per distinct config of the active pass
     assert all(strength.factor == 0.25 for strength in strengths)
     assert hires.factor == 0.0
+
+
+def test_panel_weight_keeps_the_incoming_strength_where_it_sets_nothing():
+    module = _load()
+    block_key = "diffusion_model.blocks.3.mlp.layer1.weight"
+    qwen_key = "text_encoders.qwen3_06b.model.layers.2.mlp.up_proj.weight"
+    other_key = "diffusion_model.final_layer.linear.weight"
+
+    blocks_only = module._parse_panel_weight("blocks=3=0.5")
+    assert blocks_only.strength_for_key(block_key, 0.7) == 0.5  # its own setting
+    assert blocks_only.strength_for_key(qwen_key, 0.7) == 0.7  # no qwen= section
+    assert blocks_only.strength_for_key(other_key, 0.7) == 0.7  # not a block key
+
+    modules_only = module._parse_panel_weight("modules=mlp=0.5")
+    assert modules_only.strength_for_key(block_key, 0.8) == 0.8 * 0.5
+
+    assert module._parse_panel_weight("0.25").strength_for_key(qwen_key, 0.7) == 0.25

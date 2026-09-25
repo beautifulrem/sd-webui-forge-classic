@@ -18,9 +18,7 @@ Anima LoRA Stage Scheduler is a Forge/WebUI extension for controlling when Anima
 
 ## Installation
 
-1. Copy this folder to `stable-diffusion-webui/extensions` or `sd-webui-forge-neo/extensions`.
-2. Restart WebUI, or use Reload UI.
-3. Open txt2img or img2img and expand **Anima LoRA Stage Scheduler**.
+Built into Forge Neo Remi: open txt2img or img2img and expand **Anima LoRA Stage Scheduler**.
 
 ## Basic Usage
 

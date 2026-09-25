@@ -8,19 +8,17 @@ Anima LoRA/LoKR 分层权重是一个 Forge/WebUI 插件，用于按 Anima block
 
 - 普通 LoRA 和 LoKR 分开控制。
 - 可作用于全部检测到的 Anima 适配器，也可只作用于指定文件名或别名。
-- 支持对所有已检测 Anima blocks 分层权重，包含 28 层和 40 层模型。
-- 支持 `self_attn`、`cross_attn`、`mlp`、`adaln`、`norm` 模块权重。
+- 支持对所有已检测 Anima blocks 分层权重：2B（28 层）、2.9B（40 层）与 3.8B（52 层）模型。2B LoRA 在更深的模型上保持自己的层编号。
+- 支持 `self_attn`、`cross_attn`、`mlp`、`adaln` 模块权重（Anima block 的 LayerNorm 没有权重，因此没有 `norm` 模块）。
 - 可选 Qwen 文本编码器层权重。
 - 支持在提示词内直接写单 LoRA 的 block/module 权重。
 - 支持命名预设和 **应用预设到提示词** 按钮。
 - 权重签名变化时会自动刷新 LoRA 缓存。
 - 设置页提供界面语言切换：`zh` 和 `en`。
 
-## 安装
+## 使用
 
-1. 将插件文件夹复制到 WebUI/Forge 的 `extensions` 目录。
-2. 重启 WebUI，或使用 Reload UI。
-3. 在 txt2img 或 img2img 展开 **Anima LoRA/LoKR 分层权重**。
+已内置于 Forge Neo Remi：在 txt2img 或 img2img 展开 **Anima LoRA/LoKR 分层权重**。
 
 ## 权重语法
 
@@ -37,14 +35,15 @@ self_attn=1.0
 cross_attn=1.0
 mlp=0.8
 adaln=1.0
-norm=1.0
 ```
 
 预设行：
 
 ```text
-平衡=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,mlp=0.8;qwen=0-5=1.0
+平衡=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,mlp=0.8
 ```
+
+预设只含 blocks 和 modules，Qwen 层权重始终来自面板。
 
 提示词内联语法：
 

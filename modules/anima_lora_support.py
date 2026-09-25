@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import re
+from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 
 def active_template_parts(auto_timing: bool, parts):
@@ -240,3 +244,87 @@ def qwen_layer_index(key: str) -> int | None:
     if not match:
         return None
     return int(match.group(1))
+
+
+# region Layer weight syntax
+# "0-9=0.6,10-18=1.0,all=0.8", or 28 bare numbers in block order; the
+# optional "block_lrs=" prefix of some trainers' configs is accepted.
+
+
+@dataclass
+class LayerWeights:
+    """Per-index weights (DiT blocks or text-encoder layers) with a default."""
+
+    default: float = 1.0
+    values: dict[int, float] = field(default_factory=dict)
+
+    def factor(self, index: int) -> float:
+        return self.values.get(index, self.default)
+
+
+def _normalized_weight_text(text) -> str:
+    source = str(text or "").strip().replace("，", ",").replace("；", ";").replace("：", "=")
+    return re.sub(r"\bblock_lrs?\s*=", "", source, flags=re.IGNORECASE)
+
+
+def looks_like_layer_weights(text) -> bool:
+    value = _normalized_weight_text(text)
+    if not value or is_plain_number(value):
+        return False
+    numeric_count = 0
+    for token in [t for t in re.split(r"[\s,;]+", value) if t]:
+        if "=" in token:
+            left = token.split("=", 1)[0].strip().lower()
+            if left in {"*", "all", "default"} or left.isdigit() or re.fullmatch(r"\d+\s*-\s*\d+", left):
+                return True
+            continue
+        if is_plain_number(token):
+            numeric_count += 1
+    return numeric_count >= 2
+
+
+def parse_layer_weights(text) -> LayerWeights:
+    values: dict[int, float] = {}
+    default = 1.0
+    bare_values = []
+    for token in [t for t in re.split(r"[\s,;]+", _normalized_weight_text(text)) if t]:
+        if "=" not in token:
+            try:
+                bare_values.append(float(token))
+            except ValueError:
+                logger.warning("Ignored invalid Anima layer weight token: %s", token)
+            continue
+        left, right = token.split("=", 1)
+        left = left.strip().lower()
+        try:
+            value = float(right)
+        except ValueError:
+            value = 1.0
+        if left in {"*", "all", "default"}:
+            default = value
+        elif range_match := re.match(r"^(\d+)\s*-\s*(\d+)$", left):
+            start, end = sorted((int(range_match.group(1)), int(range_match.group(2))))
+            values.update(dict.fromkeys(range(start, end + 1), value))
+        elif left.isdigit():
+            values[int(left)] = value
+        else:
+            logger.warning("Ignored invalid Anima layer selector: %s", left)
+    if bare_values and not values:
+        values.update(enumerate(bare_values))
+    return LayerWeights(default=default, values=values)
+
+
+def parse_module_weights(text) -> dict[str, float]:
+    """Explicitly written ``module=weight`` entries (module names normalised)."""
+
+    weights = {}
+    source = str(text or "").replace("，", ",").replace("；", ";").replace("：", "=")
+    for token in [t for t in re.split(r"[\n,;]+", source) if t.strip()]:
+        if "=" not in token:
+            continue
+        left, right = token.split("=", 1)
+        try:
+            weights[module_key(left)] = float(right)
+        except ValueError:
+            weights[module_key(left)] = 1.0
+    return weights
