@@ -192,6 +192,25 @@ PRESET_DESCRIPTIONS: dict[str, str] = {
 }
 
 
+def turbo_settings_advice(checkpoint: str, cfg_scale: float, steps: int) -> str | None:
+    """A hint when the settings clearly do not match the Anima checkpoint
+    (distilled Turbo vs Base/Aesthetic), judged by its file name."""
+
+    name = str(checkpoint or "").lower()
+    is_turbo = "turbo" in name
+    if is_turbo and (cfg_scale > 1.5 or steps > 16):
+        return (
+            f"Anima-Turbo checkpoint with CFG {cfg_scale:g} / {steps} steps: it is distilled for "
+            "CFG 1 and 8-12 steps (see the Official Turbo preset); higher values over-cook it"
+        )
+    if not is_turbo and "anima" in name and cfg_scale <= 1.0 and steps <= 12:
+        return (
+            f"Non-Turbo Anima checkpoint with CFG {cfg_scale:g} / {steps} steps: Base/Aesthetic need "
+            "about 30-50 steps and CFG 4-5 (Turbo checkpoints are meant for these settings)"
+        )
+    return None
+
+
 def preset_value(label: str, name: str, registered: object) -> object:
     """The value ``label`` gives the control registered with ``registered``
     (the base preset value, possibly localized by the extension)."""

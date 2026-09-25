@@ -11,6 +11,7 @@ from modules.anima_presets import (
     TURBO_LABEL,
     preset_value,
     preset_controls,
+    turbo_settings_advice,
     register_preset_control,
     reset_preset_controls,
 )
@@ -96,6 +97,17 @@ class PresetMenuTests(unittest.TestCase):
         # Everything else comes from the (possibly localized) base value.
         self.assertEqual(preset_value(TURBO_LABEL, "artist.optimization", "平衡"), "平衡")
         self.assertEqual(preset_value(SAFE_BASE_AESTHETIC_LABEL, "native.cfg", 4.5), 4.5)
+
+
+class TurboAdviceTests(unittest.TestCase):
+    def test_turbo_with_base_settings_is_flagged(self):
+        self.assertIn("Turbo", turbo_settings_advice("anima-turbo-v1.1.safetensors", 4.5, 36))
+        self.assertIsNone(turbo_settings_advice("anima-turbo-v1.1.safetensors", 1.0, 10))
+
+    def test_base_with_turbo_settings_is_flagged(self):
+        self.assertIn("Non-Turbo", turbo_settings_advice("anima-base-v1.0", 1.0, 10))
+        self.assertIsNone(turbo_settings_advice("anima-aesthetic-v1.1", 4.5, 36))
+        self.assertIsNone(turbo_settings_advice("my-merge", 1.0, 10))  # unknown: no guess
 
 
 if __name__ == "__main__":

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 import gradio as gr
 
 from modules import scripts
+from modules.anima_support import is_anima_engine
 from modules.anima_presets import (
     PRESET_CONFLICT_CONTROLS,
     PRESET_DESCRIPTIONS,
@@ -13,8 +16,12 @@ from modules.anima_presets import (
     preset_controls,
     preset_value,
     register_preset_control,
+    turbo_settings_advice,
     reset_preset_controls,
 )
+
+
+logger = logging.getLogger("anima_presets")
 
 
 class AnimaRemiPresetScript(scripts.Script):
@@ -110,3 +117,11 @@ class AnimaRemiPresetScript(scripts.Script):
 
         # This panel configures other scripts and does not add processing args.
         return []
+
+    def process(self, p, *args):
+        if not is_anima_engine(getattr(p, "sd_model", None)):
+            return
+        checkpoint = getattr(getattr(p.sd_model, "sd_checkpoint_info", None), "name", "")
+        advice = turbo_settings_advice(checkpoint, float(p.cfg_scale), int(p.steps))
+        if advice is not None:
+            logger.warning(advice)
