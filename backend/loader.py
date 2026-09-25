@@ -429,6 +429,13 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
                         model = model_loader(unet_config)
 
             model = pre_func(model)
+            if cls_name == "CosmosTransformer3DModel" and storage_dtype in (torch.float8_e4m3fn, torch.float8_e5m2) and state_dict_dtype not in (torch.float8_e4m3fn, torch.float8_e5m2, "gguf"):
+                # On-the-fly FP8 storage: keep Anima's embedders, final
+                # layer, first blocks and norms at full precision.
+                from backend.nn.anima import keep_sensitive_weights_precise
+
+                kept = keep_sensitive_weights_precise(model, computation_dtype)
+                logger.info(f"Anima: kept {kept} precision-sensitive parameters in {computation_dtype}")
             load_state_dict(model, state_dict)
             # model = post_func(model)
 

@@ -31,6 +31,43 @@ def _fn(x: torch.Tensor, _norm: nn.Module, y: torch.Tensor, z: torch.Tensor) -> 
     return torch.addcmul(z, _norm(x), 1 + y)
 
 
+# Parts of the DiT that low-bit storage hurts most (the layout comfy-quants
+# uses for its Anima FP8/NVFP4 checkpoints): patch/timestep embedders, the
+# final projection, block 0, block 1's modulation, and every norm.
+_PRECISION_SENSITIVE_PREFIXES = (
+    "x_embedder.",
+    "t_embedder.",
+    "t_embedding_norm.",
+    "final_layer.",
+    "blocks.0.",
+    "blocks.1.adaln_modulation_",
+)
+_FP8_DTYPES = (torch.float8_e4m3fn, torch.float8_e5m2)
+
+
+def keep_sensitive_weights_precise(model: nn.Module, dtype: torch.dtype) -> int:
+    """With on-the-fly FP8 storage, store the precision-sensitive parameters
+    (see above) in ``dtype`` instead. Call before loading the state dict, so
+    they receive the checkpoint's original precision. Returns how many
+    parameters were kept."""
+
+    kept = 0
+    for module_name, module in model.named_modules():
+        name = module_name + "."
+        sensitive = name.startswith(_PRECISION_SENSITIVE_PREFIXES) or isinstance(module, (nn.LayerNorm, nn.RMSNorm, nn.GroupNorm))
+        if not sensitive:
+            continue
+        converted = False
+        for param_name, param in list(module.named_parameters(recurse=False)):
+            if param.dtype in _FP8_DTYPES:
+                setattr(module, param_name, nn.Parameter(param.detach().to(dtype), requires_grad=False))
+                converted = True
+                kept += 1
+        if converted and hasattr(module, "parameters_manual_cast"):
+            module.parameters_manual_cast = True  # cast to the input's dtype
+    return kept
+
+
 # region DiT
 
 
