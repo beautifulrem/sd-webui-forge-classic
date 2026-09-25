@@ -12,7 +12,9 @@ sys.path.insert(0, str(ROOT))
 from lib_anima_guidance.advanced import (
     MomentumGuidanceState,
     fdg_combine,
+    IGNORES_UNCOND,
     make_guidance_range_cfg_function,
+    make_guidance_range_uncond_skip,
 )
 
 
@@ -78,6 +80,32 @@ class GuidanceRangeTests(unittest.TestCase):
         base = {"input": x, "cond_denoised": cond, "uncond_denoised": uncond, "cond_scale": 4.0}
         self.assertTrue(torch.equal(hook({**base, "sigma": torch.tensor([0.5])}), torch.full_like(x, 5.0)))
         self.assertTrue(torch.equal(hook({**base, "sigma": torch.tensor([0.9])}), x - cond))
+
+
+class GuidanceRangeUncondSkipTests(unittest.TestCase):
+    def setUp(self):
+        self.cfg = make_guidance_range_cfg_function(None, sigma_start=0.2, sigma_end=0.8)
+        self.skip = make_guidance_range_uncond_skip(self.cfg)
+        self.uncond = [{"model_conds": {}}]
+
+    def uncond_after(self, sigma, **options):
+        options.setdefault("sampler_cfg_function", self.cfg)
+        return self.skip(None, [], self.uncond, None, torch.tensor([sigma]), options)[2]
+
+    def test_uncond_only_runs_inside_the_window(self):
+        self.assertIsNone(self.uncond_after(0.9))
+        self.assertIsNone(self.uncond_after(0.1))
+        self.assertIs(self.uncond_after(0.5), self.uncond)
+
+    def test_kept_when_another_hook_may_read_uncond(self):
+        self.assertIs(self.uncond_after(0.9, sampler_cfg_function=lambda args: 0), self.uncond)
+        self.assertIs(self.uncond_after(0.9, sampler_post_cfg_function=[lambda args: 0]), self.uncond)
+
+        def safe(args):
+            return args["denoised"]
+
+        setattr(safe, IGNORES_UNCOND, True)
+        self.assertIsNone(self.uncond_after(0.9, sampler_post_cfg_function=[safe]))
 
 
 if __name__ == "__main__":

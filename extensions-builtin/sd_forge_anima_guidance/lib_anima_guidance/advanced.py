@@ -55,6 +55,37 @@ def make_guidance_range_cfg_function(
     return cfg_function
 
 
+IGNORES_UNCOND = "_anima_ignores_uncond"
+
+
+def make_guidance_range_uncond_skip(cfg_function: Callable):
+    """Pre-CFG hook that drops the unconditional batch outside the CFG range.
+
+    Outside ``cfg_function``'s sigma window the result is the conditional
+    prediction alone, so the negative forward pass is wasted work. It is
+    only skipped while ``cfg_function`` is still the active CFG function and
+    every post-CFG hook is marked as not reading ``uncond_denoised``;
+    otherwise another extension would see Forge's zero placeholder.
+    """
+
+    low, high = cfg_function._anima_guidance_range
+
+    def pre_cfg_function(model, cond, uncond, x, timestep, model_options):
+        if (
+            uncond is not None
+            and not low <= _sigma_value(timestep) <= high
+            and model_options.get("sampler_cfg_function") is cfg_function
+            and all(
+                getattr(fn, IGNORES_UNCOND, False)
+                for fn in model_options.get("sampler_post_cfg_function", [])
+            )
+        ):
+            uncond = None
+        return model, cond, uncond, x, timestep, model_options
+
+    return pre_cfg_function
+
+
 class MomentumGuidanceState:
     """EMA momentum in flow velocity space, isolated to one generation."""
 

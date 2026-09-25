@@ -30,7 +30,9 @@ from lib_anima_guidance.dcw import DCWState, parse_band_mask
 from lib_anima_guidance.advanced import (
     MomentumGuidanceState,
     make_fdg_cfg_function,
+    IGNORES_UNCOND,
     make_guidance_range_cfg_function,
+    make_guidance_range_uncond_skip,
     make_momentum_post_cfg_function,
 )
 from lib_anima_guidance.nag import NAGAttentionModifier
@@ -884,6 +886,12 @@ class AnimaGuidanceScript(scripts.Script):
 
         if smc_enabled or fdg_enabled or skim_enable or guidance_range_enable:
             unet.set_model_sampler_cfg_function(active_cfg_function, disable_cfg1_optimization=True)
+        if guidance_range_enable:
+            # Outside the window only the conditional prediction is used, so
+            # the unconditional forward pass is skipped on those steps.
+            unet.set_model_sampler_pre_cfg_function(
+                make_guidance_range_uncond_skip(active_cfg_function)
+            )
 
         # resolve_guidance_conflicts() already dropped Momentum for unsupported
         # samplers and SMC/FDG modes, and recorded why.
@@ -911,11 +919,11 @@ class AnimaGuidanceScript(scripts.Script):
             p._anima_dcw_state = dcw_state
             # DCW only reads the final (post-CFG) prediction, so at CFG 1 it
             # does not need the unconditional pass Forge otherwise skips.
-            unet.set_model_sampler_post_cfg_function(
-                lambda hook_args: _capture_dcw_denoised(
-                    p, dcw_state, hook_args["denoised"]
-                ),
-            )
+            def dcw_post_cfg(hook_args, p=p, dcw_state=dcw_state):
+                return _capture_dcw_denoised(p, dcw_state, hook_args["denoised"])
+
+            setattr(dcw_post_cfg, IGNORES_UNCOND, True)
+            unet.set_model_sampler_post_cfg_function(dcw_post_cfg)
             p.extra_generation_params["Anima DCW"] = True
             p.extra_generation_params["Anima DCW lambda"] = float(dcw_lambda)
             p.extra_generation_params["Anima DCW schedule"] = str(dcw_schedule)
