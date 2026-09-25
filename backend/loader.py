@@ -378,9 +378,27 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
 
             unet_config = guess.unet_config.copy()
             state_dict_parameters = utils.calculate_parameters(state_dict)
-            quant_config = detect_quantization(state_dict, is_unet=True)
-
             override_dtype = backend.args.dynamic_args.forge_unet_storage_dtype
+
+            if (
+                cls_name == "CosmosTransformer3DModel"
+                and backend.args.dynamic_args.anima_scaled_fp8
+                and override_dtype is torch.float8_e4m3fn
+                and state_dict_dtype in (torch.float16, torch.bfloat16, torch.float32)
+                and not guess.nunchaku
+                and detect_quantization(state_dict, is_unet=True) is None
+            ):
+                # The mixed-precision ops compute in bf16, or fp32 where bf16 is unsupported
+                if memory_management.should_use_bf16(load_device):
+                    from backend.nn.anima import scale_fp8_state_dict
+
+                    fp8_matmul = backend.args.args.fast_fp8 and memory_management.supports_fp8_compute(load_device)
+                    quantized = scale_fp8_state_dict(state_dict, fp8_matmul=fp8_matmul)
+                    logger.info(f"Anima: stored {quantized} weights as scaled FP8" + (" (FP8 matmul)" if fp8_matmul else ""))
+                else:
+                    logger.warning("Anima: Scaled FP8 needs a bf16-capable device ; using plain FP8 storage")
+
+            quant_config = detect_quantization(state_dict, is_unet=True)
 
             if guess.nunchaku:
                 storage_dtype = torch.bfloat16
@@ -429,6 +447,13 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
                         model = model_loader(unet_config)
 
             model = pre_func(model)
+            if cls_name == "CosmosTransformer3DModel" and storage_dtype in (torch.float8_e4m3fn, torch.float8_e5m2) and state_dict_dtype not in (torch.float8_e4m3fn, torch.float8_e5m2, "gguf"):
+                # On-the-fly FP8 storage: keep Anima's embedders, final
+                # layer, first blocks and norms at full precision.
+                from backend.nn.anima import keep_sensitive_weights_precise
+
+                kept = keep_sensitive_weights_precise(model, computation_dtype)
+                logger.info(f"Anima: kept {kept} precision-sensitive parameters in {computation_dtype}")
             load_state_dict(model, state_dict)
             # model = post_func(model)
 
@@ -708,7 +733,12 @@ def process_anima(dit: dict[str, torch.Tensor], enc: dict[str, torch.Tensor]):
     keys = list(dit.keys())
     for k in keys:
         if k.startswith("llm_adapter"):
-            enc[k] = dit.pop(k)
+            value = dit.pop(k)
+            # A GGUF DiT quantizes the adapter too; dequantize it (it is small)
+            # so the text encoder is not switched to GGUF ops just for it.
+            if hasattr(value, "dequantize_as_pytorch_parameter"):
+                value = value.dequantize_as_pytorch_parameter()
+            enc[k] = value
 
 
 def process_pid(state_dict: dict[str, torch.Tensor]):

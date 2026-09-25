@@ -355,6 +355,7 @@ def forge_model_reload():
     additional_state_dicts = model_data.forge_loading_parameters.get("additional_modules", [])
 
     dynamic_args.forge_unet_storage_dtype = model_data.forge_loading_parameters.get("unet_storage_dtype", None)
+    dynamic_args.anima_scaled_fp8 = bool(model_data.forge_loading_parameters.get("anima_scaled_fp8", False))
     dynamic_args.embedding_dir = cmd_opts.embeddings_dir
 
     try:

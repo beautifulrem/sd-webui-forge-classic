@@ -30,13 +30,30 @@ def process_anima(lora: dict[str, torch.Tensor], blocks: int) -> bool:
 
     keys = list(lora.keys())
     for k in keys:
-        if k.startswith("diffusion_model.llm_adapter"):
-            lora[k.replace("diffusion_model", "text_encoders.qwen3_06b")] = lora.pop(k)
-        elif k.startswith("lora_unet_llm_adapter"):
-            lora[k.replace("lora_unet_llm_adapter", "lora_te_llm_adapter")] = lora.pop(k)
+        for dotted in ("diffusion_model.", "transformer.", "net."):
+            if k.startswith(dotted + "llm_adapter"):
+                lora["text_encoders.qwen3_06b." + k[len(dotted) :]] = lora.pop(k)
+                break
+        else:
+            for flat in ("lora_unet_", "lycoris_", "lora_transformer_"):
+                if k.startswith(flat + "llm_adapter"):
+                    lora["lora_te_" + k[len(flat) :]] = lora.pop(k)
+                    break
+    keys = list(lora.keys())
 
     parsed: dict[str, tuple[int, str]] = {}
-    prefix, sep = ("lora_unet_blocks_", "_") if any(k.startswith("lora_unet_blocks_") for k in keys) else ("diffusion_model.blocks.", ".")
+    # Block-key prefixes of the trainers' formats (see model_lora_keys_unet);
+    # the most common one in this LoRA is the one to re-map.
+    prefixes = (
+        ("lora_unet_blocks_", "_"),
+        ("lycoris_blocks_", "_"),
+        ("lora_transformer_blocks_", "_"),
+        ("diffusion_model.blocks.", "."),
+        ("transformer.blocks.", "."),
+        ("net.blocks.", "."),
+        ("blocks.", "."),
+    )
+    prefix, sep = max(prefixes, key=lambda item: sum(1 for k in keys if k.startswith(item[0])))
 
     for k in keys:
         if not k.startswith(prefix):
@@ -80,9 +97,11 @@ def process_anima(lora: dict[str, torch.Tensor], blocks: int) -> bool:
     for target, source in enumerate(mapping):
         reverse.setdefault(source, []).append(target)
 
+    # Inserted blocks share their source block's tensors: patches only read
+    # them, so a copy per target would just double the LoRA's memory.
     for k, (source, tail) in parsed.items():
         for target in reverse.get(source, []):
-            lora[f"{prefix}{target}{sep}{tail}"] = temp[k].clone()
+            lora[f"{prefix}{target}{sep}{tail}"] = temp[k]
 
     del temp
     return True

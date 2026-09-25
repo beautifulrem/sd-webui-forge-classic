@@ -17,6 +17,7 @@ from torchvision.transforms import InterpolationMode, functional
 from backend.args import dynamic_args
 from backend.attention import attention_function
 from backend.memory_management import is_device_mps
+from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS, ANIMA_PROJECT_KV, run_anima_attention
 from backend.operations import (
     main_stream_worker,
     scaled_dot_product_attention,
@@ -26,8 +27,107 @@ from backend.quant_ops import ck
 from backend.utils import pad_to_patch_size
 
 
+_FUSED_ADALN_BACKENDS: dict[tuple, bool] = {}
+
+
+def _has_fused_adaln(x: torch.Tensor) -> bool:
+    """Whether comfy-kitchen runs ``adaln`` on a real kernel (CUDA / Triton) for ``x``;
+    its eager fallback is one kernel slower than ``addcmul``"""
+    key = (x.device, x.dtype)
+    if (fused := _FUSED_ADALN_BACKENDS.get(key)) is None:
+        try:
+            fused = ck.registry.get_capable_backend("adaln", {"x": x, "scale": x, "shift": x}) != "eager"
+        except Exception:
+            fused = False
+        _FUSED_ADALN_BACKENDS[key] = fused
+    return fused
+
+
 def _fn(x: torch.Tensor, _norm: nn.Module, y: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+    # LayerNorm + modulation in one pass instead of three kernels; kept native under
+    # torch.compile, where Inductor fuses it (an opaque custom op would block that)
+    if isinstance(_norm, nn.LayerNorm) and _norm.weight is None and _norm.bias is None and not torch.compiler.is_compiling():
+        # the kernel takes one dtype: only when upcasting y / z to x's dtype is exact
+        if _norm.normalized_shape == x.shape[-1:] and torch.promote_types(torch.promote_types(y.dtype, z.dtype), x.dtype) == x.dtype and _has_fused_adaln(x):
+            # keep ``1 + y`` rounded in y's dtype like the native path (subtracting 1 again
+            # in the wider dtype is exact). When y already has x's dtype (all-bf16), the
+            # kernel skips the native path's intermediate bf16 roundings: not bit-identical
+            # to CPU / eager, slightly more accurate
+            scale = y if y.dtype == x.dtype else (1 + y).to(x.dtype) - 1
+            return ck.adaln(x, scale, z.to(x.dtype), _norm.eps)
     return torch.addcmul(z, _norm(x), 1 + y)
+
+
+# Parts of the DiT that low-bit storage hurts most (the layout comfy-quants
+# uses for its Anima FP8/NVFP4 checkpoints): patch/timestep embedders, the
+# final projection, block 0, block 1's modulation, and every norm.
+_PRECISION_SENSITIVE_PREFIXES = (
+    "x_embedder.",
+    "t_embedder.",
+    "t_embedding_norm.",
+    "final_layer.",
+    "blocks.0.",
+    "blocks.1.adaln_modulation_",
+)
+_FP8_DTYPES = (torch.float8_e4m3fn, torch.float8_e5m2)
+
+
+def keep_sensitive_weights_precise(model: nn.Module, dtype: torch.dtype) -> int:
+    """With on-the-fly FP8 storage, store the precision-sensitive parameters
+    (see above) in ``dtype`` instead. Call before loading the state dict, so
+    they receive the checkpoint's original precision. Returns how many
+    parameters were kept."""
+
+    kept = 0
+    for module_name, module in model.named_modules():
+        name = module_name + "."
+        sensitive = name.startswith(_PRECISION_SENSITIVE_PREFIXES) or isinstance(module, (nn.LayerNorm, nn.RMSNorm, nn.GroupNorm))
+        if not sensitive:
+            continue
+        converted = False
+        for param_name, param in list(module.named_parameters(recurse=False)):
+            if param.dtype in _FP8_DTYPES:
+                setattr(module, param_name, nn.Parameter(param.detach().to(dtype), requires_grad=False))
+                converted = True
+                kept += 1
+        if converted and hasattr(module, "parameters_manual_cast"):
+            module.parameters_manual_cast = True  # cast to the input's dtype
+    return kept
+
+
+_FP8_E4M3_MAX = float(torch.finfo(torch.float8_e4m3fn).max)
+
+
+def scale_fp8_state_dict(state_dict: dict[str, torch.Tensor], *, fp8_matmul: bool) -> int:
+    """Quantize the block Linear weights of a full-precision state dict to
+    per-tensor scaled ``float8_e4m3fn`` in the ``comfy_quant`` layout, in place.
+
+    A plain ``.to(float8)`` cast leaves most of FP8's range unused for small DiT
+    weights (many fall below e4m3's smallest normal); scaling each tensor by
+    ``absmax / 448`` keeps them at full relative precision for the same VRAM.
+    The precision-sensitive parts stay unquantized, as with plain FP8 storage.
+    ``fp8_matmul`` keeps FP8 GEMMs (``--fast-fp8``); otherwise weights are
+    dequantized for a regular matmul. Returns how many weights were quantized."""
+
+    import json
+
+    conf = {"format": "float8_e4m3fn"}
+    if not fp8_matmul:
+        conf["full_precision_matrix_mult"] = True
+    conf_tensor = torch.tensor(list(json.dumps(conf).encode("utf-8")), dtype=torch.uint8)
+
+    quantized = 0
+    for key in [k for k in state_dict if k.startswith("blocks.") and k.endswith(".weight")]:
+        weight = state_dict[key]
+        prefix = key[: -len("weight")]
+        if weight.ndim != 2 or not weight.is_floating_point() or weight.dtype in _FP8_DTYPES or key.startswith(_PRECISION_SENSITIVE_PREFIXES):
+            continue
+        scale = weight.abs().amax().float().clamp_min(1e-12) / _FP8_E4M3_MAX
+        state_dict[key] = (weight.float() / scale).clamp_(-_FP8_E4M3_MAX, _FP8_E4M3_MAX).to(torch.float8_e4m3fn)
+        state_dict[f"{prefix}weight_scale"] = scale
+        state_dict[f"{prefix}comfy_quant"] = conf_tensor
+        quantized += 1
+    return quantized
 
 
 # region DiT
@@ -57,9 +157,22 @@ class VideoRopePosition3DEmb(nn.Module):
         self.h_ntk_factor = h_extrapolation_ratio ** (dim_h / (dim_h - 2))
         self.w_ntk_factor = w_extrapolation_ratio ** (dim_w / (dim_w - 2))
         self.t_ntk_factor = t_extrapolation_ratio ** (dim_t / (dim_t - 2))
+        # The embedding depends only on the latent grid: every sampling step
+        # at a resolution reuses it instead of rebuilding it (~15 kernels).
+        self._cache: dict[tuple, torch.Tensor] = {}
 
     def forward(self, x_B_T_H_W_C: torch.Tensor, device: torch.device) -> torch.Tensor:
         B, T, H, W, _ = x_B_T_H_W_C.shape
+        key = (T, H, W, torch.device(device), torch.is_inference_mode_enabled())
+        cached = self._cache.get(key)
+        if cached is None:
+            cached = self._build(T, H, W, device)
+            if len(self._cache) >= 4:  # e.g. base + hires resolutions
+                self._cache.pop(next(iter(self._cache)))
+            self._cache[key] = cached
+        return cached
+
+    def _build(self, T: int, H: int, W: int, device: torch.device) -> torch.Tensor:
 
         h_theta = 10000.0 * self.h_ntk_factor
         w_theta = 10000.0 * self.w_ntk_factor
@@ -132,10 +245,8 @@ class SelfCrossAttention(nn.Module):
         q = self.q_proj(x)
         k = self.k_proj(x if context is None else context)
         v = self.v_proj(x if context is None else context)
-        q, k, v = map(
-            lambda t: rearrange(t, "b ... (h d) -> b ... h d", h=self.n_heads, d=self.head_dim),
-            (q, k, v),
-        )
+        heads = (self.n_heads, self.head_dim)
+        q, k, v = q.unflatten(-1, heads), k.unflatten(-1, heads), v.unflatten(-1, heads)
 
         if self.is_SelfAttn and rope_emb is not None:
             q_scale, _, q_offload_stream = weights_manual_cast(self.q_norm, q)
@@ -150,6 +261,13 @@ class SelfCrossAttention(nn.Module):
 
         return q, k, v
 
+    def compute_kv(self, context: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Cross-attention K/V for ``context``, exactly as compute_qkv makes them."""
+        heads = (self.n_heads, self.head_dim)
+        k = self.k_norm(self.k_proj(context).unflatten(-1, heads))
+        v = self.v_norm(self.v_proj(context).unflatten(-1, heads))
+        return k, v
+
     @staticmethod
     def torch_attention_op(q_B_S_H_D: torch.Tensor, k_B_S_H_D: torch.Tensor, v_B_S_H_D: torch.Tensor, transformer_options: Optional[dict] = {}) -> torch.Tensor:
         in_q_shape = q_B_S_H_D.shape
@@ -159,8 +277,26 @@ class SelfCrossAttention(nn.Module):
         v_B_H_S_D = rearrange(v_B_S_H_D, "b ... h v -> b h ... v").view(in_k_shape[0], in_k_shape[-2], -1, in_k_shape[-1])
         return attention_function(q_B_H_S_D, k_B_H_S_D, v_B_H_S_D, in_q_shape[-2], skip_reshape=True, transformer_options=transformer_options)
 
-    def compute_attention(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, transformer_options: Optional[dict] = {}) -> torch.Tensor:
-        result = self.torch_attention_op(q, k, v, transformer_options=transformer_options)
+    def compute_attention(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        transformer_options: Optional[dict] = None,
+        mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        if not self.is_SelfAttn and transformer_options and transformer_options.get(ANIMA_ATTENTION_MODIFIERS):
+            transformer_options = {**transformer_options, ANIMA_PROJECT_KV: self.compute_kv}
+        result = run_anima_attention(
+            q,
+            k,
+            v,
+            heads=self.n_heads,
+            base_attention=attention_function,
+            transformer_options=transformer_options,
+            is_self_attention=self.is_SelfAttn,
+            mask=mask,
+        )
         return self.output_dropout(self.output_proj(result))
 
     def forward(self, x: torch.Tensor, context: Optional[torch.Tensor] = None, rope_emb: Optional[torch.Tensor] = None, transformer_options: Optional[dict] = {}) -> torch.Tensor:
@@ -248,7 +384,7 @@ class FinalLayer(nn.Module):
 
     def forward(self, x_B_T_H_W_D: torch.Tensor, emb_B_T_D: torch.Tensor, adaln_lora_B_T_3D: Optional[torch.Tensor] = None):
         shift_B_T_D, scale_B_T_D = (self.adaln_modulation(emb_B_T_D) + adaln_lora_B_T_3D[:, :, : 2 * self.hidden_size]).chunk(2, dim=-1)
-        shift_B_T_1_1_D, scale_B_T_1_1_D = rearrange(shift_B_T_D, "b t d -> b t 1 1 d"), rearrange(scale_B_T_D, "b t d -> b t 1 1 d")
+        shift_B_T_1_1_D, scale_B_T_1_1_D = shift_B_T_D[:, :, None, None, :], scale_B_T_D[:, :, None, None, :]
 
         x_B_T_H_W_D = _fn(x_B_T_H_W_D, self.layer_norm, scale_B_T_1_1_D, shift_B_T_1_1_D)
         x_B_T_H_W_O = self.linear(x_B_T_H_W_D)
@@ -293,27 +429,36 @@ class Block(nn.Module):
         adaln_lora_B_T_3D: Optional[torch.Tensor] = None,
         extra_per_block_pos_emb: Optional[torch.Tensor] = None,
         transformer_options: Optional[dict] = {},
+        silu_emb_B_T_D: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         residual_dtype = x_B_T_H_W_D.dtype
         compute_dtype = emb_B_T_D.dtype
         if extra_per_block_pos_emb is not None:
             x_B_T_H_W_D = x_B_T_H_W_D + extra_per_block_pos_emb
 
-        shift_self_attn_B_T_D, scale_self_attn_B_T_D, gate_self_attn_B_T_D = (self.adaln_modulation_self_attn(emb_B_T_D) + adaln_lora_B_T_3D).chunk(3, dim=-1)
-        shift_cross_attn_B_T_D, scale_cross_attn_B_T_D, gate_cross_attn_B_T_D = (self.adaln_modulation_cross_attn(emb_B_T_D) + adaln_lora_B_T_3D).chunk(3, dim=-1)
-        shift_mlp_B_T_D, scale_mlp_B_T_D, gate_mlp_B_T_D = (self.adaln_modulation_mlp(emb_B_T_D) + adaln_lora_B_T_3D).chunk(3, dim=-1)
+        # Every modulation MLP starts with SiLU(emb), and emb is the same for
+        # all blocks: the model passes it in once instead of 3 per block.
+        if silu_emb_B_T_D is None:
+            silu_emb_B_T_D = nn.functional.silu(emb_B_T_D)
 
-        shift_self_attn_B_T_1_1_D = rearrange(shift_self_attn_B_T_D, "b t d -> b t 1 1 d")
-        scale_self_attn_B_T_1_1_D = rearrange(scale_self_attn_B_T_D, "b t d -> b t 1 1 d")
-        gate_self_attn_B_T_1_1_D = rearrange(gate_self_attn_B_T_D, "b t d -> b t 1 1 d")
+        def modulation(mlp: nn.Sequential) -> torch.Tensor:
+            return mlp[2](mlp[1](silu_emb_B_T_D))
 
-        shift_cross_attn_B_T_1_1_D = rearrange(shift_cross_attn_B_T_D, "b t d -> b t 1 1 d")
-        scale_cross_attn_B_T_1_1_D = rearrange(scale_cross_attn_B_T_D, "b t d -> b t 1 1 d")
-        gate_cross_attn_B_T_1_1_D = rearrange(gate_cross_attn_B_T_D, "b t d -> b t 1 1 d")
+        shift_self_attn_B_T_D, scale_self_attn_B_T_D, gate_self_attn_B_T_D = (modulation(self.adaln_modulation_self_attn) + adaln_lora_B_T_3D).chunk(3, dim=-1)
+        shift_cross_attn_B_T_D, scale_cross_attn_B_T_D, gate_cross_attn_B_T_D = (modulation(self.adaln_modulation_cross_attn) + adaln_lora_B_T_3D).chunk(3, dim=-1)
+        shift_mlp_B_T_D, scale_mlp_B_T_D, gate_mlp_B_T_D = (modulation(self.adaln_modulation_mlp) + adaln_lora_B_T_3D).chunk(3, dim=-1)
 
-        shift_mlp_B_T_1_1_D = rearrange(shift_mlp_B_T_D, "b t d -> b t 1 1 d")
-        scale_mlp_B_T_1_1_D = rearrange(scale_mlp_B_T_D, "b t d -> b t 1 1 d")
-        gate_mlp_B_T_1_1_D = rearrange(gate_mlp_B_T_D, "b t d -> b t 1 1 d")
+        shift_self_attn_B_T_1_1_D = shift_self_attn_B_T_D[:, :, None, None, :]
+        scale_self_attn_B_T_1_1_D = scale_self_attn_B_T_D[:, :, None, None, :]
+        gate_self_attn_B_T_1_1_D = gate_self_attn_B_T_D[:, :, None, None, :]
+
+        shift_cross_attn_B_T_1_1_D = shift_cross_attn_B_T_D[:, :, None, None, :]
+        scale_cross_attn_B_T_1_1_D = scale_cross_attn_B_T_D[:, :, None, None, :]
+        gate_cross_attn_B_T_1_1_D = gate_cross_attn_B_T_D[:, :, None, None, :]
+
+        shift_mlp_B_T_1_1_D = shift_mlp_B_T_D[:, :, None, None, :]
+        scale_mlp_B_T_1_1_D = scale_mlp_B_T_D[:, :, None, None, :]
+        gate_mlp_B_T_1_1_D = gate_mlp_B_T_D[:, :, None, None, :]
 
         B, T, H, W, D = x_B_T_H_W_D.shape
 
@@ -323,34 +468,22 @@ class Block(nn.Module):
             scale_self_attn_B_T_1_1_D,
             shift_self_attn_B_T_1_1_D,
         )
-        result_B_T_H_W_D = rearrange(
-            self.self_attn(
-                rearrange(normalized_x_B_T_H_W_D.to(compute_dtype), "b t h w d -> b (t h w) d"),
-                None,
-                rope_emb=rope_emb_L_1_1_D,
-                transformer_options=transformer_options,
-            ),
-            "b (t h w) d -> b t h w d",
-            t=T,
-            h=H,
-            w=W,
-        )
+        result_B_T_H_W_D = self.self_attn(
+            normalized_x_B_T_H_W_D.to(compute_dtype).flatten(1, 3),
+            None,
+            rope_emb=rope_emb_L_1_1_D,
+            transformer_options=transformer_options,
+        ).unflatten(1, (T, H, W))
         x_B_T_H_W_D = torch.addcmul(x_B_T_H_W_D, gate_self_attn_B_T_1_1_D.to(residual_dtype), result_B_T_H_W_D.to(residual_dtype))
 
         def _x_fn(_x_B_T_H_W_D: torch.Tensor, layer_norm_cross_attn: Callable, _scale_cross_attn_B_T_1_1_D: torch.Tensor, _shift_cross_attn_B_T_1_1_D: torch.Tensor, transformer_options: Optional[dict] = {}) -> torch.Tensor:
             _normalized_x_B_T_H_W_D = _fn(_x_B_T_H_W_D, layer_norm_cross_attn, _scale_cross_attn_B_T_1_1_D, _shift_cross_attn_B_T_1_1_D)
-            _result_B_T_H_W_D = rearrange(
-                self.cross_attn(
-                    rearrange(_normalized_x_B_T_H_W_D.to(compute_dtype), "b t h w d -> b (t h w) d"),
-                    crossattn_emb,
-                    rope_emb=rope_emb_L_1_1_D,
-                    transformer_options=transformer_options,
-                ),
-                "b (t h w) d -> b t h w d",
-                t=T,
-                h=H,
-                w=W,
-            )
+            _result_B_T_H_W_D = self.cross_attn(
+                _normalized_x_B_T_H_W_D.to(compute_dtype).flatten(1, 3),
+                crossattn_emb,
+                rope_emb=rope_emb_L_1_1_D,
+                transformer_options=transformer_options,
+            ).unflatten(1, (T, H, W))
             return _result_B_T_H_W_D
 
         result_B_T_H_W_D = _x_fn(
@@ -466,8 +599,10 @@ class Anima(nn.Module):
         orig_shape = list(x.shape)
 
         for ref in dynamic_args.ref_latents:
-            if x.shape[0] == 2:  # batch_cond_uncond
-                ref = torch.cat((ref, ref), dim=0)
+            # One reference per image, repeated for the cond/uncond (and
+            # batch-size) copies Forge batches together.
+            if ref.shape[0] != x.shape[0] and x.shape[0] % ref.shape[0] == 0:
+                ref = ref.repeat(x.shape[0] // ref.shape[0], *([1] * (ref.ndim - 1)))
             x = torch.cat((x, ref.to(x)), dim=2)
 
         x = pad_to_patch_size(x, (self.patch_temporal, self.patch_spatial, self.patch_spatial))
@@ -482,18 +617,25 @@ class Anima(nn.Module):
         t_embedding_B_T_D, adaln_lora_B_T_3D = self.t_embedder[1](self.t_embedder[0](timesteps_B_T).to(x_B_T_H_W_D.dtype))
         t_embedding_B_T_D = self.t_embedding_norm(t_embedding_B_T_D)
 
+        # A per-call copy: block_index below must not leak into the caller's
+        # (shared) options dict.
+        transformer_options = dict(kwargs.get("transformer_options", {}))
         block_kwargs = {
             "rope_emb_L_1_1_D": rope_emb_L_1_1_D.unsqueeze(1).unsqueeze(0),
             "adaln_lora_B_T_3D": adaln_lora_B_T_3D,
             "extra_per_block_pos_emb": extra_pos_emb_None,
-            "transformer_options": kwargs.get("transformer_options", {}),
+            "transformer_options": transformer_options,
+            "silu_emb_B_T_D": nn.functional.silu(t_embedding_B_T_D),
         }
 
         # To make fp16 compute_dtype work, we keep the residual stream in fp32 but run attention and MLP modules in fp16.
         if x_B_T_H_W_D.dtype is torch.float16:
             x_B_T_H_W_D = x_B_T_H_W_D.float()
 
-        for block in self.blocks:
+        for block_index, block in enumerate(self.blocks):
+            # Like Flux / Wan / UNet: lets attention overrides act per block
+            # (e.g. Sparse Attention's "Dense Blocks").
+            transformer_options["block_index"] = block_index
             x_B_T_H_W_D = block(
                 x_B_T_H_W_D,
                 t_embedding_B_T_D,
