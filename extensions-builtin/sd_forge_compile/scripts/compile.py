@@ -113,16 +113,17 @@ class TorchCompileForForge(scripts.Script):
                 exc_info=(type(error), error, error.__traceback__),
             )
 
+        def keep_block_compile():
+            """Point an installed per-block compile at this generation and
+            record a fallback it already made to eager."""
+            AnimaBlockCompileManager.update_fallback_handler(kmodel, compile_fallback)
+            reason = AnimaBlockCompileManager.fallback_reason(kmodel)
+            if reason is not None:
+                p.extra_generation_params["Torch compile"] = f"Anima per-block using eager fallback: {reason}"
+
         if preset == "Automatic":
             if AnimaBlockCompileManager.is_installed(kmodel):
-                AnimaBlockCompileManager.update_fallback_handler(
-                    kmodel, compile_fallback
-                )
-                reason = AnimaBlockCompileManager.fallback_reason(kmodel)
-                if reason is not None:
-                    p.extra_generation_params["Torch compile"] = (
-                        f"Anima per-block using eager fallback: {reason}"
-                    )
+                keep_block_compile()
             return
 
         if preset == "Disable":
@@ -150,28 +151,14 @@ class TorchCompileForForge(scripts.Script):
             or AnimaBlockCompileManager.is_installed(kmodel)
         ):
             if preset == "Anima per-block":
-                AnimaBlockCompileManager.update_fallback_handler(
-                    kmodel, compile_fallback
-                )
-                reason = AnimaBlockCompileManager.fallback_reason(kmodel)
-                if reason is not None:
-                    p.extra_generation_params["Torch compile"] = (
-                        f"Anima per-block using eager fallback: {reason}"
-                    )
+                keep_block_compile()
             return
 
         if prev_config is not None:
             self._remove_compile_wrapper(kmodel)
 
         match preset:
-            case "Anima per-block":
-                config = dict(
-                    backend="inductor",
-                    dynamic=False,
-                    fullgraph=False,
-                    options={"guard_filter_fn": skip_torch_compile_dict},
-                )
-            case "guard_filter_fn":
+            case "Anima per-block" | "guard_filter_fn":
                 config = dict(backend="inductor", dynamic=False, fullgraph=False, options={"guard_filter_fn": skip_torch_compile_dict})
             case "dynamic":
                 config = dict(backend="inductor", dynamic=True, fullgraph=False, options={"guard_filter_fn": skip_torch_compile_dict})
@@ -183,12 +170,7 @@ class TorchCompileForForge(scripts.Script):
                 config = dict(backend="inductor", mode="reduce-overhead", dynamic=False, fullgraph=False, options={"guard_filter_fn": skip_torch_compile_dict})
 
         if preset == "Anima per-block":
-            AnimaBlockCompileManager.install(
-                kmodel,
-                config,
-                preset,
-                on_fallback=compile_fallback,
-            )
+            AnimaBlockCompileManager.install(kmodel, config, on_fallback=compile_fallback)
         else:
             self._wrap_apply_model(kmodel, config)
         setattr(kmodel, _COMPILE_CONFIG_KEY, preset)

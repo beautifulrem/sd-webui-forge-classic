@@ -100,8 +100,6 @@ class PiDForForge(scripts.Script):
         if not enable:
             return
 
-        result_sink(p)
-
         if getattr(p, "enable_hr", False):
             logger.warning("PiD was skipped: disable Hires fix before enabling the 4x PiD postprocessor")
             p.extra_generation_params["PiD"] = "skipped: incompatible with Hires fix"

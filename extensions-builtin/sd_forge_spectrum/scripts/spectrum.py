@@ -14,6 +14,25 @@ from modules.ui_components import InputAccordion
 PresetManager.load_presets()
 
 
+
+# Infotext labels of the script arguments after ``enable``, in order
+INFOTEXT_KEYS = (
+    "spec_w",
+    "spec_m",
+    "spec_lam",
+    "spec_window_size",
+    "spec_flex_window",
+    "spec_warmup_steps",
+    "spec_stop_caching_step",
+    "spec_tail_actual_steps",
+    "spec_history_size",
+    "spec_schedule",
+    "spec_refresh_ratio",
+    "spec_sea_beta",
+    "spec_compat_policy",
+    "spec_verbose",
+)
+
 class SpectrumForForge(scripts.Script):
     sorting_priority = 2026
 
@@ -185,22 +204,8 @@ class SpectrumForForge(scripts.Script):
                     queue=False,
                 )
 
-        self.infotext_fields = [
-            PasteField(w, "spec_w"),
-            PasteField(m, "spec_m"),
-            PasteField(lam, "spec_lam"),
-            PasteField(window_size, "spec_window_size"),
-            PasteField(flex_window, "spec_flex_window"),
-            PasteField(warmup_steps, "spec_warmup_steps"),
-            PasteField(stop_caching_step, "spec_stop_caching_step"),
-            PasteField(tail_actual_steps, "spec_tail_actual_steps"),
-            PasteField(history_size, "spec_history_size"),
-            PasteField(schedule, "spec_schedule"),
-            PasteField(refresh_ratio, "spec_refresh_ratio"),
-            PasteField(sea_beta, "spec_sea_beta"),
-            PasteField(compat_policy, "spec_compat_policy"),
-            PasteField(verbose, "spec_verbose"),
-        ]
+        controls = [w, m, lam, window_size, flex_window, warmup_steps, stop_caching_step, tail_actual_steps, history_size, schedule, refresh_ratio, sea_beta, compat_policy, verbose]
+        self.infotext_fields = [PasteField(component, key) for component, key in zip(controls, INFOTEXT_KEYS)]
         self.paste_field_names = [field.label for field in self.infotext_fields]
 
         for name, component in {
@@ -283,21 +288,5 @@ class SpectrumForForge(scripts.Script):
         )
         p.sd_model.forge_objects.unet = unet
 
-        keys = [
-            "spec_w",
-            "spec_m",
-            "spec_lam",
-            "spec_window_size",
-            "spec_flex_window",
-            "spec_warmup_steps",
-            "spec_stop_caching_step",
-            "spec_tail_actual_steps",
-            "spec_history_size",
-            "spec_schedule",
-            "spec_refresh_ratio",
-            "spec_sea_beta",
-            "spec_compat_policy",
-            "spec_verbose",
-        ]
-        for k, v in zip(keys, args):
+        for k, v in zip(INFOTEXT_KEYS, args):
             p.extra_generation_params[k] = v

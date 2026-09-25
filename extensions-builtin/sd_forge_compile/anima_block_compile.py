@@ -6,8 +6,9 @@ from functools import wraps
 
 import torch
 
+from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS
+from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY
 
-_BLOCK_CONFIG_KEY = "_forge_anima_block_compile_config"
 _COMPILED_BLOCKS_KEY = "_forge_anima_compiled_blocks"
 _ORIGINAL_APPLY_KEY = "_forge_anima_block_original_apply_model"
 _WRAPPER_MARKER = "_forge_anima_block_compile_wrapper"
@@ -20,7 +21,7 @@ _FALLBACK_REASON_KEY = "_forge_anima_block_compile_fallback_reason"
 # config drops guards on transformer_options (they change every step), so a
 # graph traced without these would silently keep ignoring them: calls that
 # carry any run the eager blocks instead.
-_EAGER_OPTION_KEYS = ("anima_attention_modifiers", "negpip_mask", "negpip_context_mask")
+_EAGER_OPTION_KEYS = (ANIMA_ATTENTION_MODIFIERS, NEGPIP_MASK_KEY, NEGPIP_CONTEXT_MASK_KEY)
 
 
 def patched_inside(module_ids) -> bool:
@@ -60,10 +61,9 @@ class AnimaBlockCompileManager:
     """Compile Anima transformer blocks and swap them only during inference."""
 
     @staticmethod
-    def install(kmodel, compile_config: dict, config_name: str, on_fallback=None) -> None:
+    def install(kmodel, compile_config: dict, on_fallback=None) -> None:
         original_apply_model = kmodel.apply_model
         setattr(kmodel, _ORIGINAL_APPLY_KEY, original_apply_model)
-        setattr(kmodel, _BLOCK_CONFIG_KEY, config_name)
         setattr(kmodel, _FALLBACK_HANDLER_KEY, on_fallback)
 
         def fallback(error: Exception) -> None:
@@ -130,7 +130,6 @@ class AnimaBlockCompileManager:
         if original is not None and getattr(kmodel.apply_model, _WRAPPER_MARKER, False):
             kmodel.apply_model = original
         for name in (
-            _BLOCK_CONFIG_KEY,
             _COMPILED_BLOCKS_KEY,
             _ORIGINAL_APPLY_KEY,
             _FAILED_KEY,

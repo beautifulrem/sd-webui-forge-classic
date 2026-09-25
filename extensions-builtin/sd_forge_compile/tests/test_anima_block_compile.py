@@ -42,7 +42,7 @@ class AnimaBlockCompileTests(unittest.TestCase):
         originals = tuple(model.diffusion_model.blocks)
         wrappers = [torch.nn.Sequential(block) for block in originals]
         with patch("anima_block_compile.torch.compile", side_effect=wrappers) as compile_mock:
-            AnimaBlockCompileManager.install(model, {}, "test")
+            AnimaBlockCompileManager.install(model, {})
             self.assertEqual(model.apply_model(3), 3)
             self.assertEqual(model.apply_model(4), 4)
         self.assertEqual(compile_mock.call_count, 2)
@@ -53,7 +53,7 @@ class AnimaBlockCompileTests(unittest.TestCase):
         model = _KModel(fail=True)
         originals = tuple(model.diffusion_model.blocks)
         with patch("anima_block_compile.torch.compile", side_effect=lambda block, **kwargs: torch.nn.Sequential(block)):
-            AnimaBlockCompileManager.install(model, {}, "test")
+            AnimaBlockCompileManager.install(model, {})
             with self.assertRaisesRegex(RuntimeError, "test failure"):
                 model.apply_model(1)
         self.assertEqual(tuple(model.diffusion_model.blocks), originals)
@@ -68,7 +68,7 @@ class AnimaBlockCompileTests(unittest.TestCase):
         model = _KModel()
         failures = []
         with patch("anima_block_compile.torch.compile", side_effect=BackendCompilerFailed("no compiler")) as compile_mock:
-            AnimaBlockCompileManager.install(model, {}, "test", on_fallback=failures.append)
+            AnimaBlockCompileManager.install(model, {}, on_fallback=failures.append)
             self.assertEqual(model.apply_model(3), 3)
             self.assertEqual(model.apply_model(4), 4)
         self.assertEqual(compile_mock.call_count, 1)
@@ -88,7 +88,7 @@ class AnimaBlockCompileTests(unittest.TestCase):
         first_task = []
         current_task = []
         with patch("anima_block_compile.torch.compile", side_effect=lambda block, **kwargs: LazyFailure()):
-            AnimaBlockCompileManager.install(model, {}, "test", on_fallback=first_task.append)
+            AnimaBlockCompileManager.install(model, {}, on_fallback=first_task.append)
             AnimaBlockCompileManager.update_fallback_handler(model, current_task.append)
             self.assertEqual(model.apply_model(torch.tensor(3)), torch.tensor(3))
         self.assertEqual(first_task, [])

@@ -19,7 +19,7 @@ import torch
 
 from lib_spectrum.sea import SeaCalibration, l1rel, sea_filter
 from modules import spectrum_force
-from modules.anima_support import is_anima_auxiliary_denoiser
+from modules.anima_support import is_anima_auxiliary_denoiser, process_ref
 
 logger = logging.getLogger("Spectrum")
 
@@ -71,13 +71,14 @@ class ChebyshevForecaster:
     def predict(self, step: int) -> torch.Tensor:
         if not self.features:
             raise RuntimeError("Spectrum forecast requested before warmup")
-        device = self.features[-1].device
         original_dtype = self.features[-1].dtype
-        times = torch.tensor(self.times, device=device, dtype=torch.float32)
+        # The ridge system is only (history x degree): solve it on the CPU
+        # instead of a dozen tiny GPU kernels plus a readback per branch.
+        times = torch.tensor(self.times, dtype=torch.float32)
         design = self._design(self._tau(times))
-        regularizer = self.lam * torch.eye(design.shape[1], device=device, dtype=torch.float32)
+        regularizer = self.lam * torch.eye(design.shape[1], dtype=torch.float32)
         normal = design.T @ design + regularizer
-        query = torch.tensor([self._tau(float(step))], device=device, dtype=torch.float32)
+        query = torch.tensor([self._tau(float(step))], dtype=torch.float32)
         query_design = self._design(query)
         try:
             factor = torch.linalg.cholesky(normal)
@@ -89,7 +90,7 @@ class ChebyshevForecaster:
         # weights in the tiny history space avoids materializing H x feature
         # elements plus a degree x feature coefficient matrix on the GPU.
         chebyshev = torch.zeros_like(self.features[-1], dtype=torch.float32)
-        for weight, feature in zip(history_weights.float().cpu().tolist(), self.features):
+        for weight, feature in zip(history_weights.tolist(), self.features):
             chebyshev.add_(feature, alpha=float(weight))
         chebyshev = chebyshev.reshape(-1)
 
@@ -195,52 +196,30 @@ class SpectrumState:
         self,
         *,
         steps,
-        weight,
-        degree,
-        lam,
         window_size,
         flex_window,
         warmup_steps,
         tail_actual_steps,
-        history_size,
         schedule,
-        refresh_ratio,
         sea_beta,
         sea_calibration,
-        compat_policy,
         verbose,
     ):
         self.steps = int(steps)
-        self.weight = float(weight)
-        self.degree = int(degree)
-        self.lam = float(lam)
         self.window_size = float(window_size)
         self.flex_window = float(flex_window)
         self.warmup_steps = int(warmup_steps)
         self.tail_actual_steps = int(tail_actual_steps)
-        self.history_size = int(history_size)
         self.schedule = str(schedule)
-        self.refresh_ratio = float(refresh_ratio)
         self.sea_beta = float(sea_beta)
         self.sea_calibration = sea_calibration
-        self.compat_policy = str(compat_policy)
         self.verbose = bool(verbose)
         self.forecasters: dict[Hashable, ChebyshevForecaster] = {}
-        self.step = -1
-        self.last_sigma = None
-        self.current_window = self.window_size
-        self.consecutive_cached = 0
-        self.mode = "actual"
-        self.captured_feature = None
-        self.input_shape = None
-        self.conditioning_signature = None
-        self.sea_previous = None
-        self.sea_accumulated = 0.0
         self.sea_distances: list[float] = []
         self.sea_delta = sea_calibration.load() if sea_calibration is not None else None
         self.sea_saved = self.sea_delta is not None
         self.warned_wrapper = False
-        self.was_forced = False
+        self.reset()
 
     def reset(self):
         self.forecasters.clear()
@@ -375,19 +354,13 @@ class SpectrumNode:
             )
         state = SpectrumState(
             steps=steps,
-            weight=weight,
-            degree=degree,
-            lam=lam,
             window_size=window_size,
             flex_window=flex_window,
             warmup_steps=warmup_steps,
             tail_actual_steps=tail_actual_steps,
-            history_size=history_size,
             schedule=schedule,
-            refresh_ratio=refresh_ratio,
             sea_beta=sea_beta,
             sea_calibration=calibration,
-            compat_policy=compat_policy,
             verbose=verbose,
         )
         if feature_cache:
@@ -399,6 +372,8 @@ class SpectrumNode:
             for previous_state in getattr(process, "_spectrum_states", None) or ():
                 previous_state.reset()
             setattr(process, "_spectrum_states", [state])
+        # The wrapper lives on the patcher past this generation: no strong p
+        process = process_ref(process)
 
         def actual_forward(model_function, args):
             if old_wrapper is not None:

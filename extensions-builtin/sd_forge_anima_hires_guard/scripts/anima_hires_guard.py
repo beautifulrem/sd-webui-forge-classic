@@ -25,6 +25,18 @@ def _is_anima(process) -> bool:
     return is_anima_engine(getattr(process, "sd_model", None))
 
 
+# (preset control name, infotext key) of each script argument, in order
+FIELDS = (
+    ("enabled", "Anima Hires guard enabled"),
+    ("policy", "Anima Hires policy"),
+    ("preset", "Anima Hires preset"),
+    ("align", "Anima Hires align"),
+    ("base_mp", "Anima base MP"),
+    ("hires_mp", "Anima Hires MP"),
+    ("max_upscale", "Anima Hires max upscale"),
+)
+
+
 class AnimaHiresGuardScript(scripts.Script):
     # Run after the bundled resolution randomizer (priority 0), so the guard
     # validates the dimensions that will actually enter processing.
@@ -85,26 +97,11 @@ class AnimaHiresGuardScript(scripts.Script):
                     label="Maximum upscale per axis",
                 )
 
-        self.infotext_fields = [
-            (enabled, "Anima Hires guard enabled"),
-            (policy, "Anima Hires policy"),
-            (preset, "Anima Hires preset"),
-            (align, "Anima Hires align"),
-            (base_mp, "Anima base MP"),
-            (hires_mp, "Anima Hires MP"),
-            (max_upscale, "Anima Hires max upscale"),
-        ]
-        for name, component in {
-            "hires_guard.enabled": enabled,
-            "hires_guard.policy": policy,
-            "hires_guard.preset": preset,
-            "hires_guard.align": align,
-            "hires_guard.base_mp": base_mp,
-            "hires_guard.hires_mp": hires_mp,
-            "hires_guard.max_upscale": max_upscale,
-        }.items():
-            register_preset_control(self.tabname, name, component)
-        return [enabled, policy, preset, align, base_mp, hires_mp, max_upscale]
+        controls = [enabled, policy, preset, align, base_mp, hires_mp, max_upscale]
+        self.infotext_fields = [(component, key) for component, (_, key) in zip(controls, FIELDS)]
+        for component, (name, _) in zip(controls, FIELDS):
+            register_preset_control(self.tabname, f"hires_guard.{name}", component)
+        return controls
 
     def after_model_load(
         self,
@@ -142,15 +139,9 @@ class AnimaHiresGuardScript(scripts.Script):
             hr_resize_y=int(getattr(process, "hr_resize_y", 0) or 0),
             limits=limits,
         )
-        # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
-        params = process.extra_generation_params
-        params["Anima Hires guard enabled"] = True
-        params["Anima Hires policy"] = str(policy)
-        params["Anima Hires preset"] = str(preset)
-        params["Anima Hires align"] = bool(align)
-        params["Anima base MP"] = float(base_mp)
-        params["Anima Hires MP"] = float(hires_mp)
-        params["Anima Hires max upscale"] = float(max_upscale)
+        # Same keys as ``self.infotext_fields``, so pasted parameters restore the panel
+        values = (True, str(policy), str(preset), bool(align), float(base_mp), float(hires_mp), float(max_upscale))
+        process.extra_generation_params.update(zip((key for _, key in FIELDS), values))
         process.extra_generation_params["Anima Hires limits"] = (
             f"base {limits.base_megapixels:g} MP, hires {limits.hires_megapixels:g} MP, "
             f"upscale {limits.max_upscale:g}x, align {limits.alignment}"
