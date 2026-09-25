@@ -1,0 +1,44 @@
+# Python / runtime cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environments and runtime bundles
+venv/
+.venv/
+env/
+runtime/
+python/
+node_modules/
+
+# Generated outputs, caches, and logs
+outputs/
+output/
+cache/
+tmp/
+temp/
+*.log
+*.tmp
+*.bak
+*.old
+
+# Local WebUI state that should not affect git pull
+config.json
+ui-config.json
+params.txt
+artist_mixer_templates.json
+artist_mixer_current_settings.json
+artist_mixer_cache/
+intro_language.json
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

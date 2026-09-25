@@ -1,0 +1,311 @@
+# https://github.com/david419kr/sd-webui-negpip/blob/main/scripts/negpip.py
+
+import weakref
+from functools import wraps
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from scripts.negpip import NegPiP
+
+    from backend.diffusion_engine.anima import Anima as AnimaEngine
+    from backend.nn.anima import Anima
+    from backend.text_processing.anima_engine import AnimaTextProcessingEngine
+    from modules.prompt_parser import SdConditioning
+
+import torch
+import torch.nn.functional as F
+from einops import rearrange
+
+from backend.nn.anima import SelfCrossAttention
+from backend.sampling import condition, sampling_function
+from modules import shared
+from modules.anima_support import NEGPIP_MASK_KEY, negpip_mask_for
+from modules.forward_override import install_forward_override, restore_forward_override
+
+
+# Weak refs to the (engine, dit) patched by the active hook, so unpatching
+# restores the same objects even if shared.sd_model changed or failed to load
+# meanwhile, without keeping an unloaded checkpoint alive.
+_PATCHED_TARGETS = None
+# Whether any prompt encoded since patching had a negative weight. Set at
+# conditioning time so the DiT hook can skip no-op masks without a per-call
+# device sync (which would also break whole-model torch.compile graphs).
+_NEGATIVES_SEEN = [False]
+
+
+def patch_anima_negpip(cls: "NegPiP", *, unpatch=False):
+    global _PATCHED_TARGETS
+
+    if unpatch != cls._patched[1]:
+        return
+
+    if unpatch:
+        cls._patched[1] = False
+        targets, _PATCHED_TARGETS = _PATCHED_TARGETS, None
+        # Class/module-level hooks first: they must be restored even if the
+        # instance targets are gone.
+        _hook_forwards(True)
+        _hook_compile_conditions(True)
+        if targets is not None:
+            model, dit = (ref() for ref in targets)
+            if model is not None:
+                _hook_get_learned_conditioning(model, True)
+            if dit is not None:
+                _hook_dit_forward(dit, True)
+        return
+
+    model: "AnimaEngine" = shared.sd_model
+    dit: "Anima" = model.forge_objects.unet.model.diffusion_model
+    cls._patched[1] = True
+    _PATCHED_TARGETS = (weakref.ref(model), weakref.ref(dit))
+    _NEGATIVES_SEEN[0] = False
+    _hook_get_learned_conditioning(model, False)
+    _hook_dit_forward(dit, False)
+    _hook_forwards(False)
+    _hook_compile_conditions(False)
+
+
+# ================================================================================ #
+
+
+def _hook_get_learned_conditioning(model: "AnimaEngine", remove: bool):
+    if remove:
+        restore = model.__dict__.pop("_negpip_restore_conditioning", None)
+        if restore is not None:
+            wrapper, token, detached = restore
+            if not restore_forward_override(model, wrapper, token, name="get_learned_conditioning"):
+                # Another override sits on top; make ours a pass-through.
+                detached[0] = True
+        return
+
+    orig_get_learned_conditioning = model.get_learned_conditioning
+    # Closure flag, not a function attribute: @wraps copies __dict__.
+    conditioning_detached = [False]
+
+    engine: "AnimaTextProcessingEngine" = model.text_processing_engine_anima
+
+    @torch.inference_mode()
+    @wraps(orig_get_learned_conditioning)
+    def negpip_learned_conditioning(prompt: "SdConditioning"):
+        if conditioning_detached[0]:
+            return orig_get_learned_conditioning(prompt)
+        conds = orig_get_learned_conditioning(prompt)
+        assert isinstance(conds, list)
+        assert len(prompt) == len(conds)
+
+        crossattn = []
+        negpip_mask = []
+        _count = 0
+
+        for line, cond in zip(prompt, conds):
+            assert isinstance(cond, torch.Tensor)
+
+            cond_data = cond.reshape(-1, cond.shape[-1])
+            assert cond_data.ndim == 2
+
+            mask = _build_negpip_mask(
+                engine,
+                line,
+                cond_data.shape[0],
+                cond_data.device,
+                cond_data.dtype,
+            )
+
+            _count += int((mask < 0).sum())
+
+            crossattn.append(cond_data * mask.unsqueeze(-1).to(cond_data))
+            negpip_mask.append(mask.unsqueeze(-1).to(cond_data))
+
+        if _count > 0:
+            _NEGATIVES_SEEN[0] = True
+            key = "Negative" if prompt.is_negative_prompt else "Positive"
+            print(f"NegPiP Enable ({key}: {_count})")
+
+        return {
+            "crossattn": torch.stack(crossattn, dim=0),
+            "c_negpip_mask": torch.stack(negpip_mask, dim=0),
+        }
+
+    model._negpip_restore_conditioning = (
+        negpip_learned_conditioning,
+        install_forward_override(model, negpip_learned_conditioning, name="get_learned_conditioning"),
+        conditioning_detached,
+    )
+
+
+def _build_negpip_mask(
+    text_processing_engine: "AnimaTextProcessingEngine",
+    line: str,
+    token_length: torch.Size,
+    device: torch.device,
+    dtype: torch.dtype,
+):
+    chunks = text_processing_engine.tokenize_line(line)
+
+    multipliers = []
+    for chunk in chunks:
+        multipliers.extend(getattr(chunk, "t5_multipliers", []))
+
+    if len(multipliers) == 0:
+        return torch.ones(token_length, device=device, dtype=dtype)
+
+    weights = torch.tensor(multipliers, device=device, dtype=dtype)
+    ones = torch.ones_like(weights)
+    mask = torch.where(weights < 0, -ones, ones)
+
+    if mask.shape[0] < token_length:
+        mask = F.pad(mask, (0, token_length - mask.shape[0]), value=1.0)
+    elif mask.shape[0] > token_length:
+        mask = mask[:token_length]
+
+    return mask
+
+
+def _hook_dit_forward(dit: "Anima", remove: bool):
+    if remove:
+        # Remove the instance override instead of pinning the old bound method;
+        # the wrapper keeps its own reference to the original forward.
+        restore = dit.__dict__.pop("_negpip_restore", None)
+        if restore is not None:
+            wrapper, token, detached = restore
+            if not restore_forward_override(dit, wrapper, token):
+                # Another override sits on top; make ours a pass-through.
+                detached[0] = True
+        return
+
+    orig_forward = dit.forward
+    # Closure flag, not a function attribute: @wraps copies __dict__.
+    forward_detached = [False]
+
+    @torch.inference_mode()
+    @wraps(orig_forward)
+    def negpip_forward(
+        x: torch.Tensor,
+        timesteps: torch.Tensor,
+        context: torch.Tensor,
+        padding_mask: Optional[torch.Tensor] = None,
+        **kwargs,
+    ):
+        if forward_detached[0]:
+            return orig_forward(x, timesteps, context, padding_mask, **kwargs)
+        # Copy: the caller's transformer_options dict is shared across calls.
+        transformer_options = dict(kwargs.get("transformer_options", {}))
+
+        # All masks are ones when no encoded prompt had a negative weight (e.g.
+        # NegPiP enabled only by a side prompt); skip the no-op multiply.
+        negpip_mask = kwargs.get("c_negpip_mask", None) if _NEGATIVES_SEEN[0] else None
+
+        transformer_options[NEGPIP_MASK_KEY] = negpip_mask
+        kwargs["transformer_options"] = transformer_options
+
+        return orig_forward(x, timesteps, context, padding_mask, **kwargs)
+
+    dit._negpip_restore = (negpip_forward, install_forward_override(dit, negpip_forward), forward_detached)
+
+
+# (installed forward, original forward, detached flag) while the class hook is active.
+_CLASS_HOOK = None
+
+
+def _hook_forwards(remove: bool):
+    global _CLASS_HOOK
+
+    if remove:
+        if _CLASS_HOOK is None:
+            return
+        installed, original, detached = _CLASS_HOOK
+        _CLASS_HOOK = None
+        if SelfCrossAttention.__dict__.get("forward") is installed:
+            SelfCrossAttention.forward = original
+        else:
+            # Another patch wraps ours; keep the chain intact but pass through.
+            detached[0] = True
+        return
+
+    original = SelfCrossAttention.forward
+    # Closure flag, not a function attribute: @wraps copies __dict__.
+    detached = [False]
+
+    @torch.inference_mode()
+    @wraps(original)
+    def negpip_forward(
+        self: SelfCrossAttention,
+        x: torch.Tensor,
+        context: Optional[torch.Tensor] = None,
+        rope_emb: Optional[torch.Tensor] = None,
+        transformer_options: Optional[dict] = {},
+    ):
+        if detached[0] or self.is_SelfAttn:
+            return original(self, x, context, rope_emb, transformer_options)
+
+        q = self.q_proj(x)
+        context_k = x if context is None else context
+        context_v = context_k
+        # The mask describes one context's tokens (base prompt, or a region /
+        # artist context that sets its own); it only applies to that context.
+        negpip_mask = negpip_mask_for(context, transformer_options)
+        if negpip_mask is not None:
+            context_v = context_v * negpip_mask
+
+        k = self.k_proj(context_k)
+        v = self.v_proj(context_v)
+
+        q, k, v = map(
+            lambda t: rearrange(
+                t, "b ... (h d) -> b ... h d", h=self.n_heads, d=self.head_dim
+            ),
+            (q, k, v),
+        )
+
+        q = self.q_norm(q)
+        k = self.k_norm(k)
+        v = self.v_norm(v)
+
+        if self.is_SelfAttn and rope_emb is not None:
+            q = self.apply_rotary_pos_emb(q, rope_emb)
+            k = self.apply_rotary_pos_emb(k, rope_emb)
+
+        return self.compute_attention(q, k, v, transformer_options=transformer_options)
+
+    SelfCrossAttention.forward = negpip_forward
+    _CLASS_HOOK = (negpip_forward, original, detached)
+
+
+# (installed function, original function) while the hook is active.
+_COMPILE_HOOK = None
+
+
+def _hook_compile_conditions(remove: bool):
+    global _COMPILE_HOOK
+
+    if remove:
+        if _COMPILE_HOOK is None:
+            return
+        installed, original = _COMPILE_HOOK
+        _COMPILE_HOOK = None
+        for module in (condition, sampling_function):
+            if getattr(module, "compile_conditions", None) is installed:
+                module.compile_conditions = original
+        return
+
+    original = condition.compile_conditions
+
+    @wraps(original)
+    def compile_conditions(cond):
+        if cond is None:
+            return None
+
+        if isinstance(cond, dict) and "crossattn" in cond and "vector" not in cond:
+            cross_attn = cond["crossattn"]
+            model_conds = {"c_crossattn": condition.ConditionCrossAttn(cross_attn)}
+            if "c_negpip_mask" in cond:
+                model_conds["c_negpip_mask"] = condition.Condition(
+                    cond["c_negpip_mask"]
+                )
+            return [dict(cross_attn=cross_attn, model_conds=model_conds)]
+
+        return original(cond)
+
+    condition.compile_conditions = compile_conditions
+    sampling_function.compile_conditions = compile_conditions
+    _COMPILE_HOOK = (compile_conditions, original)
