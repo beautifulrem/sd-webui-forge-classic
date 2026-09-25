@@ -53,3 +53,23 @@ def test_cross_attention_projects_other_contexts_like_its_own():
 
     assert torch.equal(k, k2) and torch.equal(v, v2)
     assert seen["project"] is not None
+
+
+def test_one_reference_latent_serves_a_cfg_batch_of_several_images():
+    from backend.args import dynamic_args
+
+    model, generator = _model()
+    x = torch.randn(4, 4, 1, 16, 12, generator=generator)  # 2 images x cond/uncond
+    ref = torch.randn(1, 4, 1, 16, 12, generator=generator)
+    t = torch.full((4,), 0.5)
+    context = torch.randn(4, 7, 64, generator=generator)
+    saved = list(dynamic_args.ref_latents)
+    dynamic_args.ref_latents[:] = [ref]
+    try:
+        with torch.inference_mode():
+            batched = model(x, t, context, transformer_options={})
+            single = model(x[1:2], t[1:2], context[1:2], transformer_options={})
+    finally:
+        dynamic_args.ref_latents[:] = saved
+    assert batched.shape == x.shape
+    assert torch.allclose(batched[1:2], single, atol=1e-5)

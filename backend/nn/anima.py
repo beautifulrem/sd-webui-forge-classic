@@ -537,8 +537,10 @@ class Anima(nn.Module):
         orig_shape = list(x.shape)
 
         for ref in dynamic_args.ref_latents:
-            if x.shape[0] == 2:  # batch_cond_uncond
-                ref = torch.cat((ref, ref), dim=0)
+            # One reference per image, repeated for the cond/uncond (and
+            # batch-size) copies Forge batches together.
+            if ref.shape[0] != x.shape[0] and x.shape[0] % ref.shape[0] == 0:
+                ref = ref.repeat(x.shape[0] // ref.shape[0], *([1] * (ref.ndim - 1)))
             x = torch.cat((x, ref.to(x)), dim=2)
 
         x = pad_to_patch_size(x, (self.patch_temporal, self.patch_spatial, self.patch_spatial))
