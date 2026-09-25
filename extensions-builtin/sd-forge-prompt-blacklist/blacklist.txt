@@ -1,0 +1,1 @@
+watermark, signature, artist name, jpeg artifacts
