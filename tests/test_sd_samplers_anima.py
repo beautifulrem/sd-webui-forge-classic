@@ -6,6 +6,7 @@ import modules.sd_samplers_anima as anima_samplers
 
 from modules.sd_samplers_anima import (
     _PC3State,
+    _Schedule,
     _bh_rhos,
     _pc3_correct,
     _rf_lambda,
@@ -69,6 +70,8 @@ def test_pc3_zero_gamma_returns_predictor_exactly():
         3,
         max_gamma=0.0,
         tolerance=0.005,
+        schedule=_Schedule(torch.tensor([0.9, 0.8, 0.7, 0.5])),
+        step=2,
     )
 
     assert torch.equal(result, x_pred)

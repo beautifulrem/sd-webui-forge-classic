@@ -39,10 +39,6 @@ def _rf_lambda(t):
     return torch.log1p(-t) - torch.log(t)
 
 
-def _scalar(value):
-    return float(value.detach().cpu()) if hasattr(value, "detach") else float(value)
-
-
 def _rms(value):
     value = value.float()
     return torch.sqrt(torch.mean(value * value))
@@ -72,15 +68,30 @@ def _denoise(model, x, sigmas, i, extra_args, callback):
     return denoised
 
 
-def _schedule_values(sigmas):
-    """Branch decisions need plain floats: read the schedule once, not per step.
+class _Schedule:
+    """The sigma schedule, read to the CPU once.
 
-    ``lambda_gaps[i]`` is computed like ``_rf_lambda(sigmas[i + 1]) -
-    _rf_lambda(sigmas[i])``, elementwise in the schedule's dtype."""
+    Every branch the solvers take (tail policy, degenerate steps, solver
+    order) depends only on the schedule, so it is decided from these values
+    instead of syncing a device scalar each step. ``lambdas`` is the RF
+    log-SNR of each sigma, computed the way the solvers compute it."""
 
-    values = sigmas.tolist()
-    lambda_gaps = (_rf_lambda(sigmas[1:]) - _rf_lambda(sigmas[:-1])).tolist()
-    return values, lambda_gaps
+    def __init__(self, sigmas):
+        sigmas = sigmas.detach().cpu()
+        self.sigmas = sigmas.tolist()
+        self.lambdas = _rf_lambda(sigmas)
+
+    def gap(self, i: int, j: int) -> float:
+        """``lambda[j] - lambda[i]``."""
+        return float(self.lambdas[j] - self.lambdas[i])
+
+    def ratio(self, i: int, j: int, k: int, m: int) -> float:
+        """``(lambda[j] - lambda[i]) / (lambda[m] - lambda[k])``."""
+        lambdas = self.lambdas
+        return float((lambdas[j] - lambdas[i]) / (lambdas[m] - lambdas[k]))
+
+    def tail_policy(self, i: int):
+        return _tail_policy(self.sigmas[i], self.sigmas[i + 1], self.gap(i, i + 1))
 
 
 @torch.no_grad()
@@ -91,7 +102,7 @@ def sample_anima_flow_euler(
 
     require_anima_flow_denoiser(model, "Anima Flow samplers")
     extra_args = {} if extra_args is None else extra_args
-    values, _ = _schedule_values(sigmas)
+    values = _Schedule(sigmas).sigmas
     for i in trange(len(sigmas) - 1, disable=disable):
         denoised = _denoise(model, x, sigmas, i, extra_args, callback)
         if values[i + 1] <= 0.0 or values[i] <= 0.0:
@@ -142,13 +153,13 @@ def _bh_rhos(hh, *, order, like, predictor, solver_type, rks=()):
 
 
 def _unipc_predict(
-    x, model_outputs, times, lambdas, t_next, order, *, solver_type
+    x, model_outputs, times, lambdas, t_next, order, *, solver_type, schedule, step
 ):
     t = torch.clamp(times[-1].to(x), min=_EPS, max=1.0 - _EPS)
     t_next = torch.clamp(torch.as_tensor(t_next).to(x), min=_EPS, max=1.0 - _EPS)
     current_lambda = lambdas[-1]
     h = _rf_lambda(t_next).to(x) - current_lambda
-    if _scalar(h) <= _EPS:
+    if schedule.gap(step, step + 1) <= _EPS:
         return _euler_step(x, model_outputs[-1], t, t_next)
 
     denoised = model_outputs[-1]
@@ -156,7 +167,7 @@ def _unipc_predict(
     d1s = []
     if order >= 2:
         rk = (lambdas[-2] - current_lambda) / h
-        if abs(_scalar(rk)) <= _EPS:
+        if abs(schedule.ratio(step, step - 1, step, step + 1)) <= _EPS:
             order = 1
         else:
             d1s.append((model_outputs[-2] - denoised) / rk)
@@ -183,19 +194,21 @@ def _unipc_correct(
     order,
     *,
     solver_type,
+    schedule,
+    step,
 ):
     previous_denoised = state.model_outputs[-1]
     previous_t = torch.clamp(state.times[-1].to(x), min=_EPS, max=1.0 - _EPS)
     current_t = torch.clamp(current_t.to(x), min=_EPS, max=1.0 - _EPS)
     h = current_lambda - state.lambdas[-1]
-    if _scalar(h) <= _EPS:
+    if schedule.gap(step - 1, step) <= _EPS:
         return x
 
     hh = -h
     d1s = []
     if order >= 2:
         rk = (state.lambdas[-2] - state.lambdas[-1]) / h
-        if abs(_scalar(rk)) <= _EPS:
+        if abs(schedule.ratio(step - 1, step - 2, step - 1, step)) <= _EPS:
             order = 1
         else:
             d1s.append((state.model_outputs[-2] - previous_denoised) / rk)
@@ -253,7 +266,7 @@ def sample_anima_flow_unipc2(
     extra_args = {} if extra_args is None else extra_args
     state = _UniPCState()
     total_steps = len(sigmas) - 1
-    values, lambda_gaps = _schedule_values(sigmas)
+    schedule = _Schedule(sigmas)
     solver_type = str(flow_unipc_solver_type)
     if solver_type not in {"bh1", "bh2"}:
         raise ValueError("Anima Flow UniPC solver type must be 'bh1' or 'bh2'")
@@ -274,7 +287,7 @@ def sample_anima_flow_unipc2(
             else denoised
         )
 
-        tail_interval, tail_corrector = _tail_policy(values[i], values[i + 1], lambda_gaps[i])
+        tail_interval, tail_corrector = schedule.tail_policy(i)
         current_t = torch.clamp(t.to(x), min=_EPS, max=1.0 - _EPS)
         current_lambda = _rf_lambda(t).to(x)
         available = 1 + sum(output is not None for output in state.model_outputs)
@@ -297,13 +310,15 @@ def sample_anima_flow_unipc2(
                 current_lambda,
                 corrector_order,
                 solver_type=solver_type,
+                schedule=schedule,
+                step=i,
             )
 
         model_outputs = (state.model_outputs[-1], model_output)
         times = (state.times[-1], current_t)
         lambdas = (state.lambdas[-1], current_lambda)
 
-        if values[i + 1] <= 0.0:
+        if schedule.sigmas[i + 1] <= 0.0:
             x_next = model_output
             predictor_order = 1
         else:
@@ -319,6 +334,8 @@ def sample_anima_flow_unipc2(
                 t_next,
                 predictor_order,
                 solver_type=solver_type,
+                schedule=schedule,
+                step=i,
             )
 
         state = _UniPCState(
@@ -351,14 +368,41 @@ def _pc3_next_state(state, denoised, t):
     )
 
 
-def _pc3_predict(x, denoised, t, t_next, state, max_order):
+def _pc3_third_order_weights(h, k0, k1, h_previous, h_previous_previous):
+    k2 = torch.exp(h) * h * h - 2.0 * k1
+    a = h_previous
+    b = h_previous + h_previous_previous
+    w0 = k0 + ((a + b) / (a * b)) * k1 + k2 / (a * b)
+    w1 = -(k2 + b * k1) / (a * (b - a))
+    w2 = (k2 + a * k1) / (b * (b - a))
+    return w0, w1, w2
+
+
+def _pc3_third_order_is_stable(schedule, step):
+    """Upstream's guard for the third-order predictor: similar step ratios, a
+    small step, and weights that do not blow up. All of it is schedule-only."""
+
+    lambdas = schedule.lambdas
+    h = lambdas[step + 1] - lambdas[step]
+    h_previous = lambdas[step] - lambdas[step - 1]
+    h_previous_previous = lambdas[step - 1] - lambdas[step - 2]
+    r1 = float(h / h_previous)
+    r2 = float(h_previous / h_previous_previous)
+    k0 = torch.expm1(h)
+    k1 = torch.exp(h) * h - k0
+    w0, w1, w2 = _pc3_third_order_weights(h, k0, k1, h_previous, h_previous_previous)
+    coeff_l1 = float((torch.abs(w0) + torch.abs(w1) + torch.abs(w2)) / (torch.abs(k0) + _EPS))
+    return 0.5 <= r1 <= 2.0 and 0.5 <= r2 <= 2.0 and float(h) <= 0.55 and coeff_l1 <= 5.0
+
+
+def _pc3_predict(x, denoised, t, t_next, state, max_order, *, schedule, step):
     t = torch.clamp(t.to(x), min=_EPS)
     t_next = torch.clamp(t_next.to(x), min=0.0)
     current_lambda = _rf_lambda(t).to(x)
     lambda_next = _rf_lambda(t_next).to(x)
     h = lambda_next - current_lambda
     ratio = t_next / t
-    if _scalar(h) <= _EPS:
+    if schedule.gap(step, step + 1) <= _EPS:
         return ratio * x + (1.0 - ratio) * denoised, 1
 
     c = t_next * torch.exp(current_lambda)
@@ -369,7 +413,7 @@ def _pc3_predict(x, denoised, t, t_next, state, max_order):
         return x_p1, 1
 
     h_previous = current_lambda - state.previous_lambda
-    if _scalar(h_previous) <= _EPS:
+    if schedule.gap(step - 1, step) <= _EPS:
         return x_p1, 1
     x_p2 = ratio * x + c * (
         (k0 + k1 / h_previous) * denoised - (k1 / h_previous) * state.previous_denoised
@@ -377,26 +421,10 @@ def _pc3_predict(x, denoised, t, t_next, state, max_order):
     if max_order <= 2 or state.previous_previous_denoised is None:
         return x_p2, 2
 
+    if schedule.gap(step - 2, step - 1) <= _EPS or not _pc3_third_order_is_stable(schedule, step):
+        return x_p2, 2
     h_previous_previous = state.previous_lambda - state.previous_previous_lambda
-    if _scalar(h_previous_previous) <= _EPS:
-        return x_p2, 2
-    r1 = _scalar(h / h_previous)
-    r2 = _scalar(h_previous / h_previous_previous)
-    k2 = torch.exp(h) * h * h - 2.0 * k1
-    a = h_previous
-    b = h_previous + h_previous_previous
-    w0 = k0 + ((a + b) / (a * b)) * k1 + k2 / (a * b)
-    w1 = -(k2 + b * k1) / (a * (b - a))
-    w2 = (k2 + a * k1) / (b * (b - a))
-    coeff_l1 = _scalar(
-        (torch.abs(w0) + torch.abs(w1) + torch.abs(w2)) / (torch.abs(k0) + _EPS)
-    )
-    if (
-        not (0.5 <= r1 <= 2.0 and 0.5 <= r2 <= 2.0)
-        or _scalar(h) > 0.55
-        or coeff_l1 > 5.0
-    ):
-        return x_p2, 2
+    w0, w1, w2 = _pc3_third_order_weights(h, k0, k1, h_previous, h_previous_previous)
     return ratio * x + c * (
         w0 * denoised
         + w1 * state.previous_denoised
@@ -416,12 +444,13 @@ def _pc3_correct(
     *,
     max_gamma,
     tolerance,
+    schedule,
+    step,
 ):
     current_lambda = _rf_lambda(t).to(x)
     lambda_next = _rf_lambda(t_next).to(x)
     h = lambda_next - current_lambda
-    h_previous = current_lambda - state.previous_lambda
-    if _scalar(h) <= _EPS or _scalar(h_previous) <= _EPS:
+    if schedule.gap(step, step + 1) <= _EPS or schedule.gap(step - 1, step) <= _EPS:
         return x_pred
 
     t_current = torch.clamp(t.to(x), min=_EPS)
@@ -454,17 +483,20 @@ def _pc3_correct(
     )
     gamma = float(max_gamma) * gamma_lambda * gamma_error
 
-    correction_rms = _rms(x_corrected - x_pred)
-    if predictor_order >= 3 and _scalar(correction_rms) > _EPS:
+    if predictor_order >= 3:
+        # Cap the correction relative to the predictor step; skipped (via
+        # where, without a host sync) when the correction is negligible.
+        correction_rms = _rms(x_corrected - x_pred)
         predictor_step_rms = _rms(x_pred - x)
         anchor_rms = torch.maximum(_rms(x_pred), _rms(x))
-        cap_ratio = 0.65 if _scalar(lambda_next) >= 3.5 else 0.90
+        cap_ratio = 0.65 if float(schedule.lambdas[step + 1]) >= 3.5 else 0.90
         correction_cap = torch.maximum(
             predictor_step_rms * cap_ratio, anchor_rms * 0.015
         )
-        gamma = gamma * torch.clamp(
+        capped = gamma * torch.clamp(
             correction_cap / (torch.abs(gamma) * correction_rms + _EPS), 0.0, 1.0
         )
+        gamma = torch.where(correction_rms > _EPS, capped, gamma)
     return x_pred + gamma * (x_corrected - x_pred)
 
 
@@ -485,7 +517,7 @@ def sample_anima_flow_pc3(
     extra_args = {} if extra_args is None else extra_args
     state = _PC3State()
     total_steps = len(sigmas) - 1
-    values, lambda_gaps = _schedule_values(sigmas)
+    schedule = _Schedule(sigmas)
     max_gamma = float(flow_pc3_gamma)
     tolerance = float(flow_pc3_tolerance)
     if not 0.0 <= max_gamma <= 1.0:
@@ -496,15 +528,17 @@ def sample_anima_flow_pc3(
     for i in trange(total_steps, disable=disable):
         t, t_next = sigmas[i], sigmas[i + 1]
         denoised = _denoise(model, x, sigmas, i, extra_args, callback)
-        if values[i + 1] <= 0.0:
+        if schedule.sigmas[i + 1] <= 0.0:
             x = denoised
             continue
 
-        tail_interval, _ = _tail_policy(values[i], values[i + 1], lambda_gaps[i])
+        tail_interval, _ = schedule.tail_policy(i)
         max_order = 2 if total_steps - i <= 2 else 3
         if tail_interval:
             max_order = 1
-        x_pred, predictor_order = _pc3_predict(x, denoised, t, t_next, state, max_order)
+        x_pred, predictor_order = _pc3_predict(
+            x, denoised, t, t_next, state, max_order, schedule=schedule, step=i
+        )
 
         can_correct = (
             not tail_interval
@@ -528,6 +562,8 @@ def sample_anima_flow_pc3(
                 predictor_order,
                 max_gamma=max_gamma,
                 tolerance=tolerance,
+                schedule=schedule,
+                step=i,
             )
         else:
             x_next = x_pred
