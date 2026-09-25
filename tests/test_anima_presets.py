@@ -9,6 +9,7 @@ from modules.anima_presets import (
     SAFE_BASE_AESTHETIC_LABEL,
     SAFE_BASE_AESTHETIC_PRESET,
     TURBO_LABEL,
+    TURBO_NAG_LABEL,
     preset_value,
     preset_controls,
     turbo_settings_advice,
@@ -97,6 +98,15 @@ class PresetMenuTests(unittest.TestCase):
         # Everything else comes from the (possibly localized) base value.
         self.assertEqual(preset_value(TURBO_LABEL, "artist.optimization", "平衡"), "平衡")
         self.assertEqual(preset_value(SAFE_BASE_AESTHETIC_LABEL, "native.cfg", 4.5), 4.5)
+
+
+    def test_turbo_nag_applies_the_negative_prompt_without_cfg(self):
+        for name in ("native.cfg", "native.steps", "native.sampler"):
+            self.assertEqual(preset_value(TURBO_NAG_LABEL, name, None), preset_value(TURBO_LABEL, name, None))
+        self.assertIs(preset_value(TURBO_NAG_LABEL, "guidance.enabled", False), True)
+        self.assertIs(preset_value(TURBO_NAG_LABEL, "guidance.nag_enabled", False), True)
+        # No stack that needs the unconditional pass.
+        self.assertIs(preset_value(TURBO_NAG_LABEL, "guidance.momentum_enabled", False), False)
 
 
 class TurboAdviceTests(unittest.TestCase):

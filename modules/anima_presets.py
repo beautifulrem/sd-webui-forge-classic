@@ -170,12 +170,25 @@ TURBO_OVERRIDES: dict[str, object] = {
     "native.cfg": 1.0,
 }
 
+TURBO_NAG_LABEL = "Turbo + NAG negative prompt (CFG 1 · 10 steps)"
+
+# CFG 1 drops the negative prompt. Normalized Attention Guidance (Chen et
+# al., 2025) restores negative guidance for few-step distilled models, where
+# CFG fails, by extrapolating in cross-attention space; it only touches
+# cross-attention, and without an unconditional model pass.
+TURBO_NAG_OVERRIDES: dict[str, object] = {
+    **TURBO_OVERRIDES,
+    "guidance.enabled": True,
+    "guidance.nag_enabled": True,
+}
+
 # Label -> overrides applied on top of SAFE_BASE_AESTHETIC_PRESET, in menu
 # order. Overrides only name fields of the base preset.
 PRESETS: "OrderedDict[str, dict[str, object]]" = OrderedDict(
     (
         (SAFE_BASE_AESTHETIC_LABEL, {}),
         (TURBO_LABEL, TURBO_OVERRIDES),
+        (TURBO_NAG_LABEL, TURBO_NAG_OVERRIDES),
     )
 )
 
@@ -188,6 +201,12 @@ PRESET_DESCRIPTIONS: dict[str, str] = {
         "Use only with Anima-Turbo checkpoints; CFG above 1 or extra guidance "
         "over-cooks distilled models. CFG 1 ignores the negative prompt: enable "
         "NAG (Anima Guidance) to apply it without a second model pass."
+    ),
+    TURBO_NAG_LABEL: (
+        "**Turbo + NAG:** the Turbo settings with Normalized Attention Guidance "
+        "on (scale 2, first half of the schedule), so the negative prompt "
+        "applies at CFG 1. Costs extra cross-attention only, not a second "
+        "model pass. For Anima-Turbo checkpoints."
     ),
 }
 
