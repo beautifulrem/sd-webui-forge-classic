@@ -66,3 +66,16 @@ def anima_source_block(index: int, lora_blocks: int | None, model_blocks: int | 
     if mapping is None or not 0 <= index < len(mapping):
         return index
     return mapping[index]
+
+
+def anima_model_block(index: int, reference_blocks: int, model_blocks: int | None) -> int:
+    """Model block holding ``index`` of a ``reference_blocks``-deep layout.
+
+    The original block, not an inserted copy of it, is the first model
+    block mapped to it.
+    """
+
+    mapping = ANIMA_BLOCK_MAPPINGS.get((reference_blocks, model_blocks))
+    if mapping is None or index not in mapping:
+        return index
+    return mapping.index(index)

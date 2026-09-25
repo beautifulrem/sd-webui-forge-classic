@@ -6,6 +6,7 @@ from modules.anima_lora_support import (
     ANIMA_BLOCK_MAPPINGS,
     active_template_parts,
     anima_lora_block_count,
+    anima_model_block,
     anima_source_block,
     current_sampling_position,
     merge_consistent_rules,
@@ -90,3 +91,14 @@ def test_layer_weights_follow_the_lora_layout_on_expanded_models():
     assert [anima_source_block(i, 28, 40) for i in (2, 3, 5, 39)] == [1, 2, 3, 27]
     assert anima_source_block(30, 40, 40) == 30
     assert anima_source_block(30, 28, None) == 30
+
+
+def test_reference_blocks_land_on_the_original_block():
+    # 2.9B: block 18 of the 2B layout is at 26, its inserted copy at 27.
+    assert anima_model_block(18, 28, 40) == 26
+    assert anima_model_block(27, 28, 40) == 39
+    assert anima_model_block(1, 28, 52) == 1
+    assert anima_model_block(18, 28, 28) == 18
+    for model_blocks in (40, 52):
+        for index in range(28):
+            assert anima_source_block(anima_model_block(index, 28, model_blocks), 28, model_blocks) == index

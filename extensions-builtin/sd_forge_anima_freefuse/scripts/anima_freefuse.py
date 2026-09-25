@@ -18,6 +18,7 @@ from lib_anima_freefuse import (
 )
 from lib_anima_freefuse.runtime import install_patch_metadata_hook
 from modules import scripts
+from modules.anima_lora_support import anima_model_block
 from modules.anima_feature_conflicts import (
     record_conflict_resolution,
     register_exclusive_component,
@@ -110,7 +111,12 @@ class AnimaFreeFuseScript(scripts.Script):
                         0, 12, value=3, step=1, label="Collect step"
                     )
                     collect_block = gr.Slider(
-                        0, 27, value=18, step=1, label="Collect block"
+                        0,
+                        27,
+                        value=18,
+                        step=1,
+                        label="Collect block",
+                        info="In the 28-block layout; mapped to the same block on 40/52-block Anima.",
                     )
                     top_k = gr.Slider(
                         0.01,
@@ -431,7 +437,10 @@ class AnimaFreeFuseScript(scripts.Script):
 
         unet = p.sd_model.forge_objects.unet
         total_blocks = len(unet.model.diffusion_model.blocks)
-        block = min(max(0, int(collect_block)), total_blocks - 1)
+        # The slider uses the 28-block (2B) layout; on the depth-expanded
+        # 2.9B/3.8B models the same block sits deeper.
+        block = anima_model_block(int(collect_block), 28, total_blocks)
+        block = min(max(0, block), total_blocks - 1)
         state = AnimaFreeFuseState(
             adapters=adapters,
             token_positions=token_positions,
