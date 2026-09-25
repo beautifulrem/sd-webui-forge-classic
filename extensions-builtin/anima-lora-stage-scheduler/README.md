@@ -33,9 +33,10 @@ Built into Forge Neo Remi: open txt2img or img2img and expand **Anima LoRA Stage
 
 ## Timing Controls
 
-- **Start ratio** and **end ratio** are sampling progress values from `0` to `1`.
+- **Start ratio** and **end ratio** are sampling progress values from `0` to `1`: the position in the full noise schedule, so a Hires. fix or img2img pass starts part-way (at about `1 - denoising strength`).
+- With auto timing off, the panel's single start/end window replaces the template's stages. For a template that only blocks stages, the window blocks the LoRA; otherwise it applies it.
 - **Peak ratio** is the point where the stage curve reaches its strongest value.
-- **Stage strength multiplier** multiplies the final LoRA strength inside the active window.
+- **Stage strength multiplier** multiplies the final LoRA strength inside the active window, with auto timing too.
 - **Strength curve** controls how strength changes over time: smooth, hold, triangle, front-heavy, or back-heavy.
 - **Shift** is read from the Forge Shift / Distilled CFG control when available. Automatic templates use it to adjust the timing window.
 

@@ -147,3 +147,26 @@ def test_conflicting_inline_rules_abort_the_batch_untouched(module, monkeypatch)
     p = _run_batch(module, ["<lora:cat:0-9=0.5>", "<lora:cat:0-9=0.5>"])  # the same rule twice is fine
     assert p.prompts == ["<lora:cat:1.0>"] * 2
     assert module._ACTIVE_RULE.lora_rule.inline_rules["cat"].block_weights.factor(9) == 0.5
+
+
+def test_prompt_conds_are_recomputed_when_qwen_layer_weights_change(module, monkeypatch):
+    monkeypatch.setattr(module, "install_patch", lambda: None)
+    monkeypatch.setattr(module, "_prompt_lora_is_controlled", lambda *args: True)
+    monkeypatch.setattr(module, "_ACTIVE_RULE", None)
+    monkeypatch.setattr(module, "_LAST_SIGNATURE", None)
+    monkeypatch.setattr(module, "_LAST_TEXT_ENCODER_SIGNATURE", None, raising=False)
+    cache = [None, None, None]  # StableDiffusionProcessing.cached_c
+
+    def run(qwen_enabled, qwen_weights, block_weights="all=1.0"):
+        cache[0] = "cond key"
+        p = SimpleNamespace(prompts=["<lora:cat:1>"], extra_generation_params={}, cached_c=cache)
+        lora_args = [True, "", True, block_weights, False, "", qwen_enabled, qwen_weights, False, "", "", ""]
+        lokr_args = [False, "", True, "all=1.0", False, "", False, "", False, "", "", ""]
+        module.Script().before_process_batch(p, *lora_args, *lokr_args)
+        return cache[0] is None
+
+    assert run(True, "0-13=0.3")
+    assert not run(True, "0-13=0.3", block_weights="0-9=0.5")  # the DiT alone
+    assert run(True, "0-13=0.5")
+    assert run(False, "0-13=0.5")
+    assert not run(False, "0-13=0.7")

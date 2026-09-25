@@ -1,12 +1,15 @@
 import logging
-import re
 from dataclasses import dataclass
 
 import gradio as gr
 
 from modules import script_callbacks, scripts, shared
 from modules.anima_lora_support import (
+    LORA_TAG_RE,
     LayerWeights,
+    invalidate_cond_caches,
+    rewrite_batch_prompts,
+    script_hooks,
     looks_like_layer_weights as _looks_like_layer_weights,
     parse_layer_weights,
     parse_module_weights,
@@ -149,9 +152,6 @@ def _register_ui_settings():
 
 script_callbacks.on_ui_settings(_register_ui_settings)
 
-INLINE_LORA_RE = re.compile(r"<lora:([^:>]+):([^>]+)>")
-PROMPT_LORA_RE = re.compile(r"<lora:([^:>]+)(?::([^>]*))?>")
-
 DEFAULT_BLOCK_WEIGHTS = "all=1.0"
 DEFAULT_MODULE_WEIGHTS = "\n".join(
     [
@@ -213,9 +213,10 @@ USAGE_TEXT_EN = """Usage:
 def _usage_text():
     return USAGE_TEXT_EN if _language() == "en" else USAGE_TEXT
 
-_ORIGINAL_ADD_PATCHES = None
 _ACTIVE_RULE = None
 _LAST_SIGNATURE = None
+# ActiveRule.text_encoder_signature of the last batch
+_LAST_TEXT_ENCODER_SIGNATURE = None
 
 
 @dataclass
@@ -265,6 +266,8 @@ class AdapterRule:
         self.text_layer_weights = _parse_layer_weights(text_layer_weights, "") if self.text_layer_enabled else LayerWeights()
         self.inline_rules = inline_rules
         self.signature = self._make_signature(target_loras, block_weights, module_weights, text_layer_weights)
+        # What the text-encoder patches, so the prompt conditioning, depend on
+        self.text_encoder_signature = (frozenset(self.targets), _compact_text(text_layer_weights)) if self.enabled and self.text_layer_enabled else None
 
     def _make_signature(self, target_loras, block_weights, module_weights, text_layer_weights):
         inline_sig = ",".join(
@@ -338,6 +341,8 @@ class ActiveRule:
         }
         self.enabled = self.lora_rule.enabled or self.lokr_rule.enabled
         self.signature = f"lora[{self.lora_rule.signature}]|lokr[{self.lokr_rule.signature}]"
+        text_encoder = (self.lora_rule.text_encoder_signature, self.lokr_rule.text_encoder_signature)
+        self.text_encoder_signature = text_encoder if any(text_encoder) else None
 
     def decision_for_lora(self, filename) -> LoraDecision:
         adapter_kind = _adapter_kind_for_file(filename)
@@ -492,7 +497,7 @@ def _apply_preset_to_prompt_text(
             return f"<lora:{name}:{weight_text}:{':'.join(extra_args)}>"
         return f"<lora:{name}:{weight_text}>"
 
-    return PROMPT_LORA_RE.sub(replace, prompt_text)
+    return LORA_TAG_RE.sub(replace, prompt_text)
 
 
 def _filter_layer_weights(weights: LayerWeights, trained_layers: set[int]) -> LayerWeights:
@@ -568,6 +573,8 @@ def _rewrite_lora_prompts(prompts, target_loras: str, adapter_kind: str) -> tupl
 
     def rewrite_prompt(prompt):
         def replace(match):
+            if not match.group(2):
+                return match.group(0)
             name = match.group(1).strip()
             weight_text, extra_args = _split_lora_args(match.group(2).strip())
             controlled = _prompt_lora_is_controlled(name, targets, adapter_kind)
@@ -582,69 +589,63 @@ def _rewrite_lora_prompts(prompts, target_loras: str, adapter_kind: str) -> tupl
 
             return match.group(0)
 
-        return INLINE_LORA_RE.sub(replace, prompt)
+        return LORA_TAG_RE.sub(replace, prompt)
 
     return [rewrite_prompt(prompt) for prompt in prompts], inline_rules
 
 
-def install_patch():
-    global _ORIGINAL_ADD_PATCHES
+def _add_patches(original, patcher, patches, strength_patch, strength_model, filename, online_mode):
+    rule = _ACTIVE_RULE
+    decision = rule.decision_for_lora(filename) if rule is not None else None
+    if decision is None or not decision.apply:
+        return original(patcher, patches, strength_patch=strength_patch, strength_model=strength_model, filename=filename, online_mode=online_mode)
 
+    # Delegate patch construction to the live Forge implementation. This
+    # keeps Forge Neo's offline/online patch storage intact and composes
+    # with the stage scheduler regardless of extension load order.
+    blocks = getattr(getattr(getattr(patcher, "model", None), "diffusion_model", None), "blocks", None)
+    model_blocks = len(blocks) if blocks is not None else None
+    # One call per distinct strength, not per key: every call rebuilds the
+    # model's state_dict (and runs any wrapper below), and each key keeps
+    # its own patch list, so grouping changes nothing else.
+    groups: dict[float, dict] = {}
+    for patch_key, patch_value in patches.items():
+        model_key = patch_key if isinstance(patch_key, str) else patch_key[0]
+        groups.setdefault(rule.factor_for_key(model_key, decision, model_blocks), {})[patch_key] = patch_value
+    loaded = set()
+    for key_strength, group in groups.items():
+        loaded.update(original(patcher, group, strength_patch=key_strength, strength_model=strength_model, filename=filename, online_mode=online_mode))
+    return list(loaded)
+
+
+def install_patch():
     from backend.patcher.base import ModelPatcher
     from backend.patcher.function_chain import function_chain_contains
 
+    # The wrapper calls this through script_hooks: after "Reload UI" the
+    # wrapper an earlier copy of this module installed runs this copy, which
+    # holds the live rule.
+    script_hooks["layer_weight.add_patches"] = _add_patches
     if function_chain_contains(ModelPatcher.add_patches, "_anima_layer_weight_patched"):
         return
 
-    _ORIGINAL_ADD_PATCHES = ModelPatcher.add_patches
+    original = ModelPatcher.add_patches
 
     def add_patches_with_anima_layers(self, patches: list[dict], strength_patch: float = 1.0, strength_model: float = 1.0, *, filename: str = None, online_mode: bool = None):
-        rule = _ACTIVE_RULE
-        decision = rule.decision_for_lora(filename) if rule is not None else None
-        if decision is None or not decision.apply:
-            return _ORIGINAL_ADD_PATCHES(
-                self,
-                patches,
-                strength_patch=strength_patch,
-                strength_model=strength_model,
-                filename=filename,
-                online_mode=online_mode,
-            )
-
-        # Delegate patch construction to the live Forge implementation. This
-        # keeps Forge Neo's offline/online patch storage intact and composes
-        # with the stage scheduler regardless of extension load order.
-        blocks = getattr(getattr(getattr(self, "model", None), "diffusion_model", None), "blocks", None)
-        model_blocks = len(blocks) if blocks is not None else None
-        # One call per distinct strength, not per key: every call rebuilds the
-        # model's state_dict (and runs any wrapper below), and each key keeps
-        # its own patch list, so grouping changes nothing else.
-        groups: dict[float, dict] = {}
-        for patch_key, patch_value in patches.items():
-            model_key = patch_key if isinstance(patch_key, str) else patch_key[0]
-            groups.setdefault(rule.factor_for_key(model_key, decision, model_blocks), {})[patch_key] = patch_value
-        loaded = set()
-        for key_strength, group in groups.items():
-            loaded.update(
-                _ORIGINAL_ADD_PATCHES(
-                    self,
-                    group,
-                    strength_patch=key_strength,
-                    strength_model=strength_model,
-                    filename=filename,
-                    online_mode=online_mode,
-                )
-            )
-        return list(loaded)
+        return script_hooks["layer_weight.add_patches"](original, self, patches, strength_patch, strength_model, filename, online_mode)
 
     add_patches_with_anima_layers._anima_layer_weight_patched = True
-    add_patches_with_anima_layers.__wrapped__ = _ORIGINAL_ADD_PATCHES
+    add_patches_with_anima_layers.__wrapped__ = original
     ModelPatcher.add_patches = add_patches_with_anima_layers
     logger.info("Installed Anima LoRA layer weight patch")
 
 
-def _reset_lora_cache_if_needed(p, signature: str):
-    global _LAST_SIGNATURE
+def _reset_lora_cache_if_needed(p, signature: str, text_encoder_signature: str):
+    global _LAST_SIGNATURE, _LAST_TEXT_ENCODER_SIGNATURE
+    if _LAST_TEXT_ENCODER_SIGNATURE != text_encoder_signature:
+        # The prompt conditioning cache only sees the prompts, not these weights
+        _LAST_TEXT_ENCODER_SIGNATURE = text_encoder_signature
+        invalidate_cond_caches(p)
     if _LAST_SIGNATURE == signature:
         return
 
@@ -656,34 +657,15 @@ def _reset_lora_cache_if_needed(p, signature: str):
 
 def _apply_prompt_rewrite(p, target_loras: str, adapter_kind: str) -> dict[str, PromptRule]:
     inline_rules = {}
-    start = getattr(p, "iteration", 0) * getattr(p, "batch_size", 1)
-    end = start + getattr(p, "batch_size", 1)
-    replacements = []
 
-    if hasattr(p, "prompts") and p.prompts:
-        rewritten, rules = _rewrite_lora_prompts(p.prompts, target_loras, adapter_kind)
+    def rewrite(prompts):
+        rewritten, rules = _rewrite_lora_prompts(prompts, target_loras, adapter_kind)
         merge_consistent_rules(inline_rules, rules, label="Anima adapter")
-        replacements.append(("prompts", None, rewritten))
+        return rewritten
 
-    if hasattr(p, "all_prompts") and p.all_prompts:
-        current, rules = _rewrite_lora_prompts(p.all_prompts[start:end], target_loras, adapter_kind)
-        merge_consistent_rules(inline_rules, rules, label="Anima adapter")
-        replacements.append(("all_prompts", slice(start, end), current))
-
-    # p.hr_prompts is not rewritten: parse_extra_network_prompts re-slices it
-    # from all_hr_prompts after this hook.
-    if hasattr(p, "all_hr_prompts") and p.all_hr_prompts:
-        current, rules = _rewrite_lora_prompts(p.all_hr_prompts[start:end], target_loras, adapter_kind)
-        merge_consistent_rules(inline_rules, rules, label="Anima adapter")
-        replacements.append(("all_hr_prompts", slice(start, end), current))
-
-    # Validation above is intentionally transactional. Script hook failures are
-    # reported and sampling continues, so never leave prompts half rewritten.
-    for attribute, selection, values in replacements:
-        if selection is None:
-            setattr(p, attribute, values)
-        else:
-            getattr(p, attribute)[selection] = values
+    # Transactional: script hook failures are reported and sampling
+    # continues, so a conflict must not leave prompts half rewritten.
+    rewrite_batch_prompts(p, rewrite, rewrite)
 
     stored_rules = getattr(p, "_anima_lora_inline_rules", {})
     if not isinstance(stored_rules, dict):
@@ -900,7 +882,7 @@ class Script(scripts.Script):
             lokr_text_layer_weights,
             lokr_inline_rules,
         )
-        _reset_lora_cache_if_needed(p, _ACTIVE_RULE.signature)
+        _reset_lora_cache_if_needed(p, _ACTIVE_RULE.signature, _ACTIVE_RULE.text_encoder_signature)
 
         if _ACTIVE_RULE.enabled:
             p.extra_generation_params["Anima LoRA/LoKR Layer Weight"] = _ACTIVE_RULE.signature

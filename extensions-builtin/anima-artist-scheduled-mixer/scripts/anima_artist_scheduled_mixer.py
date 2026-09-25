@@ -35,7 +35,7 @@ from lib_artist_mixer.schedule import (
 )
 from modules import script_callbacks, scripts, sd_models, shared, spectrum_force
 from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
-from modules.anima_lora_support import stage_window
+from modules.anima_lora_support import sigma_progress, stage_window
 from modules.anima_user_data import UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
 from modules.anima_support import call_model_wrapper, effective_prompt_batch, negpip_mask_for, preserved_reference_latents, register_negpip_prompts, split_conditioning
@@ -1723,24 +1723,12 @@ def _current_progress(transformer_options, state):
     cached = state.progress_cache
     if cached is not None and cached[0] is cur and cached[1] is all_sigmas:
         return cached[2]
-    progress = _read_progress(cur, all_sigmas, state)
+    progress = sigma_progress(cur, all_sigmas)
+    if progress is None and not state.progress_warning:
+        logger.warning("Anima artist mixer could not resolve sampling progress; time windows will act as full strength.")
+        state.progress_warning = True
     state.progress_cache = (cur, all_sigmas, progress)
     return progress
-
-
-def _read_progress(cur, all_sigmas, state):
-    try:
-        cur_value = float(cur.flatten()[0].detach().float().cpu().item()) if torch.is_tensor(cur) else float(cur[0])
-        sigmas = all_sigmas.detach().float().cpu() if torch.is_tensor(all_sigmas) else torch.tensor(list(all_sigmas), dtype=torch.float32)
-        if sigmas.numel() <= 1:
-            return None
-        idx = int(torch.argmin(torch.abs(sigmas - cur_value)).item())
-        return _clamp(idx / max(1, sigmas.numel() - 1), 0.0, 1.0)
-    except Exception:
-        if not state.progress_warning:
-            logger.warning("Anima artist mixer could not resolve sampling progress; time windows will act as full strength.")
-            state.progress_warning = True
-        return None
 
 
 def _active_artists(state, layer_idx, progress):

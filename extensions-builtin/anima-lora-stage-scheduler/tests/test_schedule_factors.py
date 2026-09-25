@@ -83,7 +83,7 @@ def test_added_patches_get_scheduled_per_key_strengths(module):
 
 
 def _factors(module, config, steps):
-    return [module._stage_curve_factor(config, step, 101) for step in steps]  # progress = step / 100
+    return [module._stage_curve_factor(config, step / 100) for step in steps]
 
 
 def test_character_window_fades_in_and_out(module):
@@ -207,3 +207,81 @@ def test_shared_patches_follow_the_timing_of_the_current_pass(module, monkeypatc
     assert factor_at(47) == pytest.approx(1.0) and factor_at(90) == 0.0
     p.is_hr_pass = True
     assert factor_at(47) == 0.0 and factor_at(90) > 0.0
+
+
+def _manual(module, template, start, end, peak, strength=1.0):
+    return module._build_pass_config(module.MODE_PROMPT_ALL, "", "", template, "", False, None, start, end, peak, strength, module.CURVE_HOLD, 3.0)
+
+
+def test_a_ban_template_keeps_blocking_under_manual_timing(module):
+    ban = _manual(module, module.PRESET_STYLE_BAN, 0.62, 1.0, 0.86)  # its window, as the template loads it
+    assert _factors(module, ban, (30, 61, 62, 90)) == [1.0, 1.0, 0.0, 0.0]
+
+    allow = _manual(module, module.PRESET_STYLE_ALLOW, 0.62, 1.0, 0.86)
+    assert _factors(module, allow, (30, 61, 62, 90)) == [0.0, 0.0, 1.0, 1.0]
+
+
+def test_stage_strength_scales_auto_timed_templates(module):
+    half = module._build_pass_config(module.MODE_PROMPT_ALL, "", "", module.PRESET_CHARACTER_ALLOW, "", True, None, 0.2, 0.8, 0.5, 0.5, module.CURVE_SMOOTH, 3.0)
+    assert max(_factors(module, half, range(101))) == pytest.approx(0.5)
+    ban = module._build_pass_config(module.MODE_PROMPT_ALL, "", "", module.PRESET_STYLE_BAN, "", True, None, 0.2, 0.8, 0.5, 0.5, module.CURVE_SMOOTH, 3.0)
+    assert _factors(module, ban, (0, 90)) == [0.5, 0.0]
+
+    # Moving the timing with Shift keeps the slider's multiplier
+    *_, strength = module._auto_timing_ui(module.PRESET_CHARACTER_ALLOW, 5.0, True, 0.2, 0.74, 0.47, 0.5)
+    assert strength["value"] == 0.5
+
+
+def test_progress_is_the_position_in_the_full_sigma_schedule(module):
+    import torch
+
+    sigmas = torch.linspace(1.0, 0.0, 11)
+    unet = SimpleNamespace(model_options={"transformer_options": {"sampling_sigmas": sigmas}})
+    p = SimpleNamespace(sd_model=SimpleNamespace(forge_objects=SimpleNamespace(unet=unet)))
+    # Hires. fix at denoise 0.5: its first step is halfway down the schedule
+    params = SimpleNamespace(sigma=sigmas[5:6].repeat(2), denoiser=SimpleNamespace(p=p, step=0, total_steps=5), sampling_step=0, total_sampling_steps=5)
+    assert module._sampling_progress(params) == 0.5
+
+    unet.model_options = {}
+    params.denoiser.step = 2
+    assert module._sampling_progress(params) == 0.5  # by steps without a schedule
+
+
+def test_scheduled_strengths_work_in_boft_arithmetic(module):
+    import torch
+
+    from modules_forge.packages.comfy.weight_adapter.boft import BOFTAdapter
+
+    torch.manual_seed(0)
+    adapter = BOFTAdapter(set(), (torch.randn(1, 2, 2, 2), None, 0.0, None))
+    weight = torch.randn(4, 3)
+    strength = module.ScheduledStrength(0.5, "x.safetensors", "base")
+
+    expected = adapter.calculate_weight(weight.clone(), "k", 0.5, 1.0, None, lambda a: a)
+    scheduled = adapter.calculate_weight(weight.clone(), "k", strength, 1.0, None, lambda a: a)
+
+    assert not torch.allclose(expected, weight)
+    assert torch.allclose(scheduled, expected)  # not left unpatched by a TypeError
+
+
+def test_prompt_conds_are_recomputed_when_the_panels_text_encoder_weights_change(module, monkeypatch):
+    from backend.args import dynamic_args
+
+    monkeypatch.setattr(dynamic_args, "online_lora", False)
+    monkeypatch.setattr(module, "_TEXT_ENCODER_SIGNATURE", None, raising=False)
+    cache = [None, None, None]  # StableDiffusionProcessing.cached_c
+
+    def run(panel, enabled=True):
+        cache[0] = "cond key"
+        p = SimpleNamespace(cached_c=cache, extra_generation_params={})
+        args = [module.MODE_PROMPT_ALL, "", panel, module.PRESET_CHARACTER_ALLOW, "", True, 0.2, 0.8, 0.5, 1.0, module.CURVE_SMOOTH]
+        module.Script().process(p, enabled, *args, False, *args, module.DISABLE_NONE, "")
+        module._cleanup_runtime(p)
+        return cache[0] is None
+
+    assert run("qwen=0-27=0.5")
+    assert not run("qwen=0-27=0.5")
+    assert run("qwen=0-27=0.2")
+    assert run("blocks=0-9=0.5")  # the text encoder is back to the prompt's weights
+    assert not run("blocks=0-9=0.2") and not run("0", enabled=False)
+    assert run("qwen=0-27=0.2") and run("qwen=0-27=0.2", enabled=False)

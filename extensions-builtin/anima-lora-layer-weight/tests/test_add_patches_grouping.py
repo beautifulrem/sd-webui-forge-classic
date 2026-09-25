@@ -41,3 +41,27 @@ def test_patches_are_added_once_per_distinct_strength(monkeypatch):
     assert len(calls) == 2
     for patches, strength in calls:
         assert all(strengths[key] == strength for key in patches)
+
+
+def test_a_reloaded_module_drives_the_wrapper_an_earlier_copy_installed(monkeypatch):
+    from backend.patcher import base
+
+    calls = []
+
+    def recording_add_patches(self, patches, strength_patch=1.0, strength_model=1.0, *, filename=None, online_mode=None):
+        calls.append(strength_patch)
+        return list(patches)
+
+    monkeypatch.setattr(base.ModelPatcher, "add_patches", recording_add_patches)
+    _load().install_patch()
+    module = _load()  # "Reload UI" executes the script again; its batches install again
+    module.install_patch()
+    monkeypatch.setattr(
+        module,
+        "_ACTIVE_RULE",
+        SimpleNamespace(decision_for_lora=lambda filename: SimpleNamespace(apply=True), factor_for_key=lambda key, decision, blocks: 0.5),
+    )
+
+    base.ModelPatcher.add_patches(SimpleNamespace(model=None), {"a.weight": object()}, filename="x.safetensors")
+
+    assert calls == [0.5]  # the rule of the live module's batch

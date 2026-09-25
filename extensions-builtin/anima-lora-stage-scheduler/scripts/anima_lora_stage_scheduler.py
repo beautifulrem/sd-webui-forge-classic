@@ -1,6 +1,5 @@
 import logging
 import os
-import re
 import weakref
 import uuid
 from dataclasses import dataclass, field
@@ -13,7 +12,14 @@ from modules import script_callbacks, scripts, shared
 from modules.anima_lora_files import adapter_kind_for_file, is_anima_adapter_file, lora_coverage
 from modules.anima_user_data import UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_lora_support import (
+    LORA_TAG_RE,
     LayerWeights,
+    invalidate_cond_caches,
+    manual_window_bans,
+    rewrite_batch_prompts,
+    script_hooks,
+    sigma_progress,
+    window_curve_factor,
     looks_like_layer_weights as _looks_like_layer_weights,
     parse_layer_weights as _parse_layer_weights,
     parse_module_weights as _parse_module_weights,
@@ -247,7 +253,6 @@ BUNDLED_TEMPLATE_FILE = EXTENSION_DIR / "templates.json"
 def _template_file():
     return data_file("anima-lora-stage-scheduler", "templates.json", seed=BUNDLED_TEMPLATE_FILE)
 
-LORA_TAG_RE = re.compile(r"<lora:([^:>]+)(?::([^>]*))?>")
 
 MODE_AUTO_ANIMA = "自动识别 Anima LoRA"
 MODE_PROMPT_ALL = "提示词中的全部 LoRA"
@@ -390,9 +395,12 @@ BUILTIN_TEMPLATES = {
 }
 
 _ACTIVE_STATE = None
-_ORIGINAL_ADD_PATCHES = None
-_ORIGINAL_EXTRA_NETWORKS_ACTIVATE = None
 _CFG_CALLBACK_REGISTERED = False
+# (current_lora_hash tag, load_networks' hash, _loaded_patch_config, strengths)
+# of the patches the last run left loaded; see _prepare_for_extra_network_activation
+_RELEASED_PATCHES = None
+# PassConfig.text_encoder_signature of both passes of the last run
+_TEXT_ENCODER_SIGNATURE = None
 
 
 def _clamp(value, low, high):
@@ -402,7 +410,7 @@ def _clamp(value, low, high):
 def _cleanup_runtime(p):
     """Undo ``p``'s own run. Never another's: a nested run (ADetailer) may
     carry a copied reference to the outer run's state, or none at all."""
-    global _ACTIVE_STATE
+    global _ACTIVE_STATE, _RELEASED_PATCHES
 
     state = getattr(p, "_anima_lora_stage_scheduler_state", None)
     if state is None or state.p is not p:
@@ -413,13 +421,28 @@ def _cleanup_runtime(p):
     owner = getattr(state, "p", None)
     sd_model = getattr(owner, "sd_model", None)
     if state.loaded_pass is not None and sd_model is not None:
-        # The next run must not keep this run's scheduled / panel-weighted patches
-        sd_model.current_lora_hash = "anima-stage-scheduler:released"
+        # The next run must not keep this run's scheduled / panel-weighted
+        # patches, unless it schedules the very same ones.
+        tag = f"anima-stage-scheduler:released:{uuid.uuid4().hex}"
+        _RELEASED_PATCHES = (tag, sd_model.current_lora_hash, _loaded_patch_config(state, state.loaded_pass), list(state.wrappers))
+        sd_model.current_lora_hash = tag
         state.loaded_pass = None
     if owner is not None and getattr(owner, "_anima_lora_stage_scheduler_state", None) is state:
         owner._anima_lora_stage_scheduler_state = None
     if _ACTIVE_STATE is state:
         _ACTIVE_STATE = state.outer_state
+
+
+def _note_text_encoder_signature(p, signature):
+    """Drop the cached prompt conditioning when the panels' text-encoder
+    weights change: the cache key only sees the prompts."""
+    global _TEXT_ENCODER_SIGNATURE
+
+    if signature is not None and not any(signature):
+        signature = None
+    if signature != _TEXT_ENCODER_SIGNATURE:
+        _TEXT_ENCODER_SIGNATURE = signature
+        invalidate_cond_caches(p)
 
 
 def _to_float(value, fallback=0.0):
@@ -746,14 +769,14 @@ def _apply_template_ui(template_name, shift_value):
         curve = CURVE_SMOOTH
 
     if auto:
-        start, end, peak, strength = _auto_stage_values(primary_part["stage"], shift_value)
+        start, end, peak, _ = _auto_stage_values(primary_part["stage"], shift_value)
     else:
         start = _clamp(_to_float(config.get("start"), 0.2), 0.0, 1.0)
         end = _clamp(_to_float(config.get("end"), 0.8), 0.0, 1.0)
         if end < start:
             start, end = end, start
         peak = _clamp(_to_float(config.get("peak"), (start + end) * 0.5), start, end)
-        strength = _clamp(_to_float(config.get("strength"), 1.0), 0.0, 4.0)
+    strength = _clamp(_to_float(config.get("strength"), 1.0), 0.0, 4.0)
 
     return (
         gr.update(value=auto),
@@ -771,12 +794,12 @@ def _auto_timing_ui(template_name, shift_value, auto, start, end, peak, strength
 
     config = _template_config(template_name)
     primary_part = _primary_template_part(config)
-    start, end, peak, strength = _auto_stage_values(primary_part["stage"], shift_value)
+    start, end, peak, _ = _auto_stage_values(primary_part["stage"], shift_value)
     return (
         gr.update(value=round(start, 4)),
         gr.update(value=round(end, 4)),
         gr.update(value=round(peak, 4)),
-        gr.update(value=round(strength, 4)),
+        gr.update(value=strength),  # the user's multiplier, not the timing's
     )
 
 
@@ -1010,7 +1033,15 @@ def _activation_pass_for_extra_network_data(state, extra_network_data) -> str | 
     return None
 
 
+def _loaded_patch_config(state, patch_pass) -> tuple:
+    """What the patches loaded for ``patch_pass`` depend on besides the LoRA
+    set, which load_networks hashes itself."""
+    return patch_pass, state.base.patch_signature, state.hires.patch_signature, state.original_online_lora, frozenset(_lora_control_files())
+
+
 def _prepare_for_extra_network_activation(p, extra_network_data):
+    global _RELEASED_PATCHES
+
     state = getattr(p, "_anima_lora_stage_scheduler_state", None)
     if state is None or not state.enabled or getattr(p, "sd_model", None) is None:
         return None
@@ -1018,59 +1049,46 @@ def _prepare_for_extra_network_activation(p, extra_network_data):
     pass_name = _activation_pass_for_extra_network_data(state, extra_network_data)
     patch_pass = state.patch_pass(pass_name) if pass_name is not None else None
     if patch_pass is not None and patch_pass != state.loaded_pass:
-        # The loaded patches were built for the other pass's panel, or carry
-        # strengths of an earlier run that nothing updates any more: make
-        # load_networks rebuild them. A changed LoRA set is reloaded by
-        # load_networks by itself.
-        p.sd_model.current_lora_hash = f"anima-stage-scheduler:{patch_pass}:{state.run_id}"
+        config = _loaded_patch_config(state, patch_pass)
+        released, _RELEASED_PATCHES = _RELEASED_PATCHES, None
+        if state.loaded_pass is None and released is not None and released[0] == p.sd_model.current_lora_hash and released[2] == config:
+            # The last run left these very patches loaded (nothing loaded
+            # others since): keep them, and schedule their strengths again.
+            p.sd_model.current_lora_hash = released[1]
+            state.wrappers = released[3]
+        else:
+            # The loaded patches were built for the other pass's panel, or by
+            # another run: make load_networks rebuild them. A changed LoRA set
+            # is reloaded by load_networks by itself.
+            p.sd_model.current_lora_hash = f"anima-stage-scheduler:{patch_pass}:{hash(config):x}"
         state.loaded_pass = patch_pass
     return pass_name
 
 
-def _sampling_progress(step, total_steps) -> float:
-    if total_steps <= 1:
-        return 0.0
-    return _clamp(float(step) / float(total_steps - 1), 0.0, 1.0)
+def _sampling_progress(params) -> float:
+    """Progress 0..1 of the current model call in the full sigma schedule (as
+    the artist mixer reads it): Hires. fix and img2img start part-way, as
+    their windows were denoised by the pass before. By steps without one."""
+    p = getattr(getattr(params, "denoiser", None), "p", None)
+    unet = getattr(getattr(getattr(p, "sd_model", None), "forge_objects", None), "unet", None)
+    options = (getattr(unet, "model_options", None) or {}).get("transformer_options") or {}
+    progress = sigma_progress(getattr(params, "sigma", None), options.get("sampling_sigmas"))
+    if progress is not None:
+        return progress
+    step, total_steps = current_sampling_position(params)
+    return _clamp(step / (total_steps - 1), 0.0, 1.0) if total_steps > 1 else 0.0
+
+
+_CURVE_SHAPES = {CURVE_HOLD: "hold", CURVE_TRIANGLE: "triangle", CURVE_FRONT: "front", CURVE_BACK: "back"}
 
 
 def _curve_factor_for_window(progress, start, end, peak, strength, curve) -> float:
-    start = _clamp(start, 0.0, 1.0)
-    end = _clamp(end, 0.0, 1.0)
-    if end < start:
-        start, end = end, start
-
-    if progress < start or progress > end:
-        return 0.0
-
-    strength = _clamp(strength, 0.0, 4.0)
-    if strength == 0.0:
-        return 0.0
-
-    span = max(end - start, 1e-6)
-    local = _clamp((progress - start) / span, 0.0, 1.0)
-
-    if curve == CURVE_HOLD:
-        factor = 1.0
-    elif curve == CURVE_FRONT:
-        factor = 1.0 - local
-    elif curve == CURVE_BACK:
-        factor = local
-    else:
-        peak = _clamp(peak, start, end)
-        peak_local = _clamp((peak - start) / span, 0.0, 1.0)
-        if local <= peak_local:
-            factor = local / max(peak_local, 1e-6)
-        else:
-            factor = (1.0 - local) / max(1.0 - peak_local, 1e-6)
-        factor = _clamp(factor, 0.0, 1.0)
-        if curve == CURVE_SMOOTH:
-            factor = factor * factor * (3.0 - 2.0 * factor)
-
-    return _clamp(factor * strength, 0.0, 4.0)
+    factor = window_curve_factor(progress, start, end, peak, _CURVE_SHAPES.get(curve, "smooth"))
+    return _clamp(factor * _clamp(strength, 0.0, 4.0), 0.0, 4.0)
 
 
-def _stage_curve_factor(config, step, total_steps) -> float:
-    progress = _sampling_progress(step, total_steps)
+def _stage_curve_factor(config, progress) -> float:
+    stage_strength = _clamp(config.stage_strength, 0.0, 4.0)
     if config.parts:
         allow_factors = []
         ban_active = False
@@ -1088,9 +1106,13 @@ def _stage_curve_factor(config, step, total_steps) -> float:
 
             allow_factors.append(_curve_factor_for_window(progress, start, end, peak, part_strength, curve))
 
-        factor = max(allow_factors) if allow_factors else _clamp(config.stage_strength, 0.0, 4.0)
+        # The panel's stage strength scales the template's curves
+        factor = max(allow_factors) * stage_strength if allow_factors else stage_strength
         return 0.0 if ban_active else _clamp(factor, 0.0, 4.0)
 
+    if config.ban_window:
+        start, end = sorted((config.start, config.end))
+        return 0.0 if start <= progress <= end else stage_strength
     return _curve_factor_for_window(progress, config.start, config.end, config.peak, config.stage_strength, config.curve)
 
 
@@ -1100,7 +1122,6 @@ class PassConfig:
     target_loras: str
     panel_weight: PanelWeightSpec
     template_name: str
-    lora_templates_text: str
     lora_templates: dict[str, str]
     auto_timing: bool
     stage: str
@@ -1112,6 +1133,8 @@ class PassConfig:
     curve: str
     shift: float
     prompt_names: set[str] = field(default_factory=set)
+    # Manual timing: the start-end window blocks the LoRA instead of applying it
+    ban_window: bool = False
     _lora_template_cache: dict = field(default_factory=dict, init=False, repr=False)
 
     @property
@@ -1128,12 +1151,18 @@ class PassConfig:
         scheduled and their panel weights. Timing is looked up every step."""
         return self.target_mode, frozenset(self.targets), self.panel_weight.raw
 
+    @property
+    def text_encoder_signature(self) -> tuple | None:
+        """The part of patch_signature the prompt conditioning depends on: a
+        panel weight reaches the text encoder as a number or a qwen= section."""
+        panel = self.panel_weight
+        return self.patch_signature if panel.numeric is not None or panel.has_qwen else None
+
     def finalize_timing(self):
         template = _template_config(self.template_name)
-        self.parts = active_template_parts(
-            self.auto_timing,
-            _template_parts(template),
-        )
+        template_parts = _template_parts(template)
+        self.parts = active_template_parts(self.auto_timing, template_parts)
+        self.ban_window = not self.auto_timing and manual_window_bans(template_parts)
         stage = template.get("stage") or _stage_from_template_value(self.stage) or STAGE_CHARACTER
         if self.parts:
             primary = next((part for part in self.parts if part["mode"] == PART_ALLOW), self.parts[0])
@@ -1143,14 +1172,14 @@ class PassConfig:
         self.stage = stage
 
         if self.auto_timing:
-            self.start, self.end, self.peak, self.stage_strength = _auto_stage_values(stage, self.shift)
+            self.start, self.end, self.peak, _ = _auto_stage_values(stage, self.shift)
         else:
             self.start = _clamp(_to_float(self.start), 0.0, 1.0)
             self.end = _clamp(_to_float(self.end), 0.0, 1.0)
             if self.end < self.start:
                 self.start, self.end = self.end, self.start
             self.peak = _clamp(_to_float(self.peak), self.start, self.end)
-            self.stage_strength = _clamp(_to_float(self.stage_strength, 1.0), 0.0, 4.0)
+        self.stage_strength = _clamp(_to_float(self.stage_strength, 1.0), 0.0, 4.0)
 
         if self.curve not in CURVE_CHOICES:
             self.curve = CURVE_SMOOTH
@@ -1193,7 +1222,6 @@ class PassConfig:
             target_loras=self.target_loras,
             panel_weight=self.panel_weight,
             template_name=template_name,
-            lora_templates_text=self.lora_templates_text,
             lora_templates=self.lora_templates,
             auto_timing=auto_timing,
             stage=stage,
@@ -1233,6 +1261,10 @@ BOTH_PASSES = "both"
 
 
 class ScheduledStrength:
+    """A LoRA patch strength that follows the schedule every step. It stands
+    in for a float in the weight adapters' arithmetic (e.g. BOFT's
+    ``1 - strength``); tensors defer to its reflected operators."""
+
     def __init__(self, base_strength, filename, pass_name: str):
         self.base_strength = _to_float(base_strength, 1.0)
         self.filename = filename
@@ -1269,6 +1301,36 @@ class ScheduledStrength:
 
     def __rtruediv__(self, other):
         return other / self.value()
+
+    def __add__(self, other):
+        return self.value() + other
+
+    def __radd__(self, other):
+        return other + self.value()
+
+    def __sub__(self, other):
+        return self.value() - other
+
+    def __rsub__(self, other):
+        return other - self.value()
+
+    def __neg__(self):
+        return -self.value()
+
+    def __abs__(self):
+        return abs(self.value())
+
+    def __lt__(self, other):
+        return self.value() < other
+
+    def __le__(self, other):
+        return self.value() <= other
+
+    def __gt__(self, other):
+        return self.value() > other
+
+    def __ge__(self, other):
+        return self.value() >= other
 
 
 @dataclass
@@ -1349,7 +1411,6 @@ def _build_pass_config(target_mode, target_loras, panel_weight, template_name, l
         target_loras=str(target_loras or ""),
         panel_weight=_parse_panel_weight(panel_weight),
         template_name=str(template_name or next(iter(BUILTIN_TEMPLATES))),
-        lora_templates_text=str(lora_templates_text or ""),
         lora_templates=_parse_lora_template_overrides(lora_templates_text),
         auto_timing=bool(auto_timing),
         stage=_stage_from_template_value(stage),
@@ -1410,24 +1471,15 @@ def _rewrite_prompt_loras(prompts, config: PassConfig):
 
 
 def _rewrite_batch_prompts(p, state: RuntimeState):
-    start = getattr(p, "iteration", 0) * getattr(p, "batch_size", 1)
-    end = start + getattr(p, "batch_size", 1)
+    def rewrite(config):
+        def apply(prompts):
+            rewritten = _rewrite_prompt_loras(prompts, config)
+            config.prompt_names.update(_collect_prompt_names(rewritten))
+            return rewritten
 
-    if hasattr(p, "prompts") and p.prompts:
-        p.prompts = _rewrite_prompt_loras(p.prompts, state.base)
-        state.base.prompt_names.update(_collect_prompt_names(p.prompts))
+        return apply
 
-    if hasattr(p, "all_prompts") and p.all_prompts:
-        current = _rewrite_prompt_loras(p.all_prompts[start:end], state.base)
-        p.all_prompts[start:end] = current
-        state.base.prompt_names.update(_collect_prompt_names(current))
-
-    # p.hr_prompts is not rewritten: parse_extra_network_prompts re-slices it
-    # from all_hr_prompts after this hook.
-    if getattr(p, "enable_hr", False) and hasattr(p, "all_hr_prompts") and p.all_hr_prompts:
-        current = _rewrite_prompt_loras(p.all_hr_prompts[start:end], state.hires)
-        p.all_hr_prompts[start:end] = current
-        state.hires.prompt_names.update(_collect_prompt_names(current))
+    rewrite_batch_prompts(p, rewrite(state.base), rewrite(state.hires) if getattr(p, "enable_hr", False) else None)
 
 
 def _patch_added_strengths(patch_destination, before_counts, state: RuntimeState, config: PassConfig, online_mode, lora_blocks=None, model_blocks=None, filename=None):
@@ -1482,66 +1534,82 @@ def _patch_added_strengths(patch_destination, before_counts, state: RuntimeState
                 current_patches[index] = updated
 
 
-def install_patch():
-    global _ORIGINAL_ADD_PATCHES, _ORIGINAL_EXTRA_NETWORKS_ACTIVATE
+def _add_patches(original, patcher, patches, strength_patch, strength_model, filename, online_mode):
+    state = _ACTIVE_STATE
+    config = state.current_config() if state is not None and state.enabled else None
+    should_control = config is not None and config.file_matches(filename, state.file_names(filename))
+    if should_control and filename in _lora_control_files():
+        # Forge's LoRA Control (<lora:name:[w@t,...]>) overwrites the
+        # strength slot every step; leave that LoRA to it rather than
+        # having one schedule silently replace the other.
+        should_control = False
+        _note_lora_control(state, filename)
+    if state is not None and not should_control and online_mode and not state.original_online_lora:
+        # Only scheduled LoRAs need the online patches this run switched on;
+        # the others keep Forge's faster merged weights.
+        online_mode = False
 
+    # Forge Neo stores offline patches in ``patches`` and online LoRAs
+    # as ``OnlineLoRAPatch`` entries in ``weight_wrapper_patches``.
+    patch_destination = patcher.weight_wrapper_patches if online_mode else patcher.patches
+    before_counts = {key: len(value) for key, value in patch_destination.items()} if should_control else {}
+
+    loaded = original(patcher, patches, strength_patch=strength_patch, strength_model=strength_model, filename=filename, online_mode=online_mode)
+
+    if should_control:
+        lora_blocks = model_blocks = None
+        if config.panel_weight.has_block:
+            blocks = getattr(getattr(getattr(patcher, "model", None), "diffusion_model", None), "blocks", None)
+            model_blocks = len(blocks) if blocks is not None else None
+            lora_blocks = _lora_block_count(filename)
+        _patch_added_strengths(patch_destination, before_counts, state, config, bool(online_mode), lora_blocks, model_blocks, filename)
+
+    return loaded
+
+
+def _activate(original, p, extra_network_data):
+    state = getattr(p, "_anima_lora_stage_scheduler_state", None)
+    previous_pass = getattr(state, "current_activation_pass", None) if state is not None else None
+    pass_name = _prepare_for_extra_network_activation(p, extra_network_data)
+    if state is not None and pass_name is not None:
+        state.current_activation_pass = pass_name
+    try:
+        return original(p, extra_network_data)
+    finally:
+        if state is not None:
+            state.current_activation_pass = previous_pass
+
+
+def install_patch():
     from backend.patcher.base import ModelPatcher
     from backend.patcher.function_chain import function_chain_contains
     from modules import extra_networks
 
+    # The wrappers call these through script_hooks: after "Reload UI" the
+    # wrappers an earlier copy of this module installed run this copy, which
+    # holds the live run state.
+    script_hooks["stage_scheduler.add_patches"] = _add_patches
+    script_hooks["stage_scheduler.activate"] = _activate
+
     if not function_chain_contains(ModelPatcher.add_patches, "_anima_stage_scheduler_patched"):
-        _ORIGINAL_ADD_PATCHES = ModelPatcher.add_patches
+        original_add_patches = ModelPatcher.add_patches
 
         def add_patches_with_stage_scheduler(self, patches: list[dict], strength_patch: float = 1.0, strength_model: float = 1.0, *, filename: str = None, online_mode: bool = None):
-            state = _ACTIVE_STATE
-            config = state.current_config() if state is not None and state.enabled else None
-            should_control = config is not None and config.file_matches(filename, state.file_names(filename))
-            if should_control and filename in _lora_control_files():
-                # Forge's LoRA Control (<lora:name:[w@t,...]>) overwrites the
-                # strength slot every step; leave that LoRA to it rather than
-                # having one schedule silently replace the other.
-                should_control = False
-                _note_lora_control(state, filename)
-
-            # Forge Neo stores offline patches in ``patches`` and online LoRAs
-            # as ``OnlineLoRAPatch`` entries in ``weight_wrapper_patches``.
-            patch_destination = self.weight_wrapper_patches if online_mode else self.patches
-            before_counts = {key: len(value) for key, value in patch_destination.items()} if should_control else {}
-
-            loaded = _ORIGINAL_ADD_PATCHES(self, patches, strength_patch=strength_patch, strength_model=strength_model, filename=filename, online_mode=online_mode)
-
-            if should_control:
-                lora_blocks = model_blocks = None
-                if config.panel_weight.has_block:
-                    blocks = getattr(getattr(getattr(self, "model", None), "diffusion_model", None), "blocks", None)
-                    model_blocks = len(blocks) if blocks is not None else None
-                    lora_blocks = _lora_block_count(filename)
-                _patch_added_strengths(patch_destination, before_counts, state, config, bool(online_mode), lora_blocks, model_blocks, filename)
-
-            return loaded
+            return script_hooks["stage_scheduler.add_patches"](original_add_patches, self, patches, strength_patch, strength_model, filename, online_mode)
 
         add_patches_with_stage_scheduler._anima_stage_scheduler_patched = True
-        add_patches_with_stage_scheduler.__wrapped__ = _ORIGINAL_ADD_PATCHES
+        add_patches_with_stage_scheduler.__wrapped__ = original_add_patches
         ModelPatcher.add_patches = add_patches_with_stage_scheduler
         logger.info("Installed Anima LoRA stage scheduler patch")
 
     if not function_chain_contains(extra_networks.activate, "_anima_stage_scheduler_patched"):
-        _ORIGINAL_EXTRA_NETWORKS_ACTIVATE = extra_networks.activate
+        original_activate = extra_networks.activate
 
         def activate_with_stage_scheduler(p, extra_network_data):
-            state = getattr(p, "_anima_lora_stage_scheduler_state", None)
-            previous_pass = getattr(state, "current_activation_pass", None) if state is not None else None
-            pass_name = _prepare_for_extra_network_activation(p, extra_network_data)
-            if state is not None and pass_name is not None:
-                state.current_activation_pass = pass_name
-            try:
-                return _ORIGINAL_EXTRA_NETWORKS_ACTIVATE(p, extra_network_data)
-            finally:
-                if state is not None:
-                    state.current_activation_pass = previous_pass
+            return script_hooks["stage_scheduler.activate"](original_activate, p, extra_network_data)
 
         activate_with_stage_scheduler._anima_stage_scheduler_patched = True
-        activate_with_stage_scheduler.__wrapped__ = _ORIGINAL_EXTRA_NETWORKS_ACTIVATE
+        activate_with_stage_scheduler.__wrapped__ = original_activate
         extra_networks.activate = activate_with_stage_scheduler
         logger.info("Installed Anima LoRA stage scheduler extra network patch")
 
@@ -1581,7 +1649,7 @@ def _denoiser_callback(params):
 
     pass_name = state.current_pass_name()
     pass_config = state.current_config()
-    step, total_steps = current_sampling_position(params)
+    progress = _sampling_progress(params)
     # Hundreds of strengths share one or a few per-file configs: one curve each
     factors: dict[int, float] = {}
     for wrapper in state.live_wrappers():
@@ -1590,7 +1658,7 @@ def _denoiser_callback(params):
             continue
         config = state.file_config(pass_config, wrapper.filename)
         if id(config) not in factors:
-            factors[id(config)] = _stage_curve_factor(config, step, total_steps)
+            factors[id(config)] = _stage_curve_factor(config, progress)
         wrapper.factor = factors[id(config)]
 
 
@@ -1995,6 +2063,7 @@ class Script(scripts.Script):
 
         if not enabled:
             _cleanup_runtime(p)
+            _note_text_encoder_signature(p, None)
             return
 
         base_shift = _to_float(getattr(p, "distilled_cfg_scale", 3.0), 3.0)
@@ -2064,6 +2133,7 @@ class Script(scripts.Script):
         dynamic_args.online_lora = True
         p._anima_lora_stage_scheduler_state = state
         _ACTIVE_STATE = state
+        _note_text_encoder_signature(p, (base_config.text_encoder_signature, hires_config.text_encoder_signature))
 
         _remove_hires_lora_tags(p, state)
 

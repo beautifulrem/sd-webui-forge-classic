@@ -177,3 +177,76 @@ def test_prompt_names_resolve_like_the_lora_loader(monkeypatch):
     assert resolve_network("style") is stem_owner  # an alias shared by two files: the network name wins
     assert resolve_network("Cat") is None  # load_networks does not match case-insensitively either
     assert resolve_network("late") is cat and refreshed == ["Cat", "late"]
+
+
+def test_a_section_name_ends_at_its_first_separator():
+    from modules.anima_lora_support import split_weight_sections
+
+    assert split_weight_sections("modules：mlp=0.5") == {"modules": "mlp=0.5"}
+    assert split_weight_sections("blocks：0-9=0.5；qwen：0-3=0") == {"blocks": "0-9=0.5", "qwen": "0-3=0"}
+
+
+def test_layer_weights_from_a_prompt_are_bounded_and_finite(caplog):
+    from modules.anima_lora_support import MAX_LAYER_INDEX, parse_layer_weights
+
+    huge = parse_layer_weights("0-2000000000=0.5")
+    assert len(huge.values) == MAX_LAYER_INDEX + 1 and huge.factor(MAX_LAYER_INDEX) == 0.5
+
+    weights = parse_layer_weights(f"300-400=0.5, 999999=0.5, {'9' * 5000}=0.5, 1=nan, 2=inf, 3-4=-inf, all=nan, 5=0.25")
+    assert weights.values == {5: 0.25} and weights.default == 1.0
+    assert "300-400" in caplog.text and "1=nan" in caplog.text
+    assert parse_layer_weights("0.5, inf, nan").values == {0: 0.5}
+
+
+def test_non_finite_module_weights_are_skipped():
+    from modules.anima_lora_support import parse_module_weights
+
+    assert parse_module_weights("mlp=nan, cross=inf, self=0.5") == {"self_attn": 0.5}
+
+
+def test_manual_timing_keeps_a_ban_only_templates_action():
+    from modules.anima_lora_support import manual_window_bans
+
+    assert manual_window_bans([{"stage": "style", "mode": "ban"}])
+    assert not manual_window_bans([{"stage": "style", "mode": "ban"}, {"stage": "character", "mode": "allow"}])
+    assert not manual_window_bans([])
+
+
+def test_sigma_progress_is_the_position_in_the_full_schedule():
+    import torch
+
+    from modules.anima_lora_support import sigma_progress
+
+    sigmas = torch.tensor([14.6, 7.0, 3.0, 1.0, 0.0])
+    assert sigma_progress(torch.tensor([3.0, 3.0]), sigmas) == 0.5
+    assert sigma_progress(2.9, [14.6, 7.0, 3.0, 1.0, 0.0]) == 0.5  # nearest schedule sigma
+    assert sigma_progress(torch.tensor([3.0]), torch.tensor([1.0])) is None
+    assert sigma_progress(None, sigmas) is None
+
+
+def test_cond_caches_are_invalidated_where_the_class_shares_them():
+    from modules.anima_lora_support import invalidate_cond_caches
+
+    class Processing:
+        cached_c = ["key", "conds"]
+        cached_hr_uc = ["key", "conds"]
+
+    p = Processing()
+    invalidate_cond_caches(p)
+
+    assert Processing.cached_c == [None, "conds"] and Processing.cached_hr_uc == [None, "conds"]
+
+
+def test_batch_prompt_rewrite_is_all_or_nothing():
+    from modules.anima_lora_support import rewrite_batch_prompts
+
+    p = SimpleNamespace(iteration=1, batch_size=1, prompts=["b"], all_prompts=["a", "b"], all_hr_prompts=["ha", "hb"])
+    rewrite_batch_prompts(p, lambda prompts: [x.upper() for x in prompts], lambda prompts: [x + "!" for x in prompts])
+    assert (p.prompts, p.all_prompts, p.all_hr_prompts) == (["B"], ["a", "B"], ["ha", "hb!"])
+
+    def conflict(prompts):
+        raise ValueError("conflict")
+
+    with pytest.raises(ValueError):
+        rewrite_batch_prompts(p, lambda prompts: ["x"] * len(prompts), conflict)
+    assert (p.prompts, p.all_prompts, p.all_hr_prompts) == (["B"], ["a", "B"], ["ha", "hb!"])

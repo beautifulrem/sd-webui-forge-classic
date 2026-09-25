@@ -58,7 +58,7 @@ def test_step_factors_are_computed_once_per_file_config(monkeypatch):
         state.register(strength)
 
     calls = []
-    monkeypatch.setattr(module, "_stage_curve_factor", lambda config, step, total: calls.append(config) or 0.25)
+    monkeypatch.setattr(module, "_stage_curve_factor", lambda config, progress: calls.append(config) or 0.25)
     monkeypatch.setattr(module, "_ACTIVE_STATE", state)
     params = SimpleNamespace(denoiser=SimpleNamespace(p=process, step=3, total_steps=10), sampling_step=3, total_sampling_steps=10)
 
@@ -110,7 +110,7 @@ def test_loras_reload_only_when_the_passes_load_different_patches():
     assert not activate(base_data) and not activate(hires_data)  # shared by both passes
 
     module._cleanup_runtime(process)
-    assert sd_model.current_lora_hash == "anima-stage-scheduler:released"
+    assert sd_model.current_lora_hash.startswith("anima-stage-scheduler:released")
 
 
 def test_cleanup_only_undoes_its_own_run(monkeypatch):
@@ -142,7 +142,7 @@ def test_cleanup_only_undoes_its_own_run(monkeypatch):
 
     module._cleanup_runtime(outer)
     assert module._ACTIVE_STATE is None and outer._anima_lora_stage_scheduler_state is None
-    assert sd_model.current_lora_hash == "anima-stage-scheduler:released"
+    assert sd_model.current_lora_hash.startswith("anima-stage-scheduler:released")
 
 
 def test_install_patch_is_idempotent_under_outer_wrappers(monkeypatch):
@@ -181,3 +181,80 @@ def test_an_unreadable_template_file_is_never_overwritten(tmp_path, monkeypatch)
 
     assert "未做修改" in message
     assert user_file.read_text(encoding="utf-8") == '{"mine": '
+
+
+def test_a_reloaded_module_drives_the_wrappers_an_earlier_copy_installed(monkeypatch):
+    from backend.patcher.base import ModelPatcher
+    from modules import extra_networks
+
+    monkeypatch.setattr(ModelPatcher, "add_patches", ModelPatcher.add_patches)
+    monkeypatch.setattr(extra_networks, "activate", lambda p, extra_network_data: None)
+    _load().install_patch()
+    module = _load()  # "Reload UI" executes the script again; its batches install again
+    module.install_patch()
+
+    key = "diffusion_model.blocks.0.mlp.layer1.weight"
+    panel = SimpleNamespace(has_block=False, strength_for_key=lambda *args: 0.25)
+    config = SimpleNamespace(patch_signature="same", file_matches=lambda filename, names: True, panel_weight=panel, panel_weight_nonzero=True)
+    monkeypatch.setattr(module, "_ACTIVE_STATE", _state(module, SimpleNamespace(), base=config))
+    patcher = SimpleNamespace(model=SimpleNamespace(state_dict=lambda: {key: None}), patches={})
+
+    ModelPatcher.add_patches(patcher, {key: object()}, filename="x.safetensors", online_mode=False)
+
+    assert patcher.patches[key][0][0] == 0.25  # the panel of the run the live module holds
+
+
+def test_only_scheduled_loras_are_patched_online(monkeypatch):
+    from backend.patcher.base import ModelPatcher
+    from modules import extra_networks
+
+    calls = []
+
+    def add_patches(patcher, patches, strength_patch=1.0, strength_model=1.0, *, filename=None, online_mode=None):
+        calls.append((filename, online_mode))
+        return []
+
+    monkeypatch.setattr(ModelPatcher, "add_patches", add_patches)
+    monkeypatch.setattr(extra_networks, "activate", lambda p, extra_network_data: None)
+    module = _load()
+    module.install_patch()
+    config = SimpleNamespace(patch_signature="same", file_matches=lambda filename, names: filename == "scheduled.safetensors", panel_weight=SimpleNamespace(has_block=False))
+    state = _state(module, SimpleNamespace(), base=config)  # the user runs LoRAs offline
+    monkeypatch.setattr(module, "_ACTIVE_STATE", state)
+    patcher = SimpleNamespace(patches={}, weight_wrapper_patches={})
+    for filename in ("scheduled.safetensors", "other.safetensors"):
+        ModelPatcher.add_patches(patcher, {}, filename=filename, online_mode=True)  # the run switched online on
+    assert calls == [("scheduled.safetensors", True), ("other.safetensors", False)]
+
+    state.original_online_lora = True  # the user's own online setting stays
+    ModelPatcher.add_patches(patcher, {}, filename="other.safetensors", online_mode=True)
+    assert calls[-1] == ("other.safetensors", True)
+
+
+def test_a_next_run_with_the_same_schedule_keeps_the_loaded_loras():
+    module = _load()
+    sd_model = SimpleNamespace(current_lora_hash="compiled")
+    data = object()
+    strength = module.ScheduledStrength(1.0, "x.safetensors", module.BOTH_PASSES)
+
+    def run(signature="panel", enabled=True):
+        p = SimpleNamespace(sd_model=sd_model, enable_hr=False, extra_network_data=data)
+        state = None
+        if enabled:
+            state = _state(module, p, base=SimpleNamespace(patch_signature=signature), hires=SimpleNamespace(patch_signature=signature))
+            p._anima_lora_stage_scheduler_state = state
+            module._prepare_for_extra_network_activation(p, data)
+        reloaded = sd_model.current_lora_hash != "compiled"
+        if reloaded:  # load_networks rebuilds the patches (and their strengths)
+            sd_model.current_lora_hash = "compiled"
+            if state is not None:
+                state.register(strength)
+        scheduled = state is not None and any(wrapper is strength for wrapper in state.live_wrappers())
+        module._cleanup_runtime(p)
+        return reloaded, scheduled
+
+    assert run() == (True, True)
+    assert run() == (False, True)  # same schedule: its patches, and their strengths, are kept
+    assert run("other panel") == (True, True)
+    assert run(enabled=False) == (True, False)  # never the scheduled patches without the scheduler
+    assert run() == (True, True)

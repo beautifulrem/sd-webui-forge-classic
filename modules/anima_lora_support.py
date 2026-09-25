@@ -3,16 +3,87 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+# Implementations behind the Anima LoRA scripts' ModelPatcher.add_patches and
+# extra_networks.activate wrappers, by name. "Reload UI" re-executes the
+# script modules but keeps the wrappers already installed (install_patch finds
+# them in the chain), so a wrapper calls what its script module registered
+# here last: the live module, with its live per-run state.
+script_hooks: dict = {}
+
+# <lora:name> or <lora:name:args>
+LORA_TAG_RE = re.compile(r"<lora:([^:>]+)(?::([^>]*))?>")
 
 
 def active_template_parts(auto_timing: bool, parts):
     """Manual timing owns the single GUI window and must ignore preset parts."""
 
     return list(parts) if auto_timing else []
+
+
+def manual_window_bans(parts) -> bool:
+    """Whether manual timing's single window blocks rather than applies: it
+    keeps the action of a template that only bans stages."""
+
+    return bool(parts) and all(part.get("mode") == "ban" for part in parts)
+
+
+def rewrite_batch_prompts(p, rewrite, rewrite_hires) -> None:
+    """Rewrite the prompts of ``p``'s current batch: ``p.prompts`` and the
+    batch's slice of ``p.all_prompts`` with ``rewrite``, and its slice of
+    ``p.all_hr_prompts`` with ``rewrite_hires`` (None leaves them).
+
+    p.hr_prompts is not rewritten: parse_extra_network_prompts re-slices it
+    from all_hr_prompts after the script hooks. Every rewrite runs before any
+    is stored, so one that raises leaves all prompts as they were."""
+
+    start = getattr(p, "iteration", 0) * getattr(p, "batch_size", 1)
+    batch = slice(start, start + getattr(p, "batch_size", 1))
+    replacements = []
+    if getattr(p, "prompts", None):
+        replacements.append(("prompts", None, rewrite(list(p.prompts))))
+    if getattr(p, "all_prompts", None):
+        replacements.append(("all_prompts", batch, rewrite(p.all_prompts[batch])))
+    if rewrite_hires is not None and getattr(p, "all_hr_prompts", None):
+        replacements.append(("all_hr_prompts", batch, rewrite_hires(p.all_hr_prompts[batch])))
+    for attribute, selection, values in replacements:
+        if selection is None:
+            setattr(p, attribute, values)
+        else:
+            getattr(p, attribute)[selection] = values
+
+
+def invalidate_cond_caches(p) -> None:
+    """Drop the conditioning processing caches across generations (hires
+    ones included). Their key holds the prompts and extra network data but
+    not the text-encoder LoRA weights a panel sets, so a change there must
+    re-encode the prompts. The lists are shared with the class: cleared in place."""
+
+    for name in ("cached_c", "cached_uc", "cached_hr_c", "cached_hr_uc"):
+        cache = getattr(p, name, None)
+        if isinstance(cache, list) and cache:
+            cache[0] = None
+
+
+def sigma_progress(sigma, sigmas) -> float | None:
+    """Sampling progress 0..1 of the model call at ``sigma``: the position of
+    the nearest sigma in the full schedule ``sigmas``. Hires. fix and img2img
+    run only its tail, so they start part-way. None when it cannot be told."""
+
+    try:
+        current = float(sigma.flatten()[0] if hasattr(sigma, "flatten") else sigma[0] if isinstance(sigma, (list, tuple)) else sigma)
+        values = [float(value) for value in (sigmas.flatten().tolist() if hasattr(sigmas, "flatten") else sigmas)]
+    except Exception:
+        return None
+    if len(values) <= 1:
+        return None
+    index = min(range(len(values)), key=lambda i: abs(values[i] - current))
+    return index / (len(values) - 1)
 
 
 def current_sampling_position(params) -> tuple[int, int]:
@@ -111,6 +182,40 @@ def stage_window(stage: str, shift: float) -> tuple[float, float, float]:
     return start, end, clamp((start + end) * 0.5, start, end)
 
 
+def window_curve_factor(progress: float, start: float, end: float, peak: float, shape: str, floor: float = 0.0) -> float:
+    """Strength factor (0..1) at sampling ``progress`` of the window
+    [start, end] (either order), 0 outside it; a zero-width window is full
+    strength at its point. ``shape``: "hold" is 1 throughout, "front" falls
+    from 1 to ``floor``, "back" rises from ``floor`` to 1, "triangle" rises
+    linearly to ``peak`` and falls, anything else is the triangle eased.
+
+    The stage scheduler's front / back curves fade out completely (floor 0);
+    the artist mixer's keep a quarter of the artist (floor 0.25)."""
+
+    def clamp(value: float, low: float, high: float) -> float:
+        return max(low, min(high, value))
+
+    start, end = sorted((clamp(start, 0.0, 1.0), clamp(end, 0.0, 1.0)))
+    if progress < start or progress > end:
+        return 0.0
+    if end - start <= 1e-6:
+        return 1.0
+    local = (progress - start) / (end - start)
+    if shape == "hold":
+        return 1.0
+    if shape == "front":
+        return 1.0 - (1.0 - floor) * local
+    if shape == "back":
+        return floor + (1.0 - floor) * local
+    peak_local = (clamp(peak, start, end) - start) / (end - start)
+    if local <= peak_local:
+        raw = local / max(peak_local, 1e-6)
+    else:
+        raw = (1.0 - local) / max(1.0 - peak_local, 1e-6)
+    raw = clamp(raw, 0.0, 1.0)
+    return raw if shape == "triangle" else raw * raw * (3.0 - 2.0 * raw)
+
+
 def lora_file_names(filename) -> frozenset[str]:
     """Lower-case names a LoRA file can be referred to by in prompts and
     target lists: its path, file name and stem, plus its network names and
@@ -188,9 +293,8 @@ def resolve_network(name):
 # sits in the Anima DiT (block, module) or in the Qwen3 text encoder / adapter.
 
 ANIMA_BLOCK_RE = re.compile(r"(?:^|\.)(?:diffusion_model\.)?(?:net\.)?blocks\.(\d+)\.")
-QWEN_LAYER_RE = re.compile(r"(?:^|\.)(?:text_encoders\.)?qwen3_06b\.model\.layers\.(\d+)\.")
 GENERIC_QWEN_LAYER_RE = re.compile(r"(?:^|\.)(?:text_encoders\.)?qwen3_06b\.(?:model\.)?layers\.(\d+)\.")
-QWEN_ADAPTER_BLOCK_RE = re.compile(r"(?:^|\.)(?:text_encoders\.)?qwen3_06b\.llm_adapter\.blocks\.(\d+)\.")
+# Also matches text_encoders.qwen3_06b.llm_adapter.blocks.N
 LEGACY_QWEN_ADAPTER_BLOCK_RE = re.compile(r"(?:^|\.)(?:diffusion_model\.)?llm_adapter\.blocks\.(\d+)\.")
 
 
@@ -281,16 +385,12 @@ def model_key(key) -> str:
 
 def qwen_layer_index(key: str) -> int | None:
     key_text = str(key or "")
-    match = QWEN_LAYER_RE.search(key_text) or GENERIC_QWEN_LAYER_RE.search(key_text) or QWEN_ADAPTER_BLOCK_RE.search(key_text) or LEGACY_QWEN_ADAPTER_BLOCK_RE.search(key_text)
+    match = GENERIC_QWEN_LAYER_RE.search(key_text) or LEGACY_QWEN_ADAPTER_BLOCK_RE.search(key_text)
     if match:
         return int(match.group(1))
 
     normalized = key_text.lower().replace(".", "_")
-    match = (
-        re.search(r"qwen3_06b_(?:model_)?layers_(\d+)", normalized)
-        or re.search(r"qwen3_06b_llm_adapter_blocks_(\d+)", normalized)
-        or re.search(r"(?:^|_)llm_adapter_blocks_(\d+)", normalized)
-    )
+    match = re.search(r"qwen3_06b_(?:model_)?layers_(\d+)", normalized) or re.search(r"(?:^|_)llm_adapter_blocks_(\d+)", normalized)
     if not match:
         return None
     return int(match.group(1))
@@ -333,30 +433,51 @@ def looks_like_layer_weights(text) -> bool:
     return numeric_count >= 2
 
 
+# Past the deepest Anima DiT (52 blocks) and Qwen3 text encoder (28 layers);
+# bounds what a prompt's "0-2000000000=1" can allocate.
+MAX_LAYER_INDEX = 255
+
+
+def _finite_weight(text) -> float | None:
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _layer_index(text: str) -> int:
+    # Longer digit strings than any index could have are not converted at all
+    return int(text) if len(text) <= 3 else MAX_LAYER_INDEX + 1
+
+
 def parse_layer_weights(text) -> LayerWeights:
     values: dict[int, float] = {}
     default = 1.0
     bare_values = []
     for token in [t for t in re.split(r"[\s,;]+", _normalized_weight_text(text)) if t]:
         if "=" not in token:
-            try:
-                bare_values.append(float(token))
-            except ValueError:
+            value = _finite_weight(token)
+            if value is None:
                 logger.warning("Ignored invalid Anima layer weight token: %s", token)
+            else:
+                bare_values.append(value)
             continue
         left, right = token.split("=", 1)
         left = left.strip().lower()
-        try:
-            value = float(right)
-        except ValueError:
+        value = _finite_weight(right)
+        if value is None:
             logger.warning("Ignored invalid Anima layer weight: %s", token)
             continue
         if left in {"*", "all", "default"}:
             default = value
         elif range_match := re.match(r"^(\d+)\s*-\s*(\d+)$", left):
-            start, end = sorted((int(range_match.group(1)), int(range_match.group(2))))
-            values.update(dict.fromkeys(range(start, end + 1), value))
-        elif left.isdigit():
+            start, end = sorted((_layer_index(range_match.group(1)), _layer_index(range_match.group(2))))
+            if start > MAX_LAYER_INDEX:
+                logger.warning("Ignored Anima layer range past index %d: %s", MAX_LAYER_INDEX, left)
+                continue
+            values.update(dict.fromkeys(range(start, min(end, MAX_LAYER_INDEX) + 1), value))
+        elif left.isdecimal() and _layer_index(left) <= MAX_LAYER_INDEX:
             values[int(left)] = value
         else:
             logger.warning("Ignored invalid Anima layer selector: %s", left)
@@ -374,7 +495,8 @@ def split_weight_sections(text) -> dict[str, str]:
     bare_parts = []
     for part in [p.strip() for p in re.split(r"[;；]+", str(text or "")) if p.strip()]:
         if "=" in part or "：" in part:
-            left, right = part.split("=" if "=" in part else "：", 1)
+            # The first separator ends the section name: "modules：mlp=0.5"
+            left, right = re.split(r"[=：]", part, maxsplit=1)
             key = left.strip().lower()
             if key in {"blocks", "block", "layers", "layer"}:
                 sections["blocks"] = right.strip()
@@ -401,7 +523,11 @@ def parse_module_weights(text) -> dict[str, float]:
             continue
         left, right = token.split("=", 1)
         try:
-            weights[module_key(left)] = float(right)
+            value = float(right)
         except ValueError:
-            weights[module_key(left)] = 1.0
+            value = 1.0
+        if not math.isfinite(value):
+            logger.warning("Ignored non-finite Anima module weight: %s", token.strip())
+            continue
+        weights[module_key(left)] = value
     return weights

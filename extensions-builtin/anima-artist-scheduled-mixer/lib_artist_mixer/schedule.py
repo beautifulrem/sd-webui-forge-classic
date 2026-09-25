@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import re
 
+from modules.anima_lora_support import window_curve_factor
+
 CURVE_SMOOTH = "Smooth"
 CURVE_HOLD = "Hold"
 CURVE_TRIANGLE = "Triangle"
@@ -78,36 +80,21 @@ def parse_blocks(text, num_blocks):
     return result or set(range(num_blocks))
 
 
+_CURVE_SHAPES = {
+    CURVE_HOLD: "hold",
+    CURVE_TRIANGLE: "triangle",
+    CURVE_FRONT: "front",
+    CURVE_BACK: "back",
+}
+
+
 def curve_factor(progress, start, end, peak, curve):
     """Strength factor at sampling ``progress`` (0..1) of a window [start, end]
     peaking at ``peak``; ``curve`` is one of the CURVE_* keys (anything else
-    is the smooth hump). ``progress`` None means full strength."""
+    is the smooth hump). ``progress`` None means full strength. Front / back
+    loaded keep a quarter of the artist at their weak end."""
     if progress is None:
         return 1.0
-    start = clamp(start, 0.0, 1.0)
-    end = clamp(end, 0.0, 1.0)
-    if end < start:
-        start, end = end, start
-    if progress < start or progress > end:
-        return 0.0
-    if end - start <= 1e-6:
-        return 1.0
-    local = (progress - start) / max(end - start, 1e-6)
-    if curve == CURVE_HOLD:
-        return 1.0
-    if curve == CURVE_FRONT:
-        return 1.0 - 0.75 * local
-    if curve == CURVE_BACK:
-        return 0.25 + 0.75 * local
-    peak = clamp(peak, start, end)
-    peak_local = (peak - start) / max(end - start, 1e-6)
-    if curve == CURVE_TRIANGLE:
-        if local <= peak_local:
-            return local / max(peak_local, 1e-6)
-        return (1.0 - local) / max(1.0 - peak_local, 1e-6)
-    if local <= peak_local:
-        raw = local / max(peak_local, 1e-6)
-    else:
-        raw = (1.0 - local) / max(1.0 - peak_local, 1e-6)
-    raw = clamp(raw, 0.0, 1.0)
-    return raw * raw * (3.0 - 2.0 * raw)
+    return window_curve_factor(
+        progress, start, end, peak, _CURVE_SHAPES.get(curve, "smooth"), floor=0.25
+    )
