@@ -39,7 +39,9 @@ class SMCCFGState:
             self.reset()
         e_prev = e if self._e_prev is None else self._e_prev
         surface = (e - e_prev) + self.lam * e_prev
-        gain = self.alpha * e.abs().mean().clamp_min(1e-12)
+        # Per sample: the reference's batch-wide mean (identical at batch 1)
+        # would make each image's correction depend on the rest of the batch.
+        gain = self.alpha * e.abs().mean(dim=tuple(range(1, e.ndim)), keepdim=True).clamp_min(1e-12)
         correction = -gain * torch.sign(surface)
         if update_state:
             self._e_prev = e.detach()

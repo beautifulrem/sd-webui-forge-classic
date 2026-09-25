@@ -27,13 +27,16 @@ from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
 from lib_anima_guidance.dcw import DCWState, parse_band_mask
 from lib_anima_guidance.advanced import (
     IGNORES_UNCOND,
+    APGState,
     CFGZeroStarState,
     MomentumGuidanceState,
+    make_apg_cfg_function,
     make_cfg_zero_star_cfg_function,
     make_fdg_cfg_function,
     make_guidance_range_cfg_function,
     make_guidance_range_uncond_skip,
     make_momentum_post_cfg_function,
+    make_zero_init_cfg_function,
     sigma_value,
 )
 from lib_anima_guidance.nag import NAGAttentionModifier
@@ -41,6 +44,7 @@ from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS
 from modules import paths, script_callbacks, scripts, spectrum_force
 from modules.anima_guidance_state import clear_stateful_guidance, register_stateful_guidance
 from modules.anima_feature_conflicts import (
+    APG_GUIDANCE,
     CFG_ZERO_STAR_GUIDANCE,
     FDG_GUIDANCE,
     GUIDANCE_MODES,
@@ -120,7 +124,7 @@ class AnimaGuidanceScript(scripts.Script):
                 list(GUIDANCE_MODES),
                 value=STANDARD_GUIDANCE,
                 label="CFG guidance mode",
-                info="SMC-CFG, CFG-Zero* and FDG are mutually exclusive combine modes. Skimmed CFG is applied before the selected combine.",
+                info="SMC-CFG, CFG-Zero*, APG and FDG are mutually exclusive combine modes. Skimmed CFG is applied before the selected combine.",
             )
             with gr.Row():
                 smc_alpha = gr.Slider(
@@ -158,11 +162,11 @@ class AnimaGuidanceScript(scripts.Script):
                     momentum_ema = gr.Slider(0.0, 0.99, value=0.6, step=0.01, label="Momentum EMA decay")
                 fdg_high_scale = gr.Slider(
                     0.0,
-                    10.0,
-                    value=2.0,
+                    30.0,
+                    value=12.0,
                     step=0.1,
                     label="FDG detail guidance",
-                    info="Used only by FDG. FDG takes priority over DCW and is disabled with the CNS sampler.",
+                    info="Used only by FDG: the guidance scale of the high-frequency band (the low band uses CFG). Keep it above CFG; below CFG it weakens detail guidance. FDG takes priority over DCW and is disabled with the CNS sampler.",
                 )
                 cfg_zero_init_steps = gr.Slider(
                     0,
@@ -170,8 +174,33 @@ class AnimaGuidanceScript(scripts.Script):
                     value=1,
                     step=1,
                     label="CFG-Zero* zero-init steps",
-                    info="Used only by CFG-Zero*. The first N sampler steps output zero velocity (the latent is left unchanged); 0 keeps only the optimized scale.",
+                    info="Used only by CFG-Zero*. The first N sampler steps output zero velocity (the latent is left unchanged) when the pass starts from pure noise; hires and img2img passes are not zeroed. 0 keeps only the optimized scale.",
                 )
+                with gr.Row():
+                    apg_eta = gr.Slider(
+                        0.0,
+                        1.0,
+                        value=0.0,
+                        step=0.01,
+                        label="APG eta",
+                        info="Used only by APG. Weight of the guidance part parallel to the prediction (the oversaturating part); 1 keeps it like CFG.",
+                    )
+                    apg_norm_threshold = gr.Slider(
+                        0.0,
+                        100.0,
+                        value=0.0,
+                        step=0.5,
+                        label="APG norm threshold",
+                        info="Used only by APG. Caps the L2 norm of the guidance update over the whole latent (grows with resolution); 0 disables.",
+                    )
+                    apg_momentum = gr.Slider(
+                        -0.95,
+                        0.95,
+                        value=-0.5,
+                        step=0.01,
+                        label="APG momentum",
+                        info="Used only by APG. Negative values are the paper's reverse momentum; 0 disables.",
+                    )
                 guidance_range_enable = gr.Checkbox(False, label="Limit CFG to a sampling range")
                 with gr.Row():
                     guidance_range_start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="CFG range start")
@@ -454,6 +483,9 @@ class AnimaGuidanceScript(scripts.Script):
             (guidance_range_start, "Anima CFG range start", "guidance.range_start"),
             (guidance_range_end, "Anima CFG range end", "guidance.range_end"),
             (cfg_zero_init_steps, "Anima CFG-Zero* zero-init steps", "guidance.cfg_zero_init_steps"),
+            (apg_eta, "Anima APG eta", "guidance.apg_eta"),
+            (apg_norm_threshold, "Anima APG norm threshold", "guidance.apg_norm_threshold"),
+            (apg_momentum, "Anima APG momentum", "guidance.apg_momentum"),
         ]
         for component, _, preset_name in fields:
             if preset_name is not None:
@@ -508,11 +540,14 @@ class AnimaGuidanceScript(scripts.Script):
         momentum_enable: bool = False,
         momentum_strength: float = 0.5,
         momentum_ema: float = 0.6,
-        fdg_high_scale: float = 2.0,
+        fdg_high_scale: float = 12.0,
         guidance_range_enable: bool = False,
         guidance_range_start: float = 0.0,
         guidance_range_end: float = 1.0,
         cfg_zero_init_steps: int = 1,
+        apg_eta: float = 0.0,
+        apg_norm_threshold: float = 0.0,
+        apg_momentum: float = -0.5,
         *args,
         **kwargs,
     ):
@@ -542,6 +577,7 @@ class AnimaGuidanceScript(scripts.Script):
         smc_enabled = guidance_mode == SMC_GUIDANCE and float(smc_alpha) > 0.0
         fdg_enabled = guidance_mode == FDG_GUIDANCE
         cfg_zero_enabled = guidance_mode == CFG_ZERO_STAR_GUIDANCE
+        apg_enabled = guidance_mode == APG_GUIDANCE
         dcw_enabled = bool(dcw_enable) and not math.isclose(float(dcw_lambda), 0.0)
         cns_selected = active_sampler == "Anima ER SDE CNS"
         if not enable or not _is_anima(p):
@@ -598,7 +634,12 @@ class AnimaGuidanceScript(scripts.Script):
 
         modulation_enabled = bool(modulation_enable)
         advanced_enabled = (
-            bool(nag_enable) or bool(momentum_enable) or fdg_enabled or cfg_zero_enabled or bool(guidance_range_enable)
+            bool(nag_enable)
+            or bool(momentum_enable)
+            or fdg_enabled
+            or cfg_zero_enabled
+            or apg_enabled
+            or bool(guidance_range_enable)
         )
         if not skim_enable and not smc_enabled and not dcw_enabled and not modulation_enabled and not advanced_enabled:
             return
@@ -731,12 +772,29 @@ class AnimaGuidanceScript(scripts.Script):
                 )
         elif cfg_zero_enabled:
             zero_init_steps = max(0, int(cfg_zero_init_steps))
-            active_cfg_function = make_cfg_zero_star_cfg_function(
-                register_stateful_guidance(p, CFGZeroStarState(zero_init_steps)),
-                process=process_ref(p),
-            )
+            active_cfg_function = make_cfg_zero_star_cfg_function()
             p.extra_generation_params["Anima CFG guidance mode"] = CFG_ZERO_STAR_GUIDANCE
             p.extra_generation_params["Anima CFG-Zero* zero-init steps"] = zero_init_steps
+            if previous is not None:
+                p.extra_generation_params["Anima CFG replaced existing"] = getattr(
+                    previous, "__name__", type(previous).__name__
+                )
+        elif apg_enabled:
+            active_cfg_function = make_apg_cfg_function(
+                register_stateful_guidance(
+                    p,
+                    APGState(
+                        eta=float(apg_eta),
+                        norm_threshold=float(apg_norm_threshold),
+                        momentum=float(apg_momentum),
+                    ),
+                ),
+                process=process_ref(p),
+            )
+            p.extra_generation_params["Anima CFG guidance mode"] = APG_GUIDANCE
+            p.extra_generation_params["Anima APG eta"] = float(apg_eta)
+            p.extra_generation_params["Anima APG norm threshold"] = float(apg_norm_threshold)
+            p.extra_generation_params["Anima APG momentum"] = float(apg_momentum)
             if previous is not None:
                 p.extra_generation_params["Anima CFG replaced existing"] = getattr(
                     previous, "__name__", type(previous).__name__
@@ -765,8 +823,24 @@ class AnimaGuidanceScript(scripts.Script):
             p.extra_generation_params["Anima CFG range start"] = float(guidance_range_start)
             p.extra_generation_params["Anima CFG range end"] = float(guidance_range_end)
 
-        if smc_enabled or fdg_enabled or cfg_zero_enabled or skim_enable or guidance_range_enable:
-            # At CFG 1 Skimmed CFG, CFG-Zero* and the CFG range all reduce to
+        if cfg_zero_enabled and zero_init_steps > 0:
+            # Outermost, so zero-init sees every sigma of the pass (the CFG
+            # range does not call its inner hook outside its window). It
+            # zeroes only a pass that starts from pure noise.
+            active_cfg_function = make_zero_init_cfg_function(
+                active_cfg_function,
+                register_stateful_guidance(
+                    p,
+                    CFGZeroStarState(
+                        zero_init_steps,
+                        start_sigma=float(predictor.percent_to_sigma(0.0)),
+                    ),
+                ),
+                process=process_ref(p),
+            )
+
+        if smc_enabled or fdg_enabled or cfg_zero_enabled or apg_enabled or skim_enable or guidance_range_enable:
+            # At CFG 1 Skimmed CFG, CFG-Zero*, APG and the CFG range all reduce to
             # the conditional prediction (CFG-Zero*'s zero-init reads neither),
             # so only SMC / FDG (which still use the unconditional one there)
             # keep Forge from skipping that pass. A wrapped hook from another

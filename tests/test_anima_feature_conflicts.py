@@ -130,6 +130,24 @@ class GuidanceConflictTests(unittest.TestCase):
         self.assertEqual(state.mode, "Standard / preserve existing")
         self.assertTrue(state.momentum)
 
+    def test_apg_is_a_combine_mode_that_excludes_momentum_only(self):
+        state = resolve_guidance_conflicts(sampler="Anima Flow Euler", mode="APG", momentum=True, dcw=True)
+        self.assertEqual(state.mode, "APG")
+        self.assertFalse(state.momentum)
+        self.assertFalse(state.momentum_interactive)
+        self.assertTrue(state.dcw)
+        self.assertEqual(state.messages, ("Momentum disabled: incompatible with APG",))
+
+        state = resolve_guidance_conflicts(sampler="Anima ER SDE CNS", mode="APG", momentum=False, dcw=True)
+        self.assertEqual(state.mode, "APG")
+        self.assertIn("APG", state.mode_choices)
+
+        state = resolve_guidance_conflicts(
+            sampler="Anima Flow Euler", mode="APG", momentum=True, dcw=False, selected="momentum"
+        )
+        self.assertEqual(state.mode, "Standard / preserve existing")
+        self.assertTrue(state.momentum)
+
     def test_cli_runtime_keeps_cfg_mode_and_drops_incompatible_switches(self):
         state = resolve_guidance_conflicts(
             sampler="Anima Flow Euler",

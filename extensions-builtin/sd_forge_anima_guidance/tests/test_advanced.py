@@ -10,16 +10,20 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from lib_anima_guidance.advanced import (
+    APGState,
     CFGZeroStarState,
     MomentumGuidanceState,
+    apg_project,
     cfg_zero_star_combine,
     cfg_zero_star_scale,
     fdg_combine,
+    make_apg_cfg_function,
     make_cfg_zero_star_cfg_function,
     IGNORES_UNCOND,
     make_guidance_range_cfg_function,
     make_guidance_range_uncond_skip,
     make_momentum_post_cfg_function,
+    make_zero_init_cfg_function,
 )
 
 
@@ -31,7 +35,10 @@ class MomentumGuidanceTests(unittest.TestCase):
         second = -torch.full_like(x, 3.0)
         self.assertTrue(torch.equal(state.apply(first, x, 1.0), first))
         actual = state.apply(second, x, 1.0)
-        self.assertTrue(torch.allclose(actual, torch.full_like(x, -3.5)))
+        # Reference mg_nodes.py: v + momentum * (v - m_prev) with m_prev = 1,
+        # then m = (1 - ema) * v + ema * m_prev.
+        self.assertTrue(torch.allclose(actual, torch.full_like(x, -(3.0 + 0.5 * (3.0 - 1.0)))))
+        self.assertTrue(torch.allclose(state._ema, torch.full_like(x, 0.5 * 3.0 + 0.5 * 1.0)))
 
     def test_probe_can_avoid_advancing_state(self):
         state = MomentumGuidanceState()
@@ -66,6 +73,13 @@ class FrequencyDecoupledGuidanceTests(unittest.TestCase):
         self.assertFalse(
             torch.equal(fdg_combine(cond, uncond, 4.0, 1.0), fdg_combine(cond, uncond, 4.0, 4.0))
         )
+
+    def test_default_detail_scale_is_above_cfg(self):
+        # The paper / reference guide the high band harder than the low band
+        # (which uses CFG); a detail scale below CFG would weaken details.
+        from modules.anima_presets import SAFE_BASE_AESTHETIC_PRESET as preset
+
+        self.assertGreater(preset["guidance.fdg_detail"], preset["native.cfg"])
 
     def test_anima_five_dimensional_latent_preserves_shape(self):
         cond = torch.randn(2, 4, 1, 7, 9)
@@ -114,14 +128,14 @@ class CFGZeroStarTests(unittest.TestCase):
             "uncond_denoised": x - sigma * v_uncond,
             "cond_scale": 4.0,
         }
-        residual = make_cfg_zero_star_cfg_function(CFGZeroStarState(0))(args)
+        residual = make_cfg_zero_star_cfg_function()(args)
         # Forge's residual is x - denoised = sigma * v for rectified flow.
         expected = sigma * cfg_zero_star_combine(v_cond, v_uncond, 4.0)
         self.assertTrue(torch.allclose(residual, expected, atol=1e-5))
 
     def test_zero_init_zeroes_the_first_steps_only(self):
         state = CFGZeroStarState(2)
-        cfg = make_cfg_zero_star_cfg_function(state)
+        cfg = make_zero_init_cfg_function(make_cfg_zero_star_cfg_function(), state)
         x = torch.ones(1, 1, 2, 2)
         base = {"input": x, "cond_denoised": x * 0.5, "uncond_denoised": x * 0.25, "cond_scale": 3.0}
         residuals = [cfg({**base, "sigma": torch.tensor([sigma])}) for sigma in (1.0, 1.0, 0.8, 0.6)]
@@ -131,14 +145,42 @@ class CFGZeroStarTests(unittest.TestCase):
             self.assertTrue(torch.equal(residual, torch.zeros_like(x)))
         self.assertFalse(torch.equal(residuals[3], torch.zeros_like(x)))
         state.reset()
-        self.assertTrue(torch.equal(cfg({**base, "sigma": torch.tensor([0.6])}), torch.zeros_like(x)))
+        self.assertTrue(torch.equal(cfg({**base, "sigma": torch.tensor([1.0])}), torch.zeros_like(x)))
+
+    def test_pass_starting_mid_schedule_is_not_zeroed(self):
+        # Hires / img2img passes start below the schedule's maximum sigma:
+        # zero-init is only for sampling from pure noise.
+        state = CFGZeroStarState(1, start_sigma=1.0)
+        cfg = make_zero_init_cfg_function(make_cfg_zero_star_cfg_function(), state)
+        x = torch.ones(1, 1, 2, 2)
+        base = {"input": x, "cond_denoised": x * 0.5, "uncond_denoised": x * 0.25, "cond_scale": 3.0}
+        for sigma in (0.6, 0.4):
+            self.assertFalse(torch.equal(cfg({**base, "sigma": torch.tensor([sigma])}), torch.zeros_like(x)))
+
+    def test_zero_init_sees_steps_outside_the_cfg_range(self):
+        # The CFG range skips its inner hook outside its window, so zero-init
+        # wraps it: the first step (sigma 1.0, outside [0.2, 0.8]) is the one
+        # zeroed, not the first in-window step.
+        state = CFGZeroStarState(1)
+        ranged = make_guidance_range_cfg_function(make_cfg_zero_star_cfg_function(), sigma_start=0.2, sigma_end=0.8)
+        cfg = make_zero_init_cfg_function(ranged, state)
+        x = torch.ones(1, 1, 2, 2)
+        base = {"input": x, "cond_denoised": x * 0.5, "uncond_denoised": x * 0.25, "cond_scale": 3.0}
+        self.assertTrue(torch.equal(cfg({**base, "sigma": torch.tensor([1.0])}), torch.zeros_like(x)))
+        self.assertTrue(torch.equal(cfg({**base, "sigma": torch.tensor([0.9])}), x - base["cond_denoised"]))
+        inside = cfg({**base, "sigma": torch.tensor([0.7])})
+        self.assertTrue(torch.allclose(inside, cfg_zero_star_combine(x * 0.5, x * 0.75, 3.0)))
+        # The range's unconditional-pass skip still recognises the hook.
+        skip = make_guidance_range_uncond_skip(cfg)
+        uncond = [{"model_conds": {}}]
+        self.assertIsNone(skip(None, [], uncond, None, torch.tensor([0.9]), {"sampler_cfg_function": cfg})[2])
 
     def test_auxiliary_probe_does_not_consume_zero_init_steps(self):
         from types import SimpleNamespace
 
         process = SimpleNamespace()
         state = CFGZeroStarState(1)
-        cfg = make_cfg_zero_star_cfg_function(state, process=process)
+        cfg = make_zero_init_cfg_function(make_cfg_zero_star_cfg_function(), state, process=process)
         x = torch.ones(1, 1, 2, 2)
         base = {"input": x, "cond_denoised": x * 0.5, "uncond_denoised": x * 0.25, "cond_scale": 3.0}
         from modules import anima_support
@@ -147,6 +189,87 @@ class CFGZeroStarTests(unittest.TestCase):
         self.assertFalse(torch.equal(cfg({**base, "sigma": torch.tensor([0.9])}), torch.zeros_like(x)))
         setattr(process, anima_support._AUXILIARY_DENOISER_ATTRIBUTE, False)
         self.assertTrue(torch.equal(cfg({**base, "sigma": torch.tensor([1.0])}), torch.zeros_like(x)))
+
+
+class AdaptiveProjectedGuidanceTests(unittest.TestCase):
+    def test_eta_one_without_cap_or_momentum_is_plain_cfg(self):
+        torch.manual_seed(5)
+        cond, uncond = torch.randn(2, 4, 1, 6, 5), torch.randn(2, 4, 1, 6, 5)
+        state = APGState(eta=1.0, norm_threshold=0.0, momentum=0.0)
+        for _ in range(2):
+            actual = state.combine(cond, uncond, 4.5)
+            self.assertTrue(torch.allclose(actual, uncond + 4.5 * (cond - uncond), atol=1e-5))
+
+    def test_parallel_and_orthogonal_parts_are_orthogonal_per_sample(self):
+        torch.manual_seed(6)
+        value, direction = torch.randn(3, 4, 1, 5, 7), torch.randn(3, 4, 1, 5, 7)
+        parallel, orthogonal = apg_project(value, direction)
+        self.assertTrue(torch.allclose(parallel + orthogonal, value, atol=1e-6))
+        dot = (orthogonal * direction).flatten(1).sum(1)
+        self.assertTrue(torch.allclose(dot, torch.zeros(3), atol=1e-4))
+        # Each parallel part is a multiple of its own sample's direction.
+        cosine = torch.nn.functional.cosine_similarity(parallel.flatten(1), direction.flatten(1), dim=1)
+        self.assertTrue(torch.allclose(cosine.abs(), torch.ones(3), atol=1e-5))
+
+    def test_eta_zero_removes_the_parallel_update(self):
+        cond = torch.tensor([2.0, 0.0]).reshape(1, 2, 1, 1)
+        uncond = torch.tensor([1.0, -1.0]).reshape(1, 2, 1, 1)
+        # diff = (1, 1): parallel (1, 0), orthogonal (0, 1) to cond.
+        actual = APGState(eta=0.0, momentum=0.0).combine(cond, uncond, 3.0)
+        self.assertTrue(torch.allclose(actual, cond + 2.0 * torch.tensor([0.0, 1.0]).reshape(1, 2, 1, 1)))
+
+    def test_norm_threshold_caps_each_sample_update(self):
+        cond = torch.zeros(2, 1, 1, 2)
+        cond[..., 0] = 1.0
+        uncond = cond.clone()
+        uncond[0, ..., 1] = -30.0  # update norm 30, capped to 3
+        uncond[1, ..., 1] = -1.0  # update norm 1, left alone
+        actual = APGState(eta=1.0, norm_threshold=3.0, momentum=0.0).combine(cond, uncond, 2.0)
+        update = actual - cond
+        self.assertTrue(torch.allclose(update.flatten(1).norm(dim=1), torch.tensor([3.0, 1.0])))
+
+    def test_momentum_accumulates_and_resets(self):
+        cond = torch.zeros(1, 2, 1, 1)
+        cond[:, 0] = 1.0
+        uncond = cond.clone()
+        uncond[:, 1] = -1.0  # diff (0, 1), orthogonal to cond
+        state = APGState(eta=1.0, momentum=-0.5)
+        first = state.combine(cond, uncond, 2.0)
+        second = state.combine(cond, uncond, 2.0)
+        self.assertTrue(torch.allclose(first - cond, torch.tensor([0.0, 1.0]).reshape(1, 2, 1, 1)))
+        # running = diff + momentum * running = 1 - 0.5 = 0.5
+        self.assertTrue(torch.allclose(second - cond, torch.tensor([0.0, 0.5]).reshape(1, 2, 1, 1)))
+        state.reset()
+        self.assertTrue(torch.equal(state.combine(cond, uncond, 2.0), first))
+
+    def test_cfg_function_works_on_denoised_predictions_and_skips_cfg_one(self):
+        from types import SimpleNamespace
+
+        from modules import anima_support
+        from modules.anima_guidance_state import clear_stateful_guidance, register_stateful_guidance, reset_stateful_guidance
+
+        torch.manual_seed(7)
+        x = torch.randn(1, 4, 1, 4, 4)
+        cond, uncond = torch.randn_like(x), torch.randn_like(x)
+        process = SimpleNamespace()
+        clear_stateful_guidance(process)
+        state = register_stateful_guidance(process, APGState(eta=0.0, norm_threshold=0.0, momentum=-0.5))
+        cfg = make_apg_cfg_function(state, process=process)
+        args = {"input": x, "sigma": torch.tensor([0.7]), "cond_denoised": cond, "uncond_denoised": uncond}
+        expected = x - APGState(eta=0.0, momentum=-0.5).combine(cond, uncond, 4.0)
+        self.assertTrue(torch.allclose(cfg({**args, "cond_scale": 4.0}), expected, atol=1e-6))
+        self.assertIsNotNone(state._running)
+        reset_stateful_guidance(SimpleNamespace(p=process))
+        self.assertIsNone(state._running)
+        # CFG 1: the conditional prediction, and the zero placeholder
+        # unconditional prediction does not enter the momentum.
+        placeholder = {**args, "uncond_denoised": torch.zeros_like(x), "cond_scale": 1.0}
+        self.assertTrue(torch.equal(cfg(placeholder), x - cond))
+        self.assertIsNone(state._running)
+        # Auxiliary probes do not advance the momentum.
+        setattr(process, anima_support._AUXILIARY_DENOISER_ATTRIBUTE, True)
+        cfg({**args, "cond_scale": 4.0})
+        self.assertIsNone(state._running)
 
 
 class GuidanceRangeTests(unittest.TestCase):

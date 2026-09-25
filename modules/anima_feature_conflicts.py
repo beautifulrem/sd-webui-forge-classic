@@ -17,8 +17,9 @@ STANDARD_GUIDANCE = "Standard / preserve existing"
 SMC_GUIDANCE = "SMC-CFG"
 FDG_GUIDANCE = "FDG (experimental)"
 CFG_ZERO_STAR_GUIDANCE = "CFG-Zero*"
+APG_GUIDANCE = "APG"
 # One dropdown: the CFG combine modes are mutually exclusive by construction.
-GUIDANCE_MODES = (STANDARD_GUIDANCE, SMC_GUIDANCE, CFG_ZERO_STAR_GUIDANCE, FDG_GUIDANCE)
+GUIDANCE_MODES = (STANDARD_GUIDANCE, SMC_GUIDANCE, CFG_ZERO_STAR_GUIDANCE, APG_GUIDANCE, FDG_GUIDANCE)
 
 FLOW_SAMPLERS = frozenset(
     {"Anima Flow Euler", "Anima Flow UniPC2", "Anima Flow PC3"}

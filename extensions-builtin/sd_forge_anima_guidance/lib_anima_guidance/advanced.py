@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Callable
 
 import torch
@@ -114,16 +115,13 @@ class MomentumGuidanceState:
         ):
             self.reset()
 
-        if self._ema is None:
-            result = velocity
-            next_ema = velocity.detach()
-        else:
-            ema = self.ema_decay * self._ema + (1.0 - self.ema_decay) * velocity
-            result = velocity + self.momentum * (velocity - ema)
-            next_ema = ema.detach()
+        # As in the reference (pamparamm/sd-perturbed-attention mg_nodes.py):
+        # extrapolate against the previous EMA, then fold this step into it.
+        previous = velocity if self._ema is None else self._ema
+        result = velocity + self.momentum * (velocity - previous)
 
         if update_state:
-            self._ema = next_ema
+            self._ema = ((1.0 - self.ema_decay) * velocity + self.ema_decay * previous).detach()
         return input_x - sig * result
 
 
@@ -216,43 +214,156 @@ class CFGZeroStarState:
 
     A step is a distinct sigma: exact for single-evaluation samplers, while
     the extra sigmas of multi-evaluation samplers count as steps too.
+    Zero-init is meant for the very start of sampling from pure noise, so it
+    only applies when the pass's first sigma is ``start_sigma`` (the
+    schedule's maximum); hires and img2img passes start below it.
     """
 
-    def __init__(self, zero_init_steps: int = 1):
+    def __init__(self, zero_init_steps: int = 1, *, start_sigma: float = 1.0):
         self.zero_init_steps = max(int(zero_init_steps), 0)
-        self._sigmas: list[float] = []
+        self.start_sigma = float(start_sigma)
+        self.reset()
 
     def reset(self) -> None:
-        self._sigmas = []
+        self._sigmas: list[float] = []
+        self._from_noise: bool | None = None
 
     def zero_init(self, sigma: float, *, update_state: bool = True) -> bool:
         if sigma in self._sigmas:
             return True
-        if update_state and len(self._sigmas) < self.zero_init_steps:
+        if not update_state:
+            return False
+        if self._from_noise is None:
+            self._from_noise = sigma >= self.start_sigma * (1.0 - 1e-5)
+        if self._from_noise and len(self._sigmas) < self.zero_init_steps:
             self._sigmas.append(sigma)
             return True
         return False
 
 
-def make_cfg_zero_star_cfg_function(state: CFGZeroStarState, process=None):
-    """Forge CFG hook for CFG-Zero* (arXiv:2503.18886).
+def make_cfg_zero_star_cfg_function():
+    """Forge CFG hook for CFG-Zero*'s optimized-scale combine (arXiv:2503.18886).
 
     Forge's ``cond``/``uncond`` residuals are ``x - denoised = sigma * v`` for
-    Anima's rectified flow, so the combine runs on them directly.  During the
-    zero-init steps the velocity is zero: ``denoised = x`` and the solver
-    leaves the latent unchanged.
+    Anima's rectified flow, so the combine runs on them directly.
     """
 
     @torch.no_grad()
     def cfg_function(args):
         x = args["input"]
-        sigma = sigma_value(args.get("sigma", args.get("timestep")))
-        if state.zero_init(sigma, update_state=not is_anima_auxiliary_denoiser(process)):
-            return torch.zeros_like(x)
         return cfg_zero_star_combine(
             x - args["cond_denoised"],
             x - args["uncond_denoised"],
             float(args["cond_scale"]),
         )
+
+    return cfg_function
+
+
+def make_zero_init_cfg_function(cfg_function: Callable | None, state: CFGZeroStarState, process=None):
+    """CFG-Zero*'s zero-init as the outermost CFG hook.
+
+    It must see every sigma of the pass, so it wraps the CFG range and Skim
+    hooks instead of sitting inside them (the range hook does not call its
+    inner function outside its window).  During the zero-init steps the
+    velocity is zero: ``denoised = x`` and the solver leaves the latent
+    unchanged.
+    """
+
+    @torch.no_grad()
+    def zero_init_cfg_function(args):
+        sigma = sigma_value(args.get("sigma", args.get("timestep")))
+        if state.zero_init(sigma, update_state=not is_anima_auxiliary_denoiser(process)):
+            return torch.zeros_like(args["input"])
+        if cfg_function is not None:
+            return cfg_function(args)
+        return standard_cfg_residual(args)
+
+    # Keeps the CFG range's unconditional-pass skip working through the wrapper.
+    if hasattr(cfg_function, "_anima_guidance_range"):
+        zero_init_cfg_function._anima_guidance_range = cfg_function._anima_guidance_range
+    return zero_init_cfg_function
+
+
+def apg_project(value: torch.Tensor, direction: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Per-sample parallel / orthogonal parts of ``value`` w.r.t. ``direction``."""
+
+    dims = tuple(range(1, value.ndim))
+    value_f = value.float()
+    unit = F.normalize(direction.float(), dim=dims)
+    parallel = (value_f * unit).sum(dim=dims, keepdim=True) * unit
+    return parallel.to(value.dtype), (value_f - parallel).to(value.dtype)
+
+
+class APGState:
+    """Adaptive Projected Guidance (Sadat et al., arXiv:2410.02416).
+
+    Follows the paper's Algorithm 1 (also diffusers' Apache-2.0
+    ``guiders/adaptive_projected_guidance.py``) on denoised predictions:
+    the CFG update ``cond - uncond`` is accumulated with (reverse) momentum,
+    capped to an L2 norm, split into parts parallel and orthogonal to the
+    conditional prediction, and the parallel part is weighted by ``eta``.
+    ``eta = 1`` with no cap and no momentum is plain CFG.
+    """
+
+    def __init__(self, eta: float = 0.0, norm_threshold: float = 0.0, momentum: float = -0.5):
+        self.eta = float(eta)
+        self.norm_threshold = float(norm_threshold)
+        self.momentum = float(momentum)
+        self._running: torch.Tensor | None = None
+
+    def reset(self) -> None:
+        self._running = None
+
+    def combine(
+        self,
+        cond: torch.Tensor,
+        uncond: torch.Tensor,
+        guidance_scale: float,
+        *,
+        update_state: bool = True,
+    ) -> torch.Tensor:
+        diff = cond - uncond
+        if self.momentum != 0.0:
+            running = self._running
+            if running is not None and (
+                running.shape != diff.shape or running.device != diff.device or running.dtype != diff.dtype
+            ):
+                running = None
+            if running is not None:
+                diff = diff + self.momentum * running
+            if update_state:
+                self._running = diff.detach()
+        if self.norm_threshold > 0.0:
+            norm = torch.linalg.vector_norm(diff.float(), dim=tuple(range(1, diff.ndim)), keepdim=True)
+            diff = diff * (self.norm_threshold / norm.clamp_min(1e-12)).clamp(max=1.0).to(diff.dtype)
+        parallel, orthogonal = apg_project(diff, cond)
+        return cond + (float(guidance_scale) - 1.0) * (orthogonal + self.eta * parallel)
+
+
+def make_apg_cfg_function(state: APGState, process=None):
+    """Forge CFG hook for APG on Forge's denoised (x0) predictions.
+
+    The paper applies APG to the denoised prediction D(z_t): projecting onto
+    it is what separates the saturating component.  ``cond_denoised`` /
+    ``uncond_denoised`` are exactly that for Anima's rectified flow.
+    """
+
+    @torch.no_grad()
+    def cfg_function(args):
+        x = args["input"]
+        cond = args["cond_denoised"]
+        scale = float(args["cond_scale"])
+        if math.isclose(scale, 1.0):
+            # Guidance adds nothing, and Forge's CFG 1 placeholder
+            # unconditional prediction must not enter the momentum.
+            return x - cond
+        denoised = state.combine(
+            cond,
+            args["uncond_denoised"],
+            scale,
+            update_state=not is_anima_auxiliary_denoiser(process),
+        )
+        return x - denoised
 
     return cfg_function

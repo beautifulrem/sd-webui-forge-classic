@@ -33,6 +33,9 @@ velocity space, applies the controller, and returns the residual required by
 Forge's CFG contract. `alpha=0.2` and `lambda=5.0` match the current Anima
 defaults from
 [ComfyUI-Spectrum-KSampler](https://github.com/sorryhyun/ComfyUI-Spectrum-KSampler).
+The switching gain `alpha * mean|e|` is taken per image (the reference averages
+over the whole batch, which is the same at batch size 1), so images in a batch
+do not affect each other.
 
 SMC-CFG and another CFG-combine replacement cannot both own the same hook. If
 SMC-CFG is explicitly selected, it replaces an existing CFG function and the
@@ -55,17 +58,42 @@ the first N sampler steps: `denoised = x`, so the solver leaves the latent
 unchanged. A step is a distinct sigma, which is exact for single-evaluation
 samplers; the extra sigmas of multi-evaluation samplers count as steps too.
 PC3 probes do not consume steps. `0` keeps only the optimized scale.
+Zero-init is meant for the start of sampling from pure noise: it applies only
+to a pass whose first sigma is the schedule's maximum, so hires and img2img
+passes (which start mid-schedule) are not zeroed. It is the outermost CFG
+hook, so with the CFG range it still zeroes the first steps of the schedule,
+not the first steps inside the range.
 
-Like SMC-CFG and FDG it replaces an existing CFG function (recorded in
+Like SMC-CFG, APG and FDG it replaces an existing CFG function (recorded in
 metadata) and disables Momentum; Skimmed CFG, the CFG range and DCW compose.
+
+## APG
+
+Adaptive Projected Guidance ([arXiv:2410.02416](https://arxiv.org/abs/2410.02416))
+follows the paper's Algorithm 1 (also diffusers'
+`guiders/adaptive_projected_guidance.py`, Apache-2.0). The CFG update
+`cond - uncond` is accumulated with momentum (`running = diff + momentum *
+running`), capped to `APG norm threshold` in L2 norm per image, and split into
+the parts parallel and orthogonal to the conditional prediction; the result is
+`cond + (w - 1) * (orthogonal + eta * parallel)`. It works on Forge's denoised
+(x0) predictions because the paper applies the projection to the denoised
+prediction (the paper finds the projection has little effect otherwise). `eta 1`, no cap
+and momentum 0 are plain CFG. Defaults: eta 0, norm threshold 0 (off; the
+norm covers the whole latent, so the useful value grows with resolution),
+momentum -0.5 (the paper's reverse momentum). The momentum is per pass, reset
+after FreeFuse's probe pass, and not advanced by PC3 probes; at CFG 1 APG
+returns the conditional prediction. Like the other combine modes it replaces
+an existing CFG function and disables Momentum Guidance.
 
 ## FDG (experimental)
 
 Frequency-Decoupled Guidance splits the CFG update `cond - uncond` (in
 denoised space) into a low band (2x2 average pool, bilinear upsample) and the
 high-frequency remainder. The low band uses the normal CFG scale; the high
-band uses `FDG detail guidance` (default 2.0). Equal scales reproduce plain
-CFG. It is pure PyTorch, owns the CFG combine like SMC-CFG, and is disabled
+band uses `FDG detail guidance` (default 12.0, the reference's
+`strength_high`), an absolute scale like CFG. The paper guides the high band
+harder than the low band, so keep it above CFG; below CFG it weakens detail
+guidance. Equal scales reproduce plain CFG. It is pure PyTorch, owns the CFG combine like SMC-CFG, and is disabled
 with DCW (DCW wins only when it is the last switch changed), Momentum and the
 `Anima ER SDE CNS` sampler.
 
@@ -77,7 +105,9 @@ extrapolates away from the negative prompt's attention output,
 `z + scale * (z - z_neg)`, clamps the L1-norm growth to `tau`, and blends the
 result back with `alpha` (defaults: scale 2.0, tau 2.5, alpha 0.5, active
 over the first half of sampling, start 0.0 to end 0.5). Unconditional rows
-and self-attention are untouched.
+and self-attention are untouched. Outside its window NAG reports itself
+inactive (`active(transformer_options)`), so torch.compile keeps the compiled
+blocks on those steps.
 
 When the negative branch is in the same batch its K/V are reused. On
 positive-only calls (CFG 1, or the positive half of a batch Forge split for
@@ -89,7 +119,9 @@ Regional/Artist Mixer synthetic branches are not guided.
 ## Momentum Guidance
 
 Momentum keeps an EMA of the final (post-CFG) flow velocity across steps and
-adds `strength * (v - EMA)` to the current velocity (defaults: strength 0.5,
+adds `strength * (v - EMA)` to the current velocity, using the EMA of the
+previous steps, then folds `v` into the EMA as in the reference
+(`pamparamm/sd-perturbed-attention` `mg_nodes.py`; defaults: strength 0.5,
 EMA decay 0.6); the first step is unchanged. It adds no model forwards and
 needs no negative pass at CFG 1. The state is per generation and PC3 probes do
 not advance it. It is limited to single-evaluation Euler samplers (`Euler`,
@@ -99,7 +131,7 @@ mode.
 ## CFG active range
 
 `Limit CFG to a sampling range` applies the CFG combine (including SMC-CFG,
-CFG-Zero*, FDG and Skimmed CFG) only between `CFG range start` and `CFG range
+CFG-Zero*, APG, FDG and Skimmed CFG) only between `CFG range start` and `CFG range
 end`, given as fractions of sampling progress (defaults 0.0 and 1.0).
 Outside it the conditional prediction is used alone, and the negative forward
 pass is skipped on those steps as long as no other hook still reads it.

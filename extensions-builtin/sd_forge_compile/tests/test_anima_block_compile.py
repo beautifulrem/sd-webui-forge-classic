@@ -10,7 +10,15 @@ import torch
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from anima_block_compile import _EAGER_OPTION_KEYS, AnimaBlockCompileManager, _needs_eager_blocks, needs_eager, patched_inside
+from anima_block_compile import (
+    _EAGER_OPTION_KEYS,
+    AnimaBlockCompileManager,
+    _needs_eager_blocks,
+    needs_eager,
+    patched_inside,
+    without_inactive_modifiers,
+)
+from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS
 from modules.forward_override import forward_overrides
 
 
@@ -130,6 +138,49 @@ class NeedsEagerTests(unittest.TestCase):
             self.assertTrue(patched_inside(root))
             self.assertTrue(needs_eager((), {}, root))
         self.assertFalse(patched_inside(root))
+
+    def test_modifiers_idle_at_this_sigma_do_not_force_eager(self):
+        class Windowed:
+            def __init__(self, active):
+                self.is_active = active
+
+            def active(self, options):
+                return self.is_active
+
+        idle, busy = Windowed(False), Windowed(True)
+        plain = object()  # no ``active``: always active
+        for modifiers, remaining in (((idle,), ()), ((idle, busy), (busy,)), ((plain, idle), (plain,))):
+            options = {ANIMA_ATTENTION_MODIFIERS: modifiers, "sigmas": 0.3}
+            args, kwargs = without_inactive_modifiers((), {"transformer_options": options})
+            self.assertEqual(kwargs["transformer_options"][ANIMA_ATTENTION_MODIFIERS], remaining)
+            self.assertEqual(_needs_eager_blocks(args, kwargs), bool(remaining))
+            self.assertEqual(options[ANIMA_ATTENTION_MODIFIERS], modifiers)  # caller's dict untouched
+            args, kwargs = without_inactive_modifiers((None,) * 5 + (options, "tail"), {})
+            self.assertEqual(args[5][ANIMA_ATTENTION_MODIFIERS], remaining)
+            self.assertEqual(args[6], "tail")
+        options = {ANIMA_ATTENTION_MODIFIERS: (busy,)}
+        self.assertIs(without_inactive_modifiers((), {"transformer_options": options})[1]["transformer_options"], options)
+
+    def test_compiled_blocks_run_while_a_modifier_is_outside_its_window(self):
+        class Windowed:  # like NAG: active for sigma <= 0.4 only
+            def active(self, options):
+                return float(options["sigmas"]) <= 0.4
+
+        nag = Windowed()
+        model = _KModel()
+        originals = tuple(model.diffusion_model.blocks)
+        seen = []
+
+        def apply_model(value, *args, transformer_options=None):
+            seen.append((tuple(model.diffusion_model.blocks) != originals, transformer_options.get(ANIMA_ATTENTION_MODIFIERS)))
+            return value
+
+        model.apply_model = apply_model
+        with patch("anima_block_compile.torch.compile", side_effect=lambda block, **kwargs: torch.nn.Sequential(block)):
+            AnimaBlockCompileManager.install(model, {})
+            model.apply_model(1, transformer_options={ANIMA_ATTENTION_MODIFIERS: [nag], "sigmas": torch.tensor([0.9])})
+            model.apply_model(1, transformer_options={ANIMA_ATTENTION_MODIFIERS: [nag], "sigmas": torch.tensor([0.3])})
+        self.assertEqual(seen, [(True, ()), (False, [nag])])
 
     def test_no_override_does_not_walk_the_model(self):
         root = torch.nn.Linear(2, 2)

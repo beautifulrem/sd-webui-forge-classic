@@ -6,7 +6,7 @@ from functools import wraps
 
 import torch
 
-from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS
+from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS, active_attention_modifiers
 from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY
 
 _COMPILED_BLOCKS_KEY = "_forge_anima_compiled_blocks"
@@ -41,14 +41,36 @@ def needs_eager(args, kwargs, root) -> bool:
     return _needs_eager_blocks(args, kwargs) or patched_inside(root)
 
 
+def _transformer_options(args, kwargs):
+    options = kwargs.get("transformer_options")
+    if options is None and len(args) > 5:
+        options = args[5]
+    return options
+
+
+def without_inactive_modifiers(args, kwargs):
+    """Drop attention modifiers that do nothing on this call (NAG outside
+    its sigma window), so the call can still run the compiled blocks.
+    Returns ``(args, kwargs)``, with a copied options dict if any dropped."""
+
+    options = _transformer_options(args, kwargs)
+    if not isinstance(options, dict) or not options.get(ANIMA_ATTENTION_MODIFIERS):
+        return args, kwargs
+    active = active_attention_modifiers(options)
+    if len(active) == len(options[ANIMA_ATTENTION_MODIFIERS]):
+        return args, kwargs
+    options = {**options, ANIMA_ATTENTION_MODIFIERS: active}
+    if kwargs.get("transformer_options") is not None:
+        return args, {**kwargs, "transformer_options": options}
+    return (*args[:5], options, *args[6:]), kwargs
+
+
 def _needs_eager_blocks(args, kwargs) -> bool:
     # NegPiP's mask arrives as a conditioning kwarg; its DiT hook moves it
     # into transformer_options only after the compiled blocks are in place.
     if kwargs.get("c_negpip_mask") is not None:
         return True
-    options = kwargs.get("transformer_options")
-    if options is None and len(args) > 5:
-        options = args[5]
+    options = _transformer_options(args, kwargs)
     return isinstance(options, dict) and any(options.get(key) is not None and options.get(key) != () for key in _EAGER_OPTION_KEYS)
 
 
@@ -85,6 +107,7 @@ class AnimaBlockCompileManager:
             blocks = getattr(diffusion_model, "blocks", None)
             if not isinstance(blocks, torch.nn.ModuleList) or not blocks:
                 return original_apply_model(*args, **kwargs)
+            args, kwargs = without_inactive_modifiers(args, kwargs)
             if needs_eager(args, kwargs, blocks):
                 return original_apply_model(*args, **kwargs)
 

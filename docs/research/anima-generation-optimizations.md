@@ -11,10 +11,12 @@
 本报告中进入移植队列的项目已按默认关闭、生成级隔离和明确互斥的原则集成到 `remi` 工作区：
 
 - NAG 通过 Anima 原生 attention modifier chain 接入，不覆盖 Regional、Artist Mixer 或 FreeFuse 的 wrapper；合成的 Regional/Artist context 与 NAG 隔离；低显存导致正负分支被拆分时，正向调用用该层 K/V 投影负向 prompt context 继续生效，只有无法取得负向 context 时才记录 inactive；
-- Momentum Guidance 在 flow velocity 空间维护每次生成独立的 EMA，限于单次评估的 Euler/Anima Flow Euler/FreeFuse Euler，FreeFuse probe 后会重置状态；
-- Anima per-block compile 作为现有 Compile 内置插件的互斥预设，调用期临时替换 block，并在 `finally` 中恢复；Windows 先预检 C++ 编译器，Dynamo/Inductor 懒编译失败则回退 eager；
-- FDG 作为实验 CFG controller，使用纯 PyTorch 两层频带分解，不增加 Kornia 硬依赖，并与 DCW/CNS 显式互斥；
-- CFG-Zero* 依论文独立实现为同一下拉框中的 CFG combine 模式（与 SMC/FDG 天然互斥，禁用 Momentum）：逐样本最优缩放 s* 在 Forge 的 `x - denoised = sigma * v` 残差上计算，可选 zero-init 前 N 步（默认 1）；
+- Momentum Guidance 在 flow velocity 空间维护每次生成独立的 EMA，按固定参考实现先对上一步 EMA 外推 `v + α·(v − m_prev)` 再更新 EMA（此前先更新 EMA 再外推，等效强度只有 α·β），限于单次评估的 Euler/Anima Flow Euler/FreeFuse Euler，FreeFuse probe 后会重置状态；
+- Anima per-block compile 作为现有 Compile 内置插件的互斥预设，调用期临时替换 block，并在 `finally` 中恢复；Windows 先预检 C++ 编译器，Dynamo/Inductor 懒编译失败则回退 eager；attention modifier 可提供 `active(transformer_options)`，NAG 在 sigma 窗口外会被从该次调用中剔除，因此只有窗口内的步骤回退 eager；
+- FDG 作为实验 CFG controller，使用纯 PyTorch 两层频带分解，不增加 Kornia 硬依赖，并与 DCW/CNS 显式互斥；低频段使用 CFG，`detail guidance` 是高频段的绝对 scale（同参考实现 `strength_high`），默认 `12`（原默认 `2` 低于 Anima 常用 CFG 4–5，反而削弱高频引导）；
+- CFG-Zero* 依论文独立实现为同一下拉框中的 CFG combine 模式（与 SMC/APG/FDG 天然互斥，禁用 Momentum）：逐样本最优缩放 s* 在 Forge 的 `x - denoised = sigma * v` 残差上计算，可选 zero-init 前 N 步（默认 1）；zero-init 作为最外层 CFG hook，能看到 active range 窗口外的步骤，且只在 pass 从纯噪声（调度最大 sigma）开始时生效，Hires/img2img pass 不会被置零；
+- APG（arXiv:2410.02416）作为同一下拉框中的 CFG combine 模式：按论文 Algorithm 1（亦见 Apache-2.0 的 diffusers `guiders/adaptive_projected_guidance.py`）在去噪预测 x0 空间计算，`eta` 加权平行分量、`norm threshold` 限制每个样本更新的 L2 范数、反向 momentum 通过 stateful guidance 注册表按 pass 重置；
+- SMC-CFG 的 switching gain 按样本计算（参考实现对整个 batch 求均值，batch 1 时等价），同 batch 图片不再互相影响；
 - Guidance Active Range 使用归一化采样进度映射当前 scheduler sigma；
 - 现有 PiD 后处理器修复了类级结果泄漏和多批次 prompt/seed 错位，并在 GUI 中明示 Hires 互斥与权重许可限制。
 
@@ -177,7 +179,8 @@ PPM 的 AttentionCouple 和 NegPiP 已分别被当前 Regional 与 NegPiP 覆盖
 
 这些论文有研究价值，但没有证据证明可直接套用当前 Anima，暂不进入移植队列：
 
-- [CFG-Zero*](https://arxiv.org/abs/2503.18886)：针对 flow matching 的早期 zero-init 和优化 guidance scale；在 Flux/SD3 等模型上有结果。**已实现**：依论文 Algorithm 1 独立编写（未复制无许可证的作者仓库），作为 `CFG-Zero*` CFG 模式加入 Anima Guidance。s* = ⟨v_cond, v_uncond⟩ / ‖v_uncond‖² 逐样本计算；由于 Anima 为 rectified flow，Forge CFG hook 的残差 `x - denoised` 等于 `sigma * v`，而 s* 对同一正比例因子不变，故直接在残差上组合（ComfyUI `CFGZeroStar` 是在 x0 空间的 post-CFG 近似，两者不完全等价）。zero-init 让前 N 个不同 sigma 的采样步输出零速度（`denoised = x`，latent 不变），PC3 辅助探测不计步。仍待 GPU 固定 seed 矩阵验证 Anima 上的收益。
+- [CFG-Zero*](https://arxiv.org/abs/2503.18886)：针对 flow matching 的早期 zero-init 和优化 guidance scale；在 Flux/SD3 等模型上有结果。**已实现**：依论文 Algorithm 1 独立编写（未复制无许可证的作者仓库），作为 `CFG-Zero*` CFG 模式加入 Anima Guidance。s* = ⟨v_cond, v_uncond⟩ / ‖v_uncond‖² 逐样本计算；由于 Anima 为 rectified flow，Forge CFG hook 的残差 `x - denoised` 等于 `sigma * v`，而 s* 对同一正比例因子不变，故直接在残差上组合（ComfyUI `CFGZeroStar` 是在 x0 空间的 post-CFG 近似，两者不完全等价）。zero-init 让从纯噪声开始的 pass 的前 N 个不同 sigma 的采样步输出零速度（`denoised = x`，latent 不变），PC3 辅助探测不计步；Hires/img2img pass 从调度中段开始，不做 zero-init。仍待 GPU 固定 seed 矩阵验证 Anima 上的收益。
+- [Adaptive Projected Guidance（APG）](https://arxiv.org/abs/2410.02416)：把 CFG 更新分解为平行/正交于条件去噪预测的分量，减弱平行分量以避免高 CFG 过饱和，并加入范数上限与反向 momentum。**已实现**为 `APG` CFG 模式：论文强调投影必须作用在去噪预测上才有效，因此直接使用 Forge 的 `cond_denoised`/`uncond_denoised`（Anima rectified flow 的 x0 预测），而不是 `sigma * v` 残差；组合式为论文的 `cond + (w − 1)·(Δ⊥ + η·Δ∥)`，`eta = 1`、无上限、无 momentum 时等于普通 CFG。CFG 1 时直接返回条件预测，不让 Forge 的零占位 uncond 进入 momentum。norm threshold 是整张 latent 的绝对 L2 范数，随分辨率变化，默认关闭；论文 SDXL 设置为 `eta 0`、`r 15`、`β −0.5`。仍待 GPU 固定 seed 矩阵验证。
 - [On the Guidance of Flow Matching](https://arxiv.org/abs/2502.02150)：给出一般 flow guidance 框架，更适合作为校验现有/未来引导算法的理论参考。
 - [Token Perturbation Guidance（TPG）论文](https://arxiv.org/abs/2506.10036)及其 [MIT 官方实现](https://github.com/TaatiTeam/Token-Perturbation-Guidance)：对中间 token 做保持范数的 shuffle，以原始/扰动预测之差产生 guidance。官方只验证 SDXL、SD2.1；Anima 需要选定 block、增加额外预测，并会与 Spectrum、FreeFuse、Modulation 共用 block/attention seam，只适合开发者研究开关。
 - [Perturbed Attention Guidance（PAG）论文](https://arxiv.org/abs/2403.17377)及 [Diffusers 官方管线](https://huggingface.co/docs/diffusers/api/pipelines/pag)：理论上可作用于 Anima self-attention，但没有 Anima 实证，会增加预测成本，并与 FreeFuse/Spectrum 的 attention/cache 路径高度敏感，优先级低于 NAG、MG、FDG。

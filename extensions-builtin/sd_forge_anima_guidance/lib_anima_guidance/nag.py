@@ -67,8 +67,10 @@ class NAGAttentionModifier:
         if self.on_unbatched is not None:
             self.on_unbatched()
 
-    def _active(self, transformer_options: dict) -> bool:
-        if transformer_options.get("anima_nag_skip"):
+    def active(self, transformer_options: dict) -> bool:
+        """Whether NAG changes this model call (see ``active_attention_modifiers``)."""
+
+        if self.scale == 0.0 or self.alpha == 0.0 or transformer_options.get("anima_nag_skip"):
             return False
         sigmas = transformer_options.get("sigmas")
         if sigmas is None:
@@ -92,7 +94,7 @@ class NAGAttentionModifier:
         is_self_attention: bool,
     ) -> torch.Tensor:
         base = next_attention(q, k, v, mask=mask)
-        if self.scale == 0.0 or self.alpha == 0.0 or is_self_attention or not self._active(transformer_options):
+        if is_self_attention or not self.active(transformer_options):
             return base
 
         markers = tuple(transformer_options.get("cond_or_uncond", ()))

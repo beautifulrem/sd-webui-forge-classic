@@ -16,6 +16,20 @@ ANIMA_ATTENTION_MODIFIERS = "anima_attention_modifiers"
 ANIMA_PROJECT_KV = "anima_project_kv"
 
 
+def active_attention_modifiers(transformer_options: dict[str, Any]) -> tuple:
+    """The modifiers that act on this model call.
+
+    A modifier may expose ``active(transformer_options) -> bool`` (e.g. NAG
+    outside its sigma window); one without it is always active.
+    """
+
+    return tuple(
+        modifier
+        for modifier in transformer_options.get(ANIMA_ATTENTION_MODIFIERS) or ()
+        if getattr(modifier, "active", None) is None or modifier.active(transformer_options)
+    )
+
+
 def run_anima_attention(
     q: torch.Tensor,
     k: torch.Tensor,

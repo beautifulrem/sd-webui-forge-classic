@@ -85,7 +85,7 @@ Turbo 的稳定性和默认风格更强，但多样性较低。不要把 Base/Ae
 
 - `Beta57` scheduler；
 - `Anima Flow Euler`、`Anima Flow UniPC2`、`Anima Flow PC3`；
-- Skimmed CFG、SMC-CFG、FDG、Guidance Active Range；
+- Skimmed CFG、SMC-CFG、CFG-Zero*、APG、FDG、Guidance Active Range；
 - NAG、Momentum Guidance、DCW、ER-SDE CNS、CLIP modulation；
 - Spectrum hidden-feature forecasting 与 SEA；
 - Dynamic Shift；
@@ -150,18 +150,19 @@ Base/Aesthetic 可先保守试 `scale 1.0–1.5`、`alpha 0.25–0.4`、`tau 2.5
 
 - NAG 需要正负条件在同一个 GPU batch 中。低显存导致 Forge 拆分分支时，它会明确记录为 inactive；
 - NAG 会强制真实的正负分支和 Spectrum actual forward，速度与显存开销都会增加；
+- torch.compile 只在 NAG 的 Start/End 窗口内回退 eager，窗口外的步骤仍使用编译后的 block；
 - 与 Regional/Artist Mixer 同时使用时，NAG 只引导基础 prompt 路径，合成的区域/画师 context 会保持隔离。
 
 ### Momentum Guidance
 
-用途：在 Euler flow 轨迹上利用历史速度 EMA，使跨步方向更平稳。它不增加模型前向，但会改变轨迹。
+用途：在 Euler flow 轨迹上利用历史速度 EMA，使跨步方向更平稳。每步按参考实现先以上一步的 EMA 外推 `v + strength·(v − EMA)`，再把本步并入 EMA。它不增加模型前向，但会改变轨迹。
 
 建议从代码默认值 `strength 0.5`、`EMA 0.6` 做固定 seed A/B；若风格被拉得太强，先把 strength 降到 `0.2–0.35`。
 
 硬限制：
 
 - 只支持 `Euler`、`Anima Flow Euler`、`Anima FreeFuse Euler`；
-- SMC-CFG 或 FDG 开启时自动禁用；
+- 选择任何非 Standard 的 CFG guidance mode（SMC-CFG、CFG-Zero*、APG、FDG）时自动禁用；
 - 不用于 UniPC2、PC3、Heun、DPM2 等含中间求值的采样器；
 - FreeFuse 的收集阶段结束后会重置 Momentum 状态。
 
@@ -184,13 +185,13 @@ Base/Aesthetic 可先保守试 `scale 1.0–1.5`、`alpha 0.25–0.4`、`tau 2.5
 
 起点：`alpha 0.1–0.2`、`lambda 3–5`；代码默认是 `0.2 / 5.0`。参数越高并不等于越好，出现轮廓僵硬或过强对比时先降低 alpha。
 
-SMC-CFG 会占用 CFG combine，并自动禁用 Momentum。不要同时选择 FDG；二者在同一个下拉框中本来就是互斥模式。
+SMC-CFG 会占用 CFG combine，并自动禁用 Momentum。不要同时选择 FDG；二者在同一个下拉框中本来就是互斥模式。switching gain 按每张图单独计算，同一 batch 中的图片互不影响。
 
 ### FDG (experimental)
 
-用途：把 guidance residual 分成低频结构和高频细节，并单独提高高频 guidance。它尚无 Anima GPU 量化结论。
+用途：把 guidance residual 分成低频结构和高频细节，并单独提高高频 guidance。低频使用主界面的 CFG，`detail guidance` 是高频段的绝对 guidance scale（与[参考实现](https://github.com/pamparamm/sd-perturbed-attention/blob/904319bff623b185f15047e231a446d615ee48c6/fdg_nodes.py)的 `strength_high` 相同）。它尚无 Anima GPU 量化结论。
 
-建议只做研究 A/B：先用 `detail guidance 1.5–2.0`，其余增强关闭。代码默认是 `2.0`。
+建议只做研究 A/B：保持 `detail guidance` 高于 CFG，否则反而削弱细节引导；代码默认沿用参考实现的 `12.0`，过锐时先降到 `6–9`，其余增强关闭。
 
 硬限制：
 
@@ -201,14 +202,26 @@ SMC-CFG 会占用 CFG combine，并自动禁用 Momentum。不要同时选择 FD
 
 ### CFG-Zero*
 
-用途：CFG-Zero*（arXiv:2503.18886）按样本求出无条件预测的最佳缩放 `s*`，再在 `cond - s*·uncond` 上施加 guidance；前 `zero-init steps` 步输出零速度（该步 latent 不变）。不增加前向次数，Base/Aesthetic、CFG 4–7 才有意义，Turbo CFG 1 下与普通 CFG 等价。
+用途：CFG-Zero*（arXiv:2503.18886）按样本求出无条件预测的最佳缩放 `s*`，再在 `cond - s*·uncond` 上施加 guidance；从纯噪声开始的 pass 前 `zero-init steps` 步输出零速度（该步 latent 不变）。Hires 与 img2img pass 从调度中段开始，不会被 zero-init；与 active range 同用时 zero-init 仍按整条调度的前几步计算。不增加前向次数，Base/Aesthetic、CFG 4–7 才有意义，Turbo CFG 1 下与普通 CFG 等价。
 
 建议：`zero-init steps` 保持默认 `1`；步数很少时设为 `0`。尚无 Anima GPU 量化结论，按研究 A/B 使用。
 
 硬限制：
 
-- 与 SMC-CFG、FDG 在同一个下拉框中互斥；
+- 与 SMC-CFG、APG、FDG 在同一个下拉框中互斥；
 - 自动禁用 Momentum；可与 DCW、CNS、Skimmed CFG 和 active range 共用。
+
+### APG
+
+用途：Adaptive Projected Guidance（[arXiv:2410.02416](https://arxiv.org/abs/2410.02416)）把 CFG 更新 `cond − uncond` 分解为平行于条件去噪预测的分量（主要造成过饱和）和正交分量，用 `eta` 减弱平行分量，并可加 L2 范数上限和反向 momentum。按论文在去噪预测（Forge 的 `cond_denoised`/`uncond_denoised`，即 x0）上计算，不增加前向次数。
+
+起点：`eta 0`、`momentum −0.5`（论文 SDXL 设置）、`norm threshold 0`（关闭）。norm threshold 是整张 latent 上的绝对 L2 范数，随分辨率增大，需要按固定 seed 从较大值往下试。`eta 1`、threshold `0`、momentum `0` 等于普通 CFG。尚无 Anima GPU 量化结论。
+
+硬限制：
+
+- 与 SMC-CFG、CFG-Zero*、FDG 在同一个下拉框中互斥；
+- 自动禁用 Momentum Guidance；可与 DCW、CNS、Skimmed CFG 和 active range 共用；
+- 每个 pass 重新开始 momentum，FreeFuse 收集阶段结束后也会重置。
 
 ### Limit CFG to a sampling range
 

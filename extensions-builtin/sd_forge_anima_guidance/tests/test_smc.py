@@ -39,6 +39,19 @@ class SMCCFGTests(unittest.TestCase):
         self.assertFalse(torch.equal(first, second))
         self.assertFalse(torch.equal(second, fresh))
 
+    def test_each_image_correction_is_independent_of_the_batch(self):
+        torch.manual_seed(45)
+        cond, uncond = torch.randn(2, 4, 1, 8, 8), torch.randn(2, 4, 1, 8, 8)
+        # A second image with a much larger residual must not change the first.
+        cond[1] = cond[1] * 50.0
+        batched = SMCCFGState(alpha=0.2).combine(cond, uncond, 4.0)
+        alone = SMCCFGState(alpha=0.2).combine(cond[:1], uncond[:1], 4.0)
+        self.assertTrue(torch.allclose(batched[:1], alone, atol=1e-5))
+        # First step: surface = lam * e, so the gain is alpha * mean|e| per image.
+        e = cond[:1] - uncond[:1]
+        expected = uncond[:1] + 4.0 * (e - 0.2 * e.abs().mean() * torch.sign(e))
+        self.assertTrue(torch.allclose(alone, expected, atol=1e-5))
+
     def test_auxiliary_combine_does_not_advance_history(self):
         state = SMCCFGState(alpha=0.2, lam=5.0)
         uncond = torch.zeros(1, 1, 2, 2)

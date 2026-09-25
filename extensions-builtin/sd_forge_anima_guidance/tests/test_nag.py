@@ -78,8 +78,39 @@ class NAGTests(unittest.TestCase):
             fake_attention, self.q, self.k, self.v, mask=mask,
             transformer_options=self.options, is_self_attention=False,
         )
-        self.assertTrue(torch.isfinite(actual).all())
-        self.assertEqual(actual.shape, (2, 2, 1))
+        # Hand computation with fake_attention (q = 0): a row's output is the
+        # mean of its k plus the mean of its mask row.
+        positive = 3.0 + 10.0  # positive k, positive mask
+        negative = 1.0 + 2.0  # negative k with the negative row's mask
+        guided = positive + 1.0 * (positive - negative)  # tau 100 does not clamp
+        expected = torch.tensor([[[guided], [guided]], [[negative], [negative]]])
+        self.assertTrue(torch.allclose(actual, expected))
+
+    def test_blend_matches_nag_formula_with_tau_clamp_and_alpha(self):
+        # NAG: z = z+ + s (z+ - z-), rescaled to at most tau x ||z+||_1,
+        # then lerped with z+ by alpha.
+        modifier = NAGAttentionModifier(scale=2.0, tau=1.5, alpha=0.25, sigma_start=0.0, sigma_end=1.0)
+        q = torch.zeros(2, 1, 1, 2)
+        k = torch.tensor([[[[1.0, 2.0]]], [[[3.0, -1.0]]]])
+
+        def attention(q, k, v, *, mask=None):
+            return k.flatten(2)
+
+        actual = modifier(attention, q, k, torch.zeros_like(k), transformer_options=self.options, is_self_attention=False)
+        z_pos, z_neg = torch.tensor([1.0, 2.0]), torch.tensor([3.0, -1.0])
+        guided = z_pos + 2.0 * (z_pos - z_neg)  # (-3, 8): L1 11 vs 3 -> ratio 11/3 > 1.5
+        normalized = guided * (1.5 / (11.0 / 3.0))
+        expected_positive = z_pos + 0.25 * (normalized - z_pos)
+        self.assertTrue(torch.allclose(actual[0, 0], expected_positive))
+        self.assertTrue(torch.equal(actual[1, 0], z_neg))
+
+    def test_active_follows_the_sigma_window(self):
+        modifier = NAGAttentionModifier(scale=2.0, tau=2.5, alpha=0.5, sigma_start=0.0, sigma_end=0.4)
+        self.assertFalse(modifier.active({"sigmas": torch.tensor([0.5])}))
+        self.assertTrue(modifier.active({"sigmas": torch.tensor([0.3])}))
+        self.assertFalse(modifier.active({"sigmas": torch.tensor([0.3]), "anima_nag_skip": "regional_context"}))
+        idle = NAGAttentionModifier(scale=0.0, tau=2.5, alpha=0.5, sigma_start=0.0, sigma_end=1.0)
+        self.assertFalse(idle.active({"sigmas": torch.tensor([0.3])}))
 
     def test_reports_once_when_cfg_branches_are_not_batched(self):
         reports = []
