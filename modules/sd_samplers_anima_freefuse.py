@@ -84,7 +84,7 @@ def sample_anima_freefuse_euler(
             denoised = model(probe, sigma * s_in, **extra_args)
             probe = probe + to_d(probe, sigma, denoised) * (sigmas[index + 1] - sigma)
         runtime.finish_collection()
-    except Exception:
+    except BaseException:  # also Forge's InterruptedException (Interrupt / Skip)
         runtime.abort()
         raise
 
@@ -113,7 +113,7 @@ def sample_anima_freefuse_euler(
             result = result + to_d(result, sigma, denoised) * (
                 sigmas[index + 1] - sigma
             )
-    except Exception:
+    except BaseException:
         runtime.abort()
         raise
     runtime.complete()
