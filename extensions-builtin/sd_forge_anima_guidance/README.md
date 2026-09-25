@@ -1,0 +1,95 @@
+# Anima Guidance & Corrections
+
+Built-in Forge Neo controls for inference-time Anima guidance and correction
+techniques. It includes **Skimmed CFG**, an anti-burn transform that limits
+only CFG values identified as harmful, and **SMC-CFG**, an alpha-adaptive
+sliding-mode controller operating in Anima's velocity space.
+
+The panel is available in txt2img and img2img. It is inert for non-Anima
+models, patches a cloned model for one generation, preserves an existing Forge
+CFG function by wrapping it, and records active settings in generation info.
+
+## Skimmed CFG
+
+- `Skimming fallback CFG`: effective CFG used only for flagged values.
+- `Full skim negative`: more strongly limits flagged negative-prompt values.
+- `Disable flipping filter`: aggressive mode which disables the sign-flip
+  safety predicate.
+- Start/end/flip controls constrain the effect to a denoising interval.
+
+The numerical predicates are adapted from
+[Extraltodeus/Skimmed_CFG](https://github.com/Extraltodeus/Skimmed_CFG),
+licensed under Apache-2.0. Modifications include a non-mutating numerical API,
+Forge's residual-return CFG contract, existing-CFG-function composition, and
+Anima-only lifecycle/UI integration. This derivative is distributed as part
+of Forge Neo under the repository's AGPL-3.0 license; the upstream copyright
+and Apache-2.0 notice are preserved here.
+
+## SMC-CFG
+
+SMC-CFG replaces the normal CFG combine with an adaptive sliding-mode
+controller. The implementation converts Forge's denoised predictions to
+velocity space, applies the controller, and returns the residual required by
+Forge's CFG contract. `alpha=0.2` and `lambda=5.0` match the current Anima
+defaults from
+[ComfyUI-Spectrum-KSampler](https://github.com/sorryhyun/ComfyUI-Spectrum-KSampler).
+
+SMC-CFG and another CFG-combine replacement cannot both own the same hook. If
+SMC-CFG is explicitly selected, it replaces an existing CFG function and the
+replacement is recorded in generation metadata. Skimmed CFG remains
+composable and is applied to the cond/uncond predictions before SMC-CFG.
+
+## DCW
+
+DCW applies the previous step's SNR-t bias correction to the mutable sampler
+latent before the next denoiser evaluation. A post-CFG hook captures the prior
+denoised prediction; Forge's pre-denoiser callback applies the correction only
+when sigma advances, matching the upstream CALC_COND_BATCH timing without
+monkeypatching the sampler.
+
+The Anima default is `lambda=-0.015`, `one_minus_sigma`, and Haar `LL` only.
+Other schedules and frequency-band masks are exposed in the GUI. DCW is a
+post-step correction and composes with Standard CFG, SMC-CFG, and Skimmed CFG.
+
+## Anima ER SDE CNS
+
+`Anima ER SDE CNS` is a dedicated sampler entry which keeps Forge's ER-SDE
+solver math and recolors only the stochastic noise draw at each step. The
+recolorer redistributes a fixed variance budget across radial frequency bands
+using the Anima-calibrated gamma matrix and RMS-normalizes every channel.
+
+The GUI strength blends stock white noise with calibrated colored noise. CNS
+does not affect Flow Euler, Flow UniPC2, or Flow PC3 because those ODE paths do
+not contain ER-SDE's stochastic-noise seam. The pinned 6 KiB calibration file
+is downloaded on first use over HTTPS, limited to 1 MiB, and verified against a
+hard-coded SHA-256 before loading.
+
+## Flow corrective sampler controls
+
+The panel exposes the upstream parameters used by Forge's native `Anima Flow
+UniPC2` and `Anima Flow PC3` paths. UniPC supports `bh1`/`bh2`, suppression of
+early correctors, and optional per-sample dynamic thresholding. PC3 exposes
+its maximum correction gamma and error tolerance. The defaults preserve the
+conservative Diffusers-grid profiles; controls are written to generation
+metadata only when their corresponding sampler is active.
+
+## CLIP modulation guidance
+
+The optional modulation path supplies the global CLIP-L conditioning that the
+base Anima/Cosmos architecture was trained without. Conditional rows receive
+`CLIP(base) + w * (CLIP(direction+) - CLIP(direction-))`; unconditional CFG
+rows receive their own negative-prompt CLIP embedding without the direction.
+The projected vector is multiplied by the learned per-block adapter scale and
+added to each selected block's AdaLN-LoRA input. The final layer keeps the
+native, unmodified timestep embedding.
+
+Automatic mode downloads revision-pinned, SHA-256-verified weights only when
+the control is enabled. Adapter `.pt` files are loaded with PyTorch
+`weights_only=True`; CLIP uses a safetensors file and Forge's bundled FLUX
+CLIP-L config/tokenizer. The large adapter projection runs once on CPU, and
+only the small projected vectors and per-block scale rows are used during
+sampling.
+
+Spectrum composition is explicit: modulation runs around Spectrum, while
+Spectrum forecasts features learned from actual modulated blocks. Hires passes
+strip and rebuild both pass-scoped wrappers instead of nesting stale states.
