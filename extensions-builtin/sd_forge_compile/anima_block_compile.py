@@ -20,21 +20,25 @@ _FALLBACK_REASON_KEY = "_forge_anima_block_compile_fallback_reason"
 # Per-generation transformer_options entries the blocks act on. The compile
 # config drops guards on transformer_options (they change every step), so a
 # graph traced without these would silently keep ignoring them: calls that
-# carry any run the eager blocks instead.
-_EAGER_OPTION_KEYS = (ANIMA_ATTENTION_MODIFIERS, NEGPIP_MASK_KEY, NEGPIP_CONTEXT_MASK_KEY)
+# carry any run the eager blocks instead. That includes an attention override
+# (Sparse Attention): it reads the per-block ``block_index``, which a graph
+# would bake in from the block it was traced on.
+_EAGER_OPTION_KEYS = (ANIMA_ATTENTION_MODIFIERS, NEGPIP_MASK_KEY, NEGPIP_CONTEXT_MASK_KEY, "optimized_attention_override")
 
 
-def patched_inside(module_ids) -> bool:
+def patched_inside(root) -> bool:
     """True while a forward override (Regional, FreeFuse, Artist Mixer,
-    NegPiP...) is installed on any module whose id is in ``module_ids``:
-    compiled graphs traced without it would ignore or keep recompiling it."""
+    NegPiP...) is installed on ``root`` or any module inside it: compiled
+    graphs traced without it would ignore or keep recompiling it."""
     from modules.forward_override import overridden_modules
 
-    return any(id(module) in module_ids for module in overridden_modules())
+    overridden = {id(module) for module in overridden_modules()}
+    # Usually nothing is overridden: skip walking the (~850) submodules.
+    return bool(overridden) and any(id(module) in overridden for module in root.modules())
 
 
-def needs_eager(args, kwargs, module_ids) -> bool:
-    return _needs_eager_blocks(args, kwargs) or patched_inside(module_ids)
+def needs_eager(args, kwargs, root) -> bool:
+    return _needs_eager_blocks(args, kwargs) or patched_inside(root)
 
 
 def _needs_eager_blocks(args, kwargs) -> bool:
@@ -81,8 +85,7 @@ class AnimaBlockCompileManager:
             blocks = getattr(diffusion_model, "blocks", None)
             if not isinstance(blocks, torch.nn.ModuleList) or not blocks:
                 return original_apply_model(*args, **kwargs)
-            block_ids = {id(module) for block in blocks for module in block.modules()}
-            if needs_eager(args, kwargs, block_ids):
+            if needs_eager(args, kwargs, blocks):
                 return original_apply_model(*args, **kwargs)
 
             compiled = getattr(kmodel, _COMPILED_BLOCKS_KEY, None)

@@ -187,8 +187,7 @@ class TorchCompileForForge(scripts.Script):
             orig_model = get_attr(kmodel, "diffusion_model")
             # The guard filter drops guards on transformer_options: calls with
             # per-generation attention options or patched modules run eager.
-            model_ids = {id(module) for module in orig_model.modules()}
-            if needs_eager(args, kwargs, model_ids):
+            if needs_eager(args, kwargs, orig_model):
                 return original_apply_model(*args, **kwargs)
 
             if not hasattr(kmodel, "_forge_compiled_model"):
