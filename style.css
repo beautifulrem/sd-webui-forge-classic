@@ -224,6 +224,11 @@ input[type="checkbox"].input-accordion-checkbox {
     margin-right: 0.5em;
 }
 
+.input-accordion-disabled > .label-wrap .input-accordion-checkbox {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
 /* txt2img/img2img specific */
 
 .block.token-counter {

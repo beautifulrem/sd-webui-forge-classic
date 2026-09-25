@@ -19,7 +19,7 @@ function setupAccordion(accordion) {
         mutations.forEach(function (mutationRecord) {
             accordion.classList.toggle("input-accordion-open", isOpen());
 
-            if (linked) {
+            if (linked && !gradioCheckbox.disabled) {
                 accordion.visibleCheckbox.checked = isOpen();
                 accordion.onVisibleCheckboxChange();
             }
@@ -49,6 +49,13 @@ function setupAccordion(accordion) {
 
     accordion.visibleCheckbox = visibleCheckbox;
     accordion.onVisibleCheckboxChange = function () {
+        if (gradioCheckbox.disabled) {
+            visibleCheckbox.checked = gradioCheckbox.checked;
+            if (isOpen() != visibleCheckbox.checked) {
+                labelWrap.click();
+            }
+            return;
+        }
         if (linked && isOpen() != visibleCheckbox.checked) {
             labelWrap.click();
         }
@@ -62,6 +69,16 @@ function setupAccordion(accordion) {
         event.stopPropagation();
     });
     visibleCheckbox.addEventListener("input", accordion.onVisibleCheckboxChange);
+
+    let syncDisabled = function () {
+        visibleCheckbox.disabled = gradioCheckbox.disabled;
+        accordion.classList.toggle("input-accordion-disabled", gradioCheckbox.disabled);
+    };
+    new MutationObserver(syncDisabled).observe(gradioCheckbox, {
+        attributes: true,
+        attributeFilter: ["disabled"],
+    });
+    syncDisabled();
 }
 
 onUiLoaded(function () {
