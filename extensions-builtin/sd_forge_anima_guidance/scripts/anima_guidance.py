@@ -909,11 +909,12 @@ class AnimaGuidanceScript(scripts.Script):
                 bands=parse_band_mask(str(dcw_bands)),
             )
             p._anima_dcw_state = dcw_state
+            # DCW only reads the final (post-CFG) prediction, so at CFG 1 it
+            # does not need the unconditional pass Forge otherwise skips.
             unet.set_model_sampler_post_cfg_function(
                 lambda hook_args: _capture_dcw_denoised(
                     p, dcw_state, hook_args["denoised"]
                 ),
-                disable_cfg1_optimization=True,
             )
             p.extra_generation_params["Anima DCW"] = True
             p.extra_generation_params["Anima DCW lambda"] = float(dcw_lambda)
