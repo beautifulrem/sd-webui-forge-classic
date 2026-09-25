@@ -8,7 +8,7 @@ from pathlib import Path
 import gradio as gr
 
 from modules import script_callbacks, scripts, shared
-from modules.anima_lora_support import merge_consistent_rules
+from modules.anima_lora_support import anima_lora_block_count, anima_source_block, merge_consistent_rules
 from modules.anima_presets import register_preset_control
 
 
@@ -174,7 +174,7 @@ USAGE_TEXT = """使用方式:
 10. 可以直接在提示词权重位置写 block 分层，例如 <lora:灵魂潮汐:0-7=0.6;8-20=1.0;21-27=0.8>。
 11. 也可以在提示词里同时写 block 和模块权重，例如 <lora:灵魂潮汐:blocks=0-9=0.8,10-18=1.0,19-27=0.7;modules=self_attn=1.0,mlp=0.8,cross_attn=0.6>。
 12. 使用提示词内联分层时，该文件会跳过对应选项卡里的 blocks 和模块设置，只使用提示词内写的 block/模块权重；Qwen 仍只读取插件面板设置。
-13. 内联 block 分层也支持直接写 28 个数字，例如 <lora:灵魂潮汐:1,1,0.9,0.9,0.8,...>，顺序对应 blocks 0 到 27。
+13. 内联 block 分层也支持直接写 28 个数字，例如 <lora:灵魂潮汐:1,1,0.9,0.9,0.8,...>，顺序对应 blocks 0 到 27。在 40/52 层的扩展模型（Anima 2.9B/3.8B）上使用 28 层 LoRA 时，block 编号仍按 LoRA 自己的 28 层计算，插入的复制层跟随其来源层。
 14. 可以在预设列表里写多行命名预设，例如 平衡=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,mlp=0.8;qwen=0-5=1.0。
 15. 点击“应用预设到提示词”会把当前页正向提示词中命中的 LoRA/LoKR 权重替换成该预设的 blocks/modules 内联分层语法。
 16. 预设应用范围选择“提示词里的全部同类型”时，会替换提示词里所有同类型的 Anima LoRA/LoKR；选择“仅目标列表”时，只替换目标框里填入的 LoRA/LoKR。
@@ -192,7 +192,7 @@ USAGE_TEXT_EN = """Usage:
 10. You can write inline block weights in the prompt, for example <lora:name:0-7=0.6;8-20=1.0;21-27=0.8>.
 11. Inline syntax can also combine blocks and modules, for example <lora:name:blocks=0-9=0.8,10-18=1.0,19-27=0.7;modules=self_attn=1.0,mlp=0.8,cross_attn=0.6>.
 12. Inline block/module weights override the corresponding tab settings for that file. Qwen weights still come from the panel.
-13. Inline block weights also support 28 comma-separated numbers in block order from 0 to 27.
+13. Inline block weights also support 28 comma-separated numbers in block order from 0 to 27. On depth-expanded models (Anima 2.9B/3.8B) a 28-block LoRA keeps its own block numbering; inserted copies follow the block they were copied from.
 14. Presets can be written one per line, for example Balanced=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,mlp=0.8;qwen=0-5=1.0.
 15. "Apply preset to prompt" replaces matching LoRA/LoKR prompt weights with the preset's inline blocks/modules syntax.
 16. The apply scope can affect all matching adapters in the prompt, or only the adapters listed in the target field.
@@ -252,6 +252,7 @@ class LoraDecision:
     module_weights: dict[str, float]
     text_layer_weights: LayerWeights
     source: str
+    lora_blocks: int | None = None
 
 
 class AdapterRule:
@@ -314,7 +315,7 @@ class AdapterRule:
         coverage = _lora_coverage(filename, self.adapter_kind)
         text_layer_weights = _filter_layer_weights(self.text_layer_weights, coverage.text_layers) if self.text_layer_enabled else LayerWeights()
         if inline_rule is not None:
-            return LoraDecision(True, _filter_layer_weights(inline_rule.block_weights, coverage.blocks), _filter_module_weights(inline_rule.module_weights, coverage.modules), text_layer_weights, "prompt")
+            return LoraDecision(True, _filter_layer_weights(inline_rule.block_weights, coverage.blocks), _filter_module_weights(inline_rule.module_weights, coverage.modules), text_layer_weights, "prompt", anima_lora_block_count(coverage.blocks))
 
         if self.target_mode == "targets":
             if not self.targets or not any(name in self.targets for name in names):
@@ -327,7 +328,7 @@ class AdapterRule:
                 return LoraDecision(False, self.block_weights, self.module_weights, self.text_layer_weights, "not-target")
         elif not _is_anima_adapter_file(filename, self.adapter_kind):
             return LoraDecision(False, self.block_weights, self.module_weights, self.text_layer_weights, "not-anima")
-        return LoraDecision(True, _filter_layer_weights(self.block_weights, coverage.blocks), _filter_module_weights(self.module_weights, coverage.modules), text_layer_weights, "global")
+        return LoraDecision(True, _filter_layer_weights(self.block_weights, coverage.blocks), _filter_module_weights(self.module_weights, coverage.modules), text_layer_weights, "global", anima_lora_block_count(coverage.blocks))
 
 
 class ActiveRule:
@@ -370,7 +371,7 @@ class ActiveRule:
             return LoraDecision(False, LayerWeights(), {}, LayerWeights(), "not-supported-type")
         return rule.decision_for_lora(filename)
 
-    def factor_for_key(self, model_key, decision: LoraDecision) -> float:
+    def factor_for_key(self, model_key, decision: LoraDecision, model_blocks: int | None = None) -> float:
         key = _model_key(model_key)
         if not key:
             return 1.0
@@ -383,6 +384,7 @@ class ActiveRule:
 
         block_index = _block_index_from_key(key)
         if block_index is not None:
+            block_index = anima_source_block(block_index, decision.lora_blocks, model_blocks)
             factor *= decision.block_weights.factor(block_index)
             factor *= _module_factor(key, decision.module_weights)
 
@@ -1145,10 +1147,12 @@ def install_patch():
         # Delegate patch construction to the live Forge implementation. This
         # keeps Forge Neo's offline/online patch storage intact and composes
         # with the stage scheduler regardless of extension load order.
+        blocks = getattr(getattr(getattr(self, "model", None), "diffusion_model", None), "blocks", None)
+        model_blocks = len(blocks) if blocks is not None else None
         loaded = set()
         for patch_key, patch_value in patches.items():
             model_key = patch_key if isinstance(patch_key, str) else patch_key[0]
-            key_strength = rule.factor_for_key(model_key, decision)
+            key_strength = rule.factor_for_key(model_key, decision, model_blocks)
             loaded.update(
                 _ORIGINAL_ADD_PATCHES(
                     self,

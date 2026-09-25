@@ -33,3 +33,36 @@ def merge_consistent_rules(target: dict, incoming: dict, *, label: str) -> None:
                 "generate those prompts in separate batches"
             )
         target[key] = rule
+
+
+# Block layouts of the depth-expanded Anima models (2B = 28 blocks, 2.9B = 40,
+# 3.8B = 52): each entry is the source block a target block was copied from.
+# Kept identical to sd_forge_lora.networks.process_anima, which re-maps the
+# LoRA weights themselves.
+ANIMA_BLOCK_MAPPINGS = {
+    (28, 40): (0, 1, 1, 2, 3, 3, 4, 5, 5, 6, 7, 7, 8, 9, 9, 10, 11, 11, 12, 13, 14, 14, 15, 16, 16, 17, 18, 18, 19, 20, 20, 21, 22, 22, 23, 24, 24, 25, 26, 27),
+    (28, 52): (0, 1, 1, 1, 2, 3, 3, 3, 4, 5, 5, 5, 6, 7, 7, 7, 8, 9, 9, 9, 10, 11, 11, 11, 12, 13, 14, 14, 14, 15, 16, 16, 16, 17, 18, 18, 18, 19, 20, 20, 20, 21, 22, 22, 22, 23, 24, 24, 24, 25, 26, 27),
+    (40, 52): (0, 1, 2, 2, 3, 4, 5, 5, 6, 7, 8, 8, 9, 10, 11, 11, 12, 13, 14, 14, 15, 16, 17, 17, 18, 19, 20, 20, 21, 22, 23, 23, 24, 25, 26, 26, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 35, 35, 36, 37, 38, 39),
+}
+
+
+def anima_lora_block_count(trained_blocks) -> int | None:
+    """The Anima depth a LoRA was trained for, from its block indices."""
+
+    if not trained_blocks:
+        return None
+    needed = max(trained_blocks) + 1
+    return next((size for size in (28, 40, 52) if needed <= size), None)
+
+
+def anima_source_block(index: int, lora_blocks: int | None, model_blocks: int | None) -> int:
+    """The LoRA's own block index behind model block ``index``.
+
+    A 2B LoRA on a depth-expanded model is copied onto the inserted blocks,
+    so per-block weights written for the LoRA's layout must follow it.
+    """
+
+    mapping = ANIMA_BLOCK_MAPPINGS.get((lora_blocks, model_blocks))
+    if mapping is None or not 0 <= index < len(mapping):
+        return index
+    return mapping[index]

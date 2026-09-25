@@ -3,7 +3,10 @@ from types import SimpleNamespace
 import pytest
 
 from modules.anima_lora_support import (
+    ANIMA_BLOCK_MAPPINGS,
     active_template_parts,
+    anima_lora_block_count,
+    anima_source_block,
     current_sampling_position,
     merge_consistent_rules,
 )
@@ -57,3 +60,33 @@ def test_conflicting_inline_rules_in_one_batch_are_rejected():
             {"portrait": (1.0, 0.5)},
             label="Anima adapter",
         )
+
+
+def test_block_mappings_match_the_lora_loader():
+    import ast
+    import pathlib
+
+    source = pathlib.Path("extensions-builtin/sd_forge_lora/networks.py").read_text(encoding="utf-8")
+    tables = {
+        node.targets[0].id: tuple(ast.literal_eval(node.value))
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "").startswith("MAPPING_")
+    }
+    assert tables == {
+        "MAPPING_2_TO_29": ANIMA_BLOCK_MAPPINGS[(28, 40)],
+        "MAPPING_2_TO_38": ANIMA_BLOCK_MAPPINGS[(28, 52)],
+        "MAPPING_29_TO_38": ANIMA_BLOCK_MAPPINGS[(40, 52)],
+    }
+    for (src, dst), mapping in ANIMA_BLOCK_MAPPINGS.items():
+        assert len(mapping) == dst and set(mapping) == set(range(src))
+
+
+def test_layer_weights_follow_the_lora_layout_on_expanded_models():
+    assert anima_lora_block_count({0, 5, 27}) == 28
+    assert anima_lora_block_count({39}) == 40
+    assert anima_lora_block_count(set()) is None
+    # Anima-2.9B inserts copies of blocks 1 and 3 at 2 and 5; the last block
+    # of the 2B layout ends up last.
+    assert [anima_source_block(i, 28, 40) for i in (2, 3, 5, 39)] == [1, 2, 3, 27]
+    assert anima_source_block(30, 40, 40) == 30
+    assert anima_source_block(30, 28, None) == 30
