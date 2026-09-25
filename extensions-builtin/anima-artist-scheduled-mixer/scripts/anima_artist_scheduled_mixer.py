@@ -16,7 +16,7 @@ from modules import script_callbacks, scripts, sd_models, shared, spectrum_force
 from modules.anima_feature_conflicts import register_exclusive_component
 from modules.anima_lora_support import stage_window
 from modules.anima_presets import register_preset_control
-from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, negpip_mask_for, register_negpip_prompts, split_conditioning
+from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, call_model_wrapper, negpip_mask_for, register_negpip_prompts, split_conditioning
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
@@ -1886,15 +1886,11 @@ def _install_model_wrapper(unet, dm, state):
         if _ACTIVE_STATE is not state:
             # A wrapper that outlived its run (e.g. on a clone taken before
             # cleanup) must not re-patch the blocks with stale artists.
-            if existing is not None:
-                return existing(apply_model, args)
-            return apply_model(args.get("input"), args.get("timestep"), **args.get("c", {}))
+            return call_model_wrapper(existing, apply_model, args)
         state.wrapper_checks += 1
         if not _PATCHED_MODULES:
             _install_cross_attn_patch_no_unpatch(dm, state)
-        if existing is not None:
-            return existing(apply_model, args)
-        return apply_model(args.get("input"), args.get("timestep"), **args.get("c", {}))
+        return call_model_wrapper(existing, apply_model, args)
 
     model_wrapper._anima_artist_mixer_model_wrapper = True
     options["model_function_wrapper"] = model_wrapper

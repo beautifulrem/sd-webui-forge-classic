@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 import torch
 
 from modules import spectrum_force
-from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows
+from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows, call_model_wrapper
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
@@ -172,7 +172,7 @@ def apply_regional_patch(model, state: RegionalState):
     def wrapper(model_function, args):
         sigma = float(args["timestep"].flatten()[0].item())
         if not state.active(sigma):
-            return previous(model_function, args) if previous is not None else model_function(args["input"], args["timestep"], **args["c"])
+            return call_model_wrapper(previous, model_function, args)
         with _PATCH_LOCK:
             state.prepare_masks(args["input"], dit)
             originals = []
@@ -181,7 +181,7 @@ def apply_regional_patch(model, state: RegionalState):
                     module = dit.blocks[index].cross_attn
                     forward = _make_cross_attention_wrapper(module.forward, state, index)
                     originals.append((module, forward, install_forward_override(module, forward)))
-                return previous(model_function, args) if previous is not None else model_function(args["input"], args["timestep"], **args["c"])
+                return call_model_wrapper(previous, model_function, args)
             finally:
                 for module, forward, restore_token in reversed(originals):
                     restore_forward_override(module, forward, restore_token)

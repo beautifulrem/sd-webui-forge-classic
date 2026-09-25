@@ -19,7 +19,7 @@ import torch
 
 from lib_spectrum.sea import SeaCalibration, l1rel, sea_filter
 from modules import spectrum_force
-from modules.anima_support import is_anima_auxiliary_denoiser, process_ref
+from modules.anima_support import call_model_wrapper, is_anima_auxiliary_denoiser, process_ref
 
 logger = logging.getLogger("Spectrum")
 
@@ -376,9 +376,7 @@ class SpectrumNode:
         process = process_ref(process)
 
         def actual_forward(model_function, args):
-            if old_wrapper is not None:
-                return old_wrapper(model_function, args)
-            return model_function(args["input"], args["timestep"], **args["c"])
+            return call_model_wrapper(old_wrapper, model_function, args)
 
         def wrapper(model_function, args):
             if is_anima_auxiliary_denoiser(process):

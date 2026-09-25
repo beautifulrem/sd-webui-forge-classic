@@ -18,6 +18,7 @@ import torch.nn.functional as F
 from safetensors.torch import load_file
 
 from modules.anima_artifacts import ensure_pinned_download, file_version
+from modules.anima_support import call_model_wrapper
 
 logger = logging.getLogger("AnimaGuidance")
 
@@ -274,14 +275,14 @@ class ModulationPatch:
             input_x = args["input"]
             if not branches or input_x.shape[0] % len(branches) != 0:
                 logger.warning("Anima modulation skipped a non-divisible conditioning batch.")
-                return previous(model_function, args) if previous is not None else model_function(input_x, args["timestep"], **args["c"])
+                return call_model_wrapper(previous, model_function, args)
             chunk = input_x.shape[0] // len(branches)
             positive, negative, scales = vectors_for(input_x)
             pooled = torch.cat([_expand_rows(positive if branch == 0 else negative, chunk) for branch in branches], dim=0)
             try:
                 for index in range(start, end + 1):
                     dit.blocks[index]._forge_anima_modulation_local.delta = (pooled * scales[index]).unsqueeze(1)
-                return previous(model_function, args) if previous is not None else model_function(input_x, args["timestep"], **args["c"])
+                return call_model_wrapper(previous, model_function, args)
             finally:
                 for index in range(start, end + 1):
                     dit.blocks[index]._forge_anima_modulation_local.delta = None

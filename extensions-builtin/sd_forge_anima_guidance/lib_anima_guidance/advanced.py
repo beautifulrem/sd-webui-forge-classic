@@ -8,6 +8,7 @@ import torch
 import torch.nn.functional as F
 
 from modules.anima_support import is_anima_auxiliary_denoiser
+from modules.spectrum_force import in_sigma_window
 
 
 def sigma_value(value) -> float:
@@ -43,8 +44,8 @@ def make_guidance_range_cfg_function(
 
     @torch.no_grad()
     def cfg_function(args):
-        sigma = sigma_value(args.get("sigma", args.get("timestep")))
-        if low <= sigma <= high:
+        # Same window test as the uncond skip below (and NAG / Skim / Regional)
+        if in_sigma_window(sigma_value(args.get("sigma", args.get("timestep"))), low, high):
             if previous_cfg_function is not None:
                 return previous_cfg_function(args)
             return standard_cfg_residual(args)
@@ -72,7 +73,7 @@ def make_guidance_range_uncond_skip(cfg_function: Callable):
     def pre_cfg_function(model, cond, uncond, x, timestep, model_options):
         if (
             uncond is not None
-            and not low <= sigma_value(timestep) <= high
+            and not in_sigma_window(sigma_value(timestep), low, high)
             and model_options.get("sampler_cfg_function") is cfg_function
             and all(
                 getattr(fn, IGNORES_UNCOND, False)

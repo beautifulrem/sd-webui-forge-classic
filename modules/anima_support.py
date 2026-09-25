@@ -209,3 +209,12 @@ def branch_rows(markers, batch: int, mark: int = 0) -> list[int] | None:
         return None
     group = batch // len(markers)
     return [index * group + row for index, value in enumerate(markers) if value == mark for row in range(group)]
+
+
+def call_model_wrapper(previous, model_function, args):
+    """Run the ``model_function_wrapper`` a wrapper replaced, or the model
+    itself when there was none."""
+
+    if previous is not None:
+        return previous(model_function, args)
+    return model_function(args["input"], args["timestep"], **args["c"])

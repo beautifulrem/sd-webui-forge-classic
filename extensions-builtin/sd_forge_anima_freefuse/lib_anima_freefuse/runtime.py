@@ -16,7 +16,7 @@ from backend.operations import main_stream_worker, weights_manual_cast
 from backend.patcher.base import LowVramPatch, OnlineLoRAPatch
 from backend.patcher.lora import merge_lora_to_weight
 from modules import spectrum_force
-from modules.anima_support import branch_rows, negpip_mask_for
+from modules.anima_support import branch_rows, call_model_wrapper, negpip_mask_for
 from modules.forward_override import install_forward_override, restore_forward_override
 from .masks import fit_mask_batch, generate_masks
 
@@ -605,11 +605,7 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
                 options = dict(adjusted["c"].get("transformer_options", {}))
                 options["anima_freefuse_phase"] = state.phase
                 adjusted["c"]["transformer_options"] = options
-                if previous is not None:
-                    return previous(model_function, adjusted)
-                return model_function(
-                    adjusted["input"], adjusted["timestep"], **adjusted["c"]
-                )
+                return call_model_wrapper(previous, model_function, adjusted)
             finally:
                 for module, forward, restore_token in reversed(originals):
                     restore_forward_override(module, forward, restore_token)
