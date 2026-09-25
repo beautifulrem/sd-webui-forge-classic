@@ -68,5 +68,36 @@ class NAGTests(unittest.TestCase):
         self.assertEqual(reports, [True])
 
 
+    def test_positive_only_call_matches_batched_nag_via_negative_context(self):
+        modifier = NAGAttentionModifier(scale=1.5, tau=2.0, alpha=0.7, sigma_start=0.0, sigma_end=1.0)
+        batched = modifier(
+            fake_attention, self.q, self.k, self.v,
+            transformer_options=self.options, is_self_attention=False,
+        )
+
+        # CFG 1: only the positive row is run; the negative prompt's context
+        # is projected with the layer's K/V (identity projection here).
+        modifier.set_negative_context(torch.tensor([[[1.0]], [[1.0]]]).reshape(1, 2, 1))
+        options = {
+            "cond_or_uncond": [0],
+            "sigmas": torch.tensor([0.5]),
+            "anima_project_kv": lambda context: (context.unsqueeze(-1), torch.zeros_like(context).unsqueeze(-1)),
+        }
+        positive_only = modifier(
+            fake_attention, self.q[:1], self.k[:1], self.v[:1],
+            transformer_options=options, is_self_attention=False,
+        )
+
+        self.assertTrue(torch.allclose(positive_only, batched[:1]))
+
+    def test_dict_conditioning_uses_its_cross_attention_context(self):
+        modifier = NAGAttentionModifier(scale=1.0, tau=2.0, alpha=1.0, sigma_start=0.0, sigma_end=1.0)
+        context = torch.ones(1, 3, 4)
+        modifier.set_negative_context({"crossattn": context})
+        self.assertIs(modifier.negative_context, context)
+        modifier.set_negative_context(None)
+        self.assertIsNone(modifier.negative_context)
+
+
 if __name__ == "__main__":
     unittest.main()

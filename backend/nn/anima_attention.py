@@ -9,6 +9,10 @@ import torch
 
 
 ANIMA_ATTENTION_MODIFIERS = "anima_attention_modifiers"
+# Set for cross-attention while modifiers are active: ``project_kv(context)``
+# projects another text context with this layer's K/V weights (e.g. NAG's
+# negative prompt when CFG 1 skips the unconditional branch).
+ANIMA_PROJECT_KV = "anima_project_kv"
 
 
 def run_anima_attention(

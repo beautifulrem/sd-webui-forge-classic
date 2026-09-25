@@ -33,3 +33,23 @@ def test_anima_output_matches_reference():
     out = run_reference()
     stats = torch.stack([out.mean(), out.std(), out.abs().max(), out.flatten()[::97].sum()])
     assert torch.allclose(stats, torch.tensor(EXPECTED), rtol=1e-4, atol=1e-5), stats.tolist()
+
+
+def test_cross_attention_projects_other_contexts_like_its_own():
+    model, generator = _model()
+    attention = model.blocks[0].cross_attn
+    x = torch.randn(2, 10, 256, generator=generator)
+    context = torch.randn(2, 7, 64, generator=generator)
+    seen = {}
+
+    def modifier(next_attention, q, k, v, *, mask=None, transformer_options, is_self_attention):
+        seen["project"] = transformer_options.get("anima_project_kv")
+        return next_attention(q, k, v, mask=mask)
+
+    with torch.inference_mode():
+        _, k, v = attention.compute_qkv(x, context)
+        k2, v2 = attention.compute_kv(context)
+        attention(x, context, transformer_options={"anima_attention_modifiers": (modifier,)})
+
+    assert torch.equal(k, k2) and torch.equal(v, v2)
+    assert seen["project"] is not None

@@ -186,7 +186,8 @@ PRESET_DESCRIPTIONS: dict[str, str] = {
     TURBO_LABEL: (
         "**Turbo (distilled):** Euler · 10 steps · CFG 1 · Automatic scheduler. "
         "Use only with Anima-Turbo checkpoints; CFG above 1 or extra guidance "
-        "over-cooks distilled models."
+        "over-cooks distilled models. CFG 1 ignores the negative prompt: enable "
+        "NAG (Anima Guidance) to apply it without a second model pass."
     ),
 }
 

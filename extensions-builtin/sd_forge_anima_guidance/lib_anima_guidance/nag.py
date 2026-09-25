@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import torch
 
+from backend.nn.anima_attention import ANIMA_PROJECT_KV
 from modules.spectrum_force import in_sigma_window
 
 
@@ -36,6 +37,15 @@ class NAGAttentionModifier:
         )
         self.on_unbatched = on_unbatched
         self._reported_unbatched = False
+        # The negative prompt's text context for the current step, set by the
+        # CFG denoiser callback. Lets NAG run on positive-only model calls
+        # (CFG 1, e.g. Anima-Turbo) without a full unconditional pass.
+        self.negative_context: torch.Tensor | None = None
+
+    def set_negative_context(self, context) -> None:
+        if isinstance(context, dict):
+            context = context.get("crossattn", context.get("c_crossattn"))
+        self.negative_context = context if torch.is_tensor(context) else None
 
     def _report_unbatched(self) -> None:
         if self._reported_unbatched:
@@ -70,6 +80,15 @@ class NAGAttentionModifier:
             return base
 
         markers = tuple(transformer_options.get("cond_or_uncond", ()))
+        if 0 in markers and 1 not in markers and q.shape[0] % len(markers) == 0:
+            projected = self._negative_kv(transformer_options, q)
+            if projected is not None:
+                group = q.shape[0] // len(markers)
+                positive = [i * group + j for i, mark in enumerate(markers) if mark == 0 for j in range(group)]
+                k_negative, v_negative = projected
+                rows = [index % k_negative.shape[0] for index in range(len(positive))]
+                negative_attention = next_attention(q[positive], k_negative[rows], v_negative[rows], mask=None)
+                return self._blend(base, positive, negative_attention)
         if 0 not in markers or 1 not in markers or q.shape[0] % len(markers) != 0:
             self._report_unbatched()
             return base
@@ -87,6 +106,16 @@ class NAGAttentionModifier:
             v[negative],
             mask=_select_batch(mask, negative),
         )
+        return self._blend(base, positive, negative_attention)
+
+    def _negative_kv(self, transformer_options: dict, q: torch.Tensor):
+        project = transformer_options.get(ANIMA_PROJECT_KV)
+        context = self.negative_context
+        if project is None or context is None:
+            return None
+        return project(context.to(device=q.device, dtype=q.dtype))
+
+    def _blend(self, base: torch.Tensor, positive: list[int], negative_attention: torch.Tensor) -> torch.Tensor:
         positive_attention = base[positive]
         guided = positive_attention + self.scale * (positive_attention - negative_attention)
         norm_positive = torch.linalg.vector_norm(

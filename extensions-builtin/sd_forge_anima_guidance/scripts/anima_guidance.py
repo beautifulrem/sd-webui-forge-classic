@@ -78,6 +78,16 @@ def _capture_dcw_denoised(process, state: DCWState, denoised):
 script_callbacks.on_cfg_denoiser(_dcw_before_denoiser, name="anima_dcw_pre_step")
 
 
+def _stash_nag_negative(params) -> None:
+    process = getattr(params.denoiser, "p", None)
+    modifier = getattr(process, "_anima_nag_modifier", None)
+    if modifier is not None and not is_anima_auxiliary_denoiser(process):
+        modifier.set_negative_context(params.text_uncond)
+
+
+script_callbacks.on_cfg_denoiser(_stash_nag_negative, name="anima_nag_negative_context")
+
+
 _active_for_sigma = spectrum_force.in_sigma_window
 
 
@@ -644,6 +654,7 @@ class AnimaGuidanceScript(scripts.Script):
         # pass without DCW (e.g. hires after it was dropped for the sampler)
         # must not keep correcting towards the previous pass's history.
         p._anima_dcw_state = None
+        p._anima_nag_modifier = None
         active_sampler = (
             (getattr(p, "hr_sampler_name", None) or p.sampler_name)
             if getattr(p, "is_hr_pass", False)
@@ -803,20 +814,21 @@ class AnimaGuidanceScript(scripts.Script):
                     "Anima NAG is inactive for this generation because Forge split the positive and negative branches; reduce batch/resolution or free VRAM"
                 )
 
-            unet.append_transformer_option(
-                ANIMA_ATTENTION_MODIFIERS,
-                NAGAttentionModifier(
-                    scale=float(nag_scale),
-                    tau=float(nag_tau),
-                    alpha=float(nag_alpha),
-                    sigma_start=nag_sigma_start,
-                    sigma_end=nag_sigma_end,
-                    on_unbatched=report_unbatched_nag,
-                ),
+            nag_modifier = NAGAttentionModifier(
+                scale=float(nag_scale),
+                tau=float(nag_tau),
+                alpha=float(nag_alpha),
+                sigma_start=nag_sigma_start,
+                sigma_end=nag_sigma_end,
+                on_unbatched=report_unbatched_nag,
             )
+            unet.append_transformer_option(ANIMA_ATTENTION_MODIFIERS, nag_modifier)
+            # Positive-only calls (CFG 1, or branches Forge split for VRAM)
+            # get the negative context from the CFG callback instead: no
+            # unconditional forward pass is needed just for NAG.
+            p._anima_nag_modifier = nag_modifier
             # NAG only changes the output inside its own sigma window.
             spectrum_force.request(unet, spectrum_force.sigma_window(nag_sigma_start, nag_sigma_end))
-            unet.disable_model_cfg1_optimization()
             p.extra_generation_params["Anima NAG"] = True
             p.extra_generation_params["Anima NAG scale"] = float(nag_scale)
             p.extra_generation_params["Anima NAG tau"] = float(nag_tau)

@@ -17,7 +17,7 @@ from torchvision.transforms import InterpolationMode, functional
 from backend.args import dynamic_args
 from backend.attention import attention_function
 from backend.memory_management import is_device_mps
-from backend.nn.anima_attention import run_anima_attention
+from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS, ANIMA_PROJECT_KV, run_anima_attention
 from backend.operations import (
     main_stream_worker,
     scaled_dot_product_attention,
@@ -199,6 +199,13 @@ class SelfCrossAttention(nn.Module):
 
         return q, k, v
 
+    def compute_kv(self, context: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Cross-attention K/V for ``context``, exactly as compute_qkv makes them."""
+        heads = (self.n_heads, self.head_dim)
+        k = self.k_norm(self.k_proj(context).unflatten(-1, heads))
+        v = self.v_norm(self.v_proj(context).unflatten(-1, heads))
+        return k, v
+
     @staticmethod
     def torch_attention_op(q_B_S_H_D: torch.Tensor, k_B_S_H_D: torch.Tensor, v_B_S_H_D: torch.Tensor, transformer_options: Optional[dict] = {}) -> torch.Tensor:
         in_q_shape = q_B_S_H_D.shape
@@ -216,6 +223,8 @@ class SelfCrossAttention(nn.Module):
         transformer_options: Optional[dict] = None,
         mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
+        if not self.is_SelfAttn and transformer_options and transformer_options.get(ANIMA_ATTENTION_MODIFIERS):
+            transformer_options = {**transformer_options, ANIMA_PROJECT_KV: self.compute_kv}
         result = run_anima_attention(
             q,
             k,
