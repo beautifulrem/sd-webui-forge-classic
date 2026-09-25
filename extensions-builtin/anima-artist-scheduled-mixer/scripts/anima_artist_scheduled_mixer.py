@@ -1,8 +1,6 @@
 import json
 import logging
-import os
 import re
-import tempfile
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -15,6 +13,7 @@ import torch
 from modules import script_callbacks, scripts, sd_models, shared, spectrum_force
 from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, is_feature_active, register_exclusive_component, set_feature_active
 from modules.anima_lora_support import stage_window
+from modules.anima_user_data import UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
 from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, call_model_wrapper, negpip_mask_for, register_negpip_prompts, split_conditioning
 from modules.forward_override import install_forward_override, restore_forward_override
@@ -23,8 +22,16 @@ from modules.forward_override import install_forward_override, restore_forward_o
 logger = logging.getLogger("anima_artist_scheduled_mixer")
 
 EXTENSION_DIR = Path(__file__).resolve().parents[1]
-TEMPLATE_FILE = EXTENSION_DIR / "artist_mixer_templates.json"
-CURRENT_SETTINGS_FILE = EXTENSION_DIR / "artist_mixer_current_settings.json"
+_DATA_NAME = "anima-artist-scheduled-mixer"
+
+
+def _template_file():
+    # Templates earlier versions kept in the extension folder seed the user copy
+    return data_file(_DATA_NAME, "artist_mixer_templates.json", seed=EXTENSION_DIR / "artist_mixer_templates.json")
+
+
+def _current_settings_file():
+    return data_file(_DATA_NAME, "artist_mixer_current_settings.json", seed=EXTENSION_DIR / "artist_mixer_current_settings.json")
 REFERENCE_URL = "https://github.com/An1X3R/Anima-Artist-Mixer"
 
 LANGUAGE_OPTION = "anima_artist_scheduled_mixer_language"
@@ -212,6 +219,8 @@ LANG = {
         "renamed_template": "已重命名模板为：{name}",
         "deleted_template": "已删除模板：{name}",
         "no_template_deleted": "没有删除任何模板。",
+        "template_exists": "已存在同名模板：{name}",
+        "template_file_unreadable": "模板文件无法读取，未做修改：{error}",
         "applied_template": "已将模板 `{name}` 应用到{target}。",
         "defaults_restored": "已恢复全部默认设置。",
     },
@@ -261,6 +270,8 @@ LANG = {
         "renamed_template": "Renamed template to: {name}",
         "deleted_template": "Deleted template: {name}",
         "no_template_deleted": "No template deleted.",
+        "template_exists": "A template with that name already exists: {name}",
+        "template_file_unreadable": "The template file cannot be read; nothing was changed: {error}",
         "applied_template": "Applied template `{name}` to {target}.",
         "defaults_restored": "Restored all settings to defaults.",
     },
@@ -1086,21 +1097,24 @@ def _normalize_rows(value, row_count=None, shift=3.0, optimization=OPT_BALANCE, 
 
 
 def _template_data():
-    if not TEMPLATE_FILE.exists():
-        return {}
+    """Templates for display; an unreadable file reads as empty and is left alone."""
     try:
-        with TEMPLATE_FILE.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except Exception:
+        return read_json_object(_template_file())
+    except UnreadableDataFile:
         logger.exception("Failed to load Anima artist mixer templates")
         return {}
 
 
-def _save_template_data(data):
-    TEMPLATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with TEMPLATE_FILE.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def _edit_templates(edit):
+    """Read the templates, let ``edit(data)`` change them and return the UI
+    result, then write them atomically. An unreadable file is never replaced."""
+    try:
+        data = read_json_object(_template_file())
+    except UnreadableDataFile as error:
+        return _template_dropdown_update(), _t("template_file_unreadable").format(error=error)
+    result = edit(data)
+    write_json_atomic(_template_file(), data)
+    return result
 
 
 def _template_choices():
@@ -1144,8 +1158,7 @@ def _save_template_record(
     fusion_key = _option_key("fusion", fusion_mode, FUSION_INTERPOLATE)
     row_count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(row_count, len(_coerce_table(rows)) or 1))))
     shift = _to_float(shift, 3.0)
-    data = _template_data()
-    data[name] = {
+    record = {
         row_key: _normalize_rows(rows, row_count, shift, optimization_key, display=False),
         "hires_independent": row_key == "hires_rows",
         "disable_hires_mixing": bool(disable_hires_mixing),
@@ -1156,8 +1169,12 @@ def _save_template_record(
         "apply_uncond": bool(apply_uncond),
         "enable_cache": bool(enable_cache),
     }
-    _save_template_data(data)
-    return _template_dropdown_update(name), _t(status_key).format(name=name)
+
+    def save(data):
+        data[name] = record
+        return _template_dropdown_update(name), _t(status_key).format(name=name)
+
+    return _edit_templates(save)
 
 
 def _save_base_template_ui(name, base_row_count, base_shift, disable_hires_mixing, global_strength, optimization, combine_mode, fusion_mode, apply_uncond, enable_cache, *base_values):
@@ -1203,24 +1220,29 @@ def _save_hires_template_ui(name, hires_independent, hires_row_count, hires_shif
 def _rename_template_ui(old_name, new_name):
     old_name = str(old_name or "").strip()
     new_name = str(new_name or "").strip()
-    data = _template_data()
-    if not old_name or old_name not in data:
-        return _template_dropdown_update(), _t("no_template_selected")
-    if not new_name:
-        return _template_dropdown_update(old_name), _t("new_template_name_empty")
-    data[new_name] = data.pop(old_name)
-    _save_template_data(data)
-    return _template_dropdown_update(new_name), _t("renamed_template").format(name=new_name)
+
+    def rename(data):
+        if not old_name or old_name not in data:
+            return _template_dropdown_update(), _t("no_template_selected")
+        if not new_name:
+            return _template_dropdown_update(old_name), _t("new_template_name_empty")
+        if new_name != old_name and new_name in data:
+            return _template_dropdown_update(old_name), _t("template_exists").format(name=new_name)
+        data[new_name] = data.pop(old_name)
+        return _template_dropdown_update(new_name), _t("renamed_template").format(name=new_name)
+
+    return _edit_templates(rename)
 
 
 def _delete_template_ui(name):
     name = str(name or "").strip()
-    data = _template_data()
-    if name in data:
-        data.pop(name)
-        _save_template_data(data)
+
+    def delete(data):
+        if data.pop(name, None) is None:
+            return _template_dropdown_update(), _t("no_template_deleted")
         return _template_dropdown_update(), _t("deleted_template").format(name=name)
-    return _template_dropdown_update(), _t("no_template_deleted")
+
+    return _edit_templates(delete)
 
 
 def _builtin_default_ui_state(lang):
@@ -1263,18 +1285,14 @@ def _builtin_default_ui_state(lang):
 
 
 def _current_settings_data():
-    if not CURRENT_SETTINGS_FILE.exists():
-        return None
     try:
-        with CURRENT_SETTINGS_FILE.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else None
-    except Exception:
+        return read_json_object(_current_settings_file()) or None
+    except UnreadableDataFile:
         logger.exception("Failed to load Anima artist mixer current settings")
         return None
 
 
-# The payload last written to CURRENT_SETTINGS_FILE (None: unknown / deleted),
+# The payload last written to the current-settings file (None: unknown / deleted),
 # so generations with an unchanged panel skip the write and its fsync.
 _LAST_REMEMBERED_SETTINGS = None
 
@@ -1282,28 +1300,10 @@ _LAST_REMEMBERED_SETTINGS = None
 def _save_current_settings_data(data):
     global _LAST_REMEMBERED_SETTINGS
     try:
-        CURRENT_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        # Write a unique sibling and swap it in: an interrupted or concurrent
-        # write must not leave truncated JSON that silently resets the panel.
-        fd, temp = tempfile.mkstemp(
-            dir=CURRENT_SETTINGS_FILE.parent, prefix=CURRENT_SETTINGS_FILE.name, suffix=".tmp"
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            # mkstemp creates 0600; keep the permissions a plain write had.
-            try:
-                mode = os.stat(CURRENT_SETTINGS_FILE).st_mode & 0o777
-            except OSError:
-                mode = 0o644
-            os.chmod(temp, mode)
-            os.replace(temp, CURRENT_SETTINGS_FILE)
-            _LAST_REMEMBERED_SETTINGS = data
-        finally:
-            if os.path.exists(temp):
-                os.remove(temp)
+        # An interrupted or concurrent write must not leave truncated JSON
+        # that silently resets the panel.
+        write_json_atomic(_current_settings_file(), data)
+        _LAST_REMEMBERED_SETTINGS = data
     except Exception:
         logger.exception("Failed to save Anima artist mixer current settings")
 
@@ -1312,8 +1312,7 @@ def _delete_current_settings_data():
     global _LAST_REMEMBERED_SETTINGS
     _LAST_REMEMBERED_SETTINGS = None
     try:
-        if CURRENT_SETTINGS_FILE.exists():
-            CURRENT_SETTINGS_FILE.unlink()
+        _current_settings_file().unlink(missing_ok=True)
     except Exception:
         logger.exception("Failed to delete Anima artist mixer current settings")
 

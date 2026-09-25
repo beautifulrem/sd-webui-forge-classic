@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import re
@@ -12,6 +11,7 @@ import gradio as gr
 from backend.args import dynamic_args
 from modules import script_callbacks, scripts, shared
 from modules.anima_lora_files import adapter_kind_for_file, is_anima_adapter_file, lora_coverage
+from modules.anima_user_data import UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_lora_support import (
     LayerWeights,
     looks_like_layer_weights as _looks_like_layer_weights,
@@ -22,7 +22,6 @@ from modules.anima_lora_support import (
     anima_lora_block_count,
     anima_source_block,
     current_sampling_position,
-    compact_text as _compact_text,
     is_plain_number as _is_plain_number,
     block_index_from_key as _block_index_from_key,
     module_factor as _module_factor,
@@ -241,7 +240,12 @@ def _register_ui_settings():
 script_callbacks.on_ui_settings(_register_ui_settings)
 
 EXTENSION_DIR = Path(__file__).resolve().parents[1]
-TEMPLATE_FILE = EXTENSION_DIR / "templates.json"
+# The bundled templates.json seeds the user copy and is never written back
+BUNDLED_TEMPLATE_FILE = EXTENSION_DIR / "templates.json"
+
+
+def _template_file():
+    return data_file("anima-lora-stage-scheduler", "templates.json", seed=BUNDLED_TEMPLATE_FILE)
 
 LORA_TAG_RE = re.compile(r"<lora:([^:>]+)(?::([^>]*))?>")
 
@@ -407,6 +411,11 @@ def _cleanup_runtime(p=None):
     dynamic_args.online_lora = state.original_online_lora
     state.set_factor(1.0)
     owner = getattr(state, "p", None)
+    sd_model = getattr(owner, "sd_model", None)
+    if state.loaded_pass is not None and sd_model is not None:
+        # The next run must not keep this run's scheduled / panel-weighted patches
+        sd_model.current_lora_hash = "anima-stage-scheduler:released"
+        state.loaded_pass = None
     if owner is not None and getattr(owner, "_anima_lora_stage_scheduler_state", None) is state:
         owner._anima_lora_stage_scheduler_state = None
     if _ACTIVE_STATE is state:
@@ -609,21 +618,25 @@ def _parse_lora_template_overrides(text) -> dict[str, str]:
 
 
 def _load_custom_templates() -> dict:
-    if not TEMPLATE_FILE.exists():
-        return {}
+    """Templates for display; an unreadable file reads as empty and is left alone."""
     try:
-        with TEMPLATE_FILE.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except Exception:
+        return read_json_object(_template_file())
+    except UnreadableDataFile:
         logger.exception("Failed to read Anima LoRA stage templates")
         return {}
 
 
+def _editable_templates():
+    """``(templates, None)``, or ``(None, message)`` when the file cannot be
+    read: it is then never overwritten with just the one change."""
+    try:
+        return read_json_object(_template_file()), None
+    except UnreadableDataFile as error:
+        return None, f"模板文件无法读取，未做修改：{error}"
+
+
 def _save_custom_templates(data: dict):
-    TEMPLATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with TEMPLATE_FILE.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    write_json_atomic(_template_file(), data)
 
 
 def _template_names() -> list[str]:
@@ -820,7 +833,9 @@ def _save_template_ui(name, auto, template_name, start, end, peak, strength, cur
     if name in BUILTIN_TEMPLATES:
         return _template_dropdown_update(name), _template_dropdown_update(name), _template_dropdown_update(name), "内置模板不能覆盖，请换一个名称。"
 
-    data = _load_custom_templates()
+    data, error = _editable_templates()
+    if error:
+        return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), error
     template_name = str(template_name or "").strip()
     stage = _template_stage_from_name(template_name)
     source_parts = _template_parts(_template_config(template_name))
@@ -852,7 +867,9 @@ def _save_preset_combo_template_ui(name, selected_presets, shift_value=3.0):
 
     primary = next((part for part in parts if part["mode"] == PART_ALLOW), parts[0])
     start, end, peak, strength = _auto_stage_values(primary["stage"], 3.0)
-    data = _load_custom_templates()
+    data, error = _editable_templates()
+    if error:
+        return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), error
     data[name] = {
         "auto": True,
         "stage": primary["stage"],
@@ -980,7 +997,9 @@ def _rename_template_ui(old_name, new_name):
     if new_name == old_name:
         return _template_dropdown_update(new_name), _template_dropdown_update(new_name), _template_dropdown_update(new_name), "新旧名称相同，无需重命名。"
 
-    data = _load_custom_templates()
+    data, error = _editable_templates()
+    if error:
+        return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), error
     if old_name not in data:
         return _template_dropdown_update(old_name), _template_dropdown_update(old_name), _template_dropdown_update(old_name), "找不到要重命名的模板。"
     if new_name in data:
@@ -997,7 +1016,9 @@ def _delete_template_ui(name):
     if name in BUILTIN_TEMPLATES:
         return _template_dropdown_update(name), _template_dropdown_update(name), _template_dropdown_update(name), "内置模板不能删除。"
 
-    data = _load_custom_templates()
+    data, error = _editable_templates()
+    if error:
+        return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), error
     if name in data:
         del data[name]
         _save_custom_templates(data)
@@ -1059,10 +1080,12 @@ def _prepare_for_extra_network_activation(p, extra_network_data):
         return None
 
     pass_name = _activation_pass_for_extra_network_data(state, extra_network_data)
-    if pass_name == "hires":
-        p.sd_model.current_lora_hash = f"anima-stage-scheduler:activate-hires:{state.signature}:batch={getattr(p, 'iteration', 0)}"
-    elif pass_name == "base":
-        p.sd_model.current_lora_hash = f"anima-stage-scheduler:activate-base:{state.signature}:batch={getattr(p, 'iteration', 0)}"
+    if pass_name is not None and pass_name != state.loaded_pass:
+        # The loaded patches carry another pass's schedule, or strengths of an
+        # earlier run that nothing updates any more: make load_networks rebuild
+        # them. A changed LoRA set is reloaded by load_networks by itself.
+        p.sd_model.current_lora_hash = f"anima-stage-scheduler:{pass_name}:{state.run_id}"
+        state.loaded_pass = pass_name
     return pass_name
 
 
@@ -1315,6 +1338,8 @@ class RuntimeState:
     wrappers: list[weakref.ref] = field(default_factory=list)
     warned_offline: bool = False
     yielded_to_lora_control: set = field(default_factory=set)
+    # The pass ("base" / "hires") whose schedule the loaded LoRA patches carry
+    loaded_pass: str | None = None
 
     def current_config(self) -> PassConfig:
         pass_name = self.current_pass_name()
@@ -1343,25 +1368,6 @@ class RuntimeState:
     def set_factor(self, factor: float):
         for wrapper in self.live_wrappers():
             wrapper.factor = factor
-
-    @property
-    def signature(self) -> str:
-        return "|".join(
-            [
-                self.run_id,
-                self.base.target_mode,
-                self.base.target_loras,
-                _compact_text(self.base.panel_weight.raw),
-                self.base.template_name,
-                _compact_text(self.base.lora_templates_text),
-                self.hires.target_mode,
-                self.hires.target_loras,
-                _compact_text(self.hires.panel_weight.raw),
-                self.hires.template_name,
-                _compact_text(self.hires.lora_templates_text),
-                self.hr_disable_mode,
-            ]
-        )
 
 
 def _build_pass_config(target_mode, target_loras, panel_weight, template_name, lora_templates_text, auto_timing, stage, start, end, peak, stage_strength, curve, shift):
@@ -2107,8 +2113,6 @@ class Script(scripts.Script):
 
         install_patch()
         _rewrite_batch_prompts(p, state)
-        if getattr(p, "sd_model", None) is not None:
-            p.sd_model.current_lora_hash = f"anima-stage-scheduler:{state.signature}:batch={getattr(p, 'iteration', 0)}"
 
     def process_before_every_sampling(self, p, *args, **kwargs):
         state = getattr(p, "_anima_lora_stage_scheduler_state", None)
@@ -2116,8 +2120,6 @@ class Script(scripts.Script):
             return
 
         state.set_factor(0.0)
-        if not getattr(p, "is_hr_pass", False) and getattr(p, "sd_model", None) is not None:
-            p.sd_model.current_lora_hash = f"anima-stage-scheduler:force-hires-reload:{state.run_id}:{getattr(p, 'iteration', 0)}"
 
     def postprocess(self, p, processed, *args, **kwargs):
         _cleanup_runtime(p)

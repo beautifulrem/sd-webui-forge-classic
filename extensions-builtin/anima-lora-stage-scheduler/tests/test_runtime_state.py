@@ -79,3 +79,39 @@ def test_panel_weight_keeps_the_incoming_strength_where_it_sets_nothing():
     assert modules_only.strength_for_key(block_key, 0.8) == 0.8 * 0.5
 
     assert module._parse_panel_weight("0.25").strength_for_key(qwen_key, 0.7) == 0.25
+
+
+def test_loras_reload_only_when_the_scheduled_pass_changes():
+    module = _load()
+    base_data, hires_data = object(), object()
+    sd_model = SimpleNamespace(current_lora_hash="compiled")
+    process = SimpleNamespace(sd_model=sd_model, enable_hr=True, extra_network_data=base_data, hr_extra_network_data=hires_data)
+    state = _state(module, process)
+    process._anima_lora_stage_scheduler_state = state
+
+    def activate(data):
+        sd_model.current_lora_hash = "compiled"  # what load_networks leaves behind
+        module._prepare_for_extra_network_activation(process, data)
+        return sd_model.current_lora_hash != "compiled"
+
+    assert activate(base_data)  # first activation of a run: rebuild
+    assert not activate(base_data)  # next batch, same pass: keep the patches
+    assert activate(hires_data) and activate(base_data)  # pass changes: rebuild
+
+    module._cleanup_runtime(process)
+    assert sd_model.current_lora_hash == "anima-stage-scheduler:released"
+
+
+def test_an_unreadable_template_file_is_never_overwritten(tmp_path, monkeypatch):
+    from modules import paths_internal
+
+    module = _load()
+    monkeypatch.setattr(paths_internal, "data_path", str(tmp_path))
+    user_file = module._template_file()
+    user_file.parent.mkdir(parents=True, exist_ok=True)
+    user_file.write_text('{"mine": ', encoding="utf-8")  # e.g. an interrupted older write
+
+    *_, message = module._save_template_ui("new", True, "", 0.0, 1.0, 0.5, 1.0, "")
+
+    assert "未做修改" in message
+    assert user_file.read_text(encoding="utf-8") == '{"mine": '
