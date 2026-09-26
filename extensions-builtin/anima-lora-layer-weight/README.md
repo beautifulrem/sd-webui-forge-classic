@@ -68,3 +68,4 @@ Open **Settings**, find **Anima LoRA Layer Weight**, and select `zh` or `en`. Re
 - Missing blocks, modules, or Qwen layers are ignored safely.
 - Files without text-encoder training naturally skip Qwen weights.
 - If inline block/module syntax is used in the prompt, it overrides the corresponding panel block/module settings for that adapter.
+- While a tab is enabled, the prompt weight of every adapter it controls (all detected Anima adapters of that kind, or only the listed targets) is replaced with `1.0`: `<lora:name:0.6>` runs as `<lora:name:1.0>`, and a second weight after it (`<lora:name:0.6:0.3>`) is dropped too. Set the strength in the panel instead: block weights such as `all=0.6` for the DiT, Qwen layer weights for the text encoder. Adapters the tab does not control keep their prompt weight.

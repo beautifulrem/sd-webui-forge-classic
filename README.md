@@ -23,7 +23,7 @@ Forge Neo Remi is a downstream distribution of [Forge Neo](https://github.com/Ha
 ## Why Remi?
 
 - **Anima-first inference:** native samplers, guidance methods, spatial conditioning, LoRA controls, Hires safeguards, and acceleration paths.
-- **28/40/52-block support:** detects original, 2.9B and 3.8B Anima architectures; 28-block LoRAs are remapped onto the expanded models, and Layer Weight, stage-scheduler block weights and FreeFuse's collect block keep following the 28-block layout there.
+- **28/40/52-block support:** detects original, 2.9B and 3.8B Anima DiT layouts; 28-block LoRAs are remapped onto the expanded models, and Layer Weight, stage-scheduler block weights and FreeFuse's collect block keep following the 28-block layout there. 3.8B needs an external conditioning extension (see [Supported Model Families](#supported-model-families)).
 - **Conflict-aware UI and runtime:** mutually exclusive features are locked or resolved before they can form undefined sampling stacks.
 - **One-click safe baseline:** **Anima Remi Presets** provides a conservative starting profile without replacing prompts, LoRA names, or model paths.
 - **Batteries included:** frequently used Neo-compatible extensions are shipped as built-ins.
@@ -37,6 +37,7 @@ Forge Neo Remi is a downstream distribution of [Forge Neo](https://github.com/Ha
 | Guidance | NAG, Momentum Guidance, Skimmed CFG, SMC, CFG-Zero*, APG, FDG, DCW, CNS |
 | Spatial control | Regional Conditioning, FreeFuse multi-LoRA routing, Artist Scheduled Mixer |
 | Diversity | DAVE (early-step DC attenuation for same-prompt layout diversity across seeds) |
+| Prompt adherence | Cross-Attention Boost (positive-prompt cross-attention gain in the high-noise steps, norm-matched, for weak tags and bindings) |
 | LoRA workflow | Layer weights, stage scheduling, 2B LoRAs on 2.9B/3.8B (28/40/52 blocks), prompt rescaling |
 | Reliability | Feature conflict resolver, Hires Guard, generation metadata, safe fallbacks |
 | Acceleration | Spectrum forecasting and Anima per-block `torch.compile` for suitable repeated workloads |
@@ -49,6 +50,9 @@ Read the [Remi Anima generation and parameter guide](docs/remi-anima-generation-
 Remi retains Forge Neo's modern-model focus and adds deeper Anima integration.
 
 - Anima and Anima Edit: 2B (28 blocks), 2.9B (40) and 3.8B (52) checkpoints
+
+> [!NOTE]
+> Remi only covers the 3.8B **diffusion model** (52-block DiT layout, LoRA mapping). Anima 3.8B is conditioned on Qwen3.5 4B: the v1.1 checkpoint bundles a timestep-aware Semantic Connector (v2) that runs at every denoising step and needs the separate `qwen35_4b` text encoder next to the native Qwen3 0.6B one. Remi contains no Qwen3.5 conditioning or connector code; as in upstream Forge Neo, that path requires the [forge-anima-3.8B](https://github.com/GumGum10/forge-anima-3.8B) extension, which Remi does not bundle and has not tested. See the [Anima 3.8B model card](https://huggingface.co/lylogummy/Anima-3.8B).
 - SD 1.x and advanced SDXL variants
 - Krea 2 and Krea 2 Identity Edit
 - FLUX Kontext and FLUX.2 Klein
@@ -167,7 +171,7 @@ Tasks saved before signing existed will not run and fail with a message saying s
 - Third-party extensions may depend on APIs that Neo or Remi intentionally changed.
 - CUDA-only packages such as FlashAttention are not available on every platform.
 - Experimental guidance methods can alter image character as well as quality; preserve a baseline seed when comparing them.
-- Torch compile (whole-model presets and **Anima per-block**) runs the affected steps uncompiled while NAG, NegPiP, Regional, FreeFuse, Artist Mixer, DAVE (during its window steps), or Sparse Attention are active, so these features are never silently ignored by a cached graph; expect no compile speed-up for those runs.
+- Torch compile (whole-model presets and **Anima per-block**) runs the affected steps uncompiled while NAG, NegPiP, Regional, FreeFuse, Artist Mixer, DAVE or Cross-Attention Boost (during their window steps), or Sparse Attention are active, so these features are never silently ignored by a cached graph; expect no compile speed-up for those runs.
 - **Anima FlowMatch** is only meaningful for flow-matching models; on other models (e.g. left selected after switching from an Anima Flow sampler) it falls back to the Simple schedule.
 - Real checkpoint output remains the final compatibility test. Startup or unit tests do not prove generation quality for every checkpoint or quantization.
 

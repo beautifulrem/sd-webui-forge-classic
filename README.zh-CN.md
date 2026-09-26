@@ -23,7 +23,7 @@ Forge Neo Remi 是 [Forge Neo](https://github.com/Haoming02/sd-webui-forge-class
 ## 为什么选择 Remi？
 
 - **Anima 优先推理：** 内置采样器、引导方法、空间控制、LoRA 管理、高分辨率保护和加速路径。
-- **28/40/52 层架构兼容：** 自动识别原始 Anima、2.9B 和 3.8B 架构；28 层 LoRA 会重映射到扩展模型上，分层权重、阶段调度器的 block 权重和 FreeFuse 的采集层在扩展模型上仍按 28 层布局解释。
+- **28/40/52 层架构兼容：** 自动识别原始 Anima、2.9B 和 3.8B 的 DiT 结构；28 层 LoRA 会重映射到扩展模型上，分层权重、阶段调度器的 block 权重和 FreeFuse 的采集层在扩展模型上仍按 28 层布局解释。3.8B 还需要外部条件编码扩展（见[支持的模型家族](#支持的模型家族)）。
 - **GUI 与运行时冲突管理：** 互斥功能会在组成未定义采样链之前被锁定或自动解决。
 - **一键安全基线：** **Anima Remi Presets** 提供保守的推荐起点，不会覆盖提示词、LoRA 名称或模型路径。
 - **常用功能内置：** 常用的 Neo 适配扩展随 Remi 一起版本化。
@@ -37,6 +37,7 @@ Forge Neo Remi 是 [Forge Neo](https://github.com/Haoming02/sd-webui-forge-class
 | 引导 | NAG、Momentum Guidance、Skimmed CFG、SMC、CFG-Zero*、APG、FDG、DCW、CNS |
 | 空间控制 | Regional Conditioning、FreeFuse 多 LoRA 路由、Artist Scheduled Mixer |
 | 多样性 | DAVE（前段 DC 衰减，提升同一提示词不同 seed 的构图多样性） |
+| 提示词遵循 | Cross-Attention Boost（高噪声前段放大正向提示词的 cross-attention 并做范数匹配，改善弱标签与多主体绑定） |
 | LoRA 工作流 | 分层权重、阶段调度、2B LoRA 用于 2.9B/3.8B（28/40/52 层）、提示词缩放 |
 | 稳定性 | 功能冲突解析、Hires Guard、生成元数据、安全回退 |
 | 加速 | Spectrum 预测，以及适合重复固定工作负载的 Anima per-block `torch.compile` |
@@ -49,6 +50,9 @@ Forge Neo Remi 是 [Forge Neo](https://github.com/Haoming02/sd-webui-forge-class
 Remi 保留 Forge Neo 对现代模型的支持重点，并对 Anima 提供更深入的集成。
 
 - Anima 和 Anima Edit：2B（28 层）、2.9B（40 层）与 3.8B（52 层）checkpoint
+
+> [!NOTE]
+> Remi 只覆盖 3.8B 的**扩散模型**部分（52 层 DiT 结构与 LoRA 映射）。Anima 3.8B 以 Qwen3.5 4B 为条件：v1.1 checkpoint 内置一个随时间步变化、每个去噪步都参与计算的 Semantic Connector（v2），并需要在原生 Qwen3 0.6B 之外另备 `qwen35_4b` 文本编码器。Remi 没有 Qwen3.5 条件编码或 connector 代码；与上游 Forge Neo 相同，这条路径需要 [forge-anima-3.8B](https://github.com/GumGum10/forge-anima-3.8B) 扩展，Remi 未内置也未测试它。详见 [Anima 3.8B 模型卡](https://huggingface.co/lylogummy/Anima-3.8B)。
 - SD 1.x 和高级 SDXL 变体
 - Krea 2 和 Krea 2 Identity Edit
 - FLUX Kontext 和 FLUX.2 Klein
@@ -167,7 +171,7 @@ Remi 加固了内置扩展添加到 WebUI 服务器上的接口。使用 `--shar
 - 第三方扩展可能依赖 Neo 或 Remi 已主动修改的 API。
 - FlashAttention 等仅支持 CUDA 的依赖无法在所有平台上使用。
 - 实验性引导方法不仅可能改变质量，也可能改变画面特征；对比时请保留固定种子的基线结果。
-- 开启 NAG、NegPiP、Regional、FreeFuse、Artist Mixer、DAVE（其窗口内的步骤）或 Sparse Attention 时，Torch compile（整模型预设和 **Anima per-block**）会让相关步骤以未编译方式运行，确保这些功能不会被缓存的编译图悄悄忽略；这类生成不会获得编译加速。
+- 开启 NAG、NegPiP、Regional、FreeFuse、Artist Mixer、DAVE 或 Cross-Attention Boost（其窗口内的步骤）或 Sparse Attention 时，Torch compile（整模型预设和 **Anima per-block**）会让相关步骤以未编译方式运行，确保这些功能不会被缓存的编译图悄悄忽略；这类生成不会获得编译加速。
 - **Anima FlowMatch** 只适用于 flow-matching 模型；用在其他模型上（例如从 Anima Flow 采样器切换后仍保留该调度器）会回退到 Simple 调度。
 - 真实 checkpoint 生成是最终兼容性测试。成功启动或单元测试通过，不能证明所有 checkpoint 和量化都具有相同生成质量。
 
