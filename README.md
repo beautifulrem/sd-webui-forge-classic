@@ -36,6 +36,7 @@ Forge Neo Remi is a downstream distribution of [Forge Neo](https://github.com/Ha
 | Sampling | Beta57, Flow Euler, UniPC2, PC3, SPEED (experimental half-res early steps), ER SDE, Dynamic Shift |
 | Guidance | NAG, Momentum Guidance, Skimmed CFG, SMC, CFG-Zero*, APG, FDG, DCW, CNS |
 | Spatial control | Regional Conditioning, FreeFuse multi-LoRA routing, Artist Scheduled Mixer |
+| Diversity | DAVE (early-step DC attenuation for same-prompt layout diversity across seeds) |
 | LoRA workflow | Layer weights, stage scheduling, 2B LoRAs on 2.9B/3.8B (28/40/52 blocks), prompt rescaling |
 | Reliability | Feature conflict resolver, Hires Guard, generation metadata, safe fallbacks |
 | Acceleration | Spectrum forecasting and Anima per-block `torch.compile` for suitable repeated workloads |

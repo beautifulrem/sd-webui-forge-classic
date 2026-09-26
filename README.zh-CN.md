@@ -36,6 +36,7 @@ Forge Neo Remi 是 [Forge Neo](https://github.com/Haoming02/sd-webui-forge-class
 | 采样 | Beta57、Flow Euler、UniPC2、PC3、SPEED（实验：前段半分辨率）、ER SDE、Dynamic Shift |
 | 引导 | NAG、Momentum Guidance、Skimmed CFG、SMC、CFG-Zero*、APG、FDG、DCW、CNS |
 | 空间控制 | Regional Conditioning、FreeFuse 多 LoRA 路由、Artist Scheduled Mixer |
+| 多样性 | DAVE（前段 DC 衰减，提升同一提示词不同 seed 的构图多样性） |
 | LoRA 工作流 | 分层权重、阶段调度、2B LoRA 用于 2.9B/3.8B（28/40/52 层）、提示词缩放 |
 | 稳定性 | 功能冲突解析、Hires Guard、生成元数据、安全回退 |
 | 加速 | Spectrum 预测，以及适合重复固定工作负载的 Anima per-block `torch.compile` |
