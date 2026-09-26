@@ -388,6 +388,7 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
             if should_quantize_on_load(anima_quant, cls_name, quant_config, guess.nunchaku, state_dict_dtype):
                 quantize_on_load(state_dict, anima_quant, load_device)
                 quant_config = detect_quantization(state_dict, is_unet=True)
+                state_dict_parameters = utils.calculate_parameters(state_dict)  # counted as for a pre-quantized checkpoint
 
             if guess.nunchaku:
                 storage_dtype = torch.bfloat16

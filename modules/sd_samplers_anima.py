@@ -44,7 +44,8 @@ def _rms(value):
     return torch.sqrt(torch.mean(value * value))
 
 
-def _euler_step(x, denoised, t, t_next):
+def euler_step(x, denoised, t, t_next):
+    """One rectified-flow Euler step from ``t`` to ``t_next``."""
     return x + (t_next - t) * (x - denoised) / t
 
 
@@ -57,7 +58,7 @@ def _set_denoiser_step(model, step, total_steps):
         model.total_steps = int(total_steps)
 
 
-def _denoise(model, x, sigmas, i, extra_args, callback):
+def denoise_step(model, x, sigmas, i, extra_args, callback):
     """The model call and callback every Flow sampler step starts with."""
 
     t = sigmas[i]
@@ -104,11 +105,11 @@ def sample_anima_flow_euler(
     extra_args = {} if extra_args is None else extra_args
     values = _Schedule(sigmas).sigmas
     for i in trange(len(sigmas) - 1, disable=disable):
-        denoised = _denoise(model, x, sigmas, i, extra_args, callback)
+        denoised = denoise_step(model, x, sigmas, i, extra_args, callback)
         if values[i + 1] <= 0.0 or values[i] <= 0.0:
             x = denoised
         else:
-            x = _euler_step(x, denoised, sigmas[i], sigmas[i + 1])
+            x = euler_step(x, denoised, sigmas[i], sigmas[i + 1])
     return x
 
 
@@ -169,7 +170,7 @@ def _unipc_predict(
     current_lambda = lambdas[-1]
     h = _rf_lambda(t_next).to(x) - current_lambda
     if schedule.gap(step, step + 1) <= _EPS:
-        return _euler_step(x, model_outputs[-1], t, t_next)
+        return euler_step(x, model_outputs[-1], t, t_next)
 
     denoised = model_outputs[-1]
     hh = -h
@@ -289,7 +290,7 @@ def sample_anima_flow_unipc2(
 
     for i in trange(total_steps, disable=disable):
         t, t_next = sigmas[i], sigmas[i + 1]
-        denoised = _denoise(model, x, sigmas, i, extra_args, callback)
+        denoised = denoise_step(model, x, sigmas, i, extra_args, callback)
         model_output = (
             _threshold_sample(denoised, threshold_ratio, threshold_maximum)
             if bool(flow_unipc_thresholding)
@@ -536,7 +537,7 @@ def sample_anima_flow_pc3(
 
     for i in trange(total_steps, disable=disable):
         t, t_next = sigmas[i], sigmas[i + 1]
-        denoised = _denoise(model, x, sigmas, i, extra_args, callback)
+        denoised = denoise_step(model, x, sigmas, i, extra_args, callback)
         if schedule.sigmas[i + 1] <= 0.0:
             x = denoised
             continue

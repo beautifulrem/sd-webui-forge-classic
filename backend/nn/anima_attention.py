@@ -44,10 +44,11 @@ def run_anima_attention(
     """Run Anima attention through the ordered per-generation modifier chain.
 
     Modifiers receive a ``next_attention`` callable and the unflattened
-    ``[batch, tokens, heads, head_dim]`` tensors.  Keeping this seam inside the
-    native Anima attention module lets temporary cross-attention wrappers such
-    as Regional, Artist Mixer, and FreeFuse compose without replacing one
-    another.
+    ``[batch, tokens, heads, head_dim]`` tensors, and chain in list order
+    without replacing one another.  NAG is the only modifier today; the
+    cross-attention wrappers (Regional, Artist Mixer, FreeFuse, ...) replace the
+    attention module's ``forward`` through ``modules.forward_override``
+    instead, which composes them separately.
     """
 
     options = transformer_options or {}

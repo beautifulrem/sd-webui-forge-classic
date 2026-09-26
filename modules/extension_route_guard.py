@@ -249,18 +249,20 @@ def snapshot_routes(app) -> set:
 
 
 def _exposed_with_login(cmd_opts) -> bool:
-    """A --share / --ngrok tunnel with a Gradio login: anyone on the internet
-    can reach the server, and the admin asked for a login."""
-    exposed = getattr(cmd_opts, "share", None) or getattr(cmd_opts, "ngrok", None)
-    return bool(exposed and (getattr(cmd_opts, "gradio_auth", None) or getattr(cmd_opts, "gradio_auth_path", None)))
+    """A server reachable beyond this machine (--share / --ngrok tunnel, or a
+    non-loopback bind such as --listen / --server-name 0.0.0.0) with a Gradio
+    login: others can reach it, and the admin asked for a login."""
+    if cmd_opts is None or _is_loopback_only(cmd_opts):
+        return False
+    return bool(getattr(cmd_opts, "gradio_auth", None) or getattr(cmd_opts, "gradio_auth_path", None))
 
 
 def guard_new_routes(app, before: set, exclude: Iterable[str] = ()) -> int:
     """Cross-site checks for every route added since ``before`` (i.e. by
-    extensions), except under ``exclude``. Login only behind an exposed
-    --share / --ngrok server with --gradio-auth (Gradio cookie, or --api-auth
-    Basic credentials); locally extension APIs stay open to non-browser
-    clients, which send no Origin header."""
+    extensions), except under ``exclude``. Login only on an exposed server
+    (--share / --ngrok / non-loopback bind) with --gradio-auth (Gradio cookie,
+    or --api-auth Basic credentials); on a loopback-only server extension APIs
+    stay open to non-browser clients, which send no Origin header."""
     exclude = tuple(exclude)
     routes = [
         route

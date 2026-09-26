@@ -251,6 +251,19 @@ def test_exposed_servers_require_the_gradio_login_for_extension_routes(monkeypat
         assert client.post("/ext/api").json() == "ext"
 
 
+def test_lan_bound_servers_require_the_gradio_login_for_extension_routes(monkeypatch):
+    # --listen / a non-loopback --server-name: reachable from the network, like a tunnel
+    for bind in (dict(listen=True), dict(server_name="0.0.0.0"), dict(server_name="192.168.1.5")):
+        client = _exposed_app(monkeypatch, **bind)
+        assert client.post("/ext/api").status_code == 401, bind
+        client.cookies.set("access-token-cid", "good")
+        assert client.post("/ext/api").json() == "ext"
+    client = _exposed_app(monkeypatch, listen=True, api_auth="bot:secret")
+    assert client.post("/ext/api", headers=_basic("bot", "secret")).json() == "ext"
+    # a loopback --server-name stays local
+    assert _exposed_app(monkeypatch, server_name="127.0.0.1").post("/ext/api").json() == "ext"
+
+
 def test_exposed_servers_accept_api_auth_credentials(monkeypatch):
     client = _exposed_app(monkeypatch, share=True, api_auth="bot:secret,other:pw2")
     assert client.post("/ext/api", headers=_basic("bot", "secret")).json() == "ext"
@@ -266,7 +279,7 @@ def test_api_auth_credentials_do_not_count_without_api_auth(monkeypatch):
 
 
 def test_local_or_login_free_servers_keep_extension_apis_open(monkeypatch):
-    # no tunnel: local API clients keep working; tunnel without --gradio-auth: nothing to log in with
-    for options in (dict(share=False, ngrok=None), dict(share=True, gradio_auth=None)):
+    # loopback-only: local API clients keep working; exposed without --gradio-auth: nothing to log in with
+    for options in (dict(share=False, ngrok=None), dict(share=True, gradio_auth=None), dict(listen=True, gradio_auth=None)):
         assert _exposed_app(monkeypatch, **options).post("/ext/api").json() == "ext"
     assert _exposed_app(monkeypatch, share=True, gradio_auth=None, gradio_auth_path="auth.txt").post("/ext/api").status_code == 401

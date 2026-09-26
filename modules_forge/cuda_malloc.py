@@ -42,7 +42,7 @@ except Exception:
     version = ""
 
 
-# Checked on torch 2.14: both c10 parsers, AcceleratorAllocatorConfig (generic keys such as
+# Checked on torch 2.13 and 2.14 (the launcher pins 2.13): both c10 parsers, AcceleratorAllocatorConfig (generic keys such as
 # expandable_segments; torch._C._accelerator_getAllocatorSettings shows its input) and
 # CUDAAllocatorConfig (backend, ...), parse only the first of these that is set, in this order,
 # although c10/core/AllocatorConfig.h documents PYTORCH_ALLOC_CONF as the primary name

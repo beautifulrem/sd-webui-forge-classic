@@ -1,4 +1,7 @@
-"""Shared capability checks for Anima-only integrations."""
+"""Shared helpers for Anima-only integrations: capability checks (engine,
+auxiliary / Flow denoiser), prompt-batch and conditioning / negpip mask
+plumbing, extra-prompt encoding and caching, block-list and branch-row
+parsing, and model-wrapper helpers."""
 
 from __future__ import annotations
 

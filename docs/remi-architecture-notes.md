@@ -8,8 +8,8 @@ on purpose. Read this before "fixing" one of them.
 | Seam | Where | Used by |
 |---|---|---|
 | Attention modifier chain | `backend/nn/anima_attention.py` (`ANIMA_ATTENTION_MODIFIERS`, `ANIMA_PROJECT_KV`) | NAG |
-| Temporary forward overrides | `modules/forward_override.py` | Regional, Artist Mixer, FreeFuse, DAVE, cross-attention boost, NegPiP's DiT hook |
-| `compute_qkv(value_context=...)` | `backend/nn/anima.py` | NegPiP, FreeFuse (V from the masked context) |
+| Temporary forward overrides | `modules/forward_override.py` | Regional, Artist Mixer, FreeFuse, DAVE, cross-attention boost, NegPiP's DiT hook (`lib_negpip/anima.py`) and its SD1/SDXL cross-attention hook (`lib_negpip/sd.py`) |
+| `compute_qkv(value_context=...)` / `compute_kv(value_context=...)` (cross-attention only) | `backend/nn/anima.py` | NegPiP, FreeFuse, NAG's negative-prompt K/V via `ANIMA_PROJECT_KV` (V from the masked context) |
 | `model_function_wrapper` chain | `call_model_wrapper` in `modules/anima_support.py` | Modulation, Regional, FreeFuse, Artist Mixer, DAVE, cross-attention boost, CFG-Zero* zero-init (skips the forward of zero-init steps), Spectrum |
 | Spectrum "run a real forward" requests | `modules/spectrum_force.py` | every feature Spectrum cannot forecast |
 | Stateful guidance registry | `modules/anima_guidance_state.py` | DCW, SMC-CFG, APG, CFG-Zero*, Momentum register; samplers that change what the history describes reset it (FreeFuse after its probe pass, SPEED at its resolution switch) |

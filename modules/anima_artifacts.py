@@ -7,6 +7,7 @@ import hashlib
 import os
 import tempfile
 import threading
+import urllib.parse
 import urllib.request
 
 
@@ -44,7 +45,12 @@ def sha256_file(path: str) -> str:
 
 
 def ensure_pinned_download(*, path: str, url: str, sha256: str, maximum_bytes: int, timeout: float = 180, user_agent: str = "Forge-Neo-Anima-Mod-Guidance/1") -> str:
-    """Return a verified artifact, downloading atomically when necessary."""
+    """Return a verified artifact, downloading atomically when necessary.
+
+    Only ``https://`` URLs: ``urlopen`` would also read ``file://`` / ``ftp://``
+    and plain ``http://``."""
+    if urllib.parse.urlsplit(url).scheme.lower() != "https":
+        raise ValueError(f"refusing to download from a non-https URL: {url!r}")
     path = os.path.abspath(path)
     with _LOCKS_GUARD:
         lock = _DOWNLOAD_LOCKS.setdefault(path, threading.Lock())
@@ -57,8 +63,8 @@ def ensure_pinned_download(*, path: str, url: str, sha256: str, maximum_bytes: i
         try:
             digest = hashlib.sha256()
             total = 0
-            request = urllib.request.Request(url, headers={"User-Agent": user_agent})
-            with urllib.request.urlopen(request, timeout=timeout) as response, os.fdopen(descriptor, "wb") as output:
+            request = urllib.request.Request(url, headers={"User-Agent": user_agent})  # noqa: S310 - https only, checked above
+            with urllib.request.urlopen(request, timeout=timeout) as response, os.fdopen(descriptor, "wb") as output:  # noqa: S310
                 descriptor = -1
                 for chunk in iter(lambda: response.read(1024 * 1024), b""):
                     total += len(chunk)

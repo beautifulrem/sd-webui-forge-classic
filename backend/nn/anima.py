@@ -180,8 +180,9 @@ class SelfCrossAttention(nn.Module):
         self.output_dropout = nn.Dropout(dropout) if dropout > 1e-4 else nn.Identity()
 
     def compute_qkv(self, x: torch.Tensor, context: Optional[torch.Tensor] = None, rope_emb: Optional[torch.Tensor] = None, value_context: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """``value_context`` projects V from another context than K (NegPiP
-        negates V only, with its sign mask applied to the context)."""
+        """``value_context`` (cross-attention only) projects V from another
+        context than K (NegPiP negates V only, with its sign mask applied to
+        the context)."""
         heads = (self.n_heads, self.head_dim)
         q = self.q_proj(x).unflatten(-1, heads)
         fused_rope = self.is_SelfAttn and rope_emb is not None
@@ -190,9 +191,9 @@ class SelfCrossAttention(nn.Module):
             k, v = self.compute_kv(context, value_context)
             return self.q_norm(q), k, v
 
-        kv_input = x if context is None else context
-        k = self.k_proj(kv_input).unflatten(-1, heads)
-        v = self.v_proj(kv_input if value_context is None else value_context).unflatten(-1, heads)
+        # self-attention: the blocks pass context=None
+        k = self.k_proj(x).unflatten(-1, heads)
+        v = self.v_proj(x).unflatten(-1, heads)
 
         if fused_rope:
             q_scale, _, q_offload_stream = weights_manual_cast(self.q_norm, q)

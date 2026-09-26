@@ -8,7 +8,8 @@ import torch
 from tqdm.auto import trange
 
 from modules.anima_guidance_state import reset_stateful_guidance
-from k_diffusion.sampling import sample_euler, to_d
+from modules.sd_samplers_anima import denoise_step, euler_step
+from k_diffusion.sampling import sample_euler
 
 logger = logging.getLogger("AnimaFreeFuseSampler")
 
@@ -66,7 +67,6 @@ def sample_anima_freefuse_euler(
     total_steps = len(sigmas) - 1
     runtime.configure_steps(total_steps)
     collect_steps = min(total_steps, runtime.collect_step + 1)
-    s_in = x.new_ones([x.shape[0]])
     original_model_step = int(getattr(model, "step", 0))
 
     # Both passes start from ``x``. The probe gets its own copy: denoiser
@@ -77,9 +77,8 @@ def sample_anima_freefuse_euler(
     try:
         for index in range(collect_steps):
             runtime.current_step = index
-            sigma = sigmas[index]
-            denoised = model(probe, sigma * s_in, **extra_args)
-            probe = probe + to_d(probe, sigma, denoised) * (sigmas[index + 1] - sigma)
+            denoised = denoise_step(model, probe, sigmas, index, extra_args, None)
+            probe = euler_step(probe, denoised, sigmas[index], sigmas[index + 1])
         runtime.finish_collection()
     except BaseException:  # also Forge's InterruptedException (Interrupt / Skip)
         runtime.abort()
@@ -95,21 +94,8 @@ def sample_anima_freefuse_euler(
     try:
         for index in trange(total_steps, disable=disable):
             runtime.current_step = index
-            sigma = sigmas[index]
-            denoised = model(result, sigma * s_in, **extra_args)
-            if callback is not None:
-                callback(
-                    {
-                        "x": result,
-                        "i": index,
-                        "sigma": sigma,
-                        "sigma_hat": sigma,
-                        "denoised": denoised,
-                    }
-                )
-            result = result + to_d(result, sigma, denoised) * (
-                sigmas[index + 1] - sigma
-            )
+            denoised = denoise_step(model, result, sigmas, index, extra_args, callback)
+            result = euler_step(result, denoised, sigmas[index], sigmas[index + 1])
     except BaseException:
         runtime.abort()
         raise

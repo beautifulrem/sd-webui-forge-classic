@@ -167,8 +167,11 @@ def refresh_model_loading_parameters(*, refresh: bool = True):
     modules: list[str] = [os.path.basename(x) for x in shared.opts.forge_additional_modules]
     dtype = str(unet_storage_dtype or [torch.float16, torch.bfloat16])
 
+    selected = dict(checkpoint=os.path.basename(ckpt), modules=modules, dtype=dtype)
+    if anima_quant := model_data.forge_loading_parameters.get("anima_quant"):
+        selected["anima_quant"] = anima_quant  # Anima only; other models load with dtype
     logger.info("Model Selected:")
-    print_json(data=dict(checkpoint=os.path.basename(ckpt), modules=modules, dtype=dtype))
+    print_json(data=selected)
 
     if ckpt.endswith(("gguf", "GGUF")) and not lora_fp16:
         logger.warning("GGUF requires fp16 LoRA ; overriding option")

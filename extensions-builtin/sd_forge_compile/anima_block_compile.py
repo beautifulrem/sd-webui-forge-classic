@@ -122,6 +122,10 @@ class AnimaBlockCompileManager:
 
             compiled = getattr(kmodel, _COMPILED_BLOCKS_KEY, None)
             if compiled is None or len(compiled) != len(blocks):
+                # torch.compile is lazy: real compiler failures surface at the
+                # first call, below. Defensive only: at construction it raises
+                # a torch._dynamo error just for an unknown backend name
+                # (lookup_backend's InvalidBackend); the preset uses inductor.
                 try:
                     compiled = tuple(torch.compile(block, **compile_config) for block in blocks)
                     setattr(kmodel, _COMPILED_BLOCKS_KEY, compiled)

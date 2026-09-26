@@ -32,6 +32,7 @@ class _Model:
 
     def __init__(self, runtime=None, fail_at=None, error=RuntimeError("boom")):
         self.step = 0
+        self.steps = []  # ``step`` as each call saw it
         self.inputs = []
         self.fail_at = fail_at
         self.error = error
@@ -43,6 +44,7 @@ class _Model:
         if len(self.inputs) == self.fail_at:
             raise self.error
         self.inputs.append(x.clone())
+        self.steps.append(self.step)
         self.step += 1
         return x * 0.5 + sigma.view(-1, 1) * 0.1
 
@@ -73,11 +75,14 @@ def test_probe_pass_is_invisible_to_step_counters_and_runtime_lifecycle():
     events = []
     runtime = _Runtime(events)
     model = _Model(runtime)
-    model.step = 5
+    model.step = 5  # stale counter
 
     freefuse.sample_anima_freefuse_euler(model, _noise(), SIGMAS, disable=True)
 
-    assert model.step == 5 + 3  # the 2 probe calls were rolled back
+    # Like the other Anima Flow samplers, each call sees its step index (prompt
+    # schedules); the real pass starts over at 0 after the 2 probe calls.
+    assert model.steps == [0, 1] + [0, 1, 2]
+    assert model.step == 3
     assert runtime.current_step == 2
     assert events == [
         ("configure_steps", 3),

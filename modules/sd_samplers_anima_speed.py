@@ -45,7 +45,7 @@ from modules.anima_feature_conflicts import (
 )
 from modules.anima_guidance_state import reset_stateful_guidance
 from modules.anima_support import require_anima_flow_denoiser
-from modules.sd_samplers_anima import _denoise, _euler_step, sample_anima_flow_euler
+from modules.sd_samplers_anima import denoise_step, euler_step, sample_anima_flow_euler
 
 
 # Paper defaults: S = 2 stages (0.5, 1.0), delta = 0.01, DCT basis.
@@ -249,12 +249,12 @@ def sample_anima_speed(model, x, sigmas, extra_args=None, callback=None, disable
                 sample = (plan.kappa * expanded).to(x.dtype)
                 # SMC / APG / DCW / CFG-Zero* history is per-resolution.
                 reset_stateful_guidance(model)
-            denoised = _denoise(model, sample, run_sigmas, i, extra_args, callback)
+            denoised = denoise_step(model, sample, run_sigmas, i, extra_args, callback)
             if values[i + 1] <= 0.0:
                 sample = denoised
             else:
                 # The coarse stage ends at the unaligned sigma it expands at.
-                sample = _euler_step(sample, denoised, run_sigmas[i], sigmas[i + 1])
+                sample = euler_step(sample, denoised, run_sigmas[i], sigmas[i + 1])
     except BaseException:  # also Forge's InterruptedException (Interrupt / Skip)
         if tuple(sample.shape[-2:]) != full_size:
             _publish_full_size_latent(full_size)

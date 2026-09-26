@@ -148,7 +148,7 @@ Remi 加固了内置扩展添加到 WebUI 服务器上的接口。使用 `--shar
 - **拒绝跨站写请求。** 所有扩展新增的接口都会拒绝来自其他站点的浏览器写请求（依据 `Origin` / `Sec-Fetch-Site`）。脚本和 API 工具不带 `Origin` 头，不受影响。其他来源的浏览器前端需要通过 `--cors-allow-origins` / `--cors-allow-origins-regex` 放行。
 - **拒绝 DNS 重绑定。** 未使用 `--listen`、`--server-name`、`--share` 或 `--ngrok` 时服务只监听本机回环地址，扩展接口只接受 `localhost` / 回环地址（或 `--cors-allow-origins` 放行的主机名）作为 `Host`。本机反向代理需要转发其中之一作为 `Host`，或用 `--cors-allow-origins` 放行其公网来源。
 - **Gradio 登录覆盖扩展接口。** 设置 `--gradio-auth` 后，Agent Scheduler、Prompt All-in-One（提示词历史、保存的 API 密钥）、TagComplete 和 Prompt Queue 的接口需要与界面相同的登录。设置 `--api-auth` 时，Agent Scheduler 仍使用 HTTP Basic 认证。
-- **对外暴露时所有扩展接口都要登录。** 使用 `--share` 或 `--ngrok` 并设置 `--gradio-auth` / `--gradio-auth-path` 时，其他扩展新增的接口同样需要界面登录。脚本和 API 工具此时用 `--api-auth` 的 HTTP Basic 凭据认证（与 `/sdapi` 相同）；未设置 `--api-auth` 时会被拒绝。本机服务对 API 工具保持开放。
+- **对外暴露时所有扩展接口都要登录。** 使用 `--share`、`--ngrok`、`--listen` 或非回环地址的 `--server-name`，并设置 `--gradio-auth` / `--gradio-auth-path` 时，其他扩展新增的接口同样需要界面登录。脚本和 API 工具（包括局域网内的）此时用 `--api-auth` 的 HTTP Basic 凭据认证（与 `/sdapi` 相同）；未设置 `--api-auth` 时会被拒绝。只监听回环地址的服务对 API 工具保持开放。
 - **反向代理**需要转发公网主机名。如果代理在 `Host` 中去掉了非默认的公网端口（例如 nginx 在 `:8443` 上使用 `$host`），请同时发送 `X-Forwarded-Port`，否则界面上的保存操作会被当作跨站请求拒绝。
 - **Agent Scheduler 任务参数经过签名。** 队列任务以 pickle 保存脚本参数，因此会用本安装专属的密钥签名（`agent_scheduler_signing.key`，位于任务数据库旁）。迁移安装目录或 Docker 数据卷时，请把该文件和数据库一起带走。`/import` 只接受本安装导出的队列。任务数据库和密钥不会通过 `/file=` 对外提供。
 - **对外请求**（API 回调、图片 URL）按实际连接到的地址检查：拒绝云元数据和链路本地地址；图片 URL 遵循 Forge *设置 → API* 中的请求策略。
