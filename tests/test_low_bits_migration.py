@@ -7,6 +7,8 @@ from types import ModuleType, SimpleNamespace
 import pytest
 import torch
 
+from backend.nn import anima_quant
+
 # main_entry only imports inside the initialised WebUI: run its own source
 # for these functions against stubs.
 _ROOT = Path(__file__).parents[1]
@@ -22,6 +24,8 @@ _names = {
 _nodes = [n for n in _tree.body if getattr(n, "name", None) in _names or (isinstance(n, ast.AnnAssign) and getattr(n.target, "id", None) in _names)]
 _ns = {
     "torch": torch,
+    "ANIMA_QUANT_SCALED_FP8": anima_quant.ANIMA_QUANT_SCALED_FP8,
+    "ANIMA_QUANT_INT8_CONVROT": anima_quant.ANIMA_QUANT_INT8_CONVROT,
     "os": __import__("os"),
     "logger": logging.getLogger("test_low_bits"),
     "print_json": lambda **kwargs: None,

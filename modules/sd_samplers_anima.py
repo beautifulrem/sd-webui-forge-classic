@@ -141,7 +141,7 @@ def _bh_rhos(hh, *, order, like, predictor, solver_type, rks=()):
     # The Diffusers-grid variant deliberately caps body order at two. Its
     # predictor coefficient has the closed-form UniP value 1/2.
     if order <= 1 or predictor:
-        return h_phi_1, b_h, [like.new_tensor(0.5)]
+        return h_phi_1, b_h, [0.5]
 
     (rk,) = rks
     rk = rk.to(like)
@@ -483,10 +483,10 @@ def _pc3_correct(
     )
 
     error = _rms(x_corrected - x_pred) / (_rms(x_pred) + _EPS)
+    # A no-op for the driver's device tensor; a float would be a host upload.
+    tolerance = torch.as_tensor(tolerance, dtype=x.dtype, device=x.device)
     gamma_error = torch.sqrt(
-        torch.clamp(
-            x.new_tensor(float(tolerance)) / (error + _EPS), min=0.0, max=1.0
-        )
+        torch.clamp(tolerance / (error + _EPS), min=0.0, max=1.0)
     )
     gamma_lambda = torch.sigmoid((current_lambda + 2.5) / 0.5) * torch.sigmoid(
         (4.5 - lambda_next) / 0.8
@@ -531,6 +531,8 @@ def sample_anima_flow_pc3(
         raise ValueError("Anima Flow PC3 gamma must be in [0, 1]")
     if not 0.0 < tolerance <= 1.0:
         raise ValueError("Anima Flow PC3 tolerance must be in (0, 1]")
+    # Filled on the device once (no host copy), not uploaded every step.
+    tolerance = torch.full((), tolerance, dtype=x.dtype, device=x.device)
 
     for i in trange(total_steps, disable=disable):
         t, t_next = sigmas[i], sigmas[i + 1]

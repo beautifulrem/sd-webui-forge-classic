@@ -64,6 +64,28 @@ def test_unipc_corrector_rhos_match_linalg_solve_without_calling_it(monkeypatch,
         assert torch.equal(torch.stack(rhos), reference)
 
 
+def test_flow_solvers_upload_no_scalars_per_step(monkeypatch):
+    """``new_tensor`` copies a host scalar to the device and ``item`` reads one
+    back: on CUDA each is a host sync, once per step."""
+
+    monkeypatch.setattr(anima_samplers, "require_anima_flow_denoiser", lambda _model, _feature: None)
+
+    def model(x, sigma, **_extra_args):
+        return x * (1.0 - sigma.view(-1, *([1] * (x.ndim - 1)))) * 0.5
+
+    noise = torch.randn(1, 4, 8, 8, generator=torch.Generator().manual_seed(0))
+    t = torch.linspace(1.0, 0.0, 11)
+    sigmas = 3 * t / (1 + 2 * t)
+
+    def host_sync(*_args, **_kwargs):
+        raise AssertionError("per-step host scalar")
+
+    monkeypatch.setattr(torch.Tensor, "new_tensor", host_sync)
+    monkeypatch.setattr(torch.Tensor, "item", host_sync)
+    for sampler in (anima_samplers.sample_anima_flow_unipc2, anima_samplers.sample_anima_flow_pc3):
+        assert torch.isfinite(sampler(model, noise.clone(), sigmas, disable=True)).all()
+
+
 def test_dynamic_thresholding_is_independent_per_batch_row():
     sample = torch.tensor([[[-4.0, 2.0]], [[-40.0, 20.0]]])
 

@@ -382,7 +382,7 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
 
             override_dtype = backend.args.dynamic_args.forge_unet_storage_dtype
 
-            from backend.nn.anima import quantize_on_load, should_quantize_on_load
+            from backend.nn.anima_quant import keep_sensitive_weights_precise, quantize_on_load, should_keep_sensitive_weights_precise, should_quantize_on_load
 
             anima_quant = backend.args.dynamic_args.anima_quant
             if should_quantize_on_load(anima_quant, cls_name, quant_config, guess.nunchaku, state_dict_dtype):
@@ -436,11 +436,9 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
                         model = model_loader(unet_config)
 
             model = pre_func(model)
-            if cls_name == "CosmosTransformer3DModel" and storage_dtype in (torch.float8_e4m3fn, torch.float8_e5m2) and state_dict_dtype not in (torch.float8_e4m3fn, torch.float8_e5m2, "gguf"):
+            if should_keep_sensitive_weights_precise(cls_name, storage_dtype, state_dict_dtype):
                 # On-the-fly FP8 storage: keep Anima's embedders, final
                 # layer, first blocks and norms at full precision.
-                from backend.nn.anima import keep_sensitive_weights_precise
-
                 kept = keep_sensitive_weights_precise(model, computation_dtype)
                 logger.info(f"Anima: kept {kept} precision-sensitive parameters in {computation_dtype}")
             load_state_dict(model, state_dict)

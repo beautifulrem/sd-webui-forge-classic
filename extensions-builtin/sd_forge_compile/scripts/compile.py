@@ -19,7 +19,7 @@ from backend.utils import get_attr, set_attr_raw
 from modules import scripts
 from modules.anima_support import is_anima_engine, process_ref
 from modules.anima_presets import register_preset_control
-from anima_block_compile import AnimaBlockCompileManager, needs_eager, without_inactive_modifiers
+from anima_block_compile import AnimaBlockCompileManager, block_compile_config, needs_eager, without_inactive_modifiers
 
 try:
     import triton  # noqa: F401 -- importing is the backend availability probe
@@ -160,7 +160,9 @@ class TorchCompileForForge(scripts.Script):
             self._remove_compile_wrapper(kmodel)
 
         match preset:
-            case "Anima per-block" | "guard_filter_fn":
+            case "Anima per-block":
+                config = block_compile_config(skip_torch_compile_dict)
+            case "guard_filter_fn":
                 config = dict(backend="inductor", dynamic=False, fullgraph=False, options={"guard_filter_fn": skip_torch_compile_dict})
             case "dynamic":
                 config = dict(backend="inductor", dynamic=True, fullgraph=False, options={"guard_filter_fn": skip_torch_compile_dict})

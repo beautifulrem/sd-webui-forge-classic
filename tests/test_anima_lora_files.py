@@ -1,3 +1,6 @@
+import os
+
+import pytest
 import torch
 from safetensors.torch import save_file
 
@@ -35,6 +38,23 @@ def test_lokr_and_text_encoder_only_files(tmp_path):
     assert not is_anima_adapter_file(text_only)  # no DiT blocks
     assert adapter_kind_for_file(tmp_path / "missing.safetensors") is None
     assert lora_coverage(tmp_path / "notes.txt").blocks == frozenset()
+
+
+def test_a_file_replaced_within_the_same_float_mtime_is_rescanned(tmp_path):
+    """Two mtimes 1 ns apart round to the same float ``st_mtime``: the cache
+    keys on ``st_mtime_ns`` (like anima_artifacts.file_version)."""
+
+    base = 1_700_000_000_123_456_789
+    lora = _save(tmp_path / "style.safetensors", ["diffusion_model.blocks.0.mlp.layer1.lora_up.weight"])
+    os.utime(lora, ns=(base, base))
+    assert lora_coverage(lora).blocks == {0}
+
+    _save(lora, ["diffusion_model.blocks.1.mlp.layer1.lora_up.weight"])  # same size
+    os.utime(lora, ns=(base + 1, base + 1))
+    if os.stat(lora).st_mtime_ns != base + 1:
+        pytest.skip("the filesystem does not keep nanosecond mtimes")
+    assert os.stat(lora).st_mtime == base / 1e9  # the float mtime did not change
+    assert lora_coverage(lora).blocks == {1}
 
 
 def test_layer_weight_syntax():

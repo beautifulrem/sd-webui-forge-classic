@@ -10,6 +10,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from modules.anima_artifacts import file_version
 from modules.anima_lora_support import block_index_from_key, module_from_key, qwen_layer_index
 
 LORA_MARKERS = (".lora_a.weight", ".lora_b.weight", ".lora_down.weight", ".lora_up.weight")
@@ -30,16 +31,15 @@ _COVERAGE_CACHE: dict[tuple, LoraCoverage] = {}
 
 
 def lora_cache_key(filename) -> tuple | None:
-    """``(path, mtime, size)`` of a .safetensors file, or None."""
+    """``(path, mtime_ns, size)`` of a .safetensors file, or None."""
 
     path = str(filename)
     if Path(path).suffix.lower() != ".safetensors":
         return None
     try:
-        stat = os.stat(path)
+        return file_version(os.path.abspath(path))
     except OSError:
         return None
-    return os.path.abspath(path), stat.st_mtime, stat.st_size
 
 
 def _safetensors_keys(filename) -> list[str]:

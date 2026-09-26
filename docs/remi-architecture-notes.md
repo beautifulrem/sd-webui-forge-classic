@@ -17,7 +17,7 @@ on purpose. Read this before "fixing" one of them.
 | Online-LoRA leases | `acquire_online_lora` / `release_online_lora` in `modules/anima_online_lora.py` (the last release restores the user's setting) | Stage scheduler, FreeFuse |
 | Post-load validation | `Script.after_model_load` in `modules/scripts.py`, run by `process_images` once checkpoint/VAE overrides have loaded | features that check the loaded model or the final settings (Hires Guard) |
 | Guaranteed teardown | `Script.cleanup` in `modules/scripts.py`, run from `process_images`' `finally` | features that must undo global state even when a run raises |
-| Load-time quantization | `quantize_on_load` in `backend/nn/anima.py`, via "Diffusion in Low Bits" | scaled FP8, INT8 ConvRot |
+| Load-time quantization | `quantize_on_load` in `backend/nn/anima_quant.py`, via "Diffusion in Low Bits" | scaled FP8, INT8 ConvRot |
 
 ## Deliberate trade-offs
 

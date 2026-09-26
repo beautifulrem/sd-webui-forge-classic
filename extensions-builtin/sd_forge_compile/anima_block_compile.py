@@ -83,6 +83,15 @@ def _is_compile_failure(error: Exception) -> bool:
     }
 
 
+def block_compile_config(guard_filter_fn) -> dict:
+    """torch.compile options for the per-block preset. Every block shares
+    Block.forward's code object, so with ``dynamic=False`` each new
+    (batch, H, W) adds a cache entry until Dynamo's recompile limit, then the
+    blocks run eager. ``dynamic=None`` marks the changed sizes dynamic on the
+    first recompile, so any later size reuses that graph."""
+    return dict(backend="inductor", dynamic=None, fullgraph=False, options={"guard_filter_fn": guard_filter_fn})
+
+
 class AnimaBlockCompileManager:
     """Compile Anima transformer blocks and swap them only during inference."""
 
@@ -130,8 +139,10 @@ class AnimaBlockCompileManager:
                     blocks[index] = block
                 # The integrated whole-model preset keeps Dynamo's forgiving
                 # default. Per-block mode needs the lazy compiler exception so
-                # it can make its eager fallback explicit and persistent.
-                with torch._dynamo.config.patch(suppress_errors=False):
+                # it can make its eager fallback explicit and persistent;
+                # that includes the recompile limit, which otherwise runs
+                # the blocks eager without a word.
+                with torch._dynamo.config.patch(suppress_errors=False, fail_on_recompile_limit_hit=True):
                     result = original_apply_model(*args, **kwargs)
             except Exception as error:
                 if not _is_compile_failure(error):

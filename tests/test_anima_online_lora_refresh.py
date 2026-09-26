@@ -15,6 +15,7 @@ import pytest
 import torch
 
 from backend.args import dynamic_args
+from backend.nn import anima_quant
 from modules import anima_online_lora as leases
 
 _SOURCE = Path(__file__).parents[1] / "modules_forge" / "main_entry.py"
@@ -35,6 +36,8 @@ def _refresh(monkeypatch, storage_option):
     opts = SimpleNamespace(data={}, forge_unet_storage_dtype=storage_option, forge_additional_modules=[])
     ns = {
         "torch": torch,
+        "ANIMA_QUANT_SCALED_FP8": anima_quant.ANIMA_QUANT_SCALED_FP8,
+        "ANIMA_QUANT_INT8_CONVROT": anima_quant.ANIMA_QUANT_INT8_CONVROT,
         "os": __import__("os"),
         "logger": logging.getLogger("test_online_lora_refresh"),
         "print_json": lambda **kwargs: None,

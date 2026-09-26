@@ -3,7 +3,8 @@ import json
 import torch
 
 from backend import operations
-from backend.nn.anima import Anima, int8_matmul_available, keep_sensitive_weights_precise, quantize_int8_convrot_state_dict, scale_fp8_state_dict
+from backend.nn.anima import Anima
+from backend.nn.anima_quant import int8_matmul_available, keep_sensitive_weights_precise, quantize_int8_convrot_state_dict, scale_fp8_state_dict
 from backend.state_dict import detect_quantization
 
 FP8 = torch.float8_e4m3fn
@@ -157,20 +158,20 @@ def test_int8_needs_a_real_int8_gemm():
 
 def test_quantize_on_load_falls_back_where_the_mode_cannot_run(monkeypatch):
     from backend import memory_management
-    from backend.nn import anima
+    from backend.nn import anima_quant
 
     state = _checkpoint()
     original = {k: v.clone() for k, v in state.items()}
 
     monkeypatch.setattr(memory_management, "should_use_bf16", lambda device: False)
-    anima.quantize_on_load(state, anima.ANIMA_QUANT_SCALED_FP8, torch.device("cpu"))
+    anima_quant.quantize_on_load(state, anima_quant.ANIMA_QUANT_SCALED_FP8, torch.device("cpu"))
     assert state.keys() == original.keys()  # no bf16: untouched
 
     monkeypatch.setattr(memory_management, "should_use_bf16", lambda device: True)
-    anima.quantize_on_load(state, anima.ANIMA_QUANT_INT8_CONVROT, torch.device("cpu"))
+    anima_quant.quantize_on_load(state, anima_quant.ANIMA_QUANT_INT8_CONVROT, torch.device("cpu"))
     assert state.keys() == original.keys()  # no INT8 GEMM on the CPU: untouched
 
-    anima.quantize_on_load(state, anima.ANIMA_QUANT_SCALED_FP8, torch.device("cpu"))
+    anima_quant.quantize_on_load(state, anima_quant.ANIMA_QUANT_SCALED_FP8, torch.device("cpu"))
     assert detect_quantization(state, is_unet=True) is not None
 
 
@@ -199,10 +200,10 @@ def test_scaling_on_the_load_device_keeps_the_results_and_stores_them_on_the_cpu
 
 def test_quantize_on_load_scales_fp8_on_the_load_device(monkeypatch):
     from backend import memory_management
-    from backend.nn import anima
+    from backend.nn import anima_quant
 
     calls = []
     monkeypatch.setattr(memory_management, "should_use_bf16", lambda device: True)
-    monkeypatch.setattr(anima, "scale_fp8_state_dict", lambda state, **kwargs: calls.append(kwargs) or 0)
-    anima.quantize_on_load({}, anima.ANIMA_QUANT_SCALED_FP8, torch.device("cpu"))
+    monkeypatch.setattr(anima_quant, "scale_fp8_state_dict", lambda state, **kwargs: calls.append(kwargs) or 0)
+    anima_quant.quantize_on_load({}, anima_quant.ANIMA_QUANT_SCALED_FP8, torch.device("cpu"))
     assert calls and calls[0]["device"] == torch.device("cpu")

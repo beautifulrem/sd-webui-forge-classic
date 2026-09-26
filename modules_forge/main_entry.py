@@ -8,6 +8,7 @@ from rich import print_json
 
 from backend import memory_management
 from backend.logging import setup_logger
+from backend.nn.anima_quant import ANIMA_QUANT_INT8_CONVROT, ANIMA_QUANT_SCALED_FP8
 from modules import (
     anima_online_lora,
     infotext_utils,
@@ -40,13 +41,13 @@ forge_unet_storage_dtype_options: dict[str, tuple[torch.dtype, bool]] = {
     "int8 (Anima ConvRot)": (None, False),
     "int8 (Anima ConvRot, fp16 LoRA)": (None, True),
 }
-# Options that quantize an Anima DiT while loading (backend/nn/anima.py); other
-# models load with the option's plain storage dtype
+# Options that quantize an Anima DiT while loading (backend/nn/anima_quant.py);
+# other models load with the option's plain storage dtype
 anima_quant_options: dict[str, str] = {
-    "float8-e4m3fn (Anima scaled)": "scaled_fp8",
-    "float8-e4m3fn (Anima scaled, fp16 LoRA)": "scaled_fp8",
-    "int8 (Anima ConvRot)": "int8_convrot",
-    "int8 (Anima ConvRot, fp16 LoRA)": "int8_convrot",
+    "float8-e4m3fn (Anima scaled)": ANIMA_QUANT_SCALED_FP8,
+    "float8-e4m3fn (Anima scaled, fp16 LoRA)": ANIMA_QUANT_SCALED_FP8,
+    "int8 (Anima ConvRot)": ANIMA_QUANT_INT8_CONVROT,
+    "int8 (Anima ConvRot, fp16 LoRA)": ANIMA_QUANT_INT8_CONVROT,
 }
 
 

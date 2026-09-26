@@ -39,13 +39,31 @@ class UnreadableDataFile(ValueError):
 def data_file(extension: str, filename: str, *, seed=None) -> Path:
     """``<data dir>/extension-data/<extension>/<filename>``. If it does not exist
     yet, ``seed`` (a default shipped with the extension, or the file an older
-    version kept in its own folder) is copied there first."""
+    version kept in its own folder) is copied there first, atomically and
+    under the file's edit lock: a concurrent edit is never overwritten."""
 
     path = Path(paths_internal.data_path) / "extension-data" / extension / filename
     if not path.exists() and seed is not None and Path(seed).is_file():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(seed, path)
+        with _edit_lock(path):
+            if not path.exists():
+                _copy_atomic(seed, path)
     return path
+
+
+def _copy_atomic(source, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
+    os.close(descriptor)
+    try:
+        shutil.copyfile(source, temporary)
+        os.chmod(temporary, 0o644)  # what a plain copy to a new file gives (mkstemp makes 0600)
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
 
 
 def read_json_object(path) -> dict:

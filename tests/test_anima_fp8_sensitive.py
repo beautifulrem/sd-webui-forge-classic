@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from backend.nn.anima import keep_sensitive_weights_precise
+from backend.nn.anima_quant import keep_sensitive_weights_precise
 
 
 class _Block(nn.Module):

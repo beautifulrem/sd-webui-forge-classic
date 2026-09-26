@@ -91,3 +91,20 @@ def test_value_context_projects_only_v_from_the_other_context():
         expected_v = attention.v_norm(attention.v_proj(context * mask).unflatten(-1, heads))
 
     assert torch.equal(q, expected_q) and torch.equal(k, expected_k) and torch.equal(v, expected_v)
+
+
+def test_block_computes_silu_emb_itself_when_the_model_does_not_pass_it():
+    """Callers other than Anima.forward (external code driving a Block) omit
+    ``silu_emb_B_T_D``: the block's own SiLU must give the same output."""
+    model, generator = _model()
+    captured = {}
+    model.blocks[0].register_forward_pre_hook(lambda _module, args, kwargs: captured.update(args=args, kwargs=dict(kwargs)), with_kwargs=True)
+    x = torch.randn(2, 4, 1, 16, 12, generator=generator)
+    context = torch.randn(2, 7, 64, generator=generator)
+    with torch.inference_mode():
+        model(x, torch.tensor([0.3, 0.7]), context, transformer_options={})
+        args, kwargs = captured["args"], captured["kwargs"]
+        passed = model.blocks[0](*args, **kwargs)
+        kwargs.pop("silu_emb_B_T_D")
+        computed = model.blocks[0](*args, **kwargs)
+    assert torch.equal(computed, passed)

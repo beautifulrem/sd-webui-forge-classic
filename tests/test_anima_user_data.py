@@ -21,6 +21,32 @@ def test_data_file_lives_in_the_data_dir_and_is_seeded_once(tmp_path, monkeypatc
     assert read_json_object(data_file("some-extension", "templates.json", seed=seed)) == {"mine": 2}  # not re-seeded
 
 
+def test_seeding_copies_under_the_edit_lock_and_never_leaves_a_partial_file(tmp_path, monkeypatch):
+    """A seed copy racing an edit could overwrite it, and a copy cut short would
+    leave half a JSON file that every later read refuses (UnreadableDataFile)."""
+
+    monkeypatch.setattr(paths_internal, "data_path", str(tmp_path / "data"))
+    seed = tmp_path / "bundled.json"
+    seed.write_text('{"default": 1}', encoding="utf-8")
+    target = tmp_path / "data" / "extension-data" / "some-extension" / "templates.json"
+    copy = anima_user_data.shutil.copyfile
+
+    def interrupted_copy(source, destination):
+        assert anima_user_data._edit_lock(target).locked()
+        with open(destination, "w", encoding="utf-8") as handle:
+            handle.write('{"def')
+        raise OSError("disk full")
+
+    monkeypatch.setattr(anima_user_data.shutil, "copyfile", interrupted_copy)
+    with pytest.raises(OSError):
+        data_file("some-extension", "templates.json", seed=seed)
+    assert not target.exists() and os.listdir(target.parent) == []
+
+    monkeypatch.setattr(anima_user_data.shutil, "copyfile", copy)
+    assert read_json_object(data_file("some-extension", "templates.json", seed=seed)) == {"default": 1}
+    assert os.stat(target).st_mode & 0o777 == 0o644
+
+
 def test_unreadable_files_raise_instead_of_reading_as_empty(tmp_path):
     broken = tmp_path / "broken.json"
     broken.write_text('{"half": ', encoding="utf-8")
