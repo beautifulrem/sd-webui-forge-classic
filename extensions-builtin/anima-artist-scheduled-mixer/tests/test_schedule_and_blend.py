@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from lib_artist_mixer.contexts import norm_limited_delta, resolve_row_mask, to_context_like
+from lib_artist_mixer.contexts import artist_mask_like, broadcast_batch, norm_limited_delta, to_context_like
 from lib_artist_mixer.schedule import CURVE_BACK, CURVE_FRONT, CURVE_HOLD, CURVE_SMOOTH, CURVE_TRIANGLE, curve_factor, parse_blocks, parse_inline_weight
 
 
@@ -41,12 +41,6 @@ def test_inline_weight_syntax():
     assert parse_inline_weight("") == ("", 1.0)
 
 
-def test_rows_to_mix():
-    assert resolve_row_mask([0, 1], 4, False) == [True, True, False, False]
-    assert resolve_row_mask([0, 1], 4, True) == [True] * 4
-    assert resolve_row_mask([0, 1, 0], 4, False) == [True] * 4  # markers do not divide the batch
-
-
 def test_norm_limited_delta_caps_each_row_separately():
     base = torch.tensor([[1.0, 0.0], [10.0, 0.0]])
     artist = torch.tensor([[1.0, 5.0], [10.0, 1.0]])
@@ -62,3 +56,15 @@ def test_artist_context_is_aligned_to_the_base_context():
     assert to_context_like(torch.ones(3, 4), context).shape == (2, 3, 4)
     with pytest.raises(RuntimeError):
         to_context_like(torch.ones(1, 3, 5), context)
+
+
+def test_artist_prompt_batches_tile_to_the_attention_batch_or_fail():
+    prompts = torch.arange(2.0).view(2, 1, 1).expand(2, 3, 4)
+    assert broadcast_batch(prompts, 4)[:, 0, 0].tolist() == [0.0, 1.0, 0.0, 1.0]  # cond + uncond per prompt
+    assert broadcast_batch(prompts[:1], 3).shape == (3, 3, 4)
+    # A batch it does not divide cannot say which prompt a row belongs to:
+    # it used to give every row the first prompt's context
+    with pytest.raises(RuntimeError, match="Artist prompt batch 2 does not match attention batch 3"):
+        to_context_like(prompts, torch.zeros(3, 3, 4))
+    with pytest.raises(RuntimeError, match="does not match attention batch 3"):
+        artist_mask_like(torch.ones(2, 3, 1), torch.zeros(3, 3, 4))

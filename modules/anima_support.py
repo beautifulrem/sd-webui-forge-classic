@@ -318,6 +318,60 @@ def branch_rows(markers, batch: int, mark: int = 0) -> list[int] | None:
     return [index * group + row for index, value in enumerate(markers) if value == mark for row in range(group)]
 
 
+class BranchRows:
+    """The rows of a cross-attention batch a wrapper runs its own contexts on
+    (Regional regions, Artist Mixer artists); the other rows keep the base
+    output. ``rows`` None means every row. See :func:`positive_rows`."""
+
+    __slots__ = ("markers", "rows", "index")
+
+    def __init__(self, markers, rows=None, index=None):
+        self.markers = markers
+        self.rows = rows
+        self.index = index
+
+    def select(self, tensor):
+        """``tensor`` (batch first) on these rows."""
+        return tensor if self.index is None else tensor.index_select(0, self.index)
+
+    def merge(self, base, rows_out):
+        """``base`` with these rows replaced by ``rows_out``."""
+        return rows_out if self.index is None else base.index_copy(0, self.index, rows_out)
+
+    def options(self, transformer_options, nag_skip: str, negpip_mask):
+        """``transformer_options`` for a forward of these rows with a
+        swapped-in context whose NegPiP mask is ``negpip_mask`` (None: no
+        negative weights); the base prompt's mask describes other tokens."""
+        options = dict(transformer_options) if isinstance(transformer_options, dict) else {}
+        if self.rows is not None:
+            options["cond_or_uncond"] = [0] * sum(int(marker) == 0 for marker in self.markers)
+        # NAG's negative branch is meaningful for the base positive/negative
+        # pair, not for swapped-in contexts.
+        options["anima_nag_skip"] = nag_skip
+        options[NEGPIP_CONTEXT_MASK_KEY] = negpip_mask
+        return options
+
+
+def positive_rows(markers, batch: int, cache: dict, device, every_row: bool = False) -> BranchRows | None:
+    """The positive-prompt rows of a batch with ``cond_or_uncond`` ``markers``
+    as :class:`BranchRows`: every row with ``every_row``, when they cover the
+    batch or when the markers do not describe it; None when there is no
+    positive row. The row index tensor is kept in ``cache`` per device."""
+
+    import torch
+
+    rows = branch_rows(markers, batch)
+    if rows is None or every_row or len(rows) == batch:
+        return BranchRows(markers)
+    if not rows:
+        return None
+    rows = tuple(rows)
+    key = ("rows", rows, device)
+    if key not in cache:
+        cache[key] = torch.tensor(rows, device=device)
+    return BranchRows(markers, rows, cache[key])
+
+
 def call_model_wrapper(previous, model_function, args):
     """Run the ``model_function_wrapper`` a wrapper replaced, or the model
     itself when there was none."""

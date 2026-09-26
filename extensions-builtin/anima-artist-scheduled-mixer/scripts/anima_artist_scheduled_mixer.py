@@ -15,9 +15,7 @@ from lib_artist_mixer.contexts import (
     concat_contexts as _concat_contexts,
     artist_mask_like as _artist_mask_like,
     joined_mask as _joined_mask,
-    with_negpip_mask as _with_negpip_mask,
     norm_limited_delta as _norm_limited_delta,
-    resolve_row_mask as _resolve_row_mask,
 )
 from lib_artist_mixer.schedule import (
     CURVE_BACK,
@@ -34,8 +32,8 @@ from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is
 from modules.anima_lora_support import ANIMA_BLOCK_MAPPINGS, UI_LANGUAGES, anima_source_block, clamp as _clamp, register_language_option, sigma_progress, stage_window, to_float as _to_float, ui_language, ui_text
 from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
-from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY, call_model_wrapper, conditioning_cache_key, effective_prompt_batch, encode_extra_prompts, negpip_mask_for, register_negpip_prompts
-from modules.forward_override import install_forward_override, restore_forward_override
+from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY, BranchRows, call_model_wrapper, conditioning_cache_key, effective_prompt_batch, encode_extra_prompts, negpip_mask_for, positive_rows, register_negpip_prompts
+from modules.forward_override import cached_overrides, forward_overrides
 
 
 logger = logging.getLogger("anima_artist_scheduled_mixer")
@@ -94,6 +92,8 @@ TABLE_HEADERS = [
     "Stage",
     "Auto Shift",
 ]
+# Components per artist row; a panel (base or hires) has MAX_ARTIST_ROWS rows
+ROW_WIDTH = len(TABLE_HEADERS)
 
 
 OPTION_LABELS = {
@@ -460,10 +460,9 @@ def _row_count(value, fallback=1):
 
 def _rows_from_components(*values):
     rows = []
-    per_row = len(TABLE_HEADERS)
-    for index in range(0, len(values), per_row):
-        chunk = list(values[index : index + per_row])
-        if len(chunk) < per_row:
+    for index in range(0, len(values), ROW_WIDTH):
+        chunk = list(values[index : index + ROW_WIDTH])
+        if len(chunk) < ROW_WIDTH:
             break
         rows.append(chunk)
     return rows
@@ -512,7 +511,7 @@ def _apply_optimization_to_block_timing_components(count, shift, optimization, *
     blocks = _default_blocks_for_optimization(optimization)
     for index in range(min(count, len(rows))):
         row = list(rows[index])
-        row += [None] * (len(TABLE_HEADERS) - len(row))
+        row += [None] * (ROW_WIDTH - len(row))
         row[3] = blocks
         if _to_bool(row[9], True) and _option_key("stage", row[8], PRESET_CUSTOM) != PRESET_CUSTOM:
             row[4], row[5], row[6] = _auto_stage_values(row[8], shift)
@@ -525,7 +524,7 @@ def _apply_stage_to_row_components(row_index, count, shift, optimization, *value
     count = _row_count(count, len(rows) or 1)
     if 0 <= row_index < len(rows):
         row = list(rows[row_index])
-        row += [None] * (len(TABLE_HEADERS) - len(row))
+        row += [None] * (ROW_WIDTH - len(row))
         stage = _option_key("stage", row[8], PRESET_CUSTOM)
         if stage == PRESET_CUSTOM:
             row[9] = False
@@ -549,7 +548,7 @@ def _apply_auto_shift_to_row_components(row_index, count, shift, optimization, *
     if not (0 <= row_index < min(count, len(rows))):
         return [gr.update(), gr.update(), gr.update()]
     row = list(rows[row_index])
-    row += [None] * (len(TABLE_HEADERS) - len(row))
+    row += [None] * (ROW_WIDTH - len(row))
     normalized = _normalize_rows([row], 1, shift, optimization, display=True)[0]
     return [
         gr.update(value=normalized[4], interactive=True),
@@ -595,7 +594,7 @@ def _create_artist_row_controls(prefix, lang, defaults, elem_id_func):
 
 
 def _row_outputs(row_components, offsets):
-    return [row_components[index + offset] for index in range(0, len(row_components), len(TABLE_HEADERS)) for offset in offsets]
+    return [row_components[index + offset] for index in range(0, len(row_components), ROW_WIDTH) for offset in offsets]
 
 
 def _register_ui_settings():
@@ -668,11 +667,11 @@ def _coerce_table(value):
             rows.append([keyed.get(h) for h in TABLE_HEADERS])
         elif isinstance(row, (list, tuple)):
             padded = list(row)
-            if len(padded) == len(TABLE_HEADERS) + 1:
+            if len(padded) == ROW_WIDTH + 1:
                 # Older templates had a per-row Shift column before Auto Shift.
                 padded.pop(9)
-            padded = padded[: len(TABLE_HEADERS)]
-            padded += [None] * (len(TABLE_HEADERS) - len(padded))
+            padded = padded[: ROW_WIDTH]
+            padded += [None] * (ROW_WIDTH - len(padded))
             rows.append(padded)
     return rows
 
@@ -687,7 +686,7 @@ def _normalize_rows(value, row_count=None, shift=3.0, optimization=OPT_BALANCE, 
     normalized = []
     for index in range(count):
         raw = rows[index] if index < len(rows) else defaults[index]
-        raw += [None] * (len(TABLE_HEADERS) - len(raw))
+        raw += [None] * (ROW_WIDTH - len(raw))
         enabled = _to_bool(raw[0], True)
         artist = str(raw[1] or "").strip()
         weight = _clamp(_to_float(raw[2], 1.0), -4.0, 4.0)
@@ -996,8 +995,8 @@ def _current_settings_payload(
     *component_values,
 ):
     optimization_key = _option_key("optimization", optimization, OPT_BALANCE)
-    base_values = component_values[: MAX_ARTIST_ROWS * 10]
-    hires_values = component_values[MAX_ARTIST_ROWS * 10 : MAX_ARTIST_ROWS * 20]
+    base_values = component_values[: MAX_ARTIST_ROWS * ROW_WIDTH]
+    hires_values = component_values[MAX_ARTIST_ROWS * ROW_WIDTH : MAX_ARTIST_ROWS * ROW_WIDTH * 2]
     base_shift = _to_float(base_shift, 3.0)
     hires_shift = _to_float(hires_shift, 3.0)
     base_count = _row_count(base_row_count, DEFAULT_ARTIST_ROWS)
@@ -1141,8 +1140,8 @@ def _reset_all_defaults_ui():
 
 
 def _apply_template_updates(name, target, base_row_count, hires_row_count, current_base_shift, current_hires_shift, current_optimization, component_values, status_text=None):
-    base_values = component_values[: MAX_ARTIST_ROWS * 10]
-    hires_values = component_values[MAX_ARTIST_ROWS * 10 : MAX_ARTIST_ROWS * 20]
+    base_values = component_values[: MAX_ARTIST_ROWS * ROW_WIDTH]
+    hires_values = component_values[MAX_ARTIST_ROWS * ROW_WIDTH : MAX_ARTIST_ROWS * ROW_WIDTH * 2]
     base_current = _rows_from_components(*base_values)
     hires_current = _rows_from_components(*hires_values)
     no_selection = (
@@ -1159,7 +1158,7 @@ def _apply_template_updates(name, target, base_row_count, hires_row_count, curre
         gr.update(),
         gr.update(),
         _t("no_template_selected"),
-        *[gr.update() for _ in range(MAX_ARTIST_ROWS * 20)],
+        *[gr.update() for _ in range(MAX_ARTIST_ROWS * ROW_WIDTH * 2)],
     )
     data = _template_data()
     name = _resolve_template_name(name, sorted(data.keys()))
@@ -1187,8 +1186,8 @@ def _apply_template_updates(name, target, base_row_count, hires_row_count, curre
     target = _option_key("apply_target", target, APPLY_BASE)
     base_count_value = max(1, len(base_tpl)) if target in {APPLY_BASE, APPLY_BOTH} else max(1, int(_to_float(base_row_count, 1)))
     hires_count_value = max(1, len(hires_tpl)) if target in {APPLY_HIRES, APPLY_BOTH} else max(1, int(_to_float(hires_row_count, 1)))
-    base_updates = [gr.update() for _ in range(MAX_ARTIST_ROWS * 10)]
-    hires_updates = [gr.update() for _ in range(MAX_ARTIST_ROWS * 10)]
+    base_updates = [gr.update() for _ in range(MAX_ARTIST_ROWS * ROW_WIDTH)]
+    hires_updates = [gr.update() for _ in range(MAX_ARTIST_ROWS * ROW_WIDTH)]
     if target in {APPLY_BASE, APPLY_BOTH}:
         base_updates = _component_values_from_rows(base_tpl, base_shift, optimization_key, base_count_value)
     if target in {APPLY_HIRES, APPLY_BOTH}:
@@ -1310,6 +1309,9 @@ class MixerState:
     # (sigmas, sampling_sigmas, progress) of the current model call: every
     # block of a call sees the same tensors, so progress is read once
     progress_cache: tuple | None = None
+    # Sampling of its pass is over: its model wrapper passes through, so a
+    # patcher clone that outlives the pass cannot mix stale artists
+    finished: bool = False
 
     def target_blocks(self):
         blocks = set()
@@ -1327,44 +1329,21 @@ class MixerState:
             artist.on_device.clear()
 
 
-_PATCHED_MODULES = []
-_PATCHED_MODEL_WRAPPERS = []
-_ACTIVE_STATE = None
+# The passes of the current processing run, for postprocess's summary
 _RUN_STATES = []
 
 
-def _unpatch_cross_attn():
-    global _PATCHED_MODULES, _PATCHED_MODEL_WRAPPERS
-    for module, forward, previous in reversed(_PATCHED_MODULES):
-        try:
-            # Drop the mixer state even if another override now sits on top
-            # and the wrapper cannot be removed: it then just passes through.
-            forward._anima_artist_mixer_binding["state"] = None
-            restore_forward_override(module, forward, previous)
-        except Exception:
-            logger.exception("Failed to restore Anima artist mixer cross-attn wrapper")
-    _PATCHED_MODULES = []
-    for unet, had_wrapper, original_wrapper in reversed(_PATCHED_MODEL_WRAPPERS):
-        try:
-            current = unet.model_options.get("model_function_wrapper")
-            if getattr(current, "_anima_artist_mixer_model_wrapper", False):
-                if had_wrapper:
-                    unet.model_options["model_function_wrapper"] = original_wrapper
-                else:
-                    unet.model_options.pop("model_function_wrapper", None)
-        except Exception:
-            logger.exception("Failed to restore Anima artist mixer model wrapper")
-    _PATCHED_MODEL_WRAPPERS = []
+def _finish_run_states():
+    """End sampling for the passes so far; their states stay for the summary."""
+    for state in _RUN_STATES:
+        state.finished = True
 
 
 def _cleanup_runtime():
-    global _ACTIVE_STATE
-
     states = list(_RUN_STATES)
-    _unpatch_cross_attn()
-    _ACTIVE_STATE = None
     _RUN_STATES.clear()
     for state in states:  # device tensors of the finished run
+        state.finished = True
         state.release_device_tensors()
     return states
 
@@ -1385,13 +1364,6 @@ def _validate_anima_unet(unet):
     return dm, "ok"
 
 
-def _install_cross_attn_patch(dm, state):
-    _unpatch_cross_attn()
-    _install_cross_attn_patch_no_unpatch(dm, state)
-    if not state.patched_blocks:
-        logger.warning("Anima artist mixer found no target cross-attn blocks to patch.")
-
-
 def _summarize_blocks(blocks):
     values = sorted(set(int(x) for x in blocks))
     if not values:
@@ -1408,71 +1380,48 @@ def _summarize_blocks(blocks):
     return ",".join(ranges)
 
 
+def _target_blocks(dm, state):
+    """Indices of the blocks whose cross-attention some artist mixes into."""
+    targets = state.target_blocks()
+    return [idx for idx, block in enumerate(getattr(dm, "blocks", [])) if idx in targets and hasattr(block, "cross_attn")]
+
+
+def _make_cross_attn_wrapper(original_forward, layer_idx, state):
+    def wrapped(x, context=None, rope_emb=None, transformer_options={}):
+        return _dispatch_cross_attn(original_forward, layer_idx, state, x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
+
+    return wrapped
+
+
 def _install_model_wrapper(unet, dm, state):
+    """Mix through ``unet``'s model wrapper: like Regional's, it installs the
+    artist cross-attn overrides for each model call and restores them after
+    it (also when it raises), so nothing outside sampling sees them."""
     options = getattr(unet, "model_options", None)
     if not isinstance(options, dict):
         return
-    existing = options.get("model_function_wrapper")
-    if getattr(existing, "_anima_artist_mixer_model_wrapper", False):
+    blocks = _target_blocks(dm, state)
+    state.patched_blocks = blocks
+    if not blocks:
+        logger.warning("Anima artist mixer found no target cross-attn blocks to patch.")
         return
-    had_wrapper = "model_function_wrapper" in options
+    logger.info("Anima artist mixer patches %d cross-attn blocks: %s", len(blocks), _summarize_blocks(blocks))
+    previous = options.get("model_function_wrapper")
+    override = cached_overrides(lambda index: dm.blocks[index].cross_attn, lambda original, index: _make_cross_attn_wrapper(original, index, state))
 
     def model_wrapper(apply_model, args):
-        if _ACTIVE_STATE is not state:
-            # A wrapper that outlived its run (e.g. on a clone taken before
-            # cleanup) must not re-patch the blocks with stale artists.
-            return call_model_wrapper(existing, apply_model, args)
+        if state.finished or not state.enabled:
+            return call_model_wrapper(previous, apply_model, args)
         state.wrapper_checks += 1
-        if not _PATCHED_MODULES:
-            _install_cross_attn_patch_no_unpatch(dm, state)
-        return call_model_wrapper(existing, apply_model, args)
+        with forward_overrides(override(index) for index in blocks):
+            return call_model_wrapper(previous, apply_model, args)
 
-    model_wrapper._anima_artist_mixer_model_wrapper = True
     options["model_function_wrapper"] = model_wrapper
     # Artist contexts and per-step curves change the block features in a way
     # Spectrum cannot infer; it wraps this wrapper, so set the flag on the
     # patcher. Artist windows depend on sampler progress, not sigma alone,
     # so the whole pass is forced.
     spectrum_force.request(unet, "artist_mixer")
-    _PATCHED_MODEL_WRAPPERS.append((unet, had_wrapper, existing))
-
-
-def _install_cross_attn_patch_no_unpatch(dm, state):
-    if _PATCHED_MODULES:
-        return
-    target_blocks = state.target_blocks()
-    patched = []
-    for idx, block in enumerate(getattr(dm, "blocks", [])):
-        if idx not in target_blocks or not hasattr(block, "cross_attn"):
-            continue
-        module = block.cross_attn
-
-        def make_wrapper(original_forward, layer_idx):
-            binding = {"state": state}
-
-            def wrapped(x, context=None, rope_emb=None, transformer_options={}):
-                bound_state = binding["state"]
-                if bound_state is None:
-                    return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
-                return _dispatch_cross_attn(
-                    original_forward,
-                    layer_idx,
-                    bound_state,
-                    x,
-                    context=context,
-                    rope_emb=rope_emb,
-                    transformer_options=transformer_options,
-                )
-
-            wrapped._anima_artist_mixer_binding = binding
-            return wrapped
-
-        forward = make_wrapper(module.forward, idx)
-        _PATCHED_MODULES.append((module, forward, install_forward_override(module, forward)))
-        patched.append(idx)
-    state.patched_blocks = patched
-    if patched:
-        logger.info("Anima artist mixer patched %d cross-attn blocks: %s", len(patched), _summarize_blocks(patched))
 
 
 def _current_progress(transformer_options, state):
@@ -1507,15 +1456,14 @@ def _active_artists(state, layer_idx, progress):
 
 @dataclass
 class _MixPlan:
-    """What a dispatch mixes: the rows the artists apply to (``index`` None:
-    every row) with their input, context, options and base NegPiP mask, and
-    the artist weights (relative to their total) with their total influence."""
+    """What a dispatch mixes: the rows the artists apply to (``branch``) with
+    their input, context and base NegPiP mask, the call's options, and the
+    artist weights (relative to their total) with their total influence."""
 
     x: torch.Tensor
     context: torch.Tensor
     options: dict
-    rows: tuple | None
-    index: torch.Tensor | None
+    branch: BranchRows
     base_mask: torch.Tensor | None
     weights: list
     influence: float
@@ -1529,10 +1477,11 @@ def _mix_plan(state, x, context, transformer_options, active):
     cou = options.get("cond_or_uncond")
     if state.mask_probe is None:
         state.mask_probe = (len(cou) if cou is not None else -1, int(batch_size))
-    mask = _resolve_row_mask(cou, batch_size, state.apply_uncond)
+    # Artist forwards run on the rows they mix into only; the others keep the base output.
+    branch = positive_rows(cou, batch_size, state.row_masks, context.device, every_row=state.apply_uncond)
     raw_weights = [float(weight) for _, weight in active]
     total_abs = sum(abs(w) for w in raw_weights)
-    if total_abs <= 1e-8 or not any(mask):
+    if total_abs <= 1e-8 or branch is None:
         return None
     weights = [w / total_abs for w in raw_weights]
     influence = _clamp(total_abs, 0.0, 1.0)
@@ -1548,20 +1497,13 @@ def _mix_plan(state, x, context, transformer_options, active):
         if "base_mask" not in cache:
             cache["base_mask"] = negpip_mask_for(context, options)
         base_mask = cache["base_mask"]
-    if all(mask):
-        return _MixPlan(x, context, transformer_options, None, None, base_mask, weights, influence)
-    # Artist forwards run on the rows they mix into only; the others keep the base output.
-    rows = tuple(row for row, used in enumerate(mask) if used)
-    key = (rows, context.device)
-    if key not in state.row_masks:
-        state.row_masks[key] = torch.tensor(rows, device=context.device)
-    index = state.row_masks[key]
-    if ("rows", rows) not in cache:
-        cache[("rows", rows)] = (context.index_select(0, index), None if base_mask is None else base_mask.index_select(0, index))
-    row_context, row_mask = cache[("rows", rows)]
-    row_options = dict(options)
-    row_options["cond_or_uncond"] = [0] * sum(int(marker) == 0 for marker in cou)
-    return _MixPlan(x.index_select(0, index), row_context, row_options, rows, index, row_mask, weights, influence)
+    if branch.rows is None:
+        return _MixPlan(x, context, transformer_options, branch, base_mask, weights, influence)
+    key = ("rows", branch.rows)
+    if key not in cache:
+        cache[key] = (branch.select(context), None if base_mask is None else branch.select(base_mask))
+    row_context, row_mask = cache[key]
+    return _MixPlan(branch.select(x), row_context, transformer_options, branch, row_mask, weights, influence)
 
 
 def _artist_kv(state, artist, plan, base_fusion):
@@ -1569,15 +1511,14 @@ def _artist_kv(state, artist, plan, base_fusion):
     context aligned to the base context (joined after it for base fusions)
     and the matching NegPiP mask, built once per model call."""
     cache = state.call_contexts
-    key = ("artist", id(artist), plan.rows, base_fusion)
+    key = ("artist", id(artist), plan.branch.rows, base_fusion)
     if key in cache:
         return cache[key]
     context = cache["context"]
     artist_context = _to_context_like(artist.cond_like(context), context)
     artist_mask = _artist_mask_like(artist.mask_like(artist_context), artist_context)
-    if plan.index is not None:
-        artist_context = artist_context.index_select(0, plan.index)
-        artist_mask = None if artist_mask is None else artist_mask.index_select(0, plan.index)
+    artist_context = plan.branch.select(artist_context)
+    artist_mask = None if artist_mask is None else plan.branch.select(artist_mask)
     if base_fusion:
         parts = [(plan.context, plan.base_mask), (artist_context, artist_mask)]
         artist_context, artist_mask = _concat_contexts(plan.context, artist_context), _joined_mask(parts, _context_token_dim(plan.context))
@@ -1603,8 +1544,7 @@ def _artist_forward_batched(state, original_forward, plan, rope_emb, artists, fu
     rope_rep = rope_emb
     if torch.is_tensor(rope_emb) and rope_emb.dim() > 0 and rope_emb.shape[0] == batch_size:
         rope_rep = rope_emb.repeat(count, *([1] * (rope_emb.dim() - 1)))
-    opts = _with_negpip_mask(plan.options, _joined_mask(masks, 0))
-    opts["anima_nag_skip"] = "artist_context"
+    opts = plan.branch.options(plan.options, "artist_context", _joined_mask(masks, 0))
     cou = opts.get("cond_or_uncond")
     if cou is not None:
         opts["cond_or_uncond"] = list(cou) * count
@@ -1657,12 +1597,11 @@ def _dispatch_output_avg(original_forward, state, x, context, rope_emb, transfor
             state.batched_disabled = True
             artist_total = None
     if artist_total is None:
-        artist_options = dict(plan.options)
-        artist_options["anima_nag_skip"] = "artist_context"
         base_fusion = state.fusion_mode in BASE_CONTEXT_FUSIONS
         for (artist, _), weight in zip(active, plan.weights):
             kv, kv_mask = _artist_kv(state, artist, plan, base_fusion)
-            out_i = original_forward(plan.x, context=kv, rope_emb=rope_emb, transformer_options=_with_negpip_mask(artist_options, kv_mask))
+            artist_options = plan.branch.options(plan.options, "artist_context", kv_mask)
+            out_i = original_forward(plan.x, context=kv, rope_emb=rope_emb, transformer_options=artist_options)
             artist_total = out_i * weight if artist_total is None else artist_total + out_i * weight
     base_out = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
     return _blend_rows(state, base_out, artist_total, plan)
@@ -1684,8 +1623,7 @@ def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_
         kv_mask = _joined_mask([(plan.context, plan.base_mask), (combined, combined_mask)], token_dim)
     else:
         kv, kv_mask = combined, combined_mask
-    artist_options = _with_negpip_mask(plan.options, kv_mask)
-    artist_options["anima_nag_skip"] = "artist_context"
+    artist_options = plan.branch.options(plan.options, "artist_context", kv_mask)
     artist_out = original_forward(plan.x, context=kv, rope_emb=rope_emb, transformer_options=artist_options)
     base_out = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
     return _blend_rows(state, base_out, artist_out, plan)
@@ -1695,7 +1633,7 @@ def _blend_rows(state, base_out, artist_out, plan):
     """Mix the artist output (of the plan's rows) into ``base_out``."""
 
     strength = _clamp(float(state.global_strength), 0.0, 1.0 if state.fusion_mode == FUSION_QUALITY_DELTA else 2.0) * plan.influence
-    rows_out = base_out if plan.index is None else base_out.index_select(0, plan.index)
+    rows_out = plan.branch.select(base_out)
     if state.diff_probe is None and logger.isEnabledFor(logging.DEBUG):
         # Two syncs and full-size temporaries: only for debug logging
         with torch.no_grad():
@@ -1706,7 +1644,7 @@ def _blend_rows(state, base_out, artist_out, plan):
         blended = _norm_limited_delta(rows_out, artist_out, strength)
     else:
         blended = rows_out * (1.0 - strength) + artist_out * strength
-    return blended if plan.index is None else base_out.index_copy(0, plan.index, blended)
+    return plan.branch.merge(base_out, blended)
 
 
 def _artist_entries(rows, shift, optimization):
@@ -1796,8 +1734,7 @@ def _resolve_run_rows(p, args, hires, report=True):
         return None
     own_rows = hires and hires_independent
     shift = _runtime_shift_from_processing(p, runtime_hires_shift if own_rows else runtime_base_shift, hires)
-    row_width = len(TABLE_HEADERS)
-    values = args[13:][MAX_ARTIST_ROWS * row_width : MAX_ARTIST_ROWS * row_width * 2] if own_rows else args[13:][: MAX_ARTIST_ROWS * row_width]
+    values = args[13:][MAX_ARTIST_ROWS * ROW_WIDTH : MAX_ARTIST_ROWS * ROW_WIDTH * 2] if own_rows else args[13:][: MAX_ARTIST_ROWS * ROW_WIDTH]
     rows = _active_rows_from_components(hires_row_count if own_rows else base_row_count, shift, optimization, *values, display=False)
     return dm, unet, shift, rows
 
@@ -1993,9 +1930,9 @@ class Script(scripts.Script):
             (base_row_components, base_row_count, base_shift_input),
             (hires_row_components, hires_row_count, hires_shift_input),
         ):
-            for offset in range(0, len(row_components), 10):
+            for offset in range(0, len(row_components), ROW_WIDTH):
                 row_components[offset + 8].change(
-                    fn=partial(_apply_stage_to_row_components, offset // 10),
+                    fn=partial(_apply_stage_to_row_components, offset // ROW_WIDTH),
                     inputs=[row_count, runtime_shift, optimization, *row_components],
                     outputs=[
                         row_components[offset + 4],
@@ -2008,7 +1945,7 @@ class Script(scripts.Script):
                     **_internal_event_kwargs(),
                 )
                 row_components[offset + 9].change(
-                    fn=partial(_apply_auto_shift_to_row_components, offset // 10),
+                    fn=partial(_apply_auto_shift_to_row_components, offset // ROW_WIDTH),
                     inputs=[row_count, runtime_shift, optimization, *row_components],
                     outputs=[
                         row_components[offset + 4],
@@ -2206,7 +2143,6 @@ class Script(scripts.Script):
         register_negpip_prompts(p, ARTIST_MIXER, names)
 
     def process_before_every_sampling(self, p, *args, **kwargs):
-        global _ACTIVE_STATE
         if len(args) < 13:
             return
         (
@@ -2243,8 +2179,7 @@ class Script(scripts.Script):
                 *component_values,
             )
 
-        _unpatch_cross_attn()
-        _ACTIVE_STATE = None
+        _finish_run_states()
         set_feature_active(p, ARTIST_MIXER, False)
         run = _resolve_run_rows(p, args, getattr(p, "is_hr_pass", False))
         if run is None:
@@ -2282,13 +2217,11 @@ class Script(scripts.Script):
         for previous in _RUN_STATES:
             previous.release_device_tensors()
         _RUN_STATES.clear()
-        _install_cross_attn_patch(dm, state)
         # forge_objects.shallow_copy() shares the long-lived unet patcher; clone
         # so the wrapper and options stay scoped to this pass.
         unet = unet.clone()
         p.sd_model.forge_objects.unet = unet
         _install_model_wrapper(unet, dm, state)
-        _ACTIVE_STATE = state
         _RUN_STATES.append(state)
         set_feature_active(p, ARTIST_MIXER)
         p.extra_generation_params["Anima Artist Mixer"] = (
@@ -2297,13 +2230,13 @@ class Script(scripts.Script):
         )
 
     def postprocess_batch(self, p, *args, **kwargs):
-        # Sampling (hires included) is over for this batch. Unpatch before
-        # postprocess_image, where e.g. ADetailer runs inner generations
-        # without this script; the next batch re-installs in
-        # process_before_every_sampling. The run states stay for postprocess.
-        global _ACTIVE_STATE
-        _unpatch_cross_attn()
-        _ACTIVE_STATE = None
+        # Sampling (hires included) is over for this batch. The overrides
+        # only exist during model calls, and from here on the model wrapper
+        # passes through: postprocess_image (e.g. ADetailer's inner
+        # generations without this script) is not mixed. The next batch
+        # installs a new wrapper in process_before_every_sampling. The run
+        # states stay for postprocess.
+        _finish_run_states()
 
     def postprocess(self, p, processed, *args, **kwargs):
         states = _cleanup_runtime()

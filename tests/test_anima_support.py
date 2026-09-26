@@ -10,6 +10,7 @@ from modules.anima_support import (
     is_anima_engine,
     negpip_mask_for,
     parse_block_list,
+    positive_rows,
     register_negpip_prompts,
     split_conditioning,
 )
@@ -260,3 +261,39 @@ def test_block_list_accepts_reversed_ranges():
 def test_block_list_names_the_feature_and_the_bad_part(text):
     with pytest.raises(ValueError, match=rf"DAVE block selection .*'{text}'"):
         parse_block_list(f"0,{text}", 8, feature="DAVE")
+
+
+def test_positive_rows_pick_the_cond_rows_of_a_cfg_batch():
+    cache = {}
+    branch = positive_rows([1, 0], 4, cache, "cpu")  # uncond rows 0-1, cond rows 2-3
+    assert branch.rows == (2, 3) and branch.index.tolist() == [2, 3]
+    assert positive_rows((1, 0), 4, cache, "cpu").index is branch.index  # one index tensor per rows and device
+
+    batch = torch.arange(4.0).view(4, 1)
+    assert branch.select(batch).flatten().tolist() == [2.0, 3.0]
+    assert branch.merge(batch, torch.full((2, 1), -1.0)).flatten().tolist() == [0.0, 1.0, -1.0, -1.0]
+
+
+@pytest.mark.parametrize("markers, batch, every_row", [([0], 2, False), ([0, 1, 0], 4, False), ([], 2, False), (None, 2, False), ([0, 1], 4, True), ([1], 2, True)])
+def test_positive_rows_cover_the_batch_when_the_markers_do(markers, batch, every_row):
+    # All positive, markers that do not describe the batch, or every row asked for
+    branch = positive_rows(markers, batch, {}, "cpu", every_row=every_row)
+    tensor = torch.ones(batch, 1)
+    assert branch.rows is None and branch.select(tensor) is tensor and branch.merge(None, tensor) is tensor
+
+
+def test_positive_rows_are_none_without_a_positive_row():
+    assert positive_rows([1], 2, {}, "cpu") is None
+
+
+def test_branch_options_describe_the_rows_and_the_swapped_in_context():
+    base_mask, context_mask = torch.ones(4, 3, 1), -torch.ones(2, 5, 1)
+    options = {"cond_or_uncond": [1, 0], NEGPIP_MASK_KEY: base_mask, "other": 1}
+
+    rows = positive_rows(options["cond_or_uncond"], 4, {}, "cpu").options(options, "regional_context", context_mask)
+    assert rows == {"cond_or_uncond": [0], NEGPIP_MASK_KEY: base_mask, NEGPIP_CONTEXT_MASK_KEY: context_mask, "anima_nag_skip": "regional_context", "other": 1}
+    assert options["cond_or_uncond"] == [1, 0] and NEGPIP_CONTEXT_MASK_KEY not in options  # not modified
+
+    every = positive_rows([0, 1], 4, {}, "cpu", every_row=True).options(options, "artist_context", None)
+    assert every["cond_or_uncond"] == [1, 0] and every[NEGPIP_CONTEXT_MASK_KEY] is None
+    assert positive_rows(None, 2, {}, "cpu").options(None, "artist_context", None) == {"anima_nag_skip": "artist_context", NEGPIP_CONTEXT_MASK_KEY: None}

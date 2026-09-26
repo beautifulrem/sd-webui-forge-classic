@@ -178,35 +178,18 @@ def test_artist_mixer_yields_to_regional_in_headless_runs():
     assert not is_feature_active(p, ARTIST_MIXER)
 
 
-def test_blocks_are_unpatched_after_the_batch_before_postprocess_image():
-    # ADetailer's inner runs (postprocess_image) skip this script by default,
-    # so they must not inherit the artist cross-attn overrides.
-    from types import SimpleNamespace
+class _CrossAttn(torch.nn.Module):
+    context_dim = 4
 
-    attention = torch.nn.Module()
-    dm = SimpleNamespace(blocks=[SimpleNamespace(cross_attn=attention)])
-    state = _state()
-    mixer._install_cross_attn_patch(dm, state)
-    mixer._ACTIVE_STATE = state
-    mixer._RUN_STATES.append(state)
-    try:
-        assert "forward" in attention.__dict__
-        mixer.Script().postprocess_batch(SimpleNamespace(), images=None, batch_number=0)
-
-        assert "forward" not in attention.__dict__
-        assert mixer._ACTIVE_STATE is None
-        assert mixer._RUN_STATES == [state]  # kept for postprocess's run summary
-    finally:
-        mixer._cleanup_runtime()
+    def forward(self, x, context=None, rope_emb=None, transformer_options={}):
+        return attend(x, context)
 
 
 class _Unet:
     """Anima-shaped patcher stand-in: one block whose cross-attn can be patched."""
 
     def __init__(self):
-        attention = torch.nn.Module()
-        attention.context_dim = 4
-        self.model = types.SimpleNamespace(diffusion_model=types.SimpleNamespace(blocks=[types.SimpleNamespace(cross_attn=attention)]))
+        self.model = types.SimpleNamespace(diffusion_model=types.SimpleNamespace(blocks=[types.SimpleNamespace(cross_attn=_CrossAttn())]))
         self.model_options = {}
 
     def clone(self):
@@ -230,13 +213,12 @@ def _run_p(**kwargs):
 
 def test_superseded_and_finished_runs_release_their_device_tensors(monkeypatch):
     monkeypatch.setattr(mixer, "_build_artists", lambda *args: _state().artists)
-    monkeypatch.setattr(mixer, "_install_model_wrapper", lambda *args: None)
     p = _run_p()
     x, context = _inputs()
 
     def run_and_use():
         mixer.Script().process_before_every_sampling(p, *_run_args())
-        state = mixer._ACTIVE_STATE
+        state = mixer._RUN_STATES[-1]
         _dispatch(state, _Attention(), x, context, [1, 0])  # fills the per-call caches
         assert state.call_contexts and state.row_masks and all(artist.on_device for artist in state.artists)
         return state
@@ -252,6 +234,95 @@ def test_superseded_and_finished_runs_release_their_device_tensors(monkeypatch):
         assert second.dispatch_calls == 1  # the counters stay for the summary
     finally:
         mixer._cleanup_runtime()
+
+
+def _sampling_pass(monkeypatch, **kwargs):
+    """A pass set up by process_before_every_sampling: ``(p, unet, cross_attn)``."""
+    monkeypatch.setattr(mixer, "_build_artists", lambda *args: _state().artists)
+    p = _run_p(**kwargs)
+    mixer.Script().process_before_every_sampling(p, *_run_args())
+    unet = p.sd_model.forge_objects.unet
+    return p, unet, unet.model.diffusion_model.blocks[0].cross_attn
+
+
+def _model_call(unet, attention, apply_model=None):
+    """Run one model call through the unet's wrapper; ``(patched during the call, attention output)``."""
+    x, context = _inputs()
+    seen = {}
+
+    def default_apply_model(input, timestep, **c):
+        seen["patched"] = "forward" in attention.__dict__
+        seen["out"] = attention(x, context=context, transformer_options={"cond_or_uncond": [0, 1]})
+        return input
+
+    unet.model_options["model_function_wrapper"](apply_model or default_apply_model, {"input": x, "timestep": torch.zeros(1), "c": {}})
+    return seen.get("patched"), seen.get("out")
+
+
+def test_artist_overrides_exist_only_during_a_model_call(monkeypatch):
+    p, unet, attention = _sampling_pass(monkeypatch)
+    try:
+        assert "forward" not in attention.__dict__  # nothing is installed for the whole pass
+        patched, out = _model_call(unet, attention)
+        assert patched and "forward" not in attention.__dict__
+
+        x, context = _inputs()
+        base = attend(x, context)
+        assert not torch.equal(out[0], base[0]) and torch.equal(out[1], base[1])  # mixed into the positive row
+        state = mixer._RUN_STATES[-1]
+        assert state.wrapper_checks == 1 and state.active_calls == 1 and state.patched_blocks == [0]
+    finally:
+        mixer._cleanup_runtime()
+
+
+def test_artist_overrides_are_restored_when_the_model_call_raises(monkeypatch):
+    p, unet, attention = _sampling_pass(monkeypatch)
+
+    def interrupted(input, timestep, **c):
+        assert "forward" in attention.__dict__
+        raise RuntimeError("interrupted")
+
+    try:
+        with pytest.raises(RuntimeError, match="interrupted"):
+            _model_call(unet, attention, interrupted)
+        assert "forward" not in attention.__dict__
+    finally:
+        mixer._cleanup_runtime()
+
+
+def test_nothing_is_mixed_after_sampling_not_even_in_an_adetailer_inner_run(monkeypatch):
+    # ADetailer's inner runs (postprocess_image) skip this script by default,
+    # or yield to it (_ad_inner); they must not inherit the artist overrides,
+    # even through the outer pass's patcher.
+    p, unet, attention = _sampling_pass(monkeypatch)
+    state = mixer._RUN_STATES[-1]
+    try:
+        mixer.Script().postprocess_batch(p, images=None, batch_number=0)
+        inner = _run_p(_ad_inner=True)
+        mixer.Script().process_before_every_sampling(inner, *_run_args())
+        assert "model_function_wrapper" not in inner.sd_model.forge_objects.unet.model_options
+
+        patched, out = _model_call(unet, attention)
+        x, context = _inputs()
+        assert not patched and torch.equal(out, attend(x, context))
+        assert state.wrapper_checks == 0 and state.dispatch_calls == 0
+        assert mixer._RUN_STATES == [state]  # kept for postprocess's run summary
+    finally:
+        mixer._cleanup_runtime()
+
+
+def test_an_artist_batch_the_attention_batch_does_not_tile_turns_the_mixer_off():
+    # Two prompts' artist contexts cannot be spread over three rows; every
+    # row used to get the first prompt's artist context.
+    state = _state()
+    for artist in state.artists:
+        artist.cond = artist.cond.expand(2, -1, -1)
+    state.infotext = {}
+    x, context = _inputs(batch=3)
+    out = _dispatch(state, _Attention(), x, context, [0])
+
+    assert torch.equal(out, attend(x, context))
+    assert not state.enabled and state.infotext["Anima Artist Mixer"] == "disabled: RuntimeError at block 0"
 
 
 @pytest.mark.parametrize("total, expected", [(28, range(10, 19)), (40, range(15, 28)), (52, range(20, 37))])

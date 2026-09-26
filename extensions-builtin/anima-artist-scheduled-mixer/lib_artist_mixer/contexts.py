@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import torch
 
-from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows
-
 
 def ensure_3d(tensor):
     if tensor is None:
@@ -26,13 +24,14 @@ def to_context(tensor, context):
 
 
 def broadcast_batch(tensor, batch_size):
+    """``tensor`` (one row per prompt) tiled to the attention batch."""
     if tensor.shape[0] == batch_size:
         return tensor
     if tensor.shape[0] == 1:
         return tensor.expand(batch_size, -1, -1)
     if batch_size % tensor.shape[0] == 0:
         return tensor.repeat(batch_size // tensor.shape[0], 1, 1)
-    return tensor[:1].expand(batch_size, -1, -1)
+    raise RuntimeError(f"Artist prompt batch {tensor.shape[0]} does not match attention batch {batch_size}")
 
 
 def to_context_like(tensor, context):
@@ -81,14 +80,6 @@ def joined_mask(parts, dim):
     return torch.cat(masks, dim=dim)
 
 
-def with_negpip_mask(transformer_options, mask):
-    """Options for a foreign context: its own mask replaces the base prompt's."""
-
-    options = dict(transformer_options) if isinstance(transformer_options, dict) else {}
-    options[NEGPIP_CONTEXT_MASK_KEY] = mask
-    return options
-
-
 def norm_limited_delta(base_out, artist_out, strength, max_ratio=0.6):
     delta = artist_out - base_out
     if delta.numel() == 0:
@@ -102,13 +93,3 @@ def norm_limited_delta(base_out, artist_out, strength, max_ratio=0.6):
         scale = torch.minimum(torch.ones_like(delta_norm), limit / delta_norm)
         shape = [scale.shape[0]] + [1] * (delta.dim() - 1)
     return base_out + delta * scale.to(device=delta.device, dtype=delta.dtype).view(*shape) * float(strength)
-
-
-def resolve_row_mask(cond_or_uncond, batch_size, apply_uncond):
-    """Rows to mix into: the positive-prompt rows, or every row with
-    ``apply_uncond`` or when the markers do not describe the batch."""
-    rows = branch_rows(cond_or_uncond, batch_size)
-    if rows is None or apply_uncond:
-        return [True] * batch_size
-    rows = set(rows)
-    return [row in rows for row in range(batch_size)]

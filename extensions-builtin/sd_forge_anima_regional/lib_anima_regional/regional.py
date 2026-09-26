@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 import torch
 
 from modules import spectrum_force
-from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows, call_model_wrapper
+from modules.anima_support import call_model_wrapper, positive_rows
 from modules.forward_override import cached_overrides, forward_overrides
 
 
@@ -128,16 +128,14 @@ def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_
             return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
         base = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
         batch = base.shape[0]
-        markers = tuple(transformer_options.get("cond_or_uncond", []))
-        rows = branch_rows(markers, batch)
-        if rows == []:
-            return base  # no positive-prompt row: nothing to blend
         # Regional contexts only run on the positive-prompt rows (every row
         # when the markers do not describe the batch); the others keep ``base``.
-        rows = tuple(rows) if rows is not None and len(rows) < batch else None
-        index = None if rows is None else state.cached(("rows", rows, base.device), lambda: torch.tensor(rows, device=base.device))
-        region_x = x if index is None else x.index_select(0, index)
-        region_base = base if index is None else base.index_select(0, index)
+        branch = positive_rows(tuple(transformer_options.get("cond_or_uncond", [])), batch, state.cache, base.device)
+        if branch is None:
+            return base  # no positive-prompt row: nothing to blend
+        rows = branch.rows
+        region_x = branch.select(x)
+        region_base = branch.select(base)
         numerator = torch.zeros_like(region_base)
         denominator = torch.zeros((region_base.shape[0], region_base.shape[1], 1), device=base.device, dtype=base.dtype)
         for number, (region, spatial_mask) in enumerate(zip(state.regions, state.current_masks)):
@@ -152,25 +150,19 @@ def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_
             alpha = spatial_mask.to(base) * float(region.strength)
             key = (number, batch, rows, context.device, context.dtype)
             regional_context = state.cached(("context", *key), lambda: fit_context_rows(region.conditioning, batch, rows, context))
-            regional_options = dict(transformer_options)
-            if rows is not None:
-                regional_options["cond_or_uncond"] = [0] * sum(int(marker) == 0 for marker in markers)
-            # NAG's negative branch is meaningful for the base positive/negative
-            # pair, not for synthetic regional contexts repeated across rows.
-            regional_options["anima_nag_skip"] = "regional_context"
-            # The base prompt's NegPiP mask describes other tokens.
-            regional_options[NEGPIP_CONTEXT_MASK_KEY] = (
+            negpip_mask = (
                 None
                 if region.negpip_mask is None
                 else state.cached(("negpip", *key), lambda: fit_context_rows(region.negpip_mask, batch, rows, context))
             )
+            regional_options = branch.options(transformer_options, "regional_context", negpip_mask)
             regional = original_forward(region_x, context=regional_context, rope_emb=rope_emb, transformer_options=regional_options)
             numerator = numerator + regional * alpha
             denominator = denominator + alpha
         blend = denominator.clamp(0.0, 1.0) * (1.0 - min(max(float(state.base_preserve), 0.0), 1.0))
         regional_average = numerator / denominator.clamp_min(1e-6)
         mixed = region_base * (1.0 - blend) + regional_average * blend
-        return mixed if index is None else base.index_copy(0, index, mixed)
+        return branch.merge(base, mixed)
 
     return wrapped
 
