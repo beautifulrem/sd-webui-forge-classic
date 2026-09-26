@@ -356,7 +356,7 @@ def test_a_nested_run_loads_its_loras_at_their_own_strength(monkeypatch):
 
 def test_loras_scheduled_by_lora_control_are_left_to_it(monkeypatch):
     from backend.patcher.base import ModelPatcher
-    from modules import anima_lora_support, extra_networks
+    from modules import extra_networks, scripts
 
     calls = []
 
@@ -366,11 +366,10 @@ def test_loras_scheduled_by_lora_control_are_left_to_it(monkeypatch):
 
     monkeypatch.setattr(ModelPatcher, "add_patches", add_patches)
     monkeypatch.setattr(extra_networks, "activate", lambda p, extra_network_data: None)
-    # LoRA Control publishes its live class-level mapping once, then fills it per run
-    schedule = {}
-    monkeypatch.setattr(anima_lora_support, "_lora_control_schedule", {})
-    anima_lora_support.publish_lora_control_schedule(schedule)
-    schedule["controlled.safetensors"] = [(0.0, 0.0), (1.0, 1.0)]
+    # LoRA Control fills its class-level mapping per run
+    lora_control = type("LoRAControl", (), {"mapping": {"controlled.safetensors": [(0.0, 0.0), (1.0, 1.0)]}})
+    control_path = "/webui/extensions-builtin/sd_forge_lora_schedule/scripts/control.py"
+    monkeypatch.setattr(scripts, "scripts_data", [scripts.ScriptClassData(lora_control, control_path, "/webui", None)])
     module = _load()
     module.install_patch()
     config = SimpleNamespace(patch_signature="same", file_matches=lambda filename, names: True, panel_weight=SimpleNamespace(has_block=False))

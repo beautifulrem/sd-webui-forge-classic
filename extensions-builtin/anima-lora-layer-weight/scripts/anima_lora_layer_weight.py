@@ -1,4 +1,5 @@
 import logging
+import os
 from dataclasses import dataclass
 
 import gradio as gr
@@ -8,6 +9,7 @@ from modules.anima_lora_support import (
     LORA_TAG_RE,
     LayerWeights,
     invalidate_cond_caches,
+    lora_control_files,
     rewrite_batch_prompts,
     script_hooks,
     looks_like_layer_weights as _looks_like_layer_weights,
@@ -23,11 +25,8 @@ from modules.anima_lora_support import (
     merge_consistent_rules,
     compact_text as _compact_text,
     is_plain_number as _is_plain_number,
-    intro_block,
-    register_language_option,
-    ui_language,
-    ui_text,
 )
+from modules.anima_lora_ui import intro_block, register_language_option, ui_language, ui_text
 from modules.anima_lora_files import adapter_kind_for_file as _adapter_kind_for_file
 from modules.anima_lora_files import is_anima_adapter_file as _is_anima_adapter_file
 from modules.anima_lora_files import lora_coverage as _lora_coverage
@@ -309,7 +308,11 @@ class ActiveRule:
         lokr_text_layer_enabled: bool,
         lokr_text_layer_weights: str,
         lokr_inline_rules: dict[str, PromptRule],
+        extra_generation_params: dict | None = None,
     ):
+        # The run's infotext, and the files left to LoRA Control noted in it
+        self.extra_generation_params = extra_generation_params
+        self.yielded_to_lora_control: set = set()
         self.lora_rule = AdapterRule("lora", lora_enabled, lora_targets, lora_block_enabled, lora_block_weights, lora_module_enabled, lora_module_weights, lora_text_layer_enabled, lora_text_layer_weights, lora_inline_rules)
         self.lokr_rule = AdapterRule("lokr", lokr_enabled, lokr_targets, lokr_block_enabled, lokr_block_weights, lokr_module_enabled, lokr_module_weights, lokr_text_layer_enabled, lokr_text_layer_weights, lokr_inline_rules)
         self.rules = {
@@ -567,6 +570,11 @@ def _add_patches(original, patcher, patches, strength_patch, strength_model, fil
     decision = rule.decision_for_lora(filename) if rule is not None else None
     if decision is None or not decision.apply:
         return original(patcher, patches, strength_patch=strength_patch, strength_model=strength_model, filename=filename, online_mode=online_mode)
+    if filename in lora_control_files():
+        # <lora:x:[w@t,...]> keeps its tag, and LoRA Control rewrites each
+        # patch's strength every step: the factors stored there would be lost
+        _note_lora_control(rule, filename)
+        return original(patcher, patches, strength_patch=strength_patch, strength_model=strength_model, filename=filename, online_mode=online_mode)
 
     # Delegate patch construction to the live Forge implementation. This
     # keeps Forge Neo's offline/online patch storage intact and composes
@@ -587,6 +595,19 @@ def _add_patches(original, patcher, patches, strength_patch, strength_model, fil
     for key_strength, group in groups.items():
         loaded.update(original(patcher, group, strength_patch=strength_patch * key_strength, strength_model=strength_model, filename=filename, online_mode=online_mode))
     return list(loaded)
+
+
+def _note_lora_control(rule, filename):
+    noted = getattr(rule, "yielded_to_lora_control", None)
+    if noted is None or filename in noted:
+        return
+    noted.add(filename)
+    name = os.path.splitext(os.path.basename(str(filename)))[0]
+    logger.warning("Anima LoRA layer weight skips %s: it is scheduled with LoRA Control syntax", name)
+    extra = getattr(rule, "extra_generation_params", None)
+    if isinstance(extra, dict):
+        skipped = [value for value in str(extra.get("Anima LoRA/LoKR Layer Weight skipped", "")).split(", ") if value]
+        extra["Anima LoRA/LoKR Layer Weight skipped"] = ", ".join(sorted({*skipped, name}))
 
 
 def install_patch():
@@ -852,6 +873,7 @@ class Script(scripts.Script):
             lokr_text_layer_enabled,
             lokr_text_layer_weights,
             lokr_inline_rules,
+            getattr(p, "extra_generation_params", None),
         )
         _reset_lora_cache_if_needed(p, _ACTIVE_RULE.signature, _ACTIVE_RULE.text_encoder_signature)
 

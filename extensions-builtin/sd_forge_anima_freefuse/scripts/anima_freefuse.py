@@ -16,7 +16,7 @@ from lib_anima_freefuse import (
 )
 from lib_anima_freefuse.runtime import has_untagged_patches, install_patch_metadata_hook
 from modules import scripts
-from modules.anima_lora_support import ANIMA_BLOCK_MAPPINGS, anima_model_block, anima_source_block
+from modules.anima_lora_support import REFERENCE_BLOCKS, anima_model_block, model_block_set
 from modules.anima_online_lora import acquire_online_lora, release_online_lora
 from modules.anima_feature_conflicts import (
     ARTIST_MIXER,
@@ -27,7 +27,7 @@ from modules.anima_feature_conflicts import (
     resolve_freefuse_refiner_conflicts,
     set_feature_active,
 )
-from modules.anima_support import effective_prompt_batch, is_anima_engine, parse_block_list
+from modules.anima_support import effective_prompt_batch, is_anima_engine
 from modules.anima_presets import register_preset_control
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
@@ -37,23 +37,6 @@ setup_logger(logger)
 
 # Name of FreeFuse's lease on Forge's online-LoRA switch
 ONLINE_LORA_OWNER = "anima_freefuse"
-# Block fields are written in the 2B (28-block) layout
-REFERENCE_BLOCKS = 28
-
-
-def bias_model_blocks(text, total_blocks: int) -> set[int]:
-    """Model blocks of the attention-bias field, written in the 2B layout.
-
-    On the depth-expanded 2.9B/3.8B models each 2B block brings its inserted
-    copies along (the Artist Mixer's semantics), so a band covers the same
-    depth of any model and "0-27" (or "0-51") means every block. Other depths
-    take the indices as model blocks."""
-
-    feature = "Anima FreeFuse attention-bias"
-    if (REFERENCE_BLOCKS, total_blocks) not in ANIMA_BLOCK_MAPPINGS:
-        return parse_block_list(str(text), total_blocks, feature=feature)
-    selected = parse_block_list(str(text), REFERENCE_BLOCKS, feature=feature)
-    return {index for index in range(total_blocks) if anima_source_block(index, REFERENCE_BLOCKS, total_blocks) in selected}
 
 
 def _loaded_patches_untagged(sd_model) -> bool:
@@ -460,7 +443,8 @@ class AnimaFreeFuseScript(scripts.Script):
             routing_end=float(routing_end),
             bias_scale=float(bias_scale),
             positive_bias=float(positive_bias),
-            bias_blocks=bias_model_blocks(bias_blocks, total_blocks),
+            # Written in the 2B layout: on 2.9B/3.8B a band brings the inserted copies along
+            bias_blocks=model_block_set(bias_blocks, total_blocks, feature="Anima FreeFuse attention-bias"),
         )
         p.sd_model.forge_objects.unet = apply_freefuse_patch(unet, state)
         p.extra_generation_params["Anima FreeFuse"] = (

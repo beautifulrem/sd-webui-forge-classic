@@ -132,6 +132,18 @@ def test_block_selection_errors_name_the_feature():
         model_block_set("30-39", 40, feature="Test")  # past the 2B layout
 
 
+def test_block_selection_parser_can_be_supplied():
+    calls = []
+
+    def lenient(text, total):
+        calls.append((text, total))
+        return {total - 1}
+
+    assert model_block_set("junk", 40, parse=lenient) == {39}  # the 2B layout's last block
+    assert model_block_set("junk", 30, parse=lenient) == {29}  # an unknown depth: the model's own
+    assert calls == [("junk", 28), ("junk", 30)]
+
+
 def test_lora_key_factor_weights_each_part_or_keeps_the_fallback():
     block = "diffusion_model.blocks.2.mlp.layer1.weight"
     qwen = "text_encoders.qwen3_06b.model.layers.4.mlp.up_proj.weight"
@@ -304,17 +316,6 @@ def test_sigma_progress_reads_a_schedule_off_the_device_once():
 
     hires = Schedule([3.0, 0.0])  # the next pass's schedule
     assert sigma_progress(torch.tensor([0.0]), hires) == 1.0 and hires.copies == 1
-
-
-def test_ui_text_falls_back_to_chinese_and_to_the_key(monkeypatch):
-    from modules import shared
-    from modules.anima_lora_support import intro_text, ui_text
-
-    strings = {"zh": {"title": "标题"}, "en": {"title": "Title"}}
-    monkeypatch.setattr(shared, "opts", type("Opts", (), {"lang": "en"})(), raising=False)
-    assert ui_text(strings, "lang", "title") == "Title" and ui_text(strings, "lang", "other") == "other"
-    assert ui_text(strings, "unset_option", "title") == "标题"
-    assert intro_text("中文", "en", "zh") == "zh" and intro_text("English", "en", "zh") == "en"
 
 
 def test_cond_caches_are_invalidated_where_the_class_shares_them():

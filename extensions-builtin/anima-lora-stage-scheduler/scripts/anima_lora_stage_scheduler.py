@@ -38,11 +38,8 @@ from modules.anima_lora_support import (
     stage_window,
     clamp as _clamp,
     to_float as _to_float,
-    intro_block,
-    register_language_option,
-    ui_language,
-    ui_text,
 )
+from modules.anima_lora_ui import intro_block, register_language_option, ui_language, ui_text
 from modules.anima_presets import register_preset_control
 
 
@@ -58,6 +55,7 @@ LANG = {
         "hires_lora_panel": "高分辨率修复 LoRA 阶段",
         "target_scope": "目标范围",
         "panel_weight": "面板权重，0=使用提示词/分层插件",
+        "panel_weight_placeholder": "0.8 或 0-18=1,19-27=0.2 或 blocks=0-18=1,19-27=0.2;modules=mlp=0.8",
         "target_lora": "目标 LoRA",
         "target_lora_placeholder": "目标范围为“仅目标列表”时填写，多个用逗号或换行分隔",
         "template": "模板",
@@ -105,6 +103,30 @@ LANG = {
         "current_template": "当前模板",
         "current_shift": "当前 Shift",
         "template_parts": "当前模板组成：",
+        "help_parts": "- 模板由基础预设组合而成；“介入”表示 LoRA 只在该阶段生效，“禁止”表示 LoRA 在该阶段强制为 0。",
+        "help_auto": "- 开启“根据 Shift 自动设置介入时间”时，每个基础预设都会按当前 Shift 自动移动开始、结束、峰值比例。",
+        "help_combo": "- 组合模板可混合多个阶段，但同一阶段不能同时选择“介入”和“禁止”。",
+        "help_ratios": "- 开始比例/结束比例是采样进度 0-1；峰值比例是介入曲线最强的位置；阶段强度倍率会乘到最终 LoRA 强度上。",
+        "help_part": "- `{name}`：{stage} {action}，自动窗口 {start} - {end}，峰值 {peak}，强度 {strength}",
+        "templates_unreadable": "模板文件无法读取，未做修改：{error}",
+        "no_presets": "请选择至少一个基础预设。",
+        "unknown_preset": "未知基础预设：{preset}",
+        "preset_conflict": "组合冲突：{stage} 同时选择了介入和禁止，无法保存。",
+        "empty_template_name": "模板名称不能为空。",
+        "builtin_template_kept": "内置模板不能覆盖，请换一个名称。",
+        "builtin_preset_kept": "内置基础预设不能覆盖，请换一个名称。",
+        "template_saved": "已保存模板：{name}",
+        "combo_saved": "已保存组合模板：{name} = {presets}\n\n{preview}",
+        "no_template_selected": "没有选择模板。",
+        "builtin_not_renamed": "内置模板不能重命名。",
+        "empty_new_name": "新名称不能为空。",
+        "builtin_name_taken": "不能重命名为内置模板名称。",
+        "same_name": "新旧名称相同，无需重命名。",
+        "rename_missing": "找不到要重命名的模板。",
+        "rename_taken": "目标名称已存在。",
+        "template_renamed": "已重命名模板：{old} → {new}",
+        "builtin_not_deleted": "内置模板不能删除。",
+        "template_deleted": "已删除模板：{name}",
     },
     "en": {
         "settings_label": "Anima LoRA Stage Scheduler UI language",
@@ -115,6 +137,7 @@ LANG = {
         "hires_lora_panel": "Hires. fix LoRA stage",
         "target_scope": "Target scope",
         "panel_weight": "Panel weight, 0 = use prompt / layer-weight plugin",
+        "panel_weight_placeholder": "0.8 or 0-18=1,19-27=0.2 or blocks=0-18=1,19-27=0.2;modules=mlp=0.8",
         "target_lora": "Target LoRA",
         "target_lora_placeholder": "Fill only when target scope is target list; separate multiple names with commas or new lines",
         "template": "Template",
@@ -162,6 +185,30 @@ LANG = {
         "current_template": "Current template",
         "current_shift": "Current Shift",
         "template_parts": "Template parts:",
+        "help_parts": "- Templates are built from base presets. Apply means the LoRA is active only in that stage; Block forces it to 0 in that stage.",
+        "help_auto": "- When auto timing from Shift is enabled, every base preset moves its start, end, and peak ratios from the current Shift value.",
+        "help_combo": "- Combo templates can mix stages, but the same stage cannot be both Apply and Block.",
+        "help_ratios": "- Start/end are sampling progress ratios from 0 to 1; peak is the strongest point of the curve; stage strength multiplies the final LoRA strength.",
+        "help_part": "- `{name}`: {stage} {action}, auto window {start} - {end}, peak {peak}, strength {strength}",
+        "templates_unreadable": "The template file cannot be read; nothing was changed: {error}",
+        "no_presets": "Select at least one base preset.",
+        "unknown_preset": "Unknown base preset: {preset}",
+        "preset_conflict": "Conflicting combo: {stage} is selected as both Apply and Block; not saved.",
+        "empty_template_name": "The template name cannot be empty.",
+        "builtin_template_kept": "Built-in templates cannot be overwritten; choose another name.",
+        "builtin_preset_kept": "Built-in base presets cannot be overwritten; choose another name.",
+        "template_saved": "Saved template: {name}",
+        "combo_saved": "Saved combo template: {name} = {presets}\n\n{preview}",
+        "no_template_selected": "No template selected.",
+        "builtin_not_renamed": "Built-in templates cannot be renamed.",
+        "empty_new_name": "The new name cannot be empty.",
+        "builtin_name_taken": "Cannot rename to a built-in template name.",
+        "same_name": "The new name is the same as the old one; nothing to rename.",
+        "rename_missing": "The template to rename was not found.",
+        "rename_taken": "The target name already exists.",
+        "template_renamed": "Renamed template: {old} → {new}",
+        "builtin_not_deleted": "Built-in templates cannot be deleted.",
+        "template_deleted": "Deleted template: {name}",
     },
 }
 
@@ -533,7 +580,7 @@ def _edit_templates(change):
     try:
         value, status = _TEMPLATES.edit(change)
     except UnreadableDataFile as error:
-        return _template_updates(f"模板文件无法读取，未做修改：{error}")
+        return _template_updates(_t("templates_unreadable").format(error=error))
     return _template_updates(status, value)
 
 
@@ -622,18 +669,18 @@ def _template_preset_value(config: dict) -> str:
 def _parts_from_presets(presets) -> tuple[list[dict], str | None]:
     selected = [str(item).strip() for item in (presets or []) if str(item).strip()]
     if not selected:
-        return [], "请选择至少一个基础预设。"
+        return [], _t("no_presets")
 
     stages = {}
     parts = []
     for preset in selected:
         part = _normalize_template_part(preset)
         if part is None:
-            return [], f"未知基础预设：{preset}"
+            return [], _t("unknown_preset").format(preset=preset)
         stage_modes = stages.setdefault(part["stage"], set())
         opposite = PART_BAN if part["mode"] == PART_ALLOW else PART_ALLOW
         if opposite in stage_modes:
-            return [], f"组合冲突：{part['stage']} 同时选择了介入和禁止，无法保存。"
+            return [], _t("preset_conflict").format(stage=part["stage"])
         stage_modes.add(part["mode"])
         parts.append(part)
 
@@ -712,9 +759,9 @@ def _auto_timing_ui(template_name, shift_value, auto, start, end, peak, strength
 def _save_template_ui(name, auto, template_name, start, end, peak, strength, curve):
     name = str(name or "").strip()
     if not name:
-        return _template_updates("模板名称不能为空。")
+        return _template_updates(_t("empty_template_name"))
     if name in BUILTIN_TEMPLATES:
-        return _template_updates("内置模板不能覆盖，请换一个名称。", name)
+        return _template_updates(_t("builtin_template_kept"), name)
 
     template_name = str(template_name or "").strip()
     stage = _template_stage_from_name(template_name)
@@ -733,7 +780,7 @@ def _save_template_ui(name, auto, template_name, start, end, peak, strength, cur
 
     def save(data):
         data[name] = record
-        return name, f"已保存模板：{name}"
+        return name, _t("template_saved").format(name=name)
 
     return _edit_templates(save)
 
@@ -741,9 +788,9 @@ def _save_template_ui(name, auto, template_name, start, end, peak, strength, cur
 def _save_preset_combo_template_ui(name, selected_presets, shift_value=3.0):
     name = str(name or "").strip()
     if not name:
-        return _template_updates("模板名称不能为空。")
+        return _template_updates(_t("empty_template_name"))
     if name in BUILTIN_TEMPLATES:
-        return _template_updates("内置基础预设不能覆盖，请换一个名称。", name)
+        return _template_updates(_t("builtin_preset_kept"), name)
 
     parts, error = _parts_from_presets(selected_presets)
     if error:
@@ -765,7 +812,7 @@ def _save_preset_combo_template_ui(name, selected_presets, shift_value=3.0):
             "strength": strength,
             "curve": primary.get("curve", STAGE_DEFAULT_CURVES.get(primary["stage"], CURVE_SMOOTH)),
         }
-        return name, f"已保存组合模板：{name} = {presets_text}\n\n{preview}"
+        return name, _t("combo_saved").format(name=name, presets=presets_text, preview=preview)
 
     return _edit_templates(save)
 
@@ -846,10 +893,10 @@ def _template_help_ui(template_name, shift_value):
     lines = [
         _t("help_title"),
         "",
-        "- 模板由基础预设组合而成；“介入”表示 LoRA 只在该阶段生效，“禁止”表示 LoRA 在该阶段强制为 0。" if _language() == "zh" else "- Templates are built from base presets. Apply means the LoRA is active only in that stage; Block forces it to 0 in that stage.",
-        "- 开启“根据 Shift 自动设置介入时间”时，每个基础预设都会按当前 Shift 自动移动开始、结束、峰值比例。" if _language() == "zh" else "- When auto timing from Shift is enabled, every base preset moves its start, end, and peak ratios from the current Shift value.",
-        "- 组合模板可混合多个阶段，但同一阶段不能同时选择“介入”和“禁止”。" if _language() == "zh" else "- Combo templates can mix stages, but the same stage cannot be both Apply and Block.",
-        "- 开始比例/结束比例是采样进度 0-1；峰值比例是介入曲线最强的位置；阶段强度倍率会乘到最终 LoRA 强度上。" if _language() == "zh" else "- Start/end are sampling progress ratios from 0 to 1; peak is the strongest point of the curve; stage strength multiplies the final LoRA strength.",
+        _t("help_parts"),
+        _t("help_auto"),
+        _t("help_combo"),
+        _t("help_ratios"),
         "",
         f"{_t('current_template')}: `{template_name}`",
         f"{_t('current_shift')}: `{_format_float(shift)}`",
@@ -859,10 +906,17 @@ def _template_help_ui(template_name, shift_value):
     for part in parts:
         start, end, peak, strength = _auto_stage_values(part["stage"], shift)
         action = _t("allow_action") if part["mode"] == PART_ALLOW else _t("ban_action")
-        if _language() == "zh":
-            lines.append(f"- `{_part_preset_display_name(part)}`：{part['stage']} {action}，自动窗口 {_format_float(start)} - {_format_float(end)}，峰值 {_format_float(peak)}，强度 {_format_float(strength)}")
-        else:
-            lines.append(f"- `{_part_preset_display_name(part)}`: {part['stage']} {action}, auto window {_format_float(start)} - {_format_float(end)}, peak {_format_float(peak)}, strength {_format_float(strength)}")
+        lines.append(
+            _t("help_part").format(
+                name=_part_preset_display_name(part),
+                stage=part["stage"],
+                action=action,
+                start=_format_float(start),
+                end=_format_float(end),
+                peak=_format_float(peak),
+                strength=_format_float(strength),
+            )
+        )
 
     return gr.update(value="\n".join(lines), visible=True)
 
@@ -871,36 +925,36 @@ def _rename_template_ui(old_name, new_name):
     old_name = str(old_name or "").strip()
     new_name = str(new_name or "").strip()
     if not old_name:
-        return _template_updates("没有选择模板。")
+        return _template_updates(_t("no_template_selected"))
     if old_name in BUILTIN_TEMPLATES:
-        return _template_updates("内置模板不能重命名。", old_name)
+        return _template_updates(_t("builtin_not_renamed"), old_name)
     if not new_name:
-        return _template_updates("新名称不能为空。", old_name)
+        return _template_updates(_t("empty_new_name"), old_name)
     if new_name in BUILTIN_TEMPLATES:
-        return _template_updates("不能重命名为内置模板名称。", old_name)
+        return _template_updates(_t("builtin_name_taken"), old_name)
     if new_name == old_name:
-        return _template_updates("新旧名称相同，无需重命名。", new_name)
+        return _template_updates(_t("same_name"), new_name)
 
     def rename(data):
         if old_name not in data:
-            return old_name, "找不到要重命名的模板。"
+            return old_name, _t("rename_missing")
         if new_name in data:
-            return old_name, "目标名称已存在。"
+            return old_name, _t("rename_taken")
         data[new_name] = data.pop(old_name)
-        return new_name, f"已重命名模板：{old_name} → {new_name}"
+        return new_name, _t("template_renamed").format(old=old_name, new=new_name)
 
     return _edit_templates(rename)
 
 
 def _delete_template_ui(name):
     if not name:
-        return _template_updates("没有选择模板。")
+        return _template_updates(_t("no_template_selected"))
     if name in BUILTIN_TEMPLATES:
-        return _template_updates("内置模板不能删除。", name)
+        return _template_updates(_t("builtin_not_deleted"), name)
 
     def delete(data):
         data.pop(name, None)
-        return None, f"已删除模板：{name}"
+        return None, _t("template_deleted").format(name=name)
 
     return _edit_templates(delete)
 
@@ -1608,7 +1662,7 @@ class Script(scripts.Script):
                     label=_t("panel_weight"),
                     value="0",
                     lines=1,
-                    placeholder="0.8 或 0-18=1,19-27=0.2 或 blocks=0-18=1,19-27=0.2;modules=mlp=0.8",
+                    placeholder=_t("panel_weight_placeholder"),
                     elem_id=self.elem_id(f"{prefix}_panel_weight"),
                 )
             target_loras = gr.Textbox(label=_t("target_lora"), value="", lines=1, placeholder=_t("target_lora_placeholder"), elem_id=self.elem_id(f"{prefix}_target_loras"))

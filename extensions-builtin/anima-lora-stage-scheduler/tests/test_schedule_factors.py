@@ -315,3 +315,24 @@ def test_template_dropdowns_show_the_templates_as_saved(module):
     assert status == "已删除模板：renamed"
     assert all("renamed" not in dropdown["choices"] for dropdown in dropdowns)
     assert "renamed" not in module._load_custom_templates()
+
+
+def test_template_messages_follow_the_ui_language(module, monkeypatch):
+    from modules import shared
+
+    builtin = next(iter(module.BUILTIN_TEMPLATES))
+    assert set(module.LANG["zh"]) == set(module.LANG["en"])
+
+    monkeypatch.setattr(shared, "opts", SimpleNamespace(**{module.LANGUAGE_OPTION: "zh"}), raising=False)
+    assert module._save_template_ui("", True, builtin, 0.0, 1.0, 0.5, 1.0, module.CURVE_SMOOTH)[-1] == "模板名称不能为空。"
+    assert module._parts_from_presets(["x"])[1] == "未知基础预设：x"
+    assert module._rename_template_ui("a", "a")[-1] == "新旧名称相同，无需重命名。"
+
+    monkeypatch.setattr(shared, "opts", SimpleNamespace(**{module.LANGUAGE_OPTION: "en"}), raising=False)
+    assert module._save_template_ui("", True, builtin, 0.0, 1.0, 0.5, 1.0, module.CURVE_SMOOTH)[-1] == "The template name cannot be empty."
+    assert module._parts_from_presets(["x"])[1] == "Unknown base preset: x"
+    assert module._delete_template_ui(builtin)[-1] == "Built-in templates cannot be deleted."
+    conflict = [module.PRESET_STYLE_ALLOW, module.PRESET_STYLE_BAN]
+    assert module._parts_from_presets(conflict)[1] == f"Conflicting combo: {module.STAGE_STYLE} is selected as both Apply and Block; not saved."
+    help_text = module._template_help_ui(builtin, 3.0)["value"]
+    assert "Templates are built from base presets" in help_text and "auto window" in help_text

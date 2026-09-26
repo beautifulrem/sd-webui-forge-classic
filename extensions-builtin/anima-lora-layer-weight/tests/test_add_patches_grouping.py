@@ -91,3 +91,40 @@ def test_a_reloaded_module_drives_the_wrapper_an_earlier_copy_installed(monkeypa
     base.ModelPatcher.add_patches(SimpleNamespace(model=None), {"a.weight": object()}, filename="x.safetensors")
 
     assert calls == [0.5]  # the rule of the live module's batch
+
+
+def test_loras_scheduled_by_lora_control_are_left_to_it(monkeypatch):
+    from backend.patcher import base
+    from modules import scripts
+
+    calls = []
+
+    def recording_add_patches(self, patches, strength_patch=1.0, strength_model=1.0, *, filename=None, online_mode=None):
+        calls.append((filename, strength_patch))
+        return list(patches)
+
+    monkeypatch.setattr(base.ModelPatcher, "add_patches", recording_add_patches)
+    # LoRA Control fills its class-level mapping per run, and overwrites each
+    # of those files' patch strengths every step
+    lora_control = type("LoRAControl", (), {"mapping": {"controlled.safetensors": [(0.0, 0.0), (1.0, 1.0)]}})
+    control_path = "/webui/extensions-builtin/sd_forge_lora_schedule/scripts/control.py"
+    monkeypatch.setattr(scripts, "scripts_data", [scripts.ScriptClassData(lora_control, control_path, "/webui", None)])
+    module = _load()
+    module.install_patch()
+    extra_generation_params = {}
+    monkeypatch.setattr(
+        module,
+        "_ACTIVE_RULE",
+        SimpleNamespace(
+            decision_for_lora=lambda filename: SimpleNamespace(apply=True),
+            factor_for_key=lambda key, decision, blocks: 0.5,
+            extra_generation_params=extra_generation_params,
+            yielded_to_lora_control=set(),
+        ),
+    )
+
+    for filename in ("weighted.safetensors", "controlled.safetensors", "controlled.safetensors"):
+        base.ModelPatcher.add_patches(SimpleNamespace(model=None), {"a.weight": object()}, filename=filename)
+
+    assert calls == [("weighted.safetensors", 0.5), ("controlled.safetensors", 1.0), ("controlled.safetensors", 1.0)]
+    assert extra_generation_params == {"Anima LoRA/LoKR Layer Weight skipped": "controlled"}

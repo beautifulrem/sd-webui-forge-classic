@@ -1,4 +1,9 @@
-"""Small dependency-free helpers shared by built-in Anima LoRA controls."""
+"""Shared logic of the built-in Anima LoRA controls (Layer Weight, Stage
+Scheduler) and the Anima features that select DiT blocks: LoRA key layout and
+per-layer weight syntax, block mappings of the depth-expanded models, stage
+timing windows, prompt / patch / sampling-progress helpers, and the seams to
+Forge's LoRA index and LoRA Control. Their Gradio UI helpers are in
+``modules.anima_lora_ui``."""
 
 from __future__ import annotations
 
@@ -18,22 +23,32 @@ logger = logging.getLogger(__name__)
 # here last: the live module, with its live per-run state.
 script_hooks: dict = {}
 
-# The schedule (``{lora filename: [(weight, time), ...]}``) of Forge's LoRA
-# Control, which it fills per generation from ``<lora:name:[w@t,...]>``. It
-# publishes its live mapping once on import; the Anima LoRA controls leave the
-# files in it to LoRA Control.
-_lora_control_schedule: dict = {}
-
-
-def publish_lora_control_schedule(mapping: dict) -> None:
-    global _lora_control_schedule
-    _lora_control_schedule = mapping
+# Forge's LoRA Control (sd_forge_lora_schedule/scripts/control.py): its
+# ``LoRAControl.mapping`` (``{lora filename: [(weight, time), ...]}``) holds
+# the files it schedules in this generation, filled from
+# ``<lora:name:[w@t,...]>``. The Anima LoRA controls leave those files to it.
+_LORA_CONTROL_SCRIPT = ("sd_forge_lora_schedule", "scripts", "control.py")
 
 
 def lora_control_files() -> set:
-    """Files Forge's LoRA Control schedules in this generation."""
+    """Files Forge's LoRA Control schedules in this generation.
 
-    return set(_lora_control_schedule)
+    Read from the script classes the WebUI loaded, at call time: "Reload UI"
+    re-executes control.py into a new class (and leaves it out when the
+    extension is disabled), and scripts are not kept in ``sys.modules``."""
+
+    import sys
+    from pathlib import PurePath
+
+    webui_scripts = sys.modules.get("modules.scripts")
+    for data in getattr(webui_scripts, "scripts_data", None) or ():
+        try:
+            if PurePath(data.path).parts[-3:] == _LORA_CONTROL_SCRIPT and data.script_class.__name__ == "LoRAControl":
+                return set(getattr(data.script_class, "mapping", None) or ())
+        except Exception:
+            continue
+    return set()
+
 
 # <lora:name> or <lora:name:args>
 LORA_TAG_RE = re.compile(r"<lora:([^:>]+)(?::([^>]*))?>")
@@ -210,16 +225,24 @@ def anima_model_block(index: int, reference_blocks: int, model_blocks: int | Non
 REFERENCE_BLOCKS = 28
 
 
-def model_block_set(text, total: int, *, feature: str) -> set[int]:
+def model_block_set(text, total: int, *, feature: str = "Anima", parse=None) -> set[int]:
     """Model blocks of a block selection such as ``"0-3,7"`` written in the
     2B (28-block) layout, on a model of ``total`` blocks. On the depth-expanded
     2.9B/3.8B models a block brings its inserted copies along, so a band
     covers the same depth of any model; other depths take the indices as
-    written. Parsed and rejected like ``anima_support.parse_block_list``."""
+    written.
+
+    ``parse(text, total)`` reads the selection: by default
+    ``anima_support.parse_block_list``, which rejects a bad one naming
+    ``feature``."""
+
+    if parse is None:
+        def parse(text, total):
+            return parse_block_list(text, total, feature=feature)
 
     if (REFERENCE_BLOCKS, total) not in ANIMA_BLOCK_MAPPINGS:
-        return parse_block_list(text, total, feature=feature)
-    selected = parse_block_list(text, REFERENCE_BLOCKS, feature=feature)
+        return parse(text, total)
+    selected = parse(text, REFERENCE_BLOCKS)
     return {index for index in range(total) if anima_source_block(index, REFERENCE_BLOCKS, total) in selected}
 
 
@@ -620,64 +643,3 @@ def parse_module_weights(text) -> dict[str, float]:
         weights[module_key(left)] = value
     return weights
 
-
-# region Script UI
-# The layer-weight and stage-scheduler panels: a "zh" / "en" settings option,
-# and a description with its own English / 中文 switch.
-
-UI_LANGUAGES = ("zh", "en")
-
-
-def ui_language(option: str) -> str:
-    """The value of the UI language setting ``option``; "zh" when unset."""
-
-    from modules import shared
-
-    value = getattr(shared.opts, option, "zh")
-    return value if value in UI_LANGUAGES else "zh"
-
-
-def ui_text(strings: dict, option: str, key: str) -> str:
-    """``strings[language][key]`` in the language ``option`` selects."""
-
-    return strings.get(ui_language(option), strings["zh"]).get(key, key)
-
-
-def register_language_option(option: str, label: str, section: tuple[str, str]) -> None:
-    """Add the settings radio ``option`` (once; applied on Reload UI)."""
-
-    import gradio as gr
-
-    from modules import shared
-
-    if option in shared.opts.data_labels:
-        return
-    shared.opts.add_option(
-        option,
-        shared.OptionInfo(
-            "zh",
-            label,
-            gr.Radio,
-            {"choices": UI_LANGUAGES},
-            section=section,
-            category_id="system",
-        ).needs_reload_ui(),
-    )
-
-
-def intro_text(language: str, intro_en: str, intro_zh: str) -> str:
-    return intro_zh if language == "中文" else intro_en
-
-
-def intro_block(elem_id, intro_en: str, intro_zh: str) -> None:
-    import gradio as gr
-
-    with gr.Row():
-        intro_language = gr.Radio(
-            choices=["English", "中文"],
-            value="English",
-            label="Description language / 说明语言",
-            elem_id=elem_id("intro_language"),
-        )
-    intro = gr.Markdown(value=intro_en, elem_id=elem_id("intro"))
-    intro_language.change(fn=lambda language: intro_text(language, intro_en, intro_zh), inputs=[intro_language], outputs=[intro], queue=False, show_progress=False)

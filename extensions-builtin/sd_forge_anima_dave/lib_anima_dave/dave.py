@@ -21,12 +21,11 @@ from dataclasses import dataclass
 import torch
 
 from modules import spectrum_force
-from modules.anima_lora_support import anima_model_block, sigma_progress
+from modules.anima_lora_support import REFERENCE_BLOCKS, anima_model_block, sigma_progress
 from modules.anima_support import call_model_wrapper, inherit_wrapper_flags, parse_block_list
 from modules.forward_override import cached_overrides, forward_overrides
 
-# The reference band and defaults are written for the 28-block (2B) layout.
-REFERENCE_BLOCKS = 28
+# The reference band and defaults are written for the REFERENCE_BLOCKS (2B) layout.
 DEFAULT_BLOCKS = "8-18"
 DEFAULT_STRENGTH = 0.30
 DEFAULT_TAU = 0.10

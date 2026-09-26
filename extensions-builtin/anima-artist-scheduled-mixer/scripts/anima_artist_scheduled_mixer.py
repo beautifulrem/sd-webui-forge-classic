@@ -29,7 +29,8 @@ from lib_artist_mixer.schedule import (
 )
 from modules import script_callbacks, scripts, shared, spectrum_force
 from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
-from modules.anima_lora_support import ANIMA_BLOCK_MAPPINGS, UI_LANGUAGES, anima_source_block, clamp as _clamp, register_language_option, sigma_progress, stage_window, to_float as _to_float, ui_language, ui_text
+from modules.anima_lora_support import clamp as _clamp, model_block_set, sigma_progress, stage_window, to_float as _to_float
+from modules.anima_lora_ui import UI_LANGUAGES, register_language_option, ui_language, ui_text
 from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
 from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY, BranchRows, call_model_wrapper, conditioning_cache_key, effective_prompt_batch, encode_extra_prompts, negpip_mask_for, positive_rows, register_negpip_prompts
@@ -77,8 +78,6 @@ APPLY_BOTH = "Both"
 
 MAX_ARTIST_ROWS = 32
 DEFAULT_ARTIST_ROWS = 4
-# Blocks fields are written in the 2B layout (see _model_blocks)
-REFERENCE_BLOCKS = 28
 
 TABLE_HEADERS = [
     "Enabled",
@@ -1665,11 +1664,8 @@ def _model_blocks(text, num_blocks):
     """Model blocks of a Blocks field, which is written in the 2B (28-block)
     layout like the presets. On the depth-expanded 2.9B/3.8B models a block
     brings its inserted copies along, so a band covers the same depth of any
-    model and "0-51" still means every block."""
-    if (REFERENCE_BLOCKS, num_blocks) not in ANIMA_BLOCK_MAPPINGS:
-        return _parse_blocks(text, num_blocks)
-    selected = _parse_blocks(text, REFERENCE_BLOCKS)
-    return {index for index in range(num_blocks) if anima_source_block(index, REFERENCE_BLOCKS, num_blocks) in selected}
+    model and "0-51" still means every block. Parsed leniently."""
+    return model_block_set(text, num_blocks, parse=_parse_blocks)
 
 
 def _build_artists(p, rows, num_blocks, shift, optimization, use_cache):
