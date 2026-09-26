@@ -66,6 +66,22 @@ class SkimmedCFGTests(unittest.TestCase):
         self.assertTrue(torch.isfinite(result_cond).all())
         self.assertTrue(torch.isfinite(result_uncond).all())
 
+    def test_skim_prediction_matches_the_upstream_formula_exactly(self):
+        # Upstream Skimmed_CFG, written out: mask from the guided prediction,
+        # then the masked elements are pulled towards the fallback scale.
+        x, cond, uncond = _inputs()
+        scale, fallback_scale = 5.0, 2.0
+        guided = x - ((x - uncond) + scale * ((x - cond) - (x - uncond)))
+        fallback = x - ((x - uncond) + fallback_scale * ((x - cond) - (x - uncond)))
+        mask = ((cond - uncond).sign() == cond.sign()) & (
+            cond.sign() == (cond * scale - uncond * (scale - 1.0)).sign()
+        )
+        for disable_flip in (True, False):
+            expected_mask = mask if disable_flip else mask & (guided.sign() == (guided - x).sign())
+            expected = torch.where(expected_mask, cond - (guided - fallback) / scale, cond)
+            actual = skim_prediction(x, cond, uncond, scale, fallback_scale, disable_flipping_filter=disable_flip)
+            self.assertTrue(torch.equal(actual, expected), disable_flip)
+
 
 class SkimCFGFunctionChainTests(unittest.TestCase):
     def _args(self, sigma):

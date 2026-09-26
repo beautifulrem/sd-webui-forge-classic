@@ -31,6 +31,26 @@ MOMENTUM_SAMPLERS = frozenset(
     {"Euler", "Anima Flow Euler", "Anima FreeFuse Euler"}
 )
 CNS_SAMPLER = "Anima ER SDE CNS"
+# DCW corrects the latent in place when the model input's sigma changes, so it
+# needs exactly one main model evaluation per step.  Multi-evaluation samplers
+# (Heun, DPM2, DPM++ SDE / 2S, Restart, ...) would correct an intermediate
+# tensor instead.  PC3's endpoint probe is an auxiliary pass that DCW skips.
+DCW_SAMPLERS = MOMENTUM_SAMPLERS | frozenset(
+    {
+        "Euler a",
+        "DPM++ 2M",
+        "DPM++ 2M SDE",
+        "DPM++ 3M SDE",
+        "ER SDE",
+        CNS_SAMPLER,
+        "LMS",
+        "LCM",
+        "Res Multistep",
+        "Anima Flow UniPC2",
+        "Anima Flow PC3",
+        SPEED_SAMPLER,
+    }
+)
 CONFLICT_METADATA_KEY = "Anima conflict resolution"
 
 
@@ -175,6 +195,10 @@ def resolve_guidance_conflicts(
         momentum = False
         messages.append(f"Momentum disabled: unsupported sampler {sampler}")
 
+    if dcw and sampler not in DCW_SAMPLERS:
+        dcw = False
+        messages.append(f"DCW disabled: unsupported sampler {sampler}")
+
     # In the GUI the last explicit switch wins.  Headless processing has no
     # click order, so the selected CFG controller remains authoritative.
     if selected == "momentum" and momentum and mode != STANDARD_GUIDANCE:
@@ -203,7 +227,7 @@ def resolve_guidance_conflicts(
         dcw=dcw,
         mode_choices=tuple(choices),
         momentum_interactive=(sampler in MOMENTUM_SAMPLERS and mode == STANDARD_GUIDANCE),
-        dcw_interactive=(mode != FDG_GUIDANCE),
+        dcw_interactive=(sampler in DCW_SAMPLERS and mode != FDG_GUIDANCE),
         messages=tuple(messages),
     )
 

@@ -239,3 +239,50 @@ def test_each_pass_starts_without_the_previous_pass_state(enable):
     assert _registered(p) == []
     assert p._anima_dcw_state is None
     assert p._anima_nag_modifier is None
+
+
+# Written to infotext for diagnosis only; pasting them back restores nothing.
+DIAGNOSTIC_ONLY_INFOTEXT_KEYS = {"Anima CFG replaced existing"}
+
+
+def test_every_infotext_key_written_is_restored_on_paste():
+    # The keys are spelled twice: in ui()'s ``fields`` table (paste targets)
+    # and at each ``p.extra_generation_params[...] =`` write. A typo in either
+    # silently breaks paste-restore, so compare the two spellings.
+    import ast
+
+    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+    fields = next(
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) == "fields"
+    )
+    pasted = {
+        row.elts[1].value
+        for row in fields.elts
+        if isinstance(row.elts[1], ast.Constant) and row.elts[1].value is not None
+    }
+    written = {
+        node.slice.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Subscript)
+        and isinstance(node.ctx, ast.Store)
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == "extra_generation_params"
+        and isinstance(node.slice, ast.Constant)
+    }
+
+    assert len(written) > 40  # the collector found the writes
+    assert written - DIAGNOSTIC_ONLY_INFOTEXT_KEYS <= pasted, sorted(written - DIAGNOSTIC_ONLY_INFOTEXT_KEYS - pasted)
+    assert DIAGNOSTIC_ONLY_INFOTEXT_KEYS <= written
+    assert not DIAGNOSTIC_ONLY_INFOTEXT_KEYS & pasted
+
+
+def test_dcw_is_not_installed_on_a_multi_evaluation_sampler():
+    p = FakeProcess()
+    p.sampler_name = "Heun"
+    _run(p, dcw_enable=True)
+    assert p._anima_dcw_state is None
+    assert _registered(p) == []
+    assert "Anima DCW" not in p.extra_generation_params
+    assert p.extra_generation_params["Anima conflict resolution"] == "DCW disabled: unsupported sampler Heun"

@@ -163,6 +163,30 @@ class NAGTests(unittest.TestCase):
 
         self.assertTrue(torch.allclose(positive_only, batched[:1]))
 
+    def test_positive_only_call_applies_the_negative_prompts_negpip_mask(self):
+        # `(tag:-1)` in the negative prompt: batched CFG projects the uncond V
+        # from ``context * mask`` (K keeps the sign-restored token); the
+        # positive-only path must project the stashed context the same way.
+        def attention(q, k, v, *, mask=None):
+            return q.flatten(2) + k.mean(dim=1, keepdim=True).flatten(2) + 10.0 * v.mean(dim=1, keepdim=True).flatten(2)
+
+        modifier = NAGAttentionModifier(scale=1.5, tau=2.0, alpha=0.7, sigma_start=0.0, sigma_end=1.0)
+        context = torch.tensor([1.0, 2.0]).reshape(1, 2, 1)
+        negpip_mask = torch.tensor([1.0, -1.0]).reshape(1, 2, 1)
+        k = torch.cat([self.k[:1], context.unsqueeze(-1)])
+        v = torch.cat([torch.full_like(self.k[:1], 0.5), (context * negpip_mask).unsqueeze(-1)])
+        batched = modifier(attention, self.q, k, v, transformer_options=self.options, is_self_attention=False)
+
+        modifier.set_negative_context({"crossattn": context, "c_negpip_mask": negpip_mask})
+
+        def project(context, value_context=None):  # identity K/V projection
+            return context.unsqueeze(-1), (context if value_context is None else value_context).unsqueeze(-1)
+
+        options = {"cond_or_uncond": [0], "sigmas": torch.tensor([0.5]), "anima_project_kv": project}
+        positive_only = modifier(attention, self.q[:1], k[:1], v[:1], transformer_options=options, is_self_attention=False)
+
+        self.assertTrue(torch.allclose(positive_only, batched[:1]))
+
     def test_dict_conditioning_uses_its_cross_attention_context(self):
         modifier = NAGAttentionModifier(scale=1.0, tau=2.0, alpha=1.0, sigma_start=0.0, sigma_end=1.0)
         context = torch.ones(1, 3, 4)

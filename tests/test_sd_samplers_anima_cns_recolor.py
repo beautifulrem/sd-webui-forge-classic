@@ -1,17 +1,11 @@
 from __future__ import annotations
 
-import pathlib
-import sys
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
 import torch
-
-ROOT = pathlib.Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT))
-
-from unittest import mock
-from types import SimpleNamespace
 
 from modules import sd_samplers_anima_cns
 from modules.sd_samplers_anima_cns import CNSRecolorer, radial_bins

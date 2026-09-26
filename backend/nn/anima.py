@@ -133,7 +133,7 @@ def _block_linear_weights(state_dict: dict[str, torch.Tensor]):
         yield key, key[: -len("weight")], weight
 
 
-def scale_fp8_state_dict(state_dict: dict[str, torch.Tensor], *, fp8_matmul: bool) -> int:
+def scale_fp8_state_dict(state_dict: dict[str, torch.Tensor], *, fp8_matmul: bool, device: torch.device = None) -> int:
     """Quantize the block Linear weights of a full-precision state dict to
     per-tensor scaled ``float8_e4m3fn`` in the ``comfy_quant`` layout, in place.
 
@@ -142,17 +142,19 @@ def scale_fp8_state_dict(state_dict: dict[str, torch.Tensor], *, fp8_matmul: boo
     ``absmax / 448`` keeps them at full relative precision for the same VRAM.
     ``fp8_matmul`` keeps FP8 GEMMs (``--fast-fp8``) except for the FFN down
     projection, whose input activations exceed FP8's range most; otherwise
-    every weight is dequantized for a regular matmul. Returns how many weights
-    were quantized."""
+    every weight is dequantized for a regular matmul. Scaling runs on ``device``
+    (the load device) and the results are stored on the CPU, as for INT8.
+    Returns how many weights were quantized."""
 
     fp8_gemm = _comfy_quant_conf({"format": "float8_e4m3fn"})
     full_gemm = _comfy_quant_conf({"format": "float8_e4m3fn", "full_precision_matrix_mult": True})
 
     quantized = 0
     for key, prefix, weight in _block_linear_weights(state_dict):
-        scale = weight.abs().amax().float().clamp_min(1e-12) / _FP8_E4M3_MAX
-        state_dict[key] = (weight.float() / scale).clamp_(-_FP8_E4M3_MAX, _FP8_E4M3_MAX).to(torch.float8_e4m3fn)
-        state_dict[f"{prefix}weight_scale"] = scale
+        weight = weight.to(device=device, dtype=torch.float32)
+        scale = weight.abs().amax().clamp_min(1e-12) / _FP8_E4M3_MAX
+        state_dict[key] = (weight / scale).clamp_(-_FP8_E4M3_MAX, _FP8_E4M3_MAX).to(torch.float8_e4m3fn).cpu()
+        state_dict[f"{prefix}weight_scale"] = scale.cpu()
         state_dict[f"{prefix}comfy_quant"] = fp8_gemm if fp8_matmul and not key.endswith(_FFN_DOWN_SUFFIX) else full_gemm
         quantized += 1
     return quantized
@@ -207,7 +209,7 @@ def quantize_on_load(state_dict: dict[str, torch.Tensor], mode: str, load_device
         return
     if mode == ANIMA_QUANT_SCALED_FP8:
         fp8_matmul = args.fast_fp8 and memory_management.supports_fp8_compute(load_device)
-        quantized = scale_fp8_state_dict(state_dict, fp8_matmul=fp8_matmul)
+        quantized = scale_fp8_state_dict(state_dict, fp8_matmul=fp8_matmul, device=load_device)
         logger.info(f"Anima: stored {quantized} weights as scaled FP8" + (" (FP8 matmul)" if fp8_matmul else ""))
     elif mode == ANIMA_QUANT_INT8_CONVROT:
         if not int8_matmul_available(load_device):
@@ -378,11 +380,12 @@ class SelfCrossAttention(nn.Module):
 
         return q, k, v
 
-    def compute_kv(self, context: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """Cross-attention K/V for ``context``, exactly as compute_qkv makes them."""
+    def compute_kv(self, context: torch.Tensor, value_context: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor]:
+        """Cross-attention K/V for ``context``, exactly as compute_qkv makes them
+        (``value_context`` as there: V from another context, for NegPiP)."""
         heads = (self.n_heads, self.head_dim)
         k = self.k_norm(self.k_proj(context).unflatten(-1, heads))
-        v = self.v_norm(self.v_proj(context).unflatten(-1, heads))
+        v = self.v_norm(self.v_proj(context if value_context is None else value_context).unflatten(-1, heads))
         return k, v
 
     def compute_attention(

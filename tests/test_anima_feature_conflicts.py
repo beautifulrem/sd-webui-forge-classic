@@ -160,6 +160,19 @@ class GuidanceConflictTests(unittest.TestCase):
         self.assertFalse(state.momentum)
         self.assertTrue(state.dcw)
 
+    def test_dcw_is_disabled_for_multi_evaluation_samplers(self):
+        for sampler in ("Heun", "DPM2", "DPM++ SDE", "DPM++ 2s a RF", "Restart", "Kohaku LoNyu Yog", "UniPC", "DDIM"):
+            state = resolve_guidance_conflicts(sampler=sampler, mode="Standard / preserve existing", momentum=False, dcw=True)
+            self.assertFalse(state.dcw, sampler)
+            self.assertFalse(state.dcw_interactive, sampler)
+            self.assertEqual(state.messages, (f"DCW disabled: unsupported sampler {sampler}",))
+
+        for sampler in ("Euler", "DPM++ 2M", "ER SDE", "Anima Flow UniPC2", "Anima Flow PC3", "Anima SPEED"):
+            state = resolve_guidance_conflicts(sampler=sampler, mode="Standard / preserve existing", momentum=False, dcw=True)
+            self.assertTrue(state.dcw, sampler)
+            self.assertTrue(state.dcw_interactive, sampler)
+            self.assertEqual(state.messages, ())
+
 
 class ScheduleConflictTests(unittest.TestCase):
     def test_flow_sampler_locks_anima_scheduler_and_dynamic_shift(self):
@@ -258,7 +271,7 @@ def test_sampler_names_match_the_registered_samplers():
     import ast
     from pathlib import Path
 
-    from modules.anima_feature_conflicts import CNS_SAMPLER, FLOW_SAMPLERS, MOMENTUM_SAMPLERS, SPEED_SAMPLER
+    from modules.anima_feature_conflicts import CNS_SAMPLER, DCW_SAMPLERS, FLOW_SAMPLERS, MOMENTUM_SAMPLERS, SPEED_SAMPLER
 
     source = (Path(__file__).parents[1] / "modules" / "sd_samplers_kdiffusion.py").read_text(encoding="utf-8")
     table = next(
@@ -278,6 +291,7 @@ def test_sampler_names_match_the_registered_samplers():
     assert SPEED_SAMPLER in FLOW_SAMPLERS
     assert CNS_SAMPLER in labels
     assert MOMENTUM_SAMPLERS <= labels
+    assert DCW_SAMPLERS <= labels
 
 
 def test_active_features_are_recorded_per_process():

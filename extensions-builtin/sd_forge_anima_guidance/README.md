@@ -112,7 +112,8 @@ blocks on those steps.
 When the negative branch is in the same batch its K/V are reused. On
 positive-only calls (CFG 1, or the positive half of a batch Forge split for
 VRAM) the negative prompt's context is projected with the layer's K/V
-weights, so no extra unconditional pass is needed. If neither is available
+weights (with NegPiP's V-only negation of `(tag:-1)` negative-prompt tokens,
+as in the batched branch), so no extra unconditional pass is needed. If neither is available
 the generation records `Anima NAG: inactive: ...` in its metadata.
 Regional/Artist Mixer synthetic branches are not guided.
 
@@ -147,6 +148,13 @@ monkeypatching the sampler.
 The Anima default is `lambda=-0.015`, `one_minus_sigma`, and Haar `LL` only.
 Other schedules and frequency-band masks are exposed in the GUI. DCW is a
 post-step correction and composes with Standard CFG, SMC-CFG, and Skimmed CFG.
+
+DCW needs one main model evaluation per step: Euler, Euler a, DPM++ 2M,
+DPM++ 2M/3M SDE, ER SDE (and CNS), LMS, LCM, Res Multistep, the Anima Flow
+samplers (PC3's endpoint probe is skipped), Anima SPEED and Anima FreeFuse
+Euler. On other samplers (Heun, DPM2, DPM++ SDE/2S, Restart, UniPC, DDIM, ...)
+the correction would land on an intermediate evaluation, so DCW is disabled
+and the reason is recorded in `Anima conflict resolution`.
 
 ## Anima ER SDE CNS
 

@@ -21,14 +21,15 @@ def get_skimming_mask(
     cond_scale: float,
     *,
     disable_flipping_filter: bool = False,
-) -> torch.Tensor:
-    """Return elements whose CFG extrapolation should be limited.
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return ``(mask, guided)``: the elements whose CFG extrapolation should
+    be limited, and the CFG-guided prediction the mask was derived from.
 
     The predicates are kept equivalent to upstream Skimmed_CFG.  Inputs are
     denoised/x0 predictions, not epsilon or velocity predictions.
     """
 
-    denoised = x_orig - (
+    guided = x_orig - (
         (x_orig - uncond)
         + cond_scale * ((x_orig - cond) - (x_orig - uncond))
     )
@@ -39,10 +40,10 @@ def get_skimming_mask(
     )
 
     if disable_flipping_filter:
-        return matching_pred_signs & matching_diff_after
+        return matching_pred_signs & matching_diff_after, guided
 
-    deviation_influence = denoised.sign() == (denoised - x_orig).sign()
-    return matching_pred_signs & matching_diff_after & deviation_influence
+    deviation_influence = guided.sign() == (guided - x_orig).sign()
+    return matching_pred_signs & matching_diff_after & deviation_influence, guided
 
 
 @torch.no_grad()
@@ -60,16 +61,12 @@ def skim_prediction(
     if abs(float(cond_scale)) < 1e-8:
         return cond.clone()
 
-    mask = get_skimming_mask(
+    mask, guided = get_skimming_mask(
         x_orig,
         cond,
         uncond,
         float(cond_scale),
         disable_flipping_filter=disable_flipping_filter,
-    )
-    guided = x_orig - (
-        (x_orig - uncond)
-        + cond_scale * ((x_orig - cond) - (x_orig - uncond))
     )
     fallback = x_orig - (
         (x_orig - uncond)

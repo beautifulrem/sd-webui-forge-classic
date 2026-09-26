@@ -148,7 +148,7 @@ Base/Aesthetic 可先保守试 `scale 1.0–1.5`、`alpha 0.25–0.4`、`tau 2.5
 
 注意：
 
-- NAG 需要正负条件在同一个 GPU batch 中。低显存导致 Forge 拆分分支时，它会明确记录为 inactive；
+- 正负条件在同一个 batch 时复用负分支的 K/V；CFG 1 或低显存导致 Forge 拆分分支时，用该层 K/V 权重投影负面提示的 context（负面提示中 NegPiP 的 `(tag:-1)` 同样只取反 V），不需要额外的负向前向；两者都不可用时会明确记录为 inactive；
 - NAG 会强制真实的正负分支和 Spectrum actual forward，速度与显存开销都会增加；
 - torch.compile 只在 NAG 的 Start/End 窗口内回退 eager，窗口外的步骤仍使用编译后的 block；
 - 与 Regional/Artist Mixer 同时使用时，NAG 只引导基础 prompt 路径，合成的区域/画师 context 会保持隔离。
@@ -240,6 +240,8 @@ Anima 起点就是代码默认值：
 - bands `LL`。
 
 只在确实看到低频漂移时开启。优先保持 `LL`，不要为了“更多细节”切到 `all`；DCW 不是锐化器。FDG 开启时 DCW 会被禁用。
+
+DCW 要求每步只有一次主模型求值：支持 Euler、Euler a、DPM++ 2M、DPM++ 2M/3M SDE、ER SDE（含 CNS）、LMS、LCM、Res Multistep、Anima Flow 系列（PC3 的端点 probe 会被跳过）、Anima SPEED 和 Anima FreeFuse Euler。Heun、DPM2、DPM++ SDE/2S、Restart、UniPC、DDIM 等含中间求值的采样器上 DCW 会被自动禁用，并记入 `Anima conflict resolution`。
 
 ### Anima ER SDE CNS
 
@@ -413,6 +415,7 @@ Remi 会在 GUI 中采用“最后选择的功能获胜”：冲突项会被自�
 | Momentum + SMC/FDG/CFG-Zero* | 自动禁用 Momentum |
 | Momentum + UniPC2/PC3/Heun/DPM2 | 不支持，自动禁用 |
 | FDG + DCW | 自动禁用 DCW |
+| DCW + Heun/DPM2/DPM++ SDE/Restart 等多次求值采样器 | 自动禁用 DCW |
 | FDG + CNS | 自动禁用 FDG |
 | FreeFuse + Regional | 硬冲突，任务报错 |
 | FreeFuse + Artist Mixer | 硬冲突，任务报错 |

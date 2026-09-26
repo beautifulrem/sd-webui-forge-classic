@@ -34,7 +34,12 @@ class DCWTests(unittest.TestCase):
         state.before_denoiser(x, 0.9)
         self.assertTrue(torch.equal(x, torch.ones_like(x)))
         state.before_denoiser(x, 0.8)
-        self.assertFalse(torch.equal(x, torch.ones_like(x)))
+        # x += lam * (1 - previous sigma) * LL(x - denoised); a constant diff
+        # of 1 is all low band, so every element moves by the full scalar.
+        expected = torch.full_like(x, 1 + (-0.015) * (1 - 0.9))
+        self.assertTrue(torch.allclose(x, expected, rtol=0.0, atol=1e-7))
+        state.before_denoiser(x, 0.8)  # same sigma (a second evaluation): no-op
+        self.assertTrue(torch.allclose(x, expected, rtol=0.0, atol=1e-7))
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 
 from backend.nn.anima_attention import ANIMA_PROJECT_KV
-from modules.anima_support import branch_rows, conditioning_context
+from modules.anima_support import branch_rows, split_conditioning
 from modules.spectrum_force import in_sigma_window
 
 
@@ -51,14 +51,18 @@ class NAGAttentionModifier:
         # CFG denoiser callback. Lets NAG run on positive-only model calls
         # (CFG 1, e.g. Anima-Turbo) without a full unconditional pass.
         self.negative_context: torch.Tensor | None = None
+        # NegPiP's V sign mask for that context (None without negative weights):
+        # batched CFG negates the uncond V with it, so the positive-only path must too.
+        self.negative_mask: torch.Tensor | None = None
         # One sigma read (a host sync) per model call, not per attention layer:
         # all blocks of a call share the same ``sigmas`` tensor.
         self._window_sigmas = None
         self._window_active = True
 
     def set_negative_context(self, context) -> None:
-        context = conditioning_context(context)
+        context, mask = split_conditioning(context)
         self.negative_context = context if torch.is_tensor(context) else None
+        self.negative_mask = mask if self.negative_context is not None else None
 
     def _report_unbatched(self) -> None:
         if self._reported_unbatched:
@@ -135,7 +139,12 @@ class NAGAttentionModifier:
         context = self.negative_context
         if project is None or context is None:
             return None
-        return project(context.to(device=q.device, dtype=q.dtype))
+        context = context.to(device=q.device, dtype=q.dtype)
+        mask = self.negative_mask
+        if mask is None:
+            return project(context)
+        # NegPiP: K keeps the sign-restored tokens, only V is negated.
+        return project(context, value_context=context * mask.to(context))
 
     def _blend(self, base: torch.Tensor, positive: list[int], negative_attention: torch.Tensor) -> torch.Tensor:
         rows = _indexer(positive)
