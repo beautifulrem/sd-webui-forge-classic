@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 import torch
 
 from modules import spectrum_force
-from modules.anima_support import branch_rows, call_model_wrapper, inherit_wrapper_flags
+from modules.anima_support import branch_rows, call_model_wrapper, inherit_wrapper_flags, sigma_value
 from modules.forward_override import cached_overrides, forward_overrides
 
 # anima_lora 703b34b defaults: --xattn_boost 2.0, band 0.85, renorm img, frac 0.5
@@ -33,10 +33,6 @@ DEFAULT_RENORM = 0.5
 _PATCH_LOCK = threading.RLock()
 # Block.forward arguments after (x, emb, crossattn_emb), in order
 _BLOCK_ARGS = ("rope_emb_L_1_1_D", "adaln_lora_B_T_3D", "extra_per_block_pos_emb", "transformer_options", "silu_emb_B_T_D")
-
-
-def _sigma(value) -> float:
-    return float(value.flatten()[0]) if torch.is_tensor(value) else float(value)
 
 
 def row_gains(rows, batch: int, gain: float, device=None, dtype=None) -> torch.Tensor:
@@ -76,7 +72,7 @@ class BoostState:
         if self.gain == 1.0:
             return False
         try:
-            current = _sigma(sigma)
+            current = sigma_value(sigma)
         except (TypeError, ValueError, IndexError):
             return False
         # sigma >= band, with the rounding slack of spectrum_force.in_sigma_window

@@ -372,6 +372,19 @@ def positive_rows(markers, batch: int, cache: dict, device, every_row: bool = Fa
     return BranchRows(markers, rows, cache[key])
 
 
+def sigma_value(value) -> float:
+    """The first sigma of a model call's ``timestep``/``sigmas`` (a tensor,
+    a sequence or a number) as a float."""
+
+    import torch
+
+    if torch.is_tensor(value):
+        return float(value.detach().flatten()[0])
+    if isinstance(value, (list, tuple)):
+        return float(value[0])
+    return float(value)
+
+
 WRAPPER_FLAGS = ("__spectrum_cache_safe__", "__resolution_independent__")
 
 

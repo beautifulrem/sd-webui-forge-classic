@@ -7,7 +7,7 @@ import math
 import re
 from dataclasses import dataclass, field
 
-from modules.anima_support import parse_block_list
+from modules.anima_support import parse_block_list, sigma_value
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +124,7 @@ def sigma_progress(sigma, sigmas) -> float | None:
     run only its tail, so they start part-way. None when it cannot be told."""
 
     try:
-        current = float(sigma.flatten()[0] if hasattr(sigma, "flatten") else sigma[0] if isinstance(sigma, (list, tuple)) else sigma)
+        current = sigma_value(sigma)
         values = _schedule_values(sigmas)
     except Exception:
         return None

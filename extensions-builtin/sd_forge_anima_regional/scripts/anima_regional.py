@@ -11,7 +11,8 @@ from lib_anima_regional.regional import Region, RegionalState, apply_regional_pa
 from modules import scripts
 from modules.anima_feature_conflicts import FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
 from modules.anima_presets import register_preset_control
-from modules.anima_support import conditioning_cache_key, encode_extra_prompts, is_anima_engine, parse_block_list, register_negpip_prompts
+from modules.anima_lora_support import model_block_set
+from modules.anima_support import conditioning_cache_key, encode_extra_prompts, is_anima_engine, register_negpip_prompts
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -68,7 +69,7 @@ class AnimaRegionalScript(scripts.Script):
                 blocks = gr.Textbox(
                     "0-51",
                     label="Anima blocks",
-                    info="Covers every block on 28-block, 40-block and 52-block Anima models; out-of-range indices are ignored.",
+                    info="Written in the 2B (28-block) layout: on 40/52-block models each block also selects its inserted copies, so the default covers every block of any Anima model.",
                 )
                 start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="Start progress")
                 end = gr.Slider(0.0, 1.0, value=0.65, step=0.01, label="End progress")
@@ -163,7 +164,7 @@ class AnimaRegionalScript(scripts.Script):
             return
         unet = p.sd_model.forge_objects.unet
         total_blocks = len(unet.model.diffusion_model.blocks)
-        selected_blocks = parse_block_list(str(blocks), total_blocks, feature="Anima Regional Conditioning")
+        selected_blocks = model_block_set(str(blocks), total_blocks, feature="Anima Regional Conditioning")
         regions = []
         for active, text, x, y, width, height, strength in _region_rows(region_values):
             if not _region_is_used(active, text, width, height, strength):

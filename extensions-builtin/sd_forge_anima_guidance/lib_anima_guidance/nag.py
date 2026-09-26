@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 
 from backend.nn.anima_attention import ANIMA_PROJECT_KV
-from modules.anima_support import branch_rows, conditioning_context, split_conditioning
+from modules.anima_support import branch_rows, conditioning_context, sigma_value, split_conditioning
 from modules.spectrum_force import in_sigma_window
 
 
@@ -91,9 +91,8 @@ class NAGAttentionModifier:
         if sigmas is None:
             return True
         if sigmas is not self._window_sigmas:
-            sigma = float(sigmas.detach().flatten()[0]) if torch.is_tensor(sigmas) else float(sigmas)
             self._window_sigmas = sigmas
-            self._window_active = in_sigma_window(sigma, self.sigma_low, self.sigma_high)
+            self._window_active = in_sigma_window(sigma_value(sigmas), self.sigma_low, self.sigma_high)
         return self._window_active
 
     @torch.no_grad()

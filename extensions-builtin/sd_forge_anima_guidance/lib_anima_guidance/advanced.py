@@ -8,14 +8,8 @@ from typing import Callable
 import torch
 import torch.nn.functional as F
 
-from modules.anima_support import call_model_wrapper, inherit_wrapper_flags, is_anima_auxiliary_denoiser
+from modules.anima_support import call_model_wrapper, inherit_wrapper_flags, is_anima_auxiliary_denoiser, sigma_value
 from modules.spectrum_force import in_sigma_window
-
-
-def sigma_value(value) -> float:
-    if torch.is_tensor(value):
-        return float(value.detach().flatten()[0])
-    return float(value)
 
 
 def sigma_broadcast(value, reference: torch.Tensor):

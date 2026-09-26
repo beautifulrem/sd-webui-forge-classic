@@ -5,7 +5,9 @@ prompts are independently encoded, evaluated through selected cross-attention
 blocks, and blended into normalized rectangular token masks. Coordinates use
 the normalized `0..1` image frame and are recomputed for each base/Hires latent
 resolution. Feather, base preservation, strength, block range, and sampling
-window are exposed in the txt2img/img2img GUI.
+window are exposed in the txt2img/img2img GUI. The block range is written in the
+2B (28-block) layout, like FreeFuse and Artist Mixer: on 2.9B/3.8B each block
+also selects its inserted copies, so a band covers the same depth of any model.
 
 Only conditional CFG rows are modified. Unconditional rows retain the normal
 negative-prompt context. Overlapping regions are weight-normalized rather than

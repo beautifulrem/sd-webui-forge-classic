@@ -282,22 +282,21 @@ Dynamic Shift 在普通 flow-compatible K-diffusion sampler 中改变步骤分�
 - 第一次保留全部代码默认值：weight `0.25`、degree `4`、regularization `0.1`、window `2`、growth `0`、warmup `6`、stop `0.9`、tail actual `3`、history `10`、`Window + Conservative`；
 - SEA 适合反复使用相同 sampler/CFG/分辨率，第一次运行负责校准；
 - `Legacy / fastest` 是明确的画质风险选项，不作为推荐；
-- `Strict` 当前等同全部 actual forward，主要用于排错。
+- `Strict` 不安装 Spectrum（每一步都是真实前向），主要用于排错。
 
 NAG、Momentum、Regional、FreeFuse、PC3 probe 等需要真实模型状态的路径会强制 Spectrum actual forward，因此开启面板不代表一定获得加速。
 
 ### Torch Compile Integrated → Anima per-block
 
-用途：逐个编译 28 个 Anima transformer block，降低整模型 graph break 风险。只改善后续运行速度。
+用途：逐个编译 Anima transformer block（28/40/52 个 block 共用一张图），降低整模型 graph break 风险。只改善后续运行速度。
 
 建议仅在以下条件同时满足时开启：
 
 - 已经确定 prompt/LoRA/采样配置；
-- 会重复相同分辨率和 batch size；
 - Triton/Inductor 与系统编译工具链可用；
 - 能接受第一次生成明显变慢。
 
-频繁改尺寸、batch 或模型时保持 `Automatic`/不编译更省事。懒编译失败会记录到当前图片元数据并持续回退 eager；Windows 缺少 C++ 编译器时会提前禁用。
+改分辨率或 batch 时会重新编译一次，之后按动态形状复用，不必固定尺寸；频繁换模型时保持 `Automatic`/不编译更省事。懒编译失败或达到重编译上限会记录到当前图片元数据并持续回退 eager；Windows 缺少 C++ 编译器（`cl` 或 `CXX`）时会提前禁用。
 
 Spectrum 与 compile 可以技术上组合：前者减少完整前向次数，后者加速仍然执行的 block。但收益不相加，必须用本机计时验证。
 

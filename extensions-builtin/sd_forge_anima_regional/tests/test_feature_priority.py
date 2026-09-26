@@ -103,3 +103,12 @@ def test_region_prompts_are_encoded_once_until_the_text_encoder_changes():
     p.sd_model.get_learned_conditioning = p.sd_model.get_learned_conditioning
     regional._encode_cached(p, "a red cat")
     assert len(calls) == 5
+
+
+def test_block_field_is_read_in_the_2b_layout():
+    from modules.anima_lora_support import model_block_set
+
+    assert model_block_set("0-51", 28, feature="x") == set(range(28))
+    assert model_block_set("0-51", 52, feature="x") == set(range(52))  # the default keeps every block
+    deep = model_block_set("27", 52, feature="x")
+    assert max(deep) == 51 and min(deep) > 27  # the last 2B block is the model's deep end
