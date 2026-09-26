@@ -108,7 +108,22 @@ def test_region_prompts_are_encoded_once_until_the_text_encoder_changes():
 def test_block_field_is_read_in_the_2b_layout():
     from modules.anima_lora_support import model_block_set
 
-    assert model_block_set("0-51", 28, feature="x") == set(range(28))
-    assert model_block_set("0-51", 52, feature="x") == set(range(52))  # the default keeps every block
+    for total in (28, 40, 52):
+        assert model_block_set("0-27", total, feature="x") == set(range(total))  # the default keeps every block
+        assert model_block_set("0-51", total, feature="x") == set(range(total))  # as does the old default's infotext
     deep = model_block_set("27", 52, feature="x")
     assert max(deep) == 51 and min(deep) > 27  # the last 2B block is the model's deep end
+
+
+def test_block_field_defaults_to_the_2b_range():
+    import ast
+
+    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+    defaults = [
+        node.args[0].value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "attr", None) == "Textbox"
+        and any(keyword.arg == "label" and getattr(keyword.value, "value", None) == "Anima blocks" for keyword in node.keywords)
+    ]
+    assert defaults == ["0-27"]

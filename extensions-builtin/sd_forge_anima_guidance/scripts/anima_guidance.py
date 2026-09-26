@@ -343,7 +343,7 @@ def _cfg_mode_function(p, args: SimpleNamespace, previous):
             register_stateful_guidance(p, SMCCFGState(lam=float(args.smc_lambda), alpha=float(args.smc_alpha))),
             process=process_ref(p),
         )
-        _record(p, "guidance_mode", "SMC-CFG")
+        _record(p, "guidance_mode", SMC_GUIDANCE)
         _record(p, "smc_alpha", float(args.smc_alpha))
         _record(p, "smc_lambda", float(args.smc_lambda))
         return cfg_function

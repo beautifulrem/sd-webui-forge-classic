@@ -1,5 +1,6 @@
 import pathlib
 import sys
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -7,7 +8,11 @@ import torch
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from lib_spectrum.forecaster import _branch_signatures
+from lib_spectrum.forecaster import SpectrumNode, _call_samples
+
+
+def _branch_signatures(conditioning, branches):
+    return _call_samples(torch.ones(1), conditioning, branches)[1]
 
 
 def _reference(conditioning, branches):
@@ -74,3 +79,59 @@ def test_all_branches_share_one_host_transfer(monkeypatch):
     signatures = _branch_signatures({"c_crossattn": torch.randn(2, 77, 64)}, [1, 0])
     assert set(signatures) == {0, 1}
     assert len(calls) == 1
+
+
+def test_each_model_call_makes_one_host_transfer(monkeypatch):
+    """The sigma rides along with the signature gather: one copy per call."""
+
+    class FakePatcher:
+        def __init__(self):
+            self.model = SimpleNamespace(diffusion_model=torch.nn.Identity(), predictor=object())
+            self.model_options = {}
+            self.wrapper = None
+
+        def clone(self):
+            return self
+
+        def set_model_unet_function_wrapper(self, wrapper):
+            self.wrapper = wrapper
+
+    patcher = SpectrumNode.patch(
+        FakePatcher(), steps=10, weight=1.0, degree=1, lam=1e-6, window_size=2,
+        flex_window=0.0, warmup_steps=5, stop_caching_step=1.0, tail_actual_steps=1,
+        history_size=3, schedule="Window", refresh_ratio=0.0, sea_beta=2.0,
+        compat_policy="Conservative", verbose=False, sea_cache_dir="unused",
+        sea_cache_context={}, process=SimpleNamespace(),
+    )
+    transfers = []
+    for name in ("tolist", "item", "__float__"):
+        original = getattr(torch.Tensor, name)
+
+        def counting(self, *args, _name=name, _original=original):
+            transfers.append(_name)
+            return _original(self, *args)
+
+        monkeypatch.setattr(torch.Tensor, name, counting)
+
+    context = torch.randn(2, 77, 64)
+    for step in range(3):  # warmup: every call is an actual forward
+        before = len(transfers)
+        patcher.wrapper(
+            lambda x, timestep, **_kwargs: x,
+            {
+                "input": torch.zeros(2, 4),
+                "timestep": torch.tensor([1.0 - step * 0.1]),
+                "c": {"c_crossattn": context},
+                "cond_or_uncond": [0, 1],
+            },
+        )
+        assert transfers[before:] == ["tolist"]
+
+
+def test_call_sigma_is_read_exactly():
+    sigma = torch.tensor([0.123456789], dtype=torch.float64)
+    value, signatures = _call_samples(sigma, {"c_crossattn": torch.randn(2, 3, 4)}, [0, 1])
+    assert value == float(sigma[0])
+    assert set(signatures) == {0, 1}
+    assert _call_samples(torch.tensor([0.5, 0.5]), None, [0])[0] == 0.5
+    assert _call_samples(0.25, {"c_crossattn": torch.randn(1, 3)}, [0])[0] == 0.25

@@ -150,7 +150,8 @@ monkeypatching the sampler.
 
 The Anima default is `lambda=-0.015`, `one_minus_sigma`, and Haar `LL` only.
 Other schedules and frequency-band masks are exposed in the GUI. DCW is a
-post-step correction and composes with Standard CFG, SMC-CFG, and Skimmed CFG.
+post-step correction and composes with every CFG mode except FDG, and with
+Skimmed CFG.
 
 DCW needs one main model evaluation per step: Euler, Euler a, DPM++ 2M,
 DPM++ 2M/3M SDE, ER SDE (and CNS), LMS, LCM, Res Multistep, the Anima Flow

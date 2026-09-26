@@ -67,7 +67,7 @@ class AnimaRegionalScript(scripts.Script):
             )
             with gr.Row():
                 blocks = gr.Textbox(
-                    "0-51",
+                    "0-27",
                     label="Anima blocks",
                     info="Written in the 2B (28-block) layout: on 40/52-block models each block also selects its inserted copies, so the default covers every block of any Anima model.",
                 )

@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 import torch
 
 from modules import spectrum_force
-from modules.anima_support import call_model_wrapper, inherit_wrapper_flags, positive_rows
+from modules.anima_support import call_model_wrapper, inherit_wrapper_flags, positive_rows, sigma_value
 from modules.forward_override import cached_overrides, forward_overrides
 
 
@@ -174,7 +174,7 @@ def apply_regional_patch(model, state: RegionalState):
     override = cached_overrides(lambda index: dit.blocks[index].cross_attn, lambda original, index: _make_cross_attention_wrapper(original, state, index))
 
     def wrapper(model_function, args):
-        sigma = float(args["timestep"].flatten()[0].item())
+        sigma = sigma_value(args["timestep"])
         if not state.active(sigma):
             return call_model_wrapper(previous, model_function, args)
         with _PATCH_LOCK:

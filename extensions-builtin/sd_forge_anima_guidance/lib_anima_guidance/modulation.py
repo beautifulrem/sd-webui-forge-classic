@@ -199,7 +199,10 @@ def encode_clip_pooled(prompts, *, clip_path: str, config_dir: str, tokenizer_di
             )
             pooled = outputs.pooler_output.detach().float().cpu().contiguous()
         finally:
-            model.to(device="cpu", dtype=torch.float16)
+            # The cached model rests on the CPU in the compute dtype: fp16
+            # between GPU encodes, fp32 for a CPU encoder, so a CPU cache miss
+            # does not convert all of CLIP-L (~235 MiB) to fp32 and back.
+            model.to(device="cpu", dtype=compute_dtype)
     if len(_POOLED_CACHE) >= _POOLED_CACHE_SIZE:
         _POOLED_CACHE.pop(next(iter(_POOLED_CACHE)))
     _POOLED_CACHE[cache_key] = pooled

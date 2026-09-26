@@ -19,7 +19,7 @@ import torch
 
 from lib_spectrum.sea import SeaCalibration, flow_time, l1rel, sea_filter
 from modules import spectrum_force
-from modules.anima_support import call_model_wrapper, is_anima_auxiliary_denoiser, process_ref
+from modules.anima_support import call_model_wrapper, is_anima_auxiliary_denoiser, process_ref, sigma_value
 
 logger = logging.getLogger("Spectrum")
 
@@ -163,32 +163,39 @@ def _safe_simple_branches(branches: Sequence[int]) -> bool:
     return len(branches) in (1, 2) and len(set(branches)) == len(branches) and all(item in (0, 1) for item in branches)
 
 
-def _branch_signatures(conditioning, branches: Sequence[int]):
-    """Per-branch conditioning signatures, or None when they cannot be split.
+def _call_samples(timestep, conditioning, branches: Sequence[int]):
+    """A model call's sigma and its per-branch conditioning signatures (None
+    when the conditioning cannot be split), read with one host transfer.
 
     A signature is a small content sample used to invalidate forecasts on
     prompt changes: ``(branch shape, dtype, up to 16 strided values)``,
-    computed every call.  All branches are sampled with one gather and one
-    host transfer; each branch is a contiguous run of the flattened context.
+    computed every call.  The sigma and every branch's sample are gathered on
+    the device and copied together; each branch is a contiguous run of the
+    flattened context.  Without a splittable context (or with the timestep on
+    another device) the sigma is read on its own through ``sigma_value``.
     """
-    if not isinstance(conditioning, dict) or not branches:
-        return None
-    context = conditioning.get("c_crossattn")
+    context = conditioning.get("c_crossattn") if isinstance(conditioning, dict) and branches else None
     if not torch.is_tensor(context) or context.shape[0] % len(branches):
-        return None
+        return sigma_value(timestep), None
     count = len(branches)
     shape = (context.shape[0] // count, *context.shape[1:])
     per_branch = context.numel() // count
-    samples = [()] * count
+    fused = torch.is_tensor(timestep) and timestep.numel() > 0 and timestep.device == context.device
+    # float64 sigmas stay exact; context samples upcast losslessly.
+    work_dtype = torch.promote_types(timestep.dtype, torch.float32) if fused else torch.float32
+    parts = [timestep.detach().reshape(-1)[:1].to(work_dtype)] if fused else []
+    size = 0
     if per_branch:
         stride = max(1, per_branch // 16)
         offsets = torch.arange(0, per_branch, stride, device=context.device)[:16]
         index = (torch.arange(count, device=context.device)[:, None] * per_branch + offsets).reshape(-1)
-        values = context.detach().reshape(-1).index_select(0, index).float().cpu().tolist()
+        parts.append(context.detach().reshape(-1).index_select(0, index).to(work_dtype))
         size = offsets.numel()
-        samples = [tuple(round(float(value), 6) for value in values[i * size : (i + 1) * size]) for i in range(count)]
+    values = torch.cat(parts).cpu().tolist() if parts else []
+    sigma = float(values.pop(0)) if fused else sigma_value(timestep)
+    samples = [tuple(round(float(value), 6) for value in values[i * size : (i + 1) * size]) for i in range(count)]
     dtype = str(context.dtype)
-    return {key: (shape, dtype, sample) for key, sample in zip(branches, samples)}
+    return sigma, {key: (shape, dtype, sample) for key, sample in zip(branches, samples)}
 
 
 class SpectrumState:
@@ -400,12 +407,11 @@ class SpectrumNode:
 
             input_x = args["input"]
             sigma = args["timestep"]
-            sigma_value = float(sigma.flatten()[0].item())
             branches, valid_branches = _branch_info(args, input_x.shape[0])
-            new_step = state.advance(sigma_value, input_x)
+            current_sigma, signatures = _call_samples(sigma, args.get("c") if valid_branches else None, branches)
+            new_step = state.advance(current_sigma, input_x)
 
             shape_changed = state.input_shape is not None and tuple(input_x.shape[1:]) != state.input_shape
-            signatures = _branch_signatures(args.get("c"), branches) if valid_branches else None
             previous_signatures = state.conditioning_signature
             if shape_changed or signatures is None or previous_signatures is None:
                 if shape_changed or signatures != previous_signatures:
@@ -427,7 +433,7 @@ class SpectrumNode:
 
             compatible = valid_branches
             transformer_options = args.get("c", {}).get("transformer_options", {})
-            forced = spectrum_force.is_forced(transformer_options.get(spectrum_force.KEY), sigma_value)
+            forced = spectrum_force.is_forced(transformer_options.get(spectrum_force.KEY), current_sigma)
             if new_step:
                 if state.was_forced and not forced:
                     # Forecasters were not updated inside the forced window;
@@ -449,7 +455,7 @@ class SpectrumNode:
             if new_step:
                 state.mode = state.decide(branches) if compatible else "actual"
                 if state.verbose:
-                    logger.info("Spectrum step %d/%d sigma=%.6g mode=%s", state.step + 1, state.steps, sigma_value, state.mode)
+                    logger.info("Spectrum step %d/%d sigma=%.6g mode=%s", state.step + 1, state.steps, current_sigma, state.mode)
             elif compat_policy != "Legacy / fastest":
                 state.mode = "actual"
 
