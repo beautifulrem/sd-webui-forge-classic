@@ -41,6 +41,22 @@ class MomentumGuidanceTests(unittest.TestCase):
         self.assertTrue(torch.allclose(actual, torch.full_like(x, -(3.0 + 0.5 * (3.0 - 1.0)))))
         self.assertTrue(torch.allclose(state._ema, torch.full_like(x, 0.5 * 3.0 + 0.5 * 1.0)))
 
+    def test_momentum_runs_on_velocity_not_on_denoised(self):
+        # With x = 0 and sigma = 1 the velocity is just -denoised, so the case
+        # above cannot tell the two spaces apart; here x and sigma change.
+        state = MomentumGuidanceState(momentum=0.5, ema_decay=0.5)
+        x1, sigma1, d1 = torch.full((1, 1, 2, 2), 2.0), 0.8, torch.full((1, 1, 2, 2), 0.5)
+        x2, sigma2, d2 = torch.full((1, 1, 2, 2), 1.5), torch.tensor([0.5]), torch.full((1, 1, 2, 2), 1.0)
+        self.assertTrue(torch.allclose(state.apply(d1, x1, sigma1), d1))
+        actual = state.apply(d2, x2, sigma2)
+        # v1 = (2 - 0.5) / 0.8 = 1.875, v2 = (1.5 - 1) / 0.5 = 1
+        # v = v2 + 0.5 * (v2 - v1) = 0.5625, denoised = 1.5 - 0.5 * 0.5625
+        self.assertTrue(torch.allclose(actual, torch.full_like(x2, 1.21875)))
+        self.assertTrue(torch.allclose(state._ema, torch.full_like(x2, 0.5 * 1.0 + 0.5 * 1.875)))
+        # Momentum on the denoised prediction (the reference) would give
+        # d2 + 0.5 * (d2 - d1) = 1.25.
+        self.assertFalse(torch.allclose(actual, d2 + 0.5 * (d2 - d1)))
+
     def test_probe_can_avoid_advancing_state(self):
         state = MomentumGuidanceState()
         x = torch.zeros(1, 1, 2, 2)

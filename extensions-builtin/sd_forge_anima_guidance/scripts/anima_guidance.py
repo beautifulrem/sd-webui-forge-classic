@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import os
 import logging
+from types import SimpleNamespace
 
 import gradio as gr
 
@@ -130,6 +131,16 @@ SCRIPT_ARGS = (
     ("apg_momentum", "Anima APG momentum", "guidance.apg_momentum", -0.5),
 )
 SCRIPT_ARG_NAMES = tuple(row[0] for row in SCRIPT_ARGS)
+INFOTEXT_KEYS = {name: key for name, key, _, _ in SCRIPT_ARGS if key is not None}
+
+
+def _record(p, name: str, value) -> None:
+    """Write ``value`` to infotext under the key SCRIPT_ARGS gives control ``name``.
+
+    The key is the one ``infotext_fields`` pastes back into that control.
+    """
+
+    p.extra_generation_params[INFOTEXT_KEYS[name]] = value
 
 
 def _is_anima(p) -> bool:
@@ -176,6 +187,336 @@ def _stash_nag_negative(params) -> None:
 
 
 script_callbacks.on_cfg_denoiser(_stash_nag_negative, name="anima_nag_negative_context")
+
+
+def _install_sampler_tuning(p, args: SimpleNamespace, active_sampler: str) -> None:
+    """Settings of one sampler, applied and recorded only while it is active."""
+
+    if active_sampler == "Anima ER SDE CNS":
+        p.cns_strength = min(max(float(args.cns_strength), 0.0), 1.0)
+        _record(p, "cns_strength", p.cns_strength)
+
+    if active_sampler == "Anima Flow UniPC2":
+        p.flow_unipc_solver_type = str(args.flow_unipc_solver_type)
+        p.flow_unipc_disable_corrector_first = max(
+            0, int(args.flow_unipc_disable_corrector_first)
+        )
+        p.flow_unipc_thresholding = bool(args.flow_unipc_thresholding)
+        p.flow_unipc_dynamic_thresholding_ratio = min(
+            max(float(args.flow_unipc_dynamic_thresholding_ratio), 0.5), 1.0
+        )
+        p.flow_unipc_sample_max_value = max(
+            1.0, float(args.flow_unipc_sample_max_value)
+        )
+        _record(p, "flow_unipc_solver_type", p.flow_unipc_solver_type)
+        _record(p, "flow_unipc_disable_corrector_first", p.flow_unipc_disable_corrector_first)
+        if p.flow_unipc_thresholding:
+            _record(p, "flow_unipc_thresholding", True)
+            _record(p, "flow_unipc_dynamic_thresholding_ratio", p.flow_unipc_dynamic_thresholding_ratio)
+            _record(p, "flow_unipc_sample_max_value", p.flow_unipc_sample_max_value)
+
+    if active_sampler == "Anima Flow PC3":
+        p.flow_pc3_gamma = min(max(float(args.flow_pc3_gamma), 0.0), 1.0)
+        p.flow_pc3_tolerance = min(
+            max(float(args.flow_pc3_tolerance), 0.0001), 0.05
+        )
+        _record(p, "flow_pc3_gamma", p.flow_pc3_gamma)
+        _record(p, "flow_pc3_tolerance", p.flow_pc3_tolerance)
+
+
+def _install_modulation(p, args: SimpleNamespace, unet):
+    """A clone of ``unet`` with CLIP modulation guidance, or None if that failed.
+
+    A failure is logged and recorded, and the generation continues without it.
+    """
+
+    try:
+        dit = unet.model.diffusion_model
+        if str(args.adapter_mode) == "Auto-download pinned":
+            # Fail before downloading ~400 MB for a model it cannot patch.
+            block_layout(ADAPTER_BLOCKS, dit_block_count(dit))
+        automatic_adapter = os.path.join(paths.models_path, "Anima", "modulation_guidance", "checkpoint_4000.pt")
+        automatic_clip = os.path.join(paths.models_path, "CLIP", "Anima-Mod-Guidance", "clip_l.safetensors")
+        resolved_adapter = resolve_artifact(
+            str(args.adapter_mode),
+            str(args.adapter_path),
+            automatic_adapter,
+            url=ADAPTER_URL,
+            sha256=ADAPTER_SHA256,
+            maximum_bytes=ADAPTER_MAX_BYTES,
+        )
+        check_adapter_for_dit(resolved_adapter, dit)
+        resolved_clip = resolve_artifact(
+            str(args.clip_mode),
+            str(args.clip_path),
+            automatic_clip,
+            url=CLIP_URL,
+            sha256=CLIP_SHA256,
+            maximum_bytes=CLIP_MAX_BYTES,
+        )
+        base = str(args.modulation_base)
+        positive_prompts, negative_prompts = effective_prompt_batch(p)
+        base_prompts = [base] * len(positive_prompts) if base.strip() else positive_prompts
+        all_clip_prompts = [*base_prompts, *negative_prompts, str(args.modulation_positive), str(args.modulation_negative)]
+        steps = int(getattr(p, "firstpass_steps", None) or p.steps)
+        hires_steps = int(getattr(p, "hr_second_pass_steps", 0) or p.steps) if getattr(p, "is_hr_pass", False) else None
+        pooled = encode_clip_pooled(
+            [clip_prompt_text(prompt, steps, hires_steps) for prompt in all_clip_prompts],
+            clip_path=resolved_clip,
+            config_dir=os.path.join(paths.script_path, "backend", "huggingface", "black-forest-labs", "FLUX.1-schnell", "text_encoder"),
+            tokenizer_dir=os.path.join(paths.script_path, "backend", "huggingface", "black-forest-labs", "FLUX.1-schnell", "tokenizer"),
+            device=memory_management.text_encoder_device(),
+        )
+        batch = len(positive_prompts)
+        projected_positive, projected_negative, scales = prepare_modulation_vectors(
+            adapter_path=resolved_adapter,
+            base_positive=pooled[:batch],
+            base_negative=pooled[batch : 2 * batch],
+            direction_positive=pooled[-2:-1],
+            direction_negative=pooled[-1:],
+            weight=float(args.modulation_weight),
+        )
+        patched, effective_start, effective_end = ModulationPatch(
+            positive=projected_positive,
+            negative=projected_negative,
+            scales=scales,
+            start_layer=int(args.modulation_start),
+            end_layer=int(args.modulation_end),
+        ).apply(unet)
+        _record(p, "modulation_enable", True)
+        _record(p, "modulation_weight", float(args.modulation_weight))
+        _record(p, "modulation_start", int(effective_start))
+        _record(p, "modulation_end", int(effective_end))
+        _record(p, "modulation_positive", str(args.modulation_positive))
+        _record(p, "modulation_negative", str(args.modulation_negative))
+        _record(p, "adapter_mode", str(args.adapter_mode))
+        _record(p, "clip_mode", str(args.clip_mode))
+        if base.strip():
+            _record(p, "modulation_base", base)
+        return patched
+    except Exception as error:
+        logger.exception("Anima modulation guidance was disabled for this generation: %s", error)
+        _record(p, "modulation_enable", f"disabled: {type(error).__name__}")
+        return None
+
+
+def _install_nag(p, args: SimpleNamespace, unet, predictor) -> None:
+    sigma_start = float(predictor.percent_to_sigma(float(args.nag_start)))
+    sigma_end = float(predictor.percent_to_sigma(float(args.nag_end)))
+
+    def report_unbatched_nag(p=process_ref(p)):
+        _record(p, "nag_enable", "inactive: no negative context for a positive-only call")
+        logger.warning(
+            "Anima NAG was skipped: a model call had no negative-prompt context to guide against "
+            "(no unconditional rows and no stashed negative context, or an unknown batch layout)"
+        )
+
+    nag_modifier = NAGAttentionModifier(
+        scale=float(args.nag_scale),
+        tau=float(args.nag_tau),
+        alpha=float(args.nag_alpha),
+        sigma_start=sigma_start,
+        sigma_end=sigma_end,
+        on_unbatched=report_unbatched_nag,
+    )
+    unet.append_transformer_option(ANIMA_ATTENTION_MODIFIERS, nag_modifier)
+    # Positive-only calls (CFG 1, or branches Forge split for VRAM)
+    # get the negative context from the CFG callback instead: no
+    # unconditional forward pass is needed just for NAG.
+    p._anima_nag_modifier = nag_modifier
+    # NAG only changes the output inside its own sigma window.
+    spectrum_force.request(unet, spectrum_force.sigma_window(sigma_start, sigma_end))
+    _record(p, "nag_enable", True)
+    _record(p, "nag_scale", float(args.nag_scale))
+    _record(p, "nag_tau", float(args.nag_tau))
+    _record(p, "nag_alpha", float(args.nag_alpha))
+    _record(p, "nag_start", float(args.nag_start))
+    _record(p, "nag_end", float(args.nag_end))
+
+
+def _cfg_mode_function(p, args: SimpleNamespace, previous):
+    """The combine hook of the selected CFG mode; ``previous`` for Standard."""
+
+    mode = args.guidance_mode
+    if mode == SMC_GUIDANCE and float(args.smc_alpha) > 0.0:
+        cfg_function = make_smc_cfg_function(
+            register_stateful_guidance(p, SMCCFGState(lam=float(args.smc_lambda), alpha=float(args.smc_alpha))),
+            process=process_ref(p),
+        )
+        _record(p, "guidance_mode", "SMC-CFG")
+        _record(p, "smc_alpha", float(args.smc_alpha))
+        _record(p, "smc_lambda", float(args.smc_lambda))
+        return cfg_function
+    if mode == FDG_GUIDANCE:
+        cfg_function = make_fdg_cfg_function(float(args.fdg_high_scale))
+        _record(p, "guidance_mode", FDG_GUIDANCE)
+        _record(p, "fdg_high_scale", float(args.fdg_high_scale))
+        return cfg_function
+    if mode == CFG_ZERO_STAR_GUIDANCE:
+        cfg_function = make_cfg_zero_star_cfg_function()
+        _record(p, "guidance_mode", CFG_ZERO_STAR_GUIDANCE)
+        _record(p, "cfg_zero_init_steps", max(0, int(args.cfg_zero_init_steps)))
+        return cfg_function
+    if mode == APG_GUIDANCE:
+        cfg_function = make_apg_cfg_function(
+            register_stateful_guidance(
+                p,
+                APGState(
+                    eta=float(args.apg_eta),
+                    norm_threshold=float(args.apg_norm_threshold),
+                    momentum=float(args.apg_momentum),
+                ),
+            ),
+            process=process_ref(p),
+        )
+        _record(p, "guidance_mode", APG_GUIDANCE)
+        _record(p, "apg_eta", float(args.apg_eta))
+        _record(p, "apg_norm_threshold", float(args.apg_norm_threshold))
+        _record(p, "apg_momentum", float(args.apg_momentum))
+        return cfg_function
+    return previous
+
+
+def _install_cfg_hooks(p, args: SimpleNamespace, unet, predictor) -> None:
+    """The CFG combine mode, wrapped by Skimmed CFG, the CFG range and zero-init."""
+
+    mode = args.guidance_mode
+    smc_enabled = mode == SMC_GUIDANCE and float(args.smc_alpha) > 0.0
+    fdg_enabled = mode == FDG_GUIDANCE
+    cfg_zero_enabled = mode == CFG_ZERO_STAR_GUIDANCE
+    apg_enabled = mode == APG_GUIDANCE
+    previous = unet.model_options.get("sampler_cfg_function")
+    active_cfg_function = _cfg_mode_function(p, args, previous)
+    if previous is not None and active_cfg_function is not previous:
+        p.extra_generation_params["Anima CFG replaced existing"] = getattr(
+            previous, "__name__", type(previous).__name__
+        )
+
+    if args.skim_enable:
+        flip_sigma = None
+        if 0.0 < float(args.flip_percent) < 1.0:
+            flip_sigma = float(predictor.percent_to_sigma(float(args.flip_percent)))
+        active_cfg_function = make_skim_cfg_function(
+            active_cfg_function,
+            sigma_start=float(predictor.percent_to_sigma(float(args.start_percent))),
+            sigma_end=float(predictor.percent_to_sigma(float(args.end_percent))),
+            skimming_scale=float(args.skim_scale),
+            full_skim_negative=bool(args.full_negative),
+            disable_flipping_filter=bool(args.disable_flip_filter),
+            flip_sigma=flip_sigma,
+        )
+
+    if args.guidance_range_enable:
+        active_cfg_function = make_guidance_range_cfg_function(
+            active_cfg_function,
+            sigma_start=float(predictor.percent_to_sigma(float(args.guidance_range_start))),
+            sigma_end=float(predictor.percent_to_sigma(float(args.guidance_range_end))),
+        )
+        _record(p, "guidance_range_enable", True)
+        _record(p, "guidance_range_start", float(args.guidance_range_start))
+        _record(p, "guidance_range_end", float(args.guidance_range_end))
+
+    zero_init_steps = max(0, int(args.cfg_zero_init_steps)) if cfg_zero_enabled else 0
+    if zero_init_steps > 0:
+        # Outermost, so zero-init sees every sigma of the pass (the CFG
+        # range does not call its inner hook outside its window). It
+        # zeroes only a pass that starts from pure noise.
+        zero_init_state = register_stateful_guidance(
+            p,
+            CFGZeroStarState(
+                zero_init_steps,
+                start_sigma=float(predictor.percent_to_sigma(0.0)),
+            ),
+        )
+        active_cfg_function = make_zero_init_cfg_function(
+            active_cfg_function,
+            zero_init_state,
+            process=process_ref(p),
+        )
+        # The same steps skip the model: their predictions are discarded.
+        unet.set_model_unet_function_wrapper(
+            make_zero_init_model_wrapper(
+                unet.model_options.get("model_function_wrapper"),
+                zero_init_state,
+                process=process_ref(p),
+            )
+        )
+        # Spectrum must neither forecast nor learn from those steps.
+        spectrum_force.request(unet, zero_init_state.would_zero_init)
+
+    if smc_enabled or fdg_enabled or cfg_zero_enabled or apg_enabled or args.skim_enable or args.guidance_range_enable:
+        # At CFG 1 Skimmed CFG, CFG-Zero*, APG and the CFG range all reduce to
+        # the conditional prediction (CFG-Zero*'s zero-init reads neither),
+        # so only SMC / FDG (which still use the unconditional one there)
+        # keep Forge from skipping that pass. A wrapped hook from another
+        # extension set its own flag already.
+        unet.set_model_sampler_cfg_function(
+            active_cfg_function,
+            disable_cfg1_optimization=bool(smc_enabled or fdg_enabled),
+        )
+    if args.guidance_range_enable:
+        # Outside the window only the conditional prediction is used, so
+        # the unconditional forward pass is skipped on those steps.
+        unet.set_model_sampler_pre_cfg_function(
+            make_guidance_range_uncond_skip(active_cfg_function)
+        )
+
+
+def _install_momentum(p, args: SimpleNamespace, unet) -> None:
+    momentum_state = register_stateful_guidance(
+        p,
+        MomentumGuidanceState(
+            momentum=float(args.momentum_strength),
+            ema_decay=float(args.momentum_ema),
+        ),
+    )
+    # Momentum reads only the combined prediction, so it needs no
+    # unconditional pass at CFG 1 (or outside the CFG range).
+    unet.set_model_sampler_post_cfg_function(
+        make_momentum_post_cfg_function(momentum_state, process=process_ref(p)),
+    )
+    spectrum_force.request(unet, "anima_momentum")
+    _record(p, "momentum_enable", True)
+    _record(p, "momentum_strength", float(args.momentum_strength))
+    _record(p, "momentum_ema", float(args.momentum_ema))
+
+
+def _install_dcw(p, args: SimpleNamespace, unet) -> None:
+    dcw_state = register_stateful_guidance(
+        p,
+        DCWState(
+            lam=float(args.dcw_lambda),
+            schedule=str(args.dcw_schedule),
+            bands=parse_band_mask(str(args.dcw_bands)),
+        ),
+    )
+    p._anima_dcw_state = dcw_state
+
+    # DCW only reads the final (post-CFG) prediction, so at CFG 1 it
+    # does not need the unconditional pass Forge otherwise skips.
+    def dcw_post_cfg(hook_args, p=process_ref(p), dcw_state=dcw_state):
+        return _capture_dcw_denoised(p, dcw_state, hook_args["denoised"])
+
+    setattr(dcw_post_cfg, IGNORES_UNCOND, True)
+    unet.set_model_sampler_post_cfg_function(dcw_post_cfg)
+    _record(p, "dcw_enable", True)
+    _record(p, "dcw_lambda", float(args.dcw_lambda))
+    _record(p, "dcw_schedule", str(args.dcw_schedule))
+    _record(p, "dcw_bands", str(args.dcw_bands))
+
+
+def _record_skim(p, args: SimpleNamespace) -> None:
+    _record(p, "skim_enable", True)
+    _record(p, "skim_scale", float(args.skim_scale))
+    if args.full_negative:
+        _record(p, "full_negative", True)
+    if args.disable_flip_filter:
+        _record(p, "disable_flip_filter", True)
+    if not math.isclose(float(args.start_percent), 0.0) or not math.isclose(float(args.end_percent), 1.0):
+        _record(p, "start_percent", float(args.start_percent))
+        _record(p, "end_percent", float(args.end_percent))
+    if 0.0 < float(args.flip_percent) < 1.0:
+        _record(p, "flip_percent", float(args.flip_percent))
 
 
 class AnimaGuidanceScript(scripts.Script):
@@ -413,7 +754,7 @@ class AnimaGuidanceScript(scripts.Script):
                         value=3.0,
                         step=0.05,
                         label="Direction weight",
-                        info="CLIP(base) + weight x (CLIP(positive direction) - CLIP(negative direction)).",
+                        info="proj(base) + weight x (proj(positive direction) - proj(negative direction)), where proj is the adapter's projection of the CLIP-L pooled vector.",
                     )
                     modulation_start = gr.Slider(0, 63, value=0, step=1, label="Start block")
                     modulation_end = gr.Slider(
@@ -531,63 +872,13 @@ class AnimaGuidanceScript(scripts.Script):
                 arguments[name] = kwargs[name]
             elif name not in arguments and default is not _REQUIRED:
                 arguments[name] = default
-        self._process_before_every_sampling(p, **arguments)
+        missing = [name for name in SCRIPT_ARG_NAMES if name not in arguments]
+        if missing:
+            raise TypeError(f"Anima guidance is missing script arguments: {', '.join(missing)}")
+        # One attribute per SCRIPT_ARGS name.
+        self._process_before_every_sampling(p, SimpleNamespace(**arguments))
 
-    def _process_before_every_sampling(
-        self,
-        p,
-        enable: bool,
-        guidance_mode: str,
-        smc_alpha: float,
-        smc_lambda: float,
-        skim_enable: bool,
-        skim_scale: float,
-        full_negative: bool,
-        disable_flip_filter: bool,
-        start_percent: float,
-        end_percent: float,
-        flip_percent: float,
-        dcw_enable: bool,
-        dcw_lambda: float,
-        dcw_schedule: str,
-        dcw_bands: str,
-        cns_strength: float,
-        flow_unipc_solver_type: str,
-        flow_unipc_disable_corrector_first: int,
-        flow_unipc_thresholding: bool,
-        flow_unipc_dynamic_thresholding_ratio: float,
-        flow_unipc_sample_max_value: float,
-        flow_pc3_gamma: float,
-        flow_pc3_tolerance: float,
-        modulation_enable: bool,
-        modulation_weight: float,
-        modulation_start: int,
-        modulation_end: int,
-        modulation_base: str,
-        modulation_positive: str,
-        modulation_negative: str,
-        adapter_mode: str,
-        adapter_path: str,
-        clip_mode: str,
-        clip_path: str,
-        nag_enable: bool,
-        nag_scale: float,
-        nag_tau: float,
-        nag_alpha: float,
-        nag_start: float,
-        nag_end: float,
-        momentum_enable: bool,
-        momentum_strength: float,
-        momentum_ema: float,
-        fdg_high_scale: float,
-        guidance_range_enable: bool,
-        guidance_range_start: float,
-        guidance_range_end: float,
-        cfg_zero_init_steps: int,
-        apg_eta: float,
-        apg_norm_threshold: float,
-        apg_momentum: float,
-    ):
+    def _process_before_every_sampling(self, p, args: SimpleNamespace):
         # The global pre-denoiser hook applies whatever DCW state p holds: a
         # pass without DCW (e.g. hires after it was dropped for the sampler)
         # must not keep correcting towards the previous pass's history.
@@ -600,360 +891,64 @@ class AnimaGuidanceScript(scripts.Script):
             else p.sampler_name
         )
         # SMC with alpha <= 0 installs nothing, so it must not evict Momentum.
-        if str(guidance_mode) == SMC_GUIDANCE and float(smc_alpha) <= 0.0:
-            guidance_mode = STANDARD_GUIDANCE
+        if str(args.guidance_mode) == SMC_GUIDANCE and float(args.smc_alpha) <= 0.0:
+            args.guidance_mode = STANDARD_GUIDANCE
         conflict_state = resolve_guidance_conflicts(
             sampler=str(active_sampler),
-            mode=str(guidance_mode),
-            momentum=bool(momentum_enable),
-            dcw=bool(dcw_enable),
+            mode=str(args.guidance_mode),
+            momentum=bool(args.momentum_enable),
+            dcw=bool(args.dcw_enable),
             inpaint_mask=getattr(p, "mask", None) is not None,
         )
-        guidance_mode = conflict_state.mode
-        momentum_enable = conflict_state.momentum
-        dcw_enable = conflict_state.dcw
-        smc_enabled = guidance_mode == SMC_GUIDANCE and float(smc_alpha) > 0.0
-        fdg_enabled = guidance_mode == FDG_GUIDANCE
-        cfg_zero_enabled = guidance_mode == CFG_ZERO_STAR_GUIDANCE
-        apg_enabled = guidance_mode == APG_GUIDANCE
-        dcw_enabled = bool(dcw_enable) and not math.isclose(float(dcw_lambda), 0.0)
-        cns_selected = active_sampler == "Anima ER SDE CNS"
-        if not enable or not _is_anima(p):
+        args.guidance_mode = conflict_state.mode
+        args.momentum_enable = conflict_state.momentum
+        args.dcw_enable = conflict_state.dcw
+        mode = args.guidance_mode
+        cfg_mode_enabled = (mode == SMC_GUIDANCE and float(args.smc_alpha) > 0.0) or mode in (
+            FDG_GUIDANCE,
+            CFG_ZERO_STAR_GUIDANCE,
+            APG_GUIDANCE,
+        )
+        dcw_enabled = bool(args.dcw_enable) and not math.isclose(float(args.dcw_lambda), 0.0)
+        if not args.enable or not _is_anima(p):
             return
 
-        # Keys below match ``self.infotext_fields`` so pasted parameters restore the panel.
-        p.extra_generation_params["Anima guidance enabled"] = True
+        # Every _record() key is the control's ``infotext_fields`` key, so
+        # pasted parameters restore the panel.
+        _record(p, "enable", True)
 
         if conflict_state.messages:
             resolution = "; ".join(conflict_state.messages)
             record_conflict_resolution(p, *conflict_state.messages)
             logger.warning("Anima compatibility resolver: %s", resolution)
 
-        if cns_selected:
-            p.cns_strength = min(max(float(cns_strength), 0.0), 1.0)
-            p.extra_generation_params["Anima CNS strength"] = p.cns_strength
+        _install_sampler_tuning(p, args, active_sampler)
 
-        if active_sampler == "Anima Flow UniPC2":
-            p.flow_unipc_solver_type = str(flow_unipc_solver_type)
-            p.flow_unipc_disable_corrector_first = max(
-                0, int(flow_unipc_disable_corrector_first)
-            )
-            p.flow_unipc_thresholding = bool(flow_unipc_thresholding)
-            p.flow_unipc_dynamic_thresholding_ratio = min(
-                max(float(flow_unipc_dynamic_thresholding_ratio), 0.5), 1.0
-            )
-            p.flow_unipc_sample_max_value = max(
-                1.0, float(flow_unipc_sample_max_value)
-            )
-            p.extra_generation_params["Anima Flow UniPC solver type"] = (
-                p.flow_unipc_solver_type
-            )
-            p.extra_generation_params["Anima Flow UniPC disabled correctors"] = (
-                p.flow_unipc_disable_corrector_first
-            )
-            if p.flow_unipc_thresholding:
-                p.extra_generation_params["Anima Flow UniPC thresholding"] = True
-                p.extra_generation_params["Anima Flow UniPC threshold percentile"] = (
-                    p.flow_unipc_dynamic_thresholding_ratio
-                )
-                p.extra_generation_params["Anima Flow UniPC threshold maximum"] = (
-                    p.flow_unipc_sample_max_value
-                )
-
-        if active_sampler == "Anima Flow PC3":
-            p.flow_pc3_gamma = min(max(float(flow_pc3_gamma), 0.0), 1.0)
-            p.flow_pc3_tolerance = min(
-                max(float(flow_pc3_tolerance), 0.0001), 0.05
-            )
-            p.extra_generation_params["Anima Flow PC3 gamma"] = p.flow_pc3_gamma
-            p.extra_generation_params["Anima Flow PC3 tolerance"] = (
-                p.flow_pc3_tolerance
-            )
-
-        modulation_enabled = bool(modulation_enable)
-        advanced_enabled = (
-            bool(nag_enable)
-            or bool(momentum_enable)
-            or fdg_enabled
-            or cfg_zero_enabled
-            or apg_enabled
-            or bool(guidance_range_enable)
-        )
-        if not skim_enable and not smc_enabled and not dcw_enabled and not modulation_enabled and not advanced_enabled:
+        if not (
+            args.skim_enable
+            or cfg_mode_enabled
+            or dcw_enabled
+            or args.modulation_enable
+            or args.nag_enable
+            or args.momentum_enable
+            or args.guidance_range_enable
+        ):
             return
 
         unet = p.sd_model.forge_objects.unet
-        if modulation_enabled:
-            try:
-                dit = unet.model.diffusion_model
-                if str(adapter_mode) == "Auto-download pinned":
-                    # Fail before downloading ~400 MB for a model it cannot patch.
-                    block_layout(ADAPTER_BLOCKS, dit_block_count(dit))
-                automatic_adapter = os.path.join(paths.models_path, "Anima", "modulation_guidance", "checkpoint_4000.pt")
-                automatic_clip = os.path.join(paths.models_path, "CLIP", "Anima-Mod-Guidance", "clip_l.safetensors")
-                resolved_adapter = resolve_artifact(
-                    str(adapter_mode),
-                    str(adapter_path),
-                    automatic_adapter,
-                    url=ADAPTER_URL,
-                    sha256=ADAPTER_SHA256,
-                    maximum_bytes=ADAPTER_MAX_BYTES,
-                )
-                check_adapter_for_dit(resolved_adapter, dit)
-                resolved_clip = resolve_artifact(
-                    str(clip_mode),
-                    str(clip_path),
-                    automatic_clip,
-                    url=CLIP_URL,
-                    sha256=CLIP_SHA256,
-                    maximum_bytes=CLIP_MAX_BYTES,
-                )
-                positive_prompts, negative_prompts = effective_prompt_batch(p)
-                base_prompts = [str(modulation_base)] * len(positive_prompts) if str(modulation_base).strip() else positive_prompts
-                all_clip_prompts = [*base_prompts, *negative_prompts, str(modulation_positive), str(modulation_negative)]
-                steps = int(getattr(p, "firstpass_steps", None) or p.steps)
-                hires_steps = int(getattr(p, "hr_second_pass_steps", 0) or p.steps) if getattr(p, "is_hr_pass", False) else None
-                pooled = encode_clip_pooled(
-                    [clip_prompt_text(prompt, steps, hires_steps) for prompt in all_clip_prompts],
-                    clip_path=resolved_clip,
-                    config_dir=os.path.join(paths.script_path, "backend", "huggingface", "black-forest-labs", "FLUX.1-schnell", "text_encoder"),
-                    tokenizer_dir=os.path.join(paths.script_path, "backend", "huggingface", "black-forest-labs", "FLUX.1-schnell", "tokenizer"),
-                    device=memory_management.text_encoder_device(),
-                )
-                batch = len(positive_prompts)
-                projected_positive, projected_negative, scales = prepare_modulation_vectors(
-                    adapter_path=resolved_adapter,
-                    base_positive=pooled[:batch],
-                    base_negative=pooled[batch : 2 * batch],
-                    direction_positive=pooled[-2:-1],
-                    direction_negative=pooled[-1:],
-                    weight=float(modulation_weight),
-                )
-                unet, effective_start, effective_end = ModulationPatch(
-                    positive=projected_positive,
-                    negative=projected_negative,
-                    scales=scales,
-                    start_layer=int(modulation_start),
-                    end_layer=int(modulation_end),
-                ).apply(unet)
-                p.extra_generation_params["Anima modulation guidance"] = True
-                p.extra_generation_params["Anima modulation weight"] = float(modulation_weight)
-                p.extra_generation_params["Anima modulation start block"] = int(effective_start)
-                p.extra_generation_params["Anima modulation end block"] = int(effective_end)
-                p.extra_generation_params["Anima modulation positive direction"] = str(modulation_positive)
-                p.extra_generation_params["Anima modulation negative direction"] = str(modulation_negative)
-                p.extra_generation_params["Anima modulation adapter mode"] = str(adapter_mode)
-                p.extra_generation_params["Anima modulation CLIP mode"] = str(clip_mode)
-                if str(modulation_base).strip():
-                    p.extra_generation_params["Anima modulation base prompt"] = str(modulation_base)
-            except Exception as error:
-                modulation_enabled = False
-                logger.exception("Anima modulation guidance was disabled for this generation: %s", error)
-                p.extra_generation_params["Anima modulation guidance"] = f"disabled: {type(error).__name__}"
-
-        if not modulation_enabled:
-            unet = unet.clone()
+        patched = _install_modulation(p, args, unet) if args.modulation_enable else None
+        unet = unet.clone() if patched is None else patched
         predictor = unet.model.predictor
-        sigma_start = float(predictor.percent_to_sigma(float(start_percent)))
-        sigma_end = float(predictor.percent_to_sigma(float(end_percent)))
-        flip_sigma = None
-        if 0.0 < float(flip_percent) < 1.0:
-            flip_sigma = float(predictor.percent_to_sigma(float(flip_percent)))
-
-        if nag_enable:
-            nag_sigma_start = float(predictor.percent_to_sigma(float(nag_start)))
-            nag_sigma_end = float(predictor.percent_to_sigma(float(nag_end)))
-            def report_unbatched_nag(p=process_ref(p)):
-                message = "inactive: no negative context for a positive-only call"
-                p.extra_generation_params["Anima NAG"] = message
-                logger.warning(
-                    "Anima NAG was skipped: a model call had no negative-prompt context to guide against "
-                    "(no unconditional rows and no stashed negative context, or an unknown batch layout)"
-                )
-
-            nag_modifier = NAGAttentionModifier(
-                scale=float(nag_scale),
-                tau=float(nag_tau),
-                alpha=float(nag_alpha),
-                sigma_start=nag_sigma_start,
-                sigma_end=nag_sigma_end,
-                on_unbatched=report_unbatched_nag,
-            )
-            unet.append_transformer_option(ANIMA_ATTENTION_MODIFIERS, nag_modifier)
-            # Positive-only calls (CFG 1, or branches Forge split for VRAM)
-            # get the negative context from the CFG callback instead: no
-            # unconditional forward pass is needed just for NAG.
-            p._anima_nag_modifier = nag_modifier
-            # NAG only changes the output inside its own sigma window.
-            spectrum_force.request(unet, spectrum_force.sigma_window(nag_sigma_start, nag_sigma_end))
-            p.extra_generation_params["Anima NAG"] = True
-            p.extra_generation_params["Anima NAG scale"] = float(nag_scale)
-            p.extra_generation_params["Anima NAG tau"] = float(nag_tau)
-            p.extra_generation_params["Anima NAG alpha"] = float(nag_alpha)
-            p.extra_generation_params["Anima NAG start"] = float(nag_start)
-            p.extra_generation_params["Anima NAG end"] = float(nag_end)
-
-        previous = unet.model_options.get("sampler_cfg_function")
-        active_cfg_function = previous
-        if smc_enabled:
-            active_cfg_function = make_smc_cfg_function(
-                register_stateful_guidance(p, SMCCFGState(lam=float(smc_lambda), alpha=float(smc_alpha))),
-                process=process_ref(p),
-            )
-            p.extra_generation_params["Anima CFG guidance mode"] = "SMC-CFG"
-            p.extra_generation_params["Anima SMC alpha"] = float(smc_alpha)
-            p.extra_generation_params["Anima SMC lambda"] = float(smc_lambda)
-        elif fdg_enabled:
-            active_cfg_function = make_fdg_cfg_function(float(fdg_high_scale))
-            p.extra_generation_params["Anima CFG guidance mode"] = FDG_GUIDANCE
-            p.extra_generation_params["Anima FDG detail guidance"] = float(fdg_high_scale)
-        elif cfg_zero_enabled:
-            zero_init_steps = max(0, int(cfg_zero_init_steps))
-            active_cfg_function = make_cfg_zero_star_cfg_function()
-            p.extra_generation_params["Anima CFG guidance mode"] = CFG_ZERO_STAR_GUIDANCE
-            p.extra_generation_params["Anima CFG-Zero* zero-init steps"] = zero_init_steps
-        elif apg_enabled:
-            active_cfg_function = make_apg_cfg_function(
-                register_stateful_guidance(
-                    p,
-                    APGState(
-                        eta=float(apg_eta),
-                        norm_threshold=float(apg_norm_threshold),
-                        momentum=float(apg_momentum),
-                    ),
-                ),
-                process=process_ref(p),
-            )
-            p.extra_generation_params["Anima CFG guidance mode"] = APG_GUIDANCE
-            p.extra_generation_params["Anima APG eta"] = float(apg_eta)
-            p.extra_generation_params["Anima APG norm threshold"] = float(apg_norm_threshold)
-            p.extra_generation_params["Anima APG momentum"] = float(apg_momentum)
-        if previous is not None and active_cfg_function is not previous:
-            p.extra_generation_params["Anima CFG replaced existing"] = getattr(
-                previous, "__name__", type(previous).__name__
-            )
-
-        if skim_enable:
-            active_cfg_function = make_skim_cfg_function(
-                active_cfg_function,
-                sigma_start=sigma_start,
-                sigma_end=sigma_end,
-                skimming_scale=float(skim_scale),
-                full_skim_negative=bool(full_negative),
-                disable_flipping_filter=bool(disable_flip_filter),
-                flip_sigma=flip_sigma,
-            )
-
-        if guidance_range_enable:
-            range_sigma_start = float(predictor.percent_to_sigma(float(guidance_range_start)))
-            range_sigma_end = float(predictor.percent_to_sigma(float(guidance_range_end)))
-            active_cfg_function = make_guidance_range_cfg_function(
-                active_cfg_function,
-                sigma_start=range_sigma_start,
-                sigma_end=range_sigma_end,
-            )
-            p.extra_generation_params["Anima CFG active range"] = True
-            p.extra_generation_params["Anima CFG range start"] = float(guidance_range_start)
-            p.extra_generation_params["Anima CFG range end"] = float(guidance_range_end)
-
-        if cfg_zero_enabled and zero_init_steps > 0:
-            # Outermost, so zero-init sees every sigma of the pass (the CFG
-            # range does not call its inner hook outside its window). It
-            # zeroes only a pass that starts from pure noise.
-            zero_init_state = register_stateful_guidance(
-                p,
-                CFGZeroStarState(
-                    zero_init_steps,
-                    start_sigma=float(predictor.percent_to_sigma(0.0)),
-                ),
-            )
-            active_cfg_function = make_zero_init_cfg_function(
-                active_cfg_function,
-                zero_init_state,
-                process=process_ref(p),
-            )
-            # The same steps skip the model: their predictions are discarded.
-            unet.set_model_unet_function_wrapper(
-                make_zero_init_model_wrapper(
-                    unet.model_options.get("model_function_wrapper"),
-                    zero_init_state,
-                    process=process_ref(p),
-                )
-            )
-            # Spectrum must neither forecast nor learn from those steps.
-            spectrum_force.request(unet, zero_init_state.would_zero_init)
-
-        if smc_enabled or fdg_enabled or cfg_zero_enabled or apg_enabled or skim_enable or guidance_range_enable:
-            # At CFG 1 Skimmed CFG, CFG-Zero*, APG and the CFG range all reduce to
-            # the conditional prediction (CFG-Zero*'s zero-init reads neither),
-            # so only SMC / FDG (which still use the unconditional one there)
-            # keep Forge from skipping that pass. A wrapped hook from another
-            # extension set its own flag already.
-            unet.set_model_sampler_cfg_function(
-                active_cfg_function,
-                disable_cfg1_optimization=bool(smc_enabled or fdg_enabled),
-            )
-        if guidance_range_enable:
-            # Outside the window only the conditional prediction is used, so
-            # the unconditional forward pass is skipped on those steps.
-            unet.set_model_sampler_pre_cfg_function(
-                make_guidance_range_uncond_skip(active_cfg_function)
-            )
-
+        if args.nag_enable:
+            _install_nag(p, args, unet, predictor)
+        _install_cfg_hooks(p, args, unet, predictor)
         # resolve_guidance_conflicts() already dropped Momentum for unsupported
         # samplers and SMC/FDG modes, and recorded why.
-        momentum_enabled = bool(momentum_enable)
-        if momentum_enabled:
-            momentum_state = register_stateful_guidance(
-                p,
-                MomentumGuidanceState(
-                    momentum=float(momentum_strength),
-                    ema_decay=float(momentum_ema),
-                ),
-            )
-            # Momentum reads only the combined prediction, so it needs no
-            # unconditional pass at CFG 1 (or outside the CFG range).
-            unet.set_model_sampler_post_cfg_function(
-                make_momentum_post_cfg_function(momentum_state, process=process_ref(p)),
-            )
-            spectrum_force.request(unet, "anima_momentum")
-            p.extra_generation_params["Anima Momentum Guidance"] = True
-            p.extra_generation_params["Anima Momentum strength"] = float(momentum_strength)
-            p.extra_generation_params["Anima Momentum EMA"] = float(momentum_ema)
-
+        if args.momentum_enable:
+            _install_momentum(p, args, unet)
         if dcw_enabled:
-            dcw_state = register_stateful_guidance(
-                p,
-                DCWState(
-                    lam=float(dcw_lambda),
-                    schedule=str(dcw_schedule),
-                    bands=parse_band_mask(str(dcw_bands)),
-                ),
-            )
-            p._anima_dcw_state = dcw_state
-            # DCW only reads the final (post-CFG) prediction, so at CFG 1 it
-            # does not need the unconditional pass Forge otherwise skips.
-            def dcw_post_cfg(hook_args, p=process_ref(p), dcw_state=dcw_state):
-                return _capture_dcw_denoised(p, dcw_state, hook_args["denoised"])
-
-            setattr(dcw_post_cfg, IGNORES_UNCOND, True)
-            unet.set_model_sampler_post_cfg_function(dcw_post_cfg)
-            p.extra_generation_params["Anima DCW"] = True
-            p.extra_generation_params["Anima DCW lambda"] = float(dcw_lambda)
-            p.extra_generation_params["Anima DCW schedule"] = str(dcw_schedule)
-            p.extra_generation_params["Anima DCW bands"] = str(dcw_bands)
-
+            _install_dcw(p, args, unet)
         p.sd_model.forge_objects.unet = unet
 
-        if skim_enable:
-            p.extra_generation_params["Anima Skimmed CFG"] = True
-            p.extra_generation_params["Anima skim CFG"] = float(skim_scale)
-            if full_negative:
-                p.extra_generation_params["Anima skim full negative"] = True
-            if disable_flip_filter:
-                p.extra_generation_params["Anima skim disable flip filter"] = True
-            if not math.isclose(float(start_percent), 0.0) or not math.isclose(float(end_percent), 1.0):
-                p.extra_generation_params["Anima skim start"] = float(start_percent)
-                p.extra_generation_params["Anima skim end"] = float(end_percent)
-            if flip_sigma is not None:
-                p.extra_generation_params["Anima skim flip"] = float(flip_percent)
+        if args.skim_enable:
+            _record_skim(p, args)

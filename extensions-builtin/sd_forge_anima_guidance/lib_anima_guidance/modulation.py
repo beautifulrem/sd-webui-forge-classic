@@ -1,9 +1,11 @@
 """CLIP pooled modulation guidance for Forge Neo's Anima DiT.
 
 The implementation follows the official Cosmos modulation-guidance path:
-conditional rows receive ``CLIP(p) + w * (CLIP(p+) - CLIP(p-))`` while
-unconditional rows receive only their own base pooled embedding.  Per-block
-learned scales inject the projected vector into Anima's AdaLN-LoRA argument.
+with ``proj`` the adapter's Linear -> SiLU -> Linear embedder of a CLIP-L
+pooled vector, conditional rows receive ``proj(p) + w * (proj(p+) - proj(p-))``
+(the direction is taken after projection) while unconditional rows receive
+only ``proj`` of their own base pooled embedding.  Per-block learned scales
+inject the projected vector into Anima's AdaLN-LoRA argument.
 """
 
 from __future__ import annotations

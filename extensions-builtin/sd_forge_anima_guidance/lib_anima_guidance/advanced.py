@@ -115,8 +115,11 @@ class MomentumGuidanceState:
         ):
             self.reset()
 
-        # As in the reference (pamparamm/sd-perturbed-attention mg_nodes.py):
-        # extrapolate against the previous EMA, then fold this step into it.
+        # Same order as the reference (pamparamm/sd-perturbed-attention
+        # mg_nodes.py): extrapolate against the previous EMA, then fold this
+        # step into it. The reference does this on the denoised (x0)
+        # prediction; here it runs on the flow velocity, as in the paper
+        # (arXiv:2602.20360), which differs once x and sigma change per step.
         previous = velocity if self._ema is None else self._ema
         result = velocity + self.momentum * (velocity - previous)
 

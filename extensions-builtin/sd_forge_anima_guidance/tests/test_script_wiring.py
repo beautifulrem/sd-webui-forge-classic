@@ -61,6 +61,10 @@ class FakeUnet:
     def clone(self):
         return FakeUnet(self.model_options, len(self.model.diffusion_model.blocks))
 
+    def append_transformer_option(self, k, v):
+        options = self.model_options.setdefault("transformer_options", {})
+        options.setdefault(k, []).append(v)
+
     def set_model_unet_function_wrapper(self, fn):
         self.model_options["model_function_wrapper"] = fn
 
@@ -254,22 +258,20 @@ DIAGNOSTIC_ONLY_INFOTEXT_KEYS = {"Anima CFG replaced existing"}
 
 
 def test_every_infotext_key_written_is_restored_on_paste():
-    # The keys are spelled twice: in the ``SCRIPT_ARGS`` table (paste targets)
-    # and at each ``p.extra_generation_params[...] =`` write. A typo in either
-    # silently breaks paste-restore, so compare the two spellings.
+    # Infotext is written through ``_record(p, control_name, value)``, which
+    # takes the key from the ``SCRIPT_ARGS`` table (the paste targets). A
+    # misspelled control name would raise only when its branch runs, so
+    # check every call statically; direct writes are diagnostic only.
     import ast
 
     tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
-    fields = next(
-        node.value
+    recorded = [
+        node.args[1]
         for node in ast.walk(tree)
-        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) == "SCRIPT_ARGS"
-    )
-    pasted = {
-        row.elts[1].value
-        for row in fields.elts
-        if isinstance(row.elts[1], ast.Constant) and row.elts[1].value is not None
-    }
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_record"
+    ]
+    assert all(isinstance(name, ast.Constant) for name in recorded)
+    recorded = {name.value for name in recorded}
     written = {
         node.slice.value
         for node in ast.walk(tree)
@@ -280,10 +282,227 @@ def test_every_infotext_key_written_is_restored_on_paste():
         and isinstance(node.slice, ast.Constant)
     }
 
-    assert len(written) > 40  # the collector found the writes
-    assert written - DIAGNOSTIC_ONLY_INFOTEXT_KEYS <= pasted, sorted(written - DIAGNOSTIC_ONLY_INFOTEXT_KEYS - pasted)
-    assert DIAGNOSTIC_ONLY_INFOTEXT_KEYS <= written
-    assert not DIAGNOSTIC_ONLY_INFOTEXT_KEYS & pasted
+    assert len(recorded) > 40  # the collector found the writes
+    assert recorded <= set(SCRIPT_MODULE.INFOTEXT_KEYS), sorted(recorded - set(SCRIPT_MODULE.INFOTEXT_KEYS))
+    assert written == DIAGNOSTIC_ONLY_INFOTEXT_KEYS
+    assert not DIAGNOSTIC_ONLY_INFOTEXT_KEYS & set(SCRIPT_MODULE.INFOTEXT_KEYS.values())
+
+
+class _FakeModulationPatch:
+    def __init__(self, **kwargs):
+        pass
+
+    def apply(self, unet):
+        return unet.clone(), 2, 20
+
+
+def _modulation_works(monkeypatch):
+    monkeypatch.setattr(SCRIPT_MODULE, "resolve_artifact", lambda *args, **kwargs: "unused")
+    monkeypatch.setattr(SCRIPT_MODULE, "check_adapter_for_dit", lambda *args: None)
+    monkeypatch.setattr(SCRIPT_MODULE, "encode_clip_pooled", lambda prompts, **kwargs: torch.zeros(len(prompts), 4))
+    monkeypatch.setattr(SCRIPT_MODULE, "prepare_modulation_vectors", lambda **kwargs: (None, None, None))
+    monkeypatch.setattr(SCRIPT_MODULE, "ModulationPatch", _FakeModulationPatch)
+
+
+def _modulation_fails(monkeypatch):
+    def fail(*args, **kwargs):
+        raise OSError("offline")
+
+    monkeypatch.setattr(SCRIPT_MODULE, "resolve_artifact", fail)
+
+
+# (sampler, existing CFG hook, setup, overrides) of representative runs.
+INFOTEXT_CONFIGS = {
+    "disabled": ("Euler", None, None, dict(enable=False, skim_enable=True, nag_enable=True)),
+    "smc_alpha_zero": ("Euler", None, None, dict(guidance_mode=SMC_GUIDANCE, smc_alpha=0.0)),
+    "standard_extras": (
+        "Euler",
+        None,
+        None,
+        dict(
+            nag_enable=True, nag_scale=3.0, nag_tau=2.0, nag_alpha=0.25, nag_start=0.1, nag_end=0.6,
+            momentum_enable=True, momentum_strength=0.75, momentum_ema=0.5,
+            dcw_enable=True, dcw_lambda=0.02, dcw_schedule="sigma", dcw_bands="all",
+            skim_enable=True, skim_scale=2.0, full_negative=True, disable_flip_filter=True,
+            start_percent=0.1, end_percent=0.9, flip_percent=0.5,
+            guidance_range_enable=True, guidance_range_start=0.2, guidance_range_end=0.8,
+        ),
+    ),
+    "smc_unipc": (
+        "Anima Flow UniPC2",
+        None,
+        None,
+        dict(
+            guidance_mode=SMC_GUIDANCE, smc_alpha=0.3, smc_lambda=4.0, skim_enable=True,
+            flow_unipc_solver_type="bh1", flow_unipc_disable_corrector_first=2, flow_unipc_thresholding=True,
+            flow_unipc_dynamic_thresholding_ratio=0.99, flow_unipc_sample_max_value=2.0,
+        ),
+    ),
+    "fdg_pc3_replaced": (
+        "Anima Flow PC3",
+        "other_cfg",
+        None,
+        dict(guidance_mode=FDG_GUIDANCE, fdg_high_scale=15.0, flow_pc3_gamma=0.5, flow_pc3_tolerance=0.01),
+    ),
+    "cfg_zero_cns": (
+        "Anima ER SDE CNS",
+        None,
+        None,
+        dict(guidance_mode=CFG_ZERO_STAR_GUIDANCE, cfg_zero_init_steps=2, cns_strength=0.5, guidance_range_enable=True),
+    ),
+    "apg_dcw": (
+        "Euler a",
+        None,
+        None,
+        dict(guidance_mode=APG_GUIDANCE, apg_eta=0.3, apg_norm_threshold=5.0, apg_momentum=-0.25, dcw_enable=True),
+    ),
+    "conflicts": ("Anima ER SDE CNS", None, None, dict(guidance_mode=FDG_GUIDANCE, momentum_enable=True, dcw_enable=True)),
+    "modulation": (
+        "Euler",
+        None,
+        _modulation_works,
+        dict(
+            modulation_enable=True, modulation_weight=2.5, modulation_base="base", modulation_positive="good",
+            modulation_negative="bad", nag_enable=True,
+        ),
+    ),
+    "modulation_failed_nag_unbatched": ("Euler", None, _modulation_fails, dict(modulation_enable=True, nag_enable=True)),
+}
+
+# The exact extra_generation_params (keys, values and order) of each
+# configuration, captured before the installers were split up.
+INFOTEXT_SNAPSHOTS = {
+    "disabled": [],
+    "smc_alpha_zero": [("Anima guidance enabled", True)],
+    "standard_extras": [
+        ("Anima guidance enabled", True),
+        ("Anima NAG", True),
+        ("Anima NAG scale", 3.0),
+        ("Anima NAG tau", 2.0),
+        ("Anima NAG alpha", 0.25),
+        ("Anima NAG start", 0.1),
+        ("Anima NAG end", 0.6),
+        ("Anima CFG active range", True),
+        ("Anima CFG range start", 0.2),
+        ("Anima CFG range end", 0.8),
+        ("Anima Momentum Guidance", True),
+        ("Anima Momentum strength", 0.75),
+        ("Anima Momentum EMA", 0.5),
+        ("Anima DCW", True),
+        ("Anima DCW lambda", 0.02),
+        ("Anima DCW schedule", "sigma"),
+        ("Anima DCW bands", "all"),
+        ("Anima Skimmed CFG", True),
+        ("Anima skim CFG", 2.0),
+        ("Anima skim full negative", True),
+        ("Anima skim disable flip filter", True),
+        ("Anima skim start", 0.1),
+        ("Anima skim end", 0.9),
+        ("Anima skim flip", 0.5),
+    ],
+    "smc_unipc": [
+        ("Anima guidance enabled", True),
+        ("Anima Flow UniPC solver type", "bh1"),
+        ("Anima Flow UniPC disabled correctors", 2),
+        ("Anima Flow UniPC thresholding", True),
+        ("Anima Flow UniPC threshold percentile", 0.99),
+        ("Anima Flow UniPC threshold maximum", 2.0),
+        ("Anima CFG guidance mode", "SMC-CFG"),
+        ("Anima SMC alpha", 0.3),
+        ("Anima SMC lambda", 4.0),
+        ("Anima Skimmed CFG", True),
+        ("Anima skim CFG", 2.5),
+    ],
+    "fdg_pc3_replaced": [
+        ("Anima guidance enabled", True),
+        ("Anima Flow PC3 gamma", 0.5),
+        ("Anima Flow PC3 tolerance", 0.01),
+        ("Anima CFG guidance mode", "FDG (experimental)"),
+        ("Anima FDG detail guidance", 15.0),
+        ("Anima CFG replaced existing", "other_cfg"),
+    ],
+    "cfg_zero_cns": [
+        ("Anima guidance enabled", True),
+        ("Anima CNS strength", 0.5),
+        ("Anima CFG guidance mode", "CFG-Zero*"),
+        ("Anima CFG-Zero* zero-init steps", 2),
+        ("Anima CFG active range", True),
+        ("Anima CFG range start", 0.0),
+        ("Anima CFG range end", 1.0),
+    ],
+    "apg_dcw": [
+        ("Anima guidance enabled", True),
+        ("Anima CFG guidance mode", "APG"),
+        ("Anima APG eta", 0.3),
+        ("Anima APG norm threshold", 5.0),
+        ("Anima APG momentum", -0.25),
+        ("Anima DCW", True),
+        ("Anima DCW lambda", -0.015),
+        ("Anima DCW schedule", "one_minus_sigma"),
+        ("Anima DCW bands", "LL"),
+    ],
+    "conflicts": [
+        ("Anima guidance enabled", True),
+        (
+            "Anima conflict resolution",
+            "FDG disabled: incompatible with Anima ER SDE CNS; Momentum disabled: unsupported sampler Anima ER SDE CNS",
+        ),
+        ("Anima CNS strength", 1.0),
+        ("Anima DCW", True),
+        ("Anima DCW lambda", -0.015),
+        ("Anima DCW schedule", "one_minus_sigma"),
+        ("Anima DCW bands", "LL"),
+    ],
+    "modulation": [
+        ("Anima guidance enabled", True),
+        ("Anima modulation guidance", True),
+        ("Anima modulation weight", 2.5),
+        ("Anima modulation start block", 2),
+        ("Anima modulation end block", 20),
+        ("Anima modulation positive direction", "good"),
+        ("Anima modulation negative direction", "bad"),
+        ("Anima modulation adapter mode", "Auto-download pinned"),
+        ("Anima modulation CLIP mode", "Auto-download pinned"),
+        ("Anima modulation base prompt", "base"),
+        ("Anima NAG", True),
+        ("Anima NAG scale", 2.0),
+        ("Anima NAG tau", 2.5),
+        ("Anima NAG alpha", 0.5),
+        ("Anima NAG start", 0.0),
+        ("Anima NAG end", 0.5),
+    ],
+    "modulation_failed_nag_unbatched": [
+        ("Anima guidance enabled", True),
+        ("Anima modulation guidance", "disabled: OSError"),
+        ("Anima NAG", "inactive: no negative context for a positive-only call"),
+        ("Anima NAG scale", 2.0),
+        ("Anima NAG tau", 2.5),
+        ("Anima NAG alpha", 0.5),
+        ("Anima NAG start", 0.0),
+        ("Anima NAG end", 0.5),
+    ],
+}
+
+
+@pytest.mark.parametrize("name", list(INFOTEXT_CONFIGS))
+def test_infotext_snapshot(monkeypatch, name):
+    sampler, existing, setup, overrides = INFOTEXT_CONFIGS[name]
+
+    def other_cfg(args):
+        return args["cond"]
+
+    if setup is not None:
+        setup(monkeypatch)
+    p = _modulation_process()
+    if existing is not None:
+        p.sd_model.forge_objects.unet.model_options["sampler_cfg_function"] = other_cfg
+    p.sampler_name = sampler
+    _run(p, **overrides)
+    if getattr(p, "_anima_nag_modifier", None) is not None and name.endswith("_nag_unbatched"):
+        p._anima_nag_modifier.on_unbatched()
+    # repr() also pins the value types (True vs 1, 2 vs 2.0) infotext prints.
+    actual = [(key, repr(value)) for key, value in p.extra_generation_params.items()]
+    assert actual == [(key, repr(value)) for key, value in INFOTEXT_SNAPSHOTS[name]]
 
 
 def test_dcw_is_not_installed_on_a_multi_evaluation_sampler():
@@ -324,13 +543,8 @@ def test_dcw_drops_itself_when_the_denoiser_has_a_mask():
 
 
 def test_positional_script_args_follow_the_table():
-    import inspect
-
     names = SCRIPT_MODULE.SCRIPT_ARG_NAMES
     # ui() returns the locals named in the table, in its order.
-    parameters = list(inspect.signature(SCRIPT_MODULE.AnimaGuidanceScript._process_before_every_sampling).parameters)
-    assert tuple(parameters[2:]) == names
-
     import ast
 
     tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
@@ -346,6 +560,9 @@ def test_positional_script_args_follow_the_table():
     p = FakeProcess()
     SCRIPT_MODULE.AnimaGuidanceScript().process_before_every_sampling(p, *values, x=None, noise=None, c=None, uc=None)
     assert _registered(p) == [DCWState]
+    # One positional value short: rejected, as a missing parameter was.
+    with pytest.raises(TypeError, match="clip_path"):
+        SCRIPT_MODULE.AnimaGuidanceScript().process_before_every_sampling(FakeProcess(), *values[:-1])
 
     # All positional values, with a trailing one set: it reaches its parameter.
     values = [{**DEFAULTS, "apg_momentum": 0.25, "guidance_mode": APG_GUIDANCE}.get(name, default) for name, _, _, default in SCRIPT_MODULE.SCRIPT_ARGS]

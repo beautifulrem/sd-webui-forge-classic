@@ -186,10 +186,12 @@ metadata only when their corresponding sampler is active.
 ## CLIP modulation guidance
 
 The optional modulation path supplies the global CLIP-L conditioning that the
-base Anima/Cosmos architecture was trained without. Conditional rows receive
-`CLIP(base) + w * (CLIP(direction+) - CLIP(direction-))`; unconditional CFG
-rows receive their own negative-prompt CLIP embedding without the direction.
-The projected vector is multiplied by the learned per-block adapter scale and
+base Anima/Cosmos architecture was trained without. With `proj` the adapter's
+Linear -> SiLU -> Linear projection of a CLIP-L pooled vector, conditional rows
+receive `proj(base) + w * (proj(direction+) - proj(direction-))` (the direction
+is taken after projection); unconditional CFG rows receive the projection of
+their own negative-prompt CLIP embedding without the direction. The projected
+vector is multiplied by the learned per-block adapter scale and
 added to each selected block's AdaLN-LoRA input. The final layer keeps the
 native, unmodified timestep embedding.
 
