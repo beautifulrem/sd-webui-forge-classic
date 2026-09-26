@@ -283,3 +283,54 @@ def test_local_or_login_free_servers_keep_extension_apis_open(monkeypatch):
     for options in (dict(share=False, ngrok=None), dict(share=True, gradio_auth=None), dict(listen=True, gradio_auth=None)):
         assert _exposed_app(monkeypatch, **options).post("/ext/api").json() == "ext"
     assert _exposed_app(monkeypatch, share=True, gradio_auth=None, gradio_auth_path="auth.txt").post("/ext/api").status_code == 401
+
+
+def _api_only_app(monkeypatch, **overrides):
+    """--nowebui: a plain FastAPI app, no Gradio login attributes."""
+    from modules.extension_route_guard import guard_new_routes, snapshot_routes
+
+    _guard_options(monkeypatch, **(dict(nowebui=True, gradio_auth=None, gradio_auth_path=None, api_auth=None) | overrides))
+    app = FastAPI()
+    before = snapshot_routes(app)
+
+    @app.post("/ext/api")
+    def ext():
+        return "ext"
+
+    assert guard_new_routes(app, before) == 1
+    return TestClient(app, base_url="http://127.0.0.1:7861")
+
+
+def test_api_only_servers_require_api_auth_for_extension_routes(monkeypatch):
+    # --nowebui binds every interface (or --listen): /sdapi needs --api-auth, so do extension routes
+    for options in (dict(), dict(listen=True, gradio_auth="u:p")):
+        client = _api_only_app(monkeypatch, api_auth="api:secret", **options)
+        assert client.post("/ext/api").status_code == 401, options
+        assert client.post("/ext/api", headers=_basic("api", "wrong")).status_code == 401
+        assert client.post("/ext/api", headers=_basic("u", "p")).status_code == 401  # no Gradio login here
+        assert client.post("/ext/api", headers=_basic("api", "secret")).json() == "ext"
+
+
+def test_api_only_servers_without_api_auth_or_on_loopback_stay_open(monkeypatch):
+    # like /sdapi: no --api-auth, nothing to log in with (--gradio-auth has no UI to guard)
+    assert _api_only_app(monkeypatch, listen=True).post("/ext/api").json() == "ext"
+    assert _api_only_app(monkeypatch, listen=True, gradio_auth="u:p").post("/ext/api").json() == "ext"
+    # a loopback --server-name keeps local API clients working
+    assert _api_only_app(monkeypatch, server_name="127.0.0.1", api_auth="api:secret").post("/ext/api").json() == "ext"
+
+
+def test_refusal_uses_api_auth_when_the_app_has_no_gradio_login(monkeypatch):
+    from types import SimpleNamespace
+
+    from modules.extension_route_guard import refusal
+
+    _guard_options(monkeypatch, nowebui=True, listen=True, api_auth="api:secret")
+    app = SimpleNamespace()  # no auth / auth_dependency
+
+    def request(**headers):
+        return SimpleNamespace(method="POST", headers={"host": "127.0.0.1:7861", **headers}, cookies={})
+
+    assert refusal(app, request(), accept_api_auth=True) == (401, "Not authenticated")
+    assert refusal(app, request(**_basic("api", "secret")), accept_api_auth=True) is None
+    # UI-only guards (no API credentials accepted) keep their behaviour
+    assert refusal(app, request()) is None

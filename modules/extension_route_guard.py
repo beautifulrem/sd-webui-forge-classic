@@ -7,10 +7,13 @@ only hides responses, so any web page could make a user's browser send them
 state-changing requests. :func:`guard_routes` wraps such routes.
 
 Routes extensions add without opting in (:func:`guard_new_routes`) always get
-the cross-site checks. They also require the Gradio login when the server is
-exposed through ``--share`` / ``--ngrok`` with ``--gradio-auth(-path)`` set;
-API clients (no login cookie) then authenticate with ``--api-auth`` HTTP Basic
-credentials, as for ``/sdapi``. Local servers keep them open to API clients.
+the cross-site checks. They also require a login when the server is reachable
+beyond this machine (``--share`` / ``--ngrok``, ``--listen`` or a non-loopback
+``--server-name``): the Gradio login when ``--gradio-auth(-path)`` is set, API
+clients (no login cookie) then authenticating with ``--api-auth`` HTTP Basic
+credentials, as for ``/sdapi``; under ``--nowebui`` (no Gradio UI, every
+interface by default) ``--api-auth`` credentials whenever it is set.
+Loopback-only servers keep them open to API clients.
 """
 
 from __future__ import annotations
@@ -194,6 +197,9 @@ def refusal(app, request, require_login: bool = True, accept_api_auth: bool = Fa
             f"access-token-unsecure-{cookie_id}"
         )
         user = getattr(app, "tokens", {}).get(token)
+    elif accept_api_auth and getattr(_cmd_opts(), "api_auth", None):
+        # No Gradio login on this app (--nowebui): --api-auth is the login, as for /sdapi
+        return None if _has_api_credentials(request) else (401, "Not authenticated")
     else:
         return None
     if user is None and accept_api_auth and _has_api_credentials(request):
@@ -250,10 +256,14 @@ def snapshot_routes(app) -> set:
 
 def _exposed_with_login(cmd_opts) -> bool:
     """A server reachable beyond this machine (--share / --ngrok tunnel, or a
-    non-loopback bind such as --listen / --server-name 0.0.0.0) with a Gradio
-    login: others can reach it, and the admin asked for a login."""
+    non-loopback bind such as --listen / --server-name 0.0.0.0) with a login:
+    others can reach it, and the admin asked for one. That is the Gradio login,
+    or under --nowebui (no Gradio UI; binds every interface by default)
+    --api-auth, which already guards /sdapi there."""
     if cmd_opts is None or _is_loopback_only(cmd_opts):
         return False
+    if getattr(cmd_opts, "nowebui", False):
+        return bool(getattr(cmd_opts, "api_auth", None))
     return bool(getattr(cmd_opts, "gradio_auth", None) or getattr(cmd_opts, "gradio_auth_path", None))
 
 
@@ -261,8 +271,9 @@ def guard_new_routes(app, before: set, exclude: Iterable[str] = ()) -> int:
     """Cross-site checks for every route added since ``before`` (i.e. by
     extensions), except under ``exclude``. Login only on an exposed server
     (--share / --ngrok / non-loopback bind) with --gradio-auth (Gradio cookie,
-    or --api-auth Basic credentials); on a loopback-only server extension APIs
-    stay open to non-browser clients, which send no Origin header."""
+    or --api-auth Basic credentials), or under --nowebui with --api-auth (Basic
+    credentials); on a loopback-only server extension APIs stay open to
+    non-browser clients, which send no Origin header."""
     exclude = tuple(exclude)
     routes = [
         route
