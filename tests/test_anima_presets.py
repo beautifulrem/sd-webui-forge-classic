@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from modules.anima_feature_conflicts import (
     ARTIST_MIXER,
@@ -28,6 +29,10 @@ from modules.anima_presets import (
     reset_preset_controls,
 )
 from modules.anima_support import parse_block_list
+
+BUILTIN = Path(__file__).resolve().parents[1] / "extensions-builtin"
+# Block bands written in the 28-block (2B) layout, not whole-model selections
+REFERENCE_LAYOUT_BANDS = frozenset({"dave.blocks"})
 
 
 def _resolved(label: str) -> dict[str, object]:
@@ -115,18 +120,45 @@ class PresetConsistencyTests(unittest.TestCase):
                     self.assertTrue(0.0 <= x and 0.0 <= y and x + width <= 1.0 and y + height <= 1.0, region)
                 self.assertLessEqual(values["hires_guard.base_mp"], values["hires_guard.hires_mp"])
                 self.assertGreaterEqual(values["hires_guard.max_upscale"], 1.0)
+                # The DAVE and Cross-Attention Boost panels' slider ranges
+                self.assertTrue(0.0 <= values["dave.strength"] <= 1.0)
+                self.assertTrue(0.01 <= values["dave.tau"] <= 1.0)
+                self.assertTrue(1.0 <= values["xattn_boost.strength"] <= 3.0)
+                self.assertTrue(0.5 <= values["xattn_boost.band"] <= 1.0)
+                self.assertTrue(0.0 <= values["xattn_boost.renorm"] <= 1.0)
 
     def test_safe_preset_starts_every_optional_stack_disabled(self):
         switches = [name for name in SAFE_BASE_AESTHETIC_PRESET if name.endswith(("enabled", "native.hires", "native.refiner"))]
-        self.assertIn("hires_guard.enabled", switches)
+        for switch in ("hires_guard.enabled", "dave.enabled", "xattn_boost.enabled"):
+            self.assertIn(switch, switches)
         self.assertEqual([name for name in switches if SAFE_BASE_AESTHETIC_PRESET[name] is not False], [])
 
     def test_block_selections_cover_every_anima_depth(self):
         depths = {size for pair in ANIMA_BLOCK_MAPPINGS for size in pair}
         for name, value in SAFE_BASE_AESTHETIC_PRESET.items():
-            if name.endswith("blocks"):
+            if name.endswith("blocks") and name not in REFERENCE_LAYOUT_BANDS:
                 for depth in depths:
                     self.assertEqual(parse_block_list(value, depth, feature=name), set(range(depth)), (name, depth))
+
+    def test_reference_layout_bands_are_proper_2b_bands(self):
+        # Written in the 28-block (2B) layout and mapped onto larger models
+        for name in REFERENCE_LAYOUT_BANDS:
+            selected = parse_block_list(SAFE_BASE_AESTHETIC_PRESET[name], 28, feature=name)
+            self.assertTrue(selected and selected < set(range(28)), name)
+
+    def test_every_preset_feature_is_registered_by_a_panel(self):
+        # A feature whose panel never registers its controls is silently left
+        # as the user set it by "Apply preset". Per-control registration is
+        # checked behaviourally by the extension suites (e.g. DAVE's
+        # test_script.py); this catches a whole panel that registers nothing.
+        registering = [
+            source
+            for source in (path.read_text(encoding="utf-8") for path in BUILTIN.glob("*/scripts/*.py"))
+            if "register_preset_control(" in source
+        ]
+        for feature in sorted({name.split(".", 1)[0] for name in SAFE_BASE_AESTHETIC_PRESET}):
+            with self.subTest(feature):
+                self.assertTrue(any(f'"{feature}.' in source for source in registering))
 
 
 class PresetRegistryTests(unittest.TestCase):

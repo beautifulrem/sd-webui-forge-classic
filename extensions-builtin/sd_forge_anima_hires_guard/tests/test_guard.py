@@ -180,10 +180,11 @@ def _guard_script(monkeypatch):
     return module.AnimaHiresGuardScript()
 
 
-def _process(**upscale):
+def _process(**fields):
     from types import SimpleNamespace
 
-    return SimpleNamespace(width=1536, height=1536, enable_hr=True, hr_scale=1.5, hr_resize_x=0, hr_resize_y=0, extra_generation_params={}, **upscale)
+    defaults = dict(width=1536, height=1536, enable_hr=True, hr_scale=1.5, hr_resize_x=0, hr_resize_y=0, extra_generation_params={})
+    return SimpleNamespace(**{**defaults, **fields})
 
 
 def test_upscale_button_does_not_shrink_the_image(monkeypatch):
@@ -198,6 +199,39 @@ def test_upscale_button_does_not_shrink_the_image(monkeypatch):
     generation = _process()  # a normal run still gets a safe base pass
     script.after_model_load(generation, *args)
     assert generation.width * generation.height <= 1_200_000
+
+
+def test_report_only_keeps_the_dimensions_and_says_so(monkeypatch):
+    script = _guard_script(monkeypatch)
+    report = _process()
+    script.after_model_load(report, True, "Report only", "Balanced", True, 1.2, 2.1, 1.75)
+    assert (report.width, report.height, report.hr_resize_x, report.hr_resize_y) == (1536, 1536, 0, 0)
+    note = report.extra_generation_params["Anima Hires adjustments"]
+
+    clamp = _process()
+    script.after_model_load(clamp, True, "Clamp unsafe values", "Balanced", True, 1.2, 2.1, 1.75)
+    applied = clamp.extra_generation_params["Anima Hires adjustments"]
+    # The same changes, but never written as if they had been applied
+    assert note == f"report only (not applied): {applied}"
+    assert not applied.startswith("report only")
+
+
+def test_legacy_hires_size_setting_skips_the_guard(monkeypatch):
+    from types import SimpleNamespace
+
+    script = _guard_script(monkeypatch)
+    globals_ = type(script).after_model_load.__globals__
+    monkeypatch.setitem(globals_, "shared", SimpleNamespace(opts=SimpleNamespace(use_old_hires_fix_width_height=True)))
+    process = _process()
+    script.after_model_load(process, True, "Clamp unsafe values", "Balanced", True, 1.2, 2.1, 1.75)
+    # Width/height are the final Hires size here: nothing is guarded or recorded as applied
+    assert (process.width, process.height, process.hr_resize_x, process.hr_resize_y) == (1536, 1536, 0, 0)
+    assert process.extra_generation_params == {"Anima Hires adjustments": "skipped: the legacy hires width/height setting is on"}
+
+    # Without Hires the setting does not apply and the base pass is guarded
+    process = _process(enable_hr=False)
+    script.after_model_load(process, True, "Clamp unsafe values", "Balanced", True, 1.2, 2.1, 1.75)
+    assert process.width * process.height <= 1_200_000
 
 
 def test_guard_logger_is_visible(monkeypatch):

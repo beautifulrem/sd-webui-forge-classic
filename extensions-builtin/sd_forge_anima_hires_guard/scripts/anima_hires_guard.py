@@ -22,6 +22,10 @@ PRESETS = {
     "Detail": GuardLimits(1.40, 2.36, 2.00),
 }
 
+# Marks a "Report only" note in the infotext, which then lists changes the
+# guard did not make
+REPORT_ONLY_PREFIX = "report only (not applied): "
+
 
 def _is_anima(process) -> bool:
     return is_anima_engine(getattr(process, "sd_model", None))
@@ -163,11 +167,13 @@ class AnimaHiresGuardScript(scripts.Script):
             return
 
         summary = "; ".join(result.changes)
-        process.extra_generation_params["Anima Hires adjustments"] = summary
         if str(policy) == "Report only":
+            # The image keeps the unsafe size: say so, or the infotext reads as a clamp
+            process.extra_generation_params["Anima Hires adjustments"] = f"{REPORT_ONLY_PREFIX}{summary}"
             logger.warning("Anima Hires Guard report: %s", summary)
             return
 
+        process.extra_generation_params["Anima Hires adjustments"] = summary
         process.width = result.base_width
         process.height = result.base_height
         if result.hires_width is not None and result.hires_height is not None:

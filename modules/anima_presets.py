@@ -71,6 +71,16 @@ SAFE_BASE_AESTHETIC_PRESET: dict[str, object] = {
     "guidance.range_enabled": False,
     "guidance.range_start": 0.0,
     "guidance.range_end": 1.0,
+    # Seed diversity and prompt adherence block patches. DAVE's block band is
+    # written in the 28-block (2B) layout and mapped onto larger models.
+    "dave.enabled": False,
+    "dave.strength": 0.3,
+    "dave.tau": 0.1,
+    "dave.blocks": "8-18",
+    "xattn_boost.enabled": False,
+    "xattn_boost.strength": 2.0,
+    "xattn_boost.band": 0.85,
+    "xattn_boost.renorm": 0.5,
     # Scheduler and cache acceleration.
     "dynamic_shift.enabled": False,
     "dynamic_shift.start": 5.0,

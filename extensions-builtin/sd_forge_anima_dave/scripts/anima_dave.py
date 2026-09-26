@@ -9,6 +9,7 @@ import gradio as gr
 from backend.logging import setup_logger
 from lib_anima_dave.dave import DEFAULT_BLOCKS, DEFAULT_STRENGTH, DEFAULT_TAU, DaveState, apply_dave_patch, model_blocks
 from modules import scripts
+from modules.anima_presets import register_preset_control
 from modules.anima_support import is_anima_engine
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
@@ -18,6 +19,8 @@ setup_logger(logger)
 
 # Infotext keys, in the order of the controls returned by ``ui``
 INFOTEXT_KEYS = ("Anima DAVE enabled", "Anima DAVE strength", "Anima DAVE tau", "Anima DAVE blocks")
+# Anima preset fields, in the same order
+PRESET_FIELDS = ("dave.enabled", "dave.strength", "dave.tau", "dave.blocks")
 
 
 def generation_params(strength, tau, blocks) -> dict:
@@ -53,6 +56,8 @@ class AnimaDaveScript(scripts.Script):
         controls = [enable, strength, tau, blocks]
         self.infotext_fields = [PasteField(control, key) for control, key in zip(controls, INFOTEXT_KEYS)]
         self.paste_field_names = list(INFOTEXT_KEYS)
+        for name, control in zip(PRESET_FIELDS, controls):
+            register_preset_control(self.tabname, name, control)
         return controls
 
     def process_before_every_sampling(self, p, enable, strength, tau, blocks, **kwargs):

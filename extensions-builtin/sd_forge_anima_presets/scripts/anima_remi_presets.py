@@ -75,8 +75,8 @@ class AnimaRemiPresetScript(scripts.Script):
             )
             description = gr.Markdown(PRESET_DESCRIPTIONS[SAFE_BASE_AESTHETIC_LABEL])
             gr.Markdown(
-                "Optional guidance, cache, spatial, Hires, Refiner and "
-                "post-processing stacks start disabled. Applying a preset "
+                "Optional guidance, DAVE, Cross-Attention Boost, cache, spatial, "
+                "Hires, Refiner and post-processing stacks start disabled. Applying a preset "
                 "preserves prompt text, model paths and LoRA/artist names."
             )
             apply = gr.Button("Apply preset", variant="primary")
