@@ -1,5 +1,4 @@
 import logging
-import os
 import weakref
 import uuid
 from dataclasses import dataclass, field
@@ -14,11 +13,13 @@ from modules.anima_user_data import TemplateStore, UnreadableDataFile
 from modules.anima_lora_support import (
     LORA_TAG_RE,
     LayerWeights,
+    install_activate_hook,
+    install_add_patches_hook,
     invalidate_cond_caches,
     lora_control_files,
     manual_window_bans,
+    note_lora_control_yield,
     rewrite_batch_prompts,
-    script_hooks,
     sigma_progress,
     window_curve_factor,
     looks_like_layer_weights as _looks_like_layer_weights,
@@ -35,7 +36,7 @@ from modules.anima_lora_support import (
     is_plain_number as _is_plain_number,
     lora_key_factor,
     model_key as _model_key,
-    stage_window,
+    stage_window_of,
     clamp as _clamp,
     to_float as _to_float,
 )
@@ -564,24 +565,41 @@ def _template_names() -> list[str]:
     return names
 
 
-def _template_updates(status, value=None):
-    """The three template dropdowns (both panels' and the manager's) showing
-    the templates, ``value`` selected; and ``status``."""
+def _panel_template_update(current, choices, renamed=None):
+    """A panel's template dropdown showing ``choices``. Its selection stays
+    (selecting a template re-applies its timing and strength to the panel),
+    follows a ``(old, new)`` rename, or falls back to the first template when
+    its own is gone."""
+    if current in choices:
+        return gr.update(choices=choices)
+    if renamed is not None and current == renamed[0] and renamed[1] in choices:
+        return gr.update(choices=choices, value=renamed[1])
+    return gr.update(choices=choices, value=choices[0] if choices else None)
+
+
+def _template_updates(status, value=None, panels=(), renamed=None):
+    """The template dropdowns: the base and hires panels' (``panels``: their
+    selections; see ``_panel_template_update``, unknown ones stay), the
+    manager's with ``value`` selected; and ``status``."""
     choices = _template_names()
     if value not in choices:
         value = choices[0] if choices else None
-    return (*(gr.update(choices=choices, value=value) for _ in range(3)), status)
+    if len(panels) == 2:
+        panel_updates = [_panel_template_update(current, choices, renamed) for current in panels]
+    else:
+        panel_updates = [gr.update(choices=choices), gr.update(choices=choices)]
+    return (*panel_updates, gr.update(choices=choices, value=value), status)
 
 
-def _edit_templates(change):
+def _edit_templates(change, panels=(), renamed=None):
     """Apply ``change(data)``, which returns ``(template to select, status)``,
     to the custom templates; then ``_template_updates``. An unreadable file is
     never overwritten with just the one change."""
     try:
         value, status = _TEMPLATES.edit(change)
     except UnreadableDataFile as error:
-        return _template_updates(_t("templates_unreadable").format(error=error))
-    return _template_updates(status, value)
+        return _template_updates(_t("templates_unreadable").format(error=error), panels=panels)
+    return _template_updates(status, value, panels, renamed)
 
 
 def _template_config(name: str) -> dict:
@@ -709,8 +727,7 @@ def _template_stage_from_name(name: str, fallback=STAGE_CHARACTER) -> str:
 
 
 def _auto_stage_values(stage: str, shift_value) -> tuple[float, float, float, float]:
-    kind = {STAGE_COMPOSITION: "composition", STAGE_STYLE: "style"}.get(stage, "character")
-    return (*stage_window(kind, _to_float(shift_value, 3.0)), 1.0)
+    return (*stage_window_of(stage, shift_value, composition=STAGE_COMPOSITION, style=STAGE_STYLE), 1.0)
 
 
 def _apply_template_ui(template_name, shift_value):
@@ -756,12 +773,13 @@ def _auto_timing_ui(template_name, shift_value, auto, start, end, peak, strength
     )
 
 
-def _save_template_ui(name, auto, template_name, start, end, peak, strength, curve):
+def _save_template_ui(name, auto, template_name, start, end, peak, strength, curve, *panels):
+    """``panels``: the base and hires panels' selected templates."""
     name = str(name or "").strip()
     if not name:
-        return _template_updates(_t("empty_template_name"))
+        return _template_updates(_t("empty_template_name"), panels=panels)
     if name in BUILTIN_TEMPLATES:
-        return _template_updates(_t("builtin_template_kept"), name)
+        return _template_updates(_t("builtin_template_kept"), name, panels)
 
     template_name = str(template_name or "").strip()
     stage = _template_stage_from_name(template_name)
@@ -782,19 +800,20 @@ def _save_template_ui(name, auto, template_name, start, end, peak, strength, cur
         data[name] = record
         return name, _t("template_saved").format(name=name)
 
-    return _edit_templates(save)
+    return _edit_templates(save, panels)
 
 
-def _save_preset_combo_template_ui(name, selected_presets, shift_value=3.0):
+def _save_preset_combo_template_ui(name, selected_presets, shift_value=3.0, *panels):
+    """``panels``: the base and hires panels' selected templates."""
     name = str(name or "").strip()
     if not name:
-        return _template_updates(_t("empty_template_name"))
+        return _template_updates(_t("empty_template_name"), panels=panels)
     if name in BUILTIN_TEMPLATES:
-        return _template_updates(_t("builtin_preset_kept"), name)
+        return _template_updates(_t("builtin_preset_kept"), name, panels)
 
     parts, error = _parts_from_presets(selected_presets)
     if error:
-        return _template_updates(error)
+        return _template_updates(error, panels=panels)
 
     primary = next((part for part in parts if part["mode"] == PART_ALLOW), parts[0])
     start, end, peak, strength = _auto_stage_values(primary["stage"], 3.0)
@@ -814,7 +833,7 @@ def _save_preset_combo_template_ui(name, selected_presets, shift_value=3.0):
         }
         return name, _t("combo_saved").format(name=name, presets=presets_text, preview=preview)
 
-    return _edit_templates(save)
+    return _edit_templates(save, panels)
 
 
 def _open_template_builder_ui(template_name, shift_value):
@@ -877,10 +896,6 @@ def _preset_combo_preview_text(selected_presets, shift_value=3.0):
     return "\n".join(lines)
 
 
-def _preset_combo_status_ui(selected_presets, shift_value=3.0):
-    return _preset_combo_preview_text(selected_presets, shift_value)
-
-
 def _template_help_ui(template_name, shift_value):
     config = _template_config(template_name)
     if not config:
@@ -921,19 +936,20 @@ def _template_help_ui(template_name, shift_value):
     return gr.update(value="\n".join(lines), visible=True)
 
 
-def _rename_template_ui(old_name, new_name):
+def _rename_template_ui(old_name, new_name, *panels):
+    """``panels``: the base and hires panels' selected templates."""
     old_name = str(old_name or "").strip()
     new_name = str(new_name or "").strip()
     if not old_name:
-        return _template_updates(_t("no_template_selected"))
+        return _template_updates(_t("no_template_selected"), panels=panels)
     if old_name in BUILTIN_TEMPLATES:
-        return _template_updates(_t("builtin_not_renamed"), old_name)
+        return _template_updates(_t("builtin_not_renamed"), old_name, panels)
     if not new_name:
-        return _template_updates(_t("empty_new_name"), old_name)
+        return _template_updates(_t("empty_new_name"), old_name, panels)
     if new_name in BUILTIN_TEMPLATES:
-        return _template_updates(_t("builtin_name_taken"), old_name)
+        return _template_updates(_t("builtin_name_taken"), old_name, panels)
     if new_name == old_name:
-        return _template_updates(_t("same_name"), new_name)
+        return _template_updates(_t("same_name"), new_name, panels)
 
     def rename(data):
         if old_name not in data:
@@ -943,20 +959,21 @@ def _rename_template_ui(old_name, new_name):
         data[new_name] = data.pop(old_name)
         return new_name, _t("template_renamed").format(old=old_name, new=new_name)
 
-    return _edit_templates(rename)
+    return _edit_templates(rename, panels, (old_name, new_name))
 
 
-def _delete_template_ui(name):
+def _delete_template_ui(name, *panels):
+    """``panels``: the base and hires panels' selected templates."""
     if not name:
-        return _template_updates(_t("no_template_selected"))
+        return _template_updates(_t("no_template_selected"), panels=panels)
     if name in BUILTIN_TEMPLATES:
-        return _template_updates(_t("builtin_not_deleted"), name)
+        return _template_updates(_t("builtin_not_deleted"), name, panels)
 
     def delete(data):
         data.pop(name, None)
         return None, _t("template_deleted").format(name=name)
 
-    return _edit_templates(delete)
+    return _edit_templates(delete, panels)
 
 
 def _is_anima_lora_file(filename) -> bool:
@@ -1543,49 +1560,22 @@ def _activate(original, p, extra_network_data):
 
 
 def install_patch():
-    from backend.patcher.base import ModelPatcher
-    from backend.patcher.function_chain import function_chain_contains
-    from modules import extra_networks
-
-    # The wrappers call these through script_hooks: after "Reload UI" the
-    # wrappers an earlier copy of this module installed run this copy, which
-    # holds the live run state.
-    script_hooks["stage_scheduler.add_patches"] = _add_patches
-    script_hooks["stage_scheduler.activate"] = _activate
-
-    if not function_chain_contains(ModelPatcher.add_patches, "_anima_stage_scheduler_patched"):
-        original_add_patches = ModelPatcher.add_patches
-
-        def add_patches_with_stage_scheduler(self, patches: list[dict], strength_patch: float = 1.0, strength_model: float = 1.0, *, filename: str = None, online_mode: bool = None):
-            return script_hooks["stage_scheduler.add_patches"](original_add_patches, self, patches, strength_patch, strength_model, filename, online_mode)
-
-        add_patches_with_stage_scheduler._anima_stage_scheduler_patched = True
-        add_patches_with_stage_scheduler.__wrapped__ = original_add_patches
-        ModelPatcher.add_patches = add_patches_with_stage_scheduler
+    # After "Reload UI" the wrappers an earlier copy of this module installed
+    # run this copy's _add_patches / _activate, which hold the live run state.
+    if install_add_patches_hook("stage_scheduler.add_patches", _add_patches):
         logger.info("Installed Anima LoRA stage scheduler patch")
-
-    if not function_chain_contains(extra_networks.activate, "_anima_stage_scheduler_patched"):
-        original_activate = extra_networks.activate
-
-        def activate_with_stage_scheduler(p, extra_network_data):
-            return script_hooks["stage_scheduler.activate"](original_activate, p, extra_network_data)
-
-        activate_with_stage_scheduler._anima_stage_scheduler_patched = True
-        activate_with_stage_scheduler.__wrapped__ = original_activate
-        extra_networks.activate = activate_with_stage_scheduler
+    if install_activate_hook("stage_scheduler.activate", _activate):
         logger.info("Installed Anima LoRA stage scheduler extra network patch")
 
 
 def _note_lora_control(state, filename):
-    if filename in state.yielded_to_lora_control:
-        return
-    state.yielded_to_lora_control.add(filename)
-    name = os.path.splitext(os.path.basename(str(filename)))[0]
-    logger.warning("Anima stage scheduler skips %s: it is scheduled with LoRA Control syntax", name)
-    extra = getattr(state.p, "extra_generation_params", None)
-    if isinstance(extra, dict):
-        skipped = [value for value in str(extra.get("Anima stage scheduler skipped", "")).split(", ") if value]
-        extra["Anima stage scheduler skipped"] = ", ".join(sorted({*skipped, name}))
+    note_lora_control_yield(
+        state.yielded_to_lora_control,
+        getattr(state.p, "extra_generation_params", None),
+        filename,
+        feature="Anima stage scheduler",
+        infotext_key="Anima stage scheduler skipped",
+    )
 
 
 def _denoiser_callback(params):
@@ -1881,13 +1871,13 @@ class Script(scripts.Script):
             show_progress=False,
         )
         builder_presets.change(
-            fn=_preset_combo_status_ui,
+            fn=_preset_combo_preview_text,
             inputs=[builder_presets, builder_shift],
             outputs=[builder_status],
             show_progress=False,
         )
         builder_shift.change(
-            fn=_preset_combo_status_ui,
+            fn=_preset_combo_preview_text,
             inputs=[builder_presets, builder_shift],
             outputs=[builder_status],
             show_progress=False,
@@ -1931,25 +1921,25 @@ class Script(scripts.Script):
 
         save_current_template.click(
             fn=_save_template_ui,
-            inputs=[custom_name, custom_auto, base_template, base_start, base_end, base_peak, base_stage_strength, base_curve],
+            inputs=[custom_name, custom_auto, base_template, base_start, base_end, base_peak, base_stage_strength, base_curve, base_template, hr_template],
             outputs=[base_template, hr_template, manage_template, template_status],
             show_progress=False,
         )
         save_combo_template.click(
             fn=_save_preset_combo_template_ui,
-            inputs=[builder_name, builder_presets, builder_shift],
+            inputs=[builder_name, builder_presets, builder_shift, base_template, hr_template],
             outputs=[base_template, hr_template, manage_template, builder_status],
             show_progress=False,
         )
         rename_template.click(
             fn=_rename_template_ui,
-            inputs=[manage_template, rename_template_name],
+            inputs=[manage_template, rename_template_name, base_template, hr_template],
             outputs=[base_template, hr_template, manage_template, template_status],
             show_progress=False,
         )
         delete_template.click(
             fn=_delete_template_ui,
-            inputs=[manage_template],
+            inputs=[manage_template, base_template, hr_template],
             outputs=[base_template, hr_template, manage_template, template_status],
             show_progress=False,
         )

@@ -306,15 +306,37 @@ def test_template_dropdowns_show_the_templates_as_saved(module):
 
     *dropdowns, status = module._save_template_ui("mine", True, builtins[0], 0.0, 1.0, 0.5, 1.0, module.CURVE_SMOOTH)
     assert status == "已保存模板：mine" and len(dropdowns) == 3
-    assert all("mine" in dropdown["choices"] and dropdown["value"] == "mine" for dropdown in dropdowns)
+    assert all("mine" in dropdown["choices"] for dropdown in dropdowns) and dropdowns[2]["value"] == "mine"
 
     *dropdowns, status = module._rename_template_ui("mine", "renamed")
-    assert all("renamed" in dropdown["choices"] and "mine" not in dropdown["choices"] and dropdown["value"] == "renamed" for dropdown in dropdowns)
+    assert all("renamed" in dropdown["choices"] and "mine" not in dropdown["choices"] for dropdown in dropdowns)
+    assert dropdowns[2]["value"] == "renamed"
 
     *dropdowns, status = module._delete_template_ui("renamed")
     assert status == "已删除模板：renamed"
     assert all("renamed" not in dropdown["choices"] for dropdown in dropdowns)
     assert "renamed" not in module._load_custom_templates()
+
+
+def test_template_management_leaves_the_panels_selections_alone(module):
+    # Selecting a panel template re-applies its timing and strength to that
+    # panel: only the manager's dropdown follows the managed template.
+    builtin = list(module.BUILTIN_TEMPLATES)[1]
+
+    base, hires, manager, _ = module._save_template_ui("mine", True, builtin, 0.0, 1.0, 0.5, 1.0, module.CURVE_SMOOTH, builtin, builtin)
+    assert "value" not in base and "value" not in hires and "mine" in base["choices"] and "mine" in hires["choices"]
+    assert manager["value"] == "mine"
+    base, hires, manager, _ = module._save_preset_combo_template_ui("combo", [module.PRESET_STYLE_ALLOW], 3.0, "mine", builtin)
+    assert "value" not in base and "value" not in hires and manager["value"] == "combo"
+
+    # A panel on the renamed template follows it; the other keeps its own
+    base, hires, manager, _ = module._rename_template_ui("mine", "renamed", "mine", builtin)
+    assert base["value"] == "renamed" and "value" not in hires and manager["value"] == "renamed"
+
+    # A panel on the deleted template falls back; the other keeps its own
+    base, hires, manager, _ = module._delete_template_ui("renamed", builtin, "renamed")
+    assert "value" not in base and hires["value"] == base["choices"][0]
+    assert "renamed" not in hires["choices"]
 
 
 def test_template_messages_follow_the_ui_language(module, monkeypatch):

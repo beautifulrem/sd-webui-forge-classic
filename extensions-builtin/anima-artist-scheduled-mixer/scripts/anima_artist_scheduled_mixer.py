@@ -29,7 +29,7 @@ from lib_artist_mixer.schedule import (
 )
 from modules import script_callbacks, scripts, shared, spectrum_force
 from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
-from modules.anima_lora_support import clamp as _clamp, model_block_set, sigma_progress, stage_window, to_float as _to_float
+from modules.anima_lora_support import clamp as _clamp, model_block_set, sigma_progress, stage_window_of, to_float as _to_float
 from modules.anima_lora_ui import UI_LANGUAGES, register_language_option, ui_language, ui_text
 from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
@@ -626,9 +626,7 @@ def _split_artist_chain(chain):
 
 
 def _auto_stage_values(stage, shift_value):
-    stage = _option_key("stage", stage, PRESET_CUSTOM)
-    kind = {PRESET_COMPOSITION: "composition", PRESET_STYLE: "style"}.get(stage, "character")
-    return stage_window(kind, _to_float(shift_value, 3.0))
+    return stage_window_of(_option_key("stage", stage, PRESET_CUSTOM), shift_value, composition=PRESET_COMPOSITION, style=PRESET_STYLE)
 
 
 def _curve_factor(progress, start, end, peak, curve):
@@ -1187,6 +1185,14 @@ def _apply_template_updates(name, target, base_row_count, hires_row_count, curre
     hires_count_value = max(1, len(hires_tpl)) if target in {APPLY_HIRES, APPLY_BOTH} else max(1, int(_to_float(hires_row_count, 1)))
     base_updates = [gr.update() for _ in range(MAX_ARTIST_ROWS * ROW_WIDTH)]
     hires_updates = [gr.update() for _ in range(MAX_ARTIST_ROWS * ROW_WIDTH)]
+    # The Hires switches are the Hires tab's: a Base template (saved with
+    # hires_independent off) applied to the base rows leaves them as they are.
+    hires_switches = (gr.update(), gr.update())
+    if target in {APPLY_HIRES, APPLY_BOTH}:
+        hires_switches = (
+            gr.update(value=tpl.get("hires_independent", False), interactive=True),
+            gr.update(value=tpl.get("disable_hires_mixing", False), interactive=True),
+        )
     if target in {APPLY_BASE, APPLY_BOTH}:
         base_updates = _component_values_from_rows(base_tpl, base_shift, optimization_key, base_count_value)
     if target in {APPLY_HIRES, APPLY_BOTH}:
@@ -1194,8 +1200,7 @@ def _apply_template_updates(name, target, base_row_count, hires_row_count, curre
     return (
         gr.update(value=base_count_value, interactive=True),
         gr.update(value=hires_count_value, interactive=True),
-        gr.update(value=tpl.get("hires_independent", False), interactive=True),
-        gr.update(value=tpl.get("disable_hires_mixing", False), interactive=True),
+        *hires_switches,
         gr.update(),
         gr.update(),
         gr.update(value=tpl.get("global_strength", 0.7), interactive=True),
@@ -1288,9 +1293,9 @@ class MixerState:
     combine_mode: str
     fusion_mode: str
     apply_uncond: bool
-    batched: bool
     artists: list[ArtistRuntime] = field(default_factory=list)
     progress_warning: bool = False
+    # Output average runs the artists in one batched forward until it fails once
     batched_disabled: bool = False
     patched_blocks: list[int] = field(default_factory=list)
     dispatch_calls: int = 0
@@ -1588,7 +1593,7 @@ def _dispatch_output_avg(original_forward, state, x, context, rope_emb, transfor
     if plan is None:
         return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
     artist_total = None
-    if state.batched and len(active) > 1 and not state.batched_disabled:
+    if len(active) > 1 and not state.batched_disabled:
         try:
             artist_total = _artist_forward_batched(state, original_forward, plan, rope_emb, active, state.fusion_mode)
         except Exception as exc:
@@ -1646,18 +1651,32 @@ def _blend_rows(state, base_out, artist_out, plan):
     return plan.branch.merge(base_out, blended)
 
 
-def _artist_entries(rows, shift, optimization):
-    """Yield ``(row, clean_name, inline_weight)`` for every artist that is encoded."""
+def _artist_entries(rows, shift, optimization, num_blocks, report=False):
+    """``(row, clean_name, inline_weight, model_blocks)`` of every artist that
+    is encoded: the artists of the enabled rows whose Blocks select some of
+    the model's ``num_blocks`` blocks, up to the optimization preset's cap.
+    ``report`` logs the artists the cap leaves out."""
 
     optimization = _option_key("optimization", optimization, OPT_BALANCE)
+    entries = []
     for row in _normalize_rows(rows, None, shift, optimization, display=False):
         enabled, artist_text = row[0], row[1]
         if not enabled or not artist_text:
             continue
+        blocks = None
         for name in _split_artist_chain(artist_text) or ():
             clean_name, inline_weight = _parse_inline_weight(name)
-            if clean_name:
-                yield row, clean_name, inline_weight
+            if not clean_name:
+                continue
+            if blocks is None:
+                blocks = _model_blocks(row[3], num_blocks)
+            if not blocks:  # parse_blocks warned that the row is skipped
+                break
+            entries.append((row, clean_name, inline_weight, blocks))
+    max_artists = _MAX_ARTISTS[optimization]
+    if len(entries) > max_artists and report:
+        logger.warning("Anima artist mixer active artists %d exceed %d for %s preset; truncating.", len(entries), max_artists, optimization)
+    return entries[:max_artists]
 
 
 def _model_blocks(text, num_blocks):
@@ -1668,18 +1687,19 @@ def _model_blocks(text, num_blocks):
     return model_block_set(text, num_blocks, parse=_parse_blocks)
 
 
-def _build_artists(p, rows, num_blocks, shift, optimization, use_cache):
+def _build_artists(p, entries, use_cache):
+    """Encode the ``_artist_entries``."""
     prompts = effective_prompt_batch(p)[0]
     artists = []
-    for row, clean_name, inline_weight in _artist_entries(rows, shift, optimization):
-        enabled, artist_text, weight, blocks_text, start, end, peak, curve, _stage, _auto = row
+    for row, clean_name, inline_weight, blocks in entries:
+        _enabled, _artist_text, weight, _blocks_text, start, end, peak, curve, _stage, _auto = row
         texts = [f"{clean_name}\n{prompt}" if prompt.strip() else clean_name for prompt in prompts]
         cond, negpip_mask = _encode_text_batch(p, texts, use_cache=use_cache)
         artists.append(
             ArtistRuntime(
                 name=clean_name,
                 weight=float(weight) * float(inline_weight),
-                blocks=_model_blocks(blocks_text, num_blocks),
+                blocks=blocks,
                 start=_clamp(float(start), 0.0, 1.0),
                 end=_clamp(float(end), 0.0, 1.0),
                 peak=_clamp(float(peak), 0.0, 1.0),
@@ -1691,13 +1711,8 @@ def _build_artists(p, rows, num_blocks, shift, optimization, use_cache):
     return artists
 
 
-def _optimization_defaults(optimization):
-    optimization = _option_key("optimization", optimization, OPT_BALANCE)
-    if optimization == OPT_PERFORMANCE:
-        return {"batched": True, "max_artists": 6}
-    if optimization == OPT_QUALITY:
-        return {"batched": True, "max_artists": 16}
-    return {"batched": True, "max_artists": 10}
+# Artists an optimization preset encodes and mixes at most
+_MAX_ARTISTS = {OPT_PERFORMANCE: 6, OPT_BALANCE: 10, OPT_QUALITY: 16}
 
 
 def _resolve_run_rows(p, args, hires, report=True):
@@ -1906,7 +1921,9 @@ class Script(scripts.Script):
             show_progress=False,
             **_internal_event_kwargs(),
         )
-        optimization.change(
+        # User edits only (.input): a template or a reset writing these
+        # controls brings its own rows, which .change would rewrite.
+        optimization.input(
             fn=_apply_optimization_to_block_timing_components,
             inputs=[base_row_count, base_shift_input, optimization, *base_row_components],
             outputs=_row_outputs(base_row_components, (3, 4, 5, 6)),
@@ -1914,7 +1931,7 @@ class Script(scripts.Script):
             show_progress=False,
             **_internal_event_kwargs(),
         )
-        optimization.change(
+        optimization.input(
             fn=_apply_optimization_to_block_timing_components,
             inputs=[hires_row_count, hires_shift_input, optimization, *hires_row_components],
             outputs=_row_outputs(hires_row_components, (3, 4, 5, 6)),
@@ -1927,7 +1944,7 @@ class Script(scripts.Script):
             (hires_row_components, hires_row_count, hires_shift_input),
         ):
             for offset in range(0, len(row_components), ROW_WIDTH):
-                row_components[offset + 8].change(
+                row_components[offset + 8].input(
                     fn=partial(_apply_stage_to_row_components, offset // ROW_WIDTH),
                     inputs=[row_count, runtime_shift, optimization, *row_components],
                     outputs=[
@@ -1940,7 +1957,7 @@ class Script(scripts.Script):
                     show_progress=False,
                     **_internal_event_kwargs(),
                 )
-                row_components[offset + 9].change(
+                row_components[offset + 9].input(
                     fn=partial(_apply_auto_shift_to_row_components, offset // ROW_WIDTH),
                     inputs=[row_count, runtime_shift, optimization, *row_components],
                     outputs=[
@@ -2132,10 +2149,8 @@ class Script(scripts.Script):
             run = _resolve_run_rows(p, args, hires, report=False)
             if run is None:
                 continue
-            _dm, _unet, shift, rows = run
-            optimization = args[8]
-            entries = [name for _row, name, _weight in _artist_entries(rows, shift, optimization)]
-            names.extend(entries[: _optimization_defaults(optimization)["max_artists"]])
+            dm, _unet, shift, rows = run
+            names.extend(name for _row, name, _weight, _blocks in _artist_entries(rows, shift, args[8], len(dm.blocks)))
         register_negpip_prompts(p, ARTIST_MIXER, names)
 
     def process_before_every_sampling(self, p, *args, **kwargs):
@@ -2185,15 +2200,10 @@ class Script(scripts.Script):
         combine_mode = _option_key("combine", combine_mode, COMBINE_OUTPUT_AVG)
         fusion_mode = _option_key("fusion", fusion_mode, FUSION_INTERPOLATE)
         try:
-            artists = _build_artists(p, rows, len(dm.blocks), shift, optimization, bool(enable_cache))
+            artists = _build_artists(p, _artist_entries(rows, shift, optimization, len(dm.blocks), report=True), bool(enable_cache))
         except Exception as exc:
             logger.exception("Failed to encode Anima artist mixer artists: %s", exc)
             return
-        defaults = _optimization_defaults(optimization)
-        max_artists = defaults["max_artists"]
-        if len(artists) > max_artists:
-            logger.warning("Anima artist mixer active artists %d exceed %d for %s preset; truncating.", len(artists), max_artists, optimization)
-            artists = artists[:max_artists]
         if not artists:
             return
         strength_limit = 1.0 if fusion_mode == FUSION_QUALITY_DELTA else 2.0
@@ -2204,7 +2214,6 @@ class Script(scripts.Script):
             combine_mode=combine_mode,
             fusion_mode=fusion_mode,
             apply_uncond=bool(apply_uncond),
-            batched=bool(defaults["batched"]),
             artists=artists,
             infotext=p.extra_generation_params,
         )

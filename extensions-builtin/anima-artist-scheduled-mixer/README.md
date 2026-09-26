@@ -36,7 +36,7 @@ Changing any main control updates `artist_mixer_current_settings.json` locally. 
 
 Use `Reset all to defaults` to clear the local current-settings file and restore the built-in defaults. Template files are not deleted by reset.
 
-The Hires. fix tab includes `Disable artist mixing during Hires. fix`. When enabled, the plugin unpatches before the Hires pass and leaves Hires. fix generation untouched.
+The Hires. fix tab includes `Disable artist mixing during Hires. fix`. When enabled, the plugin does not mix during the Hires pass: nothing is installed for it, so Hires. fix generation is untouched.
 
 ## Recommended Defaults
 
@@ -51,7 +51,7 @@ The Hires. fix tab includes `Disable artist mixing during Hires. fix`. When enab
 
 This cannot be perfectly lossless like SDXL artist mixing because Anima uses a non-linear LLM text encoder. The goal is controlled, usable style blending with lower interference between artist tags.
 
-The extension patches Anima cross-attention only during sampling and restores the original forwards after generation. It does not edit text-encoder layers or model files.
+The extension overrides Anima cross-attention only for the duration of each model call and restores the original forwards right after it (also when it fails). It does not edit text-encoder layers or model files.
 
 ## License
 

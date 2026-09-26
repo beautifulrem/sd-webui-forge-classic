@@ -51,7 +51,9 @@ def _state(combine=mixer.COMBINE_OUTPUT_AVG, fusion=mixer.FUSION_INTERPOLATE, ap
         mixer.ArtistRuntime(f"artist{index}", weight, {0}, 0.0, 1.0, 0.5, mixer.CURVE_HOLD, torch.randn(1, 3, 4))
         for index, weight in enumerate(weights)
     ]
-    return mixer.MixerState("run", True, 0.8, combine, fusion, apply_uncond, batched, artists)
+    # Output average batches its artist forwards until that fails once:
+    # batched=False takes the serial path it falls back to.
+    return mixer.MixerState("run", True, 0.8, combine, fusion, apply_uncond, artists, batched_disabled=not batched)
 
 
 def _inputs(batch=2):
@@ -461,3 +463,35 @@ def test_artist_forwards_skip_the_negative_rows():
     strength = 0.8 * 0.9
     assert torch.equal(out[:2], base[:2])
     assert torch.allclose(out[2:], base[2:] * (1.0 - strength) + artist[2:] * strength, atol=1e-6)
+
+
+def test_rows_mixing_into_no_block_take_no_slot_of_the_artist_cap(monkeypatch):
+    from modules.anima_support import NEGPIP_EXTRA_PROMPTS
+
+    cap = mixer._MAX_ARTISTS[mixer.OPT_PERFORMANCE]
+    width, rows = len(mixer.TABLE_HEADERS), cap + 2
+
+    def row(artist, blocks="0-51"):
+        return [True, artist, 1.0, blocks, 0.0, 1.0, 0.5, mixer.CURVE_HOLD, mixer.PRESET_CUSTOM, False]
+
+    # The test model has one block: "5" selects none of it, so that row is skipped
+    base = row("ghost", "5") + [value for index in range(rows - 1) for value in row(f"artist{index}")]
+    base += [None] * (width * (mixer.MAX_ARTIST_ROWS - rows))
+    head = [True, rows, 1, False, False, 3.0, 3.0, 0.7, mixer.OPT_PERFORMANCE, mixer.COMBINE_OUTPUT_AVG, mixer.FUSION_INTERPOLATE, False, False]
+    args = head + base + [None] * (width * mixer.MAX_ARTIST_ROWS)
+    expected = [f"artist{index}" for index in range(cap)]
+
+    p = _run_p()
+    mixer.Script().process(p, *args)
+    assert getattr(p, NEGPIP_EXTRA_PROMPTS)[mixer.ARTIST_MIXER] == expected  # NegPiP sees the mixed artists only
+
+    encoded = []
+    monkeypatch.setattr(mixer, "effective_prompt_batch", lambda p: [[""]])
+    monkeypatch.setattr(mixer, "_encode_text_batch", lambda p, texts, use_cache=True: encoded.extend(texts) or (torch.zeros(1, 3, 4), None))
+    try:
+        mixer.Script().process_before_every_sampling(p, *args)
+        assert encoded == expected  # nothing past the cap is encoded
+        assert [artist.name for artist in mixer._RUN_STATES[-1].artists] == expected
+        assert p.extra_generation_params["Anima Artist Mixer"].startswith(f"{cap} artists")
+    finally:
+        mixer._cleanup_runtime()

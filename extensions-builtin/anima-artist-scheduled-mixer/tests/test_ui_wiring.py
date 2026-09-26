@@ -57,3 +57,28 @@ def test_panel_edits_are_remembered(monkeypatch, tmp_path):
     assert len(writes) == 1 and writes[0]["enable"] and writes[0]["base_shift"] == 4.0
     mixer._save_current_settings_ui(*values)  # unchanged: no second write
     assert len(writes) == 1
+
+
+def test_only_user_edits_rewrite_the_rows(monkeypatch, tmp_path):
+    # Applying a template writes the optimization preset and every row;
+    # handlers bound with .change would then overwrite its Blocks and timings.
+    _script, demo, _base, _hires, controls = _build_ui(monkeypatch, tmp_path)
+    optimization = controls[8]
+    base_rows = controls[13 : 13 + mixer.MAX_ARTIST_ROWS * mixer.ROW_WIDTH]
+    dependencies = demo.config["dependencies"]
+
+    def rewrites(component):
+        """Events of ``component`` that write row components (not the autosave)."""
+        row_ids = {row._id for row in controls[13:]}
+        return sorted(
+            event
+            for dep in dependencies
+            if len(dep["targets"]) < mixer.MAX_ARTIST_ROWS * 20 and row_ids & set(dep["outputs"])
+            for target, event in dep["targets"]
+            if target == component._id
+        )
+
+    assert rewrites(optimization) == ["input", "input"]  # the base and the hires rows
+    for row in range(mixer.MAX_ARTIST_ROWS):
+        stage, auto_shift = base_rows[row * mixer.ROW_WIDTH + 8], base_rows[row * mixer.ROW_WIDTH + 9]
+        assert rewrites(stage) == ["input"] and rewrites(auto_shift) == ["input"]

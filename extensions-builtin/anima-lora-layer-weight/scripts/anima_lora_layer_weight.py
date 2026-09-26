@@ -1,5 +1,4 @@
 import logging
-import os
 from dataclasses import dataclass
 
 import gradio as gr
@@ -9,9 +8,10 @@ from modules.anima_lora_support import (
     LORA_TAG_RE,
     LayerWeights,
     invalidate_cond_caches,
+    install_add_patches_hook,
     lora_control_files,
+    note_lora_control_yield,
     rewrite_batch_prompts,
-    script_hooks,
     looks_like_layer_weights as _looks_like_layer_weights,
     parse_layer_weights,
     parse_module_weights,
@@ -208,7 +208,6 @@ class LoraDecision:
     block_weights: LayerWeights
     module_weights: dict[str, float]
     text_layer_weights: LayerWeights
-    source: str
     lora_blocks: int | None = None
 
 
@@ -267,24 +266,24 @@ class AdapterRule:
 
     def decision_for_lora(self, filename) -> LoraDecision:
         if not self.enabled or not filename:
-            return LoraDecision(False, self.block_weights, self.module_weights, self.text_layer_weights, "disabled")
+            return LoraDecision(False, self.block_weights, self.module_weights, self.text_layer_weights)
 
         if _adapter_kind_for_file(filename) != self.adapter_kind:
-            return LoraDecision(False, self.block_weights, self.module_weights, self.text_layer_weights, "not-type")
+            return LoraDecision(False, self.block_weights, self.module_weights, self.text_layer_weights)
 
         names = _names_for_lora_file(filename)
         inline_rule = _first_inline_rule(names, self.inline_rules)
         coverage = _lora_coverage(filename, self.adapter_kind)
         text_layer_weights = _filter_layer_weights(self.text_layer_weights, coverage.text_layers) if self.text_layer_enabled else LayerWeights()
         if inline_rule is not None:
-            return LoraDecision(True, _filter_layer_weights(inline_rule.block_weights, coverage.blocks), _filter_module_weights(inline_rule.module_weights, coverage.modules), text_layer_weights, "prompt", anima_lora_block_count(coverage.blocks))
+            return LoraDecision(True, _filter_layer_weights(inline_rule.block_weights, coverage.blocks), _filter_module_weights(inline_rule.module_weights, coverage.modules), text_layer_weights, anima_lora_block_count(coverage.blocks))
 
         if self.targets:
             if not any(name in self.targets for name in names):
-                return LoraDecision(False, self.block_weights, self.module_weights, self.text_layer_weights, "not-target")
+                return LoraDecision(False, self.block_weights, self.module_weights, self.text_layer_weights)
         elif not _is_anima_adapter_file(filename, self.adapter_kind):
-            return LoraDecision(False, self.block_weights, self.module_weights, self.text_layer_weights, "not-anima")
-        return LoraDecision(True, _filter_layer_weights(self.block_weights, coverage.blocks), _filter_module_weights(self.module_weights, coverage.modules), text_layer_weights, "global", anima_lora_block_count(coverage.blocks))
+            return LoraDecision(False, self.block_weights, self.module_weights, self.text_layer_weights)
+        return LoraDecision(True, _filter_layer_weights(self.block_weights, coverage.blocks), _filter_module_weights(self.module_weights, coverage.modules), text_layer_weights, anima_lora_block_count(coverage.blocks))
 
 
 class ActiveRule:
@@ -328,7 +327,7 @@ class ActiveRule:
         adapter_kind = _adapter_kind_for_file(filename)
         rule = self.rules.get(adapter_kind)
         if rule is None:
-            return LoraDecision(False, LayerWeights(), {}, LayerWeights(), "not-supported-type")
+            return LoraDecision(False, LayerWeights(), {}, LayerWeights())
         return rule.decision_for_lora(filename)
 
     def factor_for_key(self, model_key, decision: LoraDecision, model_blocks: int | None = None) -> float:
@@ -598,38 +597,20 @@ def _add_patches(original, patcher, patches, strength_patch, strength_model, fil
 
 
 def _note_lora_control(rule, filename):
-    noted = getattr(rule, "yielded_to_lora_control", None)
-    if noted is None or filename in noted:
-        return
-    noted.add(filename)
-    name = os.path.splitext(os.path.basename(str(filename)))[0]
-    logger.warning("Anima LoRA layer weight skips %s: it is scheduled with LoRA Control syntax", name)
-    extra = getattr(rule, "extra_generation_params", None)
-    if isinstance(extra, dict):
-        skipped = [value for value in str(extra.get("Anima LoRA/LoKR Layer Weight skipped", "")).split(", ") if value]
-        extra["Anima LoRA/LoKR Layer Weight skipped"] = ", ".join(sorted({*skipped, name}))
+    note_lora_control_yield(
+        getattr(rule, "yielded_to_lora_control", None),
+        getattr(rule, "extra_generation_params", None),
+        filename,
+        feature="Anima LoRA layer weight",
+        infotext_key="Anima LoRA/LoKR Layer Weight skipped",
+    )
 
 
 def install_patch():
-    from backend.patcher.base import ModelPatcher
-    from backend.patcher.function_chain import function_chain_contains
-
-    # The wrapper calls this through script_hooks: after "Reload UI" the
-    # wrapper an earlier copy of this module installed runs this copy, which
-    # holds the live rule.
-    script_hooks["layer_weight.add_patches"] = _add_patches
-    if function_chain_contains(ModelPatcher.add_patches, "_anima_layer_weight_patched"):
-        return
-
-    original = ModelPatcher.add_patches
-
-    def add_patches_with_anima_layers(self, patches: list[dict], strength_patch: float = 1.0, strength_model: float = 1.0, *, filename: str = None, online_mode: bool = None):
-        return script_hooks["layer_weight.add_patches"](original, self, patches, strength_patch, strength_model, filename, online_mode)
-
-    add_patches_with_anima_layers._anima_layer_weight_patched = True
-    add_patches_with_anima_layers.__wrapped__ = original
-    ModelPatcher.add_patches = add_patches_with_anima_layers
-    logger.info("Installed Anima LoRA layer weight patch")
+    # After "Reload UI" the wrapper an earlier copy of this module installed
+    # runs this copy's _add_patches, which holds the live rule.
+    if install_add_patches_hook("layer_weight.add_patches", _add_patches):
+        logger.info("Installed Anima LoRA layer weight patch")
 
 
 def _reset_lora_cache_if_needed(p, signature: str, text_encoder_signature: str):
@@ -658,12 +639,6 @@ def _apply_prompt_rewrite(p, target_loras: str, adapter_kind: str) -> dict[str, 
     # Transactional: script hook failures are reported and sampling
     # continues, so a conflict must not leave prompts half rewritten.
     rewrite_batch_prompts(p, rewrite, rewrite)
-
-    stored_rules = getattr(p, "_anima_lora_inline_rules", {})
-    if not isinstance(stored_rules, dict):
-        stored_rules = {}
-    stored_rules[adapter_kind] = inline_rules
-    p._anima_lora_inline_rules = stored_rules
     return inline_rules
 
 
@@ -846,7 +821,6 @@ class Script(scripts.Script):
 
         install_patch()
         _ACTIVE_RULE = None
-        p._anima_lora_inline_rules = {}
         # The hidden preset switches keep their argument slots for API callers,
         # but presets are only applied to the prompt, by their button.
         try:

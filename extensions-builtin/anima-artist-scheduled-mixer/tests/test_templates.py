@@ -61,3 +61,15 @@ def test_an_unreadable_template_file_is_never_overwritten():
 
     assert status.startswith(mixer._t("template_file_unreadable").split("{")[0])
     assert path.read_text(encoding="utf-8") == '{"mine": '
+
+
+@pytest.mark.parametrize("target, changes_hires_switches", [(mixer.APPLY_BASE, False), (mixer.APPLY_HIRES, True), (mixer.APPLY_BOTH, True)])
+def test_a_template_sets_the_hires_switches_only_where_it_applies_to_hires(target, changes_hires_switches):
+    _save("base only")  # a Base template: saved with hires_independent off
+    current = _rows("current") * 2
+    updates = mixer._apply_template_updates("base only", target, 1, 1, 3.0, 3.0, mixer.OPT_BALANCE, current)
+    hires_independent, disable_hires_mixing = updates[2], updates[3]
+    if changes_hires_switches:
+        assert hires_independent["value"] is False and disable_hires_mixing["value"] is False
+    else:
+        assert "value" not in hires_independent and "value" not in disable_hires_mixing

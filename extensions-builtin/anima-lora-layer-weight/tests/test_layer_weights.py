@@ -80,7 +80,7 @@ def _decision(module, lora_blocks=28):
         False, "", False, "", False, "", False, "", {},
     )  # fmt: skip
     lora = rule.lora_rule
-    return rule, module.LoraDecision(True, lora.block_weights, lora.module_weights, lora.text_layer_weights, "global", lora_blocks)
+    return rule, module.LoraDecision(True, lora.block_weights, lora.module_weights, lora.text_layer_weights, lora_blocks)
 
 
 @pytest.mark.parametrize(

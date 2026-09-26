@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import re
 from dataclasses import dataclass, field
 
@@ -18,10 +19,61 @@ logger = logging.getLogger(__name__)
 
 # Implementations behind the Anima LoRA scripts' ModelPatcher.add_patches and
 # extra_networks.activate wrappers, by name. "Reload UI" re-executes the
-# script modules but keeps the wrappers already installed (install_patch finds
-# them in the chain), so a wrapper calls what its script module registered
-# here last: the live module, with its live per-run state.
+# script modules but keeps the wrappers already installed (the install
+# helpers below find them in the chain), so a wrapper calls what its script
+# module registered here last: the live module, with its live per-run state.
 script_hooks: dict = {}
+
+
+def _install_hook(owner, attribute: str, key: str, implementation, make_wrapper) -> bool:
+    """Register ``implementation`` as ``script_hooks[key]`` and, unless a
+    wrapper of ``key`` is already in its chain (installed before a "Reload
+    UI", or under a later wrapper of another extension), wrap
+    ``owner.<attribute>`` with ``make_wrapper(original)``. True when it wrapped."""
+    from backend.patcher.function_chain import function_chain_contains
+
+    script_hooks[key] = implementation
+    marker = "_anima_hook_" + re.sub(r"\W", "_", key)
+    original = getattr(owner, attribute)
+    if function_chain_contains(original, marker):
+        return False
+    wrapper = make_wrapper(original)
+    wrapper.__qualname__ = wrapper.__name__ = f"{attribute}_with_{marker[len('_anima_hook_'):]}"
+    setattr(wrapper, marker, True)
+    wrapper.__wrapped__ = original
+    setattr(owner, attribute, wrapper)
+    return True
+
+
+def install_add_patches_hook(key: str, implementation) -> bool:
+    """Route ``ModelPatcher.add_patches`` through ``script_hooks[key]``, set to
+    ``implementation(original, patcher, patches, strength_patch,
+    strength_model, filename, online_mode)``; wraps once per process (see
+    ``_install_hook``). True when it wrapped."""
+    from backend.patcher.base import ModelPatcher
+
+    def make_wrapper(original):
+        def wrapper(self, patches: list[dict], strength_patch: float = 1.0, strength_model: float = 1.0, *, filename: str = None, online_mode: bool = None):
+            return script_hooks[key](original, self, patches, strength_patch, strength_model, filename, online_mode)
+
+        return wrapper
+
+    return _install_hook(ModelPatcher, "add_patches", key, implementation, make_wrapper)
+
+
+def install_activate_hook(key: str, implementation) -> bool:
+    """Route ``extra_networks.activate`` through ``script_hooks[key]``, set to
+    ``implementation(original, p, extra_network_data)``; wraps once per
+    process (see ``_install_hook``). True when it wrapped."""
+    from modules import extra_networks
+
+    def make_wrapper(original):
+        def wrapper(p, extra_network_data):
+            return script_hooks[key](original, p, extra_network_data)
+
+        return wrapper
+
+    return _install_hook(extra_networks, "activate", key, implementation, make_wrapper)
 
 # Forge's LoRA Control (sd_forge_lora_schedule/scripts/control.py): its
 # ``LoRAControl.mapping`` (``{lora filename: [(weight, time), ...]}``) holds
@@ -48,6 +100,20 @@ def lora_control_files() -> set:
         except Exception:
             continue
     return set()
+
+
+def note_lora_control_yield(noted: set | None, extra_generation_params, filename, *, feature: str, infotext_key: str) -> None:
+    """Note once per run that ``feature`` leaves ``filename`` to LoRA Control:
+    a warning, and the file's name in the infotext's ``infotext_key`` list.
+    ``noted``: the files of the run already noted (None: nothing to note)."""
+    if noted is None or filename in noted:
+        return
+    noted.add(filename)
+    name = os.path.splitext(os.path.basename(str(filename)))[0]
+    logger.warning("%s skips %s: it is scheduled with LoRA Control syntax", feature, name)
+    if isinstance(extra_generation_params, dict):
+        skipped = [value for value in str(extra_generation_params.get(infotext_key, "")).split(", ") if value]
+        extra_generation_params[infotext_key] = ", ".join(sorted({*skipped, name}))
 
 
 # <lora:name> or <lora:name:args>
@@ -265,6 +331,14 @@ def stage_window(stage: str, shift: float) -> tuple[float, float, float]:
     start = clamp(0.20 + move * 0.65, 0.12, 0.36)
     end = clamp(0.74 + move * 0.45, 0.58, 0.88)
     return start, end, clamp((start + end) * 0.5, start, end)
+
+
+def stage_window_of(stage, shift, *, composition, style) -> tuple[float, float, float]:
+    """``stage_window`` of a panel's stage value: ``composition`` and ``style``
+    are the panel's values of those stages, any other value is the character
+    stage. ``shift`` is read leniently (3.0 when unset)."""
+    kind = {composition: "composition", style: "style"}.get(stage, "character")
+    return stage_window(kind, to_float(shift, 3.0))
 
 
 def window_curve_factor(progress: float, start: float, end: float, peak: float, shape: str, floor: float = 0.0) -> float:

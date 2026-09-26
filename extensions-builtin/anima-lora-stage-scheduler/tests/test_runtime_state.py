@@ -283,7 +283,7 @@ def test_loras_the_scheduler_leaves_stay_online_while_freefuse_needs_them(monkey
     layer_weight = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(layer_weight)
     layer_weight.install_patch()
-    decision = layer_weight.LoraDecision(True, None, {}, None, "global")
+    decision = layer_weight.LoraDecision(True, None, {}, None)
     monkeypatch.setattr(layer_weight, "_ACTIVE_RULE", SimpleNamespace(decision_for_lora=lambda filename: decision, factor_for_key=lambda *args: 0.5))
 
     # Target list only: FreeFuse's subjects are a listed LoRA, an off-list one and a LoKr
