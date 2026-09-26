@@ -12,7 +12,7 @@ on purpose. Read this before "fixing" one of them.
 | `compute_qkv(value_context=...)` | `backend/nn/anima.py` | NegPiP, FreeFuse (V from the masked context) |
 | `model_function_wrapper` chain | `call_model_wrapper` in `modules/anima_support.py` | Modulation, Regional, FreeFuse, Artist Mixer, Spectrum |
 | Spectrum "run a real forward" requests | `modules/spectrum_force.py` | every feature Spectrum cannot forecast |
-| Stateful guidance registry | `modules/anima_guidance_state.py` | DCW, SMC-CFG, APG, CFG-Zero*, Momentum (reset after FreeFuse's probe pass) |
+| Stateful guidance registry | `modules/anima_guidance_state.py` | DCW, SMC-CFG, APG, CFG-Zero*, Momentum register; samplers that change what the history describes reset it (FreeFuse after its probe pass, SPEED at its resolution switch) |
 | Active-feature registry | `set_feature_active` / `is_feature_active` in `modules/anima_feature_conflicts.py` | FreeFuse, Regional, Artist Mixer |
 | Online-LoRA leases | `acquire_online_lora` / `release_online_lora` in `modules/anima_online_lora.py` (the last release restores the user's setting) | Stage scheduler, FreeFuse |
 | Post-load validation | `Script.after_model_load` in `modules/scripts.py`, run by `process_images` once checkpoint/VAE overrides have loaded | features that check the loaded model or the final settings (Hires Guard) |
@@ -46,7 +46,7 @@ on purpose. Read this before "fixing" one of them.
 - **`ScriptAbort`** is only re-raised from `before_process_batch`, where the
   per-batch LoRA rules are validated; other hooks keep upstream's
   report-and-continue behaviour.
-- **Not cached, on purpose:** FreeFuse's per-LoRA weight deltas (the stage
+- **Not cached, on purpose:** FreeFuse's per-LoRA contributions (plain LoRAs run low-rank each call; other adapters build a dense delta) (the stage
   scheduler changes LoRA strengths every step through the same patch
   objects); Spectrum's per-call prompt signature (split cond/uncond calls
   carry different branches within one step).

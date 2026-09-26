@@ -590,11 +590,16 @@ class ScriptRunner:
 
         self.callback_map = {}
         self.callback_names = [
+            "setup",
             "before_process",
+            "after_model_load",
             "process",
+            "before_process_init_images",
             "before_process_batch",
             "after_extra_networks_activate",
             "process_batch",
+            "process_before_every_sampling",
+            "before_hr",
             "postprocess",
             "postprocess_batch",
             "postprocess_batch_list",
@@ -603,6 +608,7 @@ class ScriptRunner:
             "postprocess_image",
             "postprocess_maskoverlay",
             "postprocess_image_after_composite",
+            "cleanup",
             "before_component",
             "after_component",
         ]

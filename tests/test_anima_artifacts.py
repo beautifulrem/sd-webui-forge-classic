@@ -74,3 +74,47 @@ def test_oversized_download_is_aborted(tmp_path):
         anima_artifacts.ensure_pinned_download(path=str(target), url=url, sha256=digest, maximum_bytes=63)
     assert not target.exists()
     assert _leftovers(tmp_path) == []
+
+
+class _Interrupted(KeyboardInterrupt):
+    pass
+
+
+@pytest.mark.parametrize("stage", ["connect", "read"])
+def test_an_interrupted_download_leaks_no_descriptor_or_part_file(tmp_path, monkeypatch, stage):
+    """Ctrl+C / shutdown mid-download is a BaseException: a new .part per retry piled up."""
+    import os
+    import tempfile
+
+    descriptors = []
+    real_mkstemp = tempfile.mkstemp
+
+    def mkstemp(*args, **kwargs):
+        descriptor, name = real_mkstemp(*args, **kwargs)
+        descriptors.append(descriptor)
+        return descriptor, name
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, size):
+            raise _Interrupted
+
+    def urlopen(request, timeout):
+        if stage == "connect":
+            raise _Interrupted
+        return _Response()
+
+    monkeypatch.setattr(anima_artifacts.tempfile, "mkstemp", mkstemp)
+    monkeypatch.setattr(anima_artifacts.urllib.request, "urlopen", urlopen)
+    target = tmp_path / "artifact.bin"
+
+    with pytest.raises(_Interrupted):
+        anima_artifacts.ensure_pinned_download(path=str(target), url="http://unused", sha256="0" * 64, maximum_bytes=100)
+    assert _leftovers(tmp_path) == []
+    with pytest.raises(OSError):
+        os.fstat(descriptors[0])  # closed

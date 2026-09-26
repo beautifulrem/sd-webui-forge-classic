@@ -40,6 +40,18 @@ def release_online_lora(p, owner: str) -> None:
         _user_setting = None
 
 
+def apply_user_setting(value: bool) -> None:
+    """Set the user's online-LoRA setting (Forge's settings refresh, e.g. mid-run for a
+    Hires checkpoint switch). While leases are held it only replaces the setting their
+    last release restores, so the running owners keep online patches."""
+    global _user_setting
+
+    if _leases:
+        _user_setting = bool(value)
+    else:
+        dynamic_args.online_lora = value
+
+
 def user_online_lora() -> bool:
     """The user's own online-LoRA setting, also while leases hold it on."""
     return bool(dynamic_args.online_lora) if _user_setting is None else _user_setting

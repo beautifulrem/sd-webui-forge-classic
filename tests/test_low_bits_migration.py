@@ -25,7 +25,7 @@ _ns = {
     "os": __import__("os"),
     "logger": logging.getLogger("test_low_bits"),
     "print_json": lambda **kwargs: None,
-    "dynamic_args": SimpleNamespace(),
+    "anima_online_lora": SimpleNamespace(apply_user_setting=lambda value: None),
     "processing": SimpleNamespace(),
 }
 exec(compile(ast.Module(_nodes, []), str(_SOURCE), "exec"), _ns)  # noqa: S102 - our own source file
@@ -110,7 +110,6 @@ def test_xyz_grid_rebuilds_the_same_loading_parameters(monkeypatch, option):
     opts = SimpleNamespace(data={}, forge_unet_storage_dtype=option, forge_additional_modules=["vae.safetensors"])
     shared = SimpleNamespace(opts=opts, config_filename="config.json")
     monkeypatch.setitem(_ns, "shared", shared)
-    monkeypatch.setitem(_ns, "dynamic_args", SimpleNamespace())
     monkeypatch.setitem(_ns, "processing", SimpleNamespace())
     sd_models = ModuleType("modules.sd_models")
     sd_models.model_data, sd_models.select_checkpoint = model_data, lambda: checkpoint

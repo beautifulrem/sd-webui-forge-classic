@@ -5,3 +5,7 @@ line-length = 1024
 target-version = "py311"
 exclude = ["extensions"]
 lint.select = ["N805", "S307", "S102", "T", "W", "F"]
+
+[tool.pytest.ini_options]
+# Imports resolve from the repo root wherever pytest starts (as modules_forge/initialization.py sets up the bundled packages)
+pythonpath = [".", "modules_forge/packages"]

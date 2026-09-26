@@ -172,3 +172,37 @@ def test_quantize_on_load_falls_back_where_the_mode_cannot_run(monkeypatch):
 
     anima.quantize_on_load(state, anima.ANIMA_QUANT_SCALED_FP8, torch.device("cpu"))
     assert detect_quantization(state, is_unet=True) is not None
+
+
+def test_scaling_on_the_load_device_keeps_the_results_and_stores_them_on_the_cpu():
+    """quantize_on_load scales on the load device (CPU scaling cost ~8 s per 2B
+    params per load); the stored tensors match the CPU formula bit for bit."""
+    state = _checkpoint()
+    expected = {}
+    for key, value in state.items():
+        if key.startswith(("blocks.1.", "blocks.2.")) and value.ndim == 2:
+            scale = value.abs().amax().float().clamp_min(1e-12) / 448.0
+            expected[key] = ((value.float() / scale).clamp_(-448.0, 448.0).to(FP8), scale)
+
+    default, on_device = dict(state), dict(state)
+    assert scale_fp8_state_dict(default, fp8_matmul=False) == scale_fp8_state_dict(on_device, fp8_matmul=False, device=torch.device("cpu"))
+    for result in (default, on_device):
+        for key, value in result.items():
+            assert value.device.type == "cpu", key
+            if value.dtype == FP8:
+                prefix = key[: -len("weight")]
+                weight, scale = expected[key]
+                assert torch.equal(value.view(torch.uint8), weight.view(torch.uint8)), key
+                assert torch.equal(result[f"{prefix}weight_scale"], scale), key
+    assert default.keys() == on_device.keys()
+
+
+def test_quantize_on_load_scales_fp8_on_the_load_device(monkeypatch):
+    from backend import memory_management
+    from backend.nn import anima
+
+    calls = []
+    monkeypatch.setattr(memory_management, "should_use_bf16", lambda device: True)
+    monkeypatch.setattr(anima, "scale_fp8_state_dict", lambda state, **kwargs: calls.append(kwargs) or 0)
+    anima.quantize_on_load({}, anima.ANIMA_QUANT_SCALED_FP8, torch.device("cpu"))
+    assert calls and calls[0]["device"] == torch.device("cpu")

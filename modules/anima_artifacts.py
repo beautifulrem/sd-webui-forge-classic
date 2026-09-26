@@ -72,7 +72,7 @@ def ensure_pinned_download(*, path: str, url: str, sha256: str, maximum_bytes: i
                 raise RuntimeError("downloaded artifact failed its SHA-256 check")
             os.replace(temporary, path)
             _VERIFIED[file_version(path)] = sha256  # hashed while downloading
-        except Exception:
+        except BaseException:  # also Ctrl+C / shutdown: no leaked descriptor or .part file
             if descriptor >= 0:
                 os.close(descriptor)
             try:

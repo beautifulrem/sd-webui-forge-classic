@@ -310,7 +310,9 @@ def sample_anima_flow_unipc2(
             and state.model_outputs[-1] is not None
         )
         if use_corrector:
-            corrector_order = min(max(1, state.this_order), available)
+            # Upstream truncates the history to the solver order on tail
+            # intervals, so a corrector that still runs there is first order.
+            corrector_order = 1 if tail_interval else min(max(1, state.this_order), available)
             x_corrected = _unipc_correct(
                 state,
                 x,

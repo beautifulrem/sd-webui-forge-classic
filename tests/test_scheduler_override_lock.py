@@ -5,6 +5,7 @@ sd_samplers_kdiffusion cannot be imported outside the WebUI (circular
 imports), so ``KDiffusionSampler.get_sigmas`` is loaded from its source."""
 
 import ast
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +21,7 @@ _ns = {
     "opts": _OPTS,
     "torch": torch,
     "devices": SimpleNamespace(cpu="cpu"),
+    "logger": logging.getLogger("modules.sd_samplers_kdiffusion"),
     "sd_schedulers": SimpleNamespace(
         schedulers_map={"anima_flow_match": SimpleNamespace(label="Anima FlowMatch", function=lambda n, **_: _GRID, default_rho=-1, need_inner_model=False)}
     ),
@@ -43,14 +45,18 @@ def _process():
 
 
 @pytest.mark.parametrize("lock", [True, False])
-def test_locked_samplers_ignore_script_schedule_overrides(lock):
+def test_locked_samplers_ignore_script_schedule_overrides(lock, caplog):
     p = _process()
 
-    sigmas = get_sigmas(_sampler(lock), p, 2)
+    with caplog.at_level(logging.WARNING, logger="modules.sd_samplers_kdiffusion"):
+        sigmas = get_sigmas(_sampler(lock), p, 2)
 
+    warned = [record for record in caplog.records if "schedule override" in record.getMessage()]
     if lock:
         assert torch.equal(sigmas, _GRID)
         assert p.extra_generation_params["Anima Flow scheduler lock"] is True
+        assert len(warned) == 1  # not only an infotext flag
     else:
         assert torch.equal(sigmas, torch.full((3,), 9.0))
         assert "Anima Flow scheduler lock" not in p.extra_generation_params
+        assert warned == []

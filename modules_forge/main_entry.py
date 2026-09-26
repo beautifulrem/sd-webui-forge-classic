@@ -7,9 +7,9 @@ from gradio.context import Context
 from rich import print_json
 
 from backend import memory_management
-from backend.args import dynamic_args
 from backend.logging import setup_logger
 from modules import (
+    anima_online_lora,
     infotext_utils,
     paths,
     processing,
@@ -171,7 +171,7 @@ def refresh_model_loading_parameters(*, refresh: bool = True):
         logger.warning("GGUF requires fp16 LoRA ; overriding option")
         lora_fp16 = True
 
-    dynamic_args.online_lora = lora_fp16
+    anima_online_lora.apply_user_setting(lora_fp16)  # held online-LoRA leases keep it on mid-run
     logger.info(f"Patch LoRAs on-the-fly: {lora_fp16}")
     if not ckpt.endswith(("gguf", "GGUF")) and lora_fp16:
         logger.warning("on-the-fly WILL be slower ; enable only if you know what you are doing")

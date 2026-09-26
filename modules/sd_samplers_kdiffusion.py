@@ -1,4 +1,5 @@
 import inspect
+import logging
 
 import k_diffusion
 import k_diffusion.external
@@ -10,6 +11,8 @@ from modules import devices, sd_samplers_anima, sd_samplers_anima_cns, sd_sample
 from modules.script_callbacks import ExtraNoiseParams, extra_noise_callback
 from modules.sd_samplers_cfg_denoiser import CFGDenoiser  # noqa: F401
 from modules.shared import opts
+
+logger = logging.getLogger(__name__)
 
 samplers_k_diffusion = [
     ("DPM++ 2M", "sample_dpmpp_2m", ["k_dpmpp_2m"], {"scheduler": "karras"}),
@@ -113,6 +116,7 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
         lock_scheduler_override = self.config is not None and self.config.options.get("lock_scheduler_override", False)
         if p.sampler_noise_scheduler_override and lock_scheduler_override:
             p.extra_generation_params["Anima Flow scheduler lock"] = True
+            logger.warning("Anima Flow scheduler lock: ignoring a script's noise schedule override ; the sampler keeps its own schedule")
         if p.sampler_noise_scheduler_override and not lock_scheduler_override:
             sigmas = p.sampler_noise_scheduler_override(steps)
         elif scheduler is None or scheduler.function is None:
