@@ -133,6 +133,14 @@ Forge 的 `backend/diffusion_engine/pid.py` 已能把 PiD 当作独立扩散模�
 
 PPM 的 AttentionCouple 和 NegPiP 已分别被当前 Regional 与 NegPiP 覆盖；AttentionCouple 会再次占用 attention/mask patch seam，与 Regional 同时启用还会产生未定义的 hook 顺序、mask resize 和 Spectrum cache 语义，因此不移植。动态采样器和 CFG++ 也不能未经 flow/const 数学验证直接套到 Anima。
 
+### P2 实验：SPEED（Spectral Progressive Diffusion）—— 训练无关的前段半分辨率加速（已实现）
+
+[SPEED 论文](https://arxiv.org/abs/2605.18736)（Stanford，2026-05）利用 latent 功率谱的幂律衰减：高频在去噪早期仍被噪声主导，因此前段可在低分辨率上运行；到 δ-optimal 切换时刻（Eq. 9–10，由功率谱拟合 `P(ω)=A·|ω|^-β` 和单一容差 δ 决定）在 DCT 域把低分辨率谱嵌入全分辨率网格，新暴露的高频系数按当前噪声水平 `t·ε` 填充，再按 Eq. 5–6 缩放状态并把时间对齐到 `t̃ = r·t / (1 + (r−1)·t)`。论文报告 FLUX.1-dev 训练无关 S=2、δ=0.01、DCT 时 1.66× 墙钟加速（ImageReward 1.049 对 50 步基线 1.095），与减步结合最高约 7×；WAN 2.1 视频约 2×。[官方代码](https://github.com/howardhx/speed)与[在 Anima 上测试的 ComfyUI 移植](https://github.com/ruwwww/ComfyUI-SPEED)均为 MIT（移植 README 把官方写成 BSD-3，但官方 LICENSE 文件是 MIT）；移植作者用 FLUX 功率谱预设在 Anima 上报告 1.33×，没有质量指标。
+
+Forge 实现为 `Anima SPEED` 采样器（`modules/sd_samplers_anima_speed.py`），固定论文默认值：两阶段 0.5→1、δ=0.01、DCT、Euler、锁定 Anima FlowMatch 调度。功率谱采用论文 Table 4 的 Wan 2.1 VAE latent 拟合（A=219.48，β=2.4227），因为 Anima 使用 Wan VAE；1024² 时切换 sigma≈0.694，30 步中前 18 步在 64×64 latent 上运行，832×1216 时前 16 步。与参考实现的差异：初始低分辨率噪声是 seed 噪声的 DCT 截断，切换时填充的高频直接复用被截掉的 seed 噪声系数（与低频轨迹独立，统计上等价于新抽样，且结果随 Forge seed 可复现、更接近同 seed 的全分辨率结果）；缩放比按实际网格 `sqrt(HW/hw)` 计算，奇数 latent 尺寸时与名义 2 略有差别。
+
+它只在 txt2img 从纯噪声开始时生效：img2img/denoise<1/Hires 二阶段、inpaint mask、Regional/Artist Mixer/FreeFuse、任何 `model_function_wrapper`（Spectrum、MultiDiffusion、Radial、Modulation）、ControlNet、LLLite/IP-Adapter patch、参考 latent，以及半分辨率小于 512×384 或调度没有可切换步骤时，都退回 Anima Flow Euler 并写入 `Anima conflict resolution` infotext。Momentum 因不在 Momentum 采样器集合中被自动关闭；SMC/APG/DCW/CFG-Zero* 的跨步状态在切换分辨率时重置。前段预览为低分辨率；前段被中断时返回双线性放大到全尺寸的 latent；per-block compile 会为第二种形状重新编译。CPU 测试覆盖 DCT 正交性、低频保持、注入噪声方差等于对齐 sigma、阶段单调并以全分辨率结束、输出形状、闭式高斯 RF 去噪器下与同 seed 全分辨率 Flow Euler 一致（去掉对齐则偏离）以及各类回退；Anima 上的画质与实际加速尚未在 GPU 上测量，功率谱也不是在 Anima 图像 latent 上实测的。
+
 ### P3：Dynamic CFG / 频域细节 —— 只适合作为研究原型
 
 [ComfyUI-AnimaDynamicCFG 固定版本源码](https://github.com/DanrisiUA/ComfyUI-AnimaDynamicCFG/blob/35b70e0c402ea52e60aa18aafd87cce6ba3b0c55/nodes.py)包含 CFG 曲线、自适应 CFG、CFG rescale、latent 均值校正、FFT 高频增强和后期随机噪声，但仓库当前**没有 LICENSE 文件**，因此不能复制、修改或分发其源码。它也没有测试和量化证据，当前实现还存在几项方法学问题：

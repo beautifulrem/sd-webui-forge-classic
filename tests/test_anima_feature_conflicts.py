@@ -258,7 +258,7 @@ def test_sampler_names_match_the_registered_samplers():
     import ast
     from pathlib import Path
 
-    from modules.anima_feature_conflicts import CNS_SAMPLER, FLOW_SAMPLERS, MOMENTUM_SAMPLERS
+    from modules.anima_feature_conflicts import CNS_SAMPLER, FLOW_SAMPLERS, MOMENTUM_SAMPLERS, SPEED_SAMPLER
 
     source = (Path(__file__).parents[1] / "modules" / "sd_samplers_kdiffusion.py").read_text(encoding="utf-8")
     table = next(
@@ -275,6 +275,7 @@ def test_sampler_names_match_the_registered_samplers():
                 locked.add(label.value)
 
     assert FLOW_SAMPLERS == locked
+    assert SPEED_SAMPLER in FLOW_SAMPLERS
     assert CNS_SAMPLER in labels
     assert MOMENTUM_SAMPLERS <= labels
 

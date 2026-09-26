@@ -21,8 +21,11 @@ APG_GUIDANCE = "APG"
 # One dropdown: the CFG combine modes are mutually exclusive by construction.
 GUIDANCE_MODES = (STANDARD_GUIDANCE, SMC_GUIDANCE, CFG_ZERO_STAR_GUIDANCE, APG_GUIDANCE, FDG_GUIDANCE)
 
+# Runs part of the pass at half resolution; it falls back to Anima Flow Euler
+# for img2img, masks and resolution-bound hooks (sd_samplers_anima_speed).
+SPEED_SAMPLER = "Anima SPEED"
 FLOW_SAMPLERS = frozenset(
-    {"Anima Flow Euler", "Anima Flow UniPC2", "Anima Flow PC3"}
+    {"Anima Flow Euler", "Anima Flow UniPC2", "Anima Flow PC3", SPEED_SAMPLER}
 )
 MOMENTUM_SAMPLERS = frozenset(
     {"Euler", "Anima Flow Euler", "Anima FreeFuse Euler"}
