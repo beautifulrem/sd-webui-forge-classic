@@ -111,7 +111,7 @@ def window_refresh_fraction(steps, warmup_steps, tail_actual_steps, window_size,
 class SeaCalibration:
     """Loads and atomically saves a delta keyed by generation configuration."""
 
-    def __init__(self, *, cache_dir, context, steps, warmup_steps, tail_actual_steps, window_size, flex_window, refresh_ratio):
+    def __init__(self, *, cache_dir, context, steps, warmup_steps, tail_actual_steps, window_size, flex_window, refresh_ratio, sea_beta):
         self.cache_dir = cache_dir
         self.refresh_ratio = float(refresh_ratio)
         payload = {
@@ -123,6 +123,8 @@ class SeaCalibration:
             "window": float(window_size),
             "growth": float(flex_window),
             "refresh_ratio": self.refresh_ratio,
+            # The distances the delta is solved from are measured through the beta filter.
+            "beta": float(sea_beta),
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self.key = hashlib.sha256(encoded).hexdigest()[:24]

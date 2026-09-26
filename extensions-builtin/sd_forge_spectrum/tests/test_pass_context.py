@@ -84,3 +84,27 @@ def test_img2img_pass_counts_only_the_steps_denoise_runs():
     result = MODULE.resolve_pass_context(process, img2img_steps=lambda p: (30, 12))
 
     assert result.steps == 13
+
+
+def test_scheduler_and_shift_follow_the_pass():
+    process = SimpleNamespace(
+        is_hr_pass=False,
+        steps=30,
+        sampler_name="Euler",
+        scheduler="Simple",
+        cfg_scale=5.0,
+        distilled_cfg_scale=3.0,
+        hr_scheduler="Beta",
+        hr_distilled_cfg=5.0,
+    )
+
+    base = MODULE.resolve_pass_context(process)
+    process.is_hr_pass = True
+    hires = MODULE.resolve_pass_context(process)
+    process.hr_scheduler = process.hr_distilled_cfg = None
+    fallback = MODULE.resolve_pass_context(process)
+
+    assert (base.scheduler, base.shift) == ("Simple", 3.0)
+    assert (hires.scheduler, hires.shift) == ("Beta", 5.0)
+    # As sd_samplers_kdiffusion: an unset hires schedule is "Automatic".
+    assert (fallback.scheduler, fallback.shift) == ("Automatic", 3.0)

@@ -61,7 +61,7 @@ class SeaTests(unittest.TestCase):
 SEA = "SEA (auto-calibrated)"
 
 
-def _calibration(cache_dir, steps=10):
+def _calibration(cache_dir, steps=10, sea_beta=2.0):
     return SeaCalibration(
         cache_dir=cache_dir,
         context={"model": "Test"},
@@ -71,6 +71,7 @@ def _calibration(cache_dir, steps=10):
         window_size=2.0,
         flex_window=0.0,
         refresh_ratio=0.0,
+        sea_beta=sea_beta,
     )
 
 
@@ -116,6 +117,10 @@ class SeaStateTests(unittest.TestCase):
             _run(again)
             self.assertEqual(again.sea_distances, [])  # calibrated: nothing re-collected
             self.assertIsNone(_state(_calibration(cache_dir, steps=12)).sea_delta)  # other config
+
+    def test_spectral_beta_is_part_of_the_calibration_key(self):
+        # The saved delta is solved from beta-filtered distances.
+        self.assertNotEqual(_calibration("unused", sea_beta=2.0).key, _calibration("unused", sea_beta=3.0).key)
 
     def test_refresh_decision_follows_the_accumulated_distance(self):
         state = _state(None)

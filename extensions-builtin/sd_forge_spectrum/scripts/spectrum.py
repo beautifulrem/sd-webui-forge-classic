@@ -13,6 +13,10 @@ from modules.ui_components import InputAccordion
 
 PresetManager.load_presets()
 
+# Positions in the script arguments after ``enable`` (CONTROLS order).
+_DEGREE = INFOTEXT_KEYS.index("spec_m")
+_HISTORY = INFOTEXT_KEYS.index("spec_history_size")
+
 
 class SpectrumForForge(scripts.Script):
     sorting_priority = 2026
@@ -192,10 +196,11 @@ class SpectrumForForge(scripts.Script):
             return
 
         args = list(args)
-        minimum_history = int(args[1]) + 2
-        if int(args[8]) < minimum_history:
-            logger.warning("Feature History was raised to %d for Polynomial Degree %d.", minimum_history, int(args[1]))
-            args[8] = minimum_history
+        degree = int(args[_DEGREE])
+        minimum_history = degree + 2
+        if int(args[_HISTORY]) < minimum_history:
+            logger.warning("Feature History was raised to %d for Polynomial Degree %d.", minimum_history, degree)
+            args[_HISTORY] = minimum_history
         args = tuple(args)
 
         if shared.opts.skip_early_cond > 0.0 or shared.opts.s_min_uncond > 0.0:
@@ -208,7 +213,9 @@ class SpectrumForForge(scripts.Script):
         sea_context = {
             "pass": "hires" if pass_context.is_hires else "base",
             "sampler": pass_context.sampler,
+            "scheduler": pass_context.scheduler,
             "cfg": round(pass_context.cfg, 4),
+            "shift": None if pass_context.shift is None else round(pass_context.shift, 4),
             "latent_batch": int(x.shape[0]) if x is not None else None,
             "latent_hw": latent_shape,
         }

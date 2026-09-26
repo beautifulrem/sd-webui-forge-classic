@@ -365,6 +365,7 @@ class SpectrumNode:
                 window_size=float(window_size),
                 flex_window=float(flex_window),
                 refresh_ratio=float(refresh_ratio),
+                sea_beta=float(sea_beta),
             )
         state = SpectrumState(
             steps=steps,

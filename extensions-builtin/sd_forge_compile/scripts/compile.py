@@ -1,6 +1,7 @@
 # https://github.com/Comfy-Org/ComfyUI/blob/master/comfy_extras/nodes_torch_compile.py
 
 import logging
+import os
 import shutil
 import sys
 from functools import wraps
@@ -42,7 +43,8 @@ def skip_torch_compile_dict(guard_entries):
 def _windows_cpp_compiler_available() -> bool:
     if sys.platform != "win32":
         return True
-    return any(shutil.which(name) for name in ("cl", "clang-cl", "g++"))
+    # Inductor on Windows only runs $CXX (default MSVC "cl"), never a g++ on PATH.
+    return shutil.which(os.environ.get("CXX", "cl")) is not None
 
 
 class TorchCompileForForge(scripts.Script):
