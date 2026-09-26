@@ -56,8 +56,8 @@ def make_smc_cfg_function(state: SMCCFGState, process=None):
         x_in = args["input"]
         sig = sigma_broadcast(args.get("sigma", args.get("timestep")), x_in)
 
-        cond = args.get("cond_denoised", args["cond"])
-        uncond = args.get("uncond_denoised", args["uncond"])
+        cond = args["cond_denoised"]
+        uncond = args["uncond_denoised"]
         v_cond = (x_in - cond) / sig
         v_uncond = (x_in - uncond) / sig
         v_out = state.combine(

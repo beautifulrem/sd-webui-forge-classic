@@ -13,7 +13,8 @@ def clear_stateful_guidance(process) -> None:
 
 def register_stateful_guidance(process, state):
     """Register an object with ``reset()`` whose history spans sampling steps
-    (DCW, SMC-CFG, Momentum), so probe passes can discard it. Returns ``state``."""
+    (DCW, SMC-CFG, APG, CFG-Zero*, Momentum), so probe passes can discard it.
+    Returns ``state``."""
 
     registered = getattr(process, _STATEFUL_GUIDANCE, None)
     if registered is None:

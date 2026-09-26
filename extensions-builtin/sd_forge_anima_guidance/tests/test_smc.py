@@ -9,7 +9,7 @@ import torch
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from lib_anima_guidance.smc import SMCCFGState
+from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
 
 
 class SMCCFGTests(unittest.TestCase):
@@ -67,6 +67,24 @@ class SMCCFGTests(unittest.TestCase):
 
         self.assertTrue(torch.equal(state._e_prev, previous))
 
+
+    def test_forge_adapter_combines_the_denoised_predictions(self):
+        torch.manual_seed(46)
+        x = torch.randn(1, 4, 1, 8, 8)
+        cond_denoised, uncond_denoised = torch.randn_like(x), torch.randn_like(x)
+        args = {
+            "input": x,
+            "sigma": torch.tensor([0.7]),
+            "cond_denoised": cond_denoised,
+            "uncond_denoised": uncond_denoised,
+            # Forge's cond / uncond are residuals, not predictions.
+            "cond": x - cond_denoised,
+            "uncond": x - uncond_denoised,
+            "cond_scale": 4.0,
+        }
+        residual = make_smc_cfg_function(SMCCFGState(alpha=0.0))(args)
+        expected = x - (uncond_denoised + 4.0 * (cond_denoised - uncond_denoised))
+        self.assertTrue(torch.allclose(residual, expected, atol=1e-5))
 
 if __name__ == "__main__":
     unittest.main()

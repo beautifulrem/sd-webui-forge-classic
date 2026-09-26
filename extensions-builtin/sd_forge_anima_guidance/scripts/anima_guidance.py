@@ -758,27 +758,15 @@ class AnimaGuidanceScript(scripts.Script):
             p.extra_generation_params["Anima CFG guidance mode"] = "SMC-CFG"
             p.extra_generation_params["Anima SMC alpha"] = float(smc_alpha)
             p.extra_generation_params["Anima SMC lambda"] = float(smc_lambda)
-            if previous is not None:
-                p.extra_generation_params["Anima CFG replaced existing"] = getattr(
-                    previous, "__name__", type(previous).__name__
-                )
         elif fdg_enabled:
             active_cfg_function = make_fdg_cfg_function(float(fdg_high_scale))
             p.extra_generation_params["Anima CFG guidance mode"] = FDG_GUIDANCE
             p.extra_generation_params["Anima FDG detail guidance"] = float(fdg_high_scale)
-            if previous is not None:
-                p.extra_generation_params["Anima CFG replaced existing"] = getattr(
-                    previous, "__name__", type(previous).__name__
-                )
         elif cfg_zero_enabled:
             zero_init_steps = max(0, int(cfg_zero_init_steps))
             active_cfg_function = make_cfg_zero_star_cfg_function()
             p.extra_generation_params["Anima CFG guidance mode"] = CFG_ZERO_STAR_GUIDANCE
             p.extra_generation_params["Anima CFG-Zero* zero-init steps"] = zero_init_steps
-            if previous is not None:
-                p.extra_generation_params["Anima CFG replaced existing"] = getattr(
-                    previous, "__name__", type(previous).__name__
-                )
         elif apg_enabled:
             active_cfg_function = make_apg_cfg_function(
                 register_stateful_guidance(
@@ -795,10 +783,10 @@ class AnimaGuidanceScript(scripts.Script):
             p.extra_generation_params["Anima APG eta"] = float(apg_eta)
             p.extra_generation_params["Anima APG norm threshold"] = float(apg_norm_threshold)
             p.extra_generation_params["Anima APG momentum"] = float(apg_momentum)
-            if previous is not None:
-                p.extra_generation_params["Anima CFG replaced existing"] = getattr(
-                    previous, "__name__", type(previous).__name__
-                )
+        if previous is not None and active_cfg_function is not previous:
+            p.extra_generation_params["Anima CFG replaced existing"] = getattr(
+                previous, "__name__", type(previous).__name__
+            )
 
         if skim_enable:
             active_cfg_function = make_skim_cfg_function(
