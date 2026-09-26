@@ -5,26 +5,13 @@ from __future__ import annotations
 
 import re
 
-from modules.anima_lora_support import window_curve_factor
+from modules.anima_lora_support import to_float, window_curve_factor
 
 CURVE_SMOOTH = "Smooth"
 CURVE_HOLD = "Hold"
 CURVE_TRIANGLE = "Triangle"
 CURVE_FRONT = "Front loaded"
 CURVE_BACK = "Back loaded"
-
-
-def clamp(value, low, high):
-    return max(low, min(high, value))
-
-
-def to_float(value, fallback=0.0):
-    try:
-        if value is None or value == "":
-            return fallback
-        return float(value)
-    except Exception:
-        return fallback
 
 
 def parse_inline_weight(text):

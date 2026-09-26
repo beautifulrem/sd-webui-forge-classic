@@ -19,7 +19,6 @@ def _load():
 def _state(module, process, base=None, hires=None, outer_state=None):
     return module.RuntimeState(
         p=process,
-        run_id="run",
         enabled=True,
         base=base or SimpleNamespace(patch_signature="same"),
         hires=hires or SimpleNamespace(patch_signature="same"),
@@ -173,7 +172,7 @@ def test_an_unreadable_template_file_is_never_overwritten(tmp_path, monkeypatch)
 
     module = _load()
     monkeypatch.setattr(paths_internal, "data_path", str(tmp_path))
-    user_file = module._template_file()
+    user_file = module._TEMPLATES.path()
     user_file.parent.mkdir(parents=True, exist_ok=True)
     user_file.write_text('{"mine": ', encoding="utf-8")  # e.g. an interrupted older write
 

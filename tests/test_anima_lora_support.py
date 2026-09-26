@@ -8,8 +8,10 @@ from modules.anima_lora_support import (
     anima_lora_block_count,
     anima_model_block,
     anima_source_block,
+    clamp,
     current_sampling_position,
     merge_consistent_rules,
+    to_float,
 )
 
 
@@ -67,7 +69,7 @@ def test_block_mappings_match_the_lora_loader():
     import ast
     import pathlib
 
-    source = pathlib.Path("extensions-builtin/sd_forge_lora/networks.py").read_text(encoding="utf-8")
+    source = (pathlib.Path(__file__).parents[1] / "extensions-builtin" / "sd_forge_lora" / "networks.py").read_text(encoding="utf-8")
     tables = {
         node.targets[0].id: tuple(ast.literal_eval(node.value))
         for node in ast.walk(ast.parse(source))
@@ -295,3 +297,8 @@ def test_batch_prompt_rewrite_is_all_or_nothing():
     with pytest.raises(ValueError):
         rewrite_batch_prompts(p, lambda prompts: ["x"] * len(prompts), conflict)
     assert (p.prompts, p.all_prompts, p.all_hr_prompts) == (["B"], ["a", "B"], ["ha", "hb!"])
+
+
+def test_to_float_falls_back_on_what_is_not_a_number():
+    assert [to_float(value, 3.0) for value in (None, "", "x", [1], "0.5", 2, True)] == [3.0, 3.0, 3.0, 3.0, 0.5, 2.0, 1.0]
+    assert clamp(5, 0, 1) == 1 and clamp(-1, 0, 1) == 0 and clamp(0.5, 0, 1) == 0.5

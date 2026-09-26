@@ -30,7 +30,7 @@ Anima 画师串调度混合是一个 Forge Neo 扩展，用来让 Anima 的画�
 
 ## 设置与模板
 
-修改任意主要控件时，插件会把当前状态写入本地 `artist_mixer_current_settings.json`。该文件已加入 git 忽略，只用于刷新 UI 或重启后恢复你的上次面板状态。
+修改任意主要控件时，插件会把当前状态写入本地 `artist_mixer_current_settings.json`。该文件位于 `<数据目录>/extension-data/anima-artist-scheduled-mixer/`（与已保存的模板 `artist_mixer_templates.json` 放在一起），不在插件文件夹里，只用于刷新 UI 或重启后恢复你的上次面板状态。
 
 点击 `全部恢复默认` 会清除当前设置文件并恢复插件内置默认值。该操作不会删除模板文件。
 

@@ -26,15 +26,13 @@ from lib_artist_mixer.schedule import (
     CURVE_SMOOTH,
     CURVE_TRIANGLE,
     curve_factor,
-    clamp as _clamp,
-    to_float as _to_float,
     parse_inline_weight as _parse_inline_weight,
     parse_blocks as _parse_blocks,
 )
 from modules import script_callbacks, scripts, shared, spectrum_force
 from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
-from modules.anima_lora_support import sigma_progress, stage_window
-from modules.anima_user_data import UnreadableDataFile, data_file, read_json_object, write_json_atomic
+from modules.anima_lora_support import UI_LANGUAGES, clamp as _clamp, register_language_option, sigma_progress, stage_window, to_float as _to_float, ui_language, ui_text
+from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
 from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY, call_model_wrapper, conditioning_cache_key, effective_prompt_batch, encode_extra_prompts, negpip_mask_for, register_negpip_prompts
 from modules.forward_override import install_forward_override, restore_forward_override
@@ -46,9 +44,8 @@ EXTENSION_DIR = Path(__file__).resolve().parents[1]
 _DATA_NAME = "anima-artist-scheduled-mixer"
 
 
-def _template_file():
-    # Templates earlier versions kept in the extension folder seed the user copy
-    return data_file(_DATA_NAME, "artist_mixer_templates.json", seed=EXTENSION_DIR / "artist_mixer_templates.json")
+# Templates earlier versions kept in the extension folder seed the user copy
+_TEMPLATES = TemplateStore(_DATA_NAME, "artist_mixer_templates.json", seed=EXTENSION_DIR / "artist_mixer_templates.json")
 
 
 def _current_settings_file():
@@ -56,7 +53,6 @@ def _current_settings_file():
 REFERENCE_URL = "https://github.com/An1X3R/Anima-Artist-Mixer"
 
 LANGUAGE_OPTION = "anima_artist_scheduled_mixer_language"
-LANGUAGE_CHOICES = ("zh", "en")
 
 FUSION_INTERPOLATE = "interpolate"
 FUSION_CONCAT_WITH_BASE = "concat_with_base"
@@ -356,16 +352,15 @@ HELP_ZH = """
 
 
 def _language():
-    value = getattr(shared.opts, LANGUAGE_OPTION, "zh")
-    return value if value in LANGUAGE_CHOICES else "zh"
+    return ui_language(LANGUAGE_OPTION)
 
 
 def _t(key):
-    return LANG.get(_language(), LANG["zh"]).get(key, key)
+    return ui_text(LANG, LANGUAGE_OPTION, key)
 
 
 def _choice_to_language(language):
-    if language in LANGUAGE_CHOICES:
+    if language in UI_LANGUAGES:
         return language
     return "zh" if language == "中文" else "en"
 
@@ -472,69 +467,21 @@ def _rows_from_components(*values):
     return rows
 
 
-def _component_values_from_rows(rows, shift=3.0, optimization=OPT_BALANCE, count=None):
+def _component_values_from_rows(rows, shift=3.0, optimization=OPT_BALANCE, count=None, columns=None):
+    """Updates of every row component: all columns, showing the first ``count``
+    rows and hiding the rest; or only ``columns`` of the shown rows."""
     normalized = _normalize_rows(rows, MAX_ARTIST_ROWS, shift, optimization, display=True)
     if count is None:
         count = len(_coerce_table(rows)) or 1
     count = _row_count(count)
     updates = []
     for index, row in enumerate(normalized):
-        visible = index < count
-        updates.extend(
-            [
-                gr.update(value=row[0], visible=visible, interactive=True),
-                gr.update(value=row[1], visible=visible, interactive=True),
-                gr.update(value=row[2], visible=visible, interactive=True),
-                gr.update(value=row[3], visible=visible, interactive=True),
-                gr.update(value=row[4], visible=visible, interactive=True),
-                gr.update(value=row[5], visible=visible, interactive=True),
-                gr.update(value=row[6], visible=visible, interactive=True),
-                gr.update(value=row[7], visible=visible, interactive=True),
-                gr.update(value=row[8], visible=visible, interactive=True),
-                gr.update(value=row[9], visible=visible, interactive=True),
-            ]
-        )
-    return updates
-
-
-def _timing_values_from_rows(rows, shift=3.0, optimization=OPT_BALANCE, count=None):
-    normalized = _normalize_rows(rows, MAX_ARTIST_ROWS, shift, optimization, display=True)
-    if count is None:
-        count = len(_coerce_table(rows)) or 1
-    count = _row_count(count)
-    updates = []
-    for index, row in enumerate(normalized):
-        if index < count:
-            updates.extend(
-                [
-                    gr.update(value=row[4], interactive=True),
-                    gr.update(value=row[5], interactive=True),
-                    gr.update(value=row[6], interactive=True),
-                ]
-            )
+        if columns is None:
+            updates.extend(gr.update(value=value, visible=index < count, interactive=True) for value in row)
+        elif index < count:
+            updates.extend(gr.update(value=row[column], interactive=True) for column in columns)
         else:
-            updates.extend([gr.update(), gr.update(), gr.update()])
-    return updates
-
-
-def _block_timing_values_from_rows(rows, shift=3.0, optimization=OPT_BALANCE, count=None):
-    normalized = _normalize_rows(rows, MAX_ARTIST_ROWS, shift, optimization, display=True)
-    if count is None:
-        count = len(_coerce_table(rows)) or 1
-    count = _row_count(count)
-    updates = []
-    for index, row in enumerate(normalized):
-        if index < count:
-            updates.extend(
-                [
-                    gr.update(value=row[3], interactive=True),
-                    gr.update(value=row[4], interactive=True),
-                    gr.update(value=row[5], interactive=True),
-                    gr.update(value=row[6], interactive=True),
-                ]
-            )
-        else:
-            updates.extend([gr.update(), gr.update(), gr.update(), gr.update()])
+            updates.extend(gr.update() for _ in columns)
     return updates
 
 
@@ -547,7 +494,7 @@ def _resize_row_components(count, shift, optimization, *values):
 def _apply_shift_to_timing_components(count, shift, optimization, *values):
     rows = _rows_from_components(*values)
     count = _row_count(count, len(rows) or 1)
-    return _timing_values_from_rows(rows, shift, optimization, count)
+    return _component_values_from_rows(rows, shift, optimization, count, columns=(4, 5, 6))
 
 
 def _default_blocks_for_optimization(optimization):
@@ -568,7 +515,7 @@ def _apply_optimization_to_block_timing_components(count, shift, optimization, *
         if _to_bool(row[9], True) and _option_key("stage", row[8], PRESET_CUSTOM) != PRESET_CUSTOM:
             row[4], row[5], row[6] = _auto_stage_values(row[8], shift)
         rows[index] = row
-    return _block_timing_values_from_rows(rows, shift, optimization, count)
+    return _component_values_from_rows(rows, shift, optimization, count, columns=(3, 4, 5, 6))
 
 
 def _apply_stage_to_row_components(row_index, count, shift, optimization, *values):
@@ -650,18 +597,11 @@ def _row_outputs(row_components, offsets):
 
 
 def _register_ui_settings():
-    if LANGUAGE_OPTION not in shared.opts.data_labels:
-        shared.opts.add_option(
-            LANGUAGE_OPTION,
-            shared.OptionInfo(
-                "zh",
-                "Anima Artist Scheduled Mixer language / Anima 画师串调度混合语言",
-                gr.Radio,
-                {"choices": LANGUAGE_CHOICES},
-                section=("anima-artist-scheduled-mixer", "Anima Artist Scheduled Mixer"),
-                category_id="system",
-            ).needs_reload_ui(),
-        )
+    register_language_option(
+        LANGUAGE_OPTION,
+        "Anima Artist Scheduled Mixer language / Anima 画师串调度混合语言",
+        ("anima-artist-scheduled-mixer", "Anima Artist Scheduled Mixer"),
+    )
 
 
 script_callbacks.on_ui_settings(_register_ui_settings)
@@ -781,23 +721,18 @@ def _normalize_rows(value, row_count=None, shift=3.0, optimization=OPT_BALANCE, 
 
 def _template_data():
     """Templates for display; an unreadable file reads as empty and is left alone."""
-    try:
-        return read_json_object(_template_file())
-    except UnreadableDataFile:
-        logger.exception("Failed to load Anima artist mixer templates")
-        return {}
+    return _TEMPLATES.load()
 
 
 def _edit_templates(edit):
-    """Read the templates, let ``edit(data)`` change them and return the UI
-    result, then write them atomically. An unreadable file is never replaced."""
+    """Apply ``edit(data)``, which returns ``(template to select, status)``, to
+    the saved templates; then the dropdown (built from the file as written)
+    and the status. An unreadable file is never replaced."""
     try:
-        data = read_json_object(_template_file())
+        value, status = _TEMPLATES.edit(edit)
     except UnreadableDataFile as error:
         return _template_dropdown_update(), _t("template_file_unreadable").format(error=error)
-    result = edit(data)
-    write_json_atomic(_template_file(), data)
-    return result
+    return _template_dropdown_update(value), status
 
 
 def _template_choices():
@@ -855,7 +790,7 @@ def _save_template_record(
 
     def save(data):
         data[name] = record
-        return _template_dropdown_update(name), _t(status_key).format(name=name)
+        return name, _t(status_key).format(name=name)
 
     return _edit_templates(save)
 
@@ -906,13 +841,13 @@ def _rename_template_ui(old_name, new_name):
 
     def rename(data):
         if not old_name or old_name not in data:
-            return _template_dropdown_update(), _t("no_template_selected")
+            return None, _t("no_template_selected")
         if not new_name:
-            return _template_dropdown_update(old_name), _t("new_template_name_empty")
+            return old_name, _t("new_template_name_empty")
         if new_name != old_name and new_name in data:
-            return _template_dropdown_update(old_name), _t("template_exists").format(name=new_name)
+            return old_name, _t("template_exists").format(name=new_name)
         data[new_name] = data.pop(old_name)
-        return _template_dropdown_update(new_name), _t("renamed_template").format(name=new_name)
+        return new_name, _t("renamed_template").format(name=new_name)
 
     return _edit_templates(rename)
 
@@ -922,8 +857,8 @@ def _delete_template_ui(name):
 
     def delete(data):
         if data.pop(name, None) is None:
-            return _template_dropdown_update(), _t("no_template_deleted")
-        return _template_dropdown_update(), _t("deleted_template").format(name=name)
+            return None, _t("no_template_deleted")
+        return None, _t("deleted_template").format(name=name)
 
     return _edit_templates(delete)
 

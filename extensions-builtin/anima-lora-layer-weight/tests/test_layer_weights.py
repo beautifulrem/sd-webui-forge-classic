@@ -170,3 +170,23 @@ def test_prompt_conds_are_recomputed_when_qwen_layer_weights_change(module, monk
     assert run(True, "0-13=0.5")
     assert run(False, "0-13=0.5")
     assert not run(False, "0-13=0.7")
+
+
+def test_editing_a_disabled_tab_does_not_reload_the_loras(module, monkeypatch):
+    monkeypatch.setattr(module, "install_patch", lambda: None)
+    monkeypatch.setattr(module, "_ACTIVE_RULE", None)
+    monkeypatch.setattr(module, "_LAST_SIGNATURE", None)
+    sd_model = SimpleNamespace(current_lora_hash="compiled")
+
+    def run(block_weights, lokr_targets):
+        sd_model.current_lora_hash = "compiled"
+        p = SimpleNamespace(prompts=["<lora:cat:1>"], extra_generation_params={}, sd_model=sd_model)
+        lora_args = [False, "", True, block_weights, True, "mlp=0.5", False, "", False, "", "", ""]
+        lokr_args = [False, lokr_targets, True, block_weights, False, "", False, "", False, "", "", ""]
+        module.Script().before_process_batch(p, *lora_args, *lokr_args)
+        return sd_model.current_lora_hash != "compiled"
+
+    assert run("0-9=0.5", "")  # the first batch sets the signature
+    monkeypatch.setattr(module, "_parse_layer_weights", lambda *args: pytest.fail("parsed a disabled tab"))
+    assert not run("0-9=0.7", "dog")
+    assert not run("all=0.2", "cat")

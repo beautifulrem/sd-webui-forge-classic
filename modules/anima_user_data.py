@@ -7,13 +7,17 @@ tracked) install tree.
 
 from __future__ import annotations
 
+import copy
 import json
+import logging
 import os
 import shutil
 import tempfile
 from pathlib import Path
 
 from modules import paths_internal
+
+logger = logging.getLogger(__name__)
 
 
 class UnreadableDataFile(ValueError):
@@ -76,3 +80,38 @@ def write_json_atomic(path, data) -> None:
         except OSError:
             pass
         raise
+
+
+class TemplateStore:
+    """An extension's saved templates: one JSON object of ``name: template``
+    in ``data_file(extension, filename, seed=seed)``."""
+
+    def __init__(self, extension: str, filename: str, *, seed=None):
+        self.extension = extension
+        self.filename = filename
+        self.seed = seed
+
+    def path(self) -> Path:
+        return data_file(self.extension, self.filename, seed=self.seed)
+
+    def load(self) -> dict:
+        """The templates for display; an unreadable file reads as ``{}`` and is left alone."""
+
+        try:
+            return read_json_object(self.path())
+        except UnreadableDataFile:
+            logger.exception("Failed to read the %s templates", self.extension)
+            return {}
+
+    def edit(self, change):
+        """Apply ``change(templates)`` to the templates on disk, write them back
+        atomically if it changed them, and return its result. An unreadable
+        file raises UnreadableDataFile and is never overwritten."""
+
+        path = self.path()
+        data = read_json_object(path)
+        before = copy.deepcopy(data)
+        result = change(data)
+        if data != before:
+            write_json_atomic(path, data)
+        return result

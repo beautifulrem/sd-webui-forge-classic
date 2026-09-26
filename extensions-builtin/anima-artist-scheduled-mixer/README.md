@@ -30,7 +30,7 @@ Each row is intended to hold one artist prompt. This gives separate control over
 
 ## Settings And Templates
 
-Changing any main control updates `artist_mixer_current_settings.json` locally. That file is ignored by git and is used only to restore your last UI state after a refresh or restart.
+Changing any main control updates `artist_mixer_current_settings.json` locally. That file lives in `<data dir>/extension-data/anima-artist-scheduled-mixer/` (next to the saved templates, `artist_mixer_templates.json`), not in the extension folder, and is used only to restore your last UI state after a refresh or restart.
 
 Use `Reset all to defaults` to clear the local current-settings file and restore the built-in defaults. Template files are not deleted by reset.
 

@@ -14,7 +14,7 @@ _MODULE = []
 def module(tmp_path, monkeypatch):
     from modules import paths_internal
 
-    # _template_file() seeds <data dir>/extension-data with the bundled templates
+    # _TEMPLATES.path() seeds <data dir>/extension-data with the bundled templates
     monkeypatch.setattr(paths_internal, "data_path", str(tmp_path))
     if not _MODULE:
         spec = importlib.util.spec_from_file_location("anima_lora_stage_scheduler_factors", SCRIPT)
@@ -66,7 +66,7 @@ def test_block_weights_keep_model_indices_without_a_known_lora_layout(module):
 
 def test_added_patches_get_scheduled_per_key_strengths(module):
     config = _config(module, module.PRESET_CHARACTER_ALLOW, panel=BLOCKS)
-    state = module.RuntimeState(SimpleNamespace(), "run", True, config, config, module.DISABLE_NONE, [], False)
+    state = module.RuntimeState(SimpleNamespace(), True, config, config, module.DISABLE_NONE, [], False)
     qwen = "text_encoders.qwen3_06b.model.layers.2.mlp.up_proj.weight"
     keys = [_block(10), _block(51), qwen]
     destination = {key: [SimpleNamespace(patch=[(0.8, object(), 1.0, None, None)])] for key in keys}
@@ -131,7 +131,7 @@ def test_prompt_lora_tags_get_the_panel_multiplier(module):
 
 def test_batch_rewrite_touches_the_current_batch_and_hires_tags_can_be_dropped(module):
     config = _config(module, module.PRESET_CHARACTER_ALLOW, panel="0.5")
-    state = module.RuntimeState(None, "run", True, config, config, module.DISABLE_SELECTED, ["<lora:dog:1>"], False)
+    state = module.RuntimeState(None, True, config, config, module.DISABLE_SELECTED, ["<lora:dog:1>"], False)
     p = SimpleNamespace(
         iteration=1, batch_size=1, enable_hr=True,
         prompts=["<lora:cat:1>"], all_prompts=["<lora:a:1>", "<lora:cat:1>"],
@@ -178,7 +178,7 @@ def test_hires_fix_reloads_loras_only_when_the_passes_differ(module, monkeypatch
     p = SimpleNamespace(sd_model=sd_model, enable_hr=True, extra_network_data=base_data, hr_extra_network_data=hires_data)
     base = _config(module, module.PRESET_CHARACTER_ALLOW, panel=BLOCKS)
     hires = _config(module, module.PRESET_STYLE_ALLOW, panel=hires_panel, shift=5.0)
-    p._anima_lora_stage_scheduler_state = module.RuntimeState(p, "run", True, base, hires, module.DISABLE_NONE, [], False)
+    p._anima_lora_stage_scheduler_state = module.RuntimeState(p, True, base, hires, module.DISABLE_NONE, [], False)
 
     for _batch in range(2):
         loads.append(0)
@@ -193,7 +193,7 @@ def test_shared_patches_follow_the_timing_of_the_current_pass(module, monkeypatc
     p = SimpleNamespace(is_hr_pass=False)
     base = _config(module, module.PRESET_CHARACTER_ALLOW, panel=BLOCKS)  # window 0.20-0.74
     hires = _config(module, module.PRESET_STYLE_ALLOW, panel=BLOCKS)  # window 0.62-1.00
-    state = module.RuntimeState(p, "run", True, base, hires, module.DISABLE_NONE, [], False)
+    state = module.RuntimeState(p, True, base, hires, module.DISABLE_NONE, [], False)
     strength = module.ScheduledStrength(1.0, "x.safetensors", state.patch_pass("base"))
     state.register(strength)
     monkeypatch.setattr(module, "_ACTIVE_STATE", state)
@@ -299,3 +299,19 @@ def test_auto_detect_schedules_anima_lokrs_too(module, tmp_path):
 
     assert config.file_matches(str(lokr), frozenset())
     assert not config.file_matches(str(sdxl), frozenset())
+
+
+def test_template_dropdowns_show_the_templates_as_saved(module):
+    builtins = list(module.BUILTIN_TEMPLATES)
+
+    *dropdowns, status = module._save_template_ui("mine", True, builtins[0], 0.0, 1.0, 0.5, 1.0, module.CURVE_SMOOTH)
+    assert status == "已保存模板：mine" and len(dropdowns) == 3
+    assert all("mine" in dropdown["choices"] and dropdown["value"] == "mine" for dropdown in dropdowns)
+
+    *dropdowns, status = module._rename_template_ui("mine", "renamed")
+    assert all("renamed" in dropdown["choices"] and "mine" not in dropdown["choices"] and dropdown["value"] == "renamed" for dropdown in dropdowns)
+
+    *dropdowns, status = module._delete_template_ui("renamed")
+    assert status == "已删除模板：renamed"
+    assert all("renamed" not in dropdown["choices"] for dropdown in dropdowns)
+    assert "renamed" not in module._load_custom_templates()

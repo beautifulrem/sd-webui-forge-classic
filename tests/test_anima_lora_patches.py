@@ -71,7 +71,7 @@ def test_layer_weight_and_stage_scheduler_compose_in_either_order(tmp_path, monk
 
     monkeypatch.setattr(layer, "_ACTIVE_RULE", SimpleNamespace(decision_for_lora=lambda filename: SimpleNamespace(apply=True), factor_for_key=lambda key, decision, blocks: LAYER_FACTORS[key]))
     config = stage._build_pass_config(stage.MODE_PROMPT_ALL, "", "modules=mlp=0.5", stage.PRESET_CHARACTER_ALLOW, "", True, None, 0.2, 0.8, 0.5, 1.0, stage.CURVE_SMOOTH, 3.0)
-    monkeypatch.setattr(stage, "_ACTIVE_STATE", stage.RuntimeState(SimpleNamespace(), "run", True, config, config, stage.DISABLE_NONE, [], False))
+    monkeypatch.setattr(stage, "_ACTIVE_STATE", stage.RuntimeState(SimpleNamespace(), True, config, config, stage.DISABLE_NONE, [], False))
     patcher = SimpleNamespace(model=SimpleNamespace(diffusion_model=None), weight_wrapper_patches={}, patches={})
 
     base.ModelPatcher.add_patches(patcher, {key: object() for key in LAYER_FACTORS}, strength_patch=0.8, filename="x.safetensors", online_mode=True)

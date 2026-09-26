@@ -235,6 +235,11 @@ class AdapterRule:
     ):
         self.adapter_kind = adapter_kind
         self.enabled = bool(enabled)
+        if not self.enabled:
+            # A disabled tab weights nothing: its fields are not parsed, and
+            # editing them must not change the signature (a LoRA reload)
+            target_loras = block_weights = module_weights = text_layer_weights = ""
+            block_enabled = module_enabled = text_layer_enabled = False
         self.targets = _parse_targets(target_loras)
         self.block_enabled = bool(block_enabled)
         self.module_enabled = bool(module_enabled)

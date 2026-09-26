@@ -20,6 +20,19 @@ script_hooks: dict = {}
 LORA_TAG_RE = re.compile(r"<lora:([^:>]+)(?::([^>]*))?>")
 
 
+def clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+def to_float(value, fallback=0.0):
+    """``float(value)``, or ``fallback`` when it is not a number (None, "", text)."""
+
+    try:
+        return float(value)
+    except Exception:
+        return fallback
+
+
 def active_template_parts(auto_timing: bool, parts):
     """Manual timing owns the single GUI window and must ignore preset parts."""
 
@@ -181,9 +194,6 @@ def stage_window(stage: str, shift: float) -> tuple[float, float, float]:
     Shift 3.0 is Forge's common default; higher shift keeps useful structure
     later in the denoise path, so the windows move slightly later."""
 
-    def clamp(value: float, low: float, high: float) -> float:
-        return max(low, min(high, value))
-
     move = clamp((clamp(float(shift), 1.0, 24.0) - 3.0) / 21.0, -0.10, 1.0) * 0.12
     if stage == "composition":
         start = 0.0
@@ -207,9 +217,6 @@ def window_curve_factor(progress: float, start: float, end: float, peak: float, 
 
     The stage scheduler's front / back curves fade out completely (floor 0);
     the artist mixer's keep a quarter of the artist (floor 0.25)."""
-
-    def clamp(value: float, low: float, high: float) -> float:
-        return max(low, min(high, value))
 
     start, end = sorted((clamp(start, 0.0, 1.0), clamp(end, 0.0, 1.0)))
     if progress < start or progress > end:

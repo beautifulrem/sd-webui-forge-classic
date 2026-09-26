@@ -3,7 +3,7 @@ import os
 import pytest
 
 from modules import anima_user_data, paths_internal
-from modules.anima_user_data import UnreadableDataFile, data_file, read_json_object, write_json_atomic
+from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
 
 
 def test_data_file_lives_in_the_data_dir_and_is_seeded_once(tmp_path, monkeypatch):
@@ -44,3 +44,24 @@ def test_atomic_write_keeps_permissions_and_leaves_no_temp_file(tmp_path, monkey
         write_json_atomic(path, {"a": 3})
     assert read_json_object(path) == {"a": 2}
     assert [entry.name for entry in tmp_path.iterdir()] == ["state.json"]
+
+
+def test_template_store_edits_in_place_and_never_replaces_an_unreadable_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths_internal, "data_path", str(tmp_path))
+    store = TemplateStore("some-extension", "templates.json")
+    assert store.load() == {}
+
+    assert store.edit(lambda data: data.setdefault("mine", {"a": 1}) and "saved") == "saved"
+    assert store.load() == {"mine": {"a": 1}}
+    writes = []
+    monkeypatch.setattr(anima_user_data, "write_json_atomic", lambda path, data: writes.append(data))
+    store.edit(lambda data: data.get("missing"))  # nothing changed: nothing written
+    assert writes == []
+    monkeypatch.undo()
+
+    monkeypatch.setattr(paths_internal, "data_path", str(tmp_path))
+    store.path().write_text('{"mine": ', encoding="utf-8")
+    assert store.load() == {}
+    with pytest.raises(UnreadableDataFile):
+        store.edit(lambda data: data.update(new=1))
+    assert store.path().read_text(encoding="utf-8") == '{"mine": '

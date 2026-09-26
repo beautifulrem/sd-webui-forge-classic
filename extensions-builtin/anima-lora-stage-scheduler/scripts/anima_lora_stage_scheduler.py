@@ -10,7 +10,7 @@ import gradio as gr
 from modules import script_callbacks, scripts
 from modules.anima_lora_files import adapter_kind_for_file, is_anima_adapter_file, lora_coverage
 from modules.anima_online_lora import acquire_online_lora, online_lora_leased_by_other_than, release_online_lora, user_online_lora
-from modules.anima_user_data import UnreadableDataFile, data_file, read_json_object, write_json_atomic
+from modules.anima_user_data import TemplateStore, UnreadableDataFile
 from modules.anima_lora_support import (
     LORA_TAG_RE,
     LayerWeights,
@@ -38,6 +38,8 @@ from modules.anima_lora_support import (
     model_key as _model_key,
     qwen_layer_index as _qwen_layer_index,
     stage_window,
+    clamp as _clamp,
+    to_float as _to_float,
     intro_block,
     register_language_option,
     ui_language,
@@ -228,8 +230,7 @@ EXTENSION_DIR = Path(__file__).resolve().parents[1]
 BUNDLED_TEMPLATE_FILE = EXTENSION_DIR / "templates.json"
 
 
-def _template_file():
-    return data_file("anima-lora-stage-scheduler", "templates.json", seed=BUNDLED_TEMPLATE_FILE)
+_TEMPLATES = TemplateStore("anima-lora-stage-scheduler", "templates.json", seed=BUNDLED_TEMPLATE_FILE)
 
 
 MODE_AUTO_ANIMA = "自动识别 Anima LoRA"
@@ -383,10 +384,6 @@ _RELEASED_PATCHES = None
 _TEXT_ENCODER_SIGNATURE = None
 
 
-def _clamp(value, low, high):
-    return max(low, min(high, value))
-
-
 def _cleanup_runtime(p):
     """Undo ``p``'s own run. Never another's: a nested run (ADetailer) may
     carry a copied reference to the outer run's state, or none at all."""
@@ -423,13 +420,6 @@ def _note_text_encoder_signature(p, signature):
     if signature != _TEXT_ENCODER_SIGNATURE:
         _TEXT_ENCODER_SIGNATURE = signature
         invalidate_cond_caches(p)
-
-
-def _to_float(value, fallback=0.0):
-    try:
-        return float(value)
-    except Exception:
-        return fallback
 
 
 def _format_float(value):
@@ -576,24 +566,7 @@ def _parse_lora_template_overrides(text) -> dict[str, str]:
 
 def _load_custom_templates() -> dict:
     """Templates for display; an unreadable file reads as empty and is left alone."""
-    try:
-        return read_json_object(_template_file())
-    except UnreadableDataFile:
-        logger.exception("Failed to read Anima LoRA stage templates")
-        return {}
-
-
-def _editable_templates():
-    """``(templates, None)``, or ``(None, message)`` when the file cannot be
-    read: it is then never overwritten with just the one change."""
-    try:
-        return read_json_object(_template_file()), None
-    except UnreadableDataFile as error:
-        return None, f"模板文件无法读取，未做修改：{error}"
-
-
-def _save_custom_templates(data: dict):
-    write_json_atomic(_template_file(), data)
+    return _TEMPLATES.load()
 
 
 def _template_names() -> list[str]:
@@ -604,11 +577,24 @@ def _template_names() -> list[str]:
     return names
 
 
-def _template_dropdown_update(value=None):
+def _template_updates(status, value=None):
+    """The three template dropdowns (both panels' and the manager's) showing
+    the templates, ``value`` selected; and ``status``."""
     choices = _template_names()
     if value not in choices:
         value = choices[0] if choices else None
-    return gr.update(choices=choices, value=value)
+    return (*(gr.update(choices=choices, value=value) for _ in range(3)), status)
+
+
+def _edit_templates(change):
+    """Apply ``change(data)``, which returns ``(template to select, status)``,
+    to the custom templates; then ``_template_updates``. An unreadable file is
+    never overwritten with just the one change."""
+    try:
+        value, status = _TEMPLATES.edit(change)
+    except UnreadableDataFile as error:
+        return _template_updates(f"模板文件无法读取，未做修改：{error}")
+    return _template_updates(status, value)
 
 
 def _template_config(name: str) -> dict:
@@ -786,17 +772,14 @@ def _auto_timing_ui(template_name, shift_value, auto, start, end, peak, strength
 def _save_template_ui(name, auto, template_name, start, end, peak, strength, curve):
     name = str(name or "").strip()
     if not name:
-        return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), "模板名称不能为空。"
+        return _template_updates("模板名称不能为空。")
     if name in BUILTIN_TEMPLATES:
-        return _template_dropdown_update(name), _template_dropdown_update(name), _template_dropdown_update(name), "内置模板不能覆盖，请换一个名称。"
+        return _template_updates("内置模板不能覆盖，请换一个名称。", name)
 
-    data, error = _editable_templates()
-    if error:
-        return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), error
     template_name = str(template_name or "").strip()
     stage = _template_stage_from_name(template_name)
     source_parts = _template_parts(_template_config(template_name))
-    data[name] = {
+    record = {
         "auto": bool(auto),
         "stage": stage if stage in STAGE_CHOICES else STAGE_CHARACTER,
         "start": _clamp(_to_float(start), 0.0, 1.0),
@@ -806,41 +789,45 @@ def _save_template_ui(name, auto, template_name, start, end, peak, strength, cur
         "curve": curve if curve in CURVE_CHOICES else CURVE_SMOOTH,
     }
     if source_parts:
-        data[name]["parts"] = source_parts
-    _save_custom_templates(data)
-    return _template_dropdown_update(name), _template_dropdown_update(name), _template_dropdown_update(name), f"已保存模板：{name}"
+        record["parts"] = source_parts
+
+    def save(data):
+        data[name] = record
+        return name, f"已保存模板：{name}"
+
+    return _edit_templates(save)
 
 
 def _save_preset_combo_template_ui(name, selected_presets, shift_value=3.0):
     name = str(name or "").strip()
     if not name:
-        return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), "模板名称不能为空。"
+        return _template_updates("模板名称不能为空。")
     if name in BUILTIN_TEMPLATES:
-        return _template_dropdown_update(name), _template_dropdown_update(name), _template_dropdown_update(name), "内置基础预设不能覆盖，请换一个名称。"
+        return _template_updates("内置基础预设不能覆盖，请换一个名称。", name)
 
     parts, error = _parts_from_presets(selected_presets)
     if error:
-        return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), error
+        return _template_updates(error)
 
     primary = next((part for part in parts if part["mode"] == PART_ALLOW), parts[0])
     start, end, peak, strength = _auto_stage_values(primary["stage"], 3.0)
-    data, error = _editable_templates()
-    if error:
-        return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), error
-    data[name] = {
-        "auto": True,
-        "stage": primary["stage"],
-        "parts": parts,
-        "start": start,
-        "end": end,
-        "peak": peak,
-        "strength": strength,
-        "curve": primary.get("curve", STAGE_DEFAULT_CURVES.get(primary["stage"], CURVE_SMOOTH)),
-    }
-    _save_custom_templates(data)
     presets_text = " + ".join(_part_preset_display_name(part) for part in parts)
     preview = _preset_combo_preview_text(selected_presets, shift_value)
-    return _template_dropdown_update(name), _template_dropdown_update(name), _template_dropdown_update(name), f"已保存组合模板：{name} = {presets_text}\n\n{preview}"
+
+    def save(data):
+        data[name] = {
+            "auto": True,
+            "stage": primary["stage"],
+            "parts": parts,
+            "start": start,
+            "end": end,
+            "peak": peak,
+            "strength": strength,
+            "curve": primary.get("curve", STAGE_DEFAULT_CURVES.get(primary["stage"], CURVE_SMOOTH)),
+        }
+        return name, f"已保存组合模板：{name} = {presets_text}\n\n{preview}"
+
+    return _edit_templates(save)
 
 
 def _open_template_builder_ui(template_name, shift_value):
@@ -944,42 +931,38 @@ def _rename_template_ui(old_name, new_name):
     old_name = str(old_name or "").strip()
     new_name = str(new_name or "").strip()
     if not old_name:
-        return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), "没有选择模板。"
+        return _template_updates("没有选择模板。")
     if old_name in BUILTIN_TEMPLATES:
-        return _template_dropdown_update(old_name), _template_dropdown_update(old_name), _template_dropdown_update(old_name), "内置模板不能重命名。"
+        return _template_updates("内置模板不能重命名。", old_name)
     if not new_name:
-        return _template_dropdown_update(old_name), _template_dropdown_update(old_name), _template_dropdown_update(old_name), "新名称不能为空。"
+        return _template_updates("新名称不能为空。", old_name)
     if new_name in BUILTIN_TEMPLATES:
-        return _template_dropdown_update(old_name), _template_dropdown_update(old_name), _template_dropdown_update(old_name), "不能重命名为内置模板名称。"
+        return _template_updates("不能重命名为内置模板名称。", old_name)
     if new_name == old_name:
-        return _template_dropdown_update(new_name), _template_dropdown_update(new_name), _template_dropdown_update(new_name), "新旧名称相同，无需重命名。"
+        return _template_updates("新旧名称相同，无需重命名。", new_name)
 
-    data, error = _editable_templates()
-    if error:
-        return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), error
-    if old_name not in data:
-        return _template_dropdown_update(old_name), _template_dropdown_update(old_name), _template_dropdown_update(old_name), "找不到要重命名的模板。"
-    if new_name in data:
-        return _template_dropdown_update(old_name), _template_dropdown_update(old_name), _template_dropdown_update(old_name), "目标名称已存在。"
+    def rename(data):
+        if old_name not in data:
+            return old_name, "找不到要重命名的模板。"
+        if new_name in data:
+            return old_name, "目标名称已存在。"
+        data[new_name] = data.pop(old_name)
+        return new_name, f"已重命名模板：{old_name} → {new_name}"
 
-    data[new_name] = data.pop(old_name)
-    _save_custom_templates(data)
-    return _template_dropdown_update(new_name), _template_dropdown_update(new_name), _template_dropdown_update(new_name), f"已重命名模板：{old_name} → {new_name}"
+    return _edit_templates(rename)
 
 
 def _delete_template_ui(name):
     if not name:
-        return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), "没有选择模板。"
+        return _template_updates("没有选择模板。")
     if name in BUILTIN_TEMPLATES:
-        return _template_dropdown_update(name), _template_dropdown_update(name), _template_dropdown_update(name), "内置模板不能删除。"
+        return _template_updates("内置模板不能删除。", name)
 
-    data, error = _editable_templates()
-    if error:
-        return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), error
-    if name in data:
-        del data[name]
-        _save_custom_templates(data)
-    return _template_dropdown_update(), _template_dropdown_update(), _template_dropdown_update(), f"已删除模板：{name}"
+    def delete(data):
+        data.pop(name, None)
+        return None, f"已删除模板：{name}"
+
+    return _edit_templates(delete)
 
 
 def _is_anima_lora_file(filename) -> bool:
@@ -1317,7 +1300,6 @@ class ScheduledStrength:
 @dataclass
 class RuntimeState:
     p: object
-    run_id: str
     enabled: bool
     base: PassConfig
     hires: PassConfig
@@ -2108,7 +2090,6 @@ class Script(scripts.Script):
 
         state = RuntimeState(
             p=p,
-            run_id=uuid.uuid4().hex,
             enabled=True,
             base=base_config,
             hires=hires_config,
