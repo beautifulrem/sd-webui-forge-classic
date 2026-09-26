@@ -163,34 +163,32 @@ def _safe_simple_branches(branches: Sequence[int]) -> bool:
     return len(branches) in (1, 2) and len(set(branches)) == len(branches) and all(item in (0, 1) for item in branches)
 
 
-def _conditioning_signature(conditioning):
-    """Small content signature used to invalidate forecasts on prompt changes."""
-    if not isinstance(conditioning, dict):
-        return None
-    context = conditioning.get("c_crossattn")
-    if not torch.is_tensor(context):
-        return None
-    flattened = context.detach().reshape(-1)
-    if flattened.numel() == 0:
-        sample = ()
-    else:
-        stride = max(1, flattened.numel() // 16)
-        values = flattened[::stride][:16].float().cpu().tolist()
-        sample = tuple(round(float(value), 6) for value in values)
-    return tuple(context.shape), str(context.dtype), sample
-
-
 def _branch_signatures(conditioning, branches: Sequence[int]):
-    """Per-branch conditioning signatures, or None when they cannot be split."""
+    """Per-branch conditioning signatures, or None when they cannot be split.
+
+    A signature is a small content sample used to invalidate forecasts on
+    prompt changes: ``(branch shape, dtype, up to 16 strided values)``,
+    computed every call.  All branches are sampled with one gather and one
+    host transfer; each branch is a contiguous run of the flattened context.
+    """
     if not isinstance(conditioning, dict) or not branches:
         return None
     context = conditioning.get("c_crossattn")
     if not torch.is_tensor(context) or context.shape[0] % len(branches):
         return None
-    return {
-        key: _conditioning_signature({"c_crossattn": chunk})
-        for key, chunk in zip(branches, context.chunk(len(branches), dim=0))
-    }
+    count = len(branches)
+    shape = (context.shape[0] // count, *context.shape[1:])
+    per_branch = context.numel() // count
+    samples = [()] * count
+    if per_branch:
+        stride = max(1, per_branch // 16)
+        offsets = torch.arange(0, per_branch, stride, device=context.device)[:16]
+        index = (torch.arange(count, device=context.device)[:, None] * per_branch + offsets).reshape(-1)
+        values = context.detach().reshape(-1).index_select(0, index).float().cpu().tolist()
+        size = offsets.numel()
+        samples = [tuple(round(float(value), 6) for value in values[i * size : (i + 1) * size]) for i in range(count)]
+    dtype = str(context.dtype)
+    return {key: (shape, dtype, sample) for key, sample in zip(branches, samples)}
 
 
 class SpectrumState:

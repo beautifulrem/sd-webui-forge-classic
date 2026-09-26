@@ -150,3 +150,14 @@ def test_old_seven_value_presets_are_padded_with_defaults(monkeypatch):
     updates = PresetManager.get_preset("old")
     assert len(updates) == len(INFOTEXT_KEYS)
     assert [update["value"] for update in updates] == [*old, *DEFAULTS[len(old) :]]
+
+
+def test_upstream_short_argument_list_is_padded_with_defaults():
+    # Upstream Forge Neo's API arity stops before Feature History and the SEA controls.
+    short = _args(spec_m=3)[:8]
+    p = _process()
+    spectrum.SpectrumForForge().process_before_every_sampling(p, True, *short, x=torch.zeros(2, 16, 8, 8))
+    assert len(p._spectrum_states) == 1
+    assert p.extra_generation_params["spec_m"] == 3
+    assert p.extra_generation_params["spec_history_size"] == DEFAULTS[INFOTEXT_KEYS.index("spec_history_size")]
+    assert p.extra_generation_params["spec_schedule"] == "Window"

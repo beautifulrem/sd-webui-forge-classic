@@ -4,7 +4,7 @@ import gradio as gr
 from lib_spectrum import logger
 from lib_spectrum.forecaster import SpectrumNode
 from lib_spectrum.pass_context import resolve_pass_context
-from lib_spectrum.presets import CONTROLS, DEFAULT, INFOTEXT_KEYS, PresetManager
+from lib_spectrum.presets import CONTROLS, DEFAULT, DEFAULTS, INFOTEXT_KEYS, PresetManager
 
 from modules import paths, scripts, shared
 from modules.anima_presets import register_preset_control
@@ -195,7 +195,9 @@ class SpectrumForForge(scripts.Script):
         if not enable:
             return
 
-        args = list(args)
+        # API callers with upstream's shorter argument list get the defaults
+        # for the newer controls (saved presets are padded the same way).
+        args = [*args, *DEFAULTS[len(args) :]]
         degree = int(args[_DEGREE])
         minimum_history = degree + 2
         if int(args[_HISTORY]) < minimum_history:

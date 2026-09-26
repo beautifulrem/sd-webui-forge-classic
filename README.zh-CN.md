@@ -40,7 +40,7 @@ Forge Neo Remi 是 [Forge Neo](https://github.com/Haoming02/sd-webui-forge-class
 | 提示词遵循 | Cross-Attention Boost（高噪声前段放大正向提示词的 cross-attention 并做范数匹配，改善弱标签与多主体绑定） |
 | LoRA 工作流 | 分层权重、阶段调度、2B LoRA 用于 2.9B/3.8B（28/40/52 层）、提示词缩放 |
 | 稳定性 | 功能冲突解析、Hires Guard、生成元数据、安全回退 |
-| 加速 | Spectrum 预测，以及适合重复固定工作负载的 Anima per-block `torch.compile` |
+| 加速 | Spectrum 预测，以及 Anima per-block `torch.compile`（首次重新编译后，改变的分辨率与 batch size 按动态形状编译） |
 | 低比特加载 | **Diffusion in Low Bits** 中的 `float8-e4m3fn (Anima scaled)`（按张量缩放的 FP8，显存与普通 FP8 相同、精度更高）和 `int8 (Anima ConvRot)`（INT8 矩阵乘；需要 CUDA 13 或 `--enable-triton-backend`，SM 8.0+） |
 
 组合实验性方法前，请先阅读 [Remi Anima 生成与参数指南](docs/remi-anima-generation-guide.zh-CN.md)。
@@ -148,6 +148,7 @@ Remi 加固了内置扩展添加到 WebUI 服务器上的接口。使用 `--shar
 - **拒绝跨站写请求。** 所有扩展新增的接口都会拒绝来自其他站点的浏览器写请求（依据 `Origin` / `Sec-Fetch-Site`）。脚本和 API 工具不带 `Origin` 头，不受影响。其他来源的浏览器前端需要通过 `--cors-allow-origins` / `--cors-allow-origins-regex` 放行。
 - **拒绝 DNS 重绑定。** 未使用 `--listen`、`--server-name`、`--share` 或 `--ngrok` 时服务只监听本机回环地址，扩展接口只接受 `localhost` / 回环地址（或 `--cors-allow-origins` 放行的主机名）作为 `Host`。本机反向代理需要转发其中之一作为 `Host`，或用 `--cors-allow-origins` 放行其公网来源。
 - **Gradio 登录覆盖扩展接口。** 设置 `--gradio-auth` 后，Agent Scheduler、Prompt All-in-One（提示词历史、保存的 API 密钥）、TagComplete 和 Prompt Queue 的接口需要与界面相同的登录。设置 `--api-auth` 时，Agent Scheduler 仍使用 HTTP Basic 认证。
+- **对外暴露时所有扩展接口都要登录。** 使用 `--share` 或 `--ngrok` 并设置 `--gradio-auth` / `--gradio-auth-path` 时，其他扩展新增的接口同样需要界面登录。脚本和 API 工具此时用 `--api-auth` 的 HTTP Basic 凭据认证（与 `/sdapi` 相同）；未设置 `--api-auth` 时会被拒绝。本机服务对 API 工具保持开放。
 - **反向代理**需要转发公网主机名。如果代理在 `Host` 中去掉了非默认的公网端口（例如 nginx 在 `:8443` 上使用 `$host`），请同时发送 `X-Forwarded-Port`，否则界面上的保存操作会被当作跨站请求拒绝。
 - **Agent Scheduler 任务参数经过签名。** 队列任务以 pickle 保存脚本参数，因此会用本安装专属的密钥签名（`agent_scheduler_signing.key`，位于任务数据库旁）。迁移安装目录或 Docker 数据卷时，请把该文件和数据库一起带走。`/import` 只接受本安装导出的队列。任务数据库和密钥不会通过 `/file=` 对外提供。
 - **对外请求**（API 回调、图片 URL）按实际连接到的地址检查：拒绝云元数据和链路本地地址；图片 URL 遵循 Forge *设置 → API* 中的请求策略。

@@ -217,6 +217,9 @@ CLIP-L config/tokenizer. The large adapter projection runs once on CPU, and
 only the small projected vectors and per-block scale rows are used during
 sampling.
 
-Spectrum composition is explicit: modulation runs around Spectrum, while
-Spectrum forecasts features learned from actual modulated blocks. Hires passes
-strip and rebuild both pass-scoped wrappers instead of nesting stale states.
+Spectrum composition is explicit: Spectrum's model wrapper wraps the
+modulation wrapper. Actual steps call through it, so the modulated blocks run
+and Spectrum learns their features; cached steps skip the blocks and forecast
+those modulated features, then run the unmodulated final layer. Every pass
+(base, Hires) starts from Forge's post-LoRA model copy, so both wrappers are
+installed fresh per pass and never nest stale states.

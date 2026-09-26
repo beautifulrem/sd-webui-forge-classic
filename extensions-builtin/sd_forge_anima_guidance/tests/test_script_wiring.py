@@ -638,20 +638,16 @@ def test_modulation_encodes_plain_prompt_text(monkeypatch):
     assert encoded == ["a red cat", "bad", "masterpiece, detailed", "blurry"]
 
 
-def test_preset_warnings_are_visible():
-    # Forge's root logger is at ERROR: without its own handler the preset
-    # script's Turbo advice would never be shown.
+def test_guidance_warnings_are_visible():
+    # Forge's root logger is at ERROR: without its own handler Guidance's
+    # warnings would never be shown. (The preset panel's logger is tested in
+    # sd_forge_anima_presets.)
     import logging
 
-    spec = importlib.util.spec_from_file_location("anima_remi_presets_under_test", SCRIPT.with_name("anima_remi_presets.py"))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
     root = logging.getLogger()
     level = root.level
     root.setLevel(logging.ERROR)
     try:
-        assert module.logger.isEnabledFor(logging.WARNING)
-        assert module.logger.handlers and not module.logger.propagate
         guidance = logging.getLogger("AnimaGuidance")
         assert guidance.isEnabledFor(logging.WARNING) and guidance.handlers
     finally:
