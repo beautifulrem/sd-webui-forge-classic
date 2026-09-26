@@ -19,14 +19,10 @@ from modules.anima_lora_support import (
     resolve_network,
     split_weight_sections,
     anima_lora_block_count,
-    anima_source_block,
+    lora_key_factor,
     merge_consistent_rules,
     compact_text as _compact_text,
     is_plain_number as _is_plain_number,
-    block_index_from_key as _block_index_from_key,
-    module_factor as _module_factor,
-    model_key as _model_key,
-    qwen_layer_index as _qwen_layer_index,
     intro_block,
     register_language_option,
     ui_language,
@@ -140,9 +136,7 @@ DEFAULT_MODULE_WEIGHTS = "\n".join(
     ]
 )
 PRESET_SCOPE_ALL = "提示词里的全部同类型"
-PRESET_SCOPE_TARGETS = "仅目标列表"
 PRESET_SCOPE_ALL_EN = "All matching type in prompt"
-PRESET_SCOPE_TARGETS_EN = "Target list only"
 DEFAULT_PRESETS_TEXT = "\n".join(
     [
         "平衡=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,cross_attn=1.0,mlp=1.0,adaln=1.0",
@@ -335,23 +329,14 @@ class ActiveRule:
         return rule.decision_for_lora(filename)
 
     def factor_for_key(self, model_key, decision: LoraDecision, model_blocks: int | None = None) -> float:
-        key = _model_key(model_key)
-        if not key:
-            return 1.0
-
-        factor = 1.0
-        text_layer = _qwen_layer_index(key)
-        if text_layer is not None:
-            factor *= decision.text_layer_weights.factor(text_layer)
-            return factor
-
-        block_index = _block_index_from_key(key)
-        if block_index is not None:
-            block_index = anima_source_block(block_index, decision.lora_blocks, model_blocks)
-            factor *= decision.block_weights.factor(block_index)
-            factor *= _module_factor(key, decision.module_weights)
-
-        return factor
+        return lora_key_factor(
+            model_key,
+            qwen_weights=decision.text_layer_weights,
+            block_weights=decision.block_weights,
+            module_weights=decision.module_weights,
+            lora_blocks=decision.lora_blocks,
+            model_blocks=model_blocks,
+        )
 
 
 # Modules a LoRA can train in an Anima block (its LayerNorms have no weights)
@@ -595,9 +580,12 @@ def _add_patches(original, patcher, patches, strength_patch, strength_model, fil
     for patch_key, patch_value in patches.items():
         model_key = patch_key if isinstance(patch_key, str) else patch_key[0]
         groups.setdefault(rule.factor_for_key(model_key, decision, model_blocks), {})[patch_key] = patch_value
+    # The factors scale the strength the tag loads at: the run's own tags are
+    # rewritten to 1.0, while a nested run (ADetailer) loading an unrewritten
+    # <lora:x:0.6> under this rule keeps its 0.6.
     loaded = set()
     for key_strength, group in groups.items():
-        loaded.update(original(patcher, group, strength_patch=key_strength, strength_model=strength_model, filename=filename, online_mode=online_mode))
+        loaded.update(original(patcher, group, strength_patch=strength_patch * key_strength, strength_model=strength_model, filename=filename, online_mode=online_mode))
     return list(loaded)
 
 

@@ -3,9 +3,12 @@ inline-weight syntax of the Anima Artist Scheduled Mixer."""
 
 from __future__ import annotations
 
+import logging
 import re
 
 from modules.anima_lora_support import to_float, window_curve_factor
+
+logger = logging.getLogger("anima_artist_scheduled_mixer")
 
 CURVE_SMOOTH = "Smooth"
 CURVE_HOLD = "Hold"
@@ -32,9 +35,11 @@ def parse_inline_weight(text):
 def parse_blocks(text, num_blocks):
     """Per-artist block field: empty means every block, negative indices count
     from the end, full-width commas are accepted and bad parts are skipped.
+    A field that selects nothing (only bad or out-of-range parts) is the empty
+    set, with a warning: that artist mixes into no block.
     (anima_support.parse_block_list is the strict panel-level variant.)"""
     source = str(text or "").replace("，", ",").replace(" ", "")
-    if not source:
+    if not source.strip(","):
         return set(range(num_blocks))
     result = set()
     for token in source.split(","):
@@ -64,7 +69,9 @@ def parse_blocks(text, num_blocks):
                 idx += num_blocks
             if 0 <= idx < num_blocks:
                 result.add(idx)
-    return result or set(range(num_blocks))
+    if not result:
+        logger.warning("Anima artist mixer: Blocks %r selects none of blocks 0-%d; that artist is skipped", str(text), num_blocks - 1)
+    return result
 
 
 _CURVE_SHAPES = {

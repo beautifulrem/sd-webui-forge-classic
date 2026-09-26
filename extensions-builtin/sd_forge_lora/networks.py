@@ -30,7 +30,7 @@ def process_anima(lora: dict[str, torch.Tensor], blocks: int) -> bool:
 
     keys = list(lora.keys())
     for k in keys:
-        for dotted in ("diffusion_model.", "transformer.", "net."):
+        for dotted in ("diffusion_model.", "transformer.", "net.", ""):  # "": bare keys
             if k.startswith(dotted + "llm_adapter"):
                 lora["text_encoders.qwen3_06b." + k[len(dotted) :]] = lora.pop(k)
                 break

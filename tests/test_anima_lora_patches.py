@@ -71,16 +71,19 @@ def test_layer_weight_and_stage_scheduler_compose_in_either_order(tmp_path, monk
 
     monkeypatch.setattr(layer, "_ACTIVE_RULE", SimpleNamespace(decision_for_lora=lambda filename: SimpleNamespace(apply=True), factor_for_key=lambda key, decision, blocks: LAYER_FACTORS[key]))
     config = stage._build_pass_config(stage.MODE_PROMPT_ALL, "", "modules=mlp=0.5", stage.PRESET_CHARACTER_ALLOW, "", True, None, 0.2, 0.8, 0.5, 1.0, stage.CURVE_SMOOTH, 3.0)
-    monkeypatch.setattr(stage, "_ACTIVE_STATE", stage.RuntimeState(SimpleNamespace(), True, config, config, stage.DISABLE_NONE, [], False))
+    # Loaded by the scheduled run's own activation (see _activate)
+    state = stage.RuntimeState(SimpleNamespace(), True, config, config, stage.DISABLE_NONE, [], False, current_activation_pass="base")
+    monkeypatch.setattr(stage, "_ACTIVE_STATE", state)
     patcher = SimpleNamespace(model=SimpleNamespace(diffusion_model=None), weight_wrapper_patches={}, patches={})
 
     base.ModelPatcher.add_patches(patcher, {key: object() for key in LAYER_FACTORS}, strength_patch=0.8, filename="x.safetensors", online_mode=True)
 
     entries = {key: entry.patch[0][0] for key, (entry,) in patcher.weight_wrapper_patches.items()}
-    assert {key: float(strength) for key, strength in entries.items()} == {
-        _block(3, "mlp.layer1"): 0.5 * 0.5,  # layer factor, times the stage panel's module weight
-        _block(3, "self_attn.q_proj"): 1.0,
-        _block(20, "mlp.layer2"): 0.25 * 0.5,
-        "text_encoders.qwen3_06b.model.layers.2.mlp.up_proj.weight": 0.3,  # the panel sets no qwen weights
-    }
+    # The tag's 0.8 times the layer factor, times the stage panel's module weight
+    assert {key: float(strength) for key, strength in entries.items()} == pytest.approx({
+        _block(3, "mlp.layer1"): 0.8 * 0.5 * 0.5,
+        _block(3, "self_attn.q_proj"): 0.8 * 1.0,
+        _block(20, "mlp.layer2"): 0.8 * 0.25 * 0.5,
+        "text_encoders.qwen3_06b.model.layers.2.mlp.up_proj.weight": 0.8 * 0.3,  # the panel sets no qwen weights
+    })
     assert all(isinstance(entries[key], stage.ScheduledStrength) for key in LAYER_FACTORS if ".blocks." in key)

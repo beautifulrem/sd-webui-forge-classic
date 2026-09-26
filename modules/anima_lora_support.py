@@ -7,6 +7,8 @@ import math
 import re
 from dataclasses import dataclass, field
 
+from modules.anima_support import parse_block_list
+
 logger = logging.getLogger(__name__)
 
 # Implementations behind the Anima LoRA scripts' ModelPatcher.add_patches and
@@ -202,6 +204,23 @@ def anima_model_block(index: int, reference_blocks: int, model_blocks: int | Non
     if mapping is None or index not in mapping:
         return index
     return mapping.index(index)
+
+
+# The layout block selections are written in
+REFERENCE_BLOCKS = 28
+
+
+def model_block_set(text, total: int, *, feature: str) -> set[int]:
+    """Model blocks of a block selection such as ``"0-3,7"`` written in the
+    2B (28-block) layout, on a model of ``total`` blocks. On the depth-expanded
+    2.9B/3.8B models a block brings its inserted copies along, so a band
+    covers the same depth of any model; other depths take the indices as
+    written. Parsed and rejected like ``anima_support.parse_block_list``."""
+
+    if (REFERENCE_BLOCKS, total) not in ANIMA_BLOCK_MAPPINGS:
+        return parse_block_list(text, total, feature=feature)
+    selected = parse_block_list(text, REFERENCE_BLOCKS, feature=feature)
+    return {index for index in range(total) if anima_source_block(index, REFERENCE_BLOCKS, total) in selected}
 
 
 def stage_window(stage: str, shift: float) -> tuple[float, float, float]:
@@ -434,6 +453,38 @@ def qwen_layer_index(key: str) -> int | None:
     if not match:
         return None
     return int(match.group(1))
+
+
+def lora_key_factor(
+    key,
+    fallback=1.0,
+    *,
+    qwen_weights: LayerWeights | None = None,
+    block_weights: LayerWeights | None = None,
+    module_weights: dict[str, float] | None = None,
+    lora_blocks: int | None = None,
+    model_blocks: int | None = None,
+):
+    """Strength of the LoRA patch at ``key`` under per-layer weights: a
+    text-encoder layer's from ``qwen_weights``, a DiT block's from
+    ``block_weights`` times its module's from ``module_weights``. A part left
+    None (not set) keeps ``fallback``, as does any other key.
+
+    Block weights are written in the LoRA's own layout: on a depth-expanded
+    model they follow ``anima_source_block``."""
+
+    key = model_key(key)
+    qwen_layer = qwen_layer_index(key)
+    if qwen_layer is not None:
+        return qwen_weights.factor(qwen_layer) if qwen_weights is not None else fallback
+
+    block_index = block_index_from_key(key)
+    if block_index is None:
+        return fallback
+    factor = block_weights.factor(anima_source_block(block_index, lora_blocks, model_blocks)) if block_weights is not None else fallback
+    if module_weights is not None:
+        factor = factor * module_factor(key, module_weights)
+    return factor
 
 
 # region Layer weight syntax

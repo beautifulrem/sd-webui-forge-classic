@@ -34,6 +34,14 @@ def test_block_field_syntax():
     assert parse_blocks("3-1, x, 9", 5) == {1, 2, 3}
 
 
+def test_a_block_field_selecting_nothing_is_no_block(caplog):
+    assert parse_blocks(" ，", 4) == {0, 1, 2, 3}  # only separators: an empty field
+    with caplog.at_level("WARNING"):
+        assert parse_blocks("x", 28) == set()
+        assert parse_blocks("30-40", 28) == set()  # past the 2B layout
+    assert "selects none" in caplog.text
+
+
 def test_inline_weight_syntax():
     assert parse_inline_weight("(artist:1.2)") == ("artist", 1.2)
     assert parse_inline_weight("artist：0.5") == ("artist", 0.5)

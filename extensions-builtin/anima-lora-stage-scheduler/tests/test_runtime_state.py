@@ -16,7 +16,9 @@ def _load():
     return module
 
 
-def _state(module, process, base=None, hires=None, outer_state=None):
+def _state(module, process, base=None, hires=None, outer_state=None, activation_pass=None):
+    """``activation_pass``: the pass of the run's own extra-network activation
+    in progress (see _activate), during which it loads its LoRAs."""
     return module.RuntimeState(
         p=process,
         enabled=True,
@@ -25,6 +27,7 @@ def _state(module, process, base=None, hires=None, outer_state=None):
         hr_disable_mode="",
         hr_disable_tags=[],
         original_online_lora=False,
+        current_activation_pass=activation_pass,
         outer_state=outer_state,
     )
 
@@ -195,7 +198,7 @@ def test_a_reloaded_module_drives_the_wrappers_an_earlier_copy_installed(monkeyp
     key = "diffusion_model.blocks.0.mlp.layer1.weight"
     panel = SimpleNamespace(has_block=False, strength_for_key=lambda *args: 0.25)
     config = SimpleNamespace(patch_signature="same", file_matches=lambda filename, names: True, panel_weight=panel, panel_weight_nonzero=True)
-    monkeypatch.setattr(module, "_ACTIVE_STATE", _state(module, SimpleNamespace(), base=config))
+    monkeypatch.setattr(module, "_ACTIVE_STATE", _state(module, SimpleNamespace(), base=config, activation_pass="base"))
     patcher = SimpleNamespace(model=SimpleNamespace(state_dict=lambda: {key: None}), patches={})
 
     ModelPatcher.add_patches(patcher, {key: object()}, filename="x.safetensors", online_mode=False)
@@ -218,7 +221,7 @@ def test_only_scheduled_loras_are_patched_online(monkeypatch):
     module = _load()
     module.install_patch()
     config = SimpleNamespace(patch_signature="same", file_matches=lambda filename, names: filename == "scheduled.safetensors", panel_weight=SimpleNamespace(has_block=False))
-    state = _state(module, SimpleNamespace(), base=config)  # the user runs LoRAs offline
+    state = _state(module, SimpleNamespace(), base=config, activation_pass="base")  # the user runs LoRAs offline
     monkeypatch.setattr(module, "_ACTIVE_STATE", state)
     patcher = SimpleNamespace(patches={}, weight_wrapper_patches={})
     for filename in ("scheduled.safetensors", "other.safetensors"):
@@ -286,7 +289,7 @@ def test_loras_the_scheduler_leaves_stay_online_while_freefuse_needs_them(monkey
     # Target list only: FreeFuse's subjects are a listed LoRA, an off-list one and a LoKr
     config = SimpleNamespace(patch_signature="same", file_matches=lambda filename, names: filename == "listed.safetensors", panel_weight=SimpleNamespace(has_block=False))
     process = SimpleNamespace()
-    state = _state(module, process, base=config)  # the user runs LoRAs offline
+    state = _state(module, process, base=config, activation_pass="base")  # the user runs LoRAs offline
     monkeypatch.setattr(module, "_ACTIVE_STATE", state)
     anima_online_lora.acquire_online_lora(process, module.ONLINE_LORA_OWNER)
     anima_online_lora.acquire_online_lora(process, "anima_freefuse")
@@ -318,6 +321,39 @@ def test_a_nested_run_samples_the_loaded_patches_at_their_plain_strength(monkeyp
     assert float(strength) == 0.8
 
 
+def test_a_nested_run_loads_its_loras_at_their_own_strength(monkeypatch):
+    from backend.patcher.base import ModelPatcher
+    from modules import extra_networks
+
+    key = "diffusion_model.blocks.0.mlp.layer1.weight"
+    patcher = SimpleNamespace(model=SimpleNamespace(state_dict=lambda: {key: None}), patches={})
+
+    def load_networks(p, extra_network_data):  # every run's prompt: <lora:x:0.6>
+        ModelPatcher.add_patches(patcher, {key: object()}, 0.6, filename="x.safetensors", online_mode=False)
+
+    monkeypatch.setattr(ModelPatcher, "add_patches", ModelPatcher.add_patches)
+    monkeypatch.setattr(extra_networks, "activate", load_networks)
+    module = _load()
+    module.install_patch()
+    panel = SimpleNamespace(has_block=False, strength_for_key=lambda *args: 0.25)
+    config = SimpleNamespace(patch_signature="same", file_matches=lambda filename, names: True, panel_weight=panel, panel_weight_nonzero=True)
+    outer = SimpleNamespace(sd_model=SimpleNamespace(current_lora_hash=None), enable_hr=False, extra_network_data=object())
+    state = _state(module, outer, base=config)
+    outer._anima_lora_stage_scheduler_state = state
+    monkeypatch.setattr(module, "_ACTIVE_STATE", state)
+
+    extra_networks.activate(outer, outer.extra_network_data)
+    # ADetailer's detailing runs, the scheduler not among their scripts: a new
+    # p, and a copied one still carrying the outer run's state
+    fresh = SimpleNamespace(sd_model=outer.sd_model, enable_hr=False, extra_network_data=object())
+    copied = copy.copy(outer)
+    copied.extra_network_data = object()
+    for nested in (fresh, copied):
+        extra_networks.activate(nested, nested.extra_network_data)
+
+    assert [patch[0] for patch in patcher.patches[key]] == [0.25, 0.6, 0.6]
+
+
 def test_loras_scheduled_by_lora_control_are_left_to_it(monkeypatch):
     from backend.patcher.base import ModelPatcher
     from modules import anima_lora_support, extra_networks
@@ -339,7 +375,7 @@ def test_loras_scheduled_by_lora_control_are_left_to_it(monkeypatch):
     module.install_patch()
     config = SimpleNamespace(patch_signature="same", file_matches=lambda filename, names: True, panel_weight=SimpleNamespace(has_block=False))
     process = SimpleNamespace(extra_generation_params={})
-    state = _state(module, process, base=config)
+    state = _state(module, process, base=config, activation_pass="base")
     monkeypatch.setattr(module, "_ACTIVE_STATE", state)
     patcher = SimpleNamespace(patches={}, weight_wrapper_patches={})
     for filename in ("scheduled.safetensors", "controlled.safetensors"):

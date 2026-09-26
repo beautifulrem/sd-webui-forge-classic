@@ -50,6 +50,14 @@ def test_block_remap_and_adapter_move_work_for_every_prefix():
         assert "text_encoders.qwen3_06b.llm_adapter.x.lora_down.weight" in lora
 
 
+def test_bare_adapter_keys_move_to_the_text_encoder():
+    lora = {f"blocks.{i}.mlp.lora_down.weight": torch.zeros(1) for i in range(28)}
+    lora["llm_adapter.blocks.0.lora_down.weight"] = adapter = torch.zeros(1)
+    assert process_anima(lora, 28)
+    assert lora.get("text_encoders.qwen3_06b.llm_adapter.blocks.0.lora_down.weight") is adapter
+    assert "llm_adapter.blocks.0.lora_down.weight" not in lora
+
+
 def test_remapped_blocks_carry_their_source_block_without_copies():
     from modules.anima_lora_support import ANIMA_BLOCK_MAPPINGS
 

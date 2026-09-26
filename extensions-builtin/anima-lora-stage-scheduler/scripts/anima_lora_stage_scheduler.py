@@ -31,13 +31,10 @@ from modules.anima_lora_support import (
     split_weight_sections,
     active_template_parts,
     anima_lora_block_count,
-    anima_source_block,
     current_sampling_position,
     is_plain_number as _is_plain_number,
-    block_index_from_key as _block_index_from_key,
-    module_factor as _module_factor,
+    lora_key_factor,
     model_key as _model_key,
-    qwen_layer_index as _qwen_layer_index,
     stage_window,
     clamp as _clamp,
     to_float as _to_float,
@@ -259,14 +256,6 @@ PRESET_CHARACTER_ALLOW = "仅人物特征阶段介入"
 PRESET_STYLE_BAN = "仅禁止画风阶段介入"
 PRESET_COMPOSITION_BAN = "仅禁止构图阶段"
 PRESET_CHARACTER_BAN = "仅禁止人物特征阶段"
-TEMPLATE_PRESET_CHOICES = [
-    PRESET_STYLE_ALLOW,
-    PRESET_COMPOSITION_ALLOW,
-    PRESET_CHARACTER_ALLOW,
-    PRESET_STYLE_BAN,
-    PRESET_COMPOSITION_BAN,
-    PRESET_CHARACTER_BAN,
-]
 BUILDER_PRESET_LABELS = {
     PRESET_STYLE_ALLOW: "单画风阶段介入",
     PRESET_COMPOSITION_ALLOW: "单构图阶段介入",
@@ -414,23 +403,15 @@ class PanelWeightSpec:
         layer-weight factor)."""
         if self.numeric is not None:
             return self.numeric
-
-        model_key = _model_key(key)
-        qwen_layer = _qwen_layer_index(model_key)
-        if qwen_layer is not None:
-            return self.qwen_weights.factor(qwen_layer) if self.has_qwen else fallback
-
-        block_index = _block_index_from_key(model_key)
-        if block_index is not None:
-            # Block weights are written in the LoRA's own layout (see
-            # anima_source_block for depth-expanded models).
-            block_index = anima_source_block(block_index, lora_blocks, model_blocks)
-            factor = self.block_weights.factor(block_index) if self.has_block else fallback
-            if self.has_module:
-                factor = factor * _module_factor(model_key, self.module_weights)
-            return factor
-
-        return fallback
+        return lora_key_factor(
+            key,
+            fallback,
+            qwen_weights=self.qwen_weights if self.has_qwen else None,
+            block_weights=self.block_weights if self.has_block else None,
+            module_weights=self.module_weights if self.has_module else None,
+            lora_blocks=lora_blocks,
+            model_blocks=model_blocks,
+        )
 
 
 def _parse_panel_weight(text) -> PanelWeightSpec:
@@ -1458,7 +1439,11 @@ def _patch_added_strengths(patch_destination, before_counts, state: RuntimeState
 
 def _add_patches(original, patcher, patches, strength_patch, strength_model, filename, online_mode):
     state = _ACTIVE_STATE
-    config = state.current_config() if state is not None and state.enabled else None
+    # Only LoRAs the scheduled run itself loads: _activate marks the pass of
+    # that run's activations alone. A nested run (ADetailer) loading its own
+    # <lora:x:0.6> keeps its strength, not the outer run's panel.
+    owned = state is not None and state.enabled and state.current_activation_pass is not None
+    config = state.current_config() if owned else None
     should_control = config is not None and config.file_matches(filename, state.file_names(filename))
     if should_control and filename in lora_control_files():
         # Forge's LoRA Control (<lora:name:[w@t,...]>) overwrites the

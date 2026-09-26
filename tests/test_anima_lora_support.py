@@ -4,13 +4,16 @@ import pytest
 
 from modules.anima_lora_support import (
     ANIMA_BLOCK_MAPPINGS,
+    LayerWeights,
     active_template_parts,
     anima_lora_block_count,
     anima_model_block,
     anima_source_block,
     clamp,
     current_sampling_position,
+    lora_key_factor,
     merge_consistent_rules,
+    model_block_set,
     to_float,
 )
 
@@ -104,6 +107,49 @@ def test_reference_blocks_land_on_the_original_block():
     for model_blocks in (40, 52):
         for index in range(28):
             assert anima_source_block(anima_model_block(index, 28, model_blocks), 28, model_blocks) == index
+
+
+@pytest.mark.parametrize(
+    "text, total, expected",
+    [
+        ("0-3,7", 28, {0, 1, 2, 3, 7}),
+        ("1", 40, {1, 2}),  # 2.9B: block 1 and its inserted copy
+        ("1", 52, {1, 2, 3}),  # 3.8B: block 1 and its two copies
+        ("27", 40, {39}),
+        ("0-27", 52, set(range(52))),
+        ("26-99", 40, {38, 39}),  # clipped to the 2B layout, then mapped
+        ("29", 30, {29}),  # an unknown depth: the indices as written
+    ],
+)
+def test_block_selections_follow_the_2b_layout_onto_the_model(text, total, expected):
+    assert model_block_set(text, total, feature="Test") == expected
+
+
+def test_block_selection_errors_name_the_feature():
+    with pytest.raises(ValueError, match="Test block selection has an invalid part 'x'"):
+        model_block_set("0,x", 40, feature="Test")
+    with pytest.raises(ValueError, match="Test block selection is empty"):
+        model_block_set("30-39", 40, feature="Test")  # past the 2B layout
+
+
+def test_lora_key_factor_weights_each_part_or_keeps_the_fallback():
+    block = "diffusion_model.blocks.2.mlp.layer1.weight"
+    qwen = "text_encoders.qwen3_06b.model.layers.4.mlp.up_proj.weight"
+    other = "diffusion_model.final_layer.linear.weight"
+    blocks = LayerWeights(default=1.0, values={1: 0.5, 2: 0.25})
+    qwen_weights = LayerWeights(default=1.0, values={4: 0.75})
+    weights = {"qwen_weights": qwen_weights, "block_weights": blocks, "module_weights": {"mlp": 0.5}}
+
+    assert lora_key_factor(block, **weights) == 0.25 * 0.5
+    assert lora_key_factor((block, 0), **weights) == 0.25 * 0.5  # an offset patch key
+    assert lora_key_factor(block, lora_blocks=28, model_blocks=40, **weights) == 0.5 * 0.5  # model block 2 is a copy of 1
+    assert lora_key_factor(qwen, **weights) == 0.75
+    assert lora_key_factor(other, 0.7, **weights) == 0.7
+    assert lora_key_factor("", 0.7, **weights) == 0.7
+    # Parts left unset keep the fallback; module weights still scale it
+    assert lora_key_factor(block, 0.7) == 0.7
+    assert lora_key_factor(qwen, 0.7, block_weights=blocks) == 0.7
+    assert lora_key_factor(block, 0.8, module_weights={"mlp": 0.5}) == 0.8 * 0.5
 
 
 def test_lora_file_names_follow_the_network_index(monkeypatch, tmp_path):
