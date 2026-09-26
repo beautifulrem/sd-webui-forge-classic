@@ -33,9 +33,10 @@ def _inputs(seed=1):
     return x, emb, context, lora
 
 
-def _reference(block, x, emb, context, lora, gains, frac):
+def _reference(block, x, emb, context, lora, gains, frac, options=None):
     """anima_lora 703b34b ``Block._forward`` with ``_xattn_gain`` (per row) and
-    ``img`` renorm, on remi's Block weights (no RoPE)."""
+    ``img`` renorm, on remi's Block weights (no RoPE). ``block.cross_attn``
+    runs whatever override is installed on it, with ``options``."""
 
     silu = torch.nn.functional.silu(emb)
 
@@ -48,7 +49,7 @@ def _reference(block, x, emb, context, lora, gains, frac):
     shape = x.shape[1:4]
     result = block.self_attn(_fn(x, block.layer_norm_self_attn, scale_sa, shift_sa).flatten(1, 3), None).unflatten(1, shape)
     x = x + gate_sa * result
-    result = block.cross_attn(_fn(x, block.layer_norm_cross_attn, scale_ca, shift_ca).flatten(1, 3), context).unflatten(1, shape)
+    result = block.cross_attn(_fn(x, block.layer_norm_cross_attn, scale_ca, shift_ca).flatten(1, 3), context, transformer_options=options or {}).unflatten(1, shape)
     gain = gains.view(-1, 1, 1, 1, 1)
     x_new = result * (gate_ca * gain) + x
     if frac > 0.0:
@@ -150,19 +151,42 @@ def test_row_gains():
     assert row_gains([0, 2], 4, 2.0).flatten().tolist() == [2.0, 1.0, 2.0, 1.0]
 
 
+def test_row_gains_are_built_once_per_pass_in_the_compute_dtype(monkeypatch):
+    from lib_anima_xattn_boost import boost
+
+    built = []
+    monkeypatch.setattr(boost, "row_gains", lambda *args: built.append(args) or row_gains(*args))
+    dit = _stub_dit()
+    wrapper = apply_xattn_boost_patch(_Patcher(dit), BoostState(gain=2.0, band=0.85, renorm=0.0)).model_options["model_function_wrapper"]
+    h = torch.ones(B, 3, 4, dtype=torch.bfloat16)
+    for _ in range(3):
+        outs = wrapper(lambda *a, **k: [block(h, None, None) for block in dit.blocks], _args(1.0))
+    assert len(built) == 1  # not once per model call, nor recast per block
+    assert built[0][-1] == torch.bfloat16
+    assert all(out.dtype == torch.bfloat16 and out[:, 0, 0].tolist() == [2.0, 1.0] for out in outs)
+
+
 class _Stub(torch.nn.Module):
     def forward(self, x, *args, **kwargs):
         return x
 
 
+class _StubBlock(torch.nn.Module):
+    """Runs its cross-attention; records which forwards are overridden then."""
+
+    def __init__(self):
+        super().__init__()
+        self.self_attn, self.cross_attn = _Stub(), _Stub()
+        self.seen = []
+
+    def forward(self, x, *args, **kwargs):
+        self.seen.append(sorted(name for name, module in (("self", self.self_attn), ("cross", self.cross_attn)) if "forward" in module.__dict__))
+        return self.cross_attn(x)
+
+
 def _stub_dit(count=2):
     dit = torch.nn.Module()
-    blocks = []
-    for _ in range(count):
-        block = torch.nn.Module()
-        block.self_attn, block.cross_attn = _Stub(), _Stub()
-        blocks.append(block)
-    dit.blocks = torch.nn.ModuleList(blocks)
+    dit.blocks = torch.nn.ModuleList(_StubBlock() for _ in range(count))
     return dit
 
 
@@ -176,18 +200,23 @@ def test_forwards_are_overridden_only_inside_the_band_and_restored():
 
     def model_function(*args, **kwargs):
         seen.append(_overridden(dit))
+        for block in dit.blocks:
+            block(torch.zeros(B, 1, 1), None, None)
 
     wrapper = apply_xattn_boost_patch(_Patcher(dit), BoostState(gain=2.0, band=0.85, renorm=0.5)).model_options["model_function_wrapper"]
     wrapper(model_function, _args(1.0))
     wrapper(model_function, _args(0.85))
     wrapper(model_function, _args(0.84))
-    assert seen[0] == seen[1] == [["block", "cross", "self"]] * 2
+    # Block forwards for the model call; attention forwards for a block call
+    assert seen[0] == seen[1] == [["block"]] * 2
+    assert all(block.seen == [["cross", "self"], ["cross", "self"], []] for block in dit.blocks)
     assert seen[2] == [[], []]
     assert _overridden(dit) == [[], []]
 
     raw = apply_xattn_boost_patch(_Patcher(dit), BoostState(gain=2.0, band=0.85, renorm=0.0)).model_options["model_function_wrapper"]
     raw(model_function, _args(1.0))
-    assert seen[3] == [["cross"]] * 2
+    assert seen[3] == [["block"]] * 2
+    assert all(block.seen[-1] == ["cross"] for block in dit.blocks)
 
 
 def test_no_markers_or_uneven_batch_passes_through():
@@ -206,13 +235,14 @@ def test_forwards_are_restored_when_the_model_call_raises():
     wrapper = apply_xattn_boost_patch(_Patcher(dit), state).model_options["model_function_wrapper"]
 
     def model_function(*args, **kwargs):
-        assert "forward" in dit.blocks[0].cross_attn.__dict__
+        assert "forward" in dit.blocks[0].__dict__
+        dit.blocks[0](torch.zeros(B, 1, 1), None, None)
         raise RuntimeError("model call failed")
 
     with pytest.raises(RuntimeError, match="model call failed"):
         wrapper(model_function, _args(1.0))
     assert _overridden(dit) == [[], []]
-    assert state.gains is None and state.captured is None
+    assert state.call is None and state.captured is None
 
 
 def test_a_call_of_another_batch_is_left_alone():
@@ -251,3 +281,41 @@ def test_spectrum_is_forced_inside_the_band_only():
     force = patched.model_options["transformer_options"][spectrum_force.KEY]
     assert spectrum_force.is_forced(force, 1.0) and spectrum_force.is_forced(force, 0.85)
     assert not spectrum_force.is_forced(force, 0.8)
+
+
+@pytest.mark.parametrize("renorm", [0.0, 0.5])
+def test_composes_with_regional_in_either_wrapper_order(renorm):
+    # Regional's cross-attention override replaces the positive row with the
+    # region context's output (full coverage, strength 1). The boost scales
+    # the output the block adds, whichever wrapper installs its override
+    # first; Regional patches first in script order, so its override lands on
+    # top of a model-call boost override and used to leave the regions
+    # unboosted.
+    sys.path.insert(0, str(ROOT.parent / "sd_forge_anima_regional"))
+    from lib_anima_regional.regional import Region, RegionalState, apply_regional_patch
+
+    block = _block()
+    x, emb, context, lora = _inputs()
+    region_context = torch.randn(1, 5, CTX, generator=torch.Generator().manual_seed(5))
+
+    def regional(model):
+        state = RegionalState(regions=[Region(region_context, 0.0, 0.0, 1.0, 1.0, 1.0)], blocks={0}, feather=0.0, base_preserve=0.0, start_sigma=100.0, end_sigma=0.0)
+        return apply_regional_patch(model, state)
+
+    def boost(model):
+        return apply_xattn_boost_patch(model, BoostState(gain=2.0, band=0.85, renorm=renorm))
+
+    def run(wrap, model_function=None):
+        dit = _dit(block)
+        dit.patch_temporal = dit.patch_spatial = 1
+        wrapper = wrap(_Patcher(dit)).model_options["model_function_wrapper"]
+        with torch.no_grad():
+            return wrapper(model_function or _run(dit, x, emb, context, lora), _args(0.9))
+
+    options = {"cond_or_uncond": [0, 1]}
+    expected = run(regional, lambda *a, **k: _reference(block, x, emb, context, lora, torch.tensor([2.0, 1.0]), renorm, options))
+    regional_only = run(regional)
+    for wrap in (lambda model: boost(regional(model)), lambda model: regional(boost(model))):
+        out = run(wrap)
+        torch.testing.assert_close(out, expected, rtol=1e-5, atol=1e-5)
+        assert torch.equal(out[1], regional_only[1]) and not torch.allclose(out[0], regional_only[0])

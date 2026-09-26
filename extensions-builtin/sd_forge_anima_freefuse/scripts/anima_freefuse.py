@@ -16,7 +16,7 @@ from lib_anima_freefuse import (
 )
 from lib_anima_freefuse.runtime import has_untagged_patches, install_patch_metadata_hook
 from modules import scripts
-from modules.anima_lora_support import anima_model_block
+from modules.anima_lora_support import ANIMA_BLOCK_MAPPINGS, anima_model_block, anima_source_block
 from modules.anima_online_lora import acquire_online_lora, release_online_lora
 from modules.anima_feature_conflicts import (
     ARTIST_MIXER,
@@ -37,6 +37,23 @@ setup_logger(logger)
 
 # Name of FreeFuse's lease on Forge's online-LoRA switch
 ONLINE_LORA_OWNER = "anima_freefuse"
+# Block fields are written in the 2B (28-block) layout
+REFERENCE_BLOCKS = 28
+
+
+def bias_model_blocks(text, total_blocks: int) -> set[int]:
+    """Model blocks of the attention-bias field, written in the 2B layout.
+
+    On the depth-expanded 2.9B/3.8B models each 2B block brings its inserted
+    copies along (the Artist Mixer's semantics), so a band covers the same
+    depth of any model and "0-27" (or "0-51") means every block. Other depths
+    take the indices as model blocks."""
+
+    feature = "Anima FreeFuse attention-bias"
+    if (REFERENCE_BLOCKS, total_blocks) not in ANIMA_BLOCK_MAPPINGS:
+        return parse_block_list(str(text), total_blocks, feature=feature)
+    selected = parse_block_list(str(text), REFERENCE_BLOCKS, feature=feature)
+    return {index for index in range(total_blocks) if anima_source_block(index, REFERENCE_BLOCKS, total_blocks) in selected}
 
 
 def _loaded_patches_untagged(sd_model) -> bool:
@@ -166,7 +183,7 @@ class AnimaFreeFuseScript(scripts.Script):
                 bias_blocks = gr.Textbox(
                     "0-51",
                     label="Attention-bias blocks",
-                    info="LoRA output routing applies to all spatial LoRA layers; 0-51 covers 28-block, 40-block and 52-block Anima models because out-of-range indices are ignored.",
+                    info="In the 28-block layout; on 40/52-block Anima each block brings its inserted copies, so 0-27 (or 0-51) covers every block. LoRA output routing applies to all spatial LoRA layers.",
                 )
 
         register_exclusive_component(
@@ -426,7 +443,7 @@ class AnimaFreeFuseScript(scripts.Script):
         total_blocks = len(unet.model.diffusion_model.blocks)
         # The slider uses the 28-block (2B) layout; on the depth-expanded
         # 2.9B/3.8B models the same block sits deeper.
-        block = anima_model_block(int(collect_block), 28, total_blocks)
+        block = anima_model_block(int(collect_block), REFERENCE_BLOCKS, total_blocks)
         block = min(max(0, block), total_blocks - 1)
         state = AnimaFreeFuseState(
             adapters=adapters,
@@ -443,7 +460,7 @@ class AnimaFreeFuseScript(scripts.Script):
             routing_end=float(routing_end),
             bias_scale=float(bias_scale),
             positive_bias=float(positive_bias),
-            bias_blocks=parse_block_list(str(bias_blocks), total_blocks, feature="Anima FreeFuse attention-bias"),
+            bias_blocks=bias_model_blocks(bias_blocks, total_blocks),
         )
         p.sd_model.forge_objects.unet = apply_freefuse_patch(unet, state)
         p.extra_generation_params["Anima FreeFuse"] = (

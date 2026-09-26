@@ -6,6 +6,7 @@ import logging
 import math
 import os
 import threading
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from types import MethodType
 
@@ -18,8 +19,8 @@ from backend.patcher.base import LowVramPatch, OnlineLoRAPatch
 from backend.patcher.lora import merge_lora_to_weight
 from modules_forge.packages.comfy.weight_adapter import LoRAAdapter
 from modules import spectrum_force
-from modules.anima_support import branch_rows, call_model_wrapper, negpip_mask_for
-from modules.forward_override import forward_overrides
+from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows, call_model_wrapper, negpip_mask_for
+from modules.forward_override import cached_overrides, forward_overrides
 from .masks import fit_mask_batch, generate_masks
 
 logger = logging.getLogger("AnimaFreeFuse")
@@ -539,39 +540,56 @@ def apply_freefuse_rejection(model, error: Exception):
 def _make_cross_attention_forward(
     original, module, state: AnimaFreeFuseState, block_index: int
 ):
-    def wrapped(self, x, context=None, rope_emb=None, transformer_options={}):
-        if context is None:
-            return original(
-                x,
-                context=context,
-                rope_emb=rope_emb,
-                transformer_options=transformer_options,
-            )
-        # This override replaces the class forward NegPiP hooks, so apply its
-        # V-only negation here: K keeps the sign-restored tokens.
-        negpip_mask = negpip_mask_for(context, transformer_options)
-        q, k, v = self.compute_qkv(
-            x,
-            context,
-            rope_emb=rope_emb,
-            value_context=None if negpip_mask is None else context * negpip_mask,
-        )
-        if block_index == state.collect_block:
-            state.collect_similarity(x, q, k, transformer_options)
-        bias = (
-            state.attention_bias(q, k.shape[1], transformer_options)
-            if block_index in state.bias_blocks
-            else None
-        )
-        return self.compute_attention(
-            q,
-            k,
-            v,
-            transformer_options=transformer_options,
-            mask=bias,
-        )
+    """FreeFuse's cross-attention of block ``block_index`` around ``original``,
+    the forward the module had when this override was installed (the class
+    forward, NegPiP's, or another feature's per-call override such as the
+    Cross-Attention Boost), which keeps running.
 
-    return MethodType(wrapped, module)
+    For the duration of the call, instance overrides of ``compute_qkv`` and
+    ``compute_attention`` add FreeFuse's part: NegPiP's V-only negation when
+    the forward did not apply it, similarity collection on the collect block
+    and the concept bias on the bias blocks. A swapped-in context (a Regional
+    region or Mixer artist, marked by ``NEGPIP_CONTEXT_MASK_KEY``) holds other
+    tokens than the concept positions and is left alone.
+    """
+
+    def wrapped(x, context=None, rope_emb=None, transformer_options={}):
+        if context is None:
+            return original(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
+        overrides = []
+        # K keeps the sign-restored tokens; only V is negated.
+        negpip_mask = negpip_mask_for(context, transformer_options)
+        if negpip_mask is not None:
+            compute_qkv = module.compute_qkv
+
+            def qkv(query_input, key_context=None, rope_emb=None, value_context=None):
+                if value_context is None and key_context is context:
+                    value_context = context * negpip_mask
+                return compute_qkv(query_input, key_context, rope_emb=rope_emb, value_context=value_context)
+
+            overrides.append((module, qkv, "compute_qkv"))
+        collect = block_index == state.collect_block
+        bias_block = block_index in state.bias_blocks
+        if collect or bias_block:
+            compute_attention = module.compute_attention
+
+            def attention(q, k, v, transformer_options=None, mask=None):
+                options = transformer_options or {}
+                if NEGPIP_CONTEXT_MASK_KEY not in options:
+                    if collect:
+                        state.collect_similarity(x, q, k, options)
+                    bias = state.attention_bias(q, k.shape[1], options) if bias_block else None
+                    if bias is not None:
+                        mask = bias if mask is None else mask + bias
+                return compute_attention(q, k, v, transformer_options=transformer_options, mask=mask)
+
+            overrides.append((module, attention, "compute_attention"))
+        with ExitStack() as stack:
+            for target, method, name in overrides:
+                stack.enter_context(forward_overrides([(target, method)], name=name))
+            return original(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
+
+    return wrapped
 
 
 def _make_linear_forward(
@@ -669,30 +687,29 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
     dit = patched.model.diffusion_model
     state.validate_patches(patched)
     previous = patched.model_options.get("model_function_wrapper")
-    # Build the per-module overrides once per pass; each model call only
-    # installs and removes them (fresh closures per call are costly and
-    # defeat torch.compile guards).
-    overrides = [
-        (
-            block.cross_attn,
-            _make_cross_attention_forward(block.cross_attn.forward, block.cross_attn, state, index),
-        )
-        for index, block in enumerate(dit.blocks)
-    ]
+    # The cross-attention override wraps the forward installed at call time
+    # (e.g. the Cross-Attention Boost's, in either wrapper order), rebuilt
+    # only when that forward changes.
+    cross = cached_overrides(
+        lambda index: dit.blocks[index].cross_attn,
+        lambda original, index: _make_cross_attention_forward(original, dit.blocks[index].cross_attn, state, index),
+    )
     # Only layers that carry an adapter's LoRA (weight or bias) are routed;
-    # the rest keep their normal forward and cost nothing per call.
-    overrides.extend(
+    # the rest keep their normal forward and cost nothing per call. Built
+    # once per pass: each model call only installs and removes them.
+    linear_overrides = [
         (module, _make_linear_forward(module.forward, module, state, module_name))
         for module_name, module in dit.named_modules()
         if isinstance(module, torch.nn.Linear)
         and not state.routed_weight_keys.isdisjoint(
             (f"diffusion_model.{module_name}.weight", f"diffusion_model.{module_name}.bias")
         )
-    )
+    ]
 
     def wrapper(model_function, args):
         with _PATCH_LOCK:
             state.update_grid(args["input"], dit)
+            overrides = [*(cross(index) for index in range(len(dit.blocks))), *linear_overrides]
             with forward_overrides(overrides):
                 return call_model_wrapper(previous, model_function, args)
 

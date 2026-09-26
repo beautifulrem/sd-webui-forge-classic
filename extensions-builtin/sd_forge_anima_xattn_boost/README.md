@@ -34,13 +34,19 @@ Behavior:
   probes are gated by their own sigma like any model call.
 - All blocks are boosted, on 2B, 2.9B and 3.8B alike (only 2B was tested by
   the reference). Reference-latent frames of edit models are included.
-- Forwards are overridden only inside boosted model calls and restored
+- Forwards are overridden only inside boosted model calls (block forwards
+  for the call, attention forwards for each block call) and restored
   afterwards, also on errors. Spectrum runs actual forwards inside the band;
   per-block compile runs those steps eager. The gain and the per-image norm
   work at any latent size, so Anima SPEED keeps its half-resolution stage.
-- NegPiP, NAG, Regional, FreeFuse and Artist Mixer act inside the
-  cross-attention; the boost scales its output, so they compose (not tested
-  together on a GPU).
+- The boost installs its cross-attention hook for each block call, on top of
+  the hooks other features install per model call, so it scales the
+  cross-attention output the block actually adds whatever order the scripts
+  patch in. Composition with Regional Conditioning and FreeFuse is covered by
+  CPU tests in both wrapper orders (Regional regions and FreeFuse's concept
+  bias are boosted on the positive rows); NegPiP and NAG act inside the
+  attention the hook wraps. Artist Mixer hooks the same way as Regional but
+  has no composition test. None of these were tested together on a GPU.
 - Norm matching rescales the state after cross-attention exactly as the
   reference does; the following MLP reads it through a LayerNorm that the
   scale does not change, so the correction is applied to the block output.

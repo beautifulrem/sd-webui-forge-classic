@@ -17,7 +17,7 @@ shell the next blocks were trained on. ``frac`` 0 is the raw gain.
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import torch
 
@@ -39,12 +39,12 @@ def _sigma(value) -> float:
     return float(value.flatten()[0]) if torch.is_tensor(value) else float(value)
 
 
-def row_gains(rows, batch: int, gain: float, device=None) -> torch.Tensor:
+def row_gains(rows, batch: int, gain: float, device=None, dtype=None) -> torch.Tensor:
     """``(batch, 1, 1)`` factors: ``gain`` on ``rows``, 1 elsewhere."""
 
     gains = torch.ones(batch, 1, 1)
     gains[list(rows)] = float(gain)
-    return gains.to(device) if device is not None else gains
+    return gains.to(device=device, dtype=dtype)
 
 
 def renorm_scale(plain: torch.Tensor, boosted: torch.Tensor, frac: float) -> torch.Tensor:
@@ -64,10 +64,13 @@ class BoostState:
     gain: float
     band: float
     renorm: float
-    # (B, 1, 1) row factors of the current model call
-    gains: torch.Tensor | None = None
+    # (boosted rows, batch) of the current model call
+    call: tuple | None = None
     # self/cross-attention outputs of the block being run (norm matching)
     captured: dict | None = None
+    # (rows, batch, device, dtype) -> (B, 1, 1) row factors, built once per
+    # pass on the device in the compute dtype (the rows repeat every call)
+    cache: dict = field(default_factory=dict)
 
     def active(self, sigma) -> bool:
         if self.gain == 1.0:
@@ -79,21 +82,29 @@ class BoostState:
         # sigma >= band, with the rounding slack of spectrum_force.in_sigma_window
         return current >= self.band - max(1e-8, self.band * 1e-7)
 
+    def gains_like(self, tensor: torch.Tensor) -> torch.Tensor | None:
+        """The current call's ``(B, 1, 1)`` row factors on ``tensor``'s device
+        in its dtype; None outside a call or for a call of another batch."""
 
-def _matching_gains(state: BoostState, batch: int):
-    gains = state.gains
-    return gains if gains is not None and gains.shape[0] == batch else None
+        if self.call is None or self.call[1] != tensor.shape[0]:
+            return None
+        rows, batch = self.call
+        key = (rows, batch, tensor.device, tensor.dtype)
+        gains = self.cache.get(key)
+        if gains is None:
+            gains = self.cache[key] = row_gains(rows, batch, self.gain, tensor.device, tensor.dtype)
+        return gains
 
 
 def _make_cross_forward(original, state: BoostState):
     def forward(*args, **kwargs):
         out = original(*args, **kwargs)
-        gains = _matching_gains(state, out.shape[0])
+        gains = state.gains_like(out)
         if gains is None:  # a call of another batch (e.g. a nested probe): untouched
             return out
         if state.captured is not None:
             state.captured["cross"] = out
-        return out * gains.to(out)
+        return out * gains
 
     return forward
 
@@ -117,22 +128,31 @@ def _gate(mlp, silu_emb, adaln_lora):
     return modulation.chunk(3, dim=-1)[2][:, :, None, None, :]
 
 
-def _make_block_forward(original, block, state: BoostState):
-    """Norm matching around one block call.
+def _make_block_forward(original, block, state: BoostState, attention_overrides):
+    """The boost and norm matching around one block call.
 
-    The block runs with the boosted cross-attention; its self/cross-attention
-    outputs are captured to rebuild ``x`` (before cross-attention) and
-    ``x_new``. The reference scales ``x_new`` by ``s`` before the MLP; the MLP
-    reads it through a LayerNorm, which ``s`` does not change, so the result
-    is ``out + (s - 1) * x_new``."""
+    The attention overrides (``attention_overrides()`` pairs) go on for the
+    block call only, installed at block time: the boost's cross-attention
+    override then sits on top of every per-model-call one (Regional, Mixer,
+    FreeFuse), whatever order their wrappers run in, and scales the
+    cross-attention output the block actually adds.
+
+    For norm matching the self/cross-attention outputs are captured to
+    rebuild ``x`` (before cross-attention) and ``x_new``. The reference
+    scales ``x_new`` by ``s`` before the MLP; the MLP reads it through a
+    LayerNorm, which ``s`` does not change, so the result is
+    ``out + (s - 1) * x_new``."""
 
     def forward(x, emb, crossattn_emb, *args, **kwargs):
-        gains = _matching_gains(state, x.shape[0])
-        if gains is None:
+        if state.call is None or state.call[1] != x.shape[0]:
             return original(x, emb, crossattn_emb, *args, **kwargs)
+        if state.renorm <= 0.0:
+            with forward_overrides(attention_overrides()):
+                return original(x, emb, crossattn_emb, *args, **kwargs)
         state.captured = captured = {}
         try:
-            out = original(x, emb, crossattn_emb, *args, **kwargs)
+            with forward_overrides(attention_overrides()):
+                out = original(x, emb, crossattn_emb, *args, **kwargs)
         finally:
             state.captured = None
         if "self" not in captured or "cross" not in captured:
@@ -150,7 +170,7 @@ def _make_block_forward(original, block, state: BoostState):
         gate_cross = _gate(block.adaln_modulation_cross_attn, silu_emb, adaln_lora).to(dtype)
         x_mid = torch.addcmul(x, gate_self, captured["self"].unflatten(1, shape[1:4]).to(dtype))
         cross = gate_cross * captured["cross"].unflatten(1, shape[1:4]).to(dtype)
-        boosted = x_mid + cross * gains.to(cross).view(-1, 1, 1, 1, 1)
+        boosted = x_mid + cross * state.gains_like(cross).view(-1, 1, 1, 1, 1)
         scale = renorm_scale(x_mid + cross, boosted, state.renorm)
         return out + (scale - 1.0).to(out.dtype) * boosted.to(out.dtype)
 
@@ -163,14 +183,16 @@ def apply_xattn_boost_patch(model, state: BoostState):
     previous = patched.model_options.get("model_function_wrapper")
     cross = cached_overrides(lambda index: dit.blocks[index].cross_attn, lambda original, _index: _make_cross_forward(original, state))
     capture = cached_overrides(lambda index: dit.blocks[index].self_attn, lambda original, _index: _make_self_capture(original, state))
-    blocks = cached_overrides(lambda index: dit.blocks[index], lambda original, index: _make_block_forward(original, dit.blocks[index], state))
 
-    def overrides():
-        count = len(dit.blocks)
-        yield from (cross(index) for index in range(count))
+    def attention_overrides(index):
+        yield cross(index)
         if state.renorm > 0.0:
-            yield from (capture(index) for index in range(count))
-            yield from (blocks(index) for index in range(count))
+            yield capture(index)
+
+    blocks = cached_overrides(
+        lambda index: dit.blocks[index],
+        lambda original, index: _make_block_forward(original, dit.blocks[index], state, lambda: attention_overrides(index)),
+    )
 
     def wrapper(model_function, args):
         # Stateless and gated by its own sigma, so a PC3 endpoint probe sees
@@ -185,12 +207,12 @@ def apply_xattn_boost_patch(model, state: BoostState):
         if not rows:  # no positive rows, or a batch the markers do not describe
             return call_model_wrapper(previous, model_function, args)
         with _PATCH_LOCK:
-            state.gains = row_gains(rows, input_x.shape[0], state.gain, input_x.device)
+            state.call = (tuple(rows), input_x.shape[0])
             try:
-                with forward_overrides(overrides()):
+                with forward_overrides(blocks(index) for index in range(len(dit.blocks))):
                     return call_model_wrapper(previous, model_function, args)
             finally:
-                state.gains = None
+                state.call = None
                 state.captured = None
 
     # Outside its band the wrapper is a pass-through, and the request below

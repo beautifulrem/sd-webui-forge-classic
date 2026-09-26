@@ -15,6 +15,12 @@ This is a real two-pass implementation:
    mask, while an optional additive cross-attention bias suppresses wrong
    concept tokens and boosts the correct tokens.
 
+The collect block and the attention-bias blocks are written in the 2B
+(28-block) layout. On the depth-expanded 40/52-block models the collect block
+is the original block (not an inserted copy), and each attention-bias block
+brings its inserted copies along, as the Artist Mixer's Blocks field does, so
+`0-27` (or the default `0-51`) biases every block of any model.
+
 Mask collection and routing preserve the image-batch dimension. Different
 seeds/layouts in the same batch receive independent masks; masks are repeated
 only across that image's CFG branches.
@@ -36,7 +42,10 @@ Forge online mode. The original online-LoRA setting is restored afterwards.
   API/CLI processing gives FreeFuse priority and records the disabled features
   in infotext. Refiner checkpoint switching is cleared by the same resolver.
   Spectrum is forced to an actual model evaluation, while
-  Modulation Guidance, LoRA layer weights, and the LoRA stage scheduler compose.
+  Modulation Guidance, LoRA layer weights, the LoRA stage scheduler and the
+  Cross-Attention Boost compose. FreeFuse's cross-attention hook runs inside
+  whatever forward the block has at call time (NegPiP's, the boost's), so the
+  boost scales the biased cross-attention in either wrapper order.
 - Non-spatial Anima DiT LoRA paths (cross-attention context keys/values and
   timestep projections) remain unmasked in phase 2, matching FreeFuse's rule
   that only image-sequence LoRA outputs receive a spatial mask. Those DiT paths

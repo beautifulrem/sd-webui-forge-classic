@@ -20,7 +20,7 @@ def _load():
     except ImportError:
         # Its image helpers need the full WebUI install; the script only needs PasteField
         stub = types.ModuleType("modules.infotext_utils")
-        stub.PasteField = tuple
+        stub.PasteField = lambda component, target: (component, target)
         modules.infotext_utils = sys.modules["modules.infotext_utils"] = stub
     spec = importlib.util.spec_from_file_location("anima_dave_under_test", SCRIPT)
     module = importlib.util.module_from_spec(spec)
@@ -52,10 +52,21 @@ def _process(blocks=40):
     return SimpleNamespace(sd_model=sd_model, extra_generation_params={}), unet
 
 
-def test_infotext_round_trip_keys():
-    params = dave.generation_params(0.3, 0.1, "8-18")
-    assert tuple(params) == dave.INFOTEXT_KEYS
-    assert params == {"Anima DAVE enabled": True, "Anima DAVE strength": 0.3, "Anima DAVE tau": 0.1, "Anima DAVE blocks": "8-18"}
+def test_written_infotext_restores_the_panel_controls():
+    # The keys and their order come from the panel's paste fields, not from
+    # the module's own key table: each value written must land on the control
+    # that ``process_before_every_sampling`` read it from.
+    import gradio as gr
+
+    script = dave.AnimaDaveScript()
+    with gr.Blocks():
+        controls = script.ui(False)
+    fields = {target: component for component, target in script.infotext_fields}
+    p, _ = _process()
+    script.process_before_every_sampling(p, True, 0.3, 0.1, "8-18")
+    written = p.extra_generation_params
+    assert written == {"Anima DAVE enabled": True, "Anima DAVE strength": 0.3, "Anima DAVE tau": 0.1, "Anima DAVE blocks": "8-18"}
+    assert [fields[key] for key in written] == controls
 
 
 def test_process_patches_the_pass_and_writes_infotext():
