@@ -106,5 +106,35 @@ class RegionalTests(unittest.TestCase):
         self.assertTrue(torch.equal(out, attention(x, context=base_context)))
 
 
+    def test_each_region_context_gets_its_own_negpip_mask(self):
+        from lib_anima_regional.regional import Region, RegionalState, _make_cross_attention_wrapper
+        from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY
+
+        torch.manual_seed(0)
+        region_mask = torch.tensor([[[1.0], [-1.0], [1.0]]])
+        regions = [
+            Region(torch.randn(1, 3, 4), 0.0, 0.0, 0.5, 1.0, 1.0, region_mask),
+            Region(torch.randn(1, 3, 4), 0.5, 0.0, 0.5, 1.0, 1.0),  # no negative weights
+        ]
+        state = RegionalState(regions, {0}, 0.02, 0.0, 0.0, 1.0)
+        state.prepare_masks(torch.zeros(4, 4, 1, 8, 8), type("Dit", (), {"patch_temporal": 1, "patch_spatial": 2})())
+        seen = []
+
+        def attention(x, context=None, rope_emb=None, transformer_options={}):
+            seen.append(dict(transformer_options))
+            return x * context.mean(dim=(1, 2)).view(-1, 1, 1)
+
+        base_mask = -torch.ones(4, 3, 1)
+        options = {"cond_or_uncond": [1, 0], NEGPIP_MASK_KEY: base_mask}
+        _make_cross_attention_wrapper(attention, state, 0)(torch.randn(4, 16, 4), context=torch.randn(4, 3, 4), transformer_options=options)
+
+        base, first, second = seen
+        self.assertNotIn(NEGPIP_CONTEXT_MASK_KEY, base)
+        # The region forwards run on the two positive rows, each with its own mask
+        self.assertTrue(torch.equal(first[NEGPIP_CONTEXT_MASK_KEY], region_mask.expand(2, -1, -1)))
+        self.assertIsNone(second[NEGPIP_CONTEXT_MASK_KEY])
+        self.assertEqual(first["cond_or_uncond"], [0])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,8 @@ import types
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 sys.argv = sys.argv[:1]
 SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_regional.py"
 
@@ -18,6 +20,11 @@ def _load():
         stub = types.ModuleType("modules.infotext_utils")
         stub.PasteField = tuple
         modules.infotext_utils = sys.modules["modules.infotext_utils"] = stub
+    try:
+        from modules import sd_models  # noqa: F401
+    except ImportError:
+        # The model loader needs the full WebUI install; the encode cache key reads model_data only
+        modules.sd_models = sys.modules["modules.sd_models"] = types.ModuleType("modules.sd_models")
     spec = importlib.util.spec_from_file_location("anima_regional_under_test", SCRIPT)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -33,16 +40,21 @@ def _process(p, *region):
     regional.AnimaRegionalScript().process(p, True, "0-3", 0.0, 0.65, 0.03, 0.15, *region)
 
 
-def test_regional_marks_itself_active_and_takes_priority_over_artist_mixer():
-    from modules.anima_feature_conflicts import REGIONAL, is_feature_active
-    from modules.anima_support import NEGPIP_EXTRA_PROMPTS, register_negpip_prompts
+@pytest.mark.parametrize("artist_mixer_first", [True, False])
+def test_regional_marks_itself_active_and_takes_priority_over_artist_mixer(artist_mixer_first):
+    from modules.anima_feature_conflicts import ARTIST_MIXER, REGIONAL, is_feature_active
+    from modules.anima_support import negpip_extra_prompts, register_negpip_prompts
 
     p = SimpleNamespace(sd_model=object())
-    register_negpip_prompts(p, "anima_artist_mixer", ["artist"])  # Artist Mixer's process() runs first
+    if artist_mixer_first:
+        register_negpip_prompts(p, ARTIST_MIXER, ["artist"])
     _process(p, *REGION)
+    if not artist_mixer_first:  # the callback order was re-sorted
+        register_negpip_prompts(p, ARTIST_MIXER, ["artist"])
 
     assert is_feature_active(p, REGIONAL)
-    assert getattr(p, NEGPIP_EXTRA_PROMPTS) == {"anima_artist_mixer": [], "anima_regional": ["a red cat"]}
+    # NegPiP only looks at the prompts that will be encoded
+    assert negpip_extra_prompts(p) == ["a red cat"]
     regional.AnimaRegionalScript().postprocess(p, None)
     assert not is_feature_active(p, REGIONAL)
 

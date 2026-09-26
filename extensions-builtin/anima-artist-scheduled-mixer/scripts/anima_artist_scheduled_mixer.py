@@ -1,4 +1,3 @@
-import json
 import logging
 import uuid
 from collections import OrderedDict
@@ -10,7 +9,6 @@ import gradio as gr
 import torch
 
 from lib_artist_mixer.contexts import (
-    ensure_3d as _ensure_3d,
     to_context as _to_context,
     to_context_like as _to_context_like,
     context_token_dim as _context_token_dim,
@@ -33,12 +31,12 @@ from lib_artist_mixer.schedule import (
     parse_inline_weight as _parse_inline_weight,
     parse_blocks as _parse_blocks,
 )
-from modules import script_callbacks, scripts, sd_models, shared, spectrum_force
+from modules import script_callbacks, scripts, shared, spectrum_force
 from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
 from modules.anima_lora_support import sigma_progress, stage_window
 from modules.anima_user_data import UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
-from modules.anima_support import call_model_wrapper, effective_prompt_batch, negpip_mask_for, preserved_reference_latents, register_negpip_prompts, split_conditioning
+from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY, call_model_wrapper, conditioning_cache_key, effective_prompt_batch, encode_extra_prompts, negpip_mask_for, register_negpip_prompts
 from modules.forward_override import install_forward_override, restore_forward_override
 
 
@@ -380,10 +378,6 @@ def _intro_text(language=None):
     return INTRO_ZH if _choice_to_language(language or _language()) == "zh" else INTRO_EN
 
 
-def _intro_default(language=None):
-    return _intro_text(language or _language())
-
-
 def _save_ui_language(language):
     language_code = _choice_to_language(language)
     try:
@@ -462,6 +456,11 @@ def _header_key(value):
     return text
 
 
+def _row_count(value, fallback=1):
+    """A row count from the UI, clamped to 1..MAX_ARTIST_ROWS."""
+    return max(1, min(MAX_ARTIST_ROWS, int(_to_float(value, fallback))))
+
+
 def _rows_from_components(*values):
     rows = []
     per_row = 10
@@ -477,7 +476,7 @@ def _component_values_from_rows(rows, shift=3.0, optimization=OPT_BALANCE, count
     normalized = _normalize_rows(rows, MAX_ARTIST_ROWS, shift, optimization, display=True)
     if count is None:
         count = len(_coerce_table(rows)) or 1
-    count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(count, 1))))
+    count = _row_count(count)
     updates = []
     for index, row in enumerate(normalized):
         visible = index < count
@@ -502,7 +501,7 @@ def _timing_values_from_rows(rows, shift=3.0, optimization=OPT_BALANCE, count=No
     normalized = _normalize_rows(rows, MAX_ARTIST_ROWS, shift, optimization, display=True)
     if count is None:
         count = len(_coerce_table(rows)) or 1
-    count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(count, 1))))
+    count = _row_count(count)
     updates = []
     for index, row in enumerate(normalized):
         if index < count:
@@ -522,7 +521,7 @@ def _block_timing_values_from_rows(rows, shift=3.0, optimization=OPT_BALANCE, co
     normalized = _normalize_rows(rows, MAX_ARTIST_ROWS, shift, optimization, display=True)
     if count is None:
         count = len(_coerce_table(rows)) or 1
-    count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(count, 1))))
+    count = _row_count(count)
     updates = []
     for index, row in enumerate(normalized):
         if index < count:
@@ -541,13 +540,13 @@ def _block_timing_values_from_rows(rows, shift=3.0, optimization=OPT_BALANCE, co
 
 def _resize_row_components(count, shift, optimization, *values):
     rows = _rows_from_components(*values)
-    count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(count, len(rows) or 1))))
+    count = _row_count(count, len(rows) or 1)
     return _component_values_from_rows(rows, shift, optimization, count)
 
 
 def _apply_shift_to_timing_components(count, shift, optimization, *values):
     rows = _rows_from_components(*values)
-    count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(count, len(rows) or 1))))
+    count = _row_count(count, len(rows) or 1)
     return _timing_values_from_rows(rows, shift, optimization, count)
 
 
@@ -560,7 +559,7 @@ def _default_blocks_for_optimization(optimization):
 
 def _apply_optimization_to_block_timing_components(count, shift, optimization, *values):
     rows = _rows_from_components(*values)
-    count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(count, len(rows) or 1))))
+    count = _row_count(count, len(rows) or 1)
     blocks = _default_blocks_for_optimization(optimization)
     for index in range(min(count, len(rows))):
         row = list(rows[index])
@@ -574,7 +573,7 @@ def _apply_optimization_to_block_timing_components(count, shift, optimization, *
 
 def _apply_stage_to_row_components(row_index, count, shift, optimization, *values):
     rows = _rows_from_components(*values)
-    count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(count, len(rows) or 1))))
+    count = _row_count(count, len(rows) or 1)
     if 0 <= row_index < len(rows):
         row = list(rows[row_index])
         row += [None] * (len(TABLE_HEADERS) - len(row))
@@ -597,7 +596,7 @@ def _apply_stage_to_row_components(row_index, count, shift, optimization, *value
 
 def _apply_auto_shift_to_row_components(row_index, count, shift, optimization, *values):
     rows = _rows_from_components(*values)
-    count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(count, len(rows) or 1))))
+    count = _row_count(count, len(rows) or 1)
     if not (0 <= row_index < min(count, len(rows))):
         return [gr.update(), gr.update(), gr.update()]
     row = list(rows[row_index])
@@ -612,7 +611,7 @@ def _apply_auto_shift_to_row_components(row_index, count, shift, optimization, *
 
 def _active_rows_from_components(count, shift, optimization, *values, display=False):
     rows = _rows_from_components(*values)
-    count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(count, len(rows) or 1))))
+    count = _row_count(count, len(rows) or 1)
     return _normalize_rows(rows, count, shift, optimization, display=display)
 
 
@@ -620,137 +619,6 @@ def _runtime_shift_from_processing(p, fallback=3.0):
     if getattr(p, "is_hr_pass", False):
         return _clamp(_to_float(getattr(p, "hr_distilled_cfg", None), fallback), 1.0, 24.0)
     return _clamp(_to_float(getattr(p, "distilled_cfg_scale", None), fallback), 1.0, 24.0)
-
-
-def _shift_sync_script(base_shift_id, hires_shift_id, is_img2img=False):
-    source_ids = (
-        [["img2img_distilled_cfg_scale", base_shift_id], ["img2img_distilled_cfg_scale", hires_shift_id]]
-        if is_img2img
-        else [["txt2img_distilled_cfg_scale", base_shift_id], ["txt2img_hr_distilled_cfg", hires_shift_id]]
-    )
-    return f"""
-<script>
-(function() {{
-    const sourceIds = {json.dumps(source_ids)};
-
-    function inputOf(id) {{
-        const root = document.getElementById(id);
-        return root ? root.querySelector("input, textarea") : null;
-    }}
-
-    function setHidden(hiddenId, value) {{
-        const input = inputOf(hiddenId);
-        if (!input || value === undefined || value === null || input.value === String(value)) {{
-            return;
-        }}
-        input.value = value;
-        input.dispatchEvent(new Event("input", {{bubbles: true}}));
-        input.dispatchEvent(new Event("change", {{bubbles: true}}));
-    }}
-
-    function syncOne(sourceId, hiddenId) {{
-        const source = inputOf(sourceId);
-        if (!source) {{
-            return false;
-        }}
-        setHidden(hiddenId, source.value);
-        if (source.dataset.animaArtistMixerShiftSync === "1") {{
-            return true;
-        }}
-        source.dataset.animaArtistMixerShiftSync = "1";
-        const sync = function() {{ setHidden(hiddenId, source.value); }};
-        source.addEventListener("input", sync);
-        source.addEventListener("change", sync);
-        return true;
-    }}
-
-    function syncAll() {{
-        let found = false;
-        for (const pair of sourceIds) {{
-            found = syncOne(pair[0], pair[1]) || found;
-        }}
-        return found;
-    }}
-
-    if (!syncAll()) {{
-        let tries = 0;
-        const timer = window.setInterval(function() {{
-            tries += 1;
-            if (syncAll() || tries > 40) {{
-                window.clearInterval(timer);
-            }}
-        }}, 500);
-    }}
-}})();
-</script>
-"""
-
-
-def _current_settings_autosave_script(root_id, trigger_id):
-    return f"""
-<script>
-(function() {{
-    const rootId = {json.dumps(root_id)};
-    const triggerId = {json.dumps(trigger_id)};
-    let timer = null;
-
-    function rootOf(id) {{
-        return document.getElementById(id);
-    }}
-
-    function buttonOf(id) {{
-        const root = rootOf(id);
-        return root ? root.querySelector("button") : null;
-    }}
-
-    function isInside(id, element) {{
-        const root = rootOf(id);
-        return root && element && root.contains(element);
-    }}
-
-    function triggerSave() {{
-        const button = buttonOf(triggerId);
-        if (button) {{
-            button.click();
-        }}
-    }}
-
-    function scheduleSave(event) {{
-        if (event && isInside(triggerId, event.target)) {{
-            return;
-        }}
-        window.clearTimeout(timer);
-        timer = window.setTimeout(triggerSave, 700);
-    }}
-
-    function attach() {{
-        const root = rootOf(rootId);
-        const button = buttonOf(triggerId);
-        if (!root || !button) {{
-            return false;
-        }}
-        if (root.dataset.animaArtistMixerAutosave === "1") {{
-            return true;
-        }}
-        root.dataset.animaArtistMixerAutosave = "1";
-        root.addEventListener("input", scheduleSave, true);
-        root.addEventListener("change", scheduleSave, true);
-        root.addEventListener("click", scheduleSave, true);
-        return true;
-    }}
-
-    if (!attach()) {{
-        let tries = 0;
-        const timerId = window.setInterval(function() {{
-            tries += 1;
-            if (attach() || tries > 40) {{
-                window.clearInterval(timerId);
-            }}
-        }}, 500);
-    }}
-}})();
-</script>
-"""
 
 
 def _create_artist_row_controls(prefix, lang, defaults, elem_id_func):
@@ -971,7 +839,7 @@ def _save_template_record(
     optimization_key = _option_key("optimization", optimization, OPT_BALANCE)
     combine_key = _option_key("combine", combine_mode, COMBINE_OUTPUT_AVG)
     fusion_key = _option_key("fusion", fusion_mode, FUSION_INTERPOLATE)
-    row_count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(row_count, len(_coerce_table(rows)) or 1))))
+    row_count = _row_count(row_count, len(_coerce_table(rows)) or 1)
     shift = _to_float(shift, 3.0)
     record = {
         row_key: _normalize_rows(rows, row_count, shift, optimization_key, display=False),
@@ -1141,8 +1009,8 @@ def _state_from_current_settings(data, lang):
     apply_target_key = _option_key("apply_target", data.get("template_target"), APPLY_BASE)
     base_shift = _to_float(data.get("base_shift"), 3.0)
     hires_shift = _to_float(data.get("hires_shift"), 3.0)
-    base_count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(data.get("base_count"), DEFAULT_ARTIST_ROWS))))
-    hires_count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(data.get("hires_count"), DEFAULT_ARTIST_ROWS))))
+    base_count = _row_count(data.get("base_count"), DEFAULT_ARTIST_ROWS)
+    hires_count = _row_count(data.get("hires_count"), DEFAULT_ARTIST_ROWS)
     base_rows = _normalize_rows(data.get("base_rows"), base_count, base_shift, optimization_key)
     hires_rows = _normalize_rows(data.get("hires_rows"), hires_count, hires_shift, optimization_key)
     template_name = str(data.get("template_name") or "").strip()
@@ -1195,8 +1063,8 @@ def _current_settings_payload(
     hires_values = component_values[MAX_ARTIST_ROWS * 10 : MAX_ARTIST_ROWS * 20]
     base_shift = _to_float(base_shift, 3.0)
     hires_shift = _to_float(hires_shift, 3.0)
-    base_count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(base_row_count, DEFAULT_ARTIST_ROWS))))
-    hires_count = max(1, min(MAX_ARTIST_ROWS, int(_to_float(hires_row_count, DEFAULT_ARTIST_ROWS))))
+    base_count = _row_count(base_row_count, DEFAULT_ARTIST_ROWS)
+    hires_count = _row_count(hires_row_count, DEFAULT_ARTIST_ROWS)
     return {
         "version": 1,
         "enable": bool(enable),
@@ -1220,8 +1088,13 @@ def _current_settings_payload(
 
 
 def _save_current_settings_ui(*values):
-    _save_current_settings_data(_current_settings_payload(*values))
-    return ""
+    payload = _current_settings_payload(*values)
+    if payload != _LAST_REMEMBERED_SETTINGS:
+        _save_current_settings_data(payload)
+
+
+def _same_value(value):
+    return value
 
 
 def _should_remember_settings(p) -> bool:
@@ -1311,8 +1184,8 @@ def _default_state_updates(lang=None, status_text=None):
         gr.update(value=state["hires_count"], interactive=True),
         gr.update(value=state["hires_independent"], interactive=True),
         gr.update(value=state["disable_hires_mixing"], interactive=True),
-        gr.update(value=3.0),
-        gr.update(value=3.0),
+        gr.update(),  # the Shift copies follow the generation panel
+        gr.update(),
         gr.update(value=state["global_strength"], interactive=True),
         gr.update(value=state["optimization"], interactive=True),
         gr.update(value=state["combine"], interactive=True),
@@ -1415,44 +1288,13 @@ def _apply_template_ui(name, target, base_row_count, hires_row_count, current_ba
     )
 
 
-def _extract_cond_tensor(value):
-    if torch.is_tensor(value):
-        return value
-    if isinstance(value, (list, tuple)):
-        if not value:
-            return None
-        if len(value) >= 1 and torch.is_tensor(value[0]):
-            return value[0]
-        if len(value) >= 1 and isinstance(value[0], (list, tuple)):
-            return _extract_cond_tensor(value[0])
-    return None
-
-
 _COND_CACHE = OrderedDict()
 _COND_CACHE_LIMIT = 64
 _COND_CACHE_BYTES = 256 * 1024 * 1024  # CPU memory the cached artist conditionings may hold
 
 
 def _cache_key(p, texts):
-    sd_model = getattr(p, "sd_model", None)
-    # forge_objects is a fresh shallow_copy() every pass, so its id never
-    # matches twice; key on the checkpoint, text encoder and LoRA set instead.
-    # forge_hash encodes the checkpoint and additional modules (text encoder).
-    checkpoint = getattr(getattr(sd_model, "sd_checkpoint_info", None), "filename", None)
-    clip = getattr(getattr(sd_model, "forge_objects", None), "clip", None)
-    model_key = (
-        str(checkpoint),
-        str(getattr(sd_models.model_data, "forge_hash", "")),
-        str(getattr(sd_model, "current_lora_hash", "")),
-        # A new uuid whenever text-encoder LoRA patches are applied, e.g. when
-        # Qwen layer weights change the encoding but not the LoRA hash.
-        str(getattr(getattr(clip, "patcher", None), "patches_uuid", None)),
-        # Encoding also depends on the emphasis mode and on hooks such as
-        # NegPiP replacing get_learned_conditioning for this run.
-        str(getattr(shared.opts, "emphasis", "")),
-        "get_learned_conditioning" in getattr(sd_model, "__dict__", {}),
-    )
-    return model_key, tuple(texts)
+    return conditioning_cache_key(p), tuple(texts)
 
 
 def _encode_text_batch(p, texts, use_cache=True):
@@ -1460,33 +1302,9 @@ def _encode_text_batch(p, texts, use_cache=True):
     if use_cache and key in _COND_CACHE:
         _COND_CACHE.move_to_end(key)
         return _COND_CACHE[key]
-    from modules import prompt_parser
-
-    conditioning = prompt_parser.SdConditioning(
-        list(texts),
-        width=getattr(p, "width", None),
-        height=getattr(p, "height", None),
-        distilled_cfg_scale=getattr(p, "distilled_cfg_scale", None),
-    )
-    with preserved_reference_latents(p.sd_model):
-        conds = p.sd_model.get_learned_conditioning(conditioning)
-    tensors = []
-    # NegPiP returns {"crossattn", "c_negpip_mask"}; keep the mask so the
-    # artist context gets the same negative-weight semantics as the prompt.
-    conds, negpip_mask = split_conditioning(conds)
-    if torch.is_tensor(conds):
-        conds = list(conds)
-    for cond in conds:
-        tensor = _ensure_3d(_extract_cond_tensor(cond))
-        if tensor is None:
-            raise RuntimeError("Failed to extract Anima conditioning tensor.")
-        tensors.append(tensor.detach().to("cpu"))
-    batch = torch.cat(tensors, dim=0)
-    if torch.is_tensor(negpip_mask):
-        negpip_mask = negpip_mask.detach().to("cpu")
-    else:
-        negpip_mask = None
-    result = (batch, negpip_mask)
+    # With NegPiP the mask gives the artist context the same negative-weight
+    # semantics as the prompt.
+    result = encode_extra_prompts(p, texts)
     if use_cache:
         _COND_CACHE[key] = result
 
@@ -1743,51 +1561,105 @@ def _active_artists(state, layer_idx, progress):
     return active
 
 
-def _artist_kv(state, artist, context, transformer_options, base_fusion):
-    """``(kv, kv_mask)`` an artist attends with: its context aligned to
-    ``context`` (joined after it for base fusions) and the matching NegPiP
-    mask. Every patched block of a model call gets the same ``context``, so
-    the aligned / joined tensors are built once per call."""
-    cache = state.call_contexts
-    if cache.get("context") is not context:
-        cache.clear()
-        cache["context"] = context
-    key = id(artist)
-    if key not in cache:
-        artist_context = _to_context_like(artist.cond_like(context), context)
-        cache[key] = (artist_context, _artist_mask_like(artist.mask_like(artist_context), artist_context))
-    artist_context, artist_mask = cache[key]
-    if not base_fusion:
-        return artist_context, artist_mask
-    base_mask = negpip_mask_for(context, transformer_options)
-    if base_mask is None and artist_mask is None:
-        joined_key = ("joined", key)
-        if joined_key not in cache:
-            cache[joined_key] = _concat_contexts(context, artist_context)
-        return cache[joined_key], None
-    token_dim = _context_token_dim(context)
-    return _concat_contexts(context, artist_context), _joined_mask([(context, base_mask), (artist_context, artist_mask)], token_dim)
+@dataclass
+class _MixPlan:
+    """What a dispatch mixes: the rows the artists apply to (``index`` None:
+    every row) with their input, context, options and base NegPiP mask, and
+    the artist weights (relative to their total) with their total influence."""
+
+    x: torch.Tensor
+    context: torch.Tensor
+    options: dict
+    rows: tuple | None
+    index: torch.Tensor | None
+    base_mask: torch.Tensor | None
+    weights: list
+    influence: float
 
 
-def _artist_forward_batched(state, original_forward, x, context, rope_emb, transformer_options, artists, weights, fusion_mode):
+def _mix_plan(state, x, context, transformer_options, active):
+    """The :class:`_MixPlan` of a dispatch, or None when nothing is mixed
+    (zero weights, or no row to mix into as in an uncond-only call)."""
     batch_size = context.shape[0]
+    options = transformer_options if isinstance(transformer_options, dict) else {}
+    cou = options.get("cond_or_uncond")
+    if state.mask_probe is None:
+        state.mask_probe = (len(cou) if cou is not None else -1, int(batch_size))
+    mask = _resolve_row_mask(cou, batch_size, state.apply_uncond)
+    raw_weights = [float(weight) for _, weight in active]
+    total_abs = sum(abs(w) for w in raw_weights)
+    if total_abs <= 1e-8 or not any(mask):
+        return None
+    weights = [w / total_abs for w in raw_weights]
+    influence = _clamp(total_abs, 0.0, 1.0)
+    # Every patched block of a model call gets the same context and base
+    # mask, so what is built from them is kept for the call.
+    base_source = options.get(NEGPIP_CONTEXT_MASK_KEY, options.get(NEGPIP_MASK_KEY))
+    cache = state.call_contexts
+    if cache.get("context") is not context or cache.get("base_source") is not base_source:
+        cache.clear()
+        cache["context"], cache["base_source"] = context, base_source
+    base_mask = None
+    if state.fusion_mode in BASE_CONTEXT_FUSIONS:
+        if "base_mask" not in cache:
+            cache["base_mask"] = negpip_mask_for(context, options)
+        base_mask = cache["base_mask"]
+    if all(mask):
+        return _MixPlan(x, context, transformer_options, None, None, base_mask, weights, influence)
+    # Artist forwards run on the rows they mix into only; the others keep the base output.
+    rows = tuple(row for row, used in enumerate(mask) if used)
+    key = (rows, context.device)
+    if key not in state.row_masks:
+        state.row_masks[key] = torch.tensor(rows, device=context.device)
+    index = state.row_masks[key]
+    if ("rows", rows) not in cache:
+        cache[("rows", rows)] = (context.index_select(0, index), None if base_mask is None else base_mask.index_select(0, index))
+    row_context, row_mask = cache[("rows", rows)]
+    row_options = dict(options)
+    row_options["cond_or_uncond"] = [0] * sum(int(marker) == 0 for marker in cou)
+    return _MixPlan(x.index_select(0, index), row_context, row_options, rows, index, row_mask, weights, influence)
+
+
+def _artist_kv(state, artist, plan, base_fusion):
+    """``(kv, kv_mask)`` an artist attends with on the plan's rows: its
+    context aligned to the base context (joined after it for base fusions)
+    and the matching NegPiP mask, built once per model call."""
+    cache = state.call_contexts
+    key = ("artist", id(artist), plan.rows, base_fusion)
+    if key in cache:
+        return cache[key]
+    context = cache["context"]
+    artist_context = _to_context_like(artist.cond_like(context), context)
+    artist_mask = _artist_mask_like(artist.mask_like(artist_context), artist_context)
+    if plan.index is not None:
+        artist_context = artist_context.index_select(0, plan.index)
+        artist_mask = None if artist_mask is None else artist_mask.index_select(0, plan.index)
+    if base_fusion:
+        parts = [(plan.context, plan.base_mask), (artist_context, artist_mask)]
+        artist_context, artist_mask = _concat_contexts(plan.context, artist_context), _joined_mask(parts, _context_token_dim(plan.context))
+    cache[key] = (artist_context, artist_mask)
+    return cache[key]
+
+
+def _artist_forward_batched(state, original_forward, plan, rope_emb, artists, fusion_mode):
+    batch_size = plan.context.shape[0]
     base_fusion = fusion_mode in BASE_CONTEXT_FUSIONS
     contexts = []
     masks = []
     for artist, _ in artists:
-        kv, mask = _artist_kv(state, artist, context, transformer_options, base_fusion)
+        kv, mask = _artist_kv(state, artist, plan, base_fusion)
         contexts.append(kv)
         masks.append((kv, mask))
     lengths = {item.shape[_context_token_dim(item)] for item in contexts}
     if len(lengths) > 1:
         raise RuntimeError(f"Cannot batch artist contexts with different token lengths: {lengths}")
     count = len(contexts)
-    x_rep = x.repeat(count, *([1] * (x.dim() - 1)))
+    x_rep = plan.x.repeat(count, *([1] * (plan.x.dim() - 1)))
     context_rep = torch.cat(contexts, dim=0)
     rope_rep = rope_emb
     if torch.is_tensor(rope_emb) and rope_emb.dim() > 0 and rope_emb.shape[0] == batch_size:
         rope_rep = rope_emb.repeat(count, *([1] * (rope_emb.dim() - 1)))
-    opts = _with_negpip_mask(transformer_options, _joined_mask(masks, 0))
+    opts = _with_negpip_mask(plan.options, _joined_mask(masks, 0))
     opts["anima_nag_skip"] = "artist_context"
     cou = opts.get("cond_or_uncond")
     if cou is not None:
@@ -1795,6 +1667,7 @@ def _artist_forward_batched(state, original_forward, x, context, rope_emb, trans
     out = original_forward(x_rep, context=context_rep, rope_emb=rope_rep, transformer_options=opts)
     out = out.view(count, batch_size, *out.shape[1:])
     # Python-float weights: no host-to-device copy per block
+    weights = plan.weights
     total = out[0] * weights[0]
     for index in range(1, count):
         total = total + out[index] * weights[index]
@@ -1828,111 +1701,68 @@ def _dispatch_cross_attn(original_forward, layer_idx, state, x, context=None, ro
 
 
 def _dispatch_output_avg(original_forward, state, x, context, rope_emb, transformer_options, active):
-    batch_size = context.shape[0]
-    cou = transformer_options.get("cond_or_uncond") if isinstance(transformer_options, dict) else None
-    if state.mask_probe is None:
-        state.mask_probe = (len(cou) if cou is not None else -1, int(batch_size))
-    mask = _resolve_row_mask(
-        cou,
-        batch_size,
-        state.apply_uncond,
-    )
-    raw_weights = [float(weight) for _, weight in active]
-    total_abs = sum(abs(w) for w in raw_weights)
-    # No row to mix into (e.g. an uncond-only call): skip the artist forwards
-    if total_abs <= 1e-8 or not any(mask):
+    plan = _mix_plan(state, x, context, transformer_options, active)
+    if plan is None:
         return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
-    total_influence = _clamp(total_abs, 0.0, 1.0)
-    denom = total_abs
-    weights = [w / denom for w in raw_weights]
     artist_total = None
     if state.batched and len(active) > 1 and not state.batched_disabled:
         try:
-            artist_total = _artist_forward_batched(
-                state,
-                original_forward,
-                x,
-                context,
-                rope_emb,
-                transformer_options,
-                active,
-                weights,
-                state.fusion_mode,
-            )
+            artist_total = _artist_forward_batched(state, original_forward, plan, rope_emb, active, state.fusion_mode)
         except Exception as exc:
             logger.warning("Anima artist mixer batched path failed, using serial artist forwards: %s", exc)
             state.batched_disabled = True
             artist_total = None
     if artist_total is None:
-        artist_options = dict(transformer_options)
+        artist_options = dict(plan.options)
         artist_options["anima_nag_skip"] = "artist_context"
         base_fusion = state.fusion_mode in BASE_CONTEXT_FUSIONS
-        for (artist, _), weight in zip(active, weights):
-            kv, kv_mask = _artist_kv(state, artist, context, transformer_options, base_fusion)
-            out_i = original_forward(x, context=kv, rope_emb=rope_emb, transformer_options=_with_negpip_mask(artist_options, kv_mask))
+        for (artist, _), weight in zip(active, plan.weights):
+            kv, kv_mask = _artist_kv(state, artist, plan, base_fusion)
+            out_i = original_forward(plan.x, context=kv, rope_emb=rope_emb, transformer_options=_with_negpip_mask(artist_options, kv_mask))
             artist_total = out_i * weight if artist_total is None else artist_total + out_i * weight
     base_out = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
-    return _blend_rows(state, base_out, artist_total, mask, total_influence)
+    return _blend_rows(state, base_out, artist_total, plan)
 
 
 def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_options, active):
-    batch_size = context.shape[0]
-    cou = transformer_options.get("cond_or_uncond") if isinstance(transformer_options, dict) else None
-    if state.mask_probe is None:
-        state.mask_probe = (len(cou) if cou is not None else -1, int(batch_size))
-    mask = _resolve_row_mask(
-        cou,
-        batch_size,
-        state.apply_uncond,
-    )
-    raw_weights = [float(weight) for _, weight in active]
-    total_abs = sum(abs(w) for w in raw_weights)
-    # No row to mix into (e.g. an uncond-only call): skip the artist forwards
-    if total_abs <= 1e-8 or not any(mask):
+    plan = _mix_plan(state, x, context, transformer_options, active)
+    if plan is None:
         return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
-    total_influence = _clamp(total_abs, 0.0, 1.0)
-    denom = total_abs
-    token_dim = _context_token_dim(context)
+    token_dim = _context_token_dim(plan.context)
     parts = []
-    for artist, weight in active:
-        artist_context, artist_mask = _artist_kv(state, artist, context, transformer_options, False)
-        parts.append((artist_context * (weight / denom), artist_mask))
+    for (artist, _), weight in zip(active, plan.weights):
+        artist_context, artist_mask = _artist_kv(state, artist, plan, False)
+        parts.append((artist_context * weight, artist_mask))
     combined = torch.cat([part for part, _ in parts], dim=token_dim)
     combined_mask = _joined_mask(parts, token_dim)
     if state.fusion_mode in BASE_CONTEXT_FUSIONS:
-        kv = _concat_contexts(context, combined)
-        kv_mask = _joined_mask([(context, negpip_mask_for(context, transformer_options)), (combined, combined_mask)], token_dim)
+        kv = _concat_contexts(plan.context, combined)
+        kv_mask = _joined_mask([(plan.context, plan.base_mask), (combined, combined_mask)], token_dim)
     else:
         kv, kv_mask = combined, combined_mask
-    artist_options = _with_negpip_mask(transformer_options, kv_mask)
+    artist_options = _with_negpip_mask(plan.options, kv_mask)
     artist_options["anima_nag_skip"] = "artist_context"
-    artist_out = original_forward(x, context=kv, rope_emb=rope_emb, transformer_options=artist_options)
+    artist_out = original_forward(plan.x, context=kv, rope_emb=rope_emb, transformer_options=artist_options)
     base_out = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
-    return _blend_rows(state, base_out, artist_out, mask, total_influence)
+    return _blend_rows(state, base_out, artist_out, plan)
 
 
-def _blend_rows(state, base_out, artist_out, mask, total_influence):
-    """Mix the artist output into ``base_out`` on the rows ``mask`` selects
-    (at least one), for the whole batch at once (both blends are computed per row)."""
+def _blend_rows(state, base_out, artist_out, plan):
+    """Mix the artist output (of the plan's rows) into ``base_out``."""
 
-    strength = _clamp(float(state.global_strength), 0.0, 1.0 if state.fusion_mode == FUSION_QUALITY_DELTA else 2.0) * total_influence
+    strength = _clamp(float(state.global_strength), 0.0, 1.0 if state.fusion_mode == FUSION_QUALITY_DELTA else 2.0) * plan.influence
+    rows_out = base_out if plan.index is None else base_out.index_select(0, plan.index)
     if state.diff_probe is None and logger.isEnabledFor(logging.DEBUG):
         # Two syncs and full-size temporaries: only for debug logging
         with torch.no_grad():
-            delta_norm = (artist_out - base_out).detach().float().flatten(1).norm(dim=1).mean().item()
-            base_norm = base_out.detach().float().flatten(1).norm(dim=1).mean().clamp_min(1e-6).item()
+            delta_norm = (artist_out - rows_out).detach().float().flatten(1).norm(dim=1).mean().item()
+            base_norm = rows_out.detach().float().flatten(1).norm(dim=1).mean().clamp_min(1e-6).item()
             state.diff_probe = (float(delta_norm), float(delta_norm / base_norm))
     if state.fusion_mode == FUSION_QUALITY_DELTA:
-        blended = _norm_limited_delta(base_out, artist_out, strength)
+        blended = _norm_limited_delta(rows_out, artist_out, strength)
     else:
-        blended = base_out * (1.0 - strength) + artist_out * strength
-    if all(mask):
-        return blended
-    key = (tuple(mask), base_out.device)
-    if key not in state.row_masks:
-        state.row_masks[key] = torch.tensor(mask, device=base_out.device)
-    rows = state.row_masks[key].view(-1, *([1] * (base_out.dim() - 1)))
-    return torch.where(rows, blended, base_out)
+        blended = rows_out * (1.0 - strength) + artist_out * strength
+    return blended if plan.index is None else base_out.index_copy(0, plan.index, blended)
 
 
 def _artist_entries(rows, shift, optimization):
@@ -1981,7 +1811,25 @@ def _optimization_defaults(optimization):
     return {"batched": True, "max_artists": 10}
 
 
+# Generation-panel Shift sliders: (elem_id, attribute the Script keeps it in)
+_SHIFT_SOURCES = (
+    ("txt2img_distilled_cfg_scale", "base_shift_component"),
+    ("txt2img_hr_distilled_cfg", "hires_shift_component"),
+    ("img2img_distilled_cfg_scale", "base_shift_component"),
+)
+
+
 class Script(scripts.Script):
+    def __init__(self):
+        # Built before the script panels; each tab's runner only reports its own.
+        self.base_shift_component = None
+        self.hires_shift_component = None
+        for elem_id, name in _SHIFT_SOURCES:
+            self.on_after_component(partial(self._keep_shift_component, name), elem_id=elem_id)
+
+    def _keep_shift_component(self, name, event):
+        setattr(self, name, event.component)
+
     def title(self):
         return _t("title")
 
@@ -2000,15 +1848,10 @@ class Script(scripts.Script):
         #{self.elem_id("accordion")} button[title*="Sort"] {{
             display: none !important;
         }}
-        #{self.elem_id("save_current_settings_row")} {{
-            display: none !important;
-        }}
         </style>
         """
         with gr.Accordion(_t("accordion"), open=False, elem_id=self.elem_id("accordion")):
             gr.HTML(table_css)
-            gr.HTML(_shift_sync_script(self.elem_id("runtime_base_shift"), self.elem_id("runtime_hires_shift"), is_img2img=is_img2img))
-            gr.HTML(_current_settings_autosave_script(self.elem_id("accordion"), self.elem_id("save_current_settings")))
             with gr.Row():
                 intro_language = gr.Radio(
                     choices=["English", "中文"],
@@ -2016,15 +1859,18 @@ class Script(scripts.Script):
                     label=_t("intro_language"),
                     elem_id=self.elem_id("intro_language"),
                 )
-            intro = gr.Markdown(value=_intro_default(lang), elem_id=self.elem_id("intro"))
+            intro = gr.Markdown(value=_intro_text(lang), elem_id=self.elem_id("intro"))
             intro_status = gr.Markdown(value="", elem_id=self.elem_id("intro_status"))
             intro_language.change(fn=_save_ui_language, inputs=[intro_language], outputs=[intro, intro_status], queue=False, show_progress=False, **_internal_event_kwargs())
 
-            runtime_base_shift = gr.Number(value=3.0, visible=False, elem_id=self.elem_id("runtime_base_shift"))
-            runtime_hires_shift = gr.Number(value=3.0, visible=False, elem_id=self.elem_id("runtime_hires_shift"))
-            with gr.Row(elem_id=self.elem_id("save_current_settings_row")):
-                save_current_settings = gr.Button(value="Save current settings", elem_id=self.elem_id("save_current_settings"))
-                save_current_settings_status = gr.Markdown(value="", elem_id=self.elem_id("save_current_settings_status"))
+            # The generation panel's Shift sliders drive the stage timings; the
+            # hidden copies carry their values into the script args.
+            base_shift_input = self.base_shift_component
+            hires_shift_input = self.hires_shift_component or base_shift_input
+            runtime_base_shift = gr.Number(value=getattr(base_shift_input, "value", 3.0), visible=False, elem_id=self.elem_id("runtime_base_shift"))
+            runtime_hires_shift = gr.Number(value=getattr(hires_shift_input, "value", 3.0), visible=False, elem_id=self.elem_id("runtime_hires_shift"))
+            base_shift_input = base_shift_input or runtime_base_shift
+            hires_shift_input = hires_shift_input or runtime_hires_shift
             enable = gr.Checkbox(label=_t("enable"), value=defaults["enable"], elem_id=self.elem_id("enable"))
             gr.Markdown(
                 "Compatibility: Artist Mixer, FreeFuse, and Regional Conditioning are "
@@ -2087,7 +1933,7 @@ class Script(scripts.Script):
 
         base_row_count.change(
             fn=_resize_row_components,
-            inputs=[base_row_count, runtime_base_shift, optimization, *base_row_components],
+            inputs=[base_row_count, base_shift_input, optimization, *base_row_components],
             outputs=base_row_components,
             queue=False,
             show_progress=False,
@@ -2095,23 +1941,26 @@ class Script(scripts.Script):
         )
         hires_row_count.change(
             fn=_resize_row_components,
-            inputs=[hires_row_count, runtime_hires_shift, optimization, *hires_row_components],
+            inputs=[hires_row_count, hires_shift_input, optimization, *hires_row_components],
             outputs=hires_row_components,
             queue=False,
             show_progress=False,
             **_internal_event_kwargs(),
         )
-        runtime_base_shift.change(
+        for source, runtime_shift in ((self.base_shift_component, runtime_base_shift), (self.hires_shift_component or self.base_shift_component, runtime_hires_shift)):
+            if source is not None:
+                source.change(fn=_same_value, inputs=[source], outputs=[runtime_shift], queue=False, show_progress=False, **_internal_event_kwargs())
+        base_shift_input.change(
             fn=_apply_shift_to_timing_components,
-            inputs=[base_row_count, runtime_base_shift, optimization, *base_row_components],
+            inputs=[base_row_count, base_shift_input, optimization, *base_row_components],
             outputs=_row_outputs(base_row_components, (4, 5, 6)),
             queue=False,
             show_progress=False,
             **_internal_event_kwargs(),
         )
-        runtime_hires_shift.change(
+        hires_shift_input.change(
             fn=_apply_shift_to_timing_components,
-            inputs=[hires_row_count, runtime_hires_shift, optimization, *hires_row_components],
+            inputs=[hires_row_count, hires_shift_input, optimization, *hires_row_components],
             outputs=_row_outputs(hires_row_components, (4, 5, 6)),
             queue=False,
             show_progress=False,
@@ -2119,7 +1968,7 @@ class Script(scripts.Script):
         )
         base_apply_presets.click(
             fn=_resize_row_components,
-            inputs=[base_row_count, runtime_base_shift, optimization, *base_row_components],
+            inputs=[base_row_count, base_shift_input, optimization, *base_row_components],
             outputs=base_row_components,
             queue=False,
             show_progress=False,
@@ -2127,7 +1976,7 @@ class Script(scripts.Script):
         )
         hires_apply_presets.click(
             fn=_resize_row_components,
-            inputs=[hires_row_count, runtime_hires_shift, optimization, *hires_row_components],
+            inputs=[hires_row_count, hires_shift_input, optimization, *hires_row_components],
             outputs=hires_row_components,
             queue=False,
             show_progress=False,
@@ -2135,7 +1984,7 @@ class Script(scripts.Script):
         )
         optimization.change(
             fn=_apply_optimization_to_block_timing_components,
-            inputs=[base_row_count, runtime_base_shift, optimization, *base_row_components],
+            inputs=[base_row_count, base_shift_input, optimization, *base_row_components],
             outputs=_row_outputs(base_row_components, (3, 4, 5, 6)),
             queue=False,
             show_progress=False,
@@ -2143,15 +1992,15 @@ class Script(scripts.Script):
         )
         optimization.change(
             fn=_apply_optimization_to_block_timing_components,
-            inputs=[hires_row_count, runtime_hires_shift, optimization, *hires_row_components],
+            inputs=[hires_row_count, hires_shift_input, optimization, *hires_row_components],
             outputs=_row_outputs(hires_row_components, (3, 4, 5, 6)),
             queue=False,
             show_progress=False,
             **_internal_event_kwargs(),
         )
         for row_components, row_count, runtime_shift in (
-            (base_row_components, base_row_count, runtime_base_shift),
-            (hires_row_components, hires_row_count, runtime_hires_shift),
+            (base_row_components, base_row_count, base_shift_input),
+            (hires_row_components, hires_row_count, hires_shift_input),
         ):
             for offset in range(0, len(row_components), 10):
                 row_components[offset + 8].change(
@@ -2184,7 +2033,7 @@ class Script(scripts.Script):
             inputs=[
                 template_name,
                 base_row_count,
-                runtime_base_shift,
+                base_shift_input,
                 disable_hires_mixing,
                 global_strength,
                 optimization,
@@ -2205,7 +2054,7 @@ class Script(scripts.Script):
                 template_name,
                 hires_independent,
                 hires_row_count,
-                runtime_hires_shift,
+                hires_shift_input,
                 disable_hires_mixing,
                 global_strength,
                 optimization,
@@ -2224,7 +2073,7 @@ class Script(scripts.Script):
         delete_button.click(fn=_delete_template_ui, inputs=[template_dropdown], outputs=[template_dropdown, template_status], queue=False, show_progress=False, **_internal_event_kwargs())
         template_apply.click(
             fn=_apply_template_ui,
-            inputs=[template_dropdown, template_apply_target, base_row_count, hires_row_count, runtime_base_shift, runtime_hires_shift, optimization, *base_row_components, *hires_row_components],
+            inputs=[template_dropdown, template_apply_target, base_row_count, hires_row_count, base_shift_input, hires_shift_input, optimization, *base_row_components, *hires_row_components],
             outputs=[
                 base_row_count,
                 hires_row_count,
@@ -2292,13 +2141,17 @@ class Script(scripts.Script):
             *base_row_components,
             *hires_row_components,
         ]
-        _do_not_save_to_ui_config(save_current_settings, *current_settings_inputs)
-        save_current_settings.click(
+        _do_not_save_to_ui_config(*current_settings_inputs)
+        # Remember the panel as it is edited; "always_last" folds a burst of
+        # changes (typing, applying a template) into one final save.
+        gr.on(
+            triggers=[component.change for component in current_settings_inputs],
             fn=_save_current_settings_ui,
             inputs=current_settings_inputs,
-            outputs=[save_current_settings_status],
+            outputs=None,
             queue=False,
-            show_progress=False,
+            show_progress="hidden",
+            trigger_mode="always_last",
             **_internal_event_kwargs(),
         )
 
@@ -2346,8 +2199,8 @@ class Script(scripts.Script):
     def process(self, p, *args, **kwargs):
         # Runs before NegPiP's process_batch: let a negative weight in an
         # artist name that will actually be encoded enable NegPiP.
-        # Mirrors process_before_every_sampling's gating; FreeFuse and Regional
-        # (which run later) clear this registration when they take priority.
+        # Mirrors process_before_every_sampling's gating; NegPiP ignores this
+        # registration when FreeFuse or Regional takes priority.
         names = []
         if (
             len(args) >= 13
@@ -2375,7 +2228,7 @@ class Script(scripts.Script):
                 rows = _active_rows_from_components(count, shift, optimization, *values, display=False)
                 entries = [name for _row, name, _weight in _artist_entries(rows, shift, optimization)]
                 names.extend(entries[:max_artists])
-        register_negpip_prompts(p, "anima_artist_mixer", names)
+        register_negpip_prompts(p, ARTIST_MIXER, names)
 
     def process_before_every_sampling(self, p, *args, **kwargs):
         global _ACTIVE_STATE

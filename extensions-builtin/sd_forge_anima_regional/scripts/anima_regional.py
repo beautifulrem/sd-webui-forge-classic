@@ -5,48 +5,18 @@ from __future__ import annotations
 import logging
 
 import gradio as gr
-import torch
 
 from backend.logging import setup_logger
 from lib_anima_regional.regional import Region, RegionalState, apply_regional_patch
-from modules import prompt_parser, scripts, shared
+from modules import scripts
 from modules.anima_feature_conflicts import FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
 from modules.anima_presets import register_preset_control
-from modules.anima_support import is_anima_engine, parse_block_list, preserved_reference_latents, register_negpip_prompts, split_conditioning
+from modules.anima_support import conditioning_cache_key, encode_extra_prompts, is_anima_engine, parse_block_list, register_negpip_prompts
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
 logger = logging.getLogger("AnimaRegional")
 setup_logger(logger)
-
-
-def _extract_conditioning(value):
-    """Return ``(crossattn, negpip_mask or None)`` for one encoded prompt."""
-
-    while isinstance(value, (list, tuple)) and value:
-        value = value[0]
-    value, mask = split_conditioning(value)
-    if torch.is_tensor(value):
-        return value, mask
-    raise RuntimeError("Could not extract Anima regional conditioning tensor")
-
-
-def _encode_key(p, text: str):
-    """What the encoding of ``text`` depends on besides the text itself."""
-
-    sd_model = p.sd_model
-    clip = getattr(getattr(sd_model, "forge_objects", None), "clip", None)
-    return (
-        str(text),
-        str(getattr(getattr(sd_model, "sd_checkpoint_info", None), "filename", None)),
-        str(getattr(sd_model, "current_lora_hash", "")),
-        # A new id whenever text-encoder LoRA patches (and so their Qwen layer
-        # weights) are applied, which the LoRA hash alone does not reflect.
-        getattr(getattr(clip, "patcher", None), "patches_uuid", None),
-        str(getattr(shared.opts, "emphasis", "")),
-        # NegPiP replaces get_learned_conditioning while it is active.
-        "get_learned_conditioning" in getattr(sd_model, "__dict__", {}),
-    )
 
 
 def _encode_cached(p, text: str):
@@ -55,25 +25,19 @@ def _encode_cached(p, text: str):
     cache = getattr(p, "_anima_regional_conds", None)
     if cache is None:
         cache = p._anima_regional_conds = {}
-    key = _encode_key(p, text)
+    key = (str(text), conditioning_cache_key(p))
     if key not in cache:
         cache[key] = _encode(p, text)
     return cache[key]
 
 
 def _encode(p, text: str):
-    value = prompt_parser.SdConditioning(
-        [str(text)],
-        width=p.width,
-        height=p.height,
-        distilled_cfg_scale=getattr(p, "distilled_cfg_scale", None),
-    )
-    with preserved_reference_latents(p.sd_model):
-        result = p.sd_model.get_learned_conditioning(value)
-    cond, mask = _extract_conditioning(result)
+    """``(crossattn, negpip_mask or None)`` for one region prompt."""
+
+    cond, mask = encode_extra_prompts(p, [text])
     if mask is not None:
-        mask = mask.detach().float().cpu().contiguous()
-    return cond.detach().float().cpu().contiguous(), mask
+        mask = mask.float().contiguous()
+    return cond.float().contiguous(), mask
 
 
 def _region_rows(region_values):
@@ -181,12 +145,10 @@ class AnimaRegionalScript(scripts.Script):
                 for active, text, x, y, width, height, strength in _region_rows(region_values)
                 if _region_is_used(active, text, width, height, strength)
             ]
-        register_negpip_prompts(p, "anima_regional", prompts)
+        register_negpip_prompts(p, REGIONAL, prompts)
         # Runs before every sampling hook: Artist Mixer sees this and yields,
-        # so its artist prompts (registered earlier) must not enable NegPiP.
+        # and NegPiP then ignores the artist prompts it registered.
         set_feature_active(p, REGIONAL, bool(prompts))
-        if prompts:
-            register_negpip_prompts(p, "anima_artist_mixer", [])
 
     def postprocess(self, p, processed, *args, **kwargs):
         set_feature_active(p, REGIONAL, False)

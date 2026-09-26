@@ -5,6 +5,7 @@ if TYPE_CHECKING:
     from modules.processing import StableDiffusionProcessing
 
 from lib_negpip import IS_NEO
+from modules.anima_support import negpip_extra_prompts
 
 NEG_PATTERN = re.compile(r"\(\s*(?:[^\\(:)]|\\[\(\)])+?\s*\:\s*-\s*\d*\.?\d+\s*\)")
 
@@ -43,6 +44,6 @@ def any_negative(p: "StableDiffusionProcessing") -> bool:
             have_negative(getattr(p, "hr_negative_prompts", None) or ""),
             # Prompts other scripts encode themselves (Regional regions,
             # Artist Mixer artists) need NegPiP's conditioning too.
-            have_negative([prompt for prompts in (getattr(p, "negpip_extra_prompts", None) or {}).values() for prompt in prompts]),
+            have_negative(negpip_extra_prompts(p)),
         ]
     )

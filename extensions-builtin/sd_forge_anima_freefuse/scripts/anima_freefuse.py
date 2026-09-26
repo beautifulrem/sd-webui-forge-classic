@@ -28,7 +28,7 @@ from modules.anima_feature_conflicts import (
     resolve_freefuse_refiner_conflicts,
     set_feature_active,
 )
-from modules.anima_support import effective_prompt_batch, is_anima_engine, parse_block_list, register_negpip_prompts
+from modules.anima_support import effective_prompt_batch, is_anima_engine, parse_block_list
 from modules.anima_presets import register_preset_control
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
@@ -310,9 +310,6 @@ class AnimaFreeFuseScript(scripts.Script):
         p.refiner_switch_at = None
         install_patch_metadata_hook()
         set_feature_active(p, FREEFUSE)
-        # Artist Mixer (its process() ran earlier) yields to FreeFuse, so its
-        # artist prompts will not be encoded and must not enable NegPiP.
-        register_negpip_prompts(p, "anima_artist_mixer", [])
         # Every subject LoRA must load as online patches
         acquire_online_lora(p, ONLINE_LORA_OWNER)
 

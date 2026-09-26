@@ -111,8 +111,10 @@ NEGPIP_EXTRA_PROMPTS = "negpip_extra_prompts"
 def register_negpip_prompts(process, source: str, prompts) -> None:
     """Let NegPiP see negative weights in prompts encoded outside the main ones.
 
-    Entries are replaced per ``source`` so repeated ``process_images`` calls on
-    one ``p`` (img2img batch, loopback, SD upscale) do not accumulate them.
+    ``source`` is the registering feature's name (see
+    ``modules.anima_feature_conflicts``). Entries are replaced per ``source``
+    so repeated ``process_images`` calls on one ``p`` (img2img batch, loopback,
+    SD upscale) do not accumulate them.
     """
 
     extra = getattr(process, NEGPIP_EXTRA_PROMPTS, None)
@@ -120,6 +122,27 @@ def register_negpip_prompts(process, source: str, prompts) -> None:
         extra = {}
         setattr(process, NEGPIP_EXTRA_PROMPTS, extra)
     extra[source] = [str(prompt) for prompt in prompts if isinstance(prompt, str) and prompt]
+
+
+def negpip_extra_prompts(process) -> list[str]:
+    """The registered extra prompts that will actually be encoded.
+
+    The spatial features are one-of-three; one that yields to another active
+    one (they mark themselves in ``process()``, before NegPiP's
+    ``process_batch``) encodes nothing, whatever order the scripts ran in.
+    """
+
+    from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is_feature_active
+
+    spatial = (FREEFUSE, REGIONAL, ARTIST_MIXER)
+    active = [feature for feature in spatial if is_feature_active(process, feature)]
+    extra = getattr(process, NEGPIP_EXTRA_PROMPTS, None) or {}
+    return [
+        prompt
+        for source, prompts in extra.items()
+        if not active or source not in spatial or source in active
+        for prompt in prompts
+    ]
 
 
 def split_conditioning(conds):
@@ -177,6 +200,55 @@ def preserved_reference_latents(sd_model):
         dynamic_args.ref_latents = references
         if initial is not missing:
             sd_model.ini_latent = initial
+
+
+def conditioning_cache_key(process) -> tuple:
+    """What encoding an extra prompt depends on besides its text, for caches
+    that outlive one pass (``forge_objects`` is a fresh copy every pass)."""
+
+    from modules import sd_models, shared
+
+    sd_model = getattr(process, "sd_model", None)
+    clip = getattr(getattr(sd_model, "forge_objects", None), "clip", None)
+    return (
+        str(getattr(getattr(sd_model, "sd_checkpoint_info", None), "filename", None)),
+        # The checkpoint plus additional modules (text encoder).
+        str(getattr(getattr(sd_models, "model_data", None), "forge_hash", "")),
+        str(getattr(sd_model, "current_lora_hash", "")),
+        # A new id whenever text-encoder LoRA patches (and so their Qwen layer
+        # weights) are applied, which the LoRA hash alone does not reflect.
+        str(getattr(getattr(clip, "patcher", None), "patches_uuid", None)),
+        str(getattr(shared.opts, "emphasis", "")),
+        # NegPiP replaces get_learned_conditioning while it is active.
+        "get_learned_conditioning" in getattr(sd_model, "__dict__", {}),
+    )
+
+
+def encode_extra_prompts(process, texts):
+    """Encode prompts besides the main ones (Regional regions, Artist Mixer
+    artists) as ``(context, negpip_mask or None)`` on the CPU, one context row
+    per text, leaving the main prompt's reference latents alone."""
+
+    import torch
+
+    from modules import prompt_parser
+
+    conditioning = prompt_parser.SdConditioning(
+        [str(text) for text in texts],
+        width=getattr(process, "width", None),
+        height=getattr(process, "height", None),
+        distilled_cfg_scale=getattr(process, "distilled_cfg_scale", None),
+    )
+    with preserved_reference_latents(process.sd_model):
+        conds = process.sd_model.get_learned_conditioning(conditioning)
+    if isinstance(conds, (list, tuple)):  # one (1, tokens, dim) tensor per prompt
+        conds = _stack_tiled([cond.reshape(-1, cond.shape[-1]) for cond in conds])
+    context, mask = split_conditioning(conds)
+    if not torch.is_tensor(context):
+        raise RuntimeError("Could not extract the Anima conditioning tensor")
+    if context.ndim == 2:
+        context = context.unsqueeze(0)
+    return context.detach().cpu(), None if mask is None else mask.detach().cpu()
 
 
 def conditioning_context(conds):

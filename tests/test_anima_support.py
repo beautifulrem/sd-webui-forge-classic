@@ -166,3 +166,84 @@ def test_extra_prompt_encoding_keeps_the_reference_latents(monkeypatch):
         sd_model.ini_latent = None
 
     assert dynamic_args.ref_latents == [reference] and sd_model.ini_latent is initial
+
+
+class _EncodingModel:
+    """An Anima engine stand-in: ``(1, tokens, dim)`` per prompt, padded to
+    different lengths, resetting the reference latents like a positive encode."""
+
+    current_lora_hash = "[]"
+
+    def __init__(self):
+        self.calls = []
+        self.ini_latent = torch.zeros(1)
+        self.forge_objects = SimpleNamespace(clip=SimpleNamespace(patcher=SimpleNamespace(patches_uuid="te-1")))
+
+    def get_learned_conditioning(self, prompt):
+        from backend.args import dynamic_args
+
+        self.calls.append(list(prompt))
+        dynamic_args.ref_latents.clear()
+        self.ini_latent = None
+        return [torch.full((1, 2 * (index + 1), 3), float(index)) for index in range(len(prompt))]
+
+
+def test_extra_prompts_are_encoded_as_one_cpu_batch(monkeypatch):
+    from backend.args import dynamic_args
+    from modules.anima_support import encode_extra_prompts
+
+    reference = torch.ones(1)
+    monkeypatch.setattr(dynamic_args, "ref_latents", [reference])
+    model = _EncodingModel()
+    initial = model.ini_latent
+
+    context, mask = encode_extra_prompts(SimpleNamespace(sd_model=model, width=64, height=64), ["artist\na cat", "artist\na dog"])
+
+    assert model.calls == [["artist\na cat", "artist\na dog"]]
+    # Different padded lengths are tiled to a common one
+    assert context.shape == (2, 4, 3) and context.device.type == "cpu" and mask is None
+    assert context[0].unique().tolist() == [0.0] and context[1].unique().tolist() == [1.0]
+    assert dynamic_args.ref_latents == [reference] and model.ini_latent is initial
+
+    negpip = {"crossattn": torch.zeros(1, 2, 3), "c_negpip_mask": torch.tensor([[[1.0], [-1.0]]])}
+    model.get_learned_conditioning = lambda prompt: negpip
+    context, mask = encode_extra_prompts(SimpleNamespace(sd_model=model), ["(hat:-1)"])
+    assert context.shape == (1, 2, 3) and mask[0, :, 0].tolist() == [1.0, -1.0]
+
+
+def test_conditioning_cache_key_follows_what_the_encoding_depends_on(monkeypatch):
+    import modules
+    from modules.anima_support import conditioning_cache_key
+
+    model_data = SimpleNamespace(forge_hash="checkpoint+te")
+    monkeypatch.setattr(modules, "sd_models", SimpleNamespace(model_data=model_data), raising=False)
+    model = _EncodingModel()
+    p = SimpleNamespace(sd_model=model)
+    first = conditioning_cache_key(p)
+    assert conditioning_cache_key(p) == first
+
+    # Qwen layer weights re-apply the TE LoRA patches without changing its hash
+    model.forge_objects.clip.patcher.patches_uuid = "te-2"
+    second = conditioning_cache_key(p)
+    model_data.forge_hash = "checkpoint+other-te"
+    third = conditioning_cache_key(p)
+    model.get_learned_conditioning = model.get_learned_conditioning  # NegPiP's hook
+    assert len({first, second, third, conditioning_cache_key(p)}) == 4
+
+
+def test_negpip_ignores_extra_prompts_of_a_feature_that_yields():
+    from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, set_feature_active
+    from modules.anima_support import negpip_extra_prompts
+
+    process = SimpleNamespace()
+    register_negpip_prompts(process, ARTIST_MIXER, ["artist"])
+    register_negpip_prompts(process, "other", ["other"])
+    assert negpip_extra_prompts(process) == ["artist", "other"]  # nothing marked yet
+
+    register_negpip_prompts(process, REGIONAL, ["region"])
+    set_feature_active(process, REGIONAL)
+    assert negpip_extra_prompts(process) == ["other", "region"]
+
+    set_feature_active(process, REGIONAL, False)
+    set_feature_active(process, FREEFUSE)
+    assert negpip_extra_prompts(process) == ["other"]

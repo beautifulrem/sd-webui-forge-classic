@@ -84,9 +84,9 @@ def test_batched_and_serial_artist_forwards_agree():
     forward = _Attention()
     batched = _dispatch(_state(batched=True), forward, x, context, [0, 1])
     assert torch.allclose(serial, batched, atol=1e-6)
-    # One forward for both artists (rows repeated per artist), one for the base
-    assert [calls[0] for calls in forward.calls] == [4, 2]
-    assert forward.calls[0][2]["cond_or_uncond"] == [0, 1, 0, 1]
+    # One forward for both artists on the positive row (repeated per artist), one for the base
+    assert [calls[0] for calls in forward.calls] == [2, 2]
+    assert forward.calls[0][2]["cond_or_uncond"] == [0, 0]
 
 
 @pytest.mark.parametrize("combine", [mixer.COMBINE_OUTPUT_AVG, mixer.COMBINE_CONCAT])
@@ -115,13 +115,15 @@ def test_concat_attends_to_weighted_artist_tokens(fusion):
     forward = _Attention()
     out = _dispatch(state, forward, x, context, [0, 1])
 
-    combined = torch.cat([a.cond.expand(2, -1, -1) * (a.weight / 0.9) for a in state.artists], dim=1)
-    kv = torch.cat([context, combined], dim=1) if fusion == mixer.FUSION_CONCAT_WITH_BASE else combined
-    assert torch.allclose(forward.calls[0][1], kv)
+    combined = torch.cat([a.cond * (a.weight / 0.9) for a in state.artists], dim=1)
+    kv = torch.cat([context[:1], combined], dim=1) if fusion == mixer.FUSION_CONCAT_WITH_BASE else combined
+    # The artist forward runs on the positive-prompt row only
+    assert forward.calls[0][0] == 1 and torch.allclose(forward.calls[0][1], kv)
     assert forward.calls[0][2]["anima_nag_skip"] == "artist_context"
+    assert forward.calls[0][2]["cond_or_uncond"] == [0]
     strength = 0.8 * 0.9
     base = attend(x, context)
-    assert torch.allclose(out[0], base[0] * (1.0 - strength) + attend(x, kv)[0] * strength, atol=1e-6)
+    assert torch.allclose(out[0], base[0] * (1.0 - strength) + attend(x[:1], kv)[0] * strength, atol=1e-6)
     assert torch.equal(out[1], base[1])
 
 
@@ -203,7 +205,9 @@ def test_conditioning_cache_key_follows_the_text_encoder_patches(monkeypatch):
     # LoRA hash is back to the plain LoRA list, so it cannot tell them apart.
     from types import SimpleNamespace
 
-    monkeypatch.setattr(mixer, "sd_models", SimpleNamespace(model_data=SimpleNamespace(forge_hash="h")))
+    import modules
+
+    monkeypatch.setattr(modules, "sd_models", SimpleNamespace(model_data=SimpleNamespace(forge_hash="h")), raising=False)
     patcher = SimpleNamespace(patches_uuid="te-1")
     model = SimpleNamespace(current_lora_hash="['a.safetensors']", forge_objects=SimpleNamespace(clip=SimpleNamespace(patcher=patcher)))
     p = SimpleNamespace(sd_model=model)
@@ -212,3 +216,91 @@ def test_conditioning_cache_key_follows_the_text_encoder_patches(monkeypatch):
     assert mixer._cache_key(p, ["artist"]) == first
     patcher.patches_uuid = "te-2"
     assert mixer._cache_key(p, ["artist"]) != first
+
+
+def _negpip_state(combine, fusion, batched=False):
+    state = _state(combine=combine, fusion=fusion, batched=batched)
+    state.artists[1].negpip_mask = torch.tensor([[[1.0], [-1.0], [1.0]]])
+    return state
+
+
+@pytest.mark.parametrize("batched", [False, True])
+@pytest.mark.parametrize("fusion", [mixer.FUSION_INTERPOLATE, mixer.FUSION_CONCAT_WITH_BASE])
+def test_output_avg_hands_each_artist_context_its_own_negpip_mask(fusion, batched):
+    from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY
+
+    state = _negpip_state(mixer.COMBINE_OUTPUT_AVG, fusion, batched)
+    x, context = _inputs(batch=4)
+    base_mask = torch.ones(4, 3, 1)
+    base_mask[:, 0] = -1.0
+    forward = _Attention()
+    mixer._dispatch_cross_attn(forward, 0, state, x, context=context, transformer_options={"cond_or_uncond": [0, 1], NEGPIP_MASK_KEY: base_mask})
+
+    artist_calls, base_call = forward.calls[:-1], forward.calls[-1]
+    assert NEGPIP_CONTEXT_MASK_KEY not in base_call[2] and base_call[2][NEGPIP_MASK_KEY] is base_mask
+    ones, artist = torch.ones(2, 3, 1), state.artists[1].negpip_mask.expand(2, -1, -1)
+    if fusion == mixer.FUSION_CONCAT_WITH_BASE:  # the base tokens (positive rows) keep the base mask
+        ones, artist = torch.cat([base_mask[:2], ones], dim=1), torch.cat([base_mask[:2], artist], dim=1)
+    masks = [call[2][NEGPIP_CONTEXT_MASK_KEY] for call in artist_calls]
+    if batched:
+        assert len(masks) == 1 and torch.equal(masks[0], torch.cat([ones, artist]))
+    elif fusion == mixer.FUSION_CONCAT_WITH_BASE:
+        assert torch.equal(masks[0], ones) and torch.equal(masks[1], artist)
+    else:
+        assert masks[0] is None and torch.equal(masks[1], artist)
+
+
+@pytest.mark.parametrize("fusion", [mixer.FUSION_INTERPOLATE, mixer.FUSION_CONCAT_WITH_BASE])
+def test_concat_hands_the_joined_context_its_own_negpip_mask(fusion):
+    from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY
+
+    state = _negpip_state(mixer.COMBINE_CONCAT, fusion)
+    x, context = _inputs()
+    forward = _Attention()
+    options = {"cond_or_uncond": [0, 1]}
+    mixer._dispatch_cross_attn(forward, 0, state, x, context=context, transformer_options=options)
+    expected = torch.cat([torch.ones(1, 3, 1), state.artists[1].negpip_mask], dim=1)
+    if fusion == mixer.FUSION_CONCAT_WITH_BASE:  # no base mask: ones for the base tokens
+        expected = torch.cat([torch.ones(1, 3, 1), expected], dim=1)
+    assert torch.equal(forward.calls[0][2][NEGPIP_CONTEXT_MASK_KEY], expected)
+
+    # Without negative weights anywhere, the artist context carries None, not the base mask
+    state = _state(combine=mixer.COMBINE_CONCAT, fusion=fusion)
+    forward = _Attention()
+    options[NEGPIP_MASK_KEY] = torch.ones(2, 3, 1)
+    mixer._dispatch_cross_attn(forward, 0, state, x, context=context, transformer_options=options)
+    if fusion == mixer.FUSION_CONCAT_WITH_BASE:
+        assert torch.equal(forward.calls[0][2][NEGPIP_CONTEXT_MASK_KEY], torch.ones(1, 9, 1))
+    else:
+        assert forward.calls[0][2][NEGPIP_CONTEXT_MASK_KEY] is None
+
+
+def test_base_fusion_contexts_are_built_once_per_model_call():
+    from modules.anima_support import NEGPIP_MASK_KEY
+
+    state = _negpip_state(mixer.COMBINE_OUTPUT_AVG, mixer.FUSION_CONCAT_WITH_BASE)
+    state.artists[0].blocks = state.artists[1].blocks = {0, 1}
+    x, context = _inputs()
+    options = {"cond_or_uncond": [0, 1], NEGPIP_MASK_KEY: -torch.ones(2, 3, 1)}
+    forward = _Attention()
+    for block in (0, 1):  # two blocks of one model call
+        mixer._dispatch_cross_attn(forward, block, state, x, context=context, transformer_options=options)
+    first, second = forward.calls[:2], forward.calls[3:5]
+    for one, two in zip(first, second):
+        assert one[1] is two[1] and one[2]["negpip_context_mask"] is two[2]["negpip_context_mask"]
+
+
+def test_artist_forwards_skip_the_negative_rows():
+    state = _state()
+    x, context = _inputs(batch=4)
+    forward = _Attention()
+    out = _dispatch(state, forward, x, context, [1, 0])  # positive rows are 2 and 3
+
+    assert [call[0] for call in forward.calls] == [2, 2, 4]
+    assert all(call[2]["cond_or_uncond"] == [0] for call in forward.calls[:2])
+    base = attend(x, context)
+    weights = [0.6 / 0.9, 0.3 / 0.9]
+    artist = sum(w * attend(x, a.cond.expand(4, -1, -1)) for w, a in zip(weights, state.artists))
+    strength = 0.8 * 0.9
+    assert torch.equal(out[:2], base[:2])
+    assert torch.allclose(out[2:], base[2:] * (1.0 - strength) + artist[2:] * strength, atol=1e-6)
