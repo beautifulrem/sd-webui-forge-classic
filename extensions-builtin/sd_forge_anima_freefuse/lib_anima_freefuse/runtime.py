@@ -12,9 +12,11 @@ from types import MethodType
 import torch
 import torch.nn.functional as F
 
+from backend.memory_management import cast_to_device
 from backend.operations import main_stream_worker, weights_manual_cast
 from backend.patcher.base import LowVramPatch, OnlineLoRAPatch
 from backend.patcher.lora import merge_lora_to_weight
+from modules_forge.packages.comfy.weight_adapter import LoRAAdapter
 from modules import spectrum_force
 from modules.anima_support import branch_rows, call_model_wrapper, negpip_mask_for
 from modules.forward_override import forward_overrides
@@ -65,6 +67,30 @@ def _lora_function_patches(function):
     if isinstance(function, LowVramPatch):
         return function.key, function.patches.get(function.key, [])
     return None
+
+
+def _plain_lora_factors(patch, weight):
+    """Return ``(down, up, scale)`` when ``patch`` is a plain LoRA on ``weight``.
+
+    Its merged delta is ``scale * up @ down``, so the routed contribution can
+    run as two rank-r matmuls instead of a dense out x in delta. Anything else
+    (LoCon mid, DoRA, reshape, offsets, weight functions, strength_model,
+    other adapter types) returns ``None`` and takes the merge path.
+    """
+
+    if len(patch) != 5:
+        return None
+    strength, adapter, strength_model, offset, function = patch
+    if type(adapter) is not LoRAAdapter or strength_model != 1.0 or offset is not None or function is not None:
+        return None
+    up, down, alpha, mid, dora_scale, reshape = adapter.weights
+    if mid is not None or dora_scale is not None or reshape is not None or weight.dim() != 2:
+        return None
+    up, down = up.flatten(start_dim=1), down.flatten(start_dim=1)
+    if up.shape[0] != weight.shape[0] or down.shape[1] != weight.shape[1] or up.shape[1] != down.shape[0]:
+        return None
+    # LoRAAdapter.calculate_weight: strength * (alpha / rank) * up @ down
+    return down, up, strength * (1.0 if alpha is None else alpha / down.shape[0])
 
 
 def install_patch_metadata_hook() -> None:
@@ -526,7 +552,8 @@ def _make_linear_forward(
             # still need it unpatched).
             unpatched_weight = raw_weight
             base_weight = raw_weight
-            deltas = {}
+            deltas = {}  # adapter name -> summed dense delta
+            factors = {}  # adapter name -> [(down, up, scale)] of plain LoRAs
             for function, key, patches in resolved:
                 if patches is None:
                     if base_weight is unpatched_weight:
@@ -538,7 +565,14 @@ def _make_linear_forward(
                     if name is None:
                         non_target.append(patch)
                         continue
-                    if state.phase == "collect":
+                    if state.phase != "generate":
+                        continue
+                    # Read from the live patch every call (strengths change
+                    # per step); a plain LoRA runs low rank, the rest merges.
+                    plain = _plain_lora_factors(patch, unpatched_weight)
+                    if plain is not None:
+                        if plain[2] != 0.0:
+                            factors.setdefault(name, []).append(plain)
                         continue
                     delta = merge_lora_to_weight(
                         [patch], unpatched_weight.clone(), key
@@ -564,8 +598,14 @@ def _make_linear_forward(
             if state.phase != "generate":
                 return output
             strength = min(max(float(state.routing_strength), 0.0), 1.0)
-            for name, delta in deltas.items():
-                contribution = F.linear(x, delta.to(dtype=x.dtype), None)
+            for name in dict.fromkeys([*deltas, *factors]):
+                contribution = None
+                if name in deltas:
+                    contribution = F.linear(x, deltas[name].to(dtype=x.dtype), None)
+                for down, up, scale in factors.get(name, ()):
+                    hidden = F.linear(x, cast_to_device(down, x.device, x.dtype)) * scale
+                    term = F.linear(hidden, cast_to_device(up, x.device, x.dtype))
+                    contribution = term if contribution is None else contribution + term
                 mask = state.mask_for_output(
                     name,
                     contribution,

@@ -263,3 +263,102 @@ def test_linear_routing_leaves_adapters_out_while_collecting():
 
     assert torch.allclose(forward(x), torch.nn.functional.linear(x, layer.weight))
     assert torch.equal(layer.weight, weight_before)  # merged into a copy only
+
+
+def _lora_adapter(*, rank=3, out_features=6, in_features=8, alpha=5.0, mid=None, dora_scale=None):
+    from modules_forge.packages.comfy.weight_adapter import LoRAAdapter
+
+    up = torch.randn(out_features, rank)
+    down = torch.randn(rank, in_features)
+    return LoRAAdapter(set(), (up, down, alpha, mid, dora_scale, None))
+
+
+def _lora_forward(runtime, ModelPatcher, adapter, *, dtype=torch.float32, strength=0.7):
+    model = torch.nn.Module()
+    model.layer = torch.nn.Linear(8, 6, bias=True)
+    model.to(dtype)
+    patcher = ModelPatcher(model, torch.device("cpu"), torch.device("cpu"))
+    patcher.add_patches(
+        {"layer.weight": adapter},
+        strength_patch=strength,
+        filename="/loras/cat.safetensors",
+        online_mode=True,
+    )
+    state = _state(runtime)
+    state.routing_strength = 0.5
+    state.validate_patches(patcher)
+    layer = patcher.model.layer
+    layer.weight_function = list(patcher.weight_wrapper_patches["layer.weight"])
+    layer.bias_function = []
+    state.grid_height, state.grid_width = 1, 3
+    state.masks = {"A": torch.tensor([[1.0, 0.0, 0.5]])}
+    state.phase = "generate"
+    return layer, runtime._make_linear_forward(layer.forward, layer, state, "blocks.0.mlp.layer1")
+
+
+def _dense_only(runtime, forward, x):
+    original = runtime._plain_lora_factors
+    runtime._plain_lora_factors = lambda patch, weight: None
+    try:
+        return forward(x)
+    finally:
+        runtime._plain_lora_factors = original
+
+
+@pytest.mark.parametrize("dtype, tolerance", [(torch.float32, 1e-5), (torch.bfloat16, 5e-2)])
+def test_plain_lora_runs_low_rank_and_matches_the_dense_merge(dtype, tolerance):
+    runtime, ModelPatcher, _ = _load()
+    torch.manual_seed(0)
+    adapter = _lora_adapter()
+    layer, forward = _lora_forward(runtime, ModelPatcher, adapter, dtype=dtype)
+    x = torch.randn(2, 3, 8).to(dtype)
+    merges = []
+    original_merge = runtime.merge_lora_to_weight
+    runtime.merge_lora_to_weight = lambda *args, **kwargs: merges.append(args) or original_merge(*args, **kwargs)
+    try:
+        low_rank = forward(x)
+    finally:
+        runtime.merge_lora_to_weight = original_merge
+    dense = _dense_only(runtime, forward, x)
+
+    assert merges == []  # no dense delta was built
+    assert low_rank.dtype == dense.dtype == dtype
+    assert torch.allclose(low_rank.float(), dense.float(), rtol=tolerance, atol=tolerance)
+    # Reference: base + 0.7 * (5 / 3) * up @ down, scaled by (1 - s) + mask * s
+    up, down = adapter.weights[0], adapter.weights[1]
+    base = torch.nn.functional.linear(x.float(), layer.weight.float(), layer.bias.float())
+    delta = torch.nn.functional.linear(x.float(), 0.7 * (5.0 / 3.0) * up @ down)
+    factors = torch.tensor([1.0, 0.5, 0.75]).view(1, 3, 1)
+    assert torch.allclose(low_rank.float(), base + delta * factors, rtol=tolerance, atol=tolerance)
+
+
+def test_non_plain_adapters_keep_the_dense_merge():
+    runtime, ModelPatcher, _ = _load()
+    from modules_forge.packages.comfy.weight_adapter import LoKrAdapter
+
+    torch.manual_seed(0)
+    weight = torch.randn(6, 8)
+    plain = _lora_adapter()
+    dora = _lora_adapter(dora_scale=torch.ones(6, 1))
+    locon = _lora_adapter(mid=torch.randn(3, 3, 1, 1))
+    lokr = LoKrAdapter(set(), (None,) * 9)
+
+    assert runtime._plain_lora_factors([0.7, plain, 1.0, None, None], weight) is not None
+    assert runtime._plain_lora_factors([0.7, dora, 1.0, None, None], weight) is None
+    assert runtime._plain_lora_factors([0.7, locon, 1.0, None, None], weight) is None
+    assert runtime._plain_lora_factors([0.7, lokr, 1.0, None, None], weight) is None
+    assert runtime._plain_lora_factors([0.7, plain, 1.0, (0, 0, 3), None], weight) is None
+    assert runtime._plain_lora_factors([0.7, plain, 0.5, None, None], weight) is None
+    assert runtime._plain_lora_factors([0.7, plain, 1.0, None, lambda a: a], weight) is None
+    assert runtime._plain_lora_factors([0.7, plain, 1.0, None, None], torch.randn(8, 6)) is None
+
+    # A DoRA patch still goes through merge_lora_to_weight in the forward.
+    layer, forward = _lora_forward(runtime, ModelPatcher, dora)
+    merges = []
+    original_merge = runtime.merge_lora_to_weight
+    runtime.merge_lora_to_weight = lambda *args, **kwargs: merges.append(args) or original_merge(*args, **kwargs)
+    try:
+        forward(torch.randn(1, 3, 8))
+    finally:
+        runtime.merge_lora_to_weight = original_merge
+    assert len(merges) == 1
