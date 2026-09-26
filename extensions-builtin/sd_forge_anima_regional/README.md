@@ -15,5 +15,5 @@ applied in order, so swapping region rows does not change the blend. Spectrum
 is explicitly forced to actual forwards while regional routing is active.
 
 The approach follows the independently encoded regional context and spatial
-attention-routing design of `ComfyUI-AnimaRegionalConditioning`, adapted to
+attention-routing design of [Comfyui-Anima-Regional-Conditioning](https://github.com/Sen-sou/Comfyui-Anima-Regional-Conditioning) (MIT, see NOTICE), adapted to
 Forge's Anima attention implementation without persistent module monkeypatches.
