@@ -17,13 +17,19 @@ _class = next(node for node in ast.parse(_SOURCE.read_text(encoding="utf-8")).bo
 _method = next(node for node in _class.body if getattr(node, "name", None) == "get_sigmas")
 _OPTS = SimpleNamespace(always_discard_next_to_last_sigma=False, sigma_min=0, sigma_max=0, rho=0)
 _GRID = torch.tensor([1.0, 0.5, 0.0])
+_KARRAS = torch.tensor([14.6, 1.0, 0.0])
+_FLOW = SimpleNamespace(label="Anima FlowMatch", function=lambda n, **_: _GRID, default_rho=-1, need_inner_model=False)
 _ns = {
     "opts": _OPTS,
     "torch": torch,
     "devices": SimpleNamespace(cpu="cpu"),
     "logger": logging.getLogger("modules.sd_samplers_kdiffusion"),
     "sd_schedulers": SimpleNamespace(
-        schedulers_map={"anima_flow_match": SimpleNamespace(label="Anima FlowMatch", function=lambda n, **_: _GRID, default_rho=-1, need_inner_model=False)}
+        schedulers_map={
+            "anima_flow_match": _FLOW,
+            "Anima FlowMatch": _FLOW,
+            "Karras": SimpleNamespace(label="Karras", function=lambda n, **_: _KARRAS, default_rho=7.0, need_inner_model=False),
+        }
     ),
 }
 exec(compile(ast.Module([_method], []), str(_SOURCE), "exec"), _ns)  # noqa: S102 - our own source file
@@ -60,3 +66,38 @@ def test_locked_samplers_ignore_script_schedule_overrides(lock, caplog):
         assert torch.equal(sigmas, torch.full((3,), 9.0))
         assert "Anima Flow scheduler lock" not in p.extra_generation_params
         assert warned == []
+
+
+@pytest.mark.parametrize("lock", [True, False])
+@pytest.mark.parametrize("hires", [False, True])
+def test_locked_samplers_replace_an_api_scheduler_choice(lock, hires, caplog):
+    """API/XYZ runs bypass the UI's greyed-out Schedule type; the lock keeps the
+    Anima FlowMatch grid the sampler's tail thresholds were tuned for."""
+    p = SimpleNamespace(is_hr_pass=hires, scheduler="Karras", hr_scheduler="Karras", extra_generation_params={}, sampler_noise_scheduler_override=None)
+
+    with caplog.at_level(logging.WARNING, logger="modules.sd_samplers_kdiffusion"):
+        sigmas = get_sigmas(_sampler(lock), p, 2)
+
+    key = "Anima Flow replaced hires scheduler" if hires else "Anima Flow replaced scheduler"
+    warned = [record for record in caplog.records if "replaced by the sampler" in record.getMessage()]
+    if lock:
+        assert torch.equal(sigmas, _GRID)
+        assert p.extra_generation_params[key] == "Karras"
+        assert len(warned) == 1
+    else:
+        assert torch.equal(sigmas, _KARRAS)
+        assert key not in p.extra_generation_params
+        assert warned == []
+
+
+@pytest.mark.parametrize("choice", ["Anima FlowMatch", "anima_flow_match", "Automatic", None])
+def test_locked_samplers_do_not_flag_their_own_scheduler(choice, caplog):
+    p = SimpleNamespace(is_hr_pass=False, scheduler=choice, extra_generation_params={}, sampler_noise_scheduler_override=None)
+
+    with caplog.at_level(logging.WARNING, logger="modules.sd_samplers_kdiffusion"):
+        sigmas = get_sigmas(_sampler(True), p, 2)
+
+    assert torch.equal(sigmas, _GRID)
+    assert "Anima Flow replaced scheduler" not in p.extra_generation_params
+    assert p.extra_generation_params["Schedule type"] == "Anima FlowMatch"
+    assert caplog.records == []

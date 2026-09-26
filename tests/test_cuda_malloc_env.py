@@ -31,7 +31,7 @@ def test_options_join_a_legacy_user_config(env):
 
     cuda_malloc.try_expandable_segments()
 
-    # PyTorch reads PYTORCH_CUDA_ALLOC_CONF first and ignores the others
+    # torch 2.14 reads PYTORCH_CUDA_ALLOC_CONF first and ignores the others
     assert _set() == {"PYTORCH_CUDA_ALLOC_CONF": "garbage_collection_threshold:0.6,expandable_segments:True"}
 
 
@@ -41,6 +41,22 @@ def test_options_join_a_current_user_config(env):
     cuda_malloc.try_cuda_malloc()
 
     assert _set() == {"PYTORCH_ALLOC_CONF": "max_split_size_mb:128,backend:cudaMallocAsync"}
+
+
+def test_options_join_every_variable_the_user_set(env):
+    """Which name wins differs between torch builds (AllocatorConfig.h documents
+    PYTORCH_ALLOC_CONF as primary, 2.14 parses PYTORCH_CUDA_ALLOC_CONF first),
+    so the option must reach every config the user set"""
+    env.setenv("PYTORCH_CUDA_ALLOC_CONF", "garbage_collection_threshold:0.6")
+    env.setenv("PYTORCH_ALLOC_CONF", "max_split_size_mb:128")
+
+    cuda_malloc.try_cuda_malloc()
+    cuda_malloc.try_expandable_segments()
+
+    assert _set() == {
+        "PYTORCH_CUDA_ALLOC_CONF": "garbage_collection_threshold:0.6,backend:cudaMallocAsync,expandable_segments:True",
+        "PYTORCH_ALLOC_CONF": "max_split_size_mb:128,backend:cudaMallocAsync,expandable_segments:True",
+    }
 
 
 def test_unsupported_gpu_keeps_the_environment(env):

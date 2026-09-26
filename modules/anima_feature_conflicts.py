@@ -251,7 +251,10 @@ def resolve_schedule_conflicts(
     dynamic_shift: bool,
     selected: str | None = None,
 ) -> ScheduleConflictState:
-    """Normalize sampler/scheduler/Dynamic Shift combinations."""
+    """Normalize sampler/scheduler/Dynamic Shift combinations.
+
+    The Flow-sampler lock is also enforced in ``KDiffusionSampler.get_sigmas``
+    (``lock_scheduler_override``), so API/XYZ runs cannot bypass it."""
 
     dynamic_shift = bool(dynamic_shift)
     messages: list[str] = []

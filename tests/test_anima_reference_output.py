@@ -75,6 +75,35 @@ def test_one_reference_latent_serves_a_cfg_batch_of_several_images():
     assert torch.allclose(batched[1:2], single, atol=1e-5)
 
 
+def test_per_image_reference_latents_repeat_in_batch_order():
+    """ref batch 2 with x batch 4 (2 images x cond/uncond) repeats as
+    [r0, r1, r0, r1], matching Forge's [cond..., uncond...] batch layout."""
+    from backend.args import dynamic_args
+
+    model, generator = _model()
+    x = torch.randn(4, 4, 1, 16, 12, generator=generator)
+    refs = torch.randn(2, 4, 1, 16, 12, generator=generator)
+    t = torch.full((4,), 0.5)
+    context = torch.randn(4, 7, 64, generator=generator)
+    saved = list(dynamic_args.ref_latents)
+    try:
+        with torch.inference_mode():
+            dynamic_args.ref_latents[:] = [refs]
+            batched = model(x, t, context, transformer_options={})
+            singles = []
+            for i in range(4):
+                dynamic_args.ref_latents[:] = [refs[i % 2 : i % 2 + 1]]
+                singles.append(model(x[i : i + 1], t[i : i + 1], context[i : i + 1], transformer_options={}))
+            dynamic_args.ref_latents[:] = [refs[1:2]]
+            swapped = model(x[0:1], t[0:1], context[0:1], transformer_options={})
+    finally:
+        dynamic_args.ref_latents[:] = saved
+    assert batched.shape == x.shape
+    for i, single in enumerate(singles):
+        assert torch.allclose(batched[i : i + 1], single, atol=1e-5), i
+    assert not torch.allclose(batched[0:1], swapped, atol=1e-5)  # the reference does matter
+
+
 def test_value_context_projects_only_v_from_the_other_context():
     model, generator = _model()
     attention = model.blocks[0].cross_attn

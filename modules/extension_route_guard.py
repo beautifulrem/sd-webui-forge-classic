@@ -5,14 +5,23 @@ on Gradio's FastAPI app but outside Gradio's own login check, so with
 ``--gradio-auth`` (e.g. behind ``--share``) anyone could call them; and CORS
 only hides responses, so any web page could make a user's browser send them
 state-changing requests. :func:`guard_routes` wraps such routes.
+
+Routes extensions add without opting in (:func:`guard_new_routes`) always get
+the cross-site checks. They also require the Gradio login when the server is
+exposed through ``--share`` / ``--ngrok`` with ``--gradio-auth(-path)`` set;
+API clients (no login cookie) then authenticate with ``--api-auth`` HTTP Basic
+credentials, as for ``/sdapi``. Local servers keep them open to API clients.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import ipaddress
 import os
 import re
 import sys
+from hmac import compare_digest
 from typing import Iterable
 from urllib.parse import urlparse
 
@@ -148,8 +157,28 @@ def is_cross_site(request) -> bool:
     return request.headers.get("sec-fetch-site") == "cross-site"
 
 
-def refusal(app, request, require_login: bool = True) -> tuple[int, str] | None:
-    """(status, reason) when ``request`` must be refused, else None."""
+def _has_api_credentials(request) -> bool:
+    """Valid ``--api-auth`` HTTP Basic credentials (how /sdapi clients log in)."""
+    api_auth = getattr(_cmd_opts(), "api_auth", None)
+    scheme, _, encoded = (request.headers.get("authorization") or "").partition(" ")
+    if not api_auth or scheme.lower() != "basic":
+        return False
+    try:
+        user, sep, password = base64.b64decode(encoded.strip(), validate=True).decode("utf-8").partition(":")
+    except (binascii.Error, UnicodeDecodeError):
+        return False
+    if not sep:
+        return False
+    matches = False
+    for credential in api_auth.split(","):
+        known_user, _, known_password = credential.partition(":")
+        matches |= compare_digest(known_user.encode(), user.encode()) and compare_digest(known_password.encode(), password.encode())
+    return matches
+
+
+def refusal(app, request, require_login: bool = True, accept_api_auth: bool = False) -> tuple[int, str] | None:
+    """(status, reason) when ``request`` must be refused, else None.
+    ``accept_api_auth``: valid --api-auth credentials stand in for the login."""
     if is_rebound_host(request):
         return 403, "Unknown host refused"
     if is_cross_site(request):
@@ -167,10 +196,12 @@ def refusal(app, request, require_login: bool = True) -> tuple[int, str] | None:
         user = getattr(app, "tokens", {}).get(token)
     else:
         return None
+    if user is None and accept_api_auth and _has_api_credentials(request):
+        return None
     return None if user is not None else (401, "Not authenticated")
 
 
-def _wrap(app, routes, require_login: bool) -> int:
+def _wrap(app, routes, require_login: bool, accept_api_auth: bool = False) -> int:
     from starlette.requests import HTTPConnection, Request
     from starlette.responses import PlainTextResponse
     from starlette.websockets import WebSocketClose
@@ -184,13 +215,13 @@ def _wrap(app, routes, require_login: bool) -> int:
         async def guarded(scope, receive, send, original=original):
             kind = scope.get("type")
             if kind == "http":
-                refused = refusal(app, Request(scope, receive), require_login)
+                refused = refusal(app, Request(scope, receive), require_login, accept_api_auth)
                 if refused is not None:
                     status, reason = refused
                     await PlainTextResponse(reason, status_code=status)(scope, receive, send)
                     return
             elif kind == "websocket":
-                refused = refusal(app, HTTPConnection(scope), require_login)
+                refused = refusal(app, HTTPConnection(scope), require_login, accept_api_auth)
                 if refused is not None:
                     await WebSocketClose(code=1008, reason=refused[1])(scope, receive, send)
                     return
@@ -217,14 +248,23 @@ def snapshot_routes(app) -> set:
     return {id(route) for route in _routes(app)}
 
 
+def _exposed_with_login(cmd_opts) -> bool:
+    """A --share / --ngrok tunnel with a Gradio login: anyone on the internet
+    can reach the server, and the admin asked for a login."""
+    exposed = getattr(cmd_opts, "share", None) or getattr(cmd_opts, "ngrok", None)
+    return bool(exposed and (getattr(cmd_opts, "gradio_auth", None) or getattr(cmd_opts, "gradio_auth_path", None)))
+
+
 def guard_new_routes(app, before: set, exclude: Iterable[str] = ()) -> int:
     """Cross-site checks for every route added since ``before`` (i.e. by
-    extensions), except under ``exclude``. No login requirement: extension
-    APIs may serve non-browser clients, which send no Origin header."""
+    extensions), except under ``exclude``. Login only behind an exposed
+    --share / --ngrok server with --gradio-auth (Gradio cookie, or --api-auth
+    Basic credentials); locally extension APIs stay open to non-browser
+    clients, which send no Origin header."""
     exclude = tuple(exclude)
     routes = [
         route
         for route in _routes(app)
         if id(route) not in before and not (exclude and getattr(route, "path", "").startswith(exclude))
     ]
-    return _wrap(app, routes, False)
+    return _wrap(app, routes, _exposed_with_login(_cmd_opts()), accept_api_auth=True)

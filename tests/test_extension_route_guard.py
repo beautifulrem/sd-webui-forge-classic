@@ -216,3 +216,57 @@ def test_rebound_host_check_honours_the_cors_regex(monkeypatch):
     assert is_rebound_host(_get("evil.example"))
     _guard_options(monkeypatch, cors_allow_origins_regex=r"http://studio\.lan:\d+")
     assert not is_rebound_host(_get("studio.lan:7860"))
+
+
+def _exposed_app(monkeypatch, **overrides):
+    """An app whose extension route was added after the snapshot, as webui.py does."""
+    from modules.extension_route_guard import guard_new_routes, snapshot_routes
+
+    _guard_options(monkeypatch, **(dict(gradio_auth="user:pw", gradio_auth_path=None, api_auth=None) | overrides))
+    app = FastAPI()
+    app.auth = [("user", "pw")]
+    app.cookie_id = "cid"
+    app.tokens = {"good": "user"}
+    before = snapshot_routes(app)
+
+    @app.post("/ext/api")
+    def ext():
+        return "ext"
+
+    assert guard_new_routes(app, before) == 1
+    return TestClient(app, base_url="http://127.0.0.1:7860")
+
+
+def _basic(user, password):
+    import base64
+
+    return {"authorization": "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()}
+
+
+def test_exposed_servers_require_the_gradio_login_for_extension_routes(monkeypatch):
+    for tunnel in (dict(share=True), dict(ngrok="token")):
+        client = _exposed_app(monkeypatch, **tunnel)
+        assert client.post("/ext/api").status_code == 401
+        client.cookies.set("access-token-cid", "good")
+        assert client.post("/ext/api").json() == "ext"
+
+
+def test_exposed_servers_accept_api_auth_credentials(monkeypatch):
+    client = _exposed_app(monkeypatch, share=True, api_auth="bot:secret,other:pw2")
+    assert client.post("/ext/api", headers=_basic("bot", "secret")).json() == "ext"
+    assert client.post("/ext/api", headers=_basic("other", "pw2")).json() == "ext"
+    assert client.post("/ext/api", headers=_basic("bot", "wrong")).status_code == 401
+    assert client.post("/ext/api", headers={"authorization": "Basic !!notbase64"}).status_code == 401
+    assert client.post("/ext/api").status_code == 401
+
+
+def test_api_auth_credentials_do_not_count_without_api_auth(monkeypatch):
+    client = _exposed_app(monkeypatch, share=True)
+    assert client.post("/ext/api", headers=_basic("user", "pw")).status_code == 401
+
+
+def test_local_or_login_free_servers_keep_extension_apis_open(monkeypatch):
+    # no tunnel: local API clients keep working; tunnel without --gradio-auth: nothing to log in with
+    for options in (dict(share=False, ngrok=None), dict(share=True, gradio_auth=None)):
+        assert _exposed_app(monkeypatch, **options).post("/ext/api").json() == "ext"
+    assert _exposed_app(monkeypatch, share=True, gradio_auth=None, gradio_auth_path="auth.txt").post("/ext/api").status_code == 401

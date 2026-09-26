@@ -148,7 +148,9 @@ def refresh_model_loading_parameters(*, refresh: bool = True):
     if not refresh:
         return
 
-    _migrate_scaled_fp8_setting(shared.opts, shared.config_filename)
+    if not getattr(_migrate_scaled_fp8_setting, "done", False):  # the short-lived setting needs one look per launch
+        _migrate_scaled_fp8_setting(shared.opts, shared.config_filename)
+        _migrate_scaled_fp8_setting.done = True
 
     from modules.sd_models import model_data, select_checkpoint
 

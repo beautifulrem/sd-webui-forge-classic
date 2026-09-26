@@ -133,3 +133,26 @@ def test_xyz_grid_rebuilds_the_same_loading_parameters(monkeypatch, option):
     # sd_models compares str(parameters) to decide on a reload
     assert str(model_data.forge_loading_parameters) == str(from_main_entry)
     assert from_main_entry.get("anima_quant") == anima_quant_options.get(option)
+
+
+def test_refresh_migrates_only_once_per_launch(monkeypatch):
+    """refresh_model_loading_parameters runs on every generation; the legacy
+    setting is looked at (and the config rewritten) on the first refresh only."""
+    options = _Options({"anima_scaled_fp8": True}, "float8-e4m3fn")
+    options.forge_additional_modules = []
+    monkeypatch.setitem(_ns, "shared", SimpleNamespace(opts=options, config_filename="config.json"))
+    monkeypatch.setattr(migrate, "done", False, raising=False)
+    sd_models = ModuleType("modules.sd_models")
+    sd_models.model_data = SimpleNamespace(forge_loading_parameters={})
+    sd_models.select_checkpoint = lambda: SimpleNamespace(filename="anima.safetensors")
+    monkeypatch.setitem(sys.modules, "modules.sd_models", sd_models)
+
+    _ns["refresh_model_loading_parameters"]()
+    assert options.forge_unet_storage_dtype == "float8-e4m3fn (Anima scaled)" and options.saved == 1
+
+    options.data["anima_scaled_fp8"] = True
+    options.forge_unet_storage_dtype = "float8-e4m3fn"
+    _ns["refresh_model_loading_parameters"]()
+    _ns["refresh_model_loading_parameters"]()
+
+    assert options.saved == 1 and options.forge_unet_storage_dtype == "float8-e4m3fn"

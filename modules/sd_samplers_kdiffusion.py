@@ -98,7 +98,16 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
         steps += 1 if discard_next_to_last_sigma else 0
 
         scheduler_name = (p.hr_scheduler if p.is_hr_pass else p.scheduler) or "Automatic"
-        if scheduler_name == "Automatic":
+        lock_scheduler_override = self.config is not None and self.config.options.get("lock_scheduler_override", False)
+        if lock_scheduler_override:
+            # the UI greys the Schedule type out, but API/XYZ runs reach here with any scheduler;
+            # the Anima Flow tail thresholds are tuned for the sampler's own grid
+            locked_name = self.config.options["scheduler"]
+            if scheduler_name not in ("Automatic", "automatic") and sd_schedulers.schedulers_map.get(scheduler_name) is not sd_schedulers.schedulers_map.get(locked_name):
+                p.extra_generation_params["Anima Flow replaced hires scheduler" if p.is_hr_pass else "Anima Flow replaced scheduler"] = scheduler_name
+                logger.warning(f"Anima Flow scheduler lock: {scheduler_name} replaced by the sampler's own schedule")
+            scheduler_name = locked_name
+        elif scheduler_name == "Automatic":
             from backend.args import dynamic_args
 
             if dynamic_args.klein:
@@ -113,7 +122,6 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
 
         m_sigma_min, m_sigma_max = self.model_wrap.sigmas[0].item(), self.model_wrap.sigmas[-1].item()
 
-        lock_scheduler_override = self.config is not None and self.config.options.get("lock_scheduler_override", False)
         if p.sampler_noise_scheduler_override and lock_scheduler_override:
             p.extra_generation_params["Anima Flow scheduler lock"] = True
             logger.warning("Anima Flow scheduler lock: ignoring a script's noise schedule override ; the sampler keeps its own schedule")

@@ -10,7 +10,6 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import torch
@@ -27,9 +26,9 @@ GAMMA_URL = (
 GAMMA_SHA256 = "538d5fad8253a8799600d4ff2e1a89a79e770f5a684d52f01f16e628299a7e7e"
 GAMMA_MAX_BYTES = 1024 * 1024
 _GAMMA_LOCK = threading.RLock()
-_GAMMA_ARRAYS: Optional[dict[str, np.ndarray]] = None
+_GAMMA_ARRAYS: dict[str, np.ndarray] | None = None
 _GAMMA_RETRY_SECONDS = 600.0
-_GAMMA_FAILED_AT: Optional[float] = None
+_GAMMA_FAILED_AT: float | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +94,7 @@ class CNSRecolorer:
         sigma_mid = np.asarray(sigmas, dtype=np.float64)[:-1]
         self.sigma_order = np.argsort(sigma_mid)
         self.sigmas = sigma_mid[self.sigma_order]
-        self.selected_gamma: Optional[np.ndarray] = None
+        self.selected_gamma: np.ndarray | None = None
         # (sigmas, selected gamma) uploaded per device: the per-step lookup
         # then runs on the device, with no host sync or upload
         self.device_tables: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
@@ -106,7 +105,7 @@ class CNSRecolorer:
         return cls(arrays["gamma"], arrays["aspects"], arrays["sigmas"], strength)
 
     @classmethod
-    def try_calibrated(cls, strength: float, process=None) -> Optional["CNSRecolorer"]:
+    def try_calibrated(cls, strength: float, process=None) -> CNSRecolorer | None:
         """Return a recolorer, or ``None`` (plain ER-SDE noise) when the gamma
         artifact is unavailable, e.g. offline. Failed downloads are not retried
         for ``_GAMMA_RETRY_SECONDS`` so each generation does not stall."""

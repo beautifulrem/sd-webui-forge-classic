@@ -182,13 +182,19 @@ class SelfCrossAttention(nn.Module):
     def compute_qkv(self, x: torch.Tensor, context: Optional[torch.Tensor] = None, rope_emb: Optional[torch.Tensor] = None, value_context: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """``value_context`` projects V from another context than K (NegPiP
         negates V only, with its sign mask applied to the context)."""
-        q = self.q_proj(x)
-        k = self.k_proj(x if context is None else context)
-        v = self.v_proj(value_context if value_context is not None else (x if context is None else context))
         heads = (self.n_heads, self.head_dim)
-        q, k, v = q.unflatten(-1, heads), k.unflatten(-1, heads), v.unflatten(-1, heads)
+        q = self.q_proj(x).unflatten(-1, heads)
+        fused_rope = self.is_SelfAttn and rope_emb is not None
+        if context is not None and not fused_rope:
+            # the cross-attention K/V path is compute_kv's (NegPiP/FreeFuse re-project through it)
+            k, v = self.compute_kv(context, value_context)
+            return self.q_norm(q), k, v
 
-        if self.is_SelfAttn and rope_emb is not None:
+        kv_input = x if context is None else context
+        k = self.k_proj(kv_input).unflatten(-1, heads)
+        v = self.v_proj(kv_input if value_context is None else value_context).unflatten(-1, heads)
+
+        if fused_rope:
             q_scale, _, q_offload_stream = weights_manual_cast(self.q_norm, q)
             k_scale, _, k_offload_stream = weights_manual_cast(self.k_norm, k)
             with main_stream_worker(q_scale, None, q_offload_stream), main_stream_worker(k_scale, None, k_offload_stream):
@@ -202,7 +208,7 @@ class SelfCrossAttention(nn.Module):
         return q, k, v
 
     def compute_kv(self, context: torch.Tensor, value_context: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor]:
-        """Cross-attention K/V for ``context``, exactly as compute_qkv makes them
+        """Cross-attention K/V for ``context``; compute_qkv takes its K/V from here
         (``value_context`` as there: V from another context, for NegPiP)."""
         heads = (self.n_heads, self.head_dim)
         k = self.k_norm(self.k_proj(context).unflatten(-1, heads))

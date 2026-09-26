@@ -42,17 +42,21 @@ except Exception:
     version = ""
 
 
-# PyTorch parses only the first of these that is set (c10/core/AllocatorConfig.cpp);
-# the legacy names come first, PYTORCH_ALLOC_CONF is the current one
+# Checked on torch 2.14: both c10 parsers, AcceleratorAllocatorConfig (generic keys such as
+# expandable_segments; torch._C._accelerator_getAllocatorSettings shows its input) and
+# CUDAAllocatorConfig (backend, ...), parse only the first of these that is set, in this order,
+# although c10/core/AllocatorConfig.h documents PYTORCH_ALLOC_CONF as the primary name
 _ALLOC_CONF_VARS = ("PYTORCH_CUDA_ALLOC_CONF", "PYTORCH_HIP_ALLOC_CONF", "PYTORCH_ALLOC_CONF")
 
 
 def _append_alloc_conf(option: str):
-    """Add ``option`` to the allocator config PyTorch will actually read, so it
-    neither hides nor is hidden by a config the user set under another name"""
-    name = next((var for var in _ALLOC_CONF_VARS if var in os.environ), "PYTORCH_ALLOC_CONF")
-    env_var = os.environ.get(name)
-    os.environ[name] = option if not env_var else f"{env_var},{option}"
+    """Add ``option`` to every allocator config variable already set (or to
+    ``PYTORCH_ALLOC_CONF`` when none is), so it lands in whichever one this
+    torch build reads and a user config under another name is kept"""
+    names = [var for var in _ALLOC_CONF_VARS if var in os.environ] or ["PYTORCH_ALLOC_CONF"]
+    for name in names:
+        env_var = os.environ.get(name)
+        os.environ[name] = option if not env_var else f"{env_var},{option}"
 
 
 def try_cuda_malloc():
