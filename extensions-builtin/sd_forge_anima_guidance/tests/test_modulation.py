@@ -97,6 +97,11 @@ class ModulationTests(unittest.TestCase):
             patched, _, _ = patch.apply(Patcher(previous))
             self.assertIs(patched.model_options["model_function_wrapper"].__spectrum_cache_safe__, expected)
 
+        safe.__resolution_independent__ = True
+        for previous, expected in ((None, True), (safe, True), (lambda function, args: None, False)):
+            patched, _, _ = patch.apply(Patcher(previous))
+            self.assertIs(patched.model_options["model_function_wrapper"].__resolution_independent__, expected)
+
 
 if __name__ == "__main__":
     unittest.main()

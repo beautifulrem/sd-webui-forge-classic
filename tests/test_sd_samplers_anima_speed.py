@@ -193,6 +193,17 @@ def test_resolution_bound_inputs_fall_back(configure, reason):
     assert reason in speed.fallback_reason(model, sigmas)
 
 
+def test_wrappers_that_work_at_any_size_do_not_force_a_fallback():
+    def modulation(function, args):
+        return function(args["input"])
+
+    modulation.__resolution_independent__ = True
+    unet = SimpleNamespace(controlnet_linked_list=None, model_options={"transformer_options": {}, "model_function_wrapper": modulation})
+    process = SimpleNamespace(extra_generation_params={}, sd_model=SimpleNamespace(forge_objects=SimpleNamespace(unet=unet)))
+
+    assert speed.fallback_reason(_RecordingModel(process), _anima_sigmas(10).tolist()) is None
+
+
 def test_reference_latents_fall_back(monkeypatch):
     from backend.args import dynamic_args
 

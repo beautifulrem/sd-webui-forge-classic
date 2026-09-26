@@ -286,5 +286,7 @@ class ModulationPatch:
 
         # Safe only if the wrapper it delegates to is safe too.
         wrapper.__spectrum_cache_safe__ = previous is None or getattr(previous, "__spectrum_cache_safe__", False)
+        # Per-row pooled vectors work at any latent size (Anima SPEED).
+        wrapper.__resolution_independent__ = previous is None or getattr(previous, "__resolution_independent__", False)
         patched.set_model_unet_function_wrapper(wrapper)
         return patched, start, end

@@ -174,8 +174,10 @@ def fallback_reason(model, sigmas: list[float]) -> str | None:
     if getattr(unet, "controlnet_linked_list", None) is not None:
         return "ControlNet"
     options = getattr(unet, "model_options", None) or {}
-    if options.get("model_function_wrapper") is not None:
-        return "a model wrapper (Spectrum, MultiDiffusion, Radial, Modulation, ...)"
+    wrapper = options.get("model_function_wrapper")
+    # Wrappers that work at any latent size say so (Modulation guidance)
+    if wrapper is not None and not getattr(wrapper, "__resolution_independent__", False):
+        return "a model wrapper (Spectrum, MultiDiffusion, Radial, ...)"
     transformer_options = options.get("transformer_options") or {}
     if transformer_options.get("patches") or transformer_options.get("patches_replace"):
         return "attention patches (ControlNet-LLLite, IP-Adapter, ...)"
