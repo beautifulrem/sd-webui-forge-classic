@@ -347,6 +347,37 @@ class ForecasterTests(unittest.TestCase):
         # extrapolating from steps 0-2 across the forced window.
         self.assertEqual(run_steps(lambda sigma: 0.55 < sigma < 0.75, 6), 6)
 
+    def test_stop_caching_step_matches_upstream_rounding(self):
+        class FakePatcher:
+            def __init__(self):
+                self.model = SimpleNamespace(diffusion_model=torch.nn.Identity(), predictor=object())
+                self.model_options = {}
+
+            def clone(self):
+                return self
+
+            def set_model_unet_function_wrapper(self, wrapper):
+                pass
+
+        def state_for(steps, stop, tail=0):
+            process = SimpleNamespace()
+            SpectrumNode.patch(
+                FakePatcher(), steps=steps, weight=0.5, degree=1, lam=0.1, window_size=2,
+                flex_window=0.0, warmup_steps=2, stop_caching_step=stop, tail_actual_steps=tail,
+                history_size=3, schedule="Window", refresh_ratio=0.0, sea_beta=2.0,
+                compat_policy="Conservative", verbose=False, sea_cache_dir="unused",
+                sea_cache_context={}, process=process,
+            )
+            (state,) = process._spectrum_states
+            return state
+
+        # Upstream runs actual from step int(steps * stop) on
+        self.assertEqual((state_for(25, 0.9).tail_actual_steps, state_for(25, 0.9).stop_at), (3, 22))
+        self.assertEqual(state_for(10, 0.7).tail_actual_steps, 3)  # 7.000000000000001
+        self.assertEqual(state_for(90, 0.7).tail_actual_steps, 27)  # 62.99999999999999
+        self.assertEqual(state_for(20, 1.0).tail_actual_steps, 0)
+        self.assertEqual(state_for(25, 0.9, tail=5).tail_actual_steps, 5)  # the safer value wins
+
 
 if __name__ == "__main__":
     unittest.main()

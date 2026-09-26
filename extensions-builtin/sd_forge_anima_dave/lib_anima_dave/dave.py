@@ -44,8 +44,9 @@ def attenuate_dc(x: torch.Tensor, strength: float, frames: int | None = None) ->
 
     target = x if frames is None or frames >= x.shape[1] else x[:, :frames]
     dims = tuple(range(1, target.ndim - 1)) or (1,)
-    mean = target.float().mean(dim=dims, keepdim=True)
-    edited = (target.float() - float(strength) * mean).to(x.dtype)
+    # fp32 accumulation without an fp32 copy of the block output
+    mean = target.mean(dim=dims, keepdim=True, dtype=torch.float32)
+    edited = target - (float(strength) * mean).to(x.dtype)
     return edited if target is x else torch.cat((edited, x[:, frames:]), dim=1)
 
 

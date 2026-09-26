@@ -137,15 +137,18 @@ def _merge_unrouted(resolved, unpatched, generating, deltas, factors=None):
     return base
 
 
-def install_patch_metadata_hook() -> None:
-    """Tag patch payloads without changing Forge's patch tuple ABI."""
+def install_patch_metadata_hook() -> bool:
+    """Tag patch payloads without changing Forge's patch tuple ABI.
+
+    Returns True only when this call installed the hook: patches loaded
+    before that carry no filename tag."""
 
     from backend.patcher.base import ModelPatcher
     from backend.patcher.function_chain import function_chain_contains
 
     current = ModelPatcher.add_patches
     if function_chain_contains(current, "_anima_freefuse_metadata"):
-        return
+        return False
 
     def add_patches_with_metadata(
         self,
@@ -170,6 +173,37 @@ def install_patch_metadata_hook() -> None:
     add_patches_with_metadata._anima_freefuse_metadata = True
     add_patches_with_metadata.__wrapped__ = current
     ModelPatcher.add_patches = add_patches_with_metadata
+    return True
+
+
+def _loaded_patch_entries(patcher):
+    """(key, patch, online) for every loaded patch of ``patcher``.
+
+    Offline patches live in ``patcher.patches``; online LoRAs are
+    ``OnlineLoRAPatch`` weight wrappers holding a single patch each."""
+
+    entries = [
+        (key, patch, False)
+        for key, patches in getattr(patcher, "patches", {}).items()
+        for patch in patches
+    ]
+    entries.extend(
+        (key, patch, True)
+        for key, functions in getattr(patcher, "weight_wrapper_patches", {}).items()
+        for function in functions
+        if isinstance(function, OnlineLoRAPatch)
+        for patch in function.patch
+    )
+    return entries
+
+
+def has_untagged_patches(patcher) -> bool:
+    """Whether a loaded patch lacks the filename tag FreeFuse routes by."""
+
+    return any(
+        len(patch) < 2 or _patch_filename(patch[1]) is None
+        for _, patch, _ in _loaded_patch_entries(patcher)
+    )
 
 
 def _normalized_name(value: str) -> str:
@@ -270,11 +304,20 @@ class AnimaFreeFuseState:
 
     def complete(self) -> None:
         self.phase = "complete"
+        self._release()
 
     def abort(self) -> None:
         self.phase = "aborted"
+        self._release()
+
+    def _release(self) -> None:
+        # The state outlives sampling through the patched unet: drop its
+        # GPU tensors (samples, masks, fitted masks / biases) now.
+        self.similarity_samples = {}
+        self.background_samples = []
         self.masks = {}
         self._fitted.clear()
+        self._adapter_by_patch.clear()
 
     def routing_active(self) -> bool:
         if self.phase != "generate" or not self.masks:
@@ -296,21 +339,7 @@ class AnimaFreeFuseState:
         self._adapter_by_patch.clear()
         offline = False
         ambiguous = []
-        # Offline patches live in ``patcher.patches``; online LoRAs are
-        # ``OnlineLoRAPatch`` weight wrappers holding a single patch each.
-        entries = [
-            (key, patch, False)
-            for key, patches in patcher.patches.items()
-            for patch in patches
-        ]
-        entries.extend(
-            (key, patch, True)
-            for key, functions in getattr(patcher, "weight_wrapper_patches", {}).items()
-            for function in functions
-            if isinstance(function, OnlineLoRAPatch)
-            for patch in function.patch
-        )
-        for key, patch, online in entries:
+        for key, patch, online in _loaded_patch_entries(patcher):
             matches = [
                 adapter.name
                 for adapter in self.adapters

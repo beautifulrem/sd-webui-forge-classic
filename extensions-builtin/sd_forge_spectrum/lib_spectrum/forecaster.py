@@ -346,7 +346,9 @@ class SpectrumNode:
         # existing wrapper was installed in this pass (scripts run in load
         # order, e.g. Guidance/Regional before Spectrum) and must be kept.
         old_wrapper = new_model.model_options.get("model_function_wrapper")
-        tail_from_fraction = max(0, int(steps) - int(math.ceil(float(steps) * float(stop_caching_step))))
+        # Upstream Forge Neo runs actual from step int(steps * stop) on (25 x
+        # 0.9: 3 tail steps); the epsilon only absorbs float noise (90 x 0.7).
+        tail_from_fraction = max(0, int(steps) - int(float(steps) * float(stop_caching_step) + 1e-9))
         tail_actual_steps = max(int(tail_actual_steps), tail_from_fraction)
         calibration = None
         if schedule == "SEA (auto-calibrated)":

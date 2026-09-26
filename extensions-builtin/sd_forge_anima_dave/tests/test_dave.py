@@ -30,6 +30,16 @@ def test_attenuation_keeps_dtype_and_zero_is_identity():
     torch.testing.assert_close(attenuate_dc(y, 0.0), y)
 
 
+def test_bf16_attenuation_matches_the_fp32_computation():
+    torch.manual_seed(0)
+    x = (torch.randn(2, 1, 16, 16, 64) * 4.0 + 20.0).to(torch.bfloat16)
+    shift = 0.3 * x.float().mean(dim=(1, 2, 3), keepdim=True)
+    expected = x.float() - shift
+    # One bf16 rounding (half an ulp, <= 2^-8 relative) of the shift and one of the result
+    bound = 2**-8 * (expected.abs() + shift.abs())
+    assert ((attenuate_dc(x, 0.3).float() - expected).abs() <= bound).all()
+
+
 def test_reference_frames_are_neither_averaged_nor_edited():
     x = torch.randn(1, 3, 2, 2, 4)
     out = attenuate_dc(x, 1.0, frames=1)

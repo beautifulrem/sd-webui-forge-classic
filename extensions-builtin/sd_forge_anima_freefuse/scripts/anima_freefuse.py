@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import uuid
 
 import gradio as gr
 
@@ -15,7 +14,7 @@ from lib_anima_freefuse import (
     apply_freefuse_rejection,
     concept_token_positions,
 )
-from lib_anima_freefuse.runtime import install_patch_metadata_hook
+from lib_anima_freefuse.runtime import has_untagged_patches, install_patch_metadata_hook
 from modules import scripts
 from modules.anima_lora_support import anima_model_block
 from modules.anima_online_lora import acquire_online_lora, release_online_lora
@@ -38,6 +37,17 @@ setup_logger(logger)
 
 # Name of FreeFuse's lease on Forge's online-LoRA switch
 ONLINE_LORA_OWNER = "anima_freefuse"
+
+
+def _loaded_patches_untagged(sd_model) -> bool:
+    """Whether the LoRA-patched unet a matching LoRA hash would reuse holds
+    patches without FreeFuse's filename tag."""
+
+    objects = getattr(sd_model, "forge_objects_after_applying_lora", None)
+    if objects is None:
+        objects = getattr(sd_model, "forge_objects", None)
+    unet = getattr(objects, "unet", None)
+    return unet is not None and has_untagged_patches(unet)
 
 
 class AnimaFreeFuseScript(scripts.Script):
@@ -308,7 +318,7 @@ class AnimaFreeFuseScript(scripts.Script):
         p.refiner_checkpoint = None
         p.refiner_checkpoint_info = None
         p.refiner_switch_at = None
-        install_patch_metadata_hook()
+        hook_installed = install_patch_metadata_hook()
         set_feature_active(p, FREEFUSE)
         # Every subject LoRA must load as online patches
         acquire_online_lora(p, ONLINE_LORA_OWNER)
@@ -321,10 +331,12 @@ class AnimaFreeFuseScript(scripts.Script):
         if old_sampler and old_sampler != p.sampler_name:
             p.extra_generation_params["Anima FreeFuse replaced sampler"] = old_sampler
 
-        # Force the currently selected prompt LoRAs to reload as online patches.
+        # The online lease is part of the LoRA hash, so offline patches reload
+        # by themselves. Force a reload only when the loaded patches predate
+        # the filename tags FreeFuse routes by.
         sd_model = getattr(p, "sd_model", None)
-        if sd_model is not None:
-            sd_model.current_lora_hash = f"anima-freefuse:{uuid.uuid4().hex}"
+        if sd_model is not None and (hook_installed or _loaded_patches_untagged(sd_model)):
+            sd_model.current_lora_hash = "anima-freefuse:reload"
 
     def process_before_every_sampling(self, p, enable, *values, **kwargs):
         if not enable or not is_feature_active(p, FREEFUSE):

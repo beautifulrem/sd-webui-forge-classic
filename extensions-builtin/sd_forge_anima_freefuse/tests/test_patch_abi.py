@@ -465,3 +465,35 @@ def test_collect_similarity_matches_a_direct_computation():
     state.current_step = 1  # other steps are not collected
     state.collect_similarity(x, q, k, {"cond_or_uncond": [1, 0]})
     assert len(state.background_samples) == 1
+
+
+def test_complete_releases_the_cached_tensors():
+    runtime, ModelPatcher, _ = _load()
+    state = _state(runtime)
+    patcher = _patcher(ModelPatcher, online=True)
+    state.validate_patches(patcher)
+    (function,) = patcher.weight_wrapper_patches["layer.weight"]
+    _, (patch,) = runtime._lora_function_patches(function)
+    assert state.adapter_for_patch(patch) == "A"
+    state.similarity_samples = {"A": [torch.ones(1, 4)]}
+    state.background_samples = [torch.ones(1, 4)]
+    state.grid_height = state.grid_width = 2
+    state.masks = {"A": torch.tensor([[1.0, 0.0, 0.0, 1.0]])}
+    state.phase = "generate"
+    state.mask_for_output("A", torch.zeros(1, 4, 3), spatial_capable=True)
+    assert state._fitted and state._adapter_by_patch
+
+    state.complete()
+
+    assert state.phase == "complete" and not state.routing_active()
+    assert state.similarity_samples == {} and state.background_samples == []
+    assert state.masks == {} and state._fitted == {} and state._adapter_by_patch == {}
+
+
+def test_untagged_patches_are_detected_offline_and_online():
+    runtime, ModelPatcher, _ = _load()
+    for online in (False, True):
+        assert not runtime.has_untagged_patches(_patcher(ModelPatcher, online=online))
+        patcher = ModelPatcher(_Model(), torch.device("cpu"), torch.device("cpu"))
+        patcher.add_patches({"layer.weight": ("diff", (torch.ones(2, 2),))}, online_mode=online)
+        assert runtime.has_untagged_patches(patcher)
