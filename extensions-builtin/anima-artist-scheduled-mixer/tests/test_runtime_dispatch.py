@@ -200,6 +200,92 @@ def test_blocks_are_unpatched_after_the_batch_before_postprocess_image():
         mixer._cleanup_runtime()
 
 
+class _Unet:
+    """Anima-shaped patcher stand-in: one block whose cross-attn can be patched."""
+
+    def __init__(self):
+        attention = torch.nn.Module()
+        attention.context_dim = 4
+        self.model = types.SimpleNamespace(diffusion_model=types.SimpleNamespace(blocks=[types.SimpleNamespace(cross_attn=attention)]))
+        self.model_options = {}
+
+    def clone(self):
+        return self
+
+
+def _run_args(enable_hires_rows=False, disable_hires_mixing=False):
+    width = len(mixer.TABLE_HEADERS)
+    row = lambda artist: [True, artist, 1.0, "0-51", 0.0, 1.0, 0.5, mixer.CURVE_HOLD, mixer.PRESET_CUSTOM, False]
+    base = row("(base artist:-1)") + [None] * (width * (mixer.MAX_ARTIST_ROWS - 1))
+    hires = row("hires artist") + [None] * (width * (mixer.MAX_ARTIST_ROWS - 1))
+    head = [True, 1, 1, enable_hires_rows, disable_hires_mixing, 3.0, 3.0, 0.7, mixer.OPT_BALANCE, mixer.COMBINE_OUTPUT_AVG, mixer.FUSION_INTERPOLATE, False, False]
+    return head + base + hires
+
+
+def _run_p(**kwargs):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(is_api=True, extra_generation_params={}, sd_model=SimpleNamespace(forge_objects=SimpleNamespace(unet=_Unet())), **kwargs)
+
+
+def test_superseded_and_finished_runs_release_their_device_tensors(monkeypatch):
+    monkeypatch.setattr(mixer, "_build_artists", lambda *args: _state().artists)
+    monkeypatch.setattr(mixer, "_install_model_wrapper", lambda *args: None)
+    p = _run_p()
+    x, context = _inputs()
+
+    def run_and_use():
+        mixer.Script().process_before_every_sampling(p, *_run_args())
+        state = mixer._ACTIVE_STATE
+        _dispatch(state, _Attention(), x, context, [1, 0])  # fills the per-call caches
+        assert state.call_contexts and state.row_masks and all(artist.on_device for artist in state.artists)
+        return state
+
+    try:
+        first = run_and_use()
+        second = run_and_use()  # e.g. the hires pass
+        assert mixer._RUN_STATES == [second]
+        assert not first.call_contexts and not first.row_masks and not any(artist.on_device for artist in first.artists)
+
+        mixer.Script().postprocess(p, None, *_run_args())
+        assert not second.call_contexts and not any(artist.on_device for artist in second.artists)
+        assert second.dispatch_calls == 1  # the counters stay for the summary
+    finally:
+        mixer._cleanup_runtime()
+
+
+@pytest.mark.parametrize("total, expected", [(28, range(10, 19)), (40, range(15, 28)), (52, range(20, 37))])
+def test_blocks_fields_are_written_in_the_2b_layout(total, expected):
+    # Performance's "10-18" is the same depth band on every model size; a
+    # block brings its inserted copies along
+    assert mixer._model_blocks(mixer._default_blocks_for_optimization(mixer.OPT_PERFORMANCE), total) == set(expected)
+    assert mixer._model_blocks("0-51", total) == set(range(total))
+    assert mixer._model_blocks("-1", total) == {total - 1}
+    assert mixer._model_blocks("10-18", 30) == set(range(10, 19))  # unknown layout: the model's own indices
+
+
+def test_process_registers_the_artists_of_the_passes_that_run():
+    from modules.anima_feature_conflicts import REGIONAL, set_feature_active
+    from modules.anima_support import NEGPIP_EXTRA_PROMPTS
+
+    def registered(p, args):
+        mixer.Script().process(p, *args)
+        return getattr(p, NEGPIP_EXTRA_PROMPTS)[mixer.ARTIST_MIXER]
+
+    assert registered(_run_p(enable_hr=True), _run_args(enable_hires_rows=True)) == ["base artist", "hires artist"]
+    assert registered(_run_p(enable_hr=True), _run_args(enable_hires_rows=True, disable_hires_mixing=True)) == ["base artist"]
+    assert registered(_run_p(enable_hr=True), _run_args()) == ["base artist"]
+    p = _run_p(enable_hr=True)
+    set_feature_active(p, REGIONAL)  # like process_before_every_sampling, yield to Regional
+    assert registered(p, _run_args(enable_hires_rows=True)) == []
+    assert "Anima Artist Mixer" not in p.extra_generation_params  # reported once, at sampling
+
+    # The hires pass samples with its own rows only when they are independent
+    run = mixer._resolve_run_rows(_run_p(), _run_args(enable_hires_rows=True), True)
+    assert run[3][0][1] == "hires artist"
+    assert mixer._resolve_run_rows(_run_p(), _run_args(), True)[3][0][1] == "(base artist:-1)"
+
+
 def test_conditioning_cache_key_follows_the_text_encoder_patches(monkeypatch):
     # Qwen layer weights re-apply the TE LoRA patches; by sampling time the
     # LoRA hash is back to the plain LoRA list, so it cannot tell them apart.

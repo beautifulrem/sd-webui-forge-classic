@@ -10,7 +10,7 @@ import torch
 
 from modules import spectrum_force
 from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows, call_model_wrapper
-from modules.forward_override import forward_overrides
+from modules.forward_override import cached_overrides, forward_overrides
 
 
 _PATCH_LOCK = threading.RLock()
@@ -179,17 +179,7 @@ def apply_regional_patch(model, state: RegionalState):
     patched = model.clone()
     dit = patched.model.diffusion_model
     previous = patched.model_options.get("model_function_wrapper")
-    # block index -> (forward it wraps, wrapper), rebuilt only when the
-    # module's own forward changes (e.g. a later class-level patch)
-    wrappers = {}
-
-    def override(index):
-        module = dit.blocks[index].cross_attn
-        original = module.forward
-        cached = wrappers.get(index)
-        if cached is None or cached[0] != original:
-            cached = wrappers[index] = (original, _make_cross_attention_wrapper(original, state, index))
-        return module, cached[1]
+    override = cached_overrides(lambda index: dit.blocks[index].cross_attn, lambda original, index: _make_cross_attention_wrapper(original, state, index))
 
     def wrapper(model_function, args):
         sigma = float(args["timestep"].flatten()[0].item())

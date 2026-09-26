@@ -26,6 +26,8 @@ Special thanks to **An1X3R/Anima-Artist-Mixer** and **汐浮尘/utowo** for the 
 
 Each row is intended to hold one artist prompt. This gives separate control over weight, blocks, timing, curve, and stage. Comma-separated artist chains still work for quick migration, but one artist per row is recommended for predictable scheduling.
 
+`Blocks` is always written in the 28-block (2B) layout, like DAVE's block list. On the depth-expanded 2.9B (40-block) and 3.8B (52-block) models each 2B block also selects the blocks inserted as its copies, so a range covers the same depth of every model: `10-18` is blocks 15-27 on 2.9B and 20-36 on 3.8B. Indices past 27 are ignored, so `0-51` selects every block of any model. Other layouts use their own block indices.
+
 `Stage + Shift + Auto Shift` rewrites the row time window in a way similar to Anima LoRA Stage Scheduler: Composition is early, Character is middle, and Style is late. Selecting a non-Custom stage refreshes Start, End, and Peak immediately. Turn off Auto Shift afterward when you want to fine-tune those values manually.
 
 ## Settings And Templates
@@ -42,7 +44,7 @@ The Hires. fix tab includes `Disable artist mixing during Hires. fix`. When enab
 - Combine mode: `Output average`
 - Fusion mode: `Interpolate`
 - Global artist strength: `0.70`
-- Default blocks: `0-51` for Balance and Quality (28-block and 40-block models ignore out-of-range indices), `10-18` for Performance.
+- Default blocks (2B layout, see Row Controls): `0-51` (every block) for Balance and Quality, `10-18` for Performance.
 - Use `Quality-safe delta` when the reference-style interpolation is too strong for a prompt.
 
 ## Notes

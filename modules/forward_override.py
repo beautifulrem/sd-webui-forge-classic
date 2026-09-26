@@ -61,6 +61,28 @@ def restore_forward_override(module, forward, previous, name: str = "forward") -
     return True
 
 
+def cached_overrides(module_at, make_forward):
+    """``index -> (module, forward)`` pairs for :func:`forward_overrides`.
+
+    ``forward`` is ``make_forward(original, index)`` around the forward that
+    ``module_at(index)`` has at the time. It is built once per index and
+    rebuilt only when that forward changes (e.g. a later class-level patch),
+    so each model call reuses the same wrappers.
+    """
+
+    wrappers = {}  # index -> (forward it wraps, wrapper)
+
+    def override(index):
+        module = module_at(index)
+        original = module.forward
+        cached = wrappers.get(index)
+        if cached is None or cached[0] != original:
+            cached = wrappers[index] = (original, make_forward(original, index))
+        return module, cached[1]
+
+    return override
+
+
 @contextmanager
 def forward_overrides(pairs, name: str = "forward"):
     """Install ``(module, forward)`` overrides for the ``with`` block; they are

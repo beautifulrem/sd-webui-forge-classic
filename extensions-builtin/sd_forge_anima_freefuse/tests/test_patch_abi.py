@@ -362,3 +362,106 @@ def test_non_plain_adapters_keep_the_dense_merge():
     finally:
         runtime.merge_lora_to_weight = original_merge
     assert len(merges) == 1
+
+
+def _bias_forward(runtime, ModelPatcher, *, weight_patch):
+    model = torch.nn.Module()
+    model.layer = torch.nn.Linear(2, 2, bias=True)
+    patcher = ModelPatcher(model, torch.device("cpu"), torch.device("cpu"))
+    patches = {"layer.bias": ("diff", (torch.tensor([0.5, -1.0]),))}  # the LoRA's diff_b
+    if weight_patch:
+        patches["layer.weight"] = ("diff", (torch.ones(2, 2),))
+    patcher.add_patches(patches, filename="/loras/cat.safetensors", online_mode=True)
+    # Another LoRA's bias patch is not routed
+    patcher.add_patches({"layer.bias": ("diff", (torch.tensor([0.25, 0.25]),))}, filename="/loras/dog.safetensors", online_mode=True)
+    state = _state(runtime)
+    state.routing_strength = 0.5
+    state.validate_patches(patcher)
+    layer = patcher.model.layer
+    layer.weight_function = list(patcher.weight_wrapper_patches.get("layer.weight", []))
+    layer.bias_function = list(patcher.weight_wrapper_patches["layer.bias"])
+    state.grid_height, state.grid_width = 1, 2
+    state.masks = {"A": torch.tensor([[1.0, 0.0]])}
+    return state, layer, runtime._make_linear_forward(layer.forward, layer, state, "blocks.0.mlp.layer1")
+
+
+@pytest.mark.parametrize("weight_patch", [True, False])
+def test_linear_routing_masks_the_adapter_bias_patch(weight_patch):
+    runtime, ModelPatcher, _ = _load()
+    state, layer, forward = _bias_forward(runtime, ModelPatcher, weight_patch=weight_patch)
+    x = torch.tensor([[[1.0, 2.0], [3.0, 4.0]]])  # two spatial tokens
+    base = torch.nn.functional.linear(x, layer.weight, layer.bias + torch.tensor([0.25, 0.25]))
+    delta = torch.tensor([0.5, -1.0]).expand(1, 2, 2)
+    if weight_patch:
+        delta = delta + torch.nn.functional.linear(x, torch.ones(2, 2))
+
+    state.phase = "collect"  # the subject LoRA is left out, bias included
+    assert torch.allclose(forward(x), base)
+
+    state.phase = "generate"
+    factors = torch.tensor([1.0, 0.5]).view(1, 2, 1)  # (1 - s) + mask * s
+    assert torch.allclose(forward(x), base + delta * factors)
+    assert len(layer.bias_function) == 2  # restored
+
+
+def test_layers_with_only_an_adapter_bias_patch_are_routed():
+    runtime, _, _ = _load()
+    dit = torch.nn.Module()
+    dit.blocks = torch.nn.ModuleList()
+    dit.proj = torch.nn.Linear(2, 2)
+    state = SimpleNamespace(
+        validate_patches=lambda patcher: None,
+        routed_weight_keys={"diffusion_model.proj.bias"},
+        update_grid=lambda input_x, model: None,
+    )
+    routed = []
+
+    def model_function(x, t, **c):
+        routed.append("forward" in dit.proj.__dict__)
+        return x
+
+    patched = runtime.apply_freefuse_patch(_WrapperPatcher(dit), state)
+    patched.model_options["model_function_wrapper"](model_function, {"input": torch.zeros(1), "timestep": torch.ones(1), "c": {}})
+    assert routed == [True]
+
+
+def test_collect_similarity_matches_a_direct_computation():
+    runtime, _, _ = _load()
+    state = _state(runtime)
+    state.adapters = [runtime.AdapterSpec("A", "cat", "cat"), runtime.AdapterSpec("B", "dog", "dog")]
+    state.token_positions = {"A": [0, 1], "B": [3]}
+    state.background_positions = [2, 9]  # 9 lies past the text: dropped
+    state.top_k_ratio, state.temperature = 0.25, 0.5
+    state.grid_height, state.grid_width = 16, 17  # 272 image tokens: two query chunks
+    state.begin_collect()
+    torch.manual_seed(0)
+    spatial, dim = 272, 4
+    q = torch.randn(4, spatial + 3, 2, dim)  # tokens past the image grid are ignored
+    k = torch.randn(4, 5, 2, dim)
+    x = torch.randn(4, spatial + 3, 6)
+
+    state.collect_similarity(x, q, k, {"cond_or_uncond": [1, 0]})  # positive rows 2 and 3
+
+    rows = [2, 3]
+    attention = torch.softmax(torch.einsum("bshd,blhd->bhsl", q[rows, :spatial], k[rows]) / dim**0.5, dim=-1)
+    hidden = x[rows, :spatial]
+
+    def score(indices):  # mean attention of each image token to the phrase, over heads
+        return attention[..., indices].mean(dim=(1, 3))
+
+    def similarity(values):  # to the mean hidden state of the top 25% tokens
+        top = values.topk(spatial // 4, dim=-1).indices
+        core = torch.stack([hidden[row, top[row]].mean(dim=0) for row in range(len(rows))])
+        return torch.softmax(torch.einsum("bsc,bc->bs", hidden, core) / 0.5, dim=-1)
+
+    a, b = score([0, 1]), score([3])
+    expected = {"A": similarity(2 * a - b), "B": similarity(2 * b - a)}
+    for name, value in expected.items():
+        (sample,) = state.similarity_samples[name]
+        assert sample.shape == (2, spatial) and torch.allclose(sample, value, atol=1e-6)
+    (background,) = state.background_samples
+    assert torch.allclose(background, similarity(score([2])), atol=1e-6)
+
+    state.current_step = 1  # other steps are not collected
+    state.collect_similarity(x, q, k, {"cond_or_uncond": [1, 0]})
+    assert len(state.background_samples) == 1

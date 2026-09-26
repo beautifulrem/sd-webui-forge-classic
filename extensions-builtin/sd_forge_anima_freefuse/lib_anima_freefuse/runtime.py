@@ -93,6 +93,50 @@ def _plain_lora_factors(patch, weight):
     return down, up, strength * (1.0 if alpha is None else alpha / down.shape[0])
 
 
+def _merge_unrouted(resolved, unpatched, generating, deltas, factors=None):
+    """The weight (or bias) ``unpatched`` with every resolved function applied
+    except the adapters' own patches.
+
+    Those are left out; while ``generating`` they are summed per adapter name
+    into ``deltas`` (dense) or, given ``factors``, plain LoRA ``(down, up,
+    scale)`` factors, for the masked contributions. ``unpatched`` is a private
+    copy: returned as is when nothing else merges into it, and left
+    unpatched for the deltas otherwise.
+    """
+
+    base = unpatched
+    for function, key, patches in resolved:
+        if patches is None:
+            if base is unpatched:
+                base = base.clone()
+            base = function(base)
+            continue
+        non_target = []
+        for patch, name in patches:
+            if name is None:
+                non_target.append(patch)
+                continue
+            if not generating:
+                continue
+            # Read from the live patch every call (strengths change per
+            # step); a plain LoRA runs low rank, the rest merges.
+            plain = None if factors is None else _plain_lora_factors(patch, unpatched)
+            if plain is not None:
+                if plain[2] != 0.0:
+                    factors.setdefault(name, []).append(plain)
+                continue
+            delta = merge_lora_to_weight([patch], unpatched.clone(), key).sub_(unpatched)
+            if name in deltas:
+                deltas[name].add_(delta)
+            else:
+                deltas[name] = delta
+        if non_target:
+            if base is unpatched:
+                base = base.clone()
+            base = merge_lora_to_weight(non_target, base, key)
+    return base
+
+
 def install_patch_metadata_hook() -> None:
     """Tag patch payloads without changing Forge's patch tuple ABI."""
 
@@ -518,17 +562,22 @@ def _make_linear_forward(
         )
     )
 
-    def wrapped(self, x):
-        weight_functions = list(getattr(self, "weight_function", []))
-        # (function, key, [(patch, adapter name or None)]), resolved once per call
+    def resolve(functions):
+        """(function, key, [(patch, adapter name or None)]) per function."""
         resolved = []
-        for function in weight_functions:
+        for function in functions:
             entry = _lora_function_patches(function)
             if entry is None:
                 resolved.append((function, None, None))
             else:
                 resolved.append((function, entry[0], [(patch, state.adapter_for_patch(patch)) for patch in entry[1]]))
-        if not any(name for _, _, patches in resolved if patches for _, name in patches):
+        return resolved
+
+    def wrapped(self, x):
+        # Resolved once per call; a LoRA's bias patch (diff_b) is routed like its weight
+        resolved = resolve(getattr(self, "weight_function", []))
+        resolved_bias = resolve(getattr(self, "bias_function", []))
+        if not any(name for _, _, patches in (*resolved, *resolved_bias) if patches for _, name in patches):
             return original(x)
 
         saved_weight = self.weight_function
@@ -547,64 +596,31 @@ def _make_linear_forward(
             self.bias_function = saved_bias
 
         with main_stream_worker(raw_weight, raw_bias, signal):
-            # raw_weight is a private copy; it becomes the base weight as is
-            # unless something else must be merged into it (the deltas below
-            # still need it unpatched).
-            unpatched_weight = raw_weight
-            base_weight = raw_weight
-            deltas = {}  # adapter name -> summed dense delta
+            generating = state.phase == "generate"
+            deltas = {}  # adapter name -> summed dense weight delta
             factors = {}  # adapter name -> [(down, up, scale)] of plain LoRAs
-            for function, key, patches in resolved:
-                if patches is None:
-                    if base_weight is unpatched_weight:
-                        base_weight = base_weight.clone()
-                    base_weight = function(base_weight)
-                    continue
-                non_target = []
-                for patch, name in patches:
-                    if name is None:
-                        non_target.append(patch)
-                        continue
-                    if state.phase != "generate":
-                        continue
-                    # Read from the live patch every call (strengths change
-                    # per step); a plain LoRA runs low rank, the rest merges.
-                    plain = _plain_lora_factors(patch, unpatched_weight)
-                    if plain is not None:
-                        if plain[2] != 0.0:
-                            factors.setdefault(name, []).append(plain)
-                        continue
-                    delta = merge_lora_to_weight(
-                        [patch], unpatched_weight.clone(), key
-                    ).sub_(unpatched_weight)
-                    if name in deltas:
-                        deltas[name].add_(delta)
-                    else:
-                        deltas[name] = delta
-                if non_target:
-                    if base_weight is unpatched_weight:
-                        base_weight = base_weight.clone()
-                    base_weight = merge_lora_to_weight(
-                        non_target, base_weight, key
-                    )
-            for function in saved_bias:
-                raw_bias = function(raw_bias)
+            bias_deltas = {}  # adapter name -> summed bias delta
+            base_weight = _merge_unrouted(resolved, raw_weight, generating, deltas, factors)
+            base_bias = None if raw_bias is None else _merge_unrouted(resolved_bias, raw_bias, generating, bias_deltas)
 
             output = F.linear(
                 x,
                 base_weight.to(dtype=x.dtype),
-                None if raw_bias is None else raw_bias.to(dtype=x.dtype),
+                None if base_bias is None else base_bias.to(dtype=x.dtype),
             )
-            if state.phase != "generate":
+            if not generating:
                 return output
             strength = min(max(float(state.routing_strength), 0.0), 1.0)
-            for name in dict.fromkeys([*deltas, *factors]):
+            for name in dict.fromkeys([*deltas, *factors, *bias_deltas]):
                 contribution = None
                 if name in deltas:
                     contribution = F.linear(x, deltas[name].to(dtype=x.dtype), None)
                 for down, up, scale in factors.get(name, ()):
                     hidden = F.linear(x, cast_to_device(down, x.device, x.dtype)) * scale
                     term = F.linear(hidden, cast_to_device(up, x.device, x.dtype))
+                    contribution = term if contribution is None else contribution + term
+                if name in bias_deltas:
+                    term = bias_deltas[name].to(dtype=x.dtype).expand_as(output)
                     contribution = term if contribution is None else contribution + term
                 mask = state.mask_for_output(
                     name,
@@ -634,13 +650,15 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
         )
         for index, block in enumerate(dit.blocks)
     ]
-    # Only layers that carry an adapter's LoRA are routed; the rest keep
-    # their normal forward and cost nothing per call.
+    # Only layers that carry an adapter's LoRA (weight or bias) are routed;
+    # the rest keep their normal forward and cost nothing per call.
     overrides.extend(
         (module, _make_linear_forward(module.forward, module, state, module_name))
         for module_name, module in dit.named_modules()
         if isinstance(module, torch.nn.Linear)
-        and f"diffusion_model.{module_name}.weight" in state.routed_weight_keys
+        and not state.routed_weight_keys.isdisjoint(
+            (f"diffusion_model.{module_name}.weight", f"diffusion_model.{module_name}.bias")
+        )
     )
 
     def wrapper(model_function, args):

@@ -77,3 +77,29 @@ def test_forward_overrides_restore_in_reverse_when_the_block_raises():
             assert module.__dict__["forward"] is inner
             raise RuntimeError("model call failed")
     assert "forward" not in module.__dict__
+
+
+def test_cached_overrides_reuse_wrappers_until_the_forward_changes():
+    from modules.forward_override import cached_overrides, forward_overrides
+
+    class Module(torch.nn.Module):
+        def forward(self, x):
+            return x + 1
+
+    modules = [Module(), Module()]
+    built = []
+
+    def make_forward(original, index):
+        built.append(index)
+        return lambda x: original(x) * 10 + index
+
+    override = cached_overrides(lambda index: modules[index], make_forward)
+    first = override(1)
+    assert first[0] is modules[1] and override(1)[1] is first[1] and built == [1]
+    with forward_overrides(override(index) for index in (0, 1)):
+        assert modules[0](torch.tensor(1.0)) == 20 and modules[1](torch.tensor(1.0)) == 21
+    assert built == [1, 0]
+
+    Module.forward = lambda self, x: x + 2  # a later class-level patch is wrapped
+    assert override(1)[1] is not first[1] and override(1)[1](torch.tensor(1.0)) == 31
+    assert built == [1, 0, 1]

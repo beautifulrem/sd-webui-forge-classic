@@ -31,7 +31,7 @@ from lib_artist_mixer.schedule import (
 )
 from modules import script_callbacks, scripts, shared, spectrum_force
 from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
-from modules.anima_lora_support import UI_LANGUAGES, clamp as _clamp, register_language_option, sigma_progress, stage_window, to_float as _to_float, ui_language, ui_text
+from modules.anima_lora_support import ANIMA_BLOCK_MAPPINGS, UI_LANGUAGES, anima_source_block, clamp as _clamp, register_language_option, sigma_progress, stage_window, to_float as _to_float, ui_language, ui_text
 from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
 from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY, call_model_wrapper, conditioning_cache_key, effective_prompt_batch, encode_extra_prompts, negpip_mask_for, register_negpip_prompts
@@ -79,6 +79,8 @@ APPLY_BOTH = "Both"
 
 MAX_ARTIST_ROWS = 32
 DEFAULT_ARTIST_ROWS = 4
+# Blocks fields are written in the 2B layout (see _model_blocks)
+REFERENCE_BLOCKS = 28
 
 TABLE_HEADERS = [
     "Enabled",
@@ -295,7 +297,7 @@ HELP_EN = """
 
 `Artist`: one artist prompt per row. It may include an inline row multiplier such as `(wlop:1.2)`, `[wlop:0.8]`, or `wlop:1.2`; the final row strength is `Weight x inline multiplier`. Keep comma-separated chains for quick migration if needed, but one artist per row gives the cleanest control.
 
-`Weight` controls this artist's relative and absolute contribution. `Blocks` accepts `0-51`, `0,3,5-12`, or negative indices such as `-1`; out-of-range indices are ignored on 28-block and 40-block models. `Start` and `End` are denoise progress values from 0 to 1. `Peak` is the point inside that window where the row reaches full strength; it matters most for Smooth and Triangle curves.
+`Weight` controls this artist's relative and absolute contribution. `Blocks` accepts `0-51`, `0,3,5-12`, or negative indices such as `-1`, always in the 28-block (2B) layout: on 2.9B/3.8B models each block also covers its inserted copies, and indices past 27 are ignored, so `0-51` is every block. `Start` and `End` are denoise progress values from 0 to 1. `Peak` is the point inside that window where the row reaches full strength; it matters most for Smooth and Triangle curves.
 
 `Curve` shapes the row strength inside the Start/End window. Hold stays at full strength for the whole window. Smooth fades in and out around the peak. Triangle rises and falls linearly. Front loaded starts strong and fades later; Back loaded does the opposite.
 
@@ -325,7 +327,7 @@ HELP_ZH = """
 
 `画师` 每行建议填一个画师提示词。可以直接写行内倍率，例如 `(wlop:1.2)`、`[wlop:0.8]` 或 `wlop:1.2`；最终强度是 `权重 x 行内倍率`。为了迁移旧画师串，逗号分隔仍可用，但每行一个画师最方便单独控制。
 
-`权重` 控制该画师的相对比例，也会在总权重低于 1 时降低实际介入。`层数` 支持 `0-51`、`0,3,5-12`，也支持 `-1` 这种倒数索引；28 层和 40 层模型会忽略越界索引。`开始` 和 `结束` 是 0 到 1 的去噪进度。`峰值` 表示这一行在窗口内达到满强度的位置，对平滑和三角峰曲线最明显。
+`权重` 控制该画师的相对比例，也会在总权重低于 1 时降低实际介入。`层数` 支持 `0-51`、`0,3,5-12`，也支持 `-1` 这种倒数索引，始终按 28 层（2B）布局填写：在 2.9B/3.8B 模型上每层也覆盖它复制插入的层，大于 27 的索引会被忽略，所以 `0-51` 即全部层。`开始` 和 `结束` 是 0 到 1 的去噪进度。`峰值` 表示这一行在窗口内达到满强度的位置，对平滑和三角峰曲线最明显。
 
 `曲线` 决定窗口内强度怎样变化。保持会在整个窗口内满强度。平滑会围绕峰值淡入淡出。三角峰会线性升到峰值再线性降下。前段强化是一开始更强、后面变弱；后段强化则相反。
 
@@ -458,7 +460,7 @@ def _row_count(value, fallback=1):
 
 def _rows_from_components(*values):
     rows = []
-    per_row = 10
+    per_row = len(TABLE_HEADERS)
     for index in range(0, len(values), per_row):
         chunk = list(values[index : index + per_row])
         if len(chunk) < per_row:
@@ -562,8 +564,8 @@ def _active_rows_from_components(count, shift, optimization, *values, display=Fa
     return _normalize_rows(rows, count, shift, optimization, display=display)
 
 
-def _runtime_shift_from_processing(p, fallback=3.0):
-    if getattr(p, "is_hr_pass", False):
+def _runtime_shift_from_processing(p, fallback=3.0, hires=None):
+    if getattr(p, "is_hr_pass", False) if hires is None else hires:
         return _clamp(_to_float(getattr(p, "hr_distilled_cfg", None), fallback), 1.0, 24.0)
     return _clamp(_to_float(getattr(p, "distilled_cfg_scale", None), fallback), 1.0, 24.0)
 
@@ -593,7 +595,7 @@ def _create_artist_row_controls(prefix, lang, defaults, elem_id_func):
 
 
 def _row_outputs(row_components, offsets):
-    return [row_components[index + offset] for index in range(0, len(row_components), 10) for offset in offsets]
+    return [row_components[index + offset] for index in range(0, len(row_components), len(TABLE_HEADERS)) for offset in offsets]
 
 
 def _register_ui_settings():
@@ -680,7 +682,7 @@ def _normalize_rows(value, row_count=None, shift=3.0, optimization=OPT_BALANCE, 
     rows = _coerce_table(value)
     if row_count is None:
         row_count = len(rows) or 1
-    count = max(0, min(32, int(_to_float(row_count, len(rows) or 1))))
+    count = max(0, min(MAX_ARTIST_ROWS, int(_to_float(row_count, len(rows) or 1))))
     defaults = _default_rows(count, shift, optimization)
     normalized = []
     for index in range(count):
@@ -1305,7 +1307,6 @@ class MixerState:
     row_masks: dict = field(default_factory=dict)
     # Aligned artist contexts of the current model call (see _artist_kv)
     call_contexts: dict = field(default_factory=dict)
-    superseded: bool = False
     # (sigmas, sampling_sigmas, progress) of the current model call: every
     # block of a call sees the same tensors, so progress is read once
     progress_cache: tuple | None = None
@@ -1315,6 +1316,15 @@ class MixerState:
         for artist in self.artists:
             blocks.update(artist.blocks)
         return blocks
+
+    def release_device_tensors(self):
+        """Drop the device copies and per-call tensors; the run summary's
+        counters stay."""
+        self.call_contexts.clear()
+        self.row_masks.clear()
+        self.progress_cache = None
+        for artist in self.artists:
+            artist.on_device.clear()
 
 
 _PATCHED_MODULES = []
@@ -1355,8 +1365,7 @@ def _cleanup_runtime():
     _ACTIVE_STATE = None
     _RUN_STATES.clear()
     for state in states:  # device tensors of the finished run
-        state.call_contexts.clear()
-        state.row_masks.clear()
+        state.release_device_tensors()
     return states
 
 
@@ -1714,6 +1723,17 @@ def _artist_entries(rows, shift, optimization):
                 yield row, clean_name, inline_weight
 
 
+def _model_blocks(text, num_blocks):
+    """Model blocks of a Blocks field, which is written in the 2B (28-block)
+    layout like the presets. On the depth-expanded 2.9B/3.8B models a block
+    brings its inserted copies along, so a band covers the same depth of any
+    model and "0-51" still means every block."""
+    if (REFERENCE_BLOCKS, num_blocks) not in ANIMA_BLOCK_MAPPINGS:
+        return _parse_blocks(text, num_blocks)
+    selected = _parse_blocks(text, REFERENCE_BLOCKS)
+    return {index for index in range(num_blocks) if anima_source_block(index, REFERENCE_BLOCKS, num_blocks) in selected}
+
+
 def _build_artists(p, rows, num_blocks, shift, optimization, use_cache):
     prompts = effective_prompt_batch(p)[0]
     artists = []
@@ -1725,7 +1745,7 @@ def _build_artists(p, rows, num_blocks, shift, optimization, use_cache):
             ArtistRuntime(
                 name=clean_name,
                 weight=float(weight) * float(inline_weight),
-                blocks=_parse_blocks(blocks_text, num_blocks),
+                blocks=_model_blocks(blocks_text, num_blocks),
                 start=_clamp(float(start), 0.0, 1.0),
                 end=_clamp(float(end), 0.0, 1.0),
                 peak=_clamp(float(peak), 0.0, 1.0),
@@ -1744,6 +1764,42 @@ def _optimization_defaults(optimization):
     if optimization == OPT_QUALITY:
         return {"batched": True, "max_artists": 16}
     return {"batched": True, "max_artists": 10}
+
+
+def _resolve_run_rows(p, args, hires, report=True):
+    """``(dm, unet, shift, rows)`` the Mixer runs with on the base or the
+    ``hires`` pass, or None when it does not run there: disabled, yielding to
+    FreeFuse/Regional, hires mixing off, an ADetailer inner run or no Anima
+    model. ``report`` notes why in the infotext and the log."""
+    if len(args) < 13 or not args[0]:
+        return None
+    base_row_count, hires_row_count, hires_independent, disable_hires_mixing, runtime_base_shift, runtime_hires_shift, _strength, optimization = args[1:9]
+    owner = next((feature for feature in (FREEFUSE, REGIONAL) if is_feature_active(p, feature)), None)
+    if owner is not None:
+        if report:
+            message = f"disabled: {owner} has priority in headless processing"
+            p.extra_generation_params["Anima Artist Mixer"] = message
+            logger.warning("Anima Artist Mixer %s", message)
+        return None
+    if hires and bool(disable_hires_mixing):
+        return None
+    if getattr(p, "_ad_inner", False):
+        return None
+    unet = getattr(getattr(p, "sd_model", None), "forge_objects", None)
+    unet = getattr(unet, "unet", None)
+    if unet is None:
+        return None
+    dm, msg = _validate_anima_unet(unet)
+    if dm is None:
+        if report:
+            logger.warning("Anima artist mixer disabled: %s", msg)
+        return None
+    own_rows = hires and hires_independent
+    shift = _runtime_shift_from_processing(p, runtime_hires_shift if own_rows else runtime_base_shift, hires)
+    row_width = len(TABLE_HEADERS)
+    values = args[13:][MAX_ARTIST_ROWS * row_width : MAX_ARTIST_ROWS * row_width * 2] if own_rows else args[13:][: MAX_ARTIST_ROWS * row_width]
+    rows = _active_rows_from_components(hires_row_count if own_rows else base_row_count, shift, optimization, *values, display=False)
+    return dm, unet, shift, rows
 
 
 # Generation-panel Shift sliders: (elem_id, attribute the Script keeps it in)
@@ -2133,36 +2189,20 @@ class Script(scripts.Script):
 
     def process(self, p, *args, **kwargs):
         # Runs before NegPiP's process_batch: let a negative weight in an
-        # artist name that will actually be encoded enable NegPiP.
-        # Mirrors process_before_every_sampling's gating; NegPiP ignores this
-        # registration when FreeFuse or Regional takes priority.
+        # artist name that will actually be encoded enable NegPiP. Same
+        # gating and rows as process_before_every_sampling, for each pass.
         names = []
-        if (
-            len(args) >= 13
-            and args[0]
-            and not getattr(p, "_ad_inner", False)
-            and _validate_anima_unet(getattr(getattr(p.sd_model, "forge_objects", None), "unet", None))[0] is not None
-        ):
-            (
-                _enable,
-                base_row_count,
-                hires_row_count,
-                hires_independent,
-                disable_hires_mixing,
-                runtime_base_shift,
-                runtime_hires_shift,
-                _strength,
-                optimization,
-            ) = args[:9]
-            component_values = args[13:]
-            groups = [(base_row_count, runtime_base_shift, component_values[: MAX_ARTIST_ROWS * 10])]
-            if getattr(p, "enable_hr", False) and hires_independent and not disable_hires_mixing:
-                groups.append((hires_row_count, runtime_hires_shift, component_values[MAX_ARTIST_ROWS * 10 : MAX_ARTIST_ROWS * 20]))
-            max_artists = _optimization_defaults(optimization)["max_artists"]
-            for count, shift, values in groups:
-                rows = _active_rows_from_components(count, shift, optimization, *values, display=False)
-                entries = [name for _row, name, _weight in _artist_entries(rows, shift, optimization)]
-                names.extend(entries[:max_artists])
+        passes = [False]
+        if len(args) >= 13 and getattr(p, "enable_hr", False) and args[3]:  # hires rows of its own
+            passes.append(True)
+        for hires in passes:
+            run = _resolve_run_rows(p, args, hires, report=False)
+            if run is None:
+                continue
+            _dm, _unet, shift, rows = run
+            optimization = args[8]
+            entries = [name for _row, name, _weight in _artist_entries(rows, shift, optimization)]
+            names.extend(entries[: _optimization_defaults(optimization)["max_artists"]])
         register_negpip_prompts(p, ARTIST_MIXER, names)
 
     def process_before_every_sampling(self, p, *args, **kwargs):
@@ -2185,8 +2225,6 @@ class Script(scripts.Script):
             enable_cache,
         ) = args[:13]
         component_values = args[13:]
-        base_values = component_values[: MAX_ARTIST_ROWS * 10]
-        hires_values = component_values[MAX_ARTIST_ROWS * 10 : MAX_ARTIST_ROWS * 20]
         if _should_remember_settings(p):
             _save_runtime_current_settings(
                 enable,
@@ -2208,31 +2246,10 @@ class Script(scripts.Script):
         _unpatch_cross_attn()
         _ACTIVE_STATE = None
         set_feature_active(p, ARTIST_MIXER, False)
-        if not enable:
+        run = _resolve_run_rows(p, args, getattr(p, "is_hr_pass", False))
+        if run is None:
             return
-        owner = next((feature for feature in (FREEFUSE, REGIONAL) if is_feature_active(p, feature)), None)
-        if owner is not None:
-            message = f"disabled: {owner} has priority in headless processing"
-            p.extra_generation_params["Anima Artist Mixer"] = message
-            logger.warning("Anima Artist Mixer %s", message)
-            return
-        if getattr(p, "is_hr_pass", False) and bool(disable_hires_mixing):
-            return
-        if getattr(p, "_ad_inner", False):
-            return
-        unet = getattr(getattr(p, "sd_model", None), "forge_objects", None)
-        unet = getattr(unet, "unet", None)
-        if unet is None:
-            return
-        dm, msg = _validate_anima_unet(unet)
-        if dm is None:
-            logger.warning("Anima artist mixer disabled: %s", msg)
-            return
-        fallback_shift = runtime_hires_shift if getattr(p, "is_hr_pass", False) and hires_independent else runtime_base_shift
-        shift = _runtime_shift_from_processing(p, fallback_shift)
-        base_rows = _active_rows_from_components(base_row_count, shift, optimization, *base_values, display=False)
-        hires_rows = _active_rows_from_components(hires_row_count, shift, optimization, *hires_values, display=False)
-        rows = hires_rows if getattr(p, "is_hr_pass", False) and hires_independent else base_rows
+        dm, unet, shift, rows = run
         optimization = _option_key("optimization", optimization, OPT_BALANCE)
         combine_mode = _option_key("combine", combine_mode, COMBINE_OUTPUT_AVG)
         fusion_mode = _option_key("fusion", fusion_mode, FUSION_INTERPOLATE)
@@ -2260,9 +2277,11 @@ class Script(scripts.Script):
             artists=artists,
             infotext=p.extra_generation_params,
         )
-        previous_states = list(_RUN_STATES)
-        for previous in previous_states:
-            previous.superseded = True
+        # postprocess summarizes the latest pass only: an earlier one (the
+        # base pass under hires, a previous batch) frees its device tensors now.
+        for previous in _RUN_STATES:
+            previous.release_device_tensors()
+        _RUN_STATES.clear()
         _install_cross_attn_patch(dm, state)
         # forge_objects.shallow_copy() shares the long-lived unet patcher; clone
         # so the wrapper and options stay scoped to this pass.
@@ -2289,8 +2308,6 @@ class Script(scripts.Script):
     def postprocess(self, p, processed, *args, **kwargs):
         states = _cleanup_runtime()
         for state in states:
-            if state.superseded:
-                continue
             if not state.dispatch_calls:
                 logger.warning(
                     "Anima artist mixer did not receive any cross-attn calls for run %s. "

@@ -23,7 +23,7 @@ import torch
 from modules import spectrum_force
 from modules.anima_lora_support import anima_model_block, sigma_progress
 from modules.anima_support import call_model_wrapper, parse_block_list
-from modules.forward_override import forward_overrides
+from modules.forward_override import cached_overrides, forward_overrides
 
 # The reference band and defaults are written for the 28-block (2B) layout.
 REFERENCE_BLOCKS = 28
@@ -109,17 +109,7 @@ def apply_dave_patch(model, state: DaveState):
     patched = model.clone()
     dit = patched.model.diffusion_model
     previous = patched.model_options.get("model_function_wrapper")
-    # block index -> (forward it wraps, wrapper), rebuilt only when the
-    # module's own forward changes (e.g. a later class-level patch)
-    wrappers = {}
-
-    def override(index):
-        module = dit.blocks[index]
-        original = module.forward
-        cached = wrappers.get(index)
-        if cached is None or cached[0] != original:
-            cached = wrappers[index] = (original, _make_block_forward(original, state))
-        return module, cached[1]
+    override = cached_overrides(lambda index: dit.blocks[index], lambda original, _index: _make_block_forward(original, state))
 
     def wrapper(model_function, args):
         options = args.get("c", {}).get("transformer_options", {})
@@ -146,8 +136,7 @@ def apply_dave_patch(model, state: DaveState):
     patched.set_model_unet_function_wrapper(wrapper)
 
     # Spectrum wraps this wrapper and may ask before the first call has
-    # published the schedule: force until the window is known. A plain
-    # closure, since patcher clones deep-copy their options.
+    # published the schedule: force until the window is known.
     def force_actual(sigma):
         return state.schedule is None or state.active(sigma)
 
