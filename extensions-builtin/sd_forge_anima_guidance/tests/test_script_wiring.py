@@ -210,7 +210,7 @@ def test_uncond_skip_is_bound_to_the_installed_hook():
 @pytest.mark.parametrize(
     ("overrides", "disables_cfg1", "states"),
     [
-        (dict(guidance_mode=SMC_GUIDANCE), True, [SMCCFGState]),
+        (dict(guidance_mode=SMC_GUIDANCE), False, [SMCCFGState]),
         (dict(guidance_mode=FDG_GUIDANCE), True, []),
         (dict(guidance_mode=CFG_ZERO_STAR_GUIDANCE), False, [CFGZeroStarState]),
         (dict(guidance_mode=APG_GUIDANCE), False, [APGState]),
@@ -218,7 +218,7 @@ def test_uncond_skip_is_bound_to_the_installed_hook():
         (dict(guidance_range_enable=True), False, []),
     ],
 )
-def test_cfg1_optimization_is_disabled_only_for_smc_and_fdg(overrides, disables_cfg1, states):
+def test_cfg1_optimization_is_disabled_only_for_fdg(overrides, disables_cfg1, states):
     p = FakeProcess()
     unet = _run(p, **overrides)
     assert callable(unet.model_options["sampler_cfg_function"])

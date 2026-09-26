@@ -35,7 +35,9 @@ defaults from
 [ComfyUI-Spectrum-KSampler](https://github.com/sorryhyun/ComfyUI-Spectrum-KSampler).
 The switching gain `alpha * mean|e|` is taken per image (the reference averages
 over the whole batch, which is the same at batch size 1), so images in a batch
-do not affect each other.
+do not affect each other. Like the reference it is skipped at CFG 1 (Turbo):
+it returns the conditional prediction without touching its error history, so
+Forge still skips the negative pass there.
 
 SMC-CFG and another CFG-combine replacement cannot both own the same hook. If
 SMC-CFG is explicitly selected, it replaces an existing CFG function and the
@@ -73,12 +75,15 @@ metadata) and disables Momentum; Skimmed CFG, the CFG range and DCW compose.
 ## APG
 
 Adaptive Projected Guidance ([arXiv:2410.02416](https://arxiv.org/abs/2410.02416))
-follows the paper's Algorithm 1 (also diffusers'
-`guiders/adaptive_projected_guidance.py`, Apache-2.0). The CFG update
+follows the paper's Algorithm 1. The CFG update
 `cond - uncond` is accumulated with momentum (`running = diff + momentum *
 running`), capped to `APG norm threshold` in L2 norm per image, and split into
 the parts parallel and orthogonal to the conditional prediction; the result is
-`cond + (w - 1) * (orthogonal + eta * parallel)`. It works on Forge's denoised
+`cond + (w - 1) * (orthogonal + eta * parallel)`. The momentum buffer and norm
+cap match diffusers' `guiders/adaptive_projected_guidance.py` (Apache-2.0);
+its default combine is `uncond + w * (orthogonal + eta * parallel)`, which
+differs whenever eta, the cap or the momentum changes the update (its `use_original_formulation=True` with
+scale `w - 1` is the paper's form used here). It works on Forge's denoised
 (x0) predictions because the paper applies the projection to the denoised
 prediction (the paper finds the projection has little effect otherwise). `eta 1`, no cap
 and momentum 0 are plain CFG. Defaults: eta 0, norm threshold 0 (off; the

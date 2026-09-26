@@ -326,12 +326,15 @@ def apg_project(value: torch.Tensor, direction: torch.Tensor) -> tuple[torch.Ten
 class APGState:
     """Adaptive Projected Guidance (Sadat et al., arXiv:2410.02416).
 
-    Follows the paper's Algorithm 1 (also diffusers' Apache-2.0
-    ``guiders/adaptive_projected_guidance.py``) on denoised predictions:
-    the CFG update ``cond - uncond`` is accumulated with (reverse) momentum,
-    capped to an L2 norm, split into parts parallel and orthogonal to the
-    conditional prediction, and the parallel part is weighted by ``eta``.
-    ``eta = 1`` with no cap and no momentum is plain CFG.
+    Follows the paper's Algorithm 1 on denoised predictions: the CFG update
+    ``cond - uncond`` is accumulated with (reverse) momentum, capped to an L2
+    norm, split into parts parallel and orthogonal to the conditional
+    prediction, and the parallel part is weighted by ``eta``; the result is
+    ``cond + (w - 1) * update``.  The momentum buffer and norm cap match
+    diffusers' Apache-2.0 ``guiders/adaptive_projected_guidance.py``, whose
+    default combine is ``uncond + w * update`` instead (the same only while
+    ``update == cond - uncond``; its ``use_original_formulation=True`` with
+    scale ``w - 1`` is this one).  ``eta = 1`` with no cap and no momentum is plain CFG.
     """
 
     def __init__(self, eta: float = 0.0, norm_threshold: float = 0.0, momentum: float = -0.5):

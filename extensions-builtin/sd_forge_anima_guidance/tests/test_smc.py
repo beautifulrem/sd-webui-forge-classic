@@ -86,5 +86,23 @@ class SMCCFGTests(unittest.TestCase):
         expected = x - (uncond_denoised + 4.0 * (cond_denoised - uncond_denoised))
         self.assertTrue(torch.allclose(residual, expected, atol=1e-5))
 
+    def test_forge_adapter_skips_at_cfg_1_without_advancing_history(self):
+        torch.manual_seed(47)
+        x = torch.randn(1, 4, 1, 8, 8)
+        cond_denoised = torch.randn_like(x)
+        state = SMCCFGState(alpha=0.2)
+        args = {
+            "input": x,
+            "sigma": torch.tensor([0.7]),
+            "cond_denoised": cond_denoised,
+            # Forge's CFG 1 placeholder: the unconditional pass was skipped.
+            "uncond_denoised": torch.zeros_like(x),
+            "cond_scale": 1.0,
+        }
+        residual = make_smc_cfg_function(state)(args)
+        self.assertTrue(torch.equal(residual, x - cond_denoised))
+        self.assertIsNone(state._e_prev)
+
+
 if __name__ == "__main__":
     unittest.main()

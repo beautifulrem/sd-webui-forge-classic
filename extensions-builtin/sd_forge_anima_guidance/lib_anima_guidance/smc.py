@@ -7,6 +7,7 @@ the Forge residual-contract adapter.
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 import torch
@@ -54,16 +55,22 @@ def make_smc_cfg_function(state: SMCCFGState, process=None):
     @torch.no_grad()
     def cfg_function(args):
         x_in = args["input"]
-        sig = sigma_broadcast(args.get("sigma", args.get("timestep")), x_in)
-
         cond = args["cond_denoised"]
+        scale = float(args["cond_scale"])
+        if math.isclose(scale, 1.0):
+            # Skipped at CFG 1 like the reference: there is no guidance to
+            # correct, Forge skips the unconditional pass, and its
+            # placeholder must not enter the error history.
+            return x_in - cond
+
+        sig = sigma_broadcast(args.get("sigma", args.get("timestep")), x_in)
         uncond = args["uncond_denoised"]
         v_cond = (x_in - cond) / sig
         v_uncond = (x_in - uncond) / sig
         v_out = state.combine(
             v_cond,
             v_uncond,
-            float(args["cond_scale"]),
+            scale,
             update_state=not is_anima_auxiliary_denoiser(process),
         )
 

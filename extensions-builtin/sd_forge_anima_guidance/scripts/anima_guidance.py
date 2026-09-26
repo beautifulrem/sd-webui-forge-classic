@@ -445,14 +445,14 @@ def _install_cfg_hooks(p, args: SimpleNamespace, unet, predictor) -> None:
         spectrum_force.request(unet, zero_init_state.would_zero_init)
 
     if smc_enabled or fdg_enabled or cfg_zero_enabled or apg_enabled or args.skim_enable or args.guidance_range_enable:
-        # At CFG 1 Skimmed CFG, CFG-Zero*, APG and the CFG range all reduce to
-        # the conditional prediction (CFG-Zero*'s zero-init reads neither),
-        # so only SMC / FDG (which still use the unconditional one there)
-        # keep Forge from skipping that pass. A wrapped hook from another
+        # At CFG 1 Skimmed CFG, SMC-CFG, CFG-Zero*, APG and the CFG range all
+        # reduce to the conditional prediction (CFG-Zero*'s zero-init reads
+        # neither), so only FDG (whose detail band still guides there) keeps
+        # Forge from skipping that pass. A wrapped hook from another
         # extension set its own flag already.
         unet.set_model_sampler_cfg_function(
             active_cfg_function,
-            disable_cfg1_optimization=bool(smc_enabled or fdg_enabled),
+            disable_cfg1_optimization=bool(fdg_enabled),
         )
     if args.guidance_range_enable:
         # Outside the window only the conditional prediction is used, so
