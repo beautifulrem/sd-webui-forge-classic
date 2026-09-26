@@ -382,10 +382,10 @@ def load_huggingface_component(guess, component_name, lib_name, cls_name, repo_p
 
             override_dtype = backend.args.dynamic_args.forge_unet_storage_dtype
 
-            anima_quant = backend.args.dynamic_args.anima_quant
-            if anima_quant and cls_name == "CosmosTransformer3DModel" and quant_config is None and not guess.nunchaku and state_dict_dtype in (torch.float16, torch.bfloat16, torch.float32):
-                from backend.nn.anima import quantize_on_load
+            from backend.nn.anima import quantize_on_load, should_quantize_on_load
 
+            anima_quant = backend.args.dynamic_args.anima_quant
+            if should_quantize_on_load(anima_quant, cls_name, quant_config, guess.nunchaku, state_dict_dtype):
                 quantize_on_load(state_dict, anima_quant, load_device)
                 quant_config = detect_quantization(state_dict, is_unet=True)
 

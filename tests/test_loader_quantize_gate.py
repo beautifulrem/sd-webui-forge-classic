@@ -1,51 +1,29 @@
-"""The ``quantize_on_load`` gate in ``backend/loader.py`` (evaluated from its AST:
-the loader itself cannot be driven on CPU without a checkpoint)."""
+"""``should_quantize_on_load``: which checkpoints the loader quantizes on load."""
 
 import ast
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import torch
 
-_SOURCE = Path(__file__).resolve().parents[1] / "backend" / "loader.py"
+from backend.nn.anima import should_quantize_on_load
 
 
-def _calls_quantize_on_load(statement):
-    return isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call) and getattr(statement.value.func, "id", None) == "quantize_on_load"
+def _quantizes(mode="int8_convrot", cls_name="CosmosTransformer3DModel", quant_config=None, nunchaku=False, state_dict_dtype=torch.bfloat16):
+    return should_quantize_on_load(mode, cls_name, quant_config, nunchaku, state_dict_dtype)
 
 
-# The ``if`` whose own body calls ``quantize_on_load``.
-_gate = next(
-    node
-    for node in ast.walk(ast.parse(_SOURCE.read_text(encoding="utf-8")))
-    if isinstance(node, ast.If) and any(_calls_quantize_on_load(statement) for statement in node.body)
-)
-_condition = compile(ast.Expression(_gate.test), str(_SOURCE), "eval")
-
-
-def _quantizes(anima_quant="int8_convrot", cls_name="CosmosTransformer3DModel", quant_config=None, nunchaku=False, state_dict_dtype=torch.bfloat16):
-    names = {
-        "anima_quant": anima_quant,
-        "cls_name": cls_name,
-        "quant_config": quant_config,
-        "guess": SimpleNamespace(nunchaku=nunchaku),
-        "state_dict_dtype": state_dict_dtype,
-        "torch": torch,
-    }
-    return bool(eval(_condition, names))  # noqa: S307 - our own source file
-
-
+@pytest.mark.parametrize("mode", ["int8_convrot", "scaled_fp8"])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16, torch.float32])
-def test_full_precision_anima_checkpoint_is_quantized(dtype):
-    assert _quantizes(state_dict_dtype=dtype)
+def test_full_precision_anima_checkpoint_is_quantized(mode, dtype):
+    assert _quantizes(mode=mode, state_dict_dtype=dtype) is True
 
 
 @pytest.mark.parametrize(
     "overrides",
     [
-        dict(anima_quant=None),
-        dict(anima_quant=""),
+        dict(mode=None),
+        dict(mode=""),
         dict(cls_name="Flux"),
         dict(quant_config={"format": "float8_e4m3fn"}),
         dict(nunchaku=True),
@@ -55,4 +33,13 @@ def test_full_precision_anima_checkpoint_is_quantized(dtype):
     ],
 )
 def test_other_models_and_prequantized_checkpoints_are_left_alone(overrides):
-    assert not _quantizes(**overrides)
+    assert _quantizes(**overrides) is False
+
+
+def test_loader_gates_quantize_on_load_with_the_helper():
+    # The loader cannot be driven on CPU without a checkpoint: check that the
+    # ``if`` around its quantize_on_load call is the helper
+    source = Path(__file__).resolve().parents[1] / "backend" / "loader.py"
+    is_call = lambda node, name: isinstance(node, ast.Call) and getattr(node.func, "id", None) == name  # noqa: E731
+    gates = [node for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))) if isinstance(node, ast.If) and any(isinstance(statement, ast.Expr) and is_call(statement.value, "quantize_on_load") for statement in node.body)]
+    assert len(gates) == 1 and is_call(gates[0].test, "should_quantize_on_load")

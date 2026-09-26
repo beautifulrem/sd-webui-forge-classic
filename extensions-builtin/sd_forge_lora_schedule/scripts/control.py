@@ -7,6 +7,7 @@ from backend.args import dynamic_args
 from backend.logging import setup_logger
 from backend.patcher.base import ModelPatcher, OnlineLoRAPatch
 from modules import scripts, shared
+from modules.anima_lora_support import publish_lora_control_schedule
 from modules.processing import StableDiffusionProcessing
 from modules.script_callbacks import CFGDenoiserParams, on_cfg_denoiser
 
@@ -91,3 +92,4 @@ class LoRAControl(scripts.Script):
 
 
 on_cfg_denoiser(LoRAControl.adjust_lora)
+publish_lora_control_schedule(LoRAControl.mapping)

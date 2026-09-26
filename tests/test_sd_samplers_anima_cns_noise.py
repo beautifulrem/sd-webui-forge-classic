@@ -36,7 +36,8 @@ def test_each_noise_draw_is_recolored_at_its_sigma(monkeypatch):
     seen = _run(monkeypatch, recolorer, noise_sampler=lambda sigma, sigma_next: white, max_stage=2)
 
     assert torch.equal(seen["noise"], white * 2)
-    assert recolorer.sigmas == [0.800000011920929]  # float(sigma) of the float32 schedule
+    # the schedule's own sigma, not float(sigma): that would sync the device every step
+    assert len(recolorer.sigmas) == 1 and torch.is_tensor(recolorer.sigmas[0]) and float(recolorer.sigmas[0]) == 0.800000011920929
     assert seen["options"]["max_stage"] == 2
 
 

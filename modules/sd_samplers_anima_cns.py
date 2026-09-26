@@ -96,6 +96,9 @@ class CNSRecolorer:
         self.sigma_order = np.argsort(sigma_mid)
         self.sigmas = sigma_mid[self.sigma_order]
         self.selected_gamma: Optional[np.ndarray] = None
+        # (sigmas, selected gamma) uploaded per device: the per-step lookup
+        # then runs on the device, with no host sync or upload
+        self.device_tables: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
         self.bin_cache: dict[tuple[int, int, str], torch.Tensor] = {}
 
     @classmethod
@@ -132,18 +135,34 @@ class CNSRecolorer:
         calibrated = self.aspects[:, 1] / np.maximum(self.aspects[:, 0], 1.0)
         index = int(np.argmin(np.abs(calibrated - aspect)))
         self.selected_gamma = self.gamma[index][self.sigma_order]
+        self.device_tables.clear()
 
-    def _gamma_row(self, sigma: float) -> np.ndarray:
-        return np.asarray(
-            [
-                np.interp(float(sigma), self.sigmas, self.selected_gamma[:, index])
-                for index in range(self.frequency_bins)
-            ],
-            dtype=np.float64,
-        )
+    def _device_table(self, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
+        key = str(device)
+        table = self.device_tables.get(key)
+        if table is None:
+            sigmas, gamma = self.sigmas, self.selected_gamma
+            if len(sigmas) == 1:  # np.interp's constant: one flat segment
+                sigmas, gamma = np.append(sigmas, sigmas[0] + 1.0), np.repeat(gamma, 2, axis=0)
+            # float32: MPS has no float64
+            table = tuple(torch.from_numpy(np.ascontiguousarray(value)).to(device=device, dtype=torch.float32) for value in (sigmas, gamma))
+            self.device_tables[key] = table
+        return table
+
+    def _gamma_row(self, sigma, device: torch.device) -> torch.Tensor:
+        """``np.interp(sigma, sigmas, selected_gamma[:, bin])`` of every bin, on
+        ``device``; ``sigma`` may be a device tensor (no sync)."""
+
+        sigmas, gamma = self._device_table(device)
+        sigma = torch.as_tensor(sigma, device=device, dtype=torch.float32).reshape(1).clamp(sigmas[0], sigmas[-1])
+        upper = torch.searchsorted(sigmas, sigma, right=True).clamp(1, len(sigmas) - 1)
+        lower = upper - 1
+        span = sigmas[upper] - sigmas[lower]
+        weight = torch.where(span > 0, (sigma - sigmas[lower]) / span, torch.zeros_like(span))
+        return (gamma[lower] + weight[:, None] * (gamma[upper] - gamma[lower]))[0]
 
     @torch.no_grad()
-    def recolor(self, white: torch.Tensor, sigma: float) -> torch.Tensor:
+    def recolor(self, white: torch.Tensor, sigma) -> torch.Tensor:
         if self.strength <= 0.0:
             return white
         height, width = white.shape[-2:]
@@ -159,8 +178,7 @@ class CNSRecolorer:
             )
             self.bin_cache[key] = bin_map
 
-        scale_values = np.sqrt(np.clip(1.0 - self._gamma_row(float(sigma)), 0.0, 1.0))
-        scale = torch.from_numpy(scale_values).to(device=white.device, dtype=torch.float32)
+        scale = (1.0 - self._gamma_row(sigma, white.device)).clamp(0.0, 1.0).sqrt()
         spectrum = torch.fft.fft2(white.float(), dim=(-2, -1)) * scale[bin_map]
         colored = torch.fft.ifft2(spectrum, dim=(-2, -1)).real
         colored = colored / colored.std(dim=(-2, -1), keepdim=True).clamp_min(1e-6)
@@ -208,7 +226,7 @@ def sample_anima_er_sde_cns(
         white_noise = default_noise_sampler(x) if noise_sampler is None else noise_sampler
 
         def noise_sampler(sigma, sigma_next):
-            return recolorer.recolor(white_noise(sigma, sigma_next), float(sigma))
+            return recolorer.recolor(white_noise(sigma, sigma_next), sigma)
 
     return sample_er_sde(
         model,

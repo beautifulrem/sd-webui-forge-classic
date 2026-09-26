@@ -6,6 +6,7 @@ import logging
 
 import gradio as gr
 
+from backend.logging import setup_logger
 from lib_anima_hires import GuardLimits, guard_dimensions
 from modules import scripts, shared
 from modules.anima_support import is_anima_engine
@@ -13,6 +14,7 @@ from modules.anima_presets import register_preset_control
 from modules.ui_components import InputAccordion
 
 logger = logging.getLogger("AnimaHiresGuard")
+setup_logger(logger)
 
 PRESETS = {
     "Low VRAM": GuardLimits(0.90, 1.50, 1.50),

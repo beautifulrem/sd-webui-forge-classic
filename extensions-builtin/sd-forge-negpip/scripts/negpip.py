@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from modules.processing import StableDiffusionProcessing
 
 import torch
+from backend.logging import setup_logger
 from lib_negpip import IS_NEO, INCOMPATIBLE_EXTENSIONS
 from lib_negpip.anima import patch_anima_negpip
 from lib_negpip.sd import patch_sd_negpip
@@ -21,6 +22,7 @@ from modules.prompt_parser import (
 from modules.script_callbacks import CFGDenoiserParams, on_cfg_denoiser
 
 logger = logging.getLogger(__name__)
+setup_logger(logger)
 
 
 def _verify_ext(p: "StableDiffusionProcessing"):

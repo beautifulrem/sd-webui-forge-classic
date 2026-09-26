@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 import torch
 import torch.nn.functional as F
 
+from backend.logging import setup_logger
 from backend.nn.anima import SelfCrossAttention
 from backend.sampling import condition, sampling_function
 from modules import shared
@@ -23,6 +24,7 @@ from modules.anima_support import NEGPIP_MASK_KEY, negpip_mask_for
 from modules.forward_override import install_forward_override, restore_forward_override
 
 logger = logging.getLogger(__name__)
+setup_logger(logger)
 
 
 # Weak refs to the (engine, dit) patched by the active hook, so unpatching

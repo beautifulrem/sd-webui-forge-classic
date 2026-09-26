@@ -15,6 +15,7 @@ from modules.anima_lora_support import (
     LORA_TAG_RE,
     LayerWeights,
     invalidate_cond_caches,
+    lora_control_files,
     manual_window_bans,
     rewrite_batch_prompts,
     script_hooks,
@@ -310,67 +311,25 @@ PRESET_PARTS = {
     PRESET_CHARACTER_BAN: {"stage": STAGE_CHARACTER, "mode": PART_BAN},
 }
 
+# Default (start, end, peak) of each stage's window, used until auto timing
+# derives it from the Shift
+STAGE_DEFAULT_TIMINGS = {
+    STAGE_STYLE: (0.62, 1.0, 0.86),
+    STAGE_COMPOSITION: (0.0, 0.32, 0.08),
+    STAGE_CHARACTER: (0.20, 0.74, 0.48),
+}
+
+# One single-part auto-timing template per preset
 BUILTIN_TEMPLATES = {
-    PRESET_STYLE_ALLOW: {
-        "stage": STAGE_STYLE,
-        "parts": [PRESET_PARTS[PRESET_STYLE_ALLOW]],
+    name: {
+        "stage": part["stage"],
+        "parts": [part],
         "auto": True,
-        "start": 0.62,
-        "end": 1.0,
-        "peak": 0.86,
+        **dict(zip(("start", "end", "peak"), STAGE_DEFAULT_TIMINGS[part["stage"]])),
         "strength": 1.0,
-        "curve": CURVE_SMOOTH,
-    },
-    PRESET_COMPOSITION_ALLOW: {
-        "stage": STAGE_COMPOSITION,
-        "parts": [PRESET_PARTS[PRESET_COMPOSITION_ALLOW]],
-        "auto": True,
-        "start": 0.0,
-        "end": 0.32,
-        "peak": 0.08,
-        "strength": 1.0,
-        "curve": CURVE_FRONT,
-    },
-    PRESET_CHARACTER_ALLOW: {
-        "stage": STAGE_CHARACTER,
-        "parts": [PRESET_PARTS[PRESET_CHARACTER_ALLOW]],
-        "auto": True,
-        "start": 0.20,
-        "end": 0.74,
-        "peak": 0.48,
-        "strength": 1.0,
-        "curve": CURVE_SMOOTH,
-    },
-    PRESET_STYLE_BAN: {
-        "stage": STAGE_STYLE,
-        "parts": [PRESET_PARTS[PRESET_STYLE_BAN]],
-        "auto": True,
-        "start": 0.62,
-        "end": 1.0,
-        "peak": 0.86,
-        "strength": 1.0,
-        "curve": CURVE_SMOOTH,
-    },
-    PRESET_COMPOSITION_BAN: {
-        "stage": STAGE_COMPOSITION,
-        "parts": [PRESET_PARTS[PRESET_COMPOSITION_BAN]],
-        "auto": True,
-        "start": 0.0,
-        "end": 0.32,
-        "peak": 0.08,
-        "strength": 1.0,
-        "curve": CURVE_FRONT,
-    },
-    PRESET_CHARACTER_BAN: {
-        "stage": STAGE_CHARACTER,
-        "parts": [PRESET_PARTS[PRESET_CHARACTER_BAN]],
-        "auto": True,
-        "start": 0.20,
-        "end": 0.74,
-        "peak": 0.48,
-        "strength": 1.0,
-        "curve": CURVE_SMOOTH,
-    },
+        "curve": STAGE_DEFAULT_CURVES[part["stage"]],
+    }
+    for name, part in PRESET_PARTS.items()
 }
 
 _ACTIVE_STATE = None
@@ -1000,7 +959,7 @@ def _activation_pass_for_extra_network_data(state, extra_network_data) -> str | 
 def _loaded_patch_config(state, patch_pass) -> tuple:
     """What the patches loaded for ``patch_pass`` depend on besides the LoRA
     set, which load_networks hashes itself."""
-    return patch_pass, state.base.patch_signature, state.hires.patch_signature, state.original_online_lora, frozenset(_lora_control_files())
+    return patch_pass, state.base.patch_signature, state.hires.patch_signature, state.original_online_lora, frozenset(lora_control_files())
 
 
 def _prepare_for_extra_network_activation(p, extra_network_data):
@@ -1501,7 +1460,7 @@ def _add_patches(original, patcher, patches, strength_patch, strength_model, fil
     state = _ACTIVE_STATE
     config = state.current_config() if state is not None and state.enabled else None
     should_control = config is not None and config.file_matches(filename, state.file_names(filename))
-    if should_control and filename in _lora_control_files():
+    if should_control and filename in lora_control_files():
         # Forge's LoRA Control (<lora:name:[w@t,...]>) overwrites the
         # strength slot every step; leave that LoRA to it rather than
         # having one schedule silently replace the other.
@@ -1576,17 +1535,6 @@ def install_patch():
         activate_with_stage_scheduler.__wrapped__ = original_activate
         extra_networks.activate = activate_with_stage_scheduler
         logger.info("Installed Anima LoRA stage scheduler extra network patch")
-
-
-def _lora_control_files() -> set:
-    """Files scheduled by Forge's built-in LoRA Control in this generation."""
-    from modules import scripts as webui_scripts
-
-    for runner in (webui_scripts.scripts_txt2img, webui_scripts.scripts_img2img):
-        for script in getattr(runner, "alwayson_scripts", None) or ():
-            if script.title() == "LoRA Control Integrated":
-                return set(getattr(type(script), "mapping", None) or ())
-    return set()
 
 
 def _note_lora_control(state, filename):
@@ -2039,54 +1987,12 @@ class Script(scripts.Script):
         base_shift = _to_float(getattr(p, "distilled_cfg_scale", 3.0), 3.0)
         hires_shift = _to_float(getattr(p, "hr_distilled_cfg", base_shift), base_shift)
 
-        base_config = _build_pass_config(
-            base_target_mode,
-            base_target_loras,
-            base_panel_weight,
-            base_template,
-            base_lora_templates,
-            base_auto,
-            _template_stage_from_name(base_template),
-            base_start,
-            base_end,
-            base_peak,
-            base_stage_strength,
-            base_curve,
-            base_shift,
-        )
-
-        if hr_independent:
-            hires_config = _build_pass_config(
-                hr_target_mode,
-                hr_target_loras,
-                hr_panel_weight,
-                hr_template,
-                hr_lora_templates,
-                hr_auto,
-                _template_stage_from_name(hr_template),
-                hr_start,
-                hr_end,
-                hr_peak,
-                hr_stage_strength,
-                hr_curve,
-                hires_shift,
-            )
-        else:
-            hires_config = _build_pass_config(
-                base_target_mode,
-                base_target_loras,
-                base_panel_weight,
-                base_template,
-                base_lora_templates,
-                base_auto,
-                _template_stage_from_name(base_template),
-                base_start,
-                base_end,
-                base_peak,
-                base_stage_strength,
-                base_curve,
-                hires_shift,
-            )
+        # Each panel's _build_pass_config arguments except the Shift; with no
+        # independent Hires panel the base one is reused at the Hires Shift
+        base_panel = (base_target_mode, base_target_loras, base_panel_weight, base_template, base_lora_templates, base_auto, _template_stage_from_name(base_template), base_start, base_end, base_peak, base_stage_strength, base_curve)
+        hires_panel = (hr_target_mode, hr_target_loras, hr_panel_weight, hr_template, hr_lora_templates, hr_auto, _template_stage_from_name(hr_template), hr_start, hr_end, hr_peak, hr_stage_strength, hr_curve) if hr_independent else base_panel
+        base_config = _build_pass_config(*base_panel, base_shift)
+        hires_config = _build_pass_config(*hires_panel, hires_shift)
 
         state = RuntimeState(
             p=p,

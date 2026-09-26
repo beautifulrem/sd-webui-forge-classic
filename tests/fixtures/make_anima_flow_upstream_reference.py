@@ -32,6 +32,13 @@ VARIANTS = {
     "unipc2_bh2": ("flow_unipc2_diffusers_x0", {}, "unipc2", {}),
     "unipc2_bh1": ("flow_unipc2_diffusers_x0", {"flow_unipc_solver_type": "bh1"}, "unipc2", {"flow_unipc_solver_type": "bh1"}),
     "unipc2_no_first_correctors": ("flow_unipc2_diffusers_x0", {"flow_unipc_disable_corrector_first": 2}, "unipc2", {"flow_unipc_disable_corrector_first": 2}),
+    "unipc2_thresholding": ("flow_unipc2_diffusers_x0", {"flow_unipc_thresholding": True}, "unipc2", {"flow_unipc_thresholding": True}),
+    "unipc2_thresholding_quantile": (
+        "flow_unipc2_diffusers_x0",
+        {"flow_unipc_thresholding": True, "flow_unipc_dynamic_thresholding_ratio": 0.9, "flow_unipc_sample_max_value": 1.5},
+        "unipc2",
+        {"flow_unipc_thresholding": True, "flow_unipc_dynamic_thresholding_ratio": 0.9, "flow_unipc_sample_max_value": 1.5},
+    ),
     "pc3": ("flow_pc3_diffusers_damped", {}, "pc3", {}),
     "pc3_gamma_half": ("flow_pc3_diffusers_damped", {"flow_pc3_gamma": 0.5, "flow_pc3_tolerance": 0.02}, "pc3", {"flow_pc3_gamma": 0.5, "flow_pc3_tolerance": 0.02}),
 }

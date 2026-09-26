@@ -255,3 +255,8 @@ def test_extra_prompts_of_a_feature_that_yields_do_not_enable_negpip(regional_fi
     assert not any_negative(p)
     register_negpip_prompts(p, REGIONAL, ["(a dog:-0.5)"])
     assert any_negative(p)
+
+
+def test_negpip_logger_is_visible():
+    # The WebUI root logger sits at ERROR: an unconfigured logger drops every warning
+    assert negpip_anima.logger.handlers and not negpip_anima.logger.propagate

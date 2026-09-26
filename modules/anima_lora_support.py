@@ -16,6 +16,23 @@ logger = logging.getLogger(__name__)
 # here last: the live module, with its live per-run state.
 script_hooks: dict = {}
 
+# The schedule (``{lora filename: [(weight, time), ...]}``) of Forge's LoRA
+# Control, which it fills per generation from ``<lora:name:[w@t,...]>``. It
+# publishes its live mapping once on import; the Anima LoRA controls leave the
+# files in it to LoRA Control.
+_lora_control_schedule: dict = {}
+
+
+def publish_lora_control_schedule(mapping: dict) -> None:
+    global _lora_control_schedule
+    _lora_control_schedule = mapping
+
+
+def lora_control_files() -> set:
+    """Files Forge's LoRA Control schedules in this generation."""
+
+    return set(_lora_control_schedule)
+
 # <lora:name> or <lora:name:args>
 LORA_TAG_RE = re.compile(r"<lora:([^:>]+)(?::([^>]*))?>")
 

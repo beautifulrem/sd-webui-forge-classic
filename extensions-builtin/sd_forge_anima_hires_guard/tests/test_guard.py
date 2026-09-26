@@ -198,3 +198,10 @@ def test_upscale_button_does_not_shrink_the_image(monkeypatch):
     generation = _process()  # a normal run still gets a safe base pass
     script.after_model_load(generation, *args)
     assert generation.width * generation.height <= 1_200_000
+
+
+def test_guard_logger_is_visible(monkeypatch):
+    # The WebUI root logger sits at ERROR: an unconfigured logger drops every warning
+    script = _guard_script(monkeypatch)
+    logger = type(script).after_model_load.__globals__["logger"]
+    assert logger.handlers and not logger.propagate

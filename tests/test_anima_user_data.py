@@ -1,4 +1,6 @@
 import os
+import threading
+import time
 
 import pytest
 
@@ -65,3 +67,24 @@ def test_template_store_edits_in_place_and_never_replaces_an_unreadable_file(tmp
     with pytest.raises(UnreadableDataFile):
         store.edit(lambda data: data.update(new=1))
     assert store.path().read_text(encoding="utf-8") == '{"mine": '
+
+
+def test_concurrent_template_edits_all_land(tmp_path, monkeypatch):
+    monkeypatch.setattr(paths_internal, "data_path", str(tmp_path))
+    stores = [TemplateStore("some-extension", "templates.json") for _ in range(8)]
+    start = threading.Barrier(len(stores))
+
+    def save(index):
+        def change(data):
+            time.sleep(0.01)  # widen the read-modify-write window
+            data[f"template {index}"] = {"index": index}
+
+        start.wait()
+        stores[index].edit(change)
+
+    threads = [threading.Thread(target=save, args=(index,)) for index in range(len(stores))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert sorted(stores[0].load()) == sorted(f"template {index}" for index in range(len(stores)))

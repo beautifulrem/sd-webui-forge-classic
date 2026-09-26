@@ -167,7 +167,7 @@ Remi 加固了内置扩展添加到 WebUI 服务器上的接口。使用 `--shar
 - 第三方扩展可能依赖 Neo 或 Remi 已主动修改的 API。
 - FlashAttention 等仅支持 CUDA 的依赖无法在所有平台上使用。
 - 实验性引导方法不仅可能改变质量，也可能改变画面特征；对比时请保留固定种子的基线结果。
-- 开启 NAG、NegPiP、Regional、FreeFuse 或 Artist Mixer 时，Torch compile（整模型预设和 **Anima per-block**）会让相关步骤以未编译方式运行，确保这些功能不会被缓存的编译图悄悄忽略；这类生成不会获得编译加速。
+- 开启 NAG、NegPiP、Regional、FreeFuse、Artist Mixer、DAVE（其窗口内的步骤）或 Sparse Attention 时，Torch compile（整模型预设和 **Anima per-block**）会让相关步骤以未编译方式运行，确保这些功能不会被缓存的编译图悄悄忽略；这类生成不会获得编译加速。
 - **Anima FlowMatch** 只适用于 flow-matching 模型；用在其他模型上（例如从 Anima Flow 采样器切换后仍保留该调度器）会回退到 Simple 调度。
 - 真实 checkpoint 生成是最终兼容性测试。成功启动或单元测试通过，不能证明所有 checkpoint 和量化都具有相同生成质量。
 

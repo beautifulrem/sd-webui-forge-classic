@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 from modules.anima_support import (
@@ -8,6 +9,7 @@ from modules.anima_support import (
     anima_auxiliary_denoiser,
     is_anima_engine,
     negpip_mask_for,
+    parse_block_list,
     register_negpip_prompts,
     split_conditioning,
 )
@@ -247,3 +249,14 @@ def test_negpip_ignores_extra_prompts_of_a_feature_that_yields():
     set_feature_active(process, REGIONAL, False)
     set_feature_active(process, FREEFUSE)
     assert negpip_extra_prompts(process) == ["other"]
+
+
+def test_block_list_accepts_reversed_ranges():
+    assert parse_block_list("5-2,7", 8, feature="DAVE") == {2, 3, 4, 5, 7}
+    assert parse_block_list(" 3 - 3 ", 8, feature="DAVE") == {3}
+
+
+@pytest.mark.parametrize("text", ["-1", "a", "1-", "2-x", "1-2-3"])
+def test_block_list_names_the_feature_and_the_bad_part(text):
+    with pytest.raises(ValueError, match=rf"DAVE block selection .*'{text}'"):
+        parse_block_list(f"0,{text}", 8, feature="DAVE")

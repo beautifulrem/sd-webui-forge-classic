@@ -13,11 +13,23 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 
 from modules import paths_internal
 
 logger = logging.getLogger(__name__)
+
+# One lock per data file, so concurrent edits (two UI requests, the API) of the
+# same file apply one after the other instead of the last write dropping the other
+_EDIT_LOCKS: dict[str, threading.Lock] = {}
+_EDIT_LOCKS_GUARD = threading.Lock()
+
+
+def _edit_lock(path: Path) -> threading.Lock:
+    key = os.path.abspath(path)
+    with _EDIT_LOCKS_GUARD:
+        return _EDIT_LOCKS.setdefault(key, threading.Lock())
 
 
 class UnreadableDataFile(ValueError):
@@ -105,13 +117,15 @@ class TemplateStore:
 
     def edit(self, change):
         """Apply ``change(templates)`` to the templates on disk, write them back
-        atomically if it changed them, and return its result. An unreadable
-        file raises UnreadableDataFile and is never overwritten."""
+        atomically if it changed them, and return its result. Edits of the same
+        file are serialised. An unreadable file raises UnreadableDataFile and is
+        never overwritten."""
 
         path = self.path()
-        data = read_json_object(path)
-        before = copy.deepcopy(data)
-        result = change(data)
-        if data != before:
-            write_json_atomic(path, data)
+        with _edit_lock(path):
+            data = read_json_object(path)
+            before = copy.deepcopy(data)
+            result = change(data)
+            if data != before:
+                write_json_atomic(path, data)
         return result

@@ -37,6 +37,27 @@ class CNSTests(unittest.TestCase):
         std = result.float().std(dim=(-2, -1))
         self.assertTrue(torch.allclose(std, torch.ones_like(std), atol=1e-4, rtol=1e-4))
 
+    def test_device_gamma_lookup_matches_numpy_interp(self):
+        rng = np.random.default_rng(3)
+        gamma = rng.uniform(-0.2, 1.1, size=(3, 12, 16))
+        aspects = np.asarray([[1024, 1024], [832, 1216], [1216, 832]], dtype=np.float64)
+        sigmas = np.concatenate([np.sort(rng.uniform(0.0, 1.0, 12))[::-1], [0.0]])
+        recolorer = CNSRecolorer(gamma, aspects, sigmas, 1.0)
+        recolorer._select_aspect(104, 152)
+        midpoints = recolorer.sigmas
+        probes = [-0.5, 0.0, midpoints[0], midpoints[5], midpoints[-1], 1.0, 2.0, *rng.uniform(0.0, 1.0, 20)]
+        for sigma in probes:
+            expected = np.sqrt(np.clip(1.0 - np.asarray([np.interp(sigma, midpoints, recolorer.selected_gamma[:, index]) for index in range(16)]), 0.0, 1.0))
+            for value in (sigma, torch.tensor(sigma, dtype=torch.float32), torch.tensor(sigma, dtype=torch.float64)):
+                actual = (1.0 - recolorer._gamma_row(value, torch.device("cpu"))).clamp(0.0, 1.0).sqrt()
+                np.testing.assert_allclose(actual.numpy(), expected, rtol=1e-5, atol=1e-6, err_msg=f"sigma={sigma}")
+
+    def test_single_calibrated_sigma_is_constant_like_numpy(self):
+        recolorer = CNSRecolorer(np.linspace(0.0, 0.5, 8).reshape(1, 1, 8), np.asarray([[1, 1]]), np.asarray([0.7, 0.0]), 1.0)
+        recolorer._select_aspect(8, 8)
+        for sigma in (0.1, 0.7, 3.0):
+            np.testing.assert_allclose(recolorer._gamma_row(sigma, torch.device("cpu")).numpy(), np.linspace(0.0, 0.5, 8), atol=1e-7)
+
     def test_unavailable_gamma_falls_back_without_retrying_every_run(self):
         process = SimpleNamespace(extra_generation_params={})
         failing = mock.Mock(side_effect=OSError("offline"))

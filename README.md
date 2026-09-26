@@ -167,7 +167,7 @@ Tasks saved before signing existed will not run and fail with a message saying s
 - Third-party extensions may depend on APIs that Neo or Remi intentionally changed.
 - CUDA-only packages such as FlashAttention are not available on every platform.
 - Experimental guidance methods can alter image character as well as quality; preserve a baseline seed when comparing them.
-- Torch compile (whole-model presets and **Anima per-block**) runs the affected steps uncompiled while NAG, NegPiP, Regional, FreeFuse, or Artist Mixer are active, so these features are never silently ignored by a cached graph; expect no compile speed-up for those runs.
+- Torch compile (whole-model presets and **Anima per-block**) runs the affected steps uncompiled while NAG, NegPiP, Regional, FreeFuse, Artist Mixer, DAVE (during its window steps), or Sparse Attention are active, so these features are never silently ignored by a cached graph; expect no compile speed-up for those runs.
 - **Anima FlowMatch** is only meaningful for flow-matching models; on other models (e.g. left selected after switching from an Anima Flow sampler) it falls back to the Simple schedule.
 - Real checkpoint output remains the final compatibility test. Startup or unit tests do not prove generation quality for every checkpoint or quantization.
 

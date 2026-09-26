@@ -288,20 +288,20 @@ def negpip_mask_for(context, transformer_options):
 
 def parse_block_list(text: str, total: int, *, feature: str) -> set[int]:
     """Parse ``"0-3,7"`` into block indices below ``total``; out-of-range parts
-    are clipped away. Raises when nothing is left."""
+    are clipped away and a reversed range (``"7-3"``) counts as ``"3-7"``.
+    Raises when a part is not a number or range, or when nothing is left."""
 
     result = set()
     for part in str(text).split(","):
         part = part.strip()
         if not part:
             continue
-        if "-" in part:
-            left, right = part.split("-", 1)
-            result.update(range(max(0, int(left)), min(total - 1, int(right)) + 1))
-        else:
-            index = int(part)
-            if 0 <= index < total:
-                result.add(index)
+        try:
+            left, right = (int(value) for value in part.split("-", 1)) if "-" in part else (int(part),) * 2
+        except ValueError:
+            raise ValueError(f"{feature} block selection has an invalid part {part!r} (use indices like 0-3,7)") from None
+        low, high = sorted((left, right))
+        result.update(range(max(0, low), min(total - 1, high) + 1))
     if not result:
         raise ValueError(f"{feature} block selection is empty")
     return result

@@ -50,3 +50,11 @@ def test_flow_samplers_match_upstream(monkeypatch, schedule, variant):
 
     assert torch.allclose(torch.tensor(model.calls, dtype=torch.float64), reference["calls"], rtol=0, atol=1e-12)
     torch.testing.assert_close(x, reference["x"], rtol=1e-9, atol=1e-9)
+
+
+def test_reference_covers_every_variant_and_thresholding_is_exercised():
+    assert set(_REFERENCE["cases"]) == {f"{schedule}/{variant}" for schedule in SCHEDULES for variant in VARIANTS}
+    cases = _REFERENCE["cases"]
+    # the Gaussian data (MU + STD > 1) gets clipped: thresholding is not a no-op here
+    assert not torch.allclose(cases["shift3_16/unipc2_thresholding"]["x"], cases["shift3_16/unipc2_bh2"]["x"])
+    assert not torch.allclose(cases["shift3_16/unipc2_thresholding_quantile"]["x"], cases["shift3_16/unipc2_thresholding"]["x"])

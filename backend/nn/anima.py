@@ -192,6 +192,15 @@ def quantize_int8_convrot_state_dict(state_dict: dict[str, torch.Tensor], *, dev
     return quantized
 
 
+def should_quantize_on_load(mode, cls_name: str, quant_config, nunchaku: bool, state_dict_dtype) -> bool:
+    """Whether the loader applies ``quantize_on_load`` (``mode`` is the chosen
+    "Diffusion in Low Bits" Anima mode, empty for none): only to an Anima DiT
+    stored at full precision, never to one already mixed-precision, Nunchaku,
+    FP8 or GGUF."""
+
+    return bool(mode) and cls_name == "CosmosTransformer3DModel" and quant_config is None and not nunchaku and state_dict_dtype in (torch.float16, torch.bfloat16, torch.float32)
+
+
 def quantize_on_load(state_dict: dict[str, torch.Tensor], mode: str, load_device: torch.device) -> None:
     """Apply a "Diffusion in Low Bits" Anima mode to a full-precision state dict
     before the model is built; the mixed-precision loader takes it from there.
@@ -280,6 +289,10 @@ class VideoRopePosition3DEmb(nn.Module):
 
     def forward(self, x_B_T_H_W_C: torch.Tensor, device: torch.device) -> torch.Tensor:
         B, T, H, W, _ = x_B_T_H_W_C.shape
+        if torch.compiler.is_compiling():
+            # Dynamo cannot trace the cache key (is_inference_mode_enabled) and
+            # the compiled graph folds the build in anyway
+            return self._build(T, H, W, device)
         key = (T, H, W, torch.device(device), torch.is_inference_mode_enabled())
         cached = self._cache.get(key)
         if cached is None:

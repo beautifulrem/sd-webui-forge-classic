@@ -316,3 +316,33 @@ def test_a_nested_run_samples_the_loaded_patches_at_their_plain_strength(monkeyp
     module._denoiser_callback(SimpleNamespace(denoiser=SimpleNamespace(p=nested, step=0, total_steps=10), sampling_step=0, total_sampling_steps=10))
 
     assert float(strength) == 0.8
+
+
+def test_loras_scheduled_by_lora_control_are_left_to_it(monkeypatch):
+    from backend.patcher.base import ModelPatcher
+    from modules import anima_lora_support, extra_networks
+
+    calls = []
+
+    def add_patches(patcher, patches, strength_patch=1.0, strength_model=1.0, *, filename=None, online_mode=None):
+        calls.append((filename, online_mode))
+        return []
+
+    monkeypatch.setattr(ModelPatcher, "add_patches", add_patches)
+    monkeypatch.setattr(extra_networks, "activate", lambda p, extra_network_data: None)
+    # LoRA Control publishes its live class-level mapping once, then fills it per run
+    schedule = {}
+    monkeypatch.setattr(anima_lora_support, "_lora_control_schedule", {})
+    anima_lora_support.publish_lora_control_schedule(schedule)
+    schedule["controlled.safetensors"] = [(0.0, 0.0), (1.0, 1.0)]
+    module = _load()
+    module.install_patch()
+    config = SimpleNamespace(patch_signature="same", file_matches=lambda filename, names: True, panel_weight=SimpleNamespace(has_block=False))
+    process = SimpleNamespace(extra_generation_params={})
+    state = _state(module, process, base=config)
+    monkeypatch.setattr(module, "_ACTIVE_STATE", state)
+    patcher = SimpleNamespace(patches={}, weight_wrapper_patches={})
+    for filename in ("scheduled.safetensors", "controlled.safetensors"):
+        ModelPatcher.add_patches(patcher, {}, filename=filename, online_mode=True)
+    assert calls == [("scheduled.safetensors", True), ("controlled.safetensors", False)]
+    assert process.extra_generation_params["Anima stage scheduler skipped"] == "controlled"

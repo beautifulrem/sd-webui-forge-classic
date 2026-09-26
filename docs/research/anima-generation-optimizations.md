@@ -24,14 +24,14 @@
 
 当前 `remi` 并不是“缺少 Anima 优化”的状态。官方明确推荐的 beta57、原生 flow Euler 路径、ER-SDE、控制条件、区域提示、LoRA 调度、缓存/预测、FreeFuse 和高分辨率防护等主要能力已经内置。继续盲目预装 ComfyUI 节点，更多会造成重复 patch、不可组合的 attention hook 和难以解释的 UI，而不是提高质量。
 
-下一轮建议严格按以下顺序推进：
+本报告最初建议的推进顺序如下；第 1–4 项均已落地（见上方状态），保留原文作为决策记录：
 
-1. **P0：移植 Anima NAG（Normalized Attention Guidance）**。它最直接补足 Turbo/CFG 1 下负面提示词控制，论文和 Anima 专用节点都有公开实现，MIT 许可清晰。Forge 需要增加一个可组合的 Anima cross-attention override 接口，不能直接照搬 ComfyUI 的 `optimized_attention_override`。
-2. **P1 实验：Momentum Guidance**。它针对 flow model，以跨 timestep 的速度 EMA 做外推，不增加模型前向；和 Anima 的 flow 轨迹匹配，但必须先隔离 PC3、Spectrum、SMC 的状态。
-3. **P1：把 Anima 逐 block `torch.compile` 做成现有内置 Compile 插件的预设**。这是速度优化，不改变生成算法；来源为 MIT，改动小，且比另装一个插件更符合 Forge 的无感集成方式。
-4. **P2 实验：Frequency-Decoupled Guidance（FDG）**。它允许低/高频使用不同 guidance 强度，适合研究低 CFG 细节，但没有 Anima 实证、占用 CFG combine，并会引入 `kornia`，不应默认开启。
+1. **P0：移植 Anima NAG（Normalized Attention Guidance）（已实现）**。它最直接补足 Turbo/CFG 1 下负面提示词控制，论文和 Anima 专用节点都有公开实现，MIT 许可清晰。Forge 需要增加一个可组合的 Anima cross-attention override 接口，不能直接照搬 ComfyUI 的 `optimized_attention_override`。
+2. **P1 实验：Momentum Guidance（已实现）**。它针对 flow model，以跨 timestep 的速度 EMA 做外推，不增加模型前向；和 Anima 的 flow 轨迹匹配，但必须先隔离 PC3、Spectrum、SMC 的状态。
+3. **P1：把 Anima 逐 block `torch.compile` 做成现有内置 Compile 插件的预设（已实现）**。这是速度优化，不改变生成算法；来源为 MIT，改动小，且比另装一个插件更符合 Forge 的无感集成方式。
+4. **P2 实验：Frequency-Decoupled Guidance（FDG）（已实现，未引入 `kornia`）**。它允许低/高频使用不同 guidance 强度，适合研究低 CFG 细节，但没有 Anima 实证、占用 CFG combine，并会引入 `kornia`，不应默认开启。
 
-其后才是 **PiD 4× 解码器**（效果潜力高但很重）和 **Layer Replay**（效果证据弱、原仓库缺许可证，只能 clean-room 重写）。ANIMA_BOOSTER 与 FLSampler 均为保留全部权利的代码，不能复制或移植；Anima IP-Adapter 当前仓库则同时存在许可证、权重和代码可运行性问题，暂不应集成。
+其后才是 **PiD 4× 解码器**（效果潜力高但很重；已作为可选内置后处理器接入）和 **Layer Replay**（效果证据弱、原仓库缺许可证，只能 clean-room 重写）。ANIMA_BOOSTER 与 FLSampler 均为保留全部权利的代码，不能复制或移植；Anima IP-Adapter 当前仓库没有可用权重、代码不可运行，许可也只在 README 中声明，暂不应集成。
 
 ## 官方基线与使用建议
 
@@ -59,13 +59,13 @@
 | ControlNet-LLLite | `sd_forge_controlllite` 的 Anima LLLite v2 | 已有；无需再移植 ComfyUI-Anima-LLLite |
 | 高分辨率 | Hires Guard、MultiDiffusion、Tile preprocessor | 已有主体能力 |
 | 注意力加速 | SageAttention 1/2/3 选择 | 已有 |
-| 编译加速 | `sd_forge_compile` 整体模型 `torch.compile` | 已有，但缺 Anima 逐 block 预设 |
+| 编译加速 | `sd_forge_compile` 整体模型 `torch.compile` 与 Anima per-block 预设 | 已有 |
 | NegPiP | 内置 Neo 适配扩展 | 已有；无需复制 ComfyUI-ppm 的版本 |
 | PiD 4× 后处理 | `backend/diffusion_engine/pid.py` + `sd_forge_pid` | 已可从当前 latent 一键进入 4-step PiD；权重需用户预先安装，与 Hires 互斥 |
 
 ## 候选技术与优先级
 
-### P0：Anima NAG —— 最值得移植的质量功能
+### P0：Anima NAG —— 最值得移植的质量功能（已实现）
 
 [NAG 论文](https://arxiv.org/abs/2505.21179)把正负条件的外推从最终噪声预测移到 cross-attention 输出，并用 L1 范数限制外推幅度，再与原正向 attention 混合。论文报告其在少步数场景中改善负面提示控制、文本对齐和感知质量；这是作者报告的跨模型结果，**不是 Anima 专属 GPU 基准**。
 
@@ -83,7 +83,7 @@
 
 **必须测试的组合：** NAG × Regional、Artist Mixer、LLLite、SageAttention、Spectrum、batch > 1、Hires 二阶段、CFG 1/4.5、Turbo/Base。若没有同时包含正负分支，NAG 应明确无效果并给出提示。
 
-### P1：Anima 逐 block `torch.compile` —— 低风险加速（排序在 Momentum Guidance 之后）
+### P1：Anima 逐 block `torch.compile` —— 低风险加速（排序在 Momentum Guidance 之后；已实现）
 
 [ComfyUI-Anima-BlockCompile 固定版本](https://github.com/sorryhyun/ComfyUI-Anima-BlockCompile/tree/455eeeaeda63f1985eaa1669e4bd08cf3ec4bd13)使用 [MIT 许可](https://github.com/sorryhyun/ComfyUI-Anima-BlockCompile/blob/455eeeaeda63f1985eaa1669e4bd08cf3ec4bd13/LICENSE)，逐个编译 `diffusion_model.blocks.{i}`，而不是把整个 DiT 包成一个巨大 graph。这样可缩短首次编译、减少 graph break，并复用结构相同的 transformer block 图。
 
@@ -97,13 +97,13 @@ Forge 已有 `extensions-builtin/sd_forge_compile/scripts/compile.py`，因此�
 
 这是速度功能，不应宣称提高画质；生成结果需要做相同 seed 的数值/视觉回归，防止编译后精度路径变化。
 
-### P1 实验：Momentum Guidance —— flow 方向匹配，但先解决状态隔离
+### P1 实验：Momentum Guidance —— flow 方向匹配，但先解决状态隔离（已实现）
 
 [Momentum Guidance 论文](https://arxiv.org/abs/2602.20360)面向 flow model，用历史速度的指数移动平均对当前 guidance 速度做外推，不增加额外模型前向；作者在 SD3、FLUX.1-dev 等 flow 模型上报告了收益。已有 [MIT 许可的 ComfyUI 实现](https://github.com/pamparamm/sd-perturbed-attention/blob/904319bff623b185f15047e231a446d615ee48c6/mg_nodes.py)，核心只依赖 PyTorch。从模型类型看它比传统 diffusion-only 技巧更值得在 Anima 上试验，但目前没有 Anima 专属基准。
 
 它与 SMC 不同：SMC 修正 cond/uncond 控制误差，Momentum Guidance 在合并后的跨 timestep 轨迹维护 EMA；二者同时启用的数学含义未定义。Forge 原型必须在新任务、batch/shape 变化、Hires 二阶段时重置，且 PC3/UniPC 辅助前向和 Spectrum 预测/缓存都不能推进主轨迹 EMA。建议只从 Flow Euler 固定 seed A/B 开始，不默认启用。
 
-### P2 实验：Frequency-Decoupled Guidance（FDG）
+### P2 实验：Frequency-Decoupled Guidance（FDG）（已实现）
 
 [FDG 论文](https://arxiv.org/abs/2506.19713)把 cond-uncond guidance update 经 Laplacian pyramid 拆成低频与高频分量：低频保留结构/提示词约束，高频使用独立强度增强细节。论文报告它在低 CFG 下提高 fidelity 并减轻高 CFG 的过饱和；[MIT 节点实现](https://github.com/pamparamm/sd-perturbed-attention/blob/904319bff623b185f15047e231a446d615ee48c6/fdg_nodes.py)额外依赖 `kornia`。
 
@@ -129,7 +129,7 @@ Forge 的 `backend/diffusion_engine/pid.py` 已能把 PiD 当作独立扩散模�
 
 [ComfyUI-ppm 的固定版本 Guidance Limiter 源码](https://github.com/pamparamm/ComfyUI-ppm/blob/00ede55ac1d58e750b5c456245ca463597e08557/src/nodes_ppm/guidance.py)基于论文 [Applying Guidance in a Limited Interval](https://arxiv.org/abs/2404.07724)，在早期/晚期区间关闭 CFG，只在中间区间保留引导。仓库为 AGPL-3.0；原作者的[参考实现](https://github.com/kynkaat/guidance-interval)为 Apache-2.0。
 
-它对普通 CFG 模型有明确研究依据，但 Turbo 本来就是 CFG 1，因此对 Turbo 没意义；对 Anima Base/Aesthetic 可能降低过饱和并改善分布质量。PPM 默认 `sigma_start=5.42/sigma_end=0.28` 来自非 flow schedule，不能用于 Anima 的 `0..1` flow sigma；Forge 应存储归一化采样进度，再映射到实际 schedule。当前 Guidance 扩展已有多种 CFG 控制，最佳集成方式是增加一个“CFG active range”，而不是预装整个 PPM 节点包。需要先以 Base/Aesthetic、CFG 4–7 做 A/B。
+它对普通 CFG 模型有明确研究依据，但 Turbo 本来就是 CFG 1，因此对 Turbo 没意义；对 Anima Base/Aesthetic 可能降低过饱和并改善分布质量。PPM 默认 `sigma_start=5.42/sigma_end=0.28` 来自非 flow schedule，不能用于 Anima 的 `0..1` flow sigma；Forge 应存储归一化采样进度，再映射到实际 schedule。当前 Guidance 扩展已有多种 CFG 控制，最佳集成方式是增加一个“CFG active range”，而不是预装整个 PPM 节点包。**已实现**为 Anima Guidance 的 CFG active range（界面 “Limit CFG to a sampling range”，按归一化采样进度映射当前 scheduler sigma）；仍需以 Base/Aesthetic、CFG 4–7 做 A/B。
 
 PPM 的 AttentionCouple 和 NegPiP 已分别被当前 Regional 与 NegPiP 覆盖；AttentionCouple 会再次占用 attention/mask patch seam，与 Regional 同时启用还会产生未定义的 hook 顺序、mask resize 和 Spectrum cache 语义，因此不移植。动态采样器和 CFG++ 也不能未经 flow/const 数学验证直接套到 Anima。
 
@@ -149,26 +149,26 @@ Forge 实现为内置扩展 `sd_forge_anima_dave`（默认关闭、仅 Anima）�
 
 ### P3：Dynamic CFG / 频域细节 —— 只适合作为研究原型
 
-[ComfyUI-AnimaDynamicCFG 固定版本源码](https://github.com/DanrisiUA/ComfyUI-AnimaDynamicCFG/blob/35b70e0c402ea52e60aa18aafd87cce6ba3b0c55/nodes.py)包含 CFG 曲线、自适应 CFG、CFG rescale、latent 均值校正、FFT 高频增强和后期随机噪声，但仓库当前**没有 LICENSE 文件**，因此不能复制、修改或分发其源码。它也没有测试和量化证据，当前实现还存在几项方法学问题：
+[ComfyUI-AnimaDynamicCFG 固定版本源码](https://github.com/DanrisiUA/ComfyUI-AnimaDynamicCFG/blob/35b70e0c402ea52e60aa18aafd87cce6ba3b0c55/nodes.py)包含 CFG 曲线、自适应 CFG、CFG rescale、latent 均值校正、FFT 高频增强和后期随机噪声，README 现声明 **MIT**（2026-09 核对 `35b70e0`），但仓库仍没有 LICENSE 文件，也就缺少 MIT 要求随代码保留的版权与许可声明；许可已不是主要障碍。不移植的理由在于它没有测试和量化证据，当前实现还存在几项方法学问题：
 
 - 自适应 CFG 使用 `cond-uncond` 的**绝对整体 L2 norm**，随分辨率和 batch 改变，默认 `target_divergence=1` 没有跨尺寸意义；
 - 进度依赖 `sample_sigmas`，缺失时退化成固定 1→0，未证明符合 Anima 的实际 sigma；
 - 高频放大和随机噪声可能只是制造锐化/颗粒感，也可能破坏 flow 轨迹；随机噪声使用全局 `torch.randn_like`，没有绑定 sampler generator，固定 seed 也不保证可复现；
 - “更写实”与官方将 Anima 定义为非写实模型的目标并不一致。
 
-其中标准 CFG Rescale 已有论文依据，但其余功能不应直接移植；scheduled CFG、rescale 和频域修正也分别与现有 Stage Scheduler、Prompt Rescale、DCW/CNS 部分重叠。若研究，只能依据公开算法 clean-room 重写，先把 divergence 改成每元素 RMS/robust norm，并加入确定性 seed 与 flow-aware 进度。
+其中标准 CFG Rescale 已有论文依据，但其余功能不应直接移植；scheduled CFG、rescale 和频域修正也分别与现有 Stage Scheduler、Prompt Rescale、DCW/CNS 部分重叠。若研究，应依据公开算法 clean-room 重写，先把 divergence 改成每元素 RMS/robust norm，并加入确定性 seed 与 flow-aware 进度。
 
 ### P3：Anima IP-Adapter —— 方向重要，当前仓库不可交付
 
 [comfyui-anima-ipadapter](https://github.com/Wenaka2004/comfyui-anima-ipadapter) 宣称以 SigLIP2/InstantCharacter 风格的 decoupled cross-attention实现参考图人物一致性。这是 Anima 生态真正缺少的重要方向，但当前仓库不能移植：
 
-- 没有 LICENSE，不能复制代码；
-- README 没有可下载的训练完成权重，[issue #2](https://github.com/Wenaka2004/comfyui-anima-ipadapter/issues/2)也明确询问 Anima checkpoint 位置而没有得到可用发布；
-- 当前源码中 `TransformerEncoderLayer` 被以不支持的 `memory=` 参数调用，loader 还向 `IPAdapterSigLIP` 传入不存在的 `input_dim=` 参数；
+- 许可只在 README 中声明为 **Apache-2.0**（仓库仍没有 LICENSE 文件）；README 描述的是以 [Qwen3-VL-Embedding-2B](https://huggingface.co/Qwen/Qwen3-VL-Embedding-2B) 1024 维图像嵌入驱动 Perceiver Resampler 的旧版，而最新提交（`5f53e2b`，2026-05-15）已改为 SigLIP + InstantCharacter 式 TimeResampler，文档与代码不一致；
+- README 没有可下载的训练完成权重，[issue #2](https://github.com/Wenaka2004/comfyui-anima-ipadapter/issues/2)至 2026-09 仍开放，只有用户追问 Anima checkpoint 而没有作者发布；评论中提到的第三方 [LuciferTC/Anima-IP-Adapter](https://huggingface.co/LuciferTC/Anima-IP-Adapter) 未声明许可，且据报告无法运行；
+- `5f53e2b` 中 `TransformerEncoderLayer` 仍被以不支持的 `memory=` 参数调用（`ip_adapter_model.py:66`），loader 仍向 `IPAdapterSigLIP` 传入不存在的 `input_dim=` 参数（`nodes.py:116`）；
 - cross-attention wrapper 的函数签名与当前 Forge/Comfy Anima 路径不一致；
 - patch 生命周期、逐步 timestep 更新和卸载逻辑不完整。
 
-因此应等待上游发布许可、权重和可运行版本，或取得明确授权后重新设计。不能把训练脚本或空壳节点预装给用户。
+许可声明已补（仅 README），但拒绝理由仍然成立：应等待上游发布权重和可运行版本后再评估。不能把训练脚本或空壳节点预装给用户。
 
 ## 已有或不应移植的项目
 
@@ -203,11 +203,11 @@ Forge 实现为内置扩展 `sd_forge_anima_dave`（默认关闭、仅 Anima）�
 
 ## 建议实施顺序与验证矩阵
 
-1. **Anima NAG**：独立 commit；先加入可组合 attention override，再实现 UI 与范围控制。
-2. **Momentum Guidance 原型**：从 Flow Euler 开始，证明状态不会被 PC3 auxiliary call、Spectrum 或 Hires 污染后再独立 commit。
-3. **Anima per-block compile**：独立 commit；作为现有 Compile 插件预设，明确这只是速度优化。
+1. **Anima NAG**（已实现）：独立 commit；先加入可组合 attention override，再实现 UI 与范围控制。
+2. **Momentum Guidance 原型**（已实现）：从 Flow Euler 开始，证明状态不会被 PC3 auxiliary call、Spectrum 或 Hires 污染后再独立 commit。
+3. **Anima per-block compile**（已实现）：独立 commit；作为现有 Compile 插件预设，明确这只是速度优化。
 4. **FDG 实验模式**：先做无 `kornia` 的最小原型，并与 SMC/CFG-Zero*/APG 强制互斥（已实现；CFG-Zero* 与 FDG 同属一个模式下拉框）。
-5. **Guidance active range 原型**：先本地实验，不默认启用；证据充分后再 commit。
+5. **Guidance active range**（已实现为 Anima Guidance 的 CFG active range）：仍待 Base/Aesthetic 的 GPU A/B。
 6. **PiD GPU 验证**：已作为可选内置后处理器；补齐权重、显存、中断和批次实测。
 7. **Layer Replay**：仅在 GPU 对照实验证明收益后 clean-room 实现。
 
