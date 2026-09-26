@@ -68,7 +68,9 @@ class SplitBranchTests(unittest.TestCase):
                 # actual, and Legacy has no forecaster for branch 1 (dropped at
                 # each new cond-only step, never fed by a repeated-sigma call).
                 self.assertEqual(actual[1], list(range(STEPS)))
-                self.assertTrue(all(keys == [0] for keys in forecaster_keys[3:]), forecaster_keys)
+                # (The tail step, STEPS - 1, forecasts nothing and frees the history.)
+                self.assertTrue(all(keys == [0] for keys in forecaster_keys[3 : STEPS - 1]), forecaster_keys)
+                self.assertEqual(forecaster_keys[STEPS - 1], [])
 
                 cached = [step for step in range(STEPS) if step not in actual[0]]
                 self.assertTrue(cached, actual[0])

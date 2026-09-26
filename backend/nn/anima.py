@@ -191,7 +191,11 @@ class SelfCrossAttention(nn.Module):
             k, v = self.compute_kv(context, value_context)
             return self.q_norm(q), k, v
 
-        # self-attention: the blocks pass context=None
+        # self-attention: the blocks pass context=None. K/V come from x here,
+        # so a context (upstream would project from it) must not be dropped silently.
+        if context is not None or value_context is not None:
+            given = "context" if context is not None else "value_context"
+            raise ValueError(f"Anima self-attention projects K/V from x (rope path or no context); {given} would be ignored")
         k = self.k_proj(x).unflatten(-1, heads)
         v = self.v_proj(x).unflatten(-1, heads)
 

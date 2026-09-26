@@ -13,7 +13,7 @@ from modules.anima_feature_conflicts import (
     resolve_guidance_conflicts,
     resolve_schedule_conflicts,
 )
-from modules.anima_lora_support import ANIMA_BLOCK_MAPPINGS
+from modules.anima_lora_support import ANIMA_BLOCK_MAPPINGS, model_block_set
 from modules.anima_presets import (
     PRESET_CONFLICT_CONTROLS,
     PRESET_DESCRIPTIONS,
@@ -134,11 +134,19 @@ class PresetConsistencyTests(unittest.TestCase):
         self.assertEqual([name for name in switches if SAFE_BASE_AESTHETIC_PRESET[name] is not False], [])
 
     def test_block_selections_cover_every_anima_depth(self):
+        # Read the way the panels read them at runtime: in the 2B layout
         depths = {size for pair in ANIMA_BLOCK_MAPPINGS for size in pair}
+        self.assertEqual(depths, {28, 40, 52})
         for name, value in SAFE_BASE_AESTHETIC_PRESET.items():
             if name.endswith("blocks") and name not in REFERENCE_LAYOUT_BANDS:
+                self.assertEqual(parse_block_list(value, 28, feature=name), set(range(28)), name)
                 for depth in depths:
-                    self.assertEqual(parse_block_list(value, depth, feature=name), set(range(depth)), (name, depth))
+                    self.assertEqual(model_block_set(value, depth, feature=name), set(range(depth)), (name, depth))
+
+    def test_full_block_selections_use_the_2b_layout_panel_default(self):
+        # The same text the Regional and FreeFuse panels start with
+        for name in ("regional.blocks", "freefuse.bias_blocks"):
+            self.assertEqual(SAFE_BASE_AESTHETIC_PRESET[name], "0-27", name)
 
     def test_reference_layout_bands_are_proper_2b_bands(self):
         # Written in the 28-block (2B) layout and mapped onto larger models

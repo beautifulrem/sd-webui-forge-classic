@@ -11,7 +11,11 @@ also selects its inserted copies, so a band covers the same depth of any model.
 
 Only conditional CFG rows are modified. Unconditional rows retain the normal
 negative-prompt context. Overlapping regions are weight-normalized rather than
-applied in order, so swapping region rows does not change the blend. Spectrum
+applied in order, so swapping region rows does not change the blend. A region's
+strength is its blend opacity, capped at full replacement (less Base preserve):
+above 1 it does not push harder inside the rectangle, it only brings the
+feathered edge to full opacity sooner and gives the region more weight where it
+overlaps weaker ones. Spectrum
 is explicitly forced to actual forwards while regional routing is active.
 
 The approach follows the independently encoded regional context and spatial

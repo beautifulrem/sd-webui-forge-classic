@@ -19,7 +19,8 @@ The collect block and the attention-bias blocks are written in the 2B
 (28-block) layout. On the depth-expanded 40/52-block models the collect block
 is the original block (not an inserted copy), and each attention-bias block
 brings its inserted copies along, as the Artist Mixer's Blocks field does, so
-`0-27` (or the default `0-51`) biases every block of any model.
+the default `0-27` biases every block of any model (an older `0-51` still
+selects them all).
 
 Mask collection and routing preserve the image-batch dimension. Different
 seeds/layouts in the same batch receive independent masks; masks are repeated

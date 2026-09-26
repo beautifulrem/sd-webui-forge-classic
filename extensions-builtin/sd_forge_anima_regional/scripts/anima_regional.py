@@ -86,7 +86,16 @@ class AnimaRegionalScript(scripts.Script):
                     with gr.Row():
                         active = gr.Checkbox(values[0], label="Active")
                         prompt = gr.Textbox(values[1], label="Regional prompt")
-                        strength = gr.Slider(0.0, 2.0, value=values[6], step=0.05, label="Strength")
+                        strength = gr.Slider(
+                            0.0,
+                            2.0,
+                            value=values[6],
+                            step=0.05,
+                            label="Strength",
+                            info="Blend opacity inside the rectangle (1 = fully regional, less Base preserve). "
+                            "Above 1 is not stronger: it only brings the feathered edge to full opacity sooner "
+                            "and outweighs weaker regions where rectangles overlap.",
+                        )
                     with gr.Row():
                         x = gr.Slider(0.0, 1.0, value=values[2], step=0.01, label="X")
                         y = gr.Slider(0.0, 1.0, value=values[3], step=0.01, label="Y")

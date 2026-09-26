@@ -285,11 +285,23 @@ class SpectrumState:
             else:
                 logger.info("Spectrum SEA calibration saved (delta=%.7g); it will be used on the next matching generation.", self.sea_delta)
 
+    @property
+    def forecasting_ended(self) -> bool:
+        """Every step from here on runs actual (see :meth:`decide`)."""
+        return self.step >= self.stop_at
+
+    @property
+    def feeds_forecasts(self) -> bool:
+        """Whether this step's feature can still serve a forecast: the last
+        step that may be cached is ``stop_at - 1``, and it can only use
+        features from the steps before it."""
+        return self.step < self.stop_at - 1
+
     def ready(self, branches):
         return all(key in self.forecasters and self.forecasters[key].ready for key in branches)
 
     def decide(self, branches):
-        if self.step < self.warmup_steps or self.step >= self.stop_at or not self.ready(branches):
+        if self.step < self.warmup_steps or self.forecasting_ended or not self.ready(branches):
             return "actual"
         if self.schedule == "SEA (auto-calibrated)" and self.sea_delta is not None:
             return "cached" if self.sea_accumulated < self.sea_delta else "actual"
@@ -429,6 +441,11 @@ class SpectrumNode:
                 # A branch missing from a step would forecast across the gap.
                 for key in [key for key in state.forecasters if key not in branches]:
                     del state.forecasters[key]
+                if state.forecasting_ended:
+                    # Nothing is forecast again this pass: free the
+                    # (full-resolution) history before the tail, VAE decode
+                    # and Hires rather than when the next pass starts.
+                    state.forecasters.clear()
             state.input_shape = tuple(input_x.shape[1:])
 
             compatible = valid_branches
@@ -469,9 +486,11 @@ class SpectrumNode:
                 state.cached_completed()
                 return result
 
-            # Only a new, cacheable step feeds the forecasters: skip capturing
-            # (a full-resolution feature) on forced / repeated / other calls.
-            if feature_cache and new_step and compatible:
+            # Only a new, cacheable step a later forecast can use feeds the
+            # forecasters: skip capturing (a full-resolution feature) on
+            # forced / repeated / other calls and from the last cacheable step on.
+            feeds = new_step and compatible and state.feeds_forecasts
+            if feature_cache and feeds:
                 capture_local = dit.final_layer._forge_spectrum_local
                 capture_local.state = state
                 state.captured_feature = None
@@ -488,7 +507,7 @@ class SpectrumNode:
             else:
                 result = actual_forward(model_function, args)
                 feature = result
-            if new_step and compatible and feature is not None and feature.shape[0] % len(branches) == 0:
+            if feeds and feature is not None and feature.shape[0] % len(branches) == 0:
                 chunks = feature.chunk(len(branches), dim=0)
                 for key, chunk in zip(branches, chunks):
                     forecaster = state.forecasters.get(key)

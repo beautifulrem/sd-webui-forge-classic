@@ -379,5 +379,76 @@ class ForecasterTests(unittest.TestCase):
         self.assertEqual(state_for(25, 0.9, tail=5).tail_actual_steps, 5)  # the safer value wins
 
 
+def run_anima_pass(steps=8, warmup=3, tail=2):
+    """A Conservative Spectrum pass over a tiny real Anima DiT (CFG batch):
+    per step, whether the feature capture was armed, the features the
+    forecasters keep and their steps, and the denoised output."""
+    from test_fast_forward import _anima_predictor, _tiny_anima
+
+    dit, generator = _tiny_anima()
+    predictor = _anima_predictor()
+
+    class FakePatcher:
+        def __init__(self):
+            self.model = SimpleNamespace(diffusion_model=dit, predictor=predictor)
+            self.model_options = {}
+            self.wrapper = None
+
+        def clone(self):
+            return self
+
+        def set_model_unet_function_wrapper(self, wrapper):
+            self.wrapper = wrapper
+
+    process = SimpleNamespace()
+    patcher = SpectrumNode.patch(
+        FakePatcher(), steps=steps, weight=1.0, degree=1, lam=1e-6, window_size=2,
+        flex_window=0.0, warmup_steps=warmup, stop_caching_step=1.0, tail_actual_steps=tail,
+        history_size=3, schedule="Window", refresh_ratio=0.0, sea_beta=2.0,
+        compat_policy="Conservative", verbose=False, sea_cache_dir="unused",
+        sea_cache_context={}, process=process,
+    )
+    (state,) = process._spectrum_states
+    x = torch.randn(2, 4, 1, 16, 12, generator=generator)
+    context = torch.randn(2, 7, 64, generator=generator)
+    armed, kept, kept_steps, outputs = [], [], [], []
+
+    def model_function(x, sigma, c_crossattn, transformer_options=None, **_kwargs):
+        armed.append(getattr(dit.final_layer._forge_spectrum_local, "state", None) is not None)
+        xc = predictor.calculate_input(sigma, x)
+        output = dit(xc, predictor.timestep(sigma).float(), context=c_crossattn, control=None, transformer_options={}).float()
+        return predictor.calculate_denoised(sigma, output, x)
+
+    with torch.inference_mode():
+        for step in range(steps):
+            calls = len(armed)
+            sigma = torch.full((2,), 0.95 - 0.1 * step)
+            args = {"input": x, "timestep": sigma, "c": {"c_crossattn": context, "transformer_options": {}}, "cond_or_uncond": [0, 1]}
+            outputs.append(patcher.wrapper(model_function, args))
+            if len(armed) == calls:
+                armed.append(None)  # a cached step: no model call
+            kept.append(sum(len(forecaster.features) for forecaster in state.forecasters.values()))
+            kept_steps.append(sorted({time for forecaster in state.forecasters.values() for time in forecaster.times}))
+    return state, armed, kept, kept_steps, outputs
+
+
+class TailTests(unittest.TestCase):
+    def test_no_feature_history_is_kept_once_forecasting_has_ended(self):
+        state, armed, kept, kept_steps, outputs = run_anima_pass()
+        stop_at = state.stop_at
+        self.assertEqual(stop_at, 6)
+        cached = [step for step, flag in enumerate(armed) if flag is None]
+        self.assertTrue(cached and max(cached) < stop_at, armed)
+        # Only actual steps that a later forecast can still use are captured:
+        # the last forecast is at stop_at - 1, so nothing from there on.
+        for step, flag in enumerate(armed):
+            if flag is not None:
+                self.assertEqual(flag, step < stop_at - 1, (step, armed))
+        for step in range(len(armed)):
+            self.assertTrue(all(time < stop_at - 1 for time in kept_steps[step]), kept_steps)
+            if step >= stop_at:
+                self.assertEqual(kept[step], 0, kept)  # freed through the tail, VAE decode and Hires
+
+
 if __name__ == "__main__":
     unittest.main()

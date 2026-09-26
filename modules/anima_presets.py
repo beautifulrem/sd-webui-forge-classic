@@ -71,8 +71,9 @@ SAFE_BASE_AESTHETIC_PRESET: dict[str, object] = {
     "guidance.range_enabled": False,
     "guidance.range_start": 0.0,
     "guidance.range_end": 1.0,
-    # Seed diversity and prompt adherence block patches. DAVE's block band is
-    # written in the 28-block (2B) layout and mapped onto larger models.
+    # Seed diversity and prompt adherence block patches. Every block selection
+    # (DAVE's band, Regional's and FreeFuse's full "0-27") is written in the
+    # 28-block (2B) layout and mapped onto the 40/52-block models.
     "dave.enabled": False,
     "dave.strength": 0.3,
     "dave.tau": 0.1,
@@ -107,7 +108,7 @@ SAFE_BASE_AESTHETIC_PRESET: dict[str, object] = {
     "compile.preset": "Automatic",
     # Spatial and post-processing stacks.
     "regional.enabled": False,
-    "regional.blocks": "0-51",
+    "regional.blocks": "0-27",
     "regional.start": 0.0,
     "regional.end": 0.65,
     "regional.feather": 0.03,
@@ -149,7 +150,7 @@ SAFE_BASE_AESTHETIC_PRESET: dict[str, object] = {
     "freefuse.routing_end": 1.0,
     "freefuse.bias_scale": 6.0,
     "freefuse.positive_bias": 1.0,
-    "freefuse.bias_blocks": "0-51",
+    "freefuse.bias_blocks": "0-27",
     "pid.enabled": False,
     "pid.degrade_sigma": 0.0,
     "pid.color_correction": True,

@@ -185,7 +185,7 @@ Base/Aesthetic 可先保守试 `scale 1.0–1.5`、`alpha 0.25–0.4`、`tau 2.5
 
 起点：`alpha 0.1–0.2`、`lambda 3–5`；代码默认是 `0.2 / 5.0`。参数越高并不等于越好，出现轮廓僵硬或过强对比时先降低 alpha。
 
-SMC-CFG 会占用 CFG combine，并自动禁用 Momentum。不要同时选择 FDG；二者在同一个下拉框中本来就是互斥模式。switching gain 按每张图单独计算，同一 batch 中的图片互不影响。
+SMC-CFG 会占用 CFG combine，并自动禁用 Momentum。不要同时选择 FDG；二者在同一个下拉框中本来就是互斥模式。switching gain 按每张图单独计算，同一 batch 中的图片互不影响。与参考实现一样，CFG 1（Turbo）时自动跳过：直接返回条件预测、不更新误差历史，Forge 仍会省掉负向前向。
 
 ### FDG (experimental)
 
@@ -302,17 +302,17 @@ Spectrum 与 compile 可以技术上组合：前者减少完整前向次数，�
 
 ## 区域、画师与多 LoRA
 
-Remi 会按 checkpoint 实际结构识别 28 层、40 层/2.9B 和 52 层/3.8B Anima。LoRA 按其最大 block 编号判断来源层数，较小的 LoRA 会映射到当前较大的模型（28→40、28→52、40→52，使用 Forge Neo 上游的映射表）；较大的 LoRA 无法用于较小的模型，会被跳过并报错。GUI 中的 `0-51` 全层默认在 28 层和 40 层模型上会自动忽略越界层。
+Remi 会按 checkpoint 实际结构识别 28 层、40 层/2.9B 和 52 层/3.8B Anima。LoRA 按其最大 block 编号判断来源层数，较小的 LoRA 会映射到当前较大的模型（28→40、28→52、40→52，使用 Forge Neo 上游的映射表）；较大的 LoRA 无法用于较小的模型，会被跳过并报错。Regional、FreeFuse、画师混合与 DAVE 的层数字段都按 28 层（2B）布局填写：在 40/52 层模型上每层映射到对应深度（Regional、FreeFuse 与画师混合还会连带选中复制插入的层），所以 Regional 与 FreeFuse 默认的 `0-27` 在任何模型上都是全部层；大于 27 的序号会被忽略，旧的 `0-51` 同样选中全部层。
 
 ### Anima Regional Conditioning
 
 适合把最多三个独立 prompt 路由到矩形区域。保守起点就是默认值：
 
-- blocks `0-51`（28 层和 40 层模型会自动忽略越界层）；
+- blocks `0-27`（2B 布局，在 40/52 层模型上同样是全部层）；
 - progress `0.0–0.65`；
 - feather `0.03`；
 - base preserve `0.15`；
-- region strength `1.0`。
+- region strength `1.0`（区域内的混合不透明度，1 即完全替换，再扣除 base preserve；高于 1 不会更强，只会让羽化边缘更早到满强度，并在重叠处压过较弱的区域）。
 
 先从一个区域开始，再增加第二个。区域重叠会做归一化，不依赖行顺序。它和 NAG 可同时启用，但 NAG 不会对合成 regional context 再做负向引导。Regional 与 FreeFuse 是硬冲突。
 

@@ -1,6 +1,7 @@
 """``compute_kv`` (the K/V projection NAG uses for a stashed negative context)
 must honour NegPiP's V-only negation exactly like ``compute_qkv``."""
 
+import pytest
 import torch
 
 from backend import operations
@@ -44,3 +45,28 @@ def test_compute_qkv_cross_attention_matches_the_plain_projections():
             q, k, v = attention.compute_qkv(x, context, value_context=vc)
             expected_v = attention.v_proj(context if vc is None else vc).unflatten(-1, heads)
             assert torch.equal(q, expected_q) and torch.equal(k, expected_k) and torch.equal(v, expected_v)
+
+
+def test_compute_qkv_self_attention_rejects_a_context_it_would_ignore():
+    """The self-attention rope path projects K/V from x; a context or
+    value_context passed there must fail loudly, not be dropped."""
+    generator = torch.Generator().manual_seed(13)
+    with operations.using_forge_operations(device=torch.device("cpu"), dtype=torch.float32, manual_cast_enabled=True):
+        attention = SelfCrossAttention(16, n_heads=2, head_dim=8)
+    attention.load_state_dict({k: torch.randn(v.shape, generator=generator) for k, v in attention.state_dict().items()})
+    x = torch.randn(1, 5, 16, generator=generator)
+    rope_emb = torch.randn(1, 5, 1, 4, 2, 2, generator=generator)  # a valid rope: the old code silently used x
+
+    with torch.inference_mode():
+        with pytest.raises(ValueError, match="context would be ignored"):
+            attention.compute_qkv(x, torch.randn(1, 5, 16), rope_emb=rope_emb)
+        with pytest.raises(ValueError, match="value_context would be ignored"):
+            attention.compute_qkv(x, rope_emb=rope_emb, value_context=torch.randn(1, 5, 16))
+        with pytest.raises(ValueError, match="value_context would be ignored"):
+            attention.compute_qkv(x, value_context=torch.randn(1, 5, 16))
+        # The blocks' own call (context None) is unaffected
+        q, k, v = attention.compute_qkv(x, rope_emb=rope_emb)
+        assert q.shape == k.shape == v.shape == (1, 5, 2, 8)
+        # Without the rope, a given context is still the K/V source
+        _, k, _ = attention.compute_qkv(x, x.flip(1))
+        assert torch.equal(k, attention.compute_kv(x.flip(1))[0])

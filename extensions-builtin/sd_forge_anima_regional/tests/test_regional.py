@@ -85,6 +85,33 @@ class RegionalTests(unittest.TestCase):
         state.prepare_masks(torch.zeros(2, 4, 1, 8, 16), dit)
         self.assertIsNot(state.current_masks, masks)
 
+    def test_strength_above_one_only_acts_on_feathered_edges_and_overlaps(self):
+        # What the Strength slider's info text promises
+        from lib_anima_regional.regional import Region, RegionalState, _make_cross_attention_wrapper
+
+        torch.manual_seed(0)
+        dit = type("Dit", (), {"patch_temporal": 1, "patch_spatial": 2})()
+        first, second = torch.randn(1, 3, 4), torch.randn(1, 3, 4)
+        x, context = torch.randn(1, 1024, 4), torch.randn(1, 3, 4)
+
+        def attention(x, context=None, rope_emb=None, transformer_options={}):
+            return x * context.mean(dim=(1, 2)).view(-1, 1, 1)
+
+        def blended(strength, feather, overlap=False):
+            regions = [Region(first, 0.0, 0.0, 0.5, 1.0, strength)]
+            if overlap:
+                regions.append(Region(second, 0.25, 0.0, 0.5, 1.0, 1.0))
+            state = RegionalState(regions, {0}, feather, 0.15, 0.0, 1.0)
+            state.prepare_masks(torch.zeros(1, 4, 1, 64, 64), dit)
+            return _make_cross_attention_wrapper(attention, state, 0)(x, context=context, transformer_options={})
+
+        # Fully inside a lone rectangle, 1 is already full opacity
+        self.assertTrue(torch.equal(blended(2.0, 0.0), blended(1.0, 0.0)))
+        self.assertFalse(torch.equal(blended(0.5, 0.0), blended(1.0, 0.0)))
+        # but a feathered edge and an overlap still respond
+        self.assertFalse(torch.allclose(blended(2.0, 0.1), blended(1.0, 0.1)))
+        self.assertFalse(torch.allclose(blended(2.0, 0.0, overlap=True), blended(1.0, 0.0, overlap=True)))
+
     def test_rows_outside_the_markers_are_all_blended(self):
         from lib_anima_regional.regional import Region, RegionalState, _make_cross_attention_wrapper
 

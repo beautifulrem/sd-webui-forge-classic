@@ -164,9 +164,9 @@ class AnimaFreeFuseScript(scripts.Script):
                         0.0, 10.0, value=1.0, step=0.25, label="Own-concept boost"
                     )
                 bias_blocks = gr.Textbox(
-                    "0-51",
+                    "0-27",
                     label="Attention-bias blocks",
-                    info="In the 28-block layout; on 40/52-block Anima each block brings its inserted copies, so 0-27 (or 0-51) covers every block. LoRA output routing applies to all spatial LoRA layers.",
+                    info="Written in the 2B (28-block) layout: on 40/52-block models each block also selects its inserted copies, so the default covers every block of any Anima model. LoRA output routing applies to all spatial LoRA layers.",
                 )
 
         register_exclusive_component(
