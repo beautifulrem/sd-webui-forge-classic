@@ -7,9 +7,9 @@ from pathlib import Path
 
 import gradio as gr
 
-from backend.args import dynamic_args
-from modules import script_callbacks, scripts, shared
+from modules import script_callbacks, scripts
 from modules.anima_lora_files import adapter_kind_for_file, is_anima_adapter_file, lora_coverage
+from modules.anima_online_lora import acquire_online_lora, online_lora_leased_by_other_than, release_online_lora, user_online_lora
 from modules.anima_user_data import UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_lora_support import (
     LORA_TAG_RE,
@@ -38,13 +38,16 @@ from modules.anima_lora_support import (
     model_key as _model_key,
     qwen_layer_index as _qwen_layer_index,
     stage_window,
+    intro_block,
+    register_language_option,
+    ui_language,
+    ui_text,
 )
 from modules.anima_presets import register_preset_control
 
 
 logger = logging.getLogger("anima_lora_stage_scheduler")
 LANGUAGE_OPTION = "anima_lora_stage_scheduler_language"
-LANGUAGE_CHOICES = ("zh", "en")
 LANG = {
     "zh": {
         "settings_label": "Anima LoRA 阶段介入界面语言",
@@ -164,12 +167,11 @@ LANG = {
 
 
 def _language():
-    value = getattr(shared.opts, LANGUAGE_OPTION, "zh")
-    return value if value in LANGUAGE_CHOICES else "zh"
+    return ui_language(LANGUAGE_OPTION)
 
 
 def _t(key):
-    return LANG.get(_language(), LANG["zh"]).get(key, key)
+    return ui_text(LANG, LANGUAGE_OPTION, key)
 
 
 INTRO_EN = (
@@ -177,22 +179,6 @@ INTRO_EN = (
     "style, or custom timing windows, with separate base and Hires. fix controls."
 )
 INTRO_ZH = "控制 Anima LoRA 在采样中的介入时间：可使用构图、人物、画风或自定义时间窗口，并可分别设置底图和高分辨率修复阶段。"
-
-
-def _intro_text(language):
-    return INTRO_ZH if language == "中文" else INTRO_EN
-
-
-def _intro_block(elem_id):
-    with gr.Row():
-        intro_language = gr.Radio(
-            choices=["English", "中文"],
-            value="English",
-            label="Description language / 说明语言",
-            elem_id=elem_id("intro_language"),
-        )
-    intro = gr.Markdown(value=INTRO_EN, elem_id=elem_id("intro"))
-    intro_language.change(fn=_intro_text, inputs=[intro_language], outputs=[intro], queue=False, show_progress=False)
 
 
 def _target_mode_choices():
@@ -228,18 +214,10 @@ def _normalize_disable_mode(value):
 
 
 def _register_ui_settings():
-    if LANGUAGE_OPTION in shared.opts.data_labels:
-        return
-    shared.opts.add_option(
+    register_language_option(
         LANGUAGE_OPTION,
-        shared.OptionInfo(
-            "zh",
-            "Anima LoRA Stage Scheduler language / Anima LoRA 阶段介入语言",
-            gr.Radio,
-            {"choices": LANGUAGE_CHOICES},
-            section=("anima-lora-stage-scheduler", "Anima LoRA Stage Scheduler"),
-            category_id="system",
-        ).needs_reload_ui(),
+        "Anima LoRA Stage Scheduler language / Anima LoRA 阶段介入语言",
+        ("anima-lora-stage-scheduler", "Anima LoRA Stage Scheduler"),
     )
 
 
@@ -396,6 +374,8 @@ BUILTIN_TEMPLATES = {
 
 _ACTIVE_STATE = None
 _CFG_CALLBACK_REGISTERED = False
+# Name of this script's lease on Forge's online-LoRA switch
+ONLINE_LORA_OWNER = "anima_lora_stage_scheduler"
 # (current_lora_hash tag, load_networks' hash, _loaded_patch_config, strengths)
 # of the patches the last run left loaded; see _prepare_for_extra_network_activation
 _RELEASED_PATCHES = None
@@ -412,11 +392,11 @@ def _cleanup_runtime(p):
     carry a copied reference to the outer run's state, or none at all."""
     global _ACTIVE_STATE, _RELEASED_PATCHES
 
+    release_online_lora(p, ONLINE_LORA_OWNER)
     state = getattr(p, "_anima_lora_stage_scheduler_state", None)
     if state is None or state.p is not p:
         return
 
-    dynamic_args.online_lora = state.original_online_lora
     state.set_factor(1.0)
     owner = getattr(state, "p", None)
     sd_model = getattr(owner, "sd_model", None)
@@ -1003,7 +983,8 @@ def _delete_template_ui(name):
 
 
 def _is_anima_lora_file(filename) -> bool:
-    return bool(filename) and is_anima_adapter_file(filename, "lora")
+    """An adapter (LoRA or LoKr) that trains Anima DiT blocks."""
+    return bool(filename) and is_anima_adapter_file(filename, adapter_kind_for_file(filename) or "lora")
 
 
 def _lora_block_count(filename) -> int | None:
@@ -1544,9 +1525,10 @@ def _add_patches(original, patcher, patches, strength_patch, strength_model, fil
         # having one schedule silently replace the other.
         should_control = False
         _note_lora_control(state, filename)
-    if state is not None and not should_control and online_mode and not state.original_online_lora:
+    if state is not None and not should_control and online_mode and not state.original_online_lora and not online_lora_leased_by_other_than(ONLINE_LORA_OWNER):
         # Only scheduled LoRAs need the online patches this run switched on;
-        # the others keep Forge's faster merged weights.
+        # the others keep Forge's faster merged weights, unless another script
+        # (FreeFuse) holds online LoRA on for them too.
         online_mode = False
 
     # Forge Neo stores offline patches in ``patches`` and online LoRAs
@@ -1644,7 +1626,13 @@ def _denoiser_callback(params):
 
     denoiser = getattr(params, "denoiser", None)
     p = getattr(denoiser, "p", None)
-    if p is None or p is not state.p:
+    if p is None:
+        return
+    if p is not state.p:
+        # A nested run the scheduler is not part of (ADetailer) samples with
+        # the loaded patches: at their plain strengths, not frozen at the
+        # factor of the outer run's last step.
+        state.set_factor(1.0)
         return
 
     pass_name = state.current_pass_name()
@@ -1775,7 +1763,7 @@ class Script(scripts.Script):
         </style>
         """
         with gr.Accordion(_t("title"), open=False, elem_id=self.elem_id("accordion")):
-            _intro_block(self.elem_id)
+            intro_block(self.elem_id, INTRO_EN, INTRO_ZH)
             enabled = gr.Checkbox(label=_t("enable"), value=False, elem_id=self.elem_id("enabled"))
             gr.HTML(template_css)
 
@@ -2126,11 +2114,11 @@ class Script(scripts.Script):
             hires=hires_config,
             hr_disable_mode=_normalize_disable_mode(hr_disable_mode),
             hr_disable_tags=_parse_disable_tags(hr_disable_tags),
-            original_online_lora=bool(dynamic_args.online_lora),
+            original_online_lora=user_online_lora(),
             outer_state=_ACTIVE_STATE,
         )
 
-        dynamic_args.online_lora = True
+        acquire_online_lora(p, ONLINE_LORA_OWNER)
         p._anima_lora_stage_scheduler_state = state
         _ACTIVE_STATE = state
         _note_text_encoder_signature(p, (base_config.text_encoder_signature, hires_config.text_encoder_signature))

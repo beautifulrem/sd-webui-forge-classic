@@ -285,3 +285,17 @@ def test_prompt_conds_are_recomputed_when_the_panels_text_encoder_weights_change
     assert run("blocks=0-9=0.5")  # the text encoder is back to the prompt's weights
     assert not run("blocks=0-9=0.2") and not run("0", enabled=False)
     assert run("qwen=0-27=0.2") and run("qwen=0-27=0.2", enabled=False)
+
+
+def test_auto_detect_schedules_anima_lokrs_too(module, tmp_path):
+    import torch
+    from safetensors.torch import save_file
+
+    lokr = tmp_path / "subject.safetensors"
+    save_file({"lycoris_blocks_3_mlp_layer1.lokr_w1": torch.zeros(1)}, str(lokr))
+    sdxl = tmp_path / "sdxl.safetensors"
+    save_file({"lora_unet_mid_block_attentions_0_proj_in.lora_down.weight": torch.zeros(1)}, str(sdxl))
+    config = _config(module, module.PRESET_CHARACTER_ALLOW, mode=module.MODE_AUTO_ANIMA)
+
+    assert config.file_matches(str(lokr), frozenset())
+    assert not config.file_matches(str(sdxl), frozenset())

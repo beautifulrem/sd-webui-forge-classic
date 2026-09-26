@@ -12,8 +12,9 @@ on purpose. Read this before "fixing" one of them.
 | `compute_qkv(value_context=...)` | `backend/nn/anima.py` | NegPiP, FreeFuse (V from the masked context) |
 | `model_function_wrapper` chain | `call_model_wrapper` in `modules/anima_support.py` | Modulation, Regional, FreeFuse, Artist Mixer, Spectrum |
 | Spectrum "run a real forward" requests | `modules/spectrum_force.py` | every feature Spectrum cannot forecast |
-| Stateful guidance registry | `modules/anima_guidance_state.py` | DCW, SMC-CFG, Momentum (reset after FreeFuse's probe pass) |
+| Stateful guidance registry | `modules/anima_guidance_state.py` | DCW, SMC-CFG, APG, CFG-Zero*, Momentum (reset after FreeFuse's probe pass) |
 | Active-feature registry | `set_feature_active` / `is_feature_active` in `modules/anima_feature_conflicts.py` | FreeFuse, Regional, Artist Mixer |
+| Online-LoRA leases | `acquire_online_lora` / `release_online_lora` in `modules/anima_online_lora.py` (the last release restores the user's setting) | Stage scheduler, FreeFuse |
 | Post-load validation | `Script.after_model_load` in `modules/scripts.py`, run by `process_images` once checkpoint/VAE overrides have loaded | features that check the loaded model or the final settings (Hires Guard) |
 | Guaranteed teardown | `Script.cleanup` in `modules/scripts.py`, run from `process_images`' `finally` | features that must undo global state even when a run raises |
 | Load-time quantization | `quantize_on_load` in `backend/nn/anima.py`, via "Diffusion in Low Bits" | scaled FP8, INT8 ConvRot |

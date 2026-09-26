@@ -44,4 +44,4 @@ def test_layer_weight_syntax():
     assert parse_layer_weights("5-3=0.4").values == {3: 0.4, 4: 0.4, 5: 0.4}
     assert looks_like_layer_weights("3=0.2") and looks_like_layer_weights("0.5,0.6")
     assert not looks_like_layer_weights("0.5") and not looks_like_layer_weights("mlp=0.8")
-    assert parse_module_weights("self=0.5；ffn=2，ada=bad") == {"self_attn": 0.5, "mlp": 2.0, "adaln": 1.0}
+    assert parse_module_weights("self=0.5；ffn=2，ada=bad") == {"self_attn": 0.5, "mlp": 2.0}

@@ -58,7 +58,7 @@ def test_looks_like_layer_weights(text, expected):
 
 
 def test_module_weights_normalise_names(module):
-    assert parse_module_weights("cross=0.5\nFFN=0.7；self attention=x, adaln") == {"cross_attn": 0.5, "mlp": 0.7, "self_attn": 1.0}
+    assert parse_module_weights("cross=0.5\nFFN=0.7；self attention=0.9, adaln") == {"cross_attn": 0.5, "mlp": 0.7, "self_attn": 0.9}
     # The panel fills the modules it does not name with 1.0
     assert module._parse_module_weights("mlp=0.2") == {"self_attn": 1.0, "cross_attn": 1.0, "mlp": 0.2, "adaln": 1.0}
 

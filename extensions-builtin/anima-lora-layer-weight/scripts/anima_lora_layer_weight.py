@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import gradio as gr
 
-from modules import script_callbacks, scripts, shared
+from modules import script_callbacks, scripts
 from modules.anima_lora_support import (
     LORA_TAG_RE,
     LayerWeights,
@@ -27,6 +27,10 @@ from modules.anima_lora_support import (
     module_factor as _module_factor,
     model_key as _model_key,
     qwen_layer_index as _qwen_layer_index,
+    intro_block,
+    register_language_option,
+    ui_language,
+    ui_text,
 )
 from modules.anima_lora_files import adapter_kind_for_file as _adapter_kind_for_file
 from modules.anima_lora_files import is_anima_adapter_file as _is_anima_adapter_file
@@ -36,7 +40,6 @@ from modules.anima_presets import register_preset_control
 
 logger = logging.getLogger("anima_lora_layer_weight")
 LANGUAGE_OPTION = "anima_lora_layer_weight_language"
-LANGUAGE_CHOICES = ("zh", "en")
 LANG = {
     "zh": {
         "settings_label": "Anima LoRA 分层权重界面语言",
@@ -102,12 +105,11 @@ LANG = {
 
 
 def _language():
-    value = getattr(shared.opts, LANGUAGE_OPTION, "zh")
-    return value if value in LANGUAGE_CHOICES else "zh"
+    return ui_language(LANGUAGE_OPTION)
 
 
 def _t(key):
-    return LANG.get(_language(), LANG["zh"]).get(key, key)
+    return ui_text(LANG, LANGUAGE_OPTION, key)
 
 
 INTRO_EN = (
@@ -118,35 +120,11 @@ INTRO_EN = (
 INTRO_ZH = "按 block、模块和可选 Qwen 文本编码器层控制 Anima LoRA/LoKR 强度，用于调节构图、人物特征和画风，不修改模型文件。"
 
 
-def _intro_text(language):
-    return INTRO_ZH if language == "中文" else INTRO_EN
-
-
-def _intro_block(elem_id):
-    with gr.Row():
-        intro_language = gr.Radio(
-            choices=["English", "中文"],
-            value="English",
-            label="Description language / 说明语言",
-            elem_id=elem_id("intro_language"),
-        )
-    intro = gr.Markdown(value=INTRO_EN, elem_id=elem_id("intro"))
-    intro_language.change(fn=_intro_text, inputs=[intro_language], outputs=[intro], queue=False, show_progress=False)
-
-
 def _register_ui_settings():
-    if LANGUAGE_OPTION in shared.opts.data_labels:
-        return
-    shared.opts.add_option(
+    register_language_option(
         LANGUAGE_OPTION,
-        shared.OptionInfo(
-            "zh",
-            "Anima LoRA Layer Weight language / Anima LoRA 分层权重语言",
-            gr.Radio,
-            {"choices": LANGUAGE_CHOICES},
-            section=("anima-lora-layer-weight", "Anima LoRA Layer Weight"),
-            category_id="system",
-        ).needs_reload_ui(),
+        "Anima LoRA Layer Weight language / Anima LoRA 分层权重语言",
+        ("anima-lora-layer-weight", "Anima LoRA Layer Weight"),
     )
 
 
@@ -775,7 +753,7 @@ class Script(scripts.Script):
 
     def ui(self, is_img2img):
         with gr.Accordion(_t("accordion"), open=False, elem_id=self.elem_id("accordion")):
-            _intro_block(self.elem_id)
+            intro_block(self.elem_id, INTRO_EN, INTRO_ZH)
             with gr.Tabs(elem_id=self.elem_id("tabs")):
                 with gr.TabItem("LoRA"):
                     lora_enabled = gr.Checkbox(label=_t("enable_lora"), value=False, elem_id=self.elem_id("lora_enabled"))

@@ -204,6 +204,16 @@ def test_non_finite_module_weights_are_skipped():
     assert parse_module_weights("mlp=nan, cross=inf, self=0.5") == {"self_attn": 0.5}
 
 
+def test_unparsable_module_weights_are_skipped_with_a_warning(caplog):
+    from modules.anima_lora_support import parse_module_weights
+
+    with caplog.at_level("WARNING"):
+        weights = parse_module_weights("mlp=0.8x, cross=, self=0.5")
+
+    assert weights == {"self_attn": 0.5}  # not silently full strength
+    assert "mlp=0.8x" in caplog.text and "cross=" in caplog.text
+
+
 def test_manual_timing_keeps_a_ban_only_templates_action():
     from modules.anima_lora_support import manual_window_bans
 
@@ -222,6 +232,41 @@ def test_sigma_progress_is_the_position_in_the_full_schedule():
     assert sigma_progress(2.9, [14.6, 7.0, 3.0, 1.0, 0.0]) == 0.5  # nearest schedule sigma
     assert sigma_progress(torch.tensor([3.0]), torch.tensor([1.0])) is None
     assert sigma_progress(None, sigmas) is None
+
+
+def test_sigma_progress_reads_a_schedule_off_the_device_once():
+    import torch
+
+    from modules.anima_lora_support import sigma_progress
+
+    class Schedule:  # a device tensor: every tolist() is a device-to-host copy
+        def __init__(self, values):
+            self.values, self.copies = values, 0
+
+        def flatten(self):
+            return self
+
+        def tolist(self):
+            self.copies += 1
+            return list(self.values)
+
+    schedule = Schedule([14.6, 7.0, 3.0, 1.0, 0.0])
+    progress = [sigma_progress(torch.tensor([sigma]), schedule) for sigma in (14.6, 7.0, 3.0, 1.0)]
+    assert progress == [0.0, 0.25, 0.5, 0.75] and schedule.copies == 1
+
+    hires = Schedule([3.0, 0.0])  # the next pass's schedule
+    assert sigma_progress(torch.tensor([0.0]), hires) == 1.0 and hires.copies == 1
+
+
+def test_ui_text_falls_back_to_chinese_and_to_the_key(monkeypatch):
+    from modules import shared
+    from modules.anima_lora_support import intro_text, ui_text
+
+    strings = {"zh": {"title": "标题"}, "en": {"title": "Title"}}
+    monkeypatch.setattr(shared, "opts", type("Opts", (), {"lang": "en"})(), raising=False)
+    assert ui_text(strings, "lang", "title") == "Title" and ui_text(strings, "lang", "other") == "other"
+    assert ui_text(strings, "unset_option", "title") == "标题"
+    assert intro_text("中文", "en", "zh") == "zh" and intro_text("English", "en", "zh") == "en"
 
 
 def test_cond_caches_are_invalidated_where_the_class_shares_them():

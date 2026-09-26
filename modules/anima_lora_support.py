@@ -70,6 +70,22 @@ def invalidate_cond_caches(p) -> None:
             cache[0] = None
 
 
+# (schedule tensor, its values): the schedule of the pass being sampled
+_SCHEDULE_VALUES: tuple | None = None
+
+
+def _schedule_values(sigmas) -> list[float]:
+    """``sigmas`` as floats; a tensor schedule is copied to the host once per
+    pass, not on every model call."""
+    global _SCHEDULE_VALUES
+
+    if not hasattr(sigmas, "flatten"):
+        return [float(value) for value in sigmas]
+    if _SCHEDULE_VALUES is None or _SCHEDULE_VALUES[0] is not sigmas:
+        _SCHEDULE_VALUES = (sigmas, [float(value) for value in sigmas.flatten().tolist()])
+    return _SCHEDULE_VALUES[1]
+
+
 def sigma_progress(sigma, sigmas) -> float | None:
     """Sampling progress 0..1 of the model call at ``sigma``: the position of
     the nearest sigma in the full schedule ``sigmas``. Hires. fix and img2img
@@ -77,7 +93,7 @@ def sigma_progress(sigma, sigmas) -> float | None:
 
     try:
         current = float(sigma.flatten()[0] if hasattr(sigma, "flatten") else sigma[0] if isinstance(sigma, (list, tuple)) else sigma)
-        values = [float(value) for value in (sigmas.flatten().tolist() if hasattr(sigmas, "flatten") else sigmas)]
+        values = _schedule_values(sigmas)
     except Exception:
         return None
     if len(values) <= 1:
@@ -522,12 +538,71 @@ def parse_module_weights(text) -> dict[str, float]:
         if "=" not in token:
             continue
         left, right = token.split("=", 1)
-        try:
-            value = float(right)
-        except ValueError:
-            value = 1.0
-        if not math.isfinite(value):
-            logger.warning("Ignored non-finite Anima module weight: %s", token.strip())
+        value = _finite_weight(right)
+        if value is None:
+            logger.warning("Ignored invalid Anima module weight: %s", token.strip())
             continue
         weights[module_key(left)] = value
     return weights
+
+
+# region Script UI
+# The layer-weight and stage-scheduler panels: a "zh" / "en" settings option,
+# and a description with its own English / 中文 switch.
+
+UI_LANGUAGES = ("zh", "en")
+
+
+def ui_language(option: str) -> str:
+    """The value of the UI language setting ``option``; "zh" when unset."""
+
+    from modules import shared
+
+    value = getattr(shared.opts, option, "zh")
+    return value if value in UI_LANGUAGES else "zh"
+
+
+def ui_text(strings: dict, option: str, key: str) -> str:
+    """``strings[language][key]`` in the language ``option`` selects."""
+
+    return strings.get(ui_language(option), strings["zh"]).get(key, key)
+
+
+def register_language_option(option: str, label: str, section: tuple[str, str]) -> None:
+    """Add the settings radio ``option`` (once; applied on Reload UI)."""
+
+    import gradio as gr
+
+    from modules import shared
+
+    if option in shared.opts.data_labels:
+        return
+    shared.opts.add_option(
+        option,
+        shared.OptionInfo(
+            "zh",
+            label,
+            gr.Radio,
+            {"choices": UI_LANGUAGES},
+            section=section,
+            category_id="system",
+        ).needs_reload_ui(),
+    )
+
+
+def intro_text(language: str, intro_en: str, intro_zh: str) -> str:
+    return intro_zh if language == "中文" else intro_en
+
+
+def intro_block(elem_id, intro_en: str, intro_zh: str) -> None:
+    import gradio as gr
+
+    with gr.Row():
+        intro_language = gr.Radio(
+            choices=["English", "中文"],
+            value="English",
+            label="Description language / 说明语言",
+            elem_id=elem_id("intro_language"),
+        )
+    intro = gr.Markdown(value=intro_en, elem_id=elem_id("intro"))
+    intro_language.change(fn=lambda language: intro_text(language, intro_en, intro_zh), inputs=[intro_language], outputs=[intro], queue=False, show_progress=False)

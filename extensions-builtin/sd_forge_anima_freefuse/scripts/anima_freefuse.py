@@ -7,7 +7,6 @@ import uuid
 
 import gradio as gr
 
-from backend.args import dynamic_args
 from backend.logging import setup_logger
 from lib_anima_freefuse import (
     AdapterSpec,
@@ -19,6 +18,7 @@ from lib_anima_freefuse import (
 from lib_anima_freefuse.runtime import install_patch_metadata_hook
 from modules import scripts
 from modules.anima_lora_support import anima_model_block
+from modules.anima_online_lora import acquire_online_lora, release_online_lora
 from modules.anima_feature_conflicts import (
     ARTIST_MIXER,
     FREEFUSE,
@@ -35,6 +35,9 @@ from modules.ui_components import InputAccordion
 
 logger = logging.getLogger("AnimaFreeFuse")
 setup_logger(logger)
+
+# Name of FreeFuse's lease on Forge's online-LoRA switch
+ONLINE_LORA_OWNER = "anima_freefuse"
 
 
 class AnimaFreeFuseScript(scripts.Script):
@@ -306,16 +309,12 @@ class AnimaFreeFuseScript(scripts.Script):
         p.refiner_checkpoint_info = None
         p.refiner_switch_at = None
         install_patch_metadata_hook()
-        borrowed_online = (
-            getattr(p, "_anima_lora_stage_scheduler_state", None) is not None
-        )
-        p._anima_freefuse_original_online = bool(dynamic_args.online_lora)
-        p._anima_freefuse_borrowed_online = borrowed_online
         set_feature_active(p, FREEFUSE)
         # Artist Mixer (its process() ran earlier) yields to FreeFuse, so its
         # artist prompts will not be encoded and must not enable NegPiP.
         register_negpip_prompts(p, "anima_artist_mixer", [])
-        dynamic_args.online_lora = True
+        # Every subject LoRA must load as online patches
+        acquire_online_lora(p, ONLINE_LORA_OWNER)
 
         old_sampler = str(getattr(p, "sampler_name", ""))
         p.sampler_name = "Anima FreeFuse Euler"
@@ -476,14 +475,11 @@ class AnimaFreeFuseScript(scripts.Script):
 
     @staticmethod
     def _cleanup_runtime(p):
+        # The user's online-LoRA setting comes back once no other script
+        # (the stage scheduler) holds a lease on it either.
+        release_online_lora(p, ONLINE_LORA_OWNER)
         if not is_feature_active(p, FREEFUSE):
             return
-        # The stage scheduler owns the online-LoRA lease when it was active at
-        # entry; otherwise FreeFuse restores the user's original global mode.
-        if not getattr(p, "_anima_freefuse_borrowed_online", False):
-            dynamic_args.online_lora = bool(
-                getattr(p, "_anima_freefuse_original_online", False)
-            )
         set_feature_active(p, FREEFUSE, False)
 
     # postprocess restores the online-LoRA mode before later scripts' postprocess

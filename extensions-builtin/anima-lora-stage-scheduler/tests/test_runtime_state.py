@@ -258,3 +258,62 @@ def test_a_next_run_with_the_same_schedule_keeps_the_loaded_loras():
     assert run("other panel") == (True, True)
     assert run(enabled=False) == (True, False)  # never the scheduled patches without the scheduler
     assert run() == (True, True)
+
+
+def test_loras_the_scheduler_leaves_stay_online_while_freefuse_needs_them(monkeypatch):
+    from backend.patcher.base import ModelPatcher
+    from modules import anima_online_lora, extra_networks
+
+    calls = []
+
+    def add_patches(patcher, patches, strength_patch=1.0, strength_model=1.0, *, filename=None, online_mode=None):
+        calls.append((filename, online_mode))
+        return []
+
+    monkeypatch.setattr(ModelPatcher, "add_patches", add_patches)
+    monkeypatch.setattr(extra_networks, "activate", lambda p, extra_network_data: None)
+    monkeypatch.setattr(anima_online_lora, "_leases", set())
+    monkeypatch.setattr(anima_online_lora, "_user_setting", None)
+    module = _load()
+    module.install_patch()
+    # The layer-weight wrapper, installed after the scheduler, weights every file
+    spec = importlib.util.spec_from_file_location("anima_lora_layer_weight_under_test", Path(__file__).parents[2] / "anima-lora-layer-weight" / "scripts" / "anima_lora_layer_weight.py")
+    layer_weight = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(layer_weight)
+    layer_weight.install_patch()
+    decision = layer_weight.LoraDecision(True, None, {}, None, "global")
+    monkeypatch.setattr(layer_weight, "_ACTIVE_RULE", SimpleNamespace(decision_for_lora=lambda filename: decision, factor_for_key=lambda *args: 0.5))
+
+    # Target list only: FreeFuse's subjects are a listed LoRA, an off-list one and a LoKr
+    config = SimpleNamespace(patch_signature="same", file_matches=lambda filename, names: filename == "listed.safetensors", panel_weight=SimpleNamespace(has_block=False))
+    process = SimpleNamespace()
+    state = _state(module, process, base=config)  # the user runs LoRAs offline
+    monkeypatch.setattr(module, "_ACTIVE_STATE", state)
+    anima_online_lora.acquire_online_lora(process, module.ONLINE_LORA_OWNER)
+    anima_online_lora.acquire_online_lora(process, "anima_freefuse")
+    patcher = SimpleNamespace(patches={}, weight_wrapper_patches={}, model=SimpleNamespace())
+    subjects = ("listed.safetensors", "offlist.safetensors", "subject_lokr.safetensors")
+    for filename in subjects:
+        ModelPatcher.add_patches(patcher, {"diffusion_model.blocks.0.mlp.weight": object()}, filename=filename, online_mode=True)
+    assert calls == [(filename, True) for filename in subjects]  # FreeFuse's validate_patches needs them online
+
+    anima_online_lora.release_online_lora(process, "anima_freefuse")
+    ModelPatcher.add_patches(patcher, {"diffusion_model.blocks.0.mlp.weight": object()}, filename="offlist.safetensors", online_mode=True)
+    assert calls[-1] == ("offlist.safetensors", False)  # the scheduler's own lease alone: merged weights
+    anima_online_lora.release_online_lora(process, module.ONLINE_LORA_OWNER)
+
+
+def test_a_nested_run_samples_the_loaded_patches_at_their_plain_strength(monkeypatch):
+    module = _load()
+    outer = SimpleNamespace(is_hr_pass=False)
+    state = _state(module, outer, base=SimpleNamespace(patch_signature="same"))
+    strength = module.ScheduledStrength(0.8, "x.safetensors", module.BOTH_PASSES)
+    state.register(strength)
+    strength.factor = 0.0  # the outer run's last step, outside the window
+    monkeypatch.setattr(module, "_ACTIVE_STATE", state)
+
+    # ADetailer's detailing run, in the outer run's postprocess_image
+    nested = SimpleNamespace(is_hr_pass=False)
+    module._denoiser_callback(SimpleNamespace(denoiser=SimpleNamespace(p=nested, step=0, total_steps=10), sampling_step=0, total_sampling_steps=10))
+
+    assert float(strength) == 0.8
