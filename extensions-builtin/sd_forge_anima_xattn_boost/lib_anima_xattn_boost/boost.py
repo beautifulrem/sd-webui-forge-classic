@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 import torch
 
 from modules import spectrum_force
-from modules.anima_support import branch_rows, call_model_wrapper
+from modules.anima_support import branch_rows, call_model_wrapper, inherit_wrapper_flags
 from modules.forward_override import cached_overrides, forward_overrides
 
 # anima_lora 703b34b defaults: --xattn_boost 2.0, band 0.85, renorm img, frac 0.5
@@ -217,10 +217,9 @@ def apply_xattn_boost_patch(model, state: BoostState):
 
     # Outside its band the wrapper is a pass-through, and the request below
     # forces actual forwards inside it, so Spectrum may cache the other steps.
-    wrapper.__spectrum_cache_safe__ = previous is None or getattr(previous, "__spectrum_cache_safe__", False)
     # A per-token gain and a per-image mean norm work at any latent size
     # (Anima SPEED's half-res stage).
-    wrapper.__resolution_independent__ = previous is None or getattr(previous, "__resolution_independent__", False)
+    inherit_wrapper_flags(wrapper, previous)
     patched.set_model_unet_function_wrapper(wrapper)
     spectrum_force.request(patched, state.active)
     return patched

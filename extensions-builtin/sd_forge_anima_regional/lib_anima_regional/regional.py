@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 import torch
 
 from modules import spectrum_force
-from modules.anima_support import call_model_wrapper, positive_rows
+from modules.anima_support import call_model_wrapper, inherit_wrapper_flags, positive_rows
 from modules.forward_override import cached_overrides, forward_overrides
 
 
@@ -187,7 +187,8 @@ def apply_regional_patch(model, state: RegionalState):
 
     # Outside its window the wrapper is a pass-through, and the request below
     # forces actual forwards inside it, so Spectrum may cache the other steps.
-    wrapper.__spectrum_cache_safe__ = previous is None or getattr(previous, "__spectrum_cache_safe__", False)
+    # Its region masks are tied to the full-resolution grid.
+    inherit_wrapper_flags(wrapper, previous, resolution_independent=False)
     patched.set_model_unet_function_wrapper(wrapper)
     # Spectrum wraps this wrapper, so it must see the request on the patcher.
     # Only steps inside the regional window need actual forwards.

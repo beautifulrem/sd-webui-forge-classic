@@ -372,6 +372,20 @@ def positive_rows(markers, batch: int, cache: dict, device, every_row: bool = Fa
     return BranchRows(markers, rows, cache[key])
 
 
+WRAPPER_FLAGS = ("__spectrum_cache_safe__", "__resolution_independent__")
+
+
+def inherit_wrapper_flags(wrapper, previous, *, spectrum_cache_safe=True, resolution_independent=True):
+    """Mark a ``model_function_wrapper`` for Spectrum (may cache steps around
+    it) and Anima SPEED (works at any latent size): each flag holds only if
+    the wrapper itself qualifies and so does the wrapper it delegates to."""
+
+    own = {"__spectrum_cache_safe__": spectrum_cache_safe, "__resolution_independent__": resolution_independent}
+    for flag in WRAPPER_FLAGS:
+        setattr(wrapper, flag, bool(own[flag]) and (previous is None or bool(getattr(previous, flag, False))))
+    return wrapper
+
+
 def call_model_wrapper(previous, model_function, args):
     """Run the ``model_function_wrapper`` a wrapper replaced, or the model
     itself when there was none."""

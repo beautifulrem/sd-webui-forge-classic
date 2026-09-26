@@ -22,7 +22,7 @@ import torch
 
 from modules import spectrum_force
 from modules.anima_lora_support import anima_model_block, sigma_progress
-from modules.anima_support import call_model_wrapper, parse_block_list
+from modules.anima_support import call_model_wrapper, inherit_wrapper_flags, parse_block_list
 from modules.forward_override import cached_overrides, forward_overrides
 
 # The reference band and defaults are written for the 28-block (2B) layout.
@@ -131,9 +131,8 @@ def apply_dave_patch(model, state: DaveState):
 
     # Outside its window the wrapper is a pass-through, and the request below
     # forces actual forwards inside it, so Spectrum may cache the other steps.
-    wrapper.__spectrum_cache_safe__ = previous is None or getattr(previous, "__spectrum_cache_safe__", False)
     # A token mean works at any latent size (Anima SPEED's half-res stage).
-    wrapper.__resolution_independent__ = previous is None or getattr(previous, "__resolution_independent__", False)
+    inherit_wrapper_flags(wrapper, previous)
     patched.set_model_unet_function_wrapper(wrapper)
 
     # Spectrum wraps this wrapper and may ask before the first call has

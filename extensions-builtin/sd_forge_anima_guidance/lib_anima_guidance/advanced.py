@@ -8,7 +8,7 @@ from typing import Callable
 import torch
 import torch.nn.functional as F
 
-from modules.anima_support import call_model_wrapper, is_anima_auxiliary_denoiser
+from modules.anima_support import call_model_wrapper, inherit_wrapper_flags, is_anima_auxiliary_denoiser
 from modules.spectrum_force import in_sigma_window
 
 
@@ -316,11 +316,7 @@ def make_zero_init_model_wrapper(previous: Callable | None, state: CFGZeroStarSt
             return args["input"].clone()
         return call_model_wrapper(previous, model_function, args)
 
-    zero_init_model_wrapper.__spectrum_cache_safe__ = previous is None or getattr(previous, "__spectrum_cache_safe__", False)
-    zero_init_model_wrapper.__resolution_independent__ = previous is None or getattr(
-        previous, "__resolution_independent__", False
-    )
-    return zero_init_model_wrapper
+    return inherit_wrapper_flags(zero_init_model_wrapper, previous)
 
 
 def apg_project(value: torch.Tensor, direction: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

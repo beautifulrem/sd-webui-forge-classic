@@ -23,7 +23,7 @@ from backend.text_processing.parsing import parse_prompt_attention
 from modules import prompt_parser
 from modules.anima_artifacts import ensure_pinned_download, file_version
 from modules.anima_lora_support import ANIMA_BLOCK_MAPPINGS, anima_model_block
-from modules.anima_support import call_model_wrapper
+from modules.anima_support import call_model_wrapper, inherit_wrapper_flags
 
 logger = logging.getLogger("AnimaGuidance")
 
@@ -359,9 +359,7 @@ class ModulationPatch:
                 for index, _ in targets:
                     dit.blocks[index]._forge_anima_modulation_local.delta = None
 
-        # Safe only if the wrapper it delegates to is safe too.
-        wrapper.__spectrum_cache_safe__ = previous is None or getattr(previous, "__spectrum_cache_safe__", False)
         # Per-row pooled vectors work at any latent size (Anima SPEED).
-        wrapper.__resolution_independent__ = previous is None or getattr(previous, "__resolution_independent__", False)
+        inherit_wrapper_flags(wrapper, previous)
         patched.set_model_unet_function_wrapper(wrapper)
         return patched, start, end

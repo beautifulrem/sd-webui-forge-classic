@@ -297,3 +297,21 @@ def test_branch_options_describe_the_rows_and_the_swapped_in_context():
     every = positive_rows([0, 1], 4, {}, "cpu", every_row=True).options(options, "artist_context", None)
     assert every["cond_or_uncond"] == [1, 0] and every[NEGPIP_CONTEXT_MASK_KEY] is None
     assert positive_rows(None, 2, {}, "cpu").options(None, "artist_context", None) == {"anima_nag_skip": "artist_context", NEGPIP_CONTEXT_MASK_KEY: None}
+
+
+def test_wrapper_flags_hold_only_along_the_whole_chain():
+    from modules.anima_support import WRAPPER_FLAGS, inherit_wrapper_flags
+
+    def make():
+        return lambda function, args: None
+
+    first = inherit_wrapper_flags(make(), None)
+    assert all(getattr(first, flag) for flag in WRAPPER_FLAGS)
+
+    spatial = inherit_wrapper_flags(make(), first, resolution_independent=False)
+    assert spatial.__spectrum_cache_safe__ and not spatial.__resolution_independent__
+
+    outer = inherit_wrapper_flags(make(), spatial)
+    assert outer.__spectrum_cache_safe__ and not outer.__resolution_independent__
+    unmarked = inherit_wrapper_flags(make(), make())  # a foreign wrapper declares nothing
+    assert not any(getattr(unmarked, flag) for flag in WRAPPER_FLAGS)
