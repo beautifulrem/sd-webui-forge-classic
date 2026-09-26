@@ -24,6 +24,7 @@ from lib_anima_guidance.advanced import (
     make_guidance_range_uncond_skip,
     make_momentum_post_cfg_function,
     make_zero_init_cfg_function,
+    make_zero_init_model_wrapper,
 )
 
 
@@ -189,6 +190,62 @@ class CFGZeroStarTests(unittest.TestCase):
         self.assertFalse(torch.equal(cfg({**base, "sigma": torch.tensor([0.9])}), torch.zeros_like(x)))
         setattr(process, anima_support._AUXILIARY_DENOISER_ATTRIBUTE, False)
         self.assertTrue(torch.equal(cfg({**base, "sigma": torch.tensor([1.0])}), torch.zeros_like(x)))
+
+
+    def test_zero_init_steps_do_not_call_the_model(self):
+        from types import SimpleNamespace
+
+        from modules import anima_support
+
+        process = SimpleNamespace()
+        state = CFGZeroStarState(1)
+        calls = []
+
+        def previous(model_function, args):  # an earlier wrapper is kept in the chain
+            calls.append(("previous", float(args["timestep"][0])))
+            return model_function(args["input"], args["timestep"], **args["c"])
+
+        def model_function(x, t, **c):
+            calls.append(("model", float(t[0])))
+            return x * 0.5
+
+        wrapper = make_zero_init_model_wrapper(previous, state, process=process)
+        cfg = make_zero_init_cfg_function(make_cfg_zero_star_cfg_function(), state, process=process)
+        x = torch.ones(2, 1, 2, 2)
+
+        def run(sigma):
+            args = {"input": x, "timestep": torch.tensor([sigma, sigma]), "c": {}, "cond_or_uncond": [0, 1]}
+            return wrapper(model_function, args)
+
+        # A PC3 probe at a new sigma runs the model and consumes no step.
+        setattr(process, anima_support._AUXILIARY_DENOISER_ATTRIBUTE, True)
+        self.assertTrue(torch.equal(run(0.9), x * 0.5))
+        setattr(process, anima_support._AUXILIARY_DENOISER_ATTRIBUTE, False)
+        calls.clear()
+
+        # Step 0 (and a split second batch of it): no forward, denoised = x.
+        for _ in range(2):
+            denoised = run(1.0)
+            self.assertTrue(torch.equal(denoised, x))
+            self.assertIsNot(denoised, x)
+        self.assertEqual(calls, [])
+        cond = {"input": x[:1], "sigma": torch.tensor([1.0]), "cond_denoised": x[:1], "uncond_denoised": x[:1], "cond_scale": 3.0}
+        self.assertTrue(torch.equal(cfg(cond), torch.zeros_like(x[:1])))
+        # Step 1 runs the chain.
+        self.assertTrue(torch.equal(run(0.8), x * 0.5))
+        self.assertEqual([name for name, _ in calls], ["previous", "model"])
+
+    def test_zero_init_model_wrapper_follows_the_pass_start_rule(self):
+        state = CFGZeroStarState(1, start_sigma=1.0)
+        wrapper = make_zero_init_model_wrapper(None, state)
+        x = torch.ones(1, 1, 2, 2)
+        args = {"input": x, "timestep": torch.tensor([0.6]), "c": {}, "cond_or_uncond": [0]}
+        # A hires / img2img pass starts mid-schedule: nothing is skipped.
+        self.assertTrue(torch.equal(wrapper(lambda x, t, **c: x * 0.5, args), x * 0.5))
+        self.assertFalse(state.would_zero_init(0.6))
+        fresh = CFGZeroStarState(1, start_sigma=1.0)
+        self.assertTrue(fresh.would_zero_init(1.0))
+        self.assertEqual(fresh._sigmas, [])  # a peek records nothing
 
 
 class AdaptiveProjectedGuidanceTests(unittest.TestCase):

@@ -17,7 +17,10 @@ import torch
 import torch.nn.functional as F
 from safetensors.torch import load_file
 
+from backend.text_processing.parsing import parse_prompt_attention
+from modules import prompt_parser
 from modules.anima_artifacts import ensure_pinned_download, file_version
+from modules.anima_lora_support import ANIMA_BLOCK_MAPPINGS, anima_model_block
 from modules.anima_support import call_model_wrapper
 
 logger = logging.getLogger("AnimaGuidance")
@@ -25,6 +28,8 @@ logger = logging.getLogger("AnimaGuidance")
 ADAPTER_URL = "https://huggingface.co/yresearch/cosmos-pooled/resolve/2b51db12d548debaf732387705518e01df943941/checkpoint_4000.pt"
 ADAPTER_SHA256 = "27d4a33c817fb9ab9602b571f01f429bf34ddf96ab8b73fa4ed682f3266f84ea"
 ADAPTER_MAX_BYTES = 180 * 1024 * 1024
+# Rows of the pinned adapter's per-block scales: it was trained on Anima 2B.
+ADAPTER_BLOCKS = 28
 CLIP_URL = "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/6af2a98e3f615bdfa612fbd85da93d1ed5f69ef5/clip_l.safetensors"
 CLIP_SHA256 = "660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd"
 CLIP_MAX_BYTES = 260 * 1024 * 1024
@@ -86,6 +91,12 @@ def _load_adapter(path: str) -> dict[str, torch.Tensor]:
         return state
 
 
+def check_adapter_for_dit(adapter_path: str, dit) -> None:
+    """Raise if the adapter cannot patch ``dit`` (before CLIP-L is fetched)."""
+
+    validate_for_dit(_load_adapter(adapter_path)["scales"], dit)
+
+
 def _validate_adapter_tensors(state):
     scales = state["scales"]
     first_weight = state["text_embedder_clip.linear_1.weight"]
@@ -135,6 +146,24 @@ def _load_clip(path: str, config_dir: str, tokenizer_dir: str):
         _CLIP_CACHE.clear()
         _CLIP_CACHE[cache_key] = (model, tokenizer)
         return model, tokenizer
+
+
+def clip_prompt_text(prompt: str, steps: int, hires_steps: int | None = None) -> str:
+    """Plain text of a Forge prompt for the pooled CLIP-L encoder.
+
+    The reference (ComfyUI-Spectrum-KSampler) encodes through ComfyUI's
+    tokenizer, which drops emphasis syntax before CLIP sees the text; Forge's
+    prompt editing (``[a:b:when]``, ``[a|b]``) has no counterpart there. One
+    pooled vector serves the whole pass, so the prompt of its first step is
+    used, then emphasis weights are dropped (the pooled output has no
+    per-token weights) and ``BREAK`` becomes a space.
+    """
+
+    schedule = prompt_parser.get_learned_conditioning_prompt_schedules([str(prompt)], max(int(steps), 1), hires_steps)
+    return "".join(
+        " " if text == "BREAK" and weight == -1 else text
+        for text, weight in parse_prompt_attention(schedule[0][0][1])
+    )
 
 
 @torch.inference_mode()
@@ -199,15 +228,45 @@ def prepare_modulation_vectors(*, adapter_path, base_positive, base_negative, di
     return projected_positive + direction, projected_negative, adapter["scales"].clone()
 
 
-def validate_for_dit(scales: torch.Tensor, dit) -> int:
+def block_layout(adapter_blocks: int, model_blocks: int) -> tuple[int, ...]:
+    """Model block receiving each adapter block's scale row.
+
+    The adapter's scales are per block of the model it was trained on. On a
+    depth-expanded Anima (2B = 28 blocks, 2.9B = 40, 3.8B = 52) each row goes
+    to the preserved original block and the inserted copies get no
+    modulation, as in sorryhyun/ComfyUI-Spectrum-KSampler
+    ``mod_guidance_layouts.py`` (MIT; commit
+    b1ad4f9a1a4a0c9bdf7b13dee851d8b0bdbe38a6). The lineage is Forge's
+    ANIMA_BLOCK_MAPPINGS (the 28 -> 40 one matches that file's manifest).
+    """
+
+    if adapter_blocks == model_blocks:
+        return tuple(range(model_blocks))
+    if (adapter_blocks, model_blocks) not in ANIMA_BLOCK_MAPPINGS:
+        raise RuntimeError(
+            f"Anima modulation adapter for {adapter_blocks} blocks has no known layout for a {model_blocks}-block model"
+        )
+    return tuple(anima_model_block(index, adapter_blocks, model_blocks) for index in range(adapter_blocks))
+
+
+def dit_block_count(dit) -> int:
     blocks = getattr(dit, "blocks", None)
-    hidden_size = getattr(getattr(dit, "final_layer", None), "hidden_size", None)
-    if blocks is None or hidden_size is None:
-        raise RuntimeError("Anima modulation requires Anima blocks and final_layer.hidden_size")
-    expected = (len(blocks), int(hidden_size) * 3)
-    if tuple(scales.shape) != expected:
-        raise RuntimeError(f"Anima modulation adapter shape {tuple(scales.shape)} does not match model {expected}")
+    if blocks is None:
+        raise RuntimeError("Anima modulation requires Anima blocks")
     return len(blocks)
+
+
+def validate_for_dit(scales: torch.Tensor, dit) -> tuple[int, ...]:
+    """The model block of each scale row (see ``block_layout``)."""
+
+    hidden_size = getattr(getattr(dit, "final_layer", None), "hidden_size", None)
+    if hidden_size is None:
+        raise RuntimeError("Anima modulation requires final_layer.hidden_size")
+    if scales.ndim != 2 or int(scales.shape[1]) != int(hidden_size) * 3:
+        raise RuntimeError(
+            f"Anima modulation adapter shape {tuple(scales.shape)} does not match model width {int(hidden_size) * 3}"
+        )
+    return block_layout(int(scales.shape[0]), dit_block_count(dit))
 
 
 def _modulation_pre_hook(module, args, kwargs):
@@ -248,40 +307,54 @@ class ModulationPatch:
     end_layer: int
 
     def apply(self, model):
+        """Install the patch on a clone of ``model``.
+
+        ``start_layer`` / ``end_layer`` count the adapter's blocks (Anima
+        2B's for the pinned adapter), so on a depth-expanded model they
+        select the same original blocks. Returns the clamped values.
+        """
+
         patched = model.clone()
         dit = patched.model.diffusion_model
-        total_blocks = validate_for_dit(self.scales, dit)
+        layout = validate_for_dit(self.scales, dit)
+        total_blocks = len(layout)
         start = min(max(int(self.start_layer), 0), total_blocks - 1)
         end = total_blocks - 1 if int(self.end_layer) < 0 else min(int(self.end_layer), total_blocks - 1)
         if start > end:
             raise RuntimeError(f"Anima modulation start layer {start} is after end layer {end}")
         _ensure_hooks(dit)
+        # (model block, adapter scale row) of each modulated block
+        targets = [(layout[row], row) for row in range(start, end + 1)]
 
         previous = patched.model_options.get("model_function_wrapper")
-        on_device: dict[tuple, tuple[torch.Tensor, ...]] = {}
+        # The per-block deltas depend only on the batch layout and the input's
+        # device/dtype, so they are built once, not on every model call.
+        deltas: dict[tuple, tuple[torch.Tensor, ...]] = {}
 
-        def vectors_for(reference: torch.Tensor) -> tuple[torch.Tensor, ...]:
-            key = (reference.device, reference.dtype)
-            if key not in on_device:
-                on_device.clear()
-                on_device[key] = tuple(t.to(reference) for t in (self.positive, self.negative, self.scales))
-            return on_device[key]
+        def deltas_for(branches: tuple[int, ...], chunk: int, reference: torch.Tensor) -> tuple[torch.Tensor, ...]:
+            key = (branches, chunk, reference.device, reference.dtype)
+            cached = deltas.get(key)
+            if cached is None:
+                if len(deltas) >= 8:
+                    deltas.clear()
+                positive, negative, scales = (t.to(reference) for t in (self.positive, self.negative, self.scales))
+                pooled = torch.cat([_expand_rows(positive if branch == 0 else negative, chunk) for branch in branches], dim=0)
+                cached = deltas[key] = tuple((pooled * scales[row]).unsqueeze(1) for _, row in targets)
+            return cached
 
         def wrapper(model_function, args):
-            branches = [int(item) for item in args.get("cond_or_uncond", [])]
+            branches = tuple(int(item) for item in args.get("cond_or_uncond", []))
             input_x = args["input"]
             if not branches or input_x.shape[0] % len(branches) != 0:
                 logger.warning("Anima modulation skipped a non-divisible conditioning batch.")
                 return call_model_wrapper(previous, model_function, args)
             chunk = input_x.shape[0] // len(branches)
-            positive, negative, scales = vectors_for(input_x)
-            pooled = torch.cat([_expand_rows(positive if branch == 0 else negative, chunk) for branch in branches], dim=0)
             try:
-                for index in range(start, end + 1):
-                    dit.blocks[index]._forge_anima_modulation_local.delta = (pooled * scales[index]).unsqueeze(1)
+                for (index, _), delta in zip(targets, deltas_for(branches, chunk, input_x)):
+                    dit.blocks[index]._forge_anima_modulation_local.delta = delta
                 return call_model_wrapper(previous, model_function, args)
             finally:
-                for index in range(start, end + 1):
+                for index, _ in targets:
                     dit.blocks[index]._forge_anima_modulation_local.delta = None
 
         # Safe only if the wrapper it delegates to is safe too.

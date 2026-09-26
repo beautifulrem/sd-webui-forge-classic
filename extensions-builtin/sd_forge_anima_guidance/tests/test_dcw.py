@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import pathlib
 import sys
 import unittest
@@ -40,6 +41,32 @@ class DCWTests(unittest.TestCase):
         self.assertTrue(torch.allclose(x, expected, rtol=0.0, atol=1e-7))
         state.before_denoiser(x, 0.8)  # same sigma (a second evaluation): no-op
         self.assertTrue(torch.allclose(x, expected, rtol=0.0, atol=1e-7))
+
+    def test_default_ll_mode_leaves_the_detail_bands_untouched(self):
+        # A diff with energy in every band: only its LL band may move x.
+        torch.manual_seed(21)
+        state = DCWState(lam=-0.015, bands=parse_band_mask("LL"))
+        x = torch.randn(2, 4, 8, 6)
+        denoised = torch.randn_like(x)
+        state.capture_denoised(denoised)
+        state.before_denoiser(x, 0.9)
+        before = x.clone()
+        state.before_denoiser(x, 0.8)
+
+        scalar = -0.015 * (1 - 0.9)
+        change = haar_dwt_2d(x - before)
+        diff = haar_dwt_2d(before - denoised)
+        self.assertTrue(all(band.abs().max() > 0.1 for band in diff))
+        self.assertTrue(torch.allclose(change[0], scalar * diff[0], rtol=0.0, atol=1e-6))
+        for band in change[1:]:  # LH, HL, HH
+            self.assertTrue(torch.allclose(band, torch.zeros_like(band), rtol=0.0, atol=1e-6))
+
+    def test_warnings_use_the_panels_visible_logger(self):
+        # Forge's root logger is at ERROR: a plain module logger's warnings
+        # never show. The panel's "AnimaGuidance" logger has its own handler.
+        from lib_anima_guidance import dcw
+
+        self.assertIs(dcw.LOGGER, logging.getLogger("AnimaGuidance"))
 
 
 if __name__ == "__main__":

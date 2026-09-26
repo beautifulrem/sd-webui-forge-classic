@@ -8,7 +8,7 @@ from typing import Callable
 import torch
 import torch.nn.functional as F
 
-from modules.anima_support import is_anima_auxiliary_denoiser
+from modules.anima_support import call_model_wrapper, is_anima_auxiliary_denoiser
 from modules.spectrum_force import in_sigma_window
 
 
@@ -240,6 +240,16 @@ class CFGZeroStarState:
             return True
         return False
 
+    def would_zero_init(self, sigma: float) -> bool:
+        """What ``zero_init(sigma)`` would return, without recording the step."""
+
+        if sigma in self._sigmas:
+            return True
+        from_noise = self._from_noise
+        if from_noise is None:
+            from_noise = sigma >= self.start_sigma * (1.0 - 1e-5)
+        return from_noise and len(self._sigmas) < self.zero_init_steps
+
 
 def make_cfg_zero_star_cfg_function():
     """Forge CFG hook for CFG-Zero*'s optimized-scale combine (arXiv:2503.18886).
@@ -283,6 +293,31 @@ def make_zero_init_cfg_function(cfg_function: Callable | None, state: CFGZeroSta
     if hasattr(cfg_function, "_anima_guidance_range"):
         zero_init_cfg_function._anima_guidance_range = cfg_function._anima_guidance_range
     return zero_init_cfg_function
+
+
+def make_zero_init_model_wrapper(previous: Callable | None, state: CFGZeroStarState, process=None):
+    """Model wrapper that skips the forward passes of zero-init steps.
+
+    The zero-init CFG hook discards the predictions of those steps, so the
+    model need not run. Forge's ``model_function_wrapper`` returns the
+    denoised prediction (``apply_model`` ends in ``calculate_denoised``), so
+    returning the input gives ``denoised = x``: the zero velocity the CFG
+    hook returns anyway. It shares the hook's step state, so probes, the
+    pass-start rule and the CFG range behave the same; other steps run
+    ``previous`` (or the model) unchanged.
+    """
+
+    def zero_init_model_wrapper(model_function, args):
+        sigma = sigma_value(args["timestep"])
+        if state.zero_init(sigma, update_state=not is_anima_auxiliary_denoiser(process)):
+            return args["input"].clone()
+        return call_model_wrapper(previous, model_function, args)
+
+    zero_init_model_wrapper.__spectrum_cache_safe__ = previous is None or getattr(previous, "__spectrum_cache_safe__", False)
+    zero_init_model_wrapper.__resolution_independent__ = previous is None or getattr(
+        previous, "__resolution_independent__", False
+    )
+    return zero_init_model_wrapper
 
 
 def apg_project(value: torch.Tensor, direction: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

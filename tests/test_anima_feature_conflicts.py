@@ -173,6 +173,19 @@ class GuidanceConflictTests(unittest.TestCase):
             self.assertTrue(state.dcw_interactive, sampler)
             self.assertEqual(state.messages, ())
 
+    def test_dcw_is_disabled_with_an_inpaint_mask(self):
+        state = resolve_guidance_conflicts(
+            sampler="Euler", mode="Standard / preserve existing", momentum=False, dcw=True, inpaint_mask=True
+        )
+        self.assertFalse(state.dcw)
+        self.assertEqual(state.messages, ("DCW disabled: incompatible with an inpaint mask",))
+        # Without DCW the mask changes nothing.
+        state = resolve_guidance_conflicts(
+            sampler="Euler", mode="Standard / preserve existing", momentum=True, dcw=False, inpaint_mask=True
+        )
+        self.assertTrue(state.momentum)
+        self.assertEqual(state.messages, ())
+
 
 class ScheduleConflictTests(unittest.TestCase):
     def test_flow_sampler_locks_anima_scheduler_and_dynamic_shift(self):

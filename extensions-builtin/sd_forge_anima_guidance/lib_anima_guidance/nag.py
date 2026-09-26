@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 
 from backend.nn.anima_attention import ANIMA_PROJECT_KV
-from modules.anima_support import branch_rows, split_conditioning
+from modules.anima_support import branch_rows, conditioning_context, split_conditioning
 from modules.spectrum_force import in_sigma_window
 
 
@@ -54,15 +54,26 @@ class NAGAttentionModifier:
         # NegPiP's V sign mask for that context (None without negative weights):
         # batched CFG negates the uncond V with it, so the positive-only path must too.
         self.negative_mask: torch.Tensor | None = None
+        # (device, dtype, K context, V context or None) of the negative context
+        # as the attention layers take it: built once per step, not per layer.
+        self._negative_inputs = None
         # One sigma read (a host sync) per model call, not per attention layer:
         # all blocks of a call share the same ``sigmas`` tensor.
         self._window_sigmas = None
         self._window_active = True
 
     def set_negative_context(self, context) -> None:
-        context, mask = split_conditioning(context)
+        mask = context.get("c_negpip_mask") if isinstance(context, dict) else None
+        if torch.is_tensor(mask):
+            # Keep NegPiP's mask as is: split_conditioning's "any negative
+            # token?" test is a host sync on every step, and a mask without
+            # negative entries (all ones) leaves V unchanged anyway.
+            context = conditioning_context(context)
+        else:
+            context, mask = split_conditioning(context)
         self.negative_context = context if torch.is_tensor(context) else None
         self.negative_mask = mask if self.negative_context is not None else None
+        self._negative_inputs = None
 
     def _report_unbatched(self) -> None:
         if self._reported_unbatched:
@@ -136,15 +147,19 @@ class NAGAttentionModifier:
 
     def _negative_kv(self, transformer_options: dict, q: torch.Tensor):
         project = transformer_options.get(ANIMA_PROJECT_KV)
-        context = self.negative_context
-        if project is None or context is None:
+        if project is None or self.negative_context is None:
             return None
-        context = context.to(device=q.device, dtype=q.dtype)
-        mask = self.negative_mask
-        if mask is None:
+        inputs = self._negative_inputs
+        if inputs is None or inputs[:2] != (q.device, q.dtype):
+            context = self.negative_context.to(device=q.device, dtype=q.dtype)
+            mask = self.negative_mask
+            # NegPiP: K keeps the sign-restored tokens, only V is negated.
+            value = None if mask is None else context * mask.to(context)
+            inputs = self._negative_inputs = (q.device, q.dtype, context, value)
+        _, _, context, value = inputs
+        if value is None:
             return project(context)
-        # NegPiP: K keeps the sign-restored tokens, only V is negated.
-        return project(context, value_context=context * mask.to(context))
+        return project(context, value_context=value)
 
     def _blend(self, base: torch.Tensor, positive: list[int], negative_attention: torch.Tensor) -> torch.Tensor:
         rows = _indexer(positive)

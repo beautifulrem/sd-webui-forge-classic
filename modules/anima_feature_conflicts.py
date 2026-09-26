@@ -51,6 +51,7 @@ DCW_SAMPLERS = MOMENTUM_SAMPLERS | frozenset(
         SPEED_SAMPLER,
     }
 )
+DCW_INPAINT_MESSAGE = "DCW disabled: incompatible with an inpaint mask"
 CONFLICT_METADATA_KEY = "Anima conflict resolution"
 
 
@@ -179,8 +180,12 @@ def resolve_guidance_conflicts(
     momentum: bool,
     dcw: bool,
     selected: str | None = None,
+    inpaint_mask: bool = False,
 ) -> GuidanceConflictState:
-    """Normalize Anima guidance controls for GUI and headless processing."""
+    """Normalize Anima guidance controls for GUI and headless processing.
+
+    ``inpaint_mask`` is known only at processing time (the GUI leaves it off).
+    """
 
     mode = mode if mode in GUIDANCE_MODES else STANDARD_GUIDANCE
     momentum = bool(momentum)
@@ -198,6 +203,13 @@ def resolve_guidance_conflicts(
     if dcw and sampler not in DCW_SAMPLERS:
         dcw = False
         messages.append(f"DCW disabled: unsupported sampler {sampler}")
+
+    # With an inpaint mask the CFG denoiser hands the pre-denoiser callback a
+    # blended copy of the sampler latent, so DCW's in-place correction would
+    # never reach the latent the sampler steps from.
+    if dcw and inpaint_mask:
+        dcw = False
+        messages.append(DCW_INPAINT_MESSAGE)
 
     # In the GUI the last explicit switch wins.  Headless processing has no
     # click order, so the selected CFG controller remains authoritative.

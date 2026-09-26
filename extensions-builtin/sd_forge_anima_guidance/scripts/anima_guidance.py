@@ -11,6 +11,7 @@ import gradio as gr
 from backend import memory_management
 from backend.logging import setup_logger
 from lib_anima_guidance.modulation import (
+    ADAPTER_BLOCKS,
     ADAPTER_MAX_BYTES,
     ADAPTER_SHA256,
     ADAPTER_URL,
@@ -18,6 +19,10 @@ from lib_anima_guidance.modulation import (
     CLIP_SHA256,
     CLIP_URL,
     ModulationPatch,
+    block_layout,
+    check_adapter_for_dit,
+    clip_prompt_text,
+    dit_block_count,
     encode_clip_pooled,
     prepare_modulation_vectors,
     resolve_artifact,
@@ -37,6 +42,7 @@ from lib_anima_guidance.advanced import (
     make_guidance_range_uncond_skip,
     make_momentum_post_cfg_function,
     make_zero_init_cfg_function,
+    make_zero_init_model_wrapper,
     sigma_value,
 )
 from lib_anima_guidance.nag import NAGAttentionModifier
@@ -46,6 +52,7 @@ from modules.anima_guidance_state import clear_stateful_guidance, register_state
 from modules.anima_feature_conflicts import (
     APG_GUIDANCE,
     CFG_ZERO_STAR_GUIDANCE,
+    DCW_INPAINT_MESSAGE,
     FDG_GUIDANCE,
     GUIDANCE_MODES,
     SMC_GUIDANCE,
@@ -62,6 +69,69 @@ logger = logging.getLogger("AnimaGuidance")
 setup_logger(logger)
 
 
+_REQUIRED = object()
+
+# One row per script argument, in the order ui() returns the components (the
+# API's positional order): (name of the control and parameter, infotext key
+# or None, preset name or None, default when an API call omits it). The local
+# modulation file paths have no key: they are never written to infotext, and
+# a pasted PNG must not pick which local file is loaded.
+SCRIPT_ARGS = (
+    ("enable", "Anima guidance enabled", "guidance.enabled", _REQUIRED),
+    ("guidance_mode", "Anima CFG guidance mode", "guidance.mode", _REQUIRED),
+    ("smc_alpha", "Anima SMC alpha", "guidance.smc_alpha", _REQUIRED),
+    ("smc_lambda", "Anima SMC lambda", "guidance.smc_lambda", _REQUIRED),
+    ("skim_enable", "Anima Skimmed CFG", "guidance.skim_enabled", _REQUIRED),
+    ("skim_scale", "Anima skim CFG", "guidance.skim_scale", _REQUIRED),
+    ("full_negative", "Anima skim full negative", "guidance.skim_full_negative", _REQUIRED),
+    ("disable_flip_filter", "Anima skim disable flip filter", "guidance.skim_disable_flip", _REQUIRED),
+    ("start_percent", "Anima skim start", "guidance.skim_start", _REQUIRED),
+    ("end_percent", "Anima skim end", "guidance.skim_end", _REQUIRED),
+    ("flip_percent", "Anima skim flip", "guidance.skim_flip", _REQUIRED),
+    ("dcw_enable", "Anima DCW", "guidance.dcw_enabled", _REQUIRED),
+    ("dcw_lambda", "Anima DCW lambda", "guidance.dcw_lambda", _REQUIRED),
+    ("dcw_schedule", "Anima DCW schedule", "guidance.dcw_schedule", _REQUIRED),
+    ("dcw_bands", "Anima DCW bands", "guidance.dcw_bands", _REQUIRED),
+    ("cns_strength", "Anima CNS strength", "guidance.cns_strength", _REQUIRED),
+    ("flow_unipc_solver_type", "Anima Flow UniPC solver type", "guidance.unipc_solver", _REQUIRED),
+    ("flow_unipc_disable_corrector_first", "Anima Flow UniPC disabled correctors", "guidance.unipc_disabled_correctors", _REQUIRED),
+    ("flow_unipc_thresholding", "Anima Flow UniPC thresholding", "guidance.unipc_thresholding", _REQUIRED),
+    ("flow_unipc_dynamic_thresholding_ratio", "Anima Flow UniPC threshold percentile", "guidance.unipc_threshold_ratio", _REQUIRED),
+    ("flow_unipc_sample_max_value", "Anima Flow UniPC threshold maximum", "guidance.unipc_threshold_max", _REQUIRED),
+    ("flow_pc3_gamma", "Anima Flow PC3 gamma", "guidance.pc3_gamma", _REQUIRED),
+    ("flow_pc3_tolerance", "Anima Flow PC3 tolerance", "guidance.pc3_tolerance", _REQUIRED),
+    ("modulation_enable", "Anima modulation guidance", "guidance.modulation_enabled", _REQUIRED),
+    ("modulation_weight", "Anima modulation weight", "guidance.modulation_weight", _REQUIRED),
+    ("modulation_start", "Anima modulation start block", "guidance.modulation_start", _REQUIRED),
+    ("modulation_end", "Anima modulation end block", "guidance.modulation_end", _REQUIRED),
+    ("modulation_base", "Anima modulation base prompt", None, _REQUIRED),
+    ("modulation_positive", "Anima modulation positive direction", None, _REQUIRED),
+    ("modulation_negative", "Anima modulation negative direction", None, _REQUIRED),
+    ("adapter_mode", "Anima modulation adapter mode", "guidance.modulation_adapter_mode", _REQUIRED),
+    ("adapter_path", None, None, _REQUIRED),
+    ("clip_mode", "Anima modulation CLIP mode", "guidance.modulation_clip_mode", _REQUIRED),
+    ("clip_path", None, None, _REQUIRED),
+    ("nag_enable", "Anima NAG", "guidance.nag_enabled", False),
+    ("nag_scale", "Anima NAG scale", "guidance.nag_scale", 2.0),
+    ("nag_tau", "Anima NAG tau", "guidance.nag_tau", 2.5),
+    ("nag_alpha", "Anima NAG alpha", "guidance.nag_alpha", 0.5),
+    ("nag_start", "Anima NAG start", "guidance.nag_start", 0.0),
+    ("nag_end", "Anima NAG end", "guidance.nag_end", 0.5),
+    ("momentum_enable", "Anima Momentum Guidance", "guidance.momentum_enabled", False),
+    ("momentum_strength", "Anima Momentum strength", "guidance.momentum_strength", 0.5),
+    ("momentum_ema", "Anima Momentum EMA", "guidance.momentum_ema", 0.6),
+    ("fdg_high_scale", "Anima FDG detail guidance", "guidance.fdg_detail", 12.0),
+    ("guidance_range_enable", "Anima CFG active range", "guidance.range_enabled", False),
+    ("guidance_range_start", "Anima CFG range start", "guidance.range_start", 0.0),
+    ("guidance_range_end", "Anima CFG range end", "guidance.range_end", 1.0),
+    ("cfg_zero_init_steps", "Anima CFG-Zero* zero-init steps", "guidance.cfg_zero_init_steps", 1),
+    ("apg_eta", "Anima APG eta", "guidance.apg_eta", 0.0),
+    ("apg_norm_threshold", "Anima APG norm threshold", "guidance.apg_norm_threshold", 0.0),
+    ("apg_momentum", "Anima APG momentum", "guidance.apg_momentum", -0.5),
+)
+SCRIPT_ARG_NAMES = tuple(row[0] for row in SCRIPT_ARGS)
+
+
 def _is_anima(p) -> bool:
     return is_anima_engine(getattr(p, "sd_model", None))
 
@@ -72,6 +142,17 @@ def _dcw_before_denoiser(params) -> None:
         return
     state = getattr(process, "_anima_dcw_state", None)
     if state is None:
+        return
+    if getattr(params.denoiser, "mask", None) is not None:
+        # params.x is a blended copy here, not the sampler's latent: the
+        # in-place correction would be lost. Installing DCW already checks
+        # p.mask; this catches a mask set after that.
+        process._anima_dcw_state = None
+        params_dict = process.extra_generation_params
+        for key in [key for key in params_dict if key.startswith("Anima DCW")]:
+            del params_dict[key]
+        record_conflict_resolution(process, DCW_INPAINT_MESSAGE)
+        logger.warning("Anima DCW was disabled: %s", DCW_INPAINT_MESSAGE)
         return
     state.before_denoiser(params.x, sigma_value(params.sigma))
 
@@ -341,7 +422,7 @@ class AnimaGuidanceScript(scripts.Script):
                         value=-1,
                         step=1,
                         label="End block",
-                        info="-1 means the final Anima block.",
+                        info="-1 means the final block. Start/end count the adapter's blocks (the pinned one has Anima 2B's 28); on 2.9B/3.8B they select the same original blocks.",
                     )
                 modulation_base = gr.Textbox(
                     "",
@@ -430,63 +511,9 @@ class AnimaGuidanceScript(scripts.Script):
                     show_progress=False,
                 )
 
-        # One row per control, in script-argument order:
-        # (component, infotext key or None, preset name or None). The local
-        # modulation file paths have no key: they are never written to
-        # infotext, and a pasted PNG must not pick which local file is loaded.
-        fields = [
-            (enable, "Anima guidance enabled", "guidance.enabled"),
-            (guidance_mode, "Anima CFG guidance mode", "guidance.mode"),
-            (smc_alpha, "Anima SMC alpha", "guidance.smc_alpha"),
-            (smc_lambda, "Anima SMC lambda", "guidance.smc_lambda"),
-            (skim_enable, "Anima Skimmed CFG", "guidance.skim_enabled"),
-            (skim_scale, "Anima skim CFG", "guidance.skim_scale"),
-            (full_negative, "Anima skim full negative", "guidance.skim_full_negative"),
-            (disable_flip_filter, "Anima skim disable flip filter", "guidance.skim_disable_flip"),
-            (start_percent, "Anima skim start", "guidance.skim_start"),
-            (end_percent, "Anima skim end", "guidance.skim_end"),
-            (flip_percent, "Anima skim flip", "guidance.skim_flip"),
-            (dcw_enable, "Anima DCW", "guidance.dcw_enabled"),
-            (dcw_lambda, "Anima DCW lambda", "guidance.dcw_lambda"),
-            (dcw_schedule, "Anima DCW schedule", "guidance.dcw_schedule"),
-            (dcw_bands, "Anima DCW bands", "guidance.dcw_bands"),
-            (cns_strength, "Anima CNS strength", "guidance.cns_strength"),
-            (flow_unipc_solver_type, "Anima Flow UniPC solver type", "guidance.unipc_solver"),
-            (flow_unipc_disable_corrector_first, "Anima Flow UniPC disabled correctors", "guidance.unipc_disabled_correctors"),
-            (flow_unipc_thresholding, "Anima Flow UniPC thresholding", "guidance.unipc_thresholding"),
-            (flow_unipc_dynamic_thresholding_ratio, "Anima Flow UniPC threshold percentile", "guidance.unipc_threshold_ratio"),
-            (flow_unipc_sample_max_value, "Anima Flow UniPC threshold maximum", "guidance.unipc_threshold_max"),
-            (flow_pc3_gamma, "Anima Flow PC3 gamma", "guidance.pc3_gamma"),
-            (flow_pc3_tolerance, "Anima Flow PC3 tolerance", "guidance.pc3_tolerance"),
-            (modulation_enable, "Anima modulation guidance", "guidance.modulation_enabled"),
-            (modulation_weight, "Anima modulation weight", "guidance.modulation_weight"),
-            (modulation_start, "Anima modulation start block", "guidance.modulation_start"),
-            (modulation_end, "Anima modulation end block", "guidance.modulation_end"),
-            (modulation_base, "Anima modulation base prompt", None),
-            (modulation_positive, "Anima modulation positive direction", None),
-            (modulation_negative, "Anima modulation negative direction", None),
-            (adapter_mode, "Anima modulation adapter mode", "guidance.modulation_adapter_mode"),
-            (adapter_path, None, None),
-            (clip_mode, "Anima modulation CLIP mode", "guidance.modulation_clip_mode"),
-            (clip_path, None, None),
-            (nag_enable, "Anima NAG", "guidance.nag_enabled"),
-            (nag_scale, "Anima NAG scale", "guidance.nag_scale"),
-            (nag_tau, "Anima NAG tau", "guidance.nag_tau"),
-            (nag_alpha, "Anima NAG alpha", "guidance.nag_alpha"),
-            (nag_start, "Anima NAG start", "guidance.nag_start"),
-            (nag_end, "Anima NAG end", "guidance.nag_end"),
-            (momentum_enable, "Anima Momentum Guidance", "guidance.momentum_enabled"),
-            (momentum_strength, "Anima Momentum strength", "guidance.momentum_strength"),
-            (momentum_ema, "Anima Momentum EMA", "guidance.momentum_ema"),
-            (fdg_high_scale, "Anima FDG detail guidance", "guidance.fdg_detail"),
-            (guidance_range_enable, "Anima CFG active range", "guidance.range_enabled"),
-            (guidance_range_start, "Anima CFG range start", "guidance.range_start"),
-            (guidance_range_end, "Anima CFG range end", "guidance.range_end"),
-            (cfg_zero_init_steps, "Anima CFG-Zero* zero-init steps", "guidance.cfg_zero_init_steps"),
-            (apg_eta, "Anima APG eta", "guidance.apg_eta"),
-            (apg_norm_threshold, "Anima APG norm threshold", "guidance.apg_norm_threshold"),
-            (apg_momentum, "Anima APG momentum", "guidance.apg_momentum"),
-        ]
+        # Each control is the local variable named in SCRIPT_ARGS.
+        controls = locals()
+        fields = [(controls[name], key, preset_name) for name, key, preset_name, _ in SCRIPT_ARGS]
         for component, _, preset_name in fields:
             if preset_name is not None:
                 register_preset_control(self.tabname, preset_name, component)
@@ -494,7 +521,19 @@ class AnimaGuidanceScript(scripts.Script):
         self.paste_field_names = [key for _, key, _ in fields if key is not None]
         return [component for component, _, _ in fields]
 
-    def process_before_every_sampling(
+    def process_before_every_sampling(self, p, *values, **kwargs):
+        # Positional script args are named by SCRIPT_ARGS, the table ui()
+        # returns its components from, so their order is written only once.
+        # Forge's own keywords (x, noise, c, uc) are not script args.
+        arguments = dict(zip(SCRIPT_ARG_NAMES, values))
+        for name, _, _, default in SCRIPT_ARGS:
+            if name in kwargs:
+                arguments[name] = kwargs[name]
+            elif name not in arguments and default is not _REQUIRED:
+                arguments[name] = default
+        self._process_before_every_sampling(p, **arguments)
+
+    def _process_before_every_sampling(
         self,
         p,
         enable: bool,
@@ -531,25 +570,23 @@ class AnimaGuidanceScript(scripts.Script):
         adapter_path: str,
         clip_mode: str,
         clip_path: str,
-        nag_enable: bool = False,
-        nag_scale: float = 2.0,
-        nag_tau: float = 2.5,
-        nag_alpha: float = 0.5,
-        nag_start: float = 0.0,
-        nag_end: float = 0.5,
-        momentum_enable: bool = False,
-        momentum_strength: float = 0.5,
-        momentum_ema: float = 0.6,
-        fdg_high_scale: float = 12.0,
-        guidance_range_enable: bool = False,
-        guidance_range_start: float = 0.0,
-        guidance_range_end: float = 1.0,
-        cfg_zero_init_steps: int = 1,
-        apg_eta: float = 0.0,
-        apg_norm_threshold: float = 0.0,
-        apg_momentum: float = -0.5,
-        *args,
-        **kwargs,
+        nag_enable: bool,
+        nag_scale: float,
+        nag_tau: float,
+        nag_alpha: float,
+        nag_start: float,
+        nag_end: float,
+        momentum_enable: bool,
+        momentum_strength: float,
+        momentum_ema: float,
+        fdg_high_scale: float,
+        guidance_range_enable: bool,
+        guidance_range_start: float,
+        guidance_range_end: float,
+        cfg_zero_init_steps: int,
+        apg_eta: float,
+        apg_norm_threshold: float,
+        apg_momentum: float,
     ):
         # The global pre-denoiser hook applies whatever DCW state p holds: a
         # pass without DCW (e.g. hires after it was dropped for the sampler)
@@ -570,6 +607,7 @@ class AnimaGuidanceScript(scripts.Script):
             mode=str(guidance_mode),
             momentum=bool(momentum_enable),
             dcw=bool(dcw_enable),
+            inpaint_mask=getattr(p, "mask", None) is not None,
         )
         guidance_mode = conflict_state.mode
         momentum_enable = conflict_state.momentum
@@ -647,6 +685,10 @@ class AnimaGuidanceScript(scripts.Script):
         unet = p.sd_model.forge_objects.unet
         if modulation_enabled:
             try:
+                dit = unet.model.diffusion_model
+                if str(adapter_mode) == "Auto-download pinned":
+                    # Fail before downloading ~400 MB for a model it cannot patch.
+                    block_layout(ADAPTER_BLOCKS, dit_block_count(dit))
                 automatic_adapter = os.path.join(paths.models_path, "Anima", "modulation_guidance", "checkpoint_4000.pt")
                 automatic_clip = os.path.join(paths.models_path, "CLIP", "Anima-Mod-Guidance", "clip_l.safetensors")
                 resolved_adapter = resolve_artifact(
@@ -657,6 +699,7 @@ class AnimaGuidanceScript(scripts.Script):
                     sha256=ADAPTER_SHA256,
                     maximum_bytes=ADAPTER_MAX_BYTES,
                 )
+                check_adapter_for_dit(resolved_adapter, dit)
                 resolved_clip = resolve_artifact(
                     str(clip_mode),
                     str(clip_path),
@@ -668,8 +711,10 @@ class AnimaGuidanceScript(scripts.Script):
                 positive_prompts, negative_prompts = effective_prompt_batch(p)
                 base_prompts = [str(modulation_base)] * len(positive_prompts) if str(modulation_base).strip() else positive_prompts
                 all_clip_prompts = [*base_prompts, *negative_prompts, str(modulation_positive), str(modulation_negative)]
+                steps = int(getattr(p, "firstpass_steps", None) or p.steps)
+                hires_steps = int(getattr(p, "hr_second_pass_steps", 0) or p.steps) if getattr(p, "is_hr_pass", False) else None
                 pooled = encode_clip_pooled(
-                    all_clip_prompts,
+                    [clip_prompt_text(prompt, steps, hires_steps) for prompt in all_clip_prompts],
                     clip_path=resolved_clip,
                     config_dir=os.path.join(paths.script_path, "backend", "huggingface", "black-forest-labs", "FLUX.1-schnell", "text_encoder"),
                     tokenizer_dir=os.path.join(paths.script_path, "backend", "huggingface", "black-forest-labs", "FLUX.1-schnell", "tokenizer"),
@@ -815,17 +860,28 @@ class AnimaGuidanceScript(scripts.Script):
             # Outermost, so zero-init sees every sigma of the pass (the CFG
             # range does not call its inner hook outside its window). It
             # zeroes only a pass that starts from pure noise.
+            zero_init_state = register_stateful_guidance(
+                p,
+                CFGZeroStarState(
+                    zero_init_steps,
+                    start_sigma=float(predictor.percent_to_sigma(0.0)),
+                ),
+            )
             active_cfg_function = make_zero_init_cfg_function(
                 active_cfg_function,
-                register_stateful_guidance(
-                    p,
-                    CFGZeroStarState(
-                        zero_init_steps,
-                        start_sigma=float(predictor.percent_to_sigma(0.0)),
-                    ),
-                ),
+                zero_init_state,
                 process=process_ref(p),
             )
+            # The same steps skip the model: their predictions are discarded.
+            unet.set_model_unet_function_wrapper(
+                make_zero_init_model_wrapper(
+                    unet.model_options.get("model_function_wrapper"),
+                    zero_init_state,
+                    process=process_ref(p),
+                )
+            )
+            # Spectrum must neither forecast nor learn from those steps.
+            spectrum_force.request(unet, zero_init_state.would_zero_init)
 
         if smc_enabled or fdg_enabled or cfg_zero_enabled or apg_enabled or skim_enable or guidance_range_enable:
             # At CFG 1 Skimmed CFG, CFG-Zero*, APG and the CFG range all reduce to

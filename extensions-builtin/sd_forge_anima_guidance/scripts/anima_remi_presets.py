@@ -6,6 +6,7 @@ import logging
 
 import gradio as gr
 
+from backend.logging import setup_logger
 from modules import scripts
 from modules.anima_support import is_anima_engine
 from modules.anima_presets import (
@@ -22,6 +23,7 @@ from modules.anima_presets import (
 
 
 logger = logging.getLogger("anima_presets")
+setup_logger(logger)
 
 
 class AnimaRemiPresetScript(scripts.Script):

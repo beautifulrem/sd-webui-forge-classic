@@ -187,6 +187,37 @@ class NAGTests(unittest.TestCase):
 
         self.assertTrue(torch.allclose(positive_only, batched[:1]))
 
+    def test_negative_context_is_prepared_once_per_step_without_a_host_sync(self):
+        from lib_anima_guidance import nag
+
+        modifier = NAGAttentionModifier(scale=1.0, tau=2.0, alpha=1.0, sigma_start=0.0, sigma_end=1.0)
+        context = torch.tensor([1.0, 2.0]).reshape(1, 2, 1)
+        mask = torch.tensor([1.0, -1.0]).reshape(1, 2, 1)
+        original = nag.split_conditioning
+        nag.split_conditioning = lambda conds: self.fail("split_conditioning tests the mask on the host")
+        try:
+            modifier.set_negative_context({"crossattn": context, "c_negpip_mask": mask})
+        finally:
+            nag.split_conditioning = original
+
+        projected = []
+
+        def project(context, value_context=None):
+            projected.append((context, value_context))
+            return context.unsqueeze(-1), value_context.unsqueeze(-1)
+
+        options = {"cond_or_uncond": [0], "sigmas": torch.tensor([0.5]), "anima_project_kv": project}
+        for _ in range(3):  # three cross-attention layers of one step
+            modifier(fake_attention, self.q[:1], self.k[:1], self.v[:1], transformer_options=options, is_self_attention=False)
+        self.assertEqual(len(projected), 3)
+        self.assertTrue(all(pair[0] is projected[0][0] and pair[1] is projected[0][1] for pair in projected))
+        self.assertTrue(torch.equal(projected[0][1], context * mask))
+
+        # The next step's context replaces the prepared one.
+        modifier.set_negative_context({"crossattn": context * 2, "c_negpip_mask": torch.ones_like(mask)})
+        modifier(fake_attention, self.q[:1], self.k[:1], self.v[:1], transformer_options=options, is_self_attention=False)
+        self.assertTrue(torch.equal(projected[-1][1], context * 2))
+
     def test_dict_conditioning_uses_its_cross_attention_context(self):
         modifier = NAGAttentionModifier(scale=1.0, tau=2.0, alpha=1.0, sigma_start=0.0, sigma_end=1.0)
         context = torch.ones(1, 3, 4)

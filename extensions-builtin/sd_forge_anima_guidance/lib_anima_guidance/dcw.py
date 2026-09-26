@@ -14,7 +14,9 @@ from typing import Optional
 import torch
 
 
-LOGGER = logging.getLogger("anima_guidance.dcw")
+# The panel's logger: scripts/anima_guidance.py gives it a handler (Forge's
+# root logger drops warnings).
+LOGGER = logging.getLogger("AnimaGuidance")
 BANDS = ("LL", "LH", "HL", "HH")
 ALL_BANDS = frozenset(BANDS)
 

@@ -57,6 +57,9 @@ conditional prediction, so Forge still skips the negative pass there.
 the first N sampler steps: `denoised = x`, so the solver leaves the latent
 unchanged. A step is a distinct sigma, which is exact for single-evaluation
 samplers; the extra sigmas of multi-evaluation samplers count as steps too.
+Those steps skip the model forward entirely (a model wrapper returns the
+input as the denoised prediction), and Spectrum runs them as forced actual
+steps so it does not learn from them.
 PC3 probes do not consume steps. `0` keeps only the optimized scale.
 Zero-init is meant for the start of sampling from pure noise: it applies only
 to a pass whose first sigma is the schedule's maximum, so hires and img2img
@@ -154,7 +157,9 @@ DPM++ 2M/3M SDE, ER SDE (and CNS), LMS, LCM, Res Multistep, the Anima Flow
 samplers (PC3's endpoint probe is skipped), Anima SPEED and Anima FreeFuse
 Euler. On other samplers (Heun, DPM2, DPM++ SDE/2S, Restart, UniPC, DDIM, ...)
 the correction would land on an intermediate evaluation, so DCW is disabled
-and the reason is recorded in `Anima conflict resolution`.
+and the reason is recorded in `Anima conflict resolution`. The same happens
+with an inpaint mask: the denoiser then evaluates a blended copy of the
+latent, so the correction could not reach the sampler's latent.
 
 ## Anima ER SDE CNS
 
@@ -187,6 +192,21 @@ rows receive their own negative-prompt CLIP embedding without the direction.
 The projected vector is multiplied by the learned per-block adapter scale and
 added to each selected block's AdaLN-LoRA input. The final layer keeps the
 native, unmodified timestep embedding.
+
+The pinned adapter's scales cover Anima 2B's 28 blocks. On the
+depth-expanded 2.9B (40 blocks) and 3.8B (52 blocks) models each scale row
+goes to its preserved original block and the inserted blocks get no
+modulation, following ComfyUI-Spectrum-KSampler's `mod_guidance_layouts.py`
+(MIT, commit `b1ad4f9`) with Forge's Anima block lineage. `Start block` /
+`End block` count the adapter's blocks, so they select the same original
+blocks on every depth. An unsupported model depth is rejected before
+anything is downloaded, and the adapter's shape is checked against the model
+before CLIP-L is fetched.
+
+CLIP sees plain text, as in the reference (whose ComfyUI tokenizer drops
+emphasis syntax): prompt editing is resolved to the pass's first-step prompt
+(one pooled vector serves the whole pass), `(text:1.2)` / `[text]` weights
+are dropped and `BREAK` becomes a space.
 
 Automatic mode downloads revision-pinned, SHA-256-verified weights only when
 the control is enabled. Adapter `.pt` files are loaded with PyTorch
