@@ -302,8 +302,10 @@ def _api_only_app(monkeypatch, **overrides):
 
 
 def test_api_only_servers_require_api_auth_for_extension_routes(monkeypatch):
-    # --nowebui binds every interface (or --listen): /sdapi needs --api-auth, so do extension routes
-    for options in (dict(), dict(listen=True, gradio_auth="u:p")):
+    # --nowebui: /sdapi needs --api-auth whenever it is set, on any bind (every
+    # interface by default, --listen, or a loopback --server-name), so do extension routes
+    loopback = (dict(server_name="127.0.0.1"), dict(server_name="localhost"), dict(server_name="[::1]"))
+    for options in (dict(), dict(listen=True, gradio_auth="u:p"), *loopback):
         client = _api_only_app(monkeypatch, api_auth="api:secret", **options)
         assert client.post("/ext/api").status_code == 401, options
         assert client.post("/ext/api", headers=_basic("api", "wrong")).status_code == 401
@@ -311,12 +313,11 @@ def test_api_only_servers_require_api_auth_for_extension_routes(monkeypatch):
         assert client.post("/ext/api", headers=_basic("api", "secret")).json() == "ext"
 
 
-def test_api_only_servers_without_api_auth_or_on_loopback_stay_open(monkeypatch):
+def test_api_only_servers_without_api_auth_stay_open(monkeypatch):
     # like /sdapi: no --api-auth, nothing to log in with (--gradio-auth has no UI to guard)
     assert _api_only_app(monkeypatch, listen=True).post("/ext/api").json() == "ext"
     assert _api_only_app(monkeypatch, listen=True, gradio_auth="u:p").post("/ext/api").json() == "ext"
-    # a loopback --server-name keeps local API clients working
-    assert _api_only_app(monkeypatch, server_name="127.0.0.1", api_auth="api:secret").post("/ext/api").json() == "ext"
+    assert _api_only_app(monkeypatch, server_name="127.0.0.1").post("/ext/api").json() == "ext"
 
 
 def test_refusal_uses_api_auth_when_the_app_has_no_gradio_login(monkeypatch):

@@ -159,16 +159,16 @@ def refresh_model_loading_parameters(*, refresh: bool = True):
         logger.critical('You do not have any model... Please download models to "models/Stable-diffusion"')
         return
 
-    unet_storage_dtype, lora_fp16 = forge_unet_storage_dtype_options.get(shared.opts.forge_unet_storage_dtype, (None, False))
-
-    model_data.forge_loading_parameters = forge_loading_parameters(checkpoint_info, shared.opts.forge_unet_storage_dtype)
+    unet_storage_option = shared.opts.forge_unet_storage_dtype
+    parameters = model_data.forge_loading_parameters = forge_loading_parameters(checkpoint_info, unet_storage_option)
+    lora_fp16 = forge_unet_storage_dtype_options.get(unet_storage_option, (None, False))[1]
 
     ckpt: str = checkpoint_info.filename
     modules: list[str] = [os.path.basename(x) for x in shared.opts.forge_additional_modules]
-    dtype = str(unet_storage_dtype or [torch.float16, torch.bfloat16])
+    dtype = str(parameters["unet_storage_dtype"] or [torch.float16, torch.bfloat16])
 
     selected = dict(checkpoint=os.path.basename(ckpt), modules=modules, dtype=dtype)
-    if anima_quant := model_data.forge_loading_parameters.get("anima_quant"):
+    if anima_quant := parameters.get("anima_quant"):
         selected["anima_quant"] = anima_quant  # Anima only; other models load with dtype
     logger.info("Model Selected:")
     print_json(data=selected)

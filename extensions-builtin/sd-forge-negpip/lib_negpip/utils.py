@@ -7,9 +7,19 @@ if TYPE_CHECKING:
 from lib_negpip import IS_NEO
 from modules.anima_support import negpip_extra_prompts
 
-# Whitespace before the colon is part of the weighted text: matching it with
-# separate ``\s*`` around the text made unclosed weights backtrack cubically.
-NEG_PATTERN = re.compile(r"\((?:[^\\(:)]|\\[()])+?:\s*-\s*\d*\.?\d+\s*\)")
+# This runs on every prompt of every generation, so each part may match its
+# input only one way; the search stays linear in the prompt length:
+# - whitespace before the colon is part of the weighted text (separate ``\s*``
+#   around the text backtracked cubically on unclosed weights);
+# - the weight is ``1``, ``1.5`` or ``.5`` spelled as alternatives (``\d*\.?\d+``
+#   could split a digit run between ``\d*`` and ``\d+`` in quadratically many
+#   ways); ``1.`` is still rejected, as before;
+# - a ``(`` escaped by one backslash starts no weight (the attention parser reads
+#   ``\(`` as a literal); otherwise every ``\(`` of a long run started a scan
+#   over the rest of it. ``\\(`` (escaped backslash, real bracket) still does.
+NEG_PATTERN = re.compile(
+    r"(?<!(?<!\\)\\)\((?:[^\\(:)]|\\[()])+?:\s*-\s*(?:\d+(?:\.\d+)?|\.\d+)\s*\)"
+)
 
 
 def reset_prompt_cache(p: "StableDiffusionProcessing"):

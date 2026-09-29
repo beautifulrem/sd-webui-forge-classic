@@ -1,9 +1,9 @@
 """Shared harness for the built-in Anima block-patch panels' script tests.
 
-Not a test module. The DAVE and Cross-Attention Boost suites load it by file
-path: each runs from its own extension folder, where the repo ``tests``
-directory is not an importable package (and putting it on sys.path would
-shadow the real ``backend`` package with ``tests/backend``).
+Not a test module. The DAVE, Cross-Attention Boost and preset-registration
+suites load it by file path: each runs from its own extension folder, where
+the repo ``tests`` directory is not an importable package (and putting it on
+sys.path would shadow the real ``backend`` package with ``tests/backend``).
 """
 
 from __future__ import annotations
@@ -90,16 +90,28 @@ def assert_infotext_restores_controls(script, args, expected):
     assert [fields[key] for key in written] == controls
 
 
-def assert_registers_preset(script, prefix, tab="txt2img"):
+def assert_registers_preset(script, prefix, tab="txt2img", unowned_labels=(), preset_order=True):
     """Every ``prefix.*`` preset field is one of the panel's controls, in
-    control order, and its preset value is the panel's default and in range."""
+    control order, and its preset value is the panel's default and in range.
+
+    ``unowned_labels``: labels of the controls the preset leaves alone (user
+    content such as prompts and local file paths); every other control must be
+    a preset field. ``preset_order=False``: the panel's control order need not
+    be the order of the preset table's ``prefix.*`` rows."""
 
     from modules.anima_presets import SAFE_BASE_AESTHETIC_PRESET, preset_controls
 
     controls = build_ui(script, tab)
+    labels = [getattr(control, "label", None) for control in controls]
+    assert all(label in labels for label in unowned_labels), unowned_labels
+    owned = [control for control, label in zip(controls, labels) if label not in unowned_labels]
     names, components, values = preset_controls(tab)
-    assert list(names) == [name for name in SAFE_BASE_AESTHETIC_PRESET if name.startswith(f"{prefix}.")]
-    assert list(components) == controls
+    expected = [name for name in SAFE_BASE_AESTHETIC_PRESET if name.startswith(f"{prefix}.")]
+    if preset_order:
+        assert list(names) == expected
+    else:
+        assert sorted(names) == sorted(expected)
+    assert list(components) == owned
     for name, component, value in zip(names, components, values):
         assert value == SAFE_BASE_AESTHETIC_PRESET[name], name
         assert type(value) is type(component.value), name
