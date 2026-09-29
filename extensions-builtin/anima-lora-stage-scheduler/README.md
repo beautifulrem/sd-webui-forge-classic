@@ -63,4 +63,5 @@ Open **Settings**, find **Anima LoRA Stage Scheduler**, and set the language to 
 
 - Template keys are kept stable for compatibility, so some built-in template names may remain Chinese internally.
 - The extension controls LoRA patch strength during sampling. It does not modify checkpoints or LoRA files.
+- While enabled, it switches Forge to on-the-fly (online) LoRA for the run, since a strength that changes every step cannot be merged into the weights. Sampling is slower than with merged LoRAs, as Forge warns; the previous setting is restored after the run.
 - For best results, combine this with moderate LoRA weights and avoid stacking many aggressive stage schedules at once.

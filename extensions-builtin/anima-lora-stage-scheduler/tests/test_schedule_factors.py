@@ -298,6 +298,32 @@ def test_prompt_conds_are_recomputed_when_the_panels_text_encoder_weights_change
     assert run("qwen=0-27=0.2") and run("qwen=0-27=0.2", enabled=False)
 
 
+def test_process_resolves_each_panels_stage_in_finalize_timing_only(module, monkeypatch):
+    from backend.args import dynamic_args
+
+    monkeypatch.setattr(dynamic_args, "online_lora", False)
+    reads = []
+    template_config = module._template_config
+    monkeypatch.setattr(module, "_template_config", lambda name: reads.append(name) or template_config(name))
+    p = SimpleNamespace(extra_generation_params={})
+    base = [module.MODE_PROMPT_ALL, "", "", module.PRESET_STYLE_ALLOW, "", True, 0.2, 0.8, 0.5, 1.0, module.CURVE_SMOOTH]
+    hires = [module.MODE_PROMPT_ALL, "", "", module.PRESET_COMPOSITION_ALLOW, "", True, 0.2, 0.8, 0.5, 1.0, module.CURVE_SMOOTH]
+
+    module.Script().process(p, True, *base, True, *hires, module.DISABLE_NONE, "")
+    state = p._anima_lora_stage_scheduler_state
+    module._cleanup_runtime(p)
+
+    assert reads == [module.PRESET_STYLE_ALLOW, module.PRESET_COMPOSITION_ALLOW]
+    assert state.base.stage == module.STAGE_STYLE and state.hires.stage == module.STAGE_COMPOSITION
+
+
+def test_a_manual_template_without_a_stage_keeps_its_first_applying_part(module, monkeypatch):
+    template = {"auto": False, "parts": [{"stage": module.STAGE_STYLE, "mode": module.PART_BAN}, {"stage": module.STAGE_COMPOSITION, "mode": module.PART_ALLOW}]}
+    monkeypatch.setattr(module, "_template_config", lambda name: dict(template))
+
+    assert _manual(module, "hand-written", 0.0, 0.3, 0.1).stage == module.STAGE_COMPOSITION
+
+
 def test_auto_detect_schedules_anima_lokrs_too(module, tmp_path):
     import torch
     from safetensors.torch import save_file

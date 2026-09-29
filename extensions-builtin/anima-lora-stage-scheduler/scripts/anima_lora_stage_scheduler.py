@@ -1126,14 +1126,15 @@ class PassConfig:
 
     def finalize_timing(self):
         """Resolve the template's parts, the stage (with auto timing that of
-        its first applying part, else the template's, else the panel's;
-        character when invalid), the timing window, strength and curve (an
-        invalid one reads as smooth)."""
+        its first applying part, else the template's, else the panel's, else
+        with None the template's first applying part; character when
+        invalid), the timing window, strength and curve (an invalid one reads
+        as smooth)."""
         template = _template_config(self.template_name)
         template_parts = _template_parts(template)
         self.parts = active_template_parts(self.auto_timing, template_parts)
         self.ban_window = not self.auto_timing and manual_window_bans(template_parts)
-        stage = _primary_template_part(template)["stage"] if self.parts else template.get("stage") or self.stage
+        stage = _primary_template_part(template)["stage"] if self.parts else template.get("stage") or self.stage or _primary_template_part(template)["stage"]
         self.stage = stage if stage in STAGE_CHOICES else STAGE_CHARACTER
 
         if self.auto_timing:
@@ -2008,9 +2009,10 @@ class Script(scripts.Script):
         hires_shift = _to_float(getattr(p, "hr_distilled_cfg", base_shift), base_shift)
 
         # Each panel's _build_pass_config arguments except the Shift; with no
-        # independent Hires panel the base one is reused at the Hires Shift
-        base_panel = (base_target_mode, base_target_loras, base_panel_weight, base_template, base_lora_templates, base_auto, _template_stage_from_name(base_template), base_start, base_end, base_peak, base_stage_strength, base_curve)
-        hires_panel = (hr_target_mode, hr_target_loras, hr_panel_weight, hr_template, hr_lora_templates, hr_auto, _template_stage_from_name(hr_template), hr_start, hr_end, hr_peak, hr_stage_strength, hr_curve) if hr_independent else base_panel
+        # independent Hires panel the base one is reused at the Hires Shift.
+        # The stage is None: finalize_timing resolves it from the template.
+        base_panel = (base_target_mode, base_target_loras, base_panel_weight, base_template, base_lora_templates, base_auto, None, base_start, base_end, base_peak, base_stage_strength, base_curve)
+        hires_panel = (hr_target_mode, hr_target_loras, hr_panel_weight, hr_template, hr_lora_templates, hr_auto, None, hr_start, hr_end, hr_peak, hr_stage_strength, hr_curve) if hr_independent else base_panel
         base_config = _build_pass_config(*base_panel, base_shift)
         hires_config = _build_pass_config(*hires_panel, hires_shift)
 

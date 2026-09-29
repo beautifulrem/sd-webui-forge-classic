@@ -22,6 +22,7 @@ from modules.anima_lora_support import (
     split_weight_sections,
     anima_lora_block_count,
     lora_key_factor,
+    model_key as _model_key,
     merge_consistent_rules,
     compact_text as _compact_text,
     is_plain_number as _is_plain_number,
@@ -331,8 +332,13 @@ class ActiveRule:
         return rule.decision_for_lora(filename)
 
     def factor_for_key(self, model_key, decision: LoraDecision, model_blocks: int | None = None) -> float:
+        # The prompt weight is rewritten to 1.0, so the DiT keys outside the
+        # blocks (final_layer, x_embedder, t_embedder) run at the blocks'
+        # all= weight; the text encoder's own non-layer keys keep 1.0
+        fallback = 1.0 if _is_text_encoder_key(model_key) else decision.block_weights.default
         return lora_key_factor(
             model_key,
+            fallback,
             qwen_weights=decision.text_layer_weights,
             block_weights=decision.block_weights,
             module_weights=decision.module_weights,
@@ -470,9 +476,14 @@ def _apply_preset_to_prompt_text(
     return LORA_TAG_RE.sub(replace, prompt_text)
 
 
+def _is_text_encoder_key(key) -> bool:
+    """A Qwen3 text-encoder or LLM-adapter key (qwen3_06b.*), not the DiT's."""
+    text = _model_key(key).lower()
+    return "qwen" in text or "text_encoder" in text or "llm_adapter" in text
+
+
 def _filter_layer_weights(weights: LayerWeights, trained_layers: set[int]) -> LayerWeights:
-    if not trained_layers:
-        return LayerWeights()
+    # Keeps the all= default, which also weights the DiT keys outside the blocks
     values = {index: value for index, value in weights.values.items() if index in trained_layers}
     return LayerWeights(default=weights.default, values=values)
 

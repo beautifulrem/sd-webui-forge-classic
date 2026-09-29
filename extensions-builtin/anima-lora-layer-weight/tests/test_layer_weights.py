@@ -112,6 +112,32 @@ def test_a_3_8b_lora_keeps_its_own_block_numbers(module):
     assert rule.factor_for_key(_block(51, "self_attn.q_proj"), decision, 52) == 1.0  # default
 
 
+def test_all_weights_the_dit_keys_outside_the_blocks(module, monkeypatch):
+    # <lora:x:0.6> runs at 1.0, so all=0.6 must carry the DiT's whole strength
+    monkeypatch.setattr(module, "_lora_coverage", lambda *args: SimpleNamespace(blocks={0, 1}, modules={"mlp"}, text_layers={2}))
+    monkeypatch.setattr(module, "_names_for_lora_file", lambda filename: {"cat"})
+    monkeypatch.setattr(module, "_adapter_kind_for_file", lambda filename: "lora")
+    rule = module.ActiveRule(
+        True, "cat", True, "0=0.3,all=0.6", False, "", True, "2=0.5,all=0.8", {},
+        False, "", False, "", False, "", False, "", {},
+    )  # fmt: skip
+    decision = rule.decision_for_lora("cat.safetensors")
+
+    for key in ("diffusion_model.final_layer.linear.weight", "diffusion_model.x_embedder.proj.1.weight", "diffusion_model.t_embedder.1.linear_1.weight"):
+        assert rule.factor_for_key(key, decision, 28) == 0.6
+    assert rule.factor_for_key(_block(0), decision, 28) == 0.3
+    assert rule.factor_for_key(_block(1), decision, 28) == 0.6
+    # The text encoder keeps its own weights, and 1.0 outside its layers
+    assert rule.factor_for_key("qwen3_06b.model.layers.2.mlp.up_proj.weight", decision, 28) == 0.5
+    assert rule.factor_for_key("qwen3_06b.llm_adapter.out_proj.weight", decision, 28) == 1.0
+    assert rule.factor_for_key("qwen3_06b.model.embed_tokens.weight", decision, 28) == 1.0
+
+    # A targeted file with no trained blocks keeps the all= default too
+    monkeypatch.setattr(module, "_lora_coverage", lambda *args: SimpleNamespace(blocks=set(), modules=set(), text_layers=set()))
+    decision = rule.decision_for_lora("cat.safetensors")
+    assert rule.factor_for_key("diffusion_model.final_layer.linear.weight", decision, 28) == 0.6
+
+
 def test_prompt_rewrite_moves_inline_weights_into_rules(module, monkeypatch):
     monkeypatch.setattr(module, "_prompt_lora_is_controlled", lambda name, *args: name.startswith("sub/cat"))
     prompts = ["<lora:sub/cat.safetensors:0-9=0.5;modules=mlp=0.2> <lora:dog:0-9=0.5>", "<lora:sub/cat.safetensors:0.6>"]
