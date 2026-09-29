@@ -260,6 +260,8 @@ class SpectrumState:
     def reset(self):
         self.forecasters.clear()
         self.step = -1
+        # Branches the current step's model calls have run so far
+        self.step_branches: set = set()
         self.last_sigma = None
         self.current_window = self.window_size
         self.consecutive_cached = 0
@@ -449,6 +451,10 @@ class SpectrumNode:
             branches, valid_branches = _branch_info(args, input_x.shape[0])
             current_sigma, signatures = _call_samples(sigma, args.get("c") if valid_branches else None, branches)
             new_step = state.advance(current_sigma, input_x)
+            # When one CFG batch does not fit, Forge runs uncond and cond as
+            # separate calls at the same sigma (uncond first): each branch's
+            # first call at a sigma is its step, not a repeated-sigma call.
+            branch_step = not new_step and not state.step_branches.intersection(branches)
 
             shape_changed = state.input_shape is not None and tuple(input_x.shape[1:]) != state.input_shape
             previous_signatures = state.conditioning_signature
@@ -466,13 +472,18 @@ class SpectrumNode:
                 state.conditioning_signature = {**previous_signatures, **signatures}
             if new_step:
                 # A branch missing from a step would forecast across the gap.
-                for key in [key for key in state.forecasters if key not in branches]:
+                # Judged on the whole previous step: a split step's later
+                # calls bring the other branch.
+                for key in [key for key in state.forecasters if key not in state.step_branches]:
                     del state.forecasters[key]
+                state.step_branches = set(branches)
                 if state.forecasting_ended:
                     # Nothing is forecast again this pass: free the
                     # (full-resolution) history before the tail, VAE decode
                     # and Hires rather than when the next pass starts.
                     state.forecasters.clear()
+            else:
+                state.step_branches.update(branches)
             state.input_shape = tuple(input_x.shape[1:])
 
             compatible = valid_branches
@@ -500,22 +511,26 @@ class SpectrumNode:
                 state.mode = state.decide(branches) if compatible else "actual"
                 if state.verbose:
                     logger.info("Spectrum step %d/%d sigma=%.6g mode=%s", state.step + 1, state.steps, current_sigma, state.mode)
-            elif compat_policy != "Legacy / fastest":
+            elif compat_policy != "Legacy / fastest" and not branch_step:
                 state.mode = "actual"
 
+            # A split step's later branch follows the step's decision, as the
+            # same branch would in one batch; it is not another cached step.
             if state.mode == "cached" and compatible and state.ready(branches):
                 feature = predict_branches([state.forecasters[key] for key in branches], state.step)
                 if feature_cache:
                     result = _fast_forward(dit, predictor, sigma, input_x, feature)
                 else:
                     result = feature.to(input_x.dtype)
-                state.cached_completed()
+                if not branch_step:
+                    state.cached_completed()
                 return result
 
-            # Only a new, cacheable step a later forecast can use feeds the
-            # forecasters: skip capturing (a full-resolution feature) on
-            # forced / repeated / other calls and from the last cacheable step on.
-            feeds = new_step and compatible and state.feeds_forecasts
+            # Only a new, cacheable step (of these branches) a later forecast
+            # can use feeds the forecasters: skip capturing (a full-resolution
+            # feature) on forced / repeated / other calls and from the last
+            # cacheable step on.
+            feeds = (new_step or branch_step) and compatible and state.feeds_forecasts
             if feature_cache and feeds:
                 capture_local = dit.final_layer._forge_spectrum_local
                 capture_local.state = state

@@ -221,6 +221,63 @@ def test_small_or_single_step_passes_fall_back():
     assert "512x384" in model.p.extra_generation_params[CONFLICT_METADATA_KEY]
 
 
+def _process_with_transformer_options(transformer_options):
+    unet = SimpleNamespace(controlnet_linked_list=None, model_options={"transformer_options": transformer_options})
+    return SimpleNamespace(extra_generation_params={}, sd_model=SimpleNamespace(forge_objects=SimpleNamespace(unet=unet)))
+
+
+def test_the_aligned_sigma_is_published_as_sampling_sigmas_for_the_run():
+    # The LoRA Stage Scheduler and artist windows read a model call's
+    # progress from Forge's sampling_sigmas: the switch step's aligned sigma
+    # must map to its own step, not an earlier one of the original schedule.
+    from modules.anima_lora_support import sigma_progress
+
+    sigmas = _anima_sigmas(30)
+    options = {"sampling_sigmas": sigmas}
+    process = _process_with_transformer_options(options)
+    progress = []
+
+    class ProgressModel(_RecordingModel):
+        def __call__(self, x, sigma, **extra_args):
+            progress.append(sigma_progress(sigma, options["sampling_sigmas"]))
+            return super().__call__(x, sigma, **extra_args)
+
+    speed.sample_anima_speed(ProgressModel(process), _noise(1, 4, 128, 128), sigmas, disable=True)
+
+    plan, _ = speed.plan_speed(sigmas.tolist(), 128, 128)
+    assert 0 < plan.step < 30
+    assert progress == pytest.approx([k / 30 for k in range(30)])
+    assert options["sampling_sigmas"] is sigmas
+
+
+@pytest.mark.parametrize("published", [True, False])
+def test_sampling_sigmas_are_restored_after_an_interrupt(monkeypatch, published):
+    fake_shared = SimpleNamespace(state=SimpleNamespace(current_latent=None))
+    monkeypatch.setitem(sys.modules, "modules.shared", fake_shared)
+    monkeypatch.setattr(modules, "shared", fake_shared, raising=False)
+    sigmas = _anima_sigmas(10)
+    plan, _ = speed.plan_speed(sigmas.tolist(), 128, 128)
+    options = {"sampling_sigmas": sigmas} if published else {}
+    seen = []
+
+    class Interrupted(Exception):
+        pass
+
+    class InterruptedModel(_RecordingModel):
+        def __call__(self, x, sigma, **extra_args):
+            seen.append(float(options["sampling_sigmas"][plan.step]))
+            if len(seen) > plan.step:
+                raise Interrupted
+            return super().__call__(x, sigma, **extra_args)
+
+    with pytest.raises(Interrupted):
+        speed.sample_anima_speed(InterruptedModel(_process_with_transformer_options(options)), _noise(1, 4, 128, 128), sigmas, disable=True)
+
+    assert seen == pytest.approx([plan.aligned_sigma] * (plan.step + 1))
+    assert options == ({"sampling_sigmas": sigmas} if published else {})
+    assert not published or options["sampling_sigmas"] is sigmas
+
+
 def test_interrupt_in_the_coarse_stage_leaves_a_full_size_latent(monkeypatch):
     state = SimpleNamespace(current_latent=None)
     fake_shared = SimpleNamespace(state=state)

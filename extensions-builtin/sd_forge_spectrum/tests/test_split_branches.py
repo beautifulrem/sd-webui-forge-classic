@@ -1,5 +1,6 @@
 """Forge splits cond and uncond into separate model calls when they do not fit
-one batch: two wrapper calls per sigma, cond-only then uncond-only."""
+one batch: two wrapper calls per sigma, uncond-only then cond-only
+(``calc_cond_uncond_batch`` reverses its batch order to [1, 0])."""
 
 import pathlib
 import sys
@@ -14,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 from lib_spectrum.forecaster import SpectrumNode
 
 STEPS = 10
+UNCOND_FIRST = (1, 0)
 
 
 class _FakePatcher:
@@ -29,7 +31,7 @@ class _FakePatcher:
         self.wrapper = wrapper
 
 
-def _run_split(policy):
+def _patch(policy):
     process = SimpleNamespace()
     patcher = SpectrumNode.patch(
         _FakePatcher(), steps=STEPS, weight=1.0, degree=1, lam=1e-6, window_size=2,
@@ -38,48 +40,90 @@ def _run_split(policy):
         compat_policy=policy, verbose=False, sea_cache_dir="unused",
         sea_cache_context={}, process=process,
     )
-    state = process._spectrum_states[0]
+    return patcher, process._spectrum_states[0]
+
+
+def _trend(branch, step):
+    return (1.0 + branch) * step  # a linear trend per branch
+
+
+CONTEXTS = {0: torch.ones(1, 4, 8), 1: torch.zeros(1, 4, 8)}
+
+
+def _sigma(step):
+    return torch.tensor([1.0 - step * 0.09])
+
+
+def _run_split(policy, calls_per_step=1):
+    patcher, state = _patch(policy)
     actual = {0: [], 1: []}
     outputs = {0: [], 1: []}
     forecaster_keys = []
-    contexts = {0: torch.ones(1, 4, 8), 1: torch.zeros(1, 4, 8)}
 
     for step in range(STEPS):
-        sigma = torch.tensor([1.0 - step * 0.09])
-        for branch in (0, 1):
+        # calls_per_step > 1 repeats the pair at the same sigma (a second
+        # model evaluation of the step), which must not be a new branch step.
+        for repeat in range(calls_per_step):
+            for branch in UNCOND_FIRST:
 
-            def model_function(x, timestep, branch=branch, step=step, **_kwargs):
-                actual[branch].append(step)
-                return torch.full_like(x, (1.0 + branch) * step)  # a linear trend per branch
+                def model_function(x, timestep, branch=branch, step=step, repeat=repeat, **_kwargs):
+                    actual[branch].append(step if repeat == 0 else (step, repeat))
+                    return torch.full_like(x, _trend(branch, step))
 
-            args = {"input": torch.zeros(1, 1), "timestep": sigma, "c": {"c_crossattn": contexts[branch]}, "cond_or_uncond": [branch]}
-            outputs[branch].append(patcher.wrapper(model_function, args))
+                args = {"input": torch.zeros(1, 1), "timestep": _sigma(step), "c": {"c_crossattn": CONTEXTS[branch]}, "cond_or_uncond": [branch]}
+                output = patcher.wrapper(model_function, args)
+                if repeat == 0:
+                    outputs[branch].append(output)
         forecaster_keys.append(sorted(state.forecasters))
     return actual, outputs, forecaster_keys
 
 
+def _batched_actual_steps(policy):
+    patcher, _state = _patch(policy)
+    actual = []
+    for step in range(STEPS):
+
+        def model_function(x, timestep, step=step, **_kwargs):
+            actual.append(step)
+            return torch.cat([torch.full_like(x[:1], _trend(branch, step)) for branch in UNCOND_FIRST])
+
+        context = torch.cat([CONTEXTS[branch] for branch in UNCOND_FIRST])
+        patcher.wrapper(model_function, {"input": torch.zeros(2, 1), "timestep": _sigma(step), "c": {"c_crossattn": context}, "cond_or_uncond": list(UNCOND_FIRST)})
+    return actual
+
+
 class SplitBranchTests(unittest.TestCase):
-    def test_split_calls_forecast_only_the_conditional_branch(self):
+    def test_split_calls_forecast_both_branches_on_the_batched_schedule(self):
         for policy in ("Conservative", "Legacy / fastest"):
             with self.subTest(policy=policy):
                 actual, outputs, forecaster_keys = _run_split(policy)
 
-                # The uncond call is never a new step: Conservative forces it
-                # actual, and Legacy has no forecaster for branch 1 (dropped at
-                # each new cond-only step, never fed by a repeated-sigma call).
-                self.assertEqual(actual[1], list(range(STEPS)))
-                # (The tail step, STEPS - 1, forecasts nothing and frees the history.)
-                self.assertTrue(all(keys == [0] for keys in forecaster_keys[3 : STEPS - 1]), forecaster_keys)
-                self.assertEqual(forecaster_keys[STEPS - 1], [])
-
-                cached = [step for step in range(STEPS) if step not in actual[0]]
-                self.assertTrue(cached, actual[0])
+                # Each branch's first call at a sigma feeds its own forecaster,
+                # so both are forecast, on the steps one CFG batch would be.
+                self.assertEqual(actual[0], actual[1])
+                self.assertEqual(actual[0], _batched_actual_steps(policy))
                 self.assertEqual(actual[0][:3], [0, 1, 2])  # warmup
                 self.assertIn(STEPS - 1, actual[0])  # tail
-                for step in range(STEPS):
-                    # Forecast cond outputs continue the cond trend; uncond is the model's own.
-                    torch.testing.assert_close(outputs[0][step], torch.full((1, 1), float(step)), rtol=0, atol=1e-3)
-                    torch.testing.assert_close(outputs[1][step], torch.full((1, 1), 2.0 * step))
+                self.assertTrue([step for step in range(STEPS) if step not in actual[0]], actual[0])
+                self.assertTrue(all(keys == [0, 1] for keys in forecaster_keys[:STEPS - 1]), forecaster_keys)
+                # (The tail step, STEPS - 1, forecasts nothing and frees the history.)
+                self.assertEqual(forecaster_keys[STEPS - 1], [])
+                for branch in UNCOND_FIRST:
+                    for step in range(STEPS):
+                        # Forecasts continue each branch's own trend.
+                        torch.testing.assert_close(outputs[branch][step], torch.full((1, 1), _trend(branch, step)), rtol=0, atol=1e-3)
+
+    def test_repeated_split_calls_at_a_sigma_run_actual_without_feeding_history(self):
+        # Conservative: a branch's later calls at the same sigma are repeats
+        # (e.g. a second model evaluation), actual and not recorded again.
+        actual, outputs, _keys = _run_split("Conservative", calls_per_step=2)
+        single, _outputs, _keys = _run_split("Conservative")
+
+        for branch in UNCOND_FIRST:
+            self.assertEqual([step for step in actual[branch] if isinstance(step, int)], single[branch])
+            self.assertEqual([step for step in actual[branch] if not isinstance(step, int)], [(step, 1) for step in range(STEPS)])
+            for step in range(STEPS):
+                torch.testing.assert_close(outputs[branch][step], torch.full((1, 1), _trend(branch, step)), rtol=0, atol=1e-3)
 
 
 if __name__ == "__main__":

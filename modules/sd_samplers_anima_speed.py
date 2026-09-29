@@ -154,6 +154,10 @@ def plan_speed(sigmas: list[float], height: int, width: int) -> tuple[SpeedPlan 
     return SpeedPlan(size, step, sigmas[step], aligned_sigma, kappa), None
 
 
+def _unet(process):
+    return getattr(getattr(getattr(process, "sd_model", None), "forge_objects", None), "unet", None)
+
+
 def fallback_reason(model, sigmas: list[float]) -> str | None:
     """Why this pass cannot run at a reduced resolution, if it cannot.
 
@@ -170,7 +174,7 @@ def fallback_reason(model, sigmas: list[float]) -> str | None:
     for feature in (FREEFUSE, REGIONAL, ARTIST_MIXER):
         if is_feature_active(process, feature):
             return feature
-    unet = getattr(getattr(getattr(process, "sd_model", None), "forge_objects", None), "unet", None)
+    unet = _unet(process)
     if getattr(unet, "controlnet_linked_list", None) is not None:
         return "ControlNet"
     options = getattr(unet, "model_options", None) or {}
@@ -189,6 +193,40 @@ def fallback_reason(model, sigmas: list[float]) -> str | None:
     if dynamic_args.ref_latents:
         return "reference latents"
     return None
+
+
+_UNSET = object()
+
+
+def _publish_run_sigmas(process, sigmas: torch.Tensor, plan: SpeedPlan) -> tuple[dict, object] | None:
+    """Put the aligned sigma into Forge's ``sampling_sigmas``: progress readers
+    (LoRA Stage Scheduler, context windows, ...) locate each model call's sigma
+    in it, and the switch step's aligned sigma sits nearer an earlier step of
+    the original schedule. Returns what :func:`_restore_sampling_sigmas` needs."""
+
+    options = getattr(_unet(process), "model_options", None)
+    transformer_options = options.get("transformer_options") if isinstance(options, dict) else None
+    if not isinstance(transformer_options, dict):
+        return None
+    original = transformer_options.get("sampling_sigmas", _UNSET)
+    if isinstance(original, torch.Tensor) and original.ndim == 1 and len(original) >= len(sigmas):
+        published = original.clone()
+    else:
+        published = sigmas.clone()
+    # Forge publishes the whole schedule; a pass running only its tail ends with it.
+    published[len(published) - len(sigmas) + plan.step] = plan.aligned_sigma
+    transformer_options["sampling_sigmas"] = published
+    return transformer_options, original
+
+
+def _restore_sampling_sigmas(published: tuple[dict, object] | None) -> None:
+    if published is None:
+        return
+    transformer_options, original = published
+    if original is _UNSET:
+        transformer_options.pop("sampling_sigmas", None)
+    else:
+        transformer_options["sampling_sigmas"] = original
 
 
 def _resize(latent: torch.Tensor, size: tuple[int, int]) -> torch.Tensor:
@@ -242,6 +280,7 @@ def sample_anima_speed(model, x, sigmas, extra_args=None, callback=None, disable
     run_sigmas = sigmas.clone()
     run_sigmas[plan.step] = plan.aligned_sigma
 
+    published = _publish_run_sigmas(process, sigmas, plan)
     try:
         for i in trange(total, disable=disable):
             if i == plan.step:
@@ -261,4 +300,6 @@ def sample_anima_speed(model, x, sigmas, extra_args=None, callback=None, disable
         # still the coarse stage's last. The helper checks the shape itself.
         _publish_full_size_latent(full_size)
         raise
+    finally:
+        _restore_sampling_sigmas(published)
     return sample

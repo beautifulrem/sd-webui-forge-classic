@@ -19,7 +19,9 @@ Base, img2img and Hires passes use their actual, independent step count (img2img
 counts only the steps its denoising strength runs), sampler and CFG values when building the forecast and SEA calibration state.
 
 `Conservative` is the default compatibility policy. It forecasts only simple
-one-branch or standard two-branch Forge CFG batches, invalidates history when
+one-branch or standard two-branch Forge CFG batches (also when low VRAM makes
+Forge run uncond and cond as separate calls: both branches are forecast on the
+same steps), invalidates history when
 the latent shape or text conditioning changes, and refuses unknown model
 wrappers. `Strict` currently keeps every step actual because Forge does not
 expose stable per-conditioning UUIDs, so Spectrum is not installed at all
