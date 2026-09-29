@@ -83,13 +83,24 @@ class FrequencyDecoupledGuidanceTests(unittest.TestCase):
         expected = uncond + scale * (cond - uncond)
         self.assertTrue(torch.allclose(actual, expected, atol=1e-6))
 
-    def test_detail_scale_changes_nonconstant_signal(self):
-        cond = torch.zeros(1, 1, 4, 4)
-        cond[..., ::2, ::2] = 1.0
-        uncond = torch.zeros_like(cond)
-        self.assertFalse(
-            torch.equal(fdg_combine(cond, uncond, 4.0, 1.0), fdg_combine(cond, uncond, 4.0, 4.0))
-        )
+    def test_constant_delta_is_all_low_band(self):
+        # A constant survives the 2x2 average pool and the bilinear upsample
+        # unchanged, so it has no detail band: the detail scale is inert.
+        uncond = torch.randn(1, 4, 4, 6)
+        cond = uncond + 0.5
+        expected = uncond + 4.0 * 0.5
+        for detail in (0.0, 1.0, 9.0):
+            self.assertTrue(torch.allclose(fdg_combine(cond, uncond, 4.0, detail), expected, atol=1e-6))
+
+    def test_zero_mean_checkerboard_delta_is_all_detail_band(self):
+        # Every aligned 2x2 block of the checkerboard averages to zero, so its
+        # low band is zero and the whole delta is guided by the detail scale.
+        uncond = torch.randn(1, 4, 4, 6)
+        delta = torch.tensor([[1.0, -1.0], [-1.0, 1.0]]).repeat(2, 3)
+        cond = uncond + delta
+        for detail in (0.0, 1.0, 9.0):
+            actual = fdg_combine(cond, uncond, 4.0, detail)
+            self.assertTrue(torch.allclose(actual, uncond + detail * delta, atol=1e-6))
 
     def test_default_detail_scale_is_above_cfg(self):
         # The paper / reference guide the high band harder than the low band
@@ -355,6 +366,42 @@ class GuidanceRangeTests(unittest.TestCase):
         base = {"input": x, "cond_denoised": cond, "uncond_denoised": uncond, "cond_scale": 4.0}
         self.assertTrue(torch.equal(hook({**base, "sigma": torch.tensor([0.5])}), torch.full_like(x, 5.0)))
         self.assertTrue(torch.equal(hook({**base, "sigma": torch.tensor([0.9])}), x - cond))
+
+    def test_full_window_matches_forge_default_combine_with_and_prompt_weights(self):
+        # AND sub-prompt weights summing to 1.5: Forge's default combine
+        # multiplies the guidance by that sum (edit_strength).
+        from backend.sampling.sampling_function import sampling_function_inner
+
+        torch.manual_seed(5)
+        x = torch.randn(1, 4, 8, 8)
+        cond_value, uncond_value = torch.randn_like(x), torch.randn_like(x)
+
+        class Model:
+            apply_model = None  # the wrapper below replaces it
+
+            def memory_required(self, shape):
+                return 0
+
+        def model_wrapper(apply_model, args):
+            return torch.cat([cond_value if kind == 0 else uncond_value for kind in args["cond_or_uncond"]])
+
+        cond = [{"model_conds": {}, "strength": 0.7}, {"model_conds": {}, "strength": 0.8}]
+        uncond = [{"model_conds": {}}]
+
+        def run(**options):
+            return sampling_function_inner(
+                Model(), x, torch.tensor([0.5]), uncond, cond, 4.0,
+                model_options={"model_function_wrapper": model_wrapper, **options},
+            )
+
+        expected = run()
+        self.assertTrue(torch.allclose(expected, uncond_value + (cond_value - uncond_value) * 4.0 * 1.5))
+        ranged = make_guidance_range_cfg_function(None, sigma_start=1.0, sigma_end=0.0)
+        actual = run(
+            sampler_cfg_function=ranged,
+            sampler_pre_cfg_function=[make_guidance_range_uncond_skip(ranged)],
+        )
+        self.assertTrue(torch.allclose(actual, expected, atol=1e-5))
 
 
     def test_cfg_one_does_not_need_the_unconditional_prediction(self):

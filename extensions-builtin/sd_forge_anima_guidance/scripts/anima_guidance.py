@@ -338,7 +338,7 @@ def _cfg_mode_function(p, args: SimpleNamespace, previous):
     """The combine hook of the selected CFG mode; ``previous`` for Standard."""
 
     mode = args.guidance_mode
-    if mode == SMC_GUIDANCE and float(args.smc_alpha) > 0.0:
+    if mode == SMC_GUIDANCE:
         cfg_function = make_smc_cfg_function(
             register_stateful_guidance(p, SMCCFGState(lam=float(args.smc_lambda), alpha=float(args.smc_alpha))),
             process=process_ref(p),
@@ -377,14 +377,11 @@ def _cfg_mode_function(p, args: SimpleNamespace, previous):
     return previous
 
 
-def _install_cfg_hooks(p, args: SimpleNamespace, unet, predictor) -> None:
+def _install_cfg_hooks(p, args: SimpleNamespace, unet, predictor, cfg_mode_enabled: bool) -> None:
     """The CFG combine mode, wrapped by Skimmed CFG, the CFG range and zero-init."""
 
     mode = args.guidance_mode
-    smc_enabled = mode == SMC_GUIDANCE and float(args.smc_alpha) > 0.0
     fdg_enabled = mode == FDG_GUIDANCE
-    cfg_zero_enabled = mode == CFG_ZERO_STAR_GUIDANCE
-    apg_enabled = mode == APG_GUIDANCE
     previous = unet.model_options.get("sampler_cfg_function")
     active_cfg_function = _cfg_mode_function(p, args, previous)
     if previous is not None and active_cfg_function is not previous:
@@ -416,7 +413,7 @@ def _install_cfg_hooks(p, args: SimpleNamespace, unet, predictor) -> None:
         _record(p, "guidance_range_start", float(args.guidance_range_start))
         _record(p, "guidance_range_end", float(args.guidance_range_end))
 
-    zero_init_steps = max(0, int(args.cfg_zero_init_steps)) if cfg_zero_enabled else 0
+    zero_init_steps = max(0, int(args.cfg_zero_init_steps)) if mode == CFG_ZERO_STAR_GUIDANCE else 0
     if zero_init_steps > 0:
         # Outermost, so zero-init sees every sigma of the pass (the CFG
         # range does not call its inner hook outside its window). It
@@ -444,7 +441,7 @@ def _install_cfg_hooks(p, args: SimpleNamespace, unet, predictor) -> None:
         # Spectrum must neither forecast nor learn from those steps.
         spectrum_force.request(unet, zero_init_state.would_zero_init)
 
-    if smc_enabled or fdg_enabled or cfg_zero_enabled or apg_enabled or args.skim_enable or args.guidance_range_enable:
+    if cfg_mode_enabled or args.skim_enable or args.guidance_range_enable:
         # At CFG 1 Skimmed CFG, SMC-CFG, CFG-Zero*, APG and the CFG range all
         # reduce to the conditional prediction (CFG-Zero*'s zero-init reads
         # neither), so only FDG (whose detail band still guides there) keeps
@@ -903,12 +900,9 @@ class AnimaGuidanceScript(scripts.Script):
         args.guidance_mode = conflict_state.mode
         args.momentum_enable = conflict_state.momentum
         args.dcw_enable = conflict_state.dcw
-        mode = args.guidance_mode
-        cfg_mode_enabled = (mode == SMC_GUIDANCE and float(args.smc_alpha) > 0.0) or mode in (
-            FDG_GUIDANCE,
-            CFG_ZERO_STAR_GUIDANCE,
-            APG_GUIDANCE,
-        )
+        # Every mode but Standard installs a combine hook: SMC with alpha <= 0
+        # became Standard above, and the resolver only resets modes to it.
+        cfg_mode_enabled = args.guidance_mode != STANDARD_GUIDANCE
         dcw_enabled = bool(args.dcw_enable) and not math.isclose(float(args.dcw_lambda), 0.0)
         if not args.enable or not _is_anima(p):
             return
@@ -941,7 +935,7 @@ class AnimaGuidanceScript(scripts.Script):
         predictor = unet.model.predictor
         if args.nag_enable:
             _install_nag(p, args, unet, predictor)
-        _install_cfg_hooks(p, args, unet, predictor)
+        _install_cfg_hooks(p, args, unet, predictor, cfg_mode_enabled)
         # resolve_guidance_conflicts() already dropped Momentum for unsupported
         # samplers and every mode but Standard CFG (or reset the mode to
         # Standard when Momentum was the last switch), and recorded why.

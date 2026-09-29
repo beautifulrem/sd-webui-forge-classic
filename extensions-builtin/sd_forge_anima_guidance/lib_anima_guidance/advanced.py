@@ -21,9 +21,11 @@ def sigma_broadcast(value, reference: torch.Tensor):
 
 
 def standard_cfg_residual(args) -> torch.Tensor:
+    """Forge's default combine, including its AND-prompt weight sum."""
+
     cond = args["cond_denoised"]
     uncond = args["uncond_denoised"]
-    denoised = uncond + (cond - uncond) * float(args["cond_scale"])
+    denoised = uncond + (cond - uncond) * float(args["cond_scale"]) * float(args.get("edit_strength", 1.0))
     return args["input"] - denoised
 
 
