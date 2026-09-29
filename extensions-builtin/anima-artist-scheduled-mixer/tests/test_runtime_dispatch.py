@@ -354,9 +354,12 @@ def test_process_registers_the_artists_of_the_passes_that_run():
     assert "Anima Artist Mixer" not in p.extra_generation_params  # reported once, at sampling
 
     # The hires pass samples with its own rows only when they are independent
-    run = mixer._resolve_run_rows(_run_p(), _run_args(enable_hires_rows=True), True)
+    run = mixer._resolve_run_rows(_run_p(), mixer._MixerArgs.from_args(_run_args(enable_hires_rows=True)), True)
     assert run[3][0][1] == "hires artist"
-    assert mixer._resolve_run_rows(_run_p(), _run_args(), True)[3][0][1] == "(base artist:-1)"
+    assert mixer._resolve_run_rows(_run_p(), mixer._MixerArgs.from_args(_run_args()), True)[3][0][1] == "(base artist:-1)"
+    # A caller without the whole header runs nothing
+    assert mixer._MixerArgs.from_args(_run_args()[:12]) is None
+    assert mixer._resolve_run_rows(_run_p(), None, False) is None
 
 
 def test_conditioning_cache_key_follows_the_text_encoder_patches(monkeypatch):

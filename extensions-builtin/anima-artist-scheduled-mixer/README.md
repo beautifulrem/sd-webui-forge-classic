@@ -32,7 +32,7 @@ Each row is intended to hold one artist prompt. This gives separate control over
 
 ## Settings And Templates
 
-Changing any main control updates `artist_mixer_current_settings.json` locally. That file lives in `<data dir>/extension-data/anima-artist-scheduled-mixer/` (next to the saved templates, `artist_mixer_templates.json`), not in the extension folder, and is used only to restore your last UI state after a refresh or restart.
+Changing any main control (a text field once you leave it or press Enter) updates that tab's `artist_mixer_current_settings_txt2img.json` or `artist_mixer_current_settings_img2img.json` locally, so txt2img and img2img each keep their own panel. These files live in `<data dir>/extension-data/anima-artist-scheduled-mixer/` (next to the saved templates, `artist_mixer_templates.json`), not in the extension folder, and are used only to restore your last UI state after a refresh or restart. A tab without its own file yet starts from the `artist_mixer_current_settings.json` earlier versions shared between both tabs.
 
 Use `Reset all to defaults` to clear the local current-settings file and restore the built-in defaults. Template files are not deleted by reset.
 

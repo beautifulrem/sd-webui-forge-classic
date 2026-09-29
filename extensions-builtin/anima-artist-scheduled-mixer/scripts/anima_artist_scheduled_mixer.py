@@ -47,8 +47,23 @@ _DATA_NAME = "anima-artist-scheduled-mixer"
 _TEMPLATES = TemplateStore(_DATA_NAME, "artist_mixer_templates.json", seed=EXTENSION_DIR / "artist_mixer_templates.json")
 
 
-def _current_settings_file():
-    return data_file(_DATA_NAME, "artist_mixer_current_settings.json", seed=EXTENSION_DIR / "artist_mixer_current_settings.json")
+_SHARED_SETTINGS_NAME = "artist_mixer_current_settings.json"
+SETTINGS_TABS = ("txt2img", "img2img")
+
+
+def _settings_tab(tab):
+    """The tab whose remembered panel ``tab`` (a Script's tabname) reads and writes."""
+    return tab if tab in SETTINGS_TABS else SETTINGS_TABS[0]
+
+
+def _current_settings_file(tab):
+    """Each tab remembers its own panel. Earlier versions kept one file for
+    both: a tab without its own file yet starts from that one. A reset
+    empties the tab's file instead of deleting it, so this happens once."""
+    shared = data_file(_DATA_NAME, _SHARED_SETTINGS_NAME, seed=EXTENSION_DIR / _SHARED_SETTINGS_NAME)
+    return data_file(_DATA_NAME, f"artist_mixer_current_settings_{_settings_tab(tab)}.json", seed=shared)
+
+
 REFERENCE_URL = "https://github.com/An1X3R/Anima-Artist-Mixer"
 
 LANGUAGE_OPTION = "anima_artist_scheduled_mixer_language"
@@ -93,6 +108,42 @@ TABLE_HEADERS = [
 ]
 # Components per artist row; a panel (base or hires) has MAX_ARTIST_ROWS rows
 ROW_WIDTH = len(TABLE_HEADERS)
+
+
+@dataclass(frozen=True)
+class _MixerArgs:
+    """The script args: the HEADER_ARGS controls ui() returns first, then the
+    base and the hires row components (``component_values``)."""
+
+    enable: object
+    base_row_count: object
+    hires_row_count: object
+    hires_independent: object
+    disable_hires_mixing: object
+    runtime_base_shift: object
+    runtime_hires_shift: object
+    global_strength: object
+    optimization: object
+    combine_mode: object
+    fusion_mode: object
+    apply_uncond: object
+    enable_cache: object
+    component_values: tuple = ()
+
+    @classmethod
+    def from_args(cls, args):
+        """None when ``args`` does not hold the whole header."""
+        if len(args) < len(HEADER_ARGS):
+            return None
+        return cls(*args[: len(HEADER_ARGS)], component_values=tuple(args[len(HEADER_ARGS) :]))
+
+    def row_values(self, hires):
+        """Component values of the base or the ``hires`` rows."""
+        size = MAX_ARTIST_ROWS * ROW_WIDTH
+        return self.component_values[size : size * 2] if hires else self.component_values[:size]
+
+
+HEADER_ARGS = tuple(name for name in _MixerArgs.__dataclass_fields__ if name != "component_values")
 
 
 OPTION_LABELS = {
@@ -890,35 +941,37 @@ def _builtin_default_ui_state(lang):
     }
 
 
-def _current_settings_data():
+def _current_settings_data(tab):
     try:
-        return read_json_object(_current_settings_file()) or None
+        return read_json_object(_current_settings_file(tab)) or None
     except UnreadableDataFile:
         logger.exception("Failed to load Anima artist mixer current settings")
         return None
 
 
-# The payload last written to the current-settings file (None: unknown / deleted),
-# so generations with an unchanged panel skip the write and its fsync.
-_LAST_REMEMBERED_SETTINGS = None
+# Per tab, the payload last written to its current-settings file (missing:
+# unknown / reset), so generations with an unchanged panel skip the write and its fsync.
+_LAST_REMEMBERED_SETTINGS = {}
 
 
-def _save_current_settings_data(data):
-    global _LAST_REMEMBERED_SETTINGS
+def _save_current_settings_data(tab, data):
+    tab = _settings_tab(tab)
     try:
         # An interrupted or concurrent write must not leave truncated JSON
         # that silently resets the panel.
-        write_json_atomic(_current_settings_file(), data)
-        _LAST_REMEMBERED_SETTINGS = data
+        write_json_atomic(_current_settings_file(tab), data)
+        _LAST_REMEMBERED_SETTINGS[tab] = data
     except Exception:
         logger.exception("Failed to save Anima artist mixer current settings")
 
 
-def _delete_current_settings_data():
-    global _LAST_REMEMBERED_SETTINGS
-    _LAST_REMEMBERED_SETTINGS = None
+def _delete_current_settings_data(tab):
+    tab = _settings_tab(tab)
+    _LAST_REMEMBERED_SETTINGS.pop(tab, None)
     try:
-        _current_settings_file().unlink(missing_ok=True)
+        # Emptied rather than deleted: a missing file would be seeded again
+        # from the settings earlier versions shared between the tabs.
+        write_json_atomic(_current_settings_file(tab), {})
     except Exception:
         logger.exception("Failed to delete Anima artist mixer current settings")
 
@@ -958,8 +1011,8 @@ def _state_from_current_settings(data, lang):
     }
 
 
-def _initial_ui_defaults(lang):
-    current = _state_from_current_settings(_current_settings_data(), lang)
+def _initial_ui_defaults(tab, lang):
+    current = _state_from_current_settings(_current_settings_data(tab), lang)
     return current if current is not None else _builtin_default_ui_state(lang)
 
 
@@ -1010,10 +1063,10 @@ def _current_settings_payload(
     }
 
 
-def _save_current_settings_ui(*values):
+def _save_current_settings_ui(tab, *values):
     payload = _current_settings_payload(*values)
-    if payload != _LAST_REMEMBERED_SETTINGS:
-        _save_current_settings_data(payload)
+    if payload != _LAST_REMEMBERED_SETTINGS.get(_settings_tab(tab)):
+        _save_current_settings_data(tab, payload)
 
 
 def _same_value(value):
@@ -1035,52 +1088,40 @@ def _should_remember_settings(p) -> bool:
     return True
 
 
-def _save_runtime_current_settings(
-    enable,
-    base_row_count,
-    hires_row_count,
-    hires_independent,
-    disable_hires_mixing,
-    runtime_base_shift,
-    runtime_hires_shift,
-    global_strength,
-    optimization,
-    combine_mode,
-    fusion_mode,
-    apply_uncond,
-    enable_cache,
-    *component_values,
-):
+def _save_runtime_current_settings(tab, args):
+    """Remember ``args`` (a generation's _MixerArgs) as ``tab``'s panel."""
+    tab = _settings_tab(tab)
     try:
         payload = _current_settings_payload(
-            enable,
+            args.enable,
             "",
             APPLY_BASE,
-            base_row_count,
-            hires_row_count,
-            hires_independent,
-            disable_hires_mixing,
-            runtime_base_shift,
-            runtime_hires_shift,
-            global_strength,
-            optimization,
-            combine_mode,
-            fusion_mode,
-            apply_uncond,
-            enable_cache,
-            *component_values,
+            args.base_row_count,
+            args.hires_row_count,
+            args.hires_independent,
+            args.disable_hires_mixing,
+            args.runtime_base_shift,
+            args.runtime_hires_shift,
+            args.global_strength,
+            args.optimization,
+            args.combine_mode,
+            args.fusion_mode,
+            args.apply_uncond,
+            args.enable_cache,
+            *args.component_values,
         )
         # A generation does not know the template dropdown: keep the one the
         # user saved with "Save current settings".
-        saved = _LAST_REMEMBERED_SETTINGS or _current_settings_data()
+        last = _LAST_REMEMBERED_SETTINGS.get(tab)
+        saved = last or _current_settings_data(tab)
         if isinstance(saved, dict):
             for field_name in ("template_name", "template_target"):
                 if field_name in saved:
                     payload[field_name] = saved[field_name]
         # Unchanged since the last successful save: skip the write.
-        if payload == _LAST_REMEMBERED_SETTINGS:
+        if payload == last:
             return
-        _save_current_settings_data(payload)
+        _save_current_settings_data(tab, payload)
     except Exception:
         logger.exception("Failed to save Anima artist mixer runtime settings")
 
@@ -1088,6 +1129,20 @@ def _save_runtime_current_settings(
 def _do_not_save_to_ui_config(*components):
     for component in components:
         setattr(component, "do_not_save_to_config", True)
+
+
+def _autosave_triggers(components):
+    """Events that save the panel: a textbox's .change fires per keystroke,
+    so it saves when its edit is done (blur, Enter). The other controls
+    change in discrete steps: a Number field's few characters (Gradio 4.40
+    has no Number.blur) and the timings the Shift and Stage handlers write."""
+    triggers = []
+    for component in components:
+        if isinstance(component, gr.Textbox):
+            triggers.extend((component.blur, component.submit))
+        else:
+            triggers.append(component.change)
+    return triggers
 
 
 def _internal_event_kwargs():
@@ -1121,8 +1176,8 @@ def _default_state_updates(lang=None, status_text=None):
     )
 
 
-def _reset_all_defaults_ui():
-    _delete_current_settings_data()
+def _reset_all_defaults_ui(tab):
+    _delete_current_settings_data(tab)
     return _default_state_updates()
 
 
@@ -1730,13 +1785,12 @@ _MAX_ARTISTS = {OPT_PERFORMANCE: 6, OPT_BALANCE: 10, OPT_QUALITY: 16}
 
 
 def _resolve_run_rows(p, args, hires, report=True):
-    """``(dm, unet, shift, rows)`` the Mixer runs with on the base or the
-    ``hires`` pass, or None when it does not run there: disabled, yielding to
-    FreeFuse/Regional, hires mixing off, an ADetailer inner run or no Anima
-    model. ``report`` notes why in the infotext and the log."""
-    if len(args) < 13 or not args[0]:
+    """``(dm, unet, shift, rows)`` the Mixer runs with (``args``: _MixerArgs)
+    on the base or the ``hires`` pass, or None when it does not run there:
+    disabled, yielding to FreeFuse/Regional, hires mixing off, an ADetailer
+    inner run or no Anima model. ``report`` notes why in the infotext and the log."""
+    if args is None or not args.enable:
         return None
-    base_row_count, hires_row_count, hires_independent, disable_hires_mixing, runtime_base_shift, runtime_hires_shift, _strength, optimization = args[1:9]
     owner = next((feature for feature in (FREEFUSE, REGIONAL) if is_feature_active(p, feature)), None)
     if owner is not None:
         if report:
@@ -1744,7 +1798,7 @@ def _resolve_run_rows(p, args, hires, report=True):
             p.extra_generation_params["Anima Artist Mixer"] = message
             logger.warning("Anima Artist Mixer %s", message)
         return None
-    if hires and bool(disable_hires_mixing):
+    if hires and bool(args.disable_hires_mixing):
         return None
     if getattr(p, "_ad_inner", False):
         return None
@@ -1757,10 +1811,10 @@ def _resolve_run_rows(p, args, hires, report=True):
         if report:
             logger.warning("Anima artist mixer disabled: %s", msg)
         return None
-    own_rows = hires and hires_independent
-    shift = _runtime_shift_from_processing(p, runtime_hires_shift if own_rows else runtime_base_shift, hires)
-    values = args[13:][MAX_ARTIST_ROWS * ROW_WIDTH : MAX_ARTIST_ROWS * ROW_WIDTH * 2] if own_rows else args[13:][: MAX_ARTIST_ROWS * ROW_WIDTH]
-    rows = _active_rows_from_components(hires_row_count if own_rows else base_row_count, shift, optimization, *values, display=False)
+    own_rows = hires and args.hires_independent
+    shift = _runtime_shift_from_processing(p, args.runtime_hires_shift if own_rows else args.runtime_base_shift, hires)
+    row_count = args.hires_row_count if own_rows else args.base_row_count
+    rows = _active_rows_from_components(row_count, shift, args.optimization, *args.row_values(own_rows), display=False)
     return dm, unet, shift, rows
 
 
@@ -1791,7 +1845,7 @@ class Script(scripts.Script):
 
     def ui(self, is_img2img):
         lang = _language()
-        defaults = _initial_ui_defaults(lang)
+        defaults = _initial_ui_defaults(self.tabname, lang)
         intro_default_choice = _language_choice(lang)
         table_css = f"""
         <style>
@@ -1936,22 +1990,21 @@ class Script(scripts.Script):
         )
         # User edits only (.input): a template or a reset writing these
         # controls brings its own rows, which .change would rewrite.
-        optimization.input(
-            fn=_apply_optimization_to_block_timing_components,
-            inputs=[base_row_count, base_shift_input, optimization, *base_row_components],
-            outputs=_row_outputs(base_row_components, (3, 4, 5, 6)),
-            queue=False,
-            show_progress=False,
-            **_internal_event_kwargs(),
-        )
-        optimization.input(
-            fn=_apply_optimization_to_block_timing_components,
-            inputs=[hires_row_count, hires_shift_input, optimization, *hires_row_components],
-            outputs=_row_outputs(hires_row_components, (3, 4, 5, 6)),
-            queue=False,
-            show_progress=False,
-            **_internal_event_kwargs(),
-        )
+        # Handlers writing the Artist/Blocks textboxes: the autosave follows them.
+        text_writers = [
+            optimization.input(
+                fn=_apply_optimization_to_block_timing_components,
+                inputs=[row_count, shift_input, optimization, *row_components],
+                outputs=_row_outputs(row_components, (3, 4, 5, 6)),
+                queue=False,
+                show_progress=False,
+                **_internal_event_kwargs(),
+            )
+            for row_count, shift_input, row_components in (
+                (base_row_count, base_shift_input, base_row_components),
+                (hires_row_count, hires_shift_input, hires_row_components),
+            )
+        ]
         for row_components, row_count, runtime_shift in (
             (base_row_components, base_row_count, base_shift_input),
             (hires_row_components, hires_row_count, hires_shift_input),
@@ -2025,7 +2078,7 @@ class Script(scripts.Script):
         )
         rename_button.click(fn=_rename_template_ui, inputs=[template_dropdown, rename_to], outputs=[template_dropdown, template_status], queue=False, show_progress=False, **_internal_event_kwargs())
         delete_button.click(fn=_delete_template_ui, inputs=[template_dropdown], outputs=[template_dropdown, template_status], queue=False, show_progress=False, **_internal_event_kwargs())
-        template_apply.click(
+        apply_template = template_apply.click(
             fn=_apply_template_ui,
             inputs=[template_dropdown, template_apply_target, base_row_count, hires_row_count, base_shift_input, hires_shift_input, optimization, *base_row_components, *hires_row_components],
             outputs=[
@@ -2049,8 +2102,10 @@ class Script(scripts.Script):
             show_progress=False,
             **_internal_event_kwargs(),
         )
+        text_writers.append(apply_template)
+        # A reset needs no save: the emptied file already restores the defaults.
         reset_defaults_button.click(
-            fn=_reset_all_defaults_ui,
+            fn=partial(_reset_all_defaults_ui, self.tabname),
             inputs=[],
             outputs=[
                 enable,
@@ -2096,18 +2151,25 @@ class Script(scripts.Script):
             *hires_row_components,
         ]
         _do_not_save_to_ui_config(*current_settings_inputs)
-        # Remember the panel as it is edited; "always_last" folds a burst of
-        # changes (typing, applying a template) into one final save.
-        gr.on(
-            triggers=[component.change for component in current_settings_inputs],
-            fn=_save_current_settings_ui,
-            inputs=current_settings_inputs,
-            outputs=None,
-            queue=False,
-            show_progress="hidden",
-            trigger_mode="always_last",
+        # Remember this tab's panel as it is edited; "always_last" folds a
+        # burst of changes (applying a template) into one final save. A
+        # textbox saves once its edit is done (blur, Enter), not per keystroke;
+        # handlers writing the textboxes save after they finish.
+        autosave = {
+            "fn": partial(_save_current_settings_ui, self.tabname),
+            "inputs": current_settings_inputs,
+            "outputs": None,
+            "queue": False,
+            "show_progress": "hidden",
             **_internal_event_kwargs(),
+        }
+        gr.on(
+            triggers=_autosave_triggers(current_settings_inputs),
+            trigger_mode="always_last",
+            **autosave,
         )
+        for writer in text_writers:
+            writer.then(**autosave)
 
         register_preset_control(self.tabname, "artist.enabled", enable)
         register_preset_control(self.tabname, "artist.global_strength", global_strength)
@@ -2132,23 +2194,23 @@ class Script(scripts.Script):
         register_preset_control(self.tabname, "artist.apply_uncond", apply_uncond)
         register_preset_control(self.tabname, "artist.cache", enable_cache)
 
-        return [
-            enable,
-            base_row_count,
-            hires_row_count,
-            hires_independent,
-            disable_hires_mixing,
-            runtime_base_shift,
-            runtime_hires_shift,
-            global_strength,
-            optimization,
-            combine_mode,
-            fusion_mode,
-            apply_uncond,
-            enable_cache,
-            *base_row_components,
-            *hires_row_components,
-        ]
+        # In the order _MixerArgs.from_args reads them back
+        header = {
+            "enable": enable,
+            "base_row_count": base_row_count,
+            "hires_row_count": hires_row_count,
+            "hires_independent": hires_independent,
+            "disable_hires_mixing": disable_hires_mixing,
+            "runtime_base_shift": runtime_base_shift,
+            "runtime_hires_shift": runtime_hires_shift,
+            "global_strength": global_strength,
+            "optimization": optimization,
+            "combine_mode": combine_mode,
+            "fusion_mode": fusion_mode,
+            "apply_uncond": apply_uncond,
+            "enable_cache": enable_cache,
+        }
+        return [*(header[name] for name in HEADER_ARGS), *base_row_components, *hires_row_components]
 
     def process(self, p, *args, **kwargs):
         # Runs before NegPiP's process_batch: let a negative weight in an
@@ -2156,64 +2218,35 @@ class Script(scripts.Script):
         # gating and rows as process_before_every_sampling, for each pass.
         names = []
         passes = [False]
-        if len(args) >= 13 and getattr(p, "enable_hr", False) and args[3]:  # hires rows of its own
+        mixer_args = _MixerArgs.from_args(args)
+        if mixer_args is not None and getattr(p, "enable_hr", False) and mixer_args.hires_independent:  # hires rows of its own
             passes.append(True)
         for hires in passes:
-            run = _resolve_run_rows(p, args, hires, report=False)
+            run = _resolve_run_rows(p, mixer_args, hires, report=False)
             if run is None:
                 continue
             dm, _unet, shift, rows = run
-            names.extend(name for _row, name, _weight, _blocks in _artist_entries(rows, shift, args[8], len(dm.blocks)))
+            names.extend(name for _row, name, _weight, _blocks in _artist_entries(rows, shift, mixer_args.optimization, len(dm.blocks)))
         register_negpip_prompts(p, ARTIST_MIXER, names)
 
     def process_before_every_sampling(self, p, *args, **kwargs):
-        if len(args) < 13:
+        mixer_args = _MixerArgs.from_args(args)
+        if mixer_args is None:
             return
-        (
-            enable,
-            base_row_count,
-            hires_row_count,
-            hires_independent,
-            disable_hires_mixing,
-            runtime_base_shift,
-            runtime_hires_shift,
-            global_strength,
-            optimization,
-            combine_mode,
-            fusion_mode,
-            apply_uncond,
-            enable_cache,
-        ) = args[:13]
-        component_values = args[13:]
         if _should_remember_settings(p):
-            _save_runtime_current_settings(
-                enable,
-                base_row_count,
-                hires_row_count,
-                hires_independent,
-                disable_hires_mixing,
-                runtime_base_shift,
-                runtime_hires_shift,
-                global_strength,
-                optimization,
-                combine_mode,
-                fusion_mode,
-                apply_uncond,
-                enable_cache,
-                *component_values,
-            )
+            _save_runtime_current_settings(self.tabname, mixer_args)
 
         _finish_run_states()
         set_feature_active(p, ARTIST_MIXER, False)
-        run = _resolve_run_rows(p, args, getattr(p, "is_hr_pass", False))
+        run = _resolve_run_rows(p, mixer_args, getattr(p, "is_hr_pass", False))
         if run is None:
             return
         dm, unet, shift, rows = run
-        optimization = _option_key("optimization", optimization, OPT_BALANCE)
-        combine_mode = _option_key("combine", combine_mode, COMBINE_OUTPUT_AVG)
-        fusion_mode = _option_key("fusion", fusion_mode, FUSION_INTERPOLATE)
+        optimization = _option_key("optimization", mixer_args.optimization, OPT_BALANCE)
+        combine_mode = _option_key("combine", mixer_args.combine_mode, COMBINE_OUTPUT_AVG)
+        fusion_mode = _option_key("fusion", mixer_args.fusion_mode, FUSION_INTERPOLATE)
         try:
-            artists = _build_artists(p, _artist_entries(rows, shift, optimization, len(dm.blocks), report=True), bool(enable_cache))
+            artists = _build_artists(p, _artist_entries(rows, shift, optimization, len(dm.blocks), report=True), bool(mixer_args.enable_cache))
         except Exception as exc:
             logger.exception("Failed to encode Anima artist mixer artists: %s", exc)
             return
@@ -2223,10 +2256,10 @@ class Script(scripts.Script):
         state = MixerState(
             run_id=uuid.uuid4().hex,
             enabled=True,
-            global_strength=_clamp(_to_float(global_strength, 0.7), 0.0, strength_limit),
+            global_strength=_clamp(_to_float(mixer_args.global_strength, 0.7), 0.0, strength_limit),
             combine_mode=combine_mode,
             fusion_mode=fusion_mode,
-            apply_uncond=bool(apply_uncond),
+            apply_uncond=bool(mixer_args.apply_uncond),
             artists=artists,
             infotext=p.extra_generation_params,
         )
