@@ -68,9 +68,15 @@ class ChebyshevForecaster:
             del self.times[0]
 
     @torch.no_grad()
-    def predict(self, step: int) -> torch.Tensor:
+    def predict(self, step: int, out: torch.Tensor | None = None) -> torch.Tensor:
+        """The forecast feature at ``step`` in the stored features' dtype,
+        written into ``out`` (e.g. a branch's rows of a batched feature) when
+        given."""
+
         if not self.features:
             raise RuntimeError("Spectrum forecast requested before warmup")
+        if out is not None and tuple(out.shape) != self.shape:
+            raise ValueError(f"Spectrum forecast of shape {self.shape} cannot be written to {tuple(out.shape)}")
         original_dtype = self.features[-1].dtype
         # The ridge system is only (history x degree): solve it on the CPU
         # instead of a dozen tiny GPU kernels plus a readback per branch.
@@ -98,15 +104,36 @@ class ChebyshevForecaster:
             weights = [self.weight * weight for weight in weights]
             weights[-1] += taylor_share * (1.0 + scale)
             weights[-2] -= taylor_share * scale
-        prediction = torch.zeros_like(self.features[-1], dtype=torch.float32)
+        if out is None:
+            out = torch.empty(self.shape, dtype=original_dtype, device=self.features[-1].device)
+        # Accumulate in float32: straight into ``out`` when that is float32,
+        # else in one scratch cast into ``out`` at the end.
+        prediction = out if out.dtype == torch.float32 else torch.empty(self.shape, dtype=torch.float32, device=out.device)
+        prediction.zero_()
         for weight, feature in zip(weights, self.features):
-            prediction.add_(feature, alpha=float(weight))
-        return prediction.to(original_dtype).reshape(self.shape)
+            prediction.add_(feature.reshape(self.shape), alpha=float(weight))
+        if prediction is not out:
+            out.copy_(prediction)
+        return out
 
     def clear(self) -> None:
         self.features.clear()
         self.times.clear()
         self.shape = None
+
+
+def predict_branches(forecasters: Sequence[ChebyshevForecaster], step: int) -> torch.Tensor:
+    """The forecasts of ``forecasters`` (one per branch, in batch order)
+    concatenated along the batch, each written into its rows of one output."""
+
+    latest = forecasters[0].features[-1]
+    rows = [forecaster.shape[0] for forecaster in forecasters]
+    output = torch.empty((sum(rows), *forecasters[0].shape[1:]), dtype=latest.dtype, device=latest.device)
+    start = 0
+    for forecaster, count in zip(forecasters, rows):
+        forecaster.predict(step, out=output[start : start + count])
+        start += count
+    return output
 
 
 def _is_flow_predictor(predictor) -> bool:
@@ -477,8 +504,7 @@ class SpectrumNode:
                 state.mode = "actual"
 
             if state.mode == "cached" and compatible and state.ready(branches):
-                predictions = [state.forecasters[key].predict(state.step) for key in branches]
-                feature = torch.cat(predictions, dim=0)
+                feature = predict_branches([state.forecasters[key] for key in branches], state.step)
                 if feature_cache:
                     result = _fast_forward(dit, predictor, sigma, input_x, feature)
                 else:

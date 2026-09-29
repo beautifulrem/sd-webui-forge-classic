@@ -315,3 +315,68 @@ def test_wrapper_flags_hold_only_along_the_whole_chain():
     assert outer.__spectrum_cache_safe__ and not outer.__resolution_independent__
     unmarked = inherit_wrapper_flags(make(), make())  # a foreign wrapper declares nothing
     assert not any(getattr(unmarked, flag) for flag in WRAPPER_FLAGS)
+
+
+def _host_reads(action):
+    """The host reads (``float``/``item``/``tolist``) of tensors ``action`` makes."""
+
+    from torch.overrides import TorchFunctionMode
+
+    class Count(TorchFunctionMode):
+        reads = 0
+
+        def __torch_function__(self, func, types, args=(), kwargs=None):
+            if getattr(func, "__name__", "") in ("__float__", "item", "tolist"):
+                Count.reads += 1
+            return func(*args, **(kwargs or {}))
+
+    with Count():
+        result = action()
+    return result, Count.reads
+
+
+def test_sigma_value_reads_a_timestep_tensor_once_per_wrapper_chain():
+    from modules.anima_support import sigma_value
+
+    timestep = torch.tensor([0.75, 0.75], dtype=torch.float64)
+    values, reads = _host_reads(lambda: [sigma_value(timestep) for _ in range(6)])
+    assert values == [0.75] * 6 and reads == 1
+
+    # The sampler's raw sigma and the batched timestep alternate: both stay cached.
+    sigmas = torch.tensor([0.5])
+    values, reads = _host_reads(lambda: [sigma_value(tensor) for tensor in (timestep, sigmas) * 3])
+    assert values == [0.75, 0.5] * 3 and reads == 1
+
+    # A new tensor with the same value is read again.
+    _, reads = _host_reads(lambda: sigma_value(torch.tensor([0.75])))
+    assert reads == 1
+
+
+def test_sigma_value_rereads_a_timestep_changed_in_place():
+    from modules.anima_support import sigma_value
+
+    timestep = torch.tensor([0.75, 0.75])
+    assert sigma_value(timestep) == 0.75
+    timestep.fill_(0.25)
+    assert sigma_value(timestep) == 0.25
+    timestep[:1].add_(0.5)  # through a view: shares the version counter
+    assert sigma_value(timestep) == 0.75
+    assert sigma_value([0.5, 1.0]) == 0.5 and sigma_value(2) == 2.0
+    with pytest.raises(IndexError):
+        sigma_value(torch.tensor([]))
+
+
+def test_sigma_value_caches_inference_tensors_by_identity():
+    import gc
+
+    from modules.anima_support import sigma_value
+
+    with torch.inference_mode():
+        timestep = torch.tensor([0.5, 0.5])
+    _, reads = _host_reads(lambda: [sigma_value(timestep) for _ in range(3)])
+    assert reads == 1
+    timestep = None
+    gc.collect()
+    with torch.inference_mode():
+        other = torch.tensor([0.25])  # may reuse the freed tensor's id
+    assert sigma_value(other) == 0.25

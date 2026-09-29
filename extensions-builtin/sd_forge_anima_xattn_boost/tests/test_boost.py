@@ -147,6 +147,20 @@ def test_renorm_matches_the_mean_token_norm_per_image():
     assert torch.equal(renorm_scale(plain, boosted, 0.0), torch.ones_like(full))
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16, torch.float16])
+def test_renorm_accumulates_half_precision_in_float32(dtype):
+    generator = torch.Generator().manual_seed(4)
+    plain = (torch.randn(2, 1, 4, 5, 64, generator=generator) * 30.0).to(dtype)
+    boosted = (plain.float() * torch.tensor([1.5, 1.0]).view(-1, 1, 1, 1, 1)).to(dtype)
+    dims = (1, 2, 3)
+    # The float32 upcast-then-norm formula it replaces.
+    expected = plain.float().norm(dim=-1, keepdim=True).mean(dim=dims, keepdim=True) / boosted.float().norm(dim=-1, keepdim=True).clamp_min(1e-6).mean(dim=dims, keepdim=True)
+    scale = renorm_scale(plain, boosted, 1.0)
+    assert scale.dtype == torch.float32 and scale[1].item() == 1.0
+    torch.testing.assert_close(scale, expected, rtol=1e-6, atol=1e-6)
+    torch.testing.assert_close(renorm_scale(plain, boosted, 0.5), expected.sqrt(), rtol=1e-6, atol=1e-6)
+
+
 def test_row_gains():
     assert row_gains([0, 2], 4, 2.0).flatten().tolist() == [2.0, 1.0, 2.0, 1.0]
 

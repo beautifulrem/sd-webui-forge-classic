@@ -375,14 +375,37 @@ def positive_rows(markers, batch: int, cache: dict, device, every_row: bool = Fa
     return BranchRows(markers, rows, cache[key])
 
 
+# (weakref, version counter, value) of the last few tensors sigma_value read:
+# every wrapper of a model call reads the same timestep (and the sampler's
+# sigma), so the chain makes one host copy per tensor instead of one each.
+_SIGMA_MEMO_SIZE = 4
+_sigma_memo: tuple = ()
+
+
 def sigma_value(value) -> float:
     """The first sigma of a model call's ``timestep``/``sigmas`` (a tensor,
-    a sequence or a number) as a float."""
+    a sequence or a number) as a float.
 
+    Tensors are remembered by identity and version counter, so an in-place
+    update is read again.  Inference tensors (sampling runs under
+    ``torch.inference_mode``) carry no version counter and are remembered by
+    identity alone: the sampling loop builds its sigma tensors per call and
+    never updates one in place."""
+
+    global _sigma_memo
     import torch
 
     if torch.is_tensor(value):
-        return float(value.detach().flatten()[0])
+        version = None if value.is_inference() else value._version
+        memo = _sigma_memo
+        for ref, seen, result in memo:
+            if ref() is value and seen == version:
+                return result
+        result = float(value.detach().flatten()[0])
+        import weakref
+
+        _sigma_memo = ((weakref.ref(value), version, result), *(entry for entry in memo if entry[0]() is not value))[:_SIGMA_MEMO_SIZE]
+        return result
     if isinstance(value, (list, tuple)):
         return float(value[0])
     return float(value)

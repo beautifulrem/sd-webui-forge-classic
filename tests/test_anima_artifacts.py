@@ -41,7 +41,7 @@ def _served(monkeypatch):
     def urlopen(request, timeout):
         return io.BytesIO(payloads[request.full_url])
 
-    monkeypatch.setattr(anima_artifacts.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(anima_artifacts, "_open", urlopen)
     return payloads
 
 
@@ -93,7 +93,7 @@ def test_oversized_download_is_aborted(tmp_path, _served):
 @pytest.mark.parametrize("url", ["http://example.com/a.bin", "file:///etc/passwd", "ftp://example.com/a.bin", "data:,weights", "/local/a.bin"])
 def test_only_https_urls_are_downloaded(tmp_path, monkeypatch, url):
     opened = []
-    monkeypatch.setattr(anima_artifacts.urllib.request, "urlopen", lambda *args, **kwargs: opened.append(args))
+    monkeypatch.setattr(anima_artifacts, "_open", lambda *args, **kwargs: opened.append(args))
     target = tmp_path / "artifact.bin"
 
     with pytest.raises(ValueError, match="non-https"):
@@ -137,7 +137,7 @@ def test_an_interrupted_download_leaks_no_descriptor_or_part_file(tmp_path, monk
         return _Response()
 
     monkeypatch.setattr(anima_artifacts.tempfile, "mkstemp", mkstemp)
-    monkeypatch.setattr(anima_artifacts.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(anima_artifacts, "_open", urlopen)
     target = tmp_path / "artifact.bin"
 
     with pytest.raises(_Interrupted):
@@ -145,3 +145,61 @@ def test_an_interrupted_download_leaks_no_descriptor_or_part_file(tmp_path, monk
     assert _leftovers(tmp_path) == []
     with pytest.raises(OSError):
         os.fstat(descriptors[0])  # closed
+
+
+@pytest.fixture
+def _redirecting(monkeypatch):
+    """Serve https URLs through urllib's real opener chain (redirect handling
+    included) from ``routes``: url -> payload bytes or ("redirect", location).
+    Records every URL the chain opens, over http as well as https."""
+    import email.message
+    import io
+    import urllib.response
+
+    routes, opened = {}, []
+
+    def serve(handler, request):
+        opened.append(request.full_url)
+        route = routes[request.full_url]
+        headers = email.message.Message()
+        if isinstance(route, tuple):
+            headers["Location"] = route[1]
+            response = urllib.response.addinfourl(io.BytesIO(b""), headers, request.full_url, 302)
+        else:
+            response = urllib.response.addinfourl(io.BytesIO(route), headers, request.full_url, 200)
+        response.msg = "Found" if isinstance(route, tuple) else "OK"
+        return response
+
+    monkeypatch.setattr(anima_artifacts.urllib.request.HTTPSHandler, "https_open", serve)
+    monkeypatch.setattr(anima_artifacts.urllib.request.HTTPHandler, "http_open", serve)
+    monkeypatch.setattr(anima_artifacts.urllib.request.FTPHandler, "ftp_open", serve)
+    return routes, opened
+
+
+def test_redirects_are_followed_only_to_https(tmp_path, _redirecting):
+    routes, opened = _redirecting
+    payload = b"weights"
+    digest = hashlib.sha256(payload).hexdigest()
+    routes["https://example.invalid/a.bin"] = ("redirect", "https://cdn.example.invalid/a.bin")
+    routes["https://cdn.example.invalid/a.bin"] = payload
+    target = tmp_path / "artifact.bin"
+
+    anima_artifacts.ensure_pinned_download(path=str(target), url="https://example.invalid/a.bin", sha256=digest, maximum_bytes=100)
+    assert target.read_bytes() == payload
+    assert opened == ["https://example.invalid/a.bin", "https://cdn.example.invalid/a.bin"]
+
+
+@pytest.mark.parametrize("location", ["http://example.invalid/a.bin", "HTTP://example.invalid/a.bin", "ftp://example.invalid/a.bin"])
+def test_a_redirect_off_https_is_refused(tmp_path, _redirecting, location):
+    import urllib.error
+
+    routes, opened = _redirecting
+    routes["https://example.invalid/a.bin"] = ("redirect", location)
+    routes[location] = routes[location.lower()] = b"weights"
+    target = tmp_path / "artifact.bin"
+
+    with pytest.raises(urllib.error.HTTPError, match="non-https"):
+        anima_artifacts.ensure_pinned_download(path=str(target), url="https://example.invalid/a.bin", sha256=hashlib.sha256(b"weights").hexdigest(), maximum_bytes=100)
+    assert opened == ["https://example.invalid/a.bin"]  # the redirect target was never requested
+    assert not target.exists()
+    assert _leftovers(tmp_path) == []

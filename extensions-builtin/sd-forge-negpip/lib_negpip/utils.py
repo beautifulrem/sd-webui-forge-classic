@@ -7,7 +7,9 @@ if TYPE_CHECKING:
 from lib_negpip import IS_NEO
 from modules.anima_support import negpip_extra_prompts
 
-NEG_PATTERN = re.compile(r"\(\s*(?:[^\\(:)]|\\[\(\)])+?\s*\:\s*-\s*\d*\.?\d+\s*\)")
+# Whitespace before the colon is part of the weighted text: matching it with
+# separate ``\s*`` around the text made unclosed weights backtrack cubically.
+NEG_PATTERN = re.compile(r"\((?:[^\\(:)]|\\[()])+?:\s*-\s*\d*\.?\d+\s*\)")
 
 
 def reset_prompt_cache(p: "StableDiffusionProcessing"):

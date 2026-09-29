@@ -7,6 +7,7 @@ import hashlib
 import os
 import tempfile
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -44,11 +45,27 @@ def sha256_file(path: str) -> str:
     return digest.hexdigest()
 
 
+class _HttpsOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow redirects only to ``https://`` URLs: urllib's own handler also
+    follows them to plain ``http://`` and ``ftp://``."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urllib.parse.urlsplit(newurl).scheme.lower() != "https":
+            raise urllib.error.HTTPError(newurl, code, f"refusing a redirect to a non-https URL: {newurl!r}", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _open(request, timeout: float):
+    return urllib.request.build_opener(_HttpsOnlyRedirectHandler).open(request, timeout=timeout)
+
+
 def ensure_pinned_download(*, path: str, url: str, sha256: str, maximum_bytes: int, timeout: float = 180, user_agent: str = "Forge-Neo-Anima-Mod-Guidance/1") -> str:
     """Return a verified artifact, downloading atomically when necessary.
 
-    Only ``https://`` URLs: ``urlopen`` would also read ``file://`` / ``ftp://``
-    and plain ``http://``."""
+    Only ``https://`` URLs, and only redirects to ``https://`` URLs: ``urlopen``
+    would also read ``file://`` / ``ftp://`` and plain ``http://``, and follow
+    redirects to ``http://`` / ``ftp://``. A refused redirect raises
+    ``urllib.error.HTTPError`` before its target is requested."""
     if urllib.parse.urlsplit(url).scheme.lower() != "https":
         raise ValueError(f"refusing to download from a non-https URL: {url!r}")
     path = os.path.abspath(path)
@@ -64,7 +81,7 @@ def ensure_pinned_download(*, path: str, url: str, sha256: str, maximum_bytes: i
             digest = hashlib.sha256()
             total = 0
             request = urllib.request.Request(url, headers={"User-Agent": user_agent})  # noqa: S310 - https only, checked above
-            with urllib.request.urlopen(request, timeout=timeout) as response, os.fdopen(descriptor, "wb") as output:  # noqa: S310
+            with _open(request, timeout) as response, os.fdopen(descriptor, "wb") as output:
                 descriptor = -1
                 for chunk in iter(lambda: response.read(1024 * 1024), b""):
                     total += len(chunk)

@@ -49,8 +49,9 @@ def renorm_scale(plain: torch.Tensor, boosted: torch.Tensor, frac: float) -> tor
     ``(B, 1, 1, 1, 1)``. Rows where the two are equal get exactly 1."""
 
     dims = tuple(range(1, plain.ndim - 1))
-    norm_plain = plain.float().norm(dim=-1, keepdim=True).mean(dim=dims, keepdim=True)
-    norm_boosted = boosted.float().norm(dim=-1, keepdim=True).clamp_min(1e-6).mean(dim=dims, keepdim=True)
+    # Norms accumulate in float32 without a float32 copy of either tensor.
+    norm_plain = torch.linalg.vector_norm(plain, dim=-1, keepdim=True, dtype=torch.float32).mean(dim=dims, keepdim=True)
+    norm_boosted = torch.linalg.vector_norm(boosted, dim=-1, keepdim=True, dtype=torch.float32).clamp_min(1e-6).mean(dim=dims, keepdim=True)
     scale = norm_plain / norm_boosted
     return scale if frac == 1.0 else scale**frac
 
@@ -166,8 +167,10 @@ def _make_block_forward(original, block, state: BoostState, attention_overrides)
         gate_cross = _gate(block.adaln_modulation_cross_attn, silu_emb, adaln_lora).to(dtype)
         x_mid = torch.addcmul(x, gate_self, captured["self"].unflatten(1, shape[1:4]).to(dtype))
         cross = gate_cross * captured["cross"].unflatten(1, shape[1:4]).to(dtype)
-        boosted = x_mid + cross * state.gains_like(cross).view(-1, 1, 1, 1, 1)
-        scale = renorm_scale(x_mid + cross, boosted, state.renorm)
+        plain = x_mid + cross
+        # x_mid is this block's own temporary: boost into its buffer.
+        boosted = x_mid.addcmul_(cross, state.gains_like(cross).view(-1, 1, 1, 1, 1))
+        scale = renorm_scale(plain, boosted, state.renorm)
         return out + (scale - 1.0).to(out.dtype) * boosted.to(out.dtype)
 
     return forward

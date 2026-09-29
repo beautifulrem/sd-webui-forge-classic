@@ -334,3 +334,63 @@ def test_refusal_uses_api_auth_when_the_app_has_no_gradio_login(monkeypatch):
     assert refusal(app, request(**_basic("api", "secret")), accept_api_auth=True) is None
     # UI-only guards (no API credentials accepted) keep their behaviour
     assert refusal(app, request()) is None
+
+
+def test_opaque_null_origins_are_cross_site_even_when_allow_listed(monkeypatch):
+    from types import SimpleNamespace
+
+    from modules.extension_route_guard import is_cross_site
+
+    # Sandboxed iframes, file:// pages and some redirects send "Origin: null".
+    _guard_options(monkeypatch, cors_allow_origins="null,http://localhost:3000", cors_allow_origins_regex=".*")
+    assert is_cross_site(SimpleNamespace(method="POST", headers={"origin": "null", "host": "127.0.0.1:7860"}))
+    client = _client()
+    assert client.post("/ext/write", headers={"origin": "null"}).status_code == 403
+
+
+def test_fetch_metadata_refuses_cross_site_writes_without_an_origin():
+    client = _client()
+    assert client.post("/ext/write", headers={"sec-fetch-site": "cross-site"}).status_code == 403
+    for site in ("same-origin", "same-site", "none"):
+        assert client.post("/ext/write", headers={"sec-fetch-site": site}).json() == "written", site
+    assert client.get("/ext/read", headers={"sec-fetch-site": "cross-site"}).json() == "ok"  # reads stay open
+    # An Origin, when present, decides
+    assert client.post("/ext/write", headers={"sec-fetch-site": "cross-site", "origin": "http://127.0.0.1:7860"}).json() == "written"
+
+
+def test_only_the_first_forwarded_host_hop_names_the_site():
+    from types import SimpleNamespace
+
+    from modules.extension_route_guard import is_cross_site
+
+    def request(origin, forwarded_hosts):
+        return SimpleNamespace(method="POST", headers={"origin": origin, "host": "backend:7860", "x-forwarded-host": forwarded_hosts})
+
+    assert not is_cross_site(request("https://a.com", "a.com, proxy.internal"))
+    assert not is_cross_site(request("https://a.com", " a.com "))
+    # a later hop (appended by a proxy, or spoofed by the client) is not the site
+    assert is_cross_site(request("https://evil.example", "a.com, evil.example"))
+    assert is_cross_site(request("https://proxy.internal", "a.com,proxy.internal"))
+
+
+def test_malformed_basic_credentials_are_refused(monkeypatch):
+    import base64
+
+    client = _exposed_app(monkeypatch, share=True, api_auth="bot:secret")
+
+    def encoded(raw: bytes):
+        return {"authorization": "Basic " + base64.b64encode(raw).decode()}
+
+    for headers in (
+        encoded(b"botsecret"),  # no colon
+        encoded(b"bot:secret\xff"),  # not UTF-8
+        encoded(b":"),
+        encoded(b"bot:"),
+        {"authorization": "Basic"},
+        {"authorization": "Basic "},
+        {"authorization": "Basic Ym90OnNlY3JldA"},  # missing padding
+        {"authorization": "Bearer " + base64.b64encode(b"bot:secret").decode()},
+        {"authorization": base64.b64encode(b"bot:secret").decode()},
+    ):
+        assert client.post("/ext/api", headers=headers).status_code == 401, headers
+    assert client.post("/ext/api", headers={"authorization": "basic " + base64.b64encode(b"bot:secret").decode()}).json() == "ext"

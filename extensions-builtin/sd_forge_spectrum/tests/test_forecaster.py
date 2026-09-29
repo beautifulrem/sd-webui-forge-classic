@@ -33,6 +33,32 @@ class ForecasterTests(unittest.TestCase):
         expected = 0.7 * taylor + 0.3 * chebyshev.predict(7)
         self.assertTrue(torch.allclose(blended.predict(7), expected, atol=1e-5))
 
+    def test_branch_forecasts_are_written_into_one_batched_output(self):
+        from lib_spectrum.forecaster import predict_branches
+
+        for dtype in (torch.float32, torch.bfloat16, torch.float16):
+            generator = torch.Generator().manual_seed(1)
+            forecasters = [ChebyshevForecaster(degree=2, history_size=5, lam=1e-3, steps=12, weight=weight) for weight in (0.3, 1.0)]
+            histories = [[(torch.randn(1, 4, 3, generator=generator) * 8.0).to(dtype) for _ in range(5)] for _ in forecasters]
+            for forecaster, history in zip(forecasters, histories):
+                for step, feature in zip((0, 1, 2, 4, 5), history):
+                    forecaster.update(step, feature)
+
+            def reference(forecaster):
+                # A float32 accumulator cast afterwards, as before the preallocated output.
+                output = torch.empty(forecaster.shape, dtype=torch.float32)
+                return forecaster.predict(7, out=output).to(dtype)
+
+            batched = predict_branches(forecasters, 7)
+            self.assertEqual((batched.shape, batched.dtype), ((2, 4, 3), dtype))
+            self.assertTrue(torch.equal(batched, torch.cat([reference(forecaster) for forecaster in forecasters])))
+            self.assertTrue(torch.equal(batched, torch.cat([forecaster.predict(7) for forecaster in forecasters])))
+
+        out = torch.empty(1, 4, 3, dtype=torch.float16)
+        self.assertIs(forecasters[0].predict(7, out=out), out)
+        with self.assertRaises(ValueError):
+            forecasters[0].predict(7, out=torch.empty(2, 4, 3, dtype=torch.float16))
+
     def test_shape_change_resets_history(self):
         forecaster = ChebyshevForecaster(degree=1, history_size=4, lam=0.1, steps=10, weight=0.5)
         forecaster.update(0, torch.zeros(1, 2))
