@@ -384,6 +384,31 @@ def wire_exclusive_components(
         )
 
 
+def _tab_build(tab: str) -> Any:
+    """The UI build of ``tab`` under way: its prompt, the first component
+    each build of a tab creates (the marker the presets extension resets its
+    registry on), in the Gradio Blocks being built. None outside a build."""
+
+    from gradio.context import Context
+
+    root = Context.root_block
+    if root is None:
+        return None
+    marker = f"{tab}_prompt"
+    return next((block for block in root.blocks.values() if getattr(block, "elem_id", None) == marker), root)
+
+
+def _current_exclusive_updates(key, signature, names, selected, *enabled):
+    """The group's updates from the handlers of its latest wiring; those of
+    a wiring a later member superseded change nothing."""
+
+    if _EXCLUSIVE_UI_SIGNATURES.get(key) != signature:
+        import gradio as gr
+
+        return [gr.update() for _ in names]
+    return _exclusive_gradio_updates(names, selected, *enabled)
+
+
 def register_exclusive_component(
     *,
     tab: str,
@@ -391,28 +416,40 @@ def register_exclusive_component(
     names: tuple[str, ...],
     name: str,
     component: Any,
-    reset: bool = False,
 ) -> None:
-    """Collect cross-extension controls and wire them once all are present.
+    """Collect cross-extension controls of a one-of-N group and wire the ones
+    present: a member whose extension is disabled is left out.
 
-    ``reset`` is used by the first component built for a tab so Reload UI does
-    not retain handles from the previous Gradio tree.
+    A new build of ``tab`` (Reload UI) starts the group afresh, so handles of
+    the previous Gradio tree are not kept. Each member registered after the
+    second re-wires the group with it; the handlers wired before then change
+    nothing any more.
     """
 
     if name not in names:
         raise ValueError(f"{name!r} is not a member of conflict group {group!r}")
     key = (str(tab), str(group))
-    if reset:
-        _EXCLUSIVE_UI_COMPONENTS[key] = {}
+    build = _tab_build(tab)
+    bucket = _EXCLUSIVE_UI_COMPONENTS.get(key)
+    if bucket is None or bucket.get("build") is not build:
+        bucket = _EXCLUSIVE_UI_COMPONENTS[key] = {"build": build, "members": {}}
         _EXCLUSIVE_UI_SIGNATURES.pop(key, None)
-    bucket = _EXCLUSIVE_UI_COMPONENTS.setdefault(key, {})
-    bucket[name] = component
-    if not all(member in bucket for member in names):
-        return
+    members = bucket["members"]
+    members[name] = component
 
-    components = tuple(bucket[member] for member in names)
+    present = tuple(member for member in names if member in members)
+    if len(present) < 2:
+        return
+    components = tuple(members[member] for member in present)
     signature = tuple(id(item) for item in components)
     if _EXCLUSIVE_UI_SIGNATURES.get(key) == signature:
         return
-    wire_exclusive_components(names, components)
     _EXCLUSIVE_UI_SIGNATURES[key] = signature
+    for selected, item in zip(present, components):
+        item.change(
+            fn=partial(_current_exclusive_updates, key, signature, present, selected),
+            inputs=list(components),
+            outputs=list(components),
+            queue=False,
+            show_progress=False,
+        )

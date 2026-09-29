@@ -449,6 +449,32 @@ def test_base_fusion_contexts_are_built_once_per_model_call():
         assert one[1] is two[1] and one[2]["negpip_context_mask"] is two[2]["negpip_context_mask"]
 
 
+@pytest.mark.parametrize("combine, fusion", [
+    (mixer.COMBINE_OUTPUT_AVG, mixer.FUSION_INTERPOLATE),  # batched: the artist contexts stacked
+    (mixer.COMBINE_CONCAT, mixer.FUSION_INTERPOLATE),  # the weighted artist tokens joined
+    (mixer.COMBINE_CONCAT, mixer.FUSION_CONCAT_WITH_BASE),  # ... after the base tokens
+])  # fmt: skip
+def test_joined_artist_contexts_are_built_once_per_model_call(combine, fusion):
+    state = _state(combine, fusion, batched=True)
+    state.artists[0].blocks = {0, 1, 2}
+    state.artists[1].blocks = {0, 1}
+    x, context = _inputs()
+    forward = _Attention()
+
+    def artist_kv(block, context):
+        """The context the block's one artist forward attends to."""
+        forward.calls.clear()
+        mixer._dispatch_cross_attn(forward, block, state, x, context=context, transformer_options={"cond_or_uncond": [0, 1]})
+        (kv,) = [call[1] for call in forward.calls if call[1] is not context]
+        return kv
+
+    first = artist_kv(0, context)
+    assert artist_kv(1, context) is first  # another block of the same model call
+    assert artist_kv(2, context) is not first  # other active artists: their own context
+    again = artist_kv(0, context.clone())  # the next model call
+    assert again is not first and torch.equal(again, first)
+
+
 def test_artist_forwards_skip_the_negative_rows():
     state = _state()
     x, context = _inputs(batch=4)

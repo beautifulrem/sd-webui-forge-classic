@@ -127,6 +127,17 @@ def test_prompt_lora_tags_get_the_panel_multiplier(module):
     assert module._rewrite_prompt_loras(["<lora:cat:1.2>"], layered) == ["<lora:cat:1>"]  # weights applied per key
     unset = _config(module, module.PRESET_CHARACTER_ALLOW, panel="0", mode=module.MODE_TARGETS, targets="cat")
     assert module._rewrite_prompt_loras(["<lora:cat:1.2>"], unset) == ["<lora:cat:1.2>"]
+    # The panel's weight replaces the tag's text-encoder / UNet arguments too
+    assert module._rewrite_prompt_loras(["<lora:cat:1:0.5>", "<lora:cat:1:te=0>"], config) == ["<lora:cat:0.6>", "<lora:cat:0.6>"]
+
+
+def test_lora_control_tags_keep_their_schedule_and_text_encoder_off(module):
+    # LoRA Control schedules <lora:x:[w@t,...]>, and Forge loads its text
+    # encoder side at 0 only while the "@" is in the tag
+    config = _config(module, module.PRESET_CHARACTER_ALLOW, panel="0.8", mode=module.MODE_PROMPT_ALL)
+    prompts = ["a <lora:cat:[0.5@0,1@0.5]> b <lora:dog:1>", "<lora:cat:[0@0,1@1]:unet=1>"]
+
+    assert module._rewrite_prompt_loras(prompts, config) == ["a <lora:cat:[0.5@0,1@0.5]> b <lora:dog:0.8>", "<lora:cat:[0@0,1@1]:unet=1>"]
 
 
 def test_batch_rewrite_touches_the_current_batch_and_hires_tags_can_be_dropped(module):
@@ -358,3 +369,36 @@ def test_template_messages_follow_the_ui_language(module, monkeypatch):
     assert module._parts_from_presets(conflict)[1] == f"Conflicting combo: {module.STAGE_STYLE} is selected as both Apply and Block; not saved."
     help_text = module._template_help_ui(builtin, 3.0)["value"]
     assert "Templates are built from base presets" in help_text and "auto window" in help_text
+
+
+def test_template_help_shows_each_parts_own_strength(module, monkeypatch):
+    from modules import shared
+
+    monkeypatch.setattr(shared, "opts", SimpleNamespace(**{module.LANGUAGE_OPTION: "en"}), raising=False)
+    parts = [
+        {"stage": module.STAGE_CHARACTER, "mode": module.PART_ALLOW, "strength": 0.5},
+        {"stage": module.STAGE_STYLE, "mode": module.PART_BAN, "strength": 1.0},
+    ]
+    module._TEMPLATES.edit(lambda data: (data.update(halved={"auto": True, "parts": parts}), ("halved", "")))
+
+    help_text = module._template_help_ui("halved", 3.0)["value"]
+    assert "strength 0.5" in help_text and "strength 0 in window" in help_text and "strength 1" not in help_text
+
+
+def test_per_lora_templates_resolve_their_stage_and_curve_like_the_panel(module):
+    manual = {"auto": False, "stage": module.STAGE_STYLE, "start": 0.1, "end": 0.4, "peak": 0.2, "strength": 2.0, "curve": module.CURVE_HOLD}
+    unknown_curve = {"auto": True, "stage": module.STAGE_COMPOSITION, "curve": "no such curve"}
+    module._TEMPLATES.edit(lambda data: (data.update(manual=manual, unknown_curve=unknown_curve), ("manual", "")))
+    base = module._build_pass_config(module.MODE_PROMPT_ALL, "", "", module.PRESET_CHARACTER_ALLOW, "cat=manual\ndog=unknown_curve\nfox=" + module.PRESET_STYLE_ALLOW, True, module.STAGE_CHARACTER, 0.2, 0.8, 0.5, 1.0, module.CURVE_TRIANGLE, 3.0)
+
+    cat = base.config_for_file("cat.safetensors", {"cat"})
+    assert (cat.stage, cat.curve, cat.parts, cat.stage_strength) == (module.STAGE_STYLE, module.CURVE_HOLD, [], 2.0)
+    assert (cat.start, cat.end, cat.peak) == (0.1, 0.4, 0.2)
+
+    dog = base.config_for_file("dog.safetensors", {"dog"})
+    assert dog.stage == module.STAGE_COMPOSITION and dog.curve == module.CURVE_SMOOTH  # an invalid curve reads as smooth
+    assert (dog.start, dog.end, dog.peak) == module._auto_stage_values(module.STAGE_COMPOSITION, 3.0)[:3]
+
+    fox = base.config_for_file("fox.safetensors", {"fox"})
+    assert fox.stage == module.STAGE_STYLE and fox.parts == module._template_parts(module.BUILTIN_TEMPLATES[module.PRESET_STYLE_ALLOW])
+    assert base.config_for_file("other.safetensors", {"other"}) is base

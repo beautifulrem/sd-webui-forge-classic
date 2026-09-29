@@ -645,16 +645,6 @@ def _default_rows(count=DEFAULT_ARTIST_ROWS, shift=3.0, optimization=OPT_BALANCE
 def _coerce_table(value):
     if value is None:
         return []
-    if hasattr(value, "to_dict"):
-        try:
-            records = value.to_dict("records")
-            rows = []
-            for record in records:
-                keyed = {_header_key(k): v for k, v in record.items()}
-                rows.append([keyed.get(h) for h in TABLE_HEADERS])
-            return rows
-        except Exception:
-            pass
     if isinstance(value, dict) and "data" in value:
         value = value.get("data")
     rows = []
@@ -1530,9 +1520,13 @@ def _artist_kv(state, artist, plan, base_fusion):
     return cache[key]
 
 
-def _artist_forward_batched(state, original_forward, plan, rope_emb, artists, fusion_mode):
-    batch_size = plan.context.shape[0]
-    base_fusion = fusion_mode in BASE_CONTEXT_FUSIONS
+def _batched_kv(state, plan, artists, base_fusion):
+    """``(context, mask)`` of the artists stacked along the batch, built once
+    per model call for each set of active artists and rows."""
+    cache = state.call_contexts
+    key = ("batched", tuple(id(artist) for artist, _ in artists), plan.branch.rows, base_fusion)
+    if key in cache:
+        return cache[key]
     contexts = []
     masks = []
     for artist, _ in artists:
@@ -1542,13 +1536,19 @@ def _artist_forward_batched(state, original_forward, plan, rope_emb, artists, fu
     lengths = {item.shape[_context_token_dim(item)] for item in contexts}
     if len(lengths) > 1:
         raise RuntimeError(f"Cannot batch artist contexts with different token lengths: {lengths}")
-    count = len(contexts)
+    cache[key] = (torch.cat(contexts, dim=0), _joined_mask(masks, 0))
+    return cache[key]
+
+
+def _artist_forward_batched(state, original_forward, plan, rope_emb, artists, fusion_mode):
+    batch_size = plan.context.shape[0]
+    context_rep, mask_rep = _batched_kv(state, plan, artists, fusion_mode in BASE_CONTEXT_FUSIONS)
+    count = len(artists)
     x_rep = plan.x.repeat(count, *([1] * (plan.x.dim() - 1)))
-    context_rep = torch.cat(contexts, dim=0)
     rope_rep = rope_emb
     if torch.is_tensor(rope_emb) and rope_emb.dim() > 0 and rope_emb.shape[0] == batch_size:
         rope_rep = rope_emb.repeat(count, *([1] * (rope_emb.dim() - 1)))
-    opts = plan.branch.options(plan.options, "artist_context", _joined_mask(masks, 0))
+    opts = plan.branch.options(plan.options, "artist_context", mask_rep)
     cou = opts.get("cond_or_uncond")
     if cou is not None:
         opts["cond_or_uncond"] = list(cou) * count
@@ -1611,10 +1611,15 @@ def _dispatch_output_avg(original_forward, state, x, context, rope_emb, transfor
     return _blend_rows(state, base_out, artist_total, plan)
 
 
-def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_options, active):
-    plan = _mix_plan(state, x, context, transformer_options, active)
-    if plan is None:
-        return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
+def _concat_kv(state, plan, active):
+    """``(context, mask)`` of the weighted artist contexts joined along the
+    tokens (after the base context for base fusions), built once per model
+    call for each set of active artists, weights and rows."""
+    base_fusion = state.fusion_mode in BASE_CONTEXT_FUSIONS
+    cache = state.call_contexts
+    key = ("concat", tuple(id(artist) for artist, _ in active), tuple(plan.weights), plan.branch.rows, base_fusion)
+    if key in cache:
+        return cache[key]
     token_dim = _context_token_dim(plan.context)
     parts = []
     for (artist, _), weight in zip(active, plan.weights):
@@ -1622,12 +1627,21 @@ def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_
         parts.append((artist_context * weight, artist_mask))
     combined = torch.cat([part for part, _ in parts], dim=token_dim)
     combined_mask = _joined_mask(parts, token_dim)
-    if state.fusion_mode in BASE_CONTEXT_FUSIONS:
+    if base_fusion:
         kv = _concat_contexts(plan.context, combined)
         kv_mask = _joined_mask([(plan.context, plan.base_mask), (combined, combined_mask)], token_dim)
     else:
         kv, kv_mask = combined, combined_mask
-    artist_options = plan.branch.options(plan.options, "artist_context", kv_mask)
+    cache[key] = (kv, kv_mask)
+    return cache[key]
+
+
+def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_options, active):
+    plan = _mix_plan(state, x, context, transformer_options, active)
+    if plan is None:
+        return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
+    kv, kv_mask = _concat_kv(state, plan, active)
+    artist_options =plan.branch.options(plan.options, "artist_context", kv_mask)
     artist_out = original_forward(plan.x, context=kv, rope_emb=rope_emb, transformer_options=artist_options)
     base_out = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
     return _blend_rows(state, base_out, artist_out, plan)
@@ -1821,7 +1835,6 @@ class Script(scripts.Script):
                 names=("freefuse", "regional", "artist"),
                 name="artist",
                 component=enable,
-                reset=True,
             )
             with gr.Row():
                 optimization = gr.Dropdown(label=_t("optimization"), choices=_option_choices("optimization", lang), value=defaults["optimization"], elem_id=self.elem_id("optimization"))

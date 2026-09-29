@@ -116,8 +116,11 @@ def note_lora_control_yield(noted: set | None, extra_generation_params, filename
         extra_generation_params[infotext_key] = ", ".join(sorted({*skipped, name}))
 
 
-# <lora:name> or <lora:name:args>
-LORA_TAG_RE = re.compile(r"<lora:([^:>]+)(?::([^>]*))?>")
+# <lora:name> or <lora:name:args>. Neither part holds a "<": a tag ends
+# before the next one starts, so an unterminated "<lora:" is given up at the
+# next "<" instead of rescanning the rest of the prompt (quadratic on
+# "<lora:" * 4000).
+LORA_TAG_RE = re.compile(r"<lora:([^:<>]+)(?::([^<>]*))?>")
 
 
 def clamp(value, low, high):
@@ -377,7 +380,6 @@ def lora_file_names(filename) -> frozenset[str]:
     target lists: its path, file name and stem, plus its network names and
     aliases in sd_forge_lora's index (refreshed in place, so not cached)."""
 
-    import os
     import sys
     from pathlib import Path
 

@@ -320,3 +320,69 @@ def test_active_features_are_recorded_per_process():
     set_feature_active(first, FREEFUSE, False)
     assert not is_feature_active(first, FREEFUSE) and is_feature_active(first, REGIONAL)
     assert len({FREEFUSE, REGIONAL, ARTIST_MIXER}) == 3
+
+
+SPATIAL = ("freefuse", "regional", "artist")
+
+
+class _Checkbox:
+    """Records the change handlers wired to it."""
+
+    def __init__(self, name):
+        self.name = name
+        self.handlers = []
+
+    def change(self, fn, inputs, outputs, **kwargs):
+        self.handlers.append((fn, inputs, outputs))
+
+
+def _tab_build(tab, *members):
+    """Register ``members`` (checkboxes) in a fresh Gradio build of ``tab``."""
+    import gradio as gr
+
+    from modules.anima_feature_conflicts import register_exclusive_component
+
+    with gr.Blocks():
+        gr.Textbox(elem_id=f"{tab}_prompt")
+        for member in members:
+            register_exclusive_component(tab=tab, group="spatial", names=SPATIAL, name=member.name, component=member)
+
+
+def _press(member, *values):
+    """The updates of ``member``'s live handlers for checkbox ``values``."""
+    results = [fn(*values) for fn, _, _ in member.handlers]
+    return [[update.get("value") for update in result] for result in results if any(update.get("value") is not None for update in result)]
+
+
+def test_spatial_group_is_wired_without_a_disabled_member():
+    regional, freefuse = _Checkbox("regional"), _Checkbox("freefuse")
+    _tab_build("txt2img", regional, freefuse)  # the Artist Mixer is disabled
+
+    (fn, inputs, outputs), = regional.handlers
+    assert inputs == outputs == [freefuse, regional]  # the group's order
+    assert _press(regional, True, True) == [[False, True]]  # enabling Regional turns FreeFuse off
+    assert _press(freefuse, True, True) == [[True, False]]
+
+
+def test_a_new_tab_build_drops_the_previous_builds_components():
+    old = [_Checkbox(name) for name in ("artist", "regional", "freefuse")]
+    _tab_build("txt2img", *old)
+    regional, freefuse = _Checkbox("regional"), _Checkbox("freefuse")
+    _tab_build("txt2img", regional, freefuse)  # Reload UI with the Artist Mixer disabled
+
+    (_, inputs, _), = regional.handlers
+    assert inputs == [freefuse, regional] and not any(item in inputs for item in old)
+    img2img = _Checkbox("artist")
+    _tab_build("img2img", img2img)  # the other tab's group is its own
+    assert img2img.handlers == [] and len(regional.handlers) == 1
+
+
+def test_a_later_member_rewires_the_group_and_the_earlier_wiring_changes_nothing():
+    artist, regional, freefuse = (_Checkbox(name) for name in ("artist", "regional", "freefuse"))
+    _tab_build("txt2img", artist, regional, freefuse)
+
+    assert artist.handlers[0][1] == [regional, artist]  # wired when Regional arrived
+    assert artist.handlers[1][1] == [freefuse, regional, artist]  # ... and again with FreeFuse
+    assert len(freefuse.handlers) == 1
+    # Only the latest wiring answers: enabling the artist turns both others off
+    assert _press(artist, True, False, True) == [[False, False, True]]

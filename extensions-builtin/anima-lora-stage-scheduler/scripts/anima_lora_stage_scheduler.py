@@ -655,16 +655,9 @@ def _part_preset_name(part: dict) -> str:
     return ""
 
 
-def _stage_from_template_value(value, fallback=STAGE_CHARACTER) -> str:
-    if value in STAGE_CHOICES:
-        return value
-    part = PRESET_PARTS.get(str(value or ""))
-    if part:
-        return part["stage"]
-    return fallback
-
-
 def _primary_template_part(config: dict, fallback_stage=STAGE_CHARACTER) -> dict:
+    """The template's first applying part (else its first part), normalized;
+    a template without parts reads as one applying part of its stage."""
     parts = _template_parts(config)
     for part in parts:
         if part["mode"] == PART_ALLOW:
@@ -672,7 +665,8 @@ def _primary_template_part(config: dict, fallback_stage=STAGE_CHARACTER) -> dict
     if parts:
         return parts[0]
     stage = config.get("stage") if config.get("stage") in STAGE_CHOICES else fallback_stage
-    return {"stage": stage, "mode": PART_ALLOW, "curve": config.get("curve", STAGE_DEFAULT_CURVES.get(stage, CURVE_SMOOTH)), "strength": _to_float(config.get("strength", 1.0), 1.0)}
+    part = {"stage": stage, "mode": PART_ALLOW, "curve": config.get("curve"), "strength": config.get("strength", 1.0)}
+    return _normalize_template_part(part) or part
 
 
 def _template_preset_value(config: dict) -> str:
@@ -874,14 +868,12 @@ def _preset_combo_preview_text(selected_presets, shift_value=3.0):
         "| --- | --- | ---: | ---: | ---: | ---: | --- |",
     ]
     for part in parts:
-        start, end, peak, strength = _auto_stage_values(part["stage"], shift)
+        start, end, peak, _ = _auto_stage_values(part["stage"], shift)
         action = _t("allow_action") if part["mode"] == PART_ALLOW else _t("ban_action")
-        curve = part.get("curve") if part.get("curve") in CURVE_CHOICES else STAGE_DEFAULT_CURVES.get(part["stage"], CURVE_SMOOTH)
-        part_strength = _clamp(_to_float(part.get("strength", strength), strength), 0.0, 4.0)
         if part["mode"] == PART_BAN:
             strength_text = _t("zero_in_window")
         else:
-            strength_text = _format_float(part_strength)
+            strength_text = _format_float(part["strength"])
         lines.append(
             "| {name} | {action} | {start} | {end} | {peak} | {strength} | {curve} |".format(
                 name=_part_preset_display_name(part),
@@ -890,7 +882,7 @@ def _preset_combo_preview_text(selected_presets, shift_value=3.0):
                 end=_format_float(end),
                 peak=_format_float(peak),
                 strength=strength_text,
-                curve=curve,
+                curve=part["curve"],
             )
         )
     return "\n".join(lines)
@@ -919,17 +911,17 @@ def _template_help_ui(template_name, shift_value):
         _t("template_parts"),
     ]
     for part in parts:
-        start, end, peak, strength = _auto_stage_values(part["stage"], shift)
-        action = _t("allow_action") if part["mode"] == PART_ALLOW else _t("ban_action")
+        start, end, peak, _ = _auto_stage_values(part["stage"], shift)
+        allow = part["mode"] == PART_ALLOW
         lines.append(
             _t("help_part").format(
                 name=_part_preset_display_name(part),
                 stage=part["stage"],
-                action=action,
+                action=_t("allow_action") if allow else _t("ban_action"),
                 start=_format_float(start),
                 end=_format_float(end),
                 peak=_format_float(peak),
-                strength=_format_float(strength),
+                strength=_format_float(part["strength"]) if allow else _t("zero_in_window"),
             )
         )
 
@@ -1068,10 +1060,9 @@ def _stage_curve_factor(config, progress) -> float:
         allow_factors = []
         ban_active = False
 
+        # _template_parts normalized the parts: valid curve, clamped strength
         for part in config.parts:
-            start, end, peak, strength = _auto_stage_values(part["stage"], config.shift)
-            curve = part.get("curve") if part.get("curve") in CURVE_CHOICES else STAGE_DEFAULT_CURVES.get(part["stage"], CURVE_SMOOTH)
-            part_strength = _clamp(_to_float(part.get("strength", strength), strength), 0.0, 4.0)
+            start, end, peak, _ = _auto_stage_values(part["stage"], config.shift)
 
             if part["mode"] == PART_BAN:
                 window_start, window_end = (start, end) if start <= end else (end, start)
@@ -1079,7 +1070,7 @@ def _stage_curve_factor(config, progress) -> float:
                     ban_active = True
                 continue
 
-            allow_factors.append(_curve_factor_for_window(progress, start, end, peak, part_strength, curve))
+            allow_factors.append(_curve_factor_for_window(progress, start, end, peak, part["strength"], part["curve"]))
 
         # The panel's stage strength scales the template's curves
         factor = max(allow_factors) * stage_strength if allow_factors else stage_strength
@@ -1134,17 +1125,16 @@ class PassConfig:
         return self.patch_signature if panel.numeric is not None or panel.has_qwen else None
 
     def finalize_timing(self):
+        """Resolve the template's parts, the stage (with auto timing that of
+        its first applying part, else the template's, else the panel's;
+        character when invalid), the timing window, strength and curve (an
+        invalid one reads as smooth)."""
         template = _template_config(self.template_name)
         template_parts = _template_parts(template)
         self.parts = active_template_parts(self.auto_timing, template_parts)
         self.ban_window = not self.auto_timing and manual_window_bans(template_parts)
-        stage = template.get("stage") or _stage_from_template_value(self.stage) or STAGE_CHARACTER
-        if self.parts:
-            primary = next((part for part in self.parts if part["mode"] == PART_ALLOW), self.parts[0])
-            stage = primary["stage"]
-        if stage not in STAGE_CHOICES:
-            stage = STAGE_CHARACTER
-        self.stage = stage
+        stage = _primary_template_part(template)["stage"] if self.parts else template.get("stage") or self.stage
+        self.stage = stage if stage in STAGE_CHOICES else STAGE_CHARACTER
 
         if self.auto_timing:
             self.start, self.end, self.peak, _ = _auto_stage_values(stage, self.shift)
@@ -1177,16 +1167,6 @@ class PassConfig:
 
         template = _template_config(template_name)
         auto_timing = bool(template.get("auto", self.auto_timing))
-        parts = _template_parts(template)
-        stage = template.get("stage") or self.stage
-        if parts:
-            primary = next((part for part in parts if part["mode"] == PART_ALLOW), parts[0])
-            stage = primary["stage"]
-        if stage not in STAGE_CHOICES:
-            stage = self.stage
-        curve = template.get("curve") or self.curve
-        if curve not in CURVE_CHOICES:
-            curve = self.curve
         start = template.get("start", self.start) if not auto_timing else self.start
         end = template.get("end", self.end) if not auto_timing else self.end
         peak = template.get("peak", self.peak) if not auto_timing else self.peak
@@ -1199,16 +1179,17 @@ class PassConfig:
             template_name=template_name,
             lora_templates=self.lora_templates,
             auto_timing=auto_timing,
-            stage=stage,
-            parts=parts,
+            stage=self.stage,
+            parts=[],
             start=start,
             end=end,
             peak=peak,
             stage_strength=stage_strength,
-            curve=curve,
+            curve=template.get("curve") or self.curve,
             shift=self.shift,
             prompt_names=self.prompt_names,
         )
+        # Resolves the template's parts, stage and timing, as for the panel's
         config.finalize_timing()
         self._lora_template_cache[cache_key] = config
         return config
@@ -1387,7 +1368,7 @@ def _build_pass_config(target_mode, target_loras, panel_weight, template_name, l
         template_name=str(template_name or next(iter(BUILTIN_TEMPLATES))),
         lora_templates=_parse_lora_template_overrides(lora_templates_text),
         auto_timing=bool(auto_timing),
-        stage=_stage_from_template_value(stage),
+        stage=stage,  # validated by finalize_timing
         parts=[],
         start=_to_float(start, 0.2),
         end=_to_float(end, 0.8),
@@ -1431,10 +1412,20 @@ def _collect_prompt_names(prompts) -> set[str]:
 
 
 def _rewrite_prompt_loras(prompts, config: PassConfig):
+    """The prompts with the tags of the LoRAs this panel sets written at its
+    multiplier. The panel's weight replaces all of the tag's: its text
+    encoder / UNet arguments (``<lora:x:1:0.5>``, ``te=``, ``unet=``) are
+    dropped, as add_patches sets both sides' strengths from the panel.
+
+    Tags with an ``@`` stay as written: LoRA Control schedules
+    ``<lora:x:[w@t,...]>`` (add_patches leaves those files to it), and Forge
+    loads such a tag's text-encoder side at 0 only while the ``@`` is there."""
     rewritten = []
 
     def replace(match):
         name = match.group(1).strip()
+        if "@" in (match.group(2) or ""):
+            return match.group(0)
         if config.panel_weight_nonzero and config.prompt_name_matches(name):
             return f"<lora:{name}:{_format_float(config.panel_weight.prompt_multiplier())}>"
         return match.group(0)

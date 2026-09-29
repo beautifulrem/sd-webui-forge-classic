@@ -349,3 +349,58 @@ def test_batch_prompt_rewrite_is_all_or_nothing():
 def test_to_float_falls_back_on_what_is_not_a_number():
     assert [to_float(value, 3.0) for value in (None, "", "x", [1], "0.5", 2, True)] == [3.0, 3.0, 3.0, 3.0, 0.5, 2.0, 1.0]
     assert clamp(5, 0, 1) == 1 and clamp(-1, 0, 1) == 0 and clamp(0.5, 0, 1) == 0.5
+
+
+# The tag pattern before it kept "<" out of a tag, for comparison
+_UNBOUNDED_LORA_TAG_RE = r"<lora:([^:>]+)(?::([^>]*))?>"
+
+
+def _tag_matches(pattern, text):
+    import re
+
+    return [(match.span(), match.groups()) for match in re.finditer(pattern, text)]
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "masterpiece, 1girl, <lora:cat:0.8>, <lora:sub/dog-v2:1:0.5> smile",
+        "<lora:x:[0.5@0,1@0.5]> <lora:y> <lora:z:blocks=0-9=0.6,10-27=1;modules=mlp=0.5;qwen=0-3=0>",
+        "<lora:a:te=0:unet=1.2>BREAK<lora:b:0.3>\n<lora:c d:1>",
+        "<lora:> <lora::1> <lora:x:> a <lora:foo:1 b",
+        "<hypernet:h:1> <lora:q:1> （<lora:中文:0.7>） <lora:x:1>> <<lora:y:1>",
+    ],
+)
+def test_lora_tags_match_as_before(prompt):
+    from modules.anima_lora_support import LORA_TAG_RE
+
+    assert _tag_matches(LORA_TAG_RE, prompt) == _tag_matches(_UNBOUNDED_LORA_TAG_RE, prompt)
+
+
+def test_lora_tags_match_as_before_unless_a_tag_would_hold_another_tags_start():
+    import random
+
+    from modules.anima_lora_support import LORA_TAG_RE
+
+    pieces = ["<lora:", "<", ">", ":", "a", "b", "0.5", "@", "[", "]", ",", " ", "=", "\n", "lora"]
+    rng = random.Random(0)
+    compared = 0
+    for _ in range(20000):
+        text = "".join(rng.choice(pieces) for _ in range(rng.randint(0, 14)))
+        before = _tag_matches(_UNBOUNDED_LORA_TAG_RE, text)
+        if any("<" in text[start + 1 : end] for (start, end), _ in before):
+            continue  # "<lora:<lora:x:1>" now reads as the inner tag
+        assert _tag_matches(LORA_TAG_RE, text) == before, text
+        compared += 1
+    assert compared > 15000
+
+
+def test_unterminated_lora_tags_are_scanned_in_linear_time():
+    import time
+
+    from modules.anima_lora_support import LORA_TAG_RE
+
+    start = time.perf_counter()
+    assert LORA_TAG_RE.findall("<lora:" * 4000) == []
+    assert LORA_TAG_RE.findall("<lora:a:" * 4000 + ">") == [("a", "")]
+    assert time.perf_counter() - start < 0.2  # about 1 s with the unbounded pattern
