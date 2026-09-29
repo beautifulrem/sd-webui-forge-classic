@@ -36,8 +36,8 @@ def guidance(monkeypatch):
 
 def test_apply_preset_turns_the_panel_off_at_its_defaults(guidance):
     for tab in ("txt2img", "img2img"):
-        # The panel's controls follow SCRIPT_ARGS (the API's positional order), not the preset table
-        harness.assert_registers_preset(guidance.AnimaGuidanceScript(), "guidance", tab, unowned_labels=UNOWNED, preset_order=False)
+        # The preset table lists the guidance controls in the panel's order
+        harness.assert_registers_preset(guidance.AnimaGuidanceScript(), "guidance", tab, unowned_labels=UNOWNED)
 
 
 def test_script_args_name_the_registered_preset_fields(guidance):

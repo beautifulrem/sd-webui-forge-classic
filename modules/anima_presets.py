@@ -64,13 +64,13 @@ SAFE_BASE_AESTHETIC_PRESET: dict[str, object] = {
     "guidance.momentum_strength": 0.5,
     "guidance.momentum_ema": 0.6,
     "guidance.fdg_detail": 12.0,
+    "guidance.range_enabled": False,
+    "guidance.range_start": 0.0,
+    "guidance.range_end": 1.0,
     "guidance.cfg_zero_init_steps": 1,
     "guidance.apg_eta": 0.0,
     "guidance.apg_norm_threshold": 0.0,
     "guidance.apg_momentum": -0.5,
-    "guidance.range_enabled": False,
-    "guidance.range_start": 0.0,
-    "guidance.range_end": 1.0,
     # Seed diversity and prompt adherence block patches. Every block selection
     # (DAVE's band, Regional's and FreeFuse's full "0-27") is written in the
     # 28-block (2B) layout and mapped onto the 40/52-block models.
