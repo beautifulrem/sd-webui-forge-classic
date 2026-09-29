@@ -85,6 +85,39 @@ class RegionalTests(unittest.TestCase):
         state.prepare_masks(torch.zeros(2, 4, 1, 8, 16), dit)
         self.assertIsNot(state.current_masks, masks)
 
+    def test_edit_model_reference_frames_are_not_blended(self):
+        # Anima.forward appends an edit model's reference latents after the
+        # generated frame along T; the flattened sequence holds the generated
+        # frame's tokens first, then the reference frame's.
+        from lib_anima_regional.regional import Region, RegionalState, _make_cross_attention_wrapper
+
+        torch.manual_seed(0)
+        region = Region(torch.randn(1, 3, 4), 0.0, 0.0, 0.5, 1.0, 1.0)
+        state = RegionalState([region], {0}, 0.02, 0.0, 0.0, 1.0)
+        state.prepare_masks(torch.zeros(1, 4, 1, 8, 8), type("Dit", (), {"patch_temporal": 1, "patch_spatial": 2})())
+
+        def attention(x, context=None, rope_emb=None, transformer_options={}):
+            return x * context.mean(dim=(1, 2)).view(-1, 1, 1)
+
+        x, context = torch.randn(1, 32, 4), torch.randn(1, 3, 4)
+        wrapped = _make_cross_attention_wrapper(attention, state, 0)
+        out = wrapped(x, context=context, transformer_options={})
+        base = attention(x, context=context)
+        # The reference frame keeps the base output
+        self.assertTrue(torch.equal(out[:, 16:], base[:, 16:]))
+        # The generated frame is blended as on a plain (1-frame) model
+        inside = torch.tensor([1.0, 1.0, 0.0, 0.0]).repeat(4).view(16, 1)
+        expected = base[0, :16] * (1 - inside) + attention(x, context=region.conditioning)[0, :16] * inside
+        self.assertTrue(torch.allclose(out[0, :16], expected, atol=1e-6))
+        # The padded weights are built once per pass and sequence length
+        alphas = [key for key in state.cache if key[0] == "alpha"]
+        wrapped(x, context=context, transformer_options={})
+        self.assertEqual([key for key in state.cache if key[0] == "alpha"], alphas)
+        self.assertEqual(len(alphas), 1)
+        # A sequence shorter than the generated frame is an error
+        with self.assertRaisesRegex(RuntimeError, "does not match Anima sequence"):
+            wrapped(torch.randn(1, 8, 4), context=context, transformer_options={})
+
     def test_strength_above_one_only_acts_on_feathered_edges_and_overlaps(self):
         # What the Strength slider's info text promises
         from lib_anima_regional.regional import Region, RegionalState, _make_cross_attention_wrapper

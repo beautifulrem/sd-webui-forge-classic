@@ -46,6 +46,15 @@ def test_engine_token_ids_use_the_appended_eos_position():
     assert background == [len(prompt)]
 
 
+def test_concept_skips_a_match_inside_an_earlier_concept():
+    positions, _ = TOKENS.concept_token_positions(
+        FakeTokenizer(),
+        "blonde girl, girl with red hair",
+        {"one": "blonde girl", "two": "girl"},
+    )
+    assert positions == {"one": list(range(11)), "two": [13, 14, 15, 16]}
+
+
 def test_missing_or_overlapping_concepts_fail():
     try:
         TOKENS.concept_token_positions(

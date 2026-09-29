@@ -11,13 +11,22 @@ def clean_prompt(prompt: str) -> str:
     return _EXTRA_NETWORK.sub("", str(prompt))
 
 
-def _find_subsequence(sequence: list[int], needle: list[int]) -> list[int]:
+def _find_subsequence(
+    sequence: list[int], needle: list[int], occupied: set[int] = frozenset()
+) -> list[int]:
+    """Positions of the first match of ``needle`` that avoids ``occupied``;
+    the first match of all when every one overlaps it, [] when none exists."""
+
     if not needle:
         return []
+    first = []
     for start in range(0, len(sequence) - len(needle) + 1):
         if sequence[start : start + len(needle)] == needle:
-            return list(range(start, start + len(needle)))
-    return []
+            positions = list(range(start, start + len(needle)))
+            if occupied.isdisjoint(positions):
+                return positions
+            first = first or positions
+    return first
 
 
 def concept_token_positions(
@@ -53,7 +62,8 @@ def concept_token_positions(
                 "input_ids"
             ][0]
         )
-        positions = _find_subsequence(prompt_ids, phrase_ids)
+        # e.g. "girl" after "blonde girl" in "blonde girl, girl with red hair"
+        positions = _find_subsequence(prompt_ids, phrase_ids, occupied)
         if not positions:
             raise ValueError(
                 f"FreeFuse concept phrase {phrase!r} was not found verbatim in the positive prompt"

@@ -75,6 +75,8 @@ class RegionalState:
     start_sigma: float
     end_sigma: float
     current_masks: list[torch.Tensor] | None = None
+    # Cache key of ``current_masks`` (latent shape, device, dtype)
+    current_mask_key: tuple | None = None
     # Whether each region's current mask covers any token
     region_nonempty: list[bool] = field(default_factory=list)
     # Device copies of masks, row indices and region contexts, keyed by shape,
@@ -95,6 +97,27 @@ class RegionalState:
     def prepare_masks(self, input_x: torch.Tensor, dit):
         key = ("masks", tuple(input_x.shape[-3:]), input_x.device, input_x.dtype)
         self.current_masks, self.region_nonempty = self.cached(key, lambda: self._build_masks(input_x, dit))
+        self.current_mask_key = key
+
+    def region_alpha(self, number: int, length: int, like: torch.Tensor) -> torch.Tensor:
+        """Blend weight ``(1, length, 1)`` of region ``number`` on an Anima
+        sequence of ``length`` tokens.
+
+        The masks cover the generated frames only. An edit model appends its
+        reference-latent frames after them along T (``Anima.forward``), and
+        the frame-major flattening puts their tokens after the generated
+        ones; those get weight 0 so region prompts never touch the reference
+        image."""
+
+        def build():
+            mask = self.current_masks[number]
+            if mask.shape[1] > length:
+                raise RuntimeError(f"Regional token mask {mask.shape[1]} does not match Anima sequence {length}")
+            if mask.shape[1] < length:
+                mask = torch.nn.functional.pad(mask, (0, 0, 0, length - mask.shape[1]))
+            return mask.to(like) * float(self.regions[number].strength)
+
+        return self.cached(("alpha", self.current_mask_key, number, length, like.device, like.dtype), build)
 
     def _build_masks(self, input_x: torch.Tensor, dit):
         latent_t = int(input_x.shape[-3])
@@ -138,16 +161,10 @@ def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_
         region_base = branch.select(base)
         numerator = torch.zeros_like(region_base)
         denominator = torch.zeros((region_base.shape[0], region_base.shape[1], 1), device=base.device, dtype=base.dtype)
-        for number, (region, spatial_mask) in enumerate(zip(state.regions, state.current_masks)):
+        for number, region in enumerate(state.regions):
             if not state.region_nonempty[number]:
                 continue
-            if spatial_mask.shape[1] != base.shape[1]:
-                if base.shape[1] % spatial_mask.shape[1] != 0:
-                    raise RuntimeError(
-                        f"Regional token mask {spatial_mask.shape[1]} does not match Anima sequence {base.shape[1]}"
-                    )
-                spatial_mask = spatial_mask.repeat(1, base.shape[1] // spatial_mask.shape[1], 1)
-            alpha = spatial_mask.to(base) * float(region.strength)
+            alpha = state.region_alpha(number, base.shape[1], base)
             key = (number, batch, rows, context.device, context.dtype)
             regional_context = state.cached(("context", *key), lambda: fit_context_rows(region.conditioning, batch, rows, context))
             negpip_mask = (
