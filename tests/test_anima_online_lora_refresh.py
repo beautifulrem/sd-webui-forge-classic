@@ -19,7 +19,7 @@ from backend.nn import anima_quant
 from modules import anima_online_lora as leases
 
 _SOURCE = Path(__file__).parents[1] / "modules_forge" / "main_entry.py"
-_NAMES = {"forge_unet_storage_dtype_options", "anima_quant_options", "_migrate_scaled_fp8_setting", "forge_loading_parameters", "refresh_model_loading_parameters"}
+_NAMES = {"forge_unet_storage_dtype_options", "anima_quant_options", "forge_loading_parameters", "refresh_model_loading_parameters"}
 
 
 @pytest.fixture(autouse=True)
@@ -41,7 +41,7 @@ def _refresh(monkeypatch, storage_option):
         "os": __import__("os"),
         "logger": logging.getLogger("test_online_lora_refresh"),
         "print_json": lambda **kwargs: None,
-        "shared": SimpleNamespace(opts=opts, config_filename="config.json"),
+        "shared": SimpleNamespace(opts=opts),
         "processing": SimpleNamespace(),
         "anima_online_lora": leases,
         "dynamic_args": dynamic_args,  # the old code assigned it directly

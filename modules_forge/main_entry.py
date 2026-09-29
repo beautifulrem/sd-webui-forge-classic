@@ -116,24 +116,6 @@ def refresh_models() -> tuple[list[os.PathLike], list[os.PathLike]]:
     return sorted(ckpt_list), sorted(module_list.keys())
 
 
-def _migrate_scaled_fp8_setting(opts, config_filename):
-    """remi briefly had a separate "[Anima] Scaled FP8" setting; turn an enabled
-    one into the matching "Diffusion in Low Bits" choice, also in the per-preset
-    copies (switching presets restores those)."""
-    if not opts.data.pop("anima_scaled_fp8", False):
-        return
-    scaled = {
-        "float8-e4m3fn": "float8-e4m3fn (Anima scaled)",
-        "float8-e4m3fn (fp16 LoRA)": "float8-e4m3fn (Anima scaled, fp16 LoRA)",
-    }
-    if (migrated := scaled.get(opts.forge_unet_storage_dtype)) is not None:
-        opts.set("forge_unet_storage_dtype", migrated)
-    for key in [key for key in opts.data if key.startswith("forge_unet_storage_dtype_")]:
-        if (migrated := scaled.get(opts.data[key])) is not None:
-            opts.data[key] = migrated  # hidden option: nothing to notify
-    opts.save(config_filename)
-
-
 def forge_loading_parameters(checkpoint_info, unet_storage_option: str) -> dict:
     """What sd_models.forge_model_reload() loads (and compares to decide on a
     reload) for the "Diffusion in Low Bits" choice ``unet_storage_option``."""
@@ -147,10 +129,6 @@ def forge_loading_parameters(checkpoint_info, unet_storage_option: str) -> dict:
 def refresh_model_loading_parameters(*, refresh: bool = True):
     if not refresh:
         return
-
-    if not getattr(_migrate_scaled_fp8_setting, "done", False):  # the short-lived setting needs one look per launch
-        _migrate_scaled_fp8_setting(shared.opts, shared.config_filename)
-        _migrate_scaled_fp8_setting.done = True
 
     from modules.sd_models import model_data, select_checkpoint
 

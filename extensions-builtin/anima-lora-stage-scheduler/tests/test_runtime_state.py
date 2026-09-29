@@ -99,9 +99,14 @@ def test_loras_reload_only_when_the_passes_load_different_patches():
     process._anima_lora_stage_scheduler_state = state
 
     def activate(data):
-        sd_model.current_lora_hash = "compiled"  # what load_networks leaves behind
-        module._prepare_for_extra_network_activation(process, data)
-        return sd_model.current_lora_hash != "compiled"
+        reloaded = []
+
+        def load_networks(p, extra_network_data):  # an unchanged LoRA set: rebuilt only after a hash reset
+            reloaded.append(sd_model.current_lora_hash != "compiled")
+            sd_model.current_lora_hash = "compiled"
+
+        module._activate(load_networks, process, data)
+        return reloaded[0]
 
     assert activate(base_data)  # first activation of a run: rebuild
     assert not activate(base_data)  # next batch, same pass: keep the patches
@@ -123,7 +128,7 @@ def test_cleanup_only_undoes_its_own_run(monkeypatch):
     sd_model = SimpleNamespace(current_lora_hash="compiled")
     outer = SimpleNamespace(sd_model=sd_model)
     state = _state(module, outer)
-    state.loaded_pass = module.BOTH_PASSES
+    state.loaded_pass, state.loaded_hash = module.BOTH_PASSES, "compiled"
     outer._anima_lora_stage_scheduler_state = state
     monkeypatch.setattr(module, "_ACTIVE_STATE", state)
 
@@ -241,16 +246,22 @@ def test_a_next_run_with_the_same_schedule_keeps_the_loaded_loras():
 
     def run(signature="panel", enabled=True):
         p = SimpleNamespace(sd_model=sd_model, enable_hr=False, extra_network_data=data)
-        state = None
+        state, reloads = None, []
+
+        def load_networks(p, extra_network_data):  # rebuilds the patches (and their strengths) after a hash reset
+            if sd_model.current_lora_hash != "compiled":
+                reloads.append(True)
+                sd_model.current_lora_hash = "compiled"
+                if state is not None:
+                    state.register(strength)
+
         if enabled:
             state = _state(module, p, base=SimpleNamespace(patch_signature=signature), hires=SimpleNamespace(patch_signature=signature))
             p._anima_lora_stage_scheduler_state = state
-            module._prepare_for_extra_network_activation(p, data)
-        reloaded = sd_model.current_lora_hash != "compiled"
-        if reloaded:  # load_networks rebuilds the patches (and their strengths)
-            sd_model.current_lora_hash = "compiled"
-            if state is not None:
-                state.register(strength)
+            module._activate(load_networks, p, data)
+        else:
+            load_networks(p, data)
+        reloaded = bool(reloads)
         scheduled = state is not None and any(wrapper is strength for wrapper in state.live_wrappers())
         module._cleanup_runtime(p)
         return reloaded, scheduled
@@ -260,6 +271,37 @@ def test_a_next_run_with_the_same_schedule_keeps_the_loaded_loras():
     assert run("other panel") == (True, True)
     assert run(enabled=False) == (True, False)  # never the scheduled patches without the scheduler
     assert run() == (True, True)
+
+
+def test_a_next_run_never_takes_a_nested_runs_patches_for_its_own():
+    """ADetailer's detailing run, with a LoRA set of its own, reloads its LoRAs
+    at their plain strength in the outer run's postprocess_image: a next run
+    with the same panels and that LoRA set must rebuild its scheduled patches."""
+    module = _load()
+    sd_model = SimpleNamespace(current_lora_hash=str([]))
+    loads = []
+
+    def load_networks(p, extra_network_data):  # extra_network_data: the prompt's LoRA set
+        if sd_model.current_lora_hash != str(extra_network_data):
+            loads.append(p)
+            sd_model.current_lora_hash = str(extra_network_data)
+
+    def run(loras, nested_loras=None):
+        p = SimpleNamespace(sd_model=sd_model, enable_hr=False, extra_network_data=loras)
+        p._anima_lora_stage_scheduler_state = _state(module, p)
+        module._activate(load_networks, p, loras)
+        if nested_loras is not None:  # the scheduler not among the detailing run's scripts
+            nested = SimpleNamespace(sd_model=sd_model, enable_hr=False, extra_network_data=nested_loras)
+            module._activate(load_networks, nested, nested_loras)
+        module._cleanup_runtime(p)
+        return p
+
+    run(["a.safetensors"], nested_loras=["b.safetensors"])
+    second = run(["b.safetensors"])
+    assert loads[-1] is second  # not the detailing run's unscheduled patches
+
+    third = run(["b.safetensors"])
+    assert loads[-1] is second and third is not second  # its own scheduled patches are kept
 
 
 def test_loras_the_scheduler_leaves_stay_online_while_freefuse_needs_them(monkeypatch):

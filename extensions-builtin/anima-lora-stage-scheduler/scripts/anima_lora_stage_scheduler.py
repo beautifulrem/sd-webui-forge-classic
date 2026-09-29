@@ -394,11 +394,14 @@ def _cleanup_runtime(p):
     owner = getattr(state, "p", None)
     sd_model = getattr(owner, "sd_model", None)
     if state.loaded_pass is not None and sd_model is not None:
-        # The next run must not keep this run's scheduled / panel-weighted
-        # patches, unless it schedules the very same ones.
-        tag = f"anima-stage-scheduler:released:{uuid.uuid4().hex}"
-        _RELEASED_PATCHES = (tag, sd_model.current_lora_hash, _loaded_patch_config(state, state.loaded_pass), list(state.wrappers))
-        sd_model.current_lora_hash = tag
+        # A nested run (ADetailer) loading a LoRA set of its own since left
+        # its plain-strength patches: they are not this run's to hand on.
+        if sd_model.current_lora_hash == state.loaded_hash:
+            # The next run must not keep this run's scheduled / panel-weighted
+            # patches, unless it schedules the very same ones.
+            tag = f"anima-stage-scheduler:released:{uuid.uuid4().hex}"
+            _RELEASED_PATCHES = (tag, sd_model.current_lora_hash, _loaded_patch_config(state, state.loaded_pass), list(state.wrappers))
+            sd_model.current_lora_hash = tag
         state.loaded_pass = None
     if owner is not None and getattr(owner, "_anima_lora_stage_scheduler_state", None) is state:
         owner._anima_lora_stage_scheduler_state = None
@@ -1302,6 +1305,8 @@ class RuntimeState:
     yielded_to_lora_control: set = field(default_factory=set)
     # The patch_pass() tag of the loaded LoRA patches
     loaded_pass: str | None = None
+    # load_networks' current_lora_hash after this run's own last activation
+    loaded_hash: str | None = None
     # The run this one interrupted (a nested process_images), active again after it
     outer_state: object = None
     _file_names: dict = field(default_factory=dict)
@@ -1542,7 +1547,10 @@ def _activate(original, p, extra_network_data):
     if state is not None and pass_name is not None:
         state.current_activation_pass = pass_name
     try:
-        return original(p, extra_network_data)
+        result = original(p, extra_network_data)
+        if state is not None and pass_name is not None:
+            state.loaded_hash = p.sd_model.current_lora_hash
+        return result
     finally:
         if state is not None:
             state.current_activation_pass = previous_pass
