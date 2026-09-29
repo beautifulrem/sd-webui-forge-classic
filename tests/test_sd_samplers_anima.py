@@ -125,6 +125,59 @@ def test_pc3_zero_gamma_returns_predictor_exactly():
     assert torch.equal(result, x_pred)
 
 
+def test_pc3_batch_rows_are_sampled_independently(monkeypatch):
+    """PC3's error, gamma and cap are per-image: each row of a batch gets what
+    it would get sampled alone, whatever its batch-mates are."""
+
+    monkeypatch.setattr(anima_samplers, "require_anima_flow_denoiser", lambda _model, _feature: None)
+    generator = torch.Generator().manual_seed(0)
+    first = torch.randn(1, 4, 8, 8, generator=generator, dtype=torch.float64)
+    second = 4.0 * torch.randn(1, 4, 8, 8, generator=generator, dtype=torch.float64) - 2.0
+    t = torch.linspace(1.0, 0.0, 17, dtype=torch.float64)
+    sigmas = 3 * t / (1 + 2 * t)  # Anima's shift 3
+
+    def model(x, sigma, **_extra_args):
+        # elementwise, so it never couples rows itself; curved enough that the
+        # correction's error and cap are not trivially saturated
+        t = sigma.view(-1, *([1] * (x.ndim - 1)))
+        return torch.tanh(3 * x) * (1 - t) + 0.5 * torch.sin(5 * x) * t
+
+    def sample(x):
+        return anima_samplers.sample_anima_flow_pc3(model, x.clone(), sigmas, disable=True)
+
+    batch = sample(torch.cat([first, second]))
+
+    torch.testing.assert_close(batch[:1], sample(first), rtol=0, atol=1e-12)
+    torch.testing.assert_close(batch[1:], sample(second), rtol=0, atol=1e-12)
+
+
+def test_pc3_correction_keeps_half_precision_latents():
+    x = torch.ones(2, 1, 2, 2, dtype=torch.float16)
+    state = _PC3State(
+        previous_denoised=x * 0.9,
+        previous_lambda=_rf_lambda(torch.tensor(0.8)),
+        previous_previous_denoised=x,
+        previous_previous_lambda=_rf_lambda(torch.tensor(0.9)),
+    )
+
+    result = _pc3_correct(
+        x,
+        x * 0.8,
+        x * 0.7,
+        torch.tensor(0.7),
+        torch.tensor(0.5),
+        state,
+        x * 0.75,
+        max_gamma=1.0,
+        tolerance=0.005,
+        schedule=_Schedule(torch.tensor([0.9, 0.8, 0.7, 0.5])),
+        step=2,
+    )
+
+    assert result.dtype == torch.float16
+    assert result.shape == x.shape
+
+
 def test_pc3_marks_endpoint_correction_as_auxiliary(monkeypatch):
     class FakeModel:
         def __init__(self):

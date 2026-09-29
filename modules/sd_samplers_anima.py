@@ -40,8 +40,14 @@ def _rf_lambda(t):
 
 
 def _rms(value):
+    """Per-sample RMS, shaped [B, 1, ...] to broadcast against the batch: a
+    batch-wide mean would couple each image's PC3 correction to its batch-mates.
+    Tensors without a batch dim (ndim < 2) reduce to one scalar."""
     value = value.float()
-    return torch.sqrt(torch.mean(value * value))
+    dims = tuple(range(1, value.ndim))
+    if not dims:
+        return torch.sqrt(torch.mean(value * value))
+    return torch.sqrt(torch.mean(value * value, dim=dims, keepdim=True))
 
 
 def euler_step(x, denoised, t, t_next):
@@ -483,7 +489,11 @@ def _pc3_correct(
         + w_endpoint * denoised_pred
     )
 
-    error = _rms(x_corrected - x_pred) / (_rms(x_pred) + _EPS)
+    # The RMS are per-image [B, 1, ...] float32 tensors. As 0-d tensors they
+    # used to promote to the schedule's float64 in the scalar math below; the
+    # casts keep that precision (and upstream parity) now that they have dims.
+    scalar_dtype = torch.promote_types(torch.float32, x.dtype)
+    error = (_rms(x_corrected - x_pred) / (_rms(x_pred) + _EPS)).to(scalar_dtype)
     # A no-op for the driver's device tensor; a float would be a host upload.
     tolerance = torch.as_tensor(tolerance, dtype=x.dtype, device=x.device)
     gamma_error = torch.sqrt(
@@ -496,16 +506,17 @@ def _pc3_correct(
 
     # Cap the correction relative to the predictor step; skipped (via where,
     # without a host sync) when the correction is negligible.
-    correction_rms = _rms(x_corrected - x_pred)
+    correction_rms = _rms(x_corrected - x_pred).to(scalar_dtype)
     predictor_step_rms = _rms(x_pred - x)
     anchor_rms = torch.maximum(_rms(x_pred), _rms(x))
     cap_ratio = 0.65 if float(schedule.lambdas[step + 1]) >= 3.5 else 0.90
-    correction_cap = torch.maximum(predictor_step_rms * cap_ratio, anchor_rms * 0.015)
+    correction_cap = torch.maximum(predictor_step_rms * cap_ratio, anchor_rms * 0.015).to(scalar_dtype)
     capped = gamma * torch.clamp(
         correction_cap / (torch.abs(gamma) * correction_rms + _EPS), 0.0, 1.0
     )
     gamma = torch.where(correction_rms > _EPS, capped, gamma)
-    return x_pred + gamma * (x_corrected - x_pred)
+    # A [B, 1, ...] gamma would promote a half-precision latent to float32.
+    return x_pred + gamma.to(x_pred.dtype) * (x_corrected - x_pred)
 
 
 @torch.no_grad()
