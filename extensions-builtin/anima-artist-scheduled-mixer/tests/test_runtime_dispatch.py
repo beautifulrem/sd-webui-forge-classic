@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 import torch
 
+from lib_artist_mixer import runtime
+
 sys.argv = sys.argv[:1]
 SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_artist_scheduled_mixer.py"
 
@@ -45,15 +47,15 @@ def attend(x, context):
     return torch.tanh(x * context.mean(dim=(1, 2)).view(-1, 1, 1) + context.sum(dim=(1, 2)).view(-1, 1, 1) * 0.01)
 
 
-def _state(combine=mixer.COMBINE_OUTPUT_AVG, fusion=mixer.FUSION_INTERPOLATE, apply_uncond=False, batched=False, weights=(0.6, 0.3)):
+def _state(combine=runtime.COMBINE_OUTPUT_AVG, fusion=runtime.FUSION_INTERPOLATE, apply_uncond=False, batched=False, weights=(0.6, 0.3)):
     torch.manual_seed(0)
     artists = [
-        mixer.ArtistRuntime(f"artist{index}", weight, {0}, 0.0, 1.0, 0.5, mixer.CURVE_HOLD, torch.randn(1, 3, 4))
+        runtime.ArtistRuntime(f"artist{index}", weight, {0}, 0.0, 1.0, 0.5, mixer.CURVE_HOLD, torch.randn(1, 3, 4))
         for index, weight in enumerate(weights)
     ]
     # Output average batches its artist forwards until that fails once:
     # batched=False takes the serial path it falls back to.
-    return mixer.MixerState("run", True, 0.8, combine, fusion, apply_uncond, artists, batched_disabled=not batched)
+    return runtime.MixerState("run", True, 0.8, combine, fusion, apply_uncond, artists, batched_disabled=not batched)
 
 
 def _inputs(batch=2):
@@ -62,7 +64,7 @@ def _inputs(batch=2):
 
 
 def _dispatch(state, forward, x, context, markers):
-    return mixer._dispatch_cross_attn(forward, 0, state, x, context=context, transformer_options={"cond_or_uncond": markers})
+    return runtime._dispatch_cross_attn(forward, 0, state, x, context=context, transformer_options={"cond_or_uncond": markers})
 
 
 @pytest.mark.parametrize("batched", [False, True])
@@ -91,7 +93,7 @@ def test_batched_and_serial_artist_forwards_agree():
     assert forward.calls[0][2]["cond_or_uncond"] == [0, 0]
 
 
-@pytest.mark.parametrize("combine", [mixer.COMBINE_OUTPUT_AVG, mixer.COMBINE_CONCAT])
+@pytest.mark.parametrize("combine", [runtime.COMBINE_OUTPUT_AVG, runtime.COMBINE_CONCAT])
 def test_calls_without_a_row_to_mix_skip_the_artist_forwards(combine):
     state = _state(combine=combine)
     x, context = _inputs()
@@ -110,15 +112,15 @@ def test_apply_uncond_mixes_every_row():
     assert not torch.equal(out[1], base[1])
 
 
-@pytest.mark.parametrize("fusion", [mixer.FUSION_INTERPOLATE, mixer.FUSION_CONCAT_WITH_BASE])
+@pytest.mark.parametrize("fusion", [runtime.FUSION_INTERPOLATE, runtime.FUSION_CONCAT_WITH_BASE])
 def test_concat_attends_to_weighted_artist_tokens(fusion):
-    state = _state(combine=mixer.COMBINE_CONCAT, fusion=fusion)
+    state = _state(combine=runtime.COMBINE_CONCAT, fusion=fusion)
     x, context = _inputs()
     forward = _Attention()
     out = _dispatch(state, forward, x, context, [0, 1])
 
     combined = torch.cat([a.cond * (a.weight / 0.9) for a in state.artists], dim=1)
-    kv = torch.cat([context[:1], combined], dim=1) if fusion == mixer.FUSION_CONCAT_WITH_BASE else combined
+    kv = torch.cat([context[:1], combined], dim=1) if fusion == runtime.FUSION_CONCAT_WITH_BASE else combined
     # The artist forward runs on the positive-prompt row only
     assert forward.calls[0][0] == 1 and torch.allclose(forward.calls[0][1], kv)
     assert forward.calls[0][2]["anima_nag_skip"] == "artist_context"
@@ -130,14 +132,14 @@ def test_concat_attends_to_weighted_artist_tokens(fusion):
 
 
 def test_quality_delta_limits_the_artist_delta():
-    state = _state(fusion=mixer.FUSION_QUALITY_DELTA)
+    state = _state(fusion=runtime.FUSION_QUALITY_DELTA)
     x, context = _inputs()
     out = _dispatch(state, _Attention(), x, context, [0, 1])
 
     base = attend(x, context)
     weights = [0.6 / 0.9, 0.3 / 0.9]
     artist = sum(w * attend(x, a.cond.expand(2, -1, -1)) for w, a in zip(weights, state.artists))
-    expected = mixer._norm_limited_delta(base, artist, 0.8 * 0.9)
+    expected = runtime._norm_limited_delta(base, artist, 0.8 * 0.9)
     assert torch.allclose(out[0], expected[0], atol=1e-6)
     assert torch.equal(out[1], base[1])
 
@@ -150,7 +152,7 @@ def test_zero_weights_and_inactive_blocks_fall_back_to_the_base_forward():
 
     state = _state()
     forward = _Attention()
-    out = mixer._dispatch_cross_attn(forward, 5, state, x, context=context, transformer_options={})
+    out = runtime._dispatch_cross_attn(forward, 5, state, x, context=context, transformer_options={})
     assert len(forward.calls) == 1 and state.fallback_calls == 1
 
 
@@ -172,7 +174,7 @@ def test_artist_mixer_yields_to_regional_in_headless_runs():
 
     p = SimpleNamespace(is_api=True, extra_generation_params={})
     set_feature_active(p, REGIONAL)
-    args = [True, 1, 1, False, False, 0, 0, 1.0, "balance", mixer.COMBINE_OUTPUT_AVG, mixer.FUSION_INTERPOLATE, False, False]
+    args = [True, 1, 1, False, False, 0, 0, 1.0, "balance", runtime.COMBINE_OUTPUT_AVG, runtime.FUSION_INTERPOLATE, False, False]
     mixer.Script().process_before_every_sampling(p, *args)
 
     message = "disabled: Anima Regional Conditioning has priority in headless processing"
@@ -203,7 +205,7 @@ def _run_args(enable_hires_rows=False, disable_hires_mixing=False):
     row = lambda artist: [True, artist, 1.0, "0-51", 0.0, 1.0, 0.5, mixer.CURVE_HOLD, mixer.PRESET_CUSTOM, False]
     base = row("(base artist:-1)") + [None] * (width * (mixer.MAX_ARTIST_ROWS - 1))
     hires = row("hires artist") + [None] * (width * (mixer.MAX_ARTIST_ROWS - 1))
-    head = [True, 1, 1, enable_hires_rows, disable_hires_mixing, 3.0, 3.0, 0.7, mixer.OPT_BALANCE, mixer.COMBINE_OUTPUT_AVG, mixer.FUSION_INTERPOLATE, False, False]
+    head = [True, 1, 1, enable_hires_rows, disable_hires_mixing, 3.0, 3.0, 0.7, mixer.OPT_BALANCE, runtime.COMBINE_OUTPUT_AVG, runtime.FUSION_INTERPOLATE, False, False]
     return head + base + hires
 
 
@@ -220,7 +222,7 @@ def test_superseded_and_finished_runs_release_their_device_tensors(monkeypatch):
 
     def run_and_use():
         mixer.Script().process_before_every_sampling(p, *_run_args())
-        state = mixer._RUN_STATES[-1]
+        state = runtime._RUN_STATES[-1]
         _dispatch(state, _Attention(), x, context, [1, 0])  # fills the per-call caches
         assert state.call_contexts and state.row_masks and all(artist.on_device for artist in state.artists)
         return state
@@ -228,14 +230,14 @@ def test_superseded_and_finished_runs_release_their_device_tensors(monkeypatch):
     try:
         first = run_and_use()
         second = run_and_use()  # e.g. the hires pass
-        assert mixer._RUN_STATES == [second]
+        assert runtime._RUN_STATES == [second]
         assert not first.call_contexts and not first.row_masks and not any(artist.on_device for artist in first.artists)
 
         mixer.Script().postprocess(p, None, *_run_args())
         assert not second.call_contexts and not any(artist.on_device for artist in second.artists)
         assert second.dispatch_calls == 1  # the counters stay for the summary
     finally:
-        mixer._cleanup_runtime()
+        runtime._cleanup_runtime()
 
 
 def _sampling_pass(monkeypatch, **kwargs):
@@ -271,10 +273,10 @@ def test_artist_overrides_exist_only_during_a_model_call(monkeypatch):
         x, context = _inputs()
         base = attend(x, context)
         assert not torch.equal(out[0], base[0]) and torch.equal(out[1], base[1])  # mixed into the positive row
-        state = mixer._RUN_STATES[-1]
+        state = runtime._RUN_STATES[-1]
         assert state.wrapper_checks == 1 and state.active_calls == 1 and state.patched_blocks == [0]
     finally:
-        mixer._cleanup_runtime()
+        runtime._cleanup_runtime()
 
 
 def test_artist_overrides_are_restored_when_the_model_call_raises(monkeypatch):
@@ -289,7 +291,7 @@ def test_artist_overrides_are_restored_when_the_model_call_raises(monkeypatch):
             _model_call(unet, attention, interrupted)
         assert "forward" not in attention.__dict__
     finally:
-        mixer._cleanup_runtime()
+        runtime._cleanup_runtime()
 
 
 def test_nothing_is_mixed_after_sampling_not_even_in_an_adetailer_inner_run(monkeypatch):
@@ -297,7 +299,7 @@ def test_nothing_is_mixed_after_sampling_not_even_in_an_adetailer_inner_run(monk
     # or yield to it (_ad_inner); they must not inherit the artist overrides,
     # even through the outer pass's patcher.
     p, unet, attention = _sampling_pass(monkeypatch)
-    state = mixer._RUN_STATES[-1]
+    state = runtime._RUN_STATES[-1]
     try:
         mixer.Script().postprocess_batch(p, images=None, batch_number=0)
         inner = _run_p(_ad_inner=True)
@@ -308,9 +310,9 @@ def test_nothing_is_mixed_after_sampling_not_even_in_an_adetailer_inner_run(monk
         x, context = _inputs()
         assert not patched and torch.equal(out, attend(x, context))
         assert state.wrapper_checks == 0 and state.dispatch_calls == 0
-        assert mixer._RUN_STATES == [state]  # kept for postprocess's run summary
+        assert runtime._RUN_STATES == [state]  # kept for postprocess's run summary
     finally:
-        mixer._cleanup_runtime()
+        runtime._cleanup_runtime()
 
 
 def test_an_artist_batch_the_attention_batch_does_not_tile_turns_the_mixer_off():
@@ -374,10 +376,10 @@ def test_conditioning_cache_key_follows_the_text_encoder_patches(monkeypatch):
     model = SimpleNamespace(current_lora_hash="['a.safetensors']", forge_objects=SimpleNamespace(clip=SimpleNamespace(patcher=patcher)))
     p = SimpleNamespace(sd_model=model)
 
-    first = mixer._cache_key(p, ["artist"])
-    assert mixer._cache_key(p, ["artist"]) == first
+    first = runtime._cache_key(p, ["artist"])
+    assert runtime._cache_key(p, ["artist"]) == first
     patcher.patches_uuid = "te-2"
-    assert mixer._cache_key(p, ["artist"]) != first
+    assert runtime._cache_key(p, ["artist"]) != first
 
 
 def _negpip_state(combine, fusion, batched=False):
@@ -387,51 +389,51 @@ def _negpip_state(combine, fusion, batched=False):
 
 
 @pytest.mark.parametrize("batched", [False, True])
-@pytest.mark.parametrize("fusion", [mixer.FUSION_INTERPOLATE, mixer.FUSION_CONCAT_WITH_BASE])
+@pytest.mark.parametrize("fusion", [runtime.FUSION_INTERPOLATE, runtime.FUSION_CONCAT_WITH_BASE])
 def test_output_avg_hands_each_artist_context_its_own_negpip_mask(fusion, batched):
     from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY
 
-    state = _negpip_state(mixer.COMBINE_OUTPUT_AVG, fusion, batched)
+    state = _negpip_state(runtime.COMBINE_OUTPUT_AVG, fusion, batched)
     x, context = _inputs(batch=4)
     base_mask = torch.ones(4, 3, 1)
     base_mask[:, 0] = -1.0
     forward = _Attention()
-    mixer._dispatch_cross_attn(forward, 0, state, x, context=context, transformer_options={"cond_or_uncond": [0, 1], NEGPIP_MASK_KEY: base_mask})
+    runtime._dispatch_cross_attn(forward, 0, state, x, context=context, transformer_options={"cond_or_uncond": [0, 1], NEGPIP_MASK_KEY: base_mask})
 
     artist_calls, base_call = forward.calls[:-1], forward.calls[-1]
     assert NEGPIP_CONTEXT_MASK_KEY not in base_call[2] and base_call[2][NEGPIP_MASK_KEY] is base_mask
     ones, artist = torch.ones(2, 3, 1), state.artists[1].negpip_mask.expand(2, -1, -1)
-    if fusion == mixer.FUSION_CONCAT_WITH_BASE:  # the base tokens (positive rows) keep the base mask
+    if fusion == runtime.FUSION_CONCAT_WITH_BASE:  # the base tokens (positive rows) keep the base mask
         ones, artist = torch.cat([base_mask[:2], ones], dim=1), torch.cat([base_mask[:2], artist], dim=1)
     masks = [call[2][NEGPIP_CONTEXT_MASK_KEY] for call in artist_calls]
     if batched:
         assert len(masks) == 1 and torch.equal(masks[0], torch.cat([ones, artist]))
-    elif fusion == mixer.FUSION_CONCAT_WITH_BASE:
+    elif fusion == runtime.FUSION_CONCAT_WITH_BASE:
         assert torch.equal(masks[0], ones) and torch.equal(masks[1], artist)
     else:
         assert masks[0] is None and torch.equal(masks[1], artist)
 
 
-@pytest.mark.parametrize("fusion", [mixer.FUSION_INTERPOLATE, mixer.FUSION_CONCAT_WITH_BASE])
+@pytest.mark.parametrize("fusion", [runtime.FUSION_INTERPOLATE, runtime.FUSION_CONCAT_WITH_BASE])
 def test_concat_hands_the_joined_context_its_own_negpip_mask(fusion):
     from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY
 
-    state = _negpip_state(mixer.COMBINE_CONCAT, fusion)
+    state = _negpip_state(runtime.COMBINE_CONCAT, fusion)
     x, context = _inputs()
     forward = _Attention()
     options = {"cond_or_uncond": [0, 1]}
-    mixer._dispatch_cross_attn(forward, 0, state, x, context=context, transformer_options=options)
+    runtime._dispatch_cross_attn(forward, 0, state, x, context=context, transformer_options=options)
     expected = torch.cat([torch.ones(1, 3, 1), state.artists[1].negpip_mask], dim=1)
-    if fusion == mixer.FUSION_CONCAT_WITH_BASE:  # no base mask: ones for the base tokens
+    if fusion == runtime.FUSION_CONCAT_WITH_BASE:  # no base mask: ones for the base tokens
         expected = torch.cat([torch.ones(1, 3, 1), expected], dim=1)
     assert torch.equal(forward.calls[0][2][NEGPIP_CONTEXT_MASK_KEY], expected)
 
     # Without negative weights anywhere, the artist context carries None, not the base mask
-    state = _state(combine=mixer.COMBINE_CONCAT, fusion=fusion)
+    state = _state(combine=runtime.COMBINE_CONCAT, fusion=fusion)
     forward = _Attention()
     options[NEGPIP_MASK_KEY] = torch.ones(2, 3, 1)
-    mixer._dispatch_cross_attn(forward, 0, state, x, context=context, transformer_options=options)
-    if fusion == mixer.FUSION_CONCAT_WITH_BASE:
+    runtime._dispatch_cross_attn(forward, 0, state, x, context=context, transformer_options=options)
+    if fusion == runtime.FUSION_CONCAT_WITH_BASE:
         assert torch.equal(forward.calls[0][2][NEGPIP_CONTEXT_MASK_KEY], torch.ones(1, 9, 1))
     else:
         assert forward.calls[0][2][NEGPIP_CONTEXT_MASK_KEY] is None
@@ -440,22 +442,22 @@ def test_concat_hands_the_joined_context_its_own_negpip_mask(fusion):
 def test_base_fusion_contexts_are_built_once_per_model_call():
     from modules.anima_support import NEGPIP_MASK_KEY
 
-    state = _negpip_state(mixer.COMBINE_OUTPUT_AVG, mixer.FUSION_CONCAT_WITH_BASE)
+    state = _negpip_state(runtime.COMBINE_OUTPUT_AVG, runtime.FUSION_CONCAT_WITH_BASE)
     state.artists[0].blocks = state.artists[1].blocks = {0, 1}
     x, context = _inputs()
     options = {"cond_or_uncond": [0, 1], NEGPIP_MASK_KEY: -torch.ones(2, 3, 1)}
     forward = _Attention()
     for block in (0, 1):  # two blocks of one model call
-        mixer._dispatch_cross_attn(forward, block, state, x, context=context, transformer_options=options)
+        runtime._dispatch_cross_attn(forward, block, state, x, context=context, transformer_options=options)
     first, second = forward.calls[:2], forward.calls[3:5]
     for one, two in zip(first, second):
         assert one[1] is two[1] and one[2]["negpip_context_mask"] is two[2]["negpip_context_mask"]
 
 
 @pytest.mark.parametrize("combine, fusion", [
-    (mixer.COMBINE_OUTPUT_AVG, mixer.FUSION_INTERPOLATE),  # batched: the artist contexts stacked
-    (mixer.COMBINE_CONCAT, mixer.FUSION_INTERPOLATE),  # the weighted artist tokens joined
-    (mixer.COMBINE_CONCAT, mixer.FUSION_CONCAT_WITH_BASE),  # ... after the base tokens
+    (runtime.COMBINE_OUTPUT_AVG, runtime.FUSION_INTERPOLATE),  # batched: the artist contexts stacked
+    (runtime.COMBINE_CONCAT, runtime.FUSION_INTERPOLATE),  # the weighted artist tokens joined
+    (runtime.COMBINE_CONCAT, runtime.FUSION_CONCAT_WITH_BASE),  # ... after the base tokens
 ])  # fmt: skip
 def test_joined_artist_contexts_are_built_once_per_model_call(combine, fusion):
     state = _state(combine, fusion, batched=True)
@@ -467,7 +469,7 @@ def test_joined_artist_contexts_are_built_once_per_model_call(combine, fusion):
     def artist_kv(block, context):
         """The context the block's one artist forward attends to."""
         forward.calls.clear()
-        mixer._dispatch_cross_attn(forward, block, state, x, context=context, transformer_options={"cond_or_uncond": [0, 1]})
+        runtime._dispatch_cross_attn(forward, block, state, x, context=context, transformer_options={"cond_or_uncond": [0, 1]})
         (kv,) = [call[1] for call in forward.calls if call[1] is not context]
         return kv
 
@@ -506,7 +508,7 @@ def test_rows_mixing_into_no_block_take_no_slot_of_the_artist_cap(monkeypatch):
     # The test model has one block: "5" selects none of it, so that row is skipped
     base = row("ghost", "5") + [value for index in range(rows - 1) for value in row(f"artist{index}")]
     base += [None] * (width * (mixer.MAX_ARTIST_ROWS - rows))
-    head = [True, rows, 1, False, False, 3.0, 3.0, 0.7, mixer.OPT_PERFORMANCE, mixer.COMBINE_OUTPUT_AVG, mixer.FUSION_INTERPOLATE, False, False]
+    head = [True, rows, 1, False, False, 3.0, 3.0, 0.7, mixer.OPT_PERFORMANCE, runtime.COMBINE_OUTPUT_AVG, runtime.FUSION_INTERPOLATE, False, False]
     args = head + base + [None] * (width * mixer.MAX_ARTIST_ROWS)
     expected = [f"artist{index}" for index in range(cap)]
 
@@ -520,7 +522,7 @@ def test_rows_mixing_into_no_block_take_no_slot_of_the_artist_cap(monkeypatch):
     try:
         mixer.Script().process_before_every_sampling(p, *args)
         assert encoded == expected  # nothing past the cap is encoded
-        assert [artist.name for artist in mixer._RUN_STATES[-1].artists] == expected
+        assert [artist.name for artist in runtime._RUN_STATES[-1].artists] == expected
         assert p.extra_generation_params["Anima Artist Mixer"].startswith(f"{cap} artists")
     finally:
-        mixer._cleanup_runtime()
+        runtime._cleanup_runtime()

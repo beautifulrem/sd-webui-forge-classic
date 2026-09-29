@@ -1,7 +1,7 @@
 # Forge Neo Remi 功能与 Anima 生成指南
 
 > 适用分支：`remi`  
-> 代码核对基线：`8169d6ca`（2026-08-09）  
+> 代码核对基线：`529e492f`（2026-09-30）  
 > 本文中的“推荐”是保守起步值，不是对所有模型、LoRA 和提示词都最优的固定答案。
 
 ## 先看结论
@@ -149,7 +149,7 @@ Base/Aesthetic 可先保守试 `scale 1.0–1.5`、`alpha 0.25–0.4`、`tau 2.5
 注意：
 
 - 正负条件在同一个 batch 时复用负分支的 K/V；CFG 1 或低显存导致 Forge 拆分分支时，用该层 K/V 权重投影负面提示的 context（负面提示中 NegPiP 的 `(tag:-1)` 同样只取反 V），不需要额外的负向前向；两者都不可用时会明确记录为 inactive；
-- NAG 会强制真实的正负分支和 Spectrum actual forward，速度与显存开销都会增加；
+- NAG 不增加模型前向，但在 Start/End 窗口内每个 cross-attention 层要多算一次对负面 context 的注意力，速度与显存开销随之增加；Spectrum 只在 NAG 的 sigma 窗口内强制 actual forward，窗口外的步骤仍可预测；
 - torch.compile 只在 NAG 的 Start/End 窗口内回退 eager，窗口外的步骤仍使用编译后的 block；
 - 与 Regional/Artist Mixer 同时使用时，NAG 只引导基础 prompt 路径，合成的区域/画师 context 会保持隔离。
 
@@ -403,26 +403,40 @@ PiD 权重仅允许非商业研究/评估，使用前必须自行核对其模型
 
 ## 兼容性速查
 
-Remi 会在 GUI 中采用“最后选择的功能获胜”：冲突项会被自动关闭并锁定，关闭当前获胜项后再全部解锁。API/CLI/PNG 参数恢复可以绕过 GUI，因此采样前还会再次运行同一套规则，并把自动替换、禁用或 fallback 原因写进 infotext。Headless 模式没有点击顺序时采用固定安全优先级：专用 sampler/controller 优先，FreeFuse 优先于 Regional、Artist Mixer 和 Refiner。
+Remi 会在 GUI 中采用“最后选择的功能获胜”：冲突项会被自动关闭并锁定，关闭当前获胜项后再全部解锁。API/CLI/PNG 参数恢复可以绕过 GUI，因此采样前还会再次运行同一套规则，并把自动替换、禁用或 fallback 原因写进 infotext。Headless 模式没有点击顺序时采用固定安全优先级：专用 sampler/controller 优先，FreeFuse 优先于 Regional、Artist Mixer 和 Refiner，Regional 优先于 Artist Mixer；让位的功能跳过本次生成并把原因写进 infotext，任务不会报错。
 
 | 组合 | 结论 |
 |---|---|
 | `Beta57` + `Anima Flow Euler/UniPC2/PC3` | Flow sampler 锁定 scheduler，Beta57 不生效 |
 | Dynamic Shift + `Anima Flow *` | 被 scheduler lock 忽略 |
 | Dynamic Shift + Beta57 | Dynamic Shift override 实际接管 schedule；不要当作双重增强 |
-| SMC / FDG / CFG-Zero* | 同一下拉框，互斥模式 |
-| Momentum + SMC/FDG/CFG-Zero* | 自动禁用 Momentum |
+| SMC / CFG-Zero* / APG / FDG | 同一下拉框，互斥模式 |
+| Momentum + SMC/CFG-Zero*/APG/FDG | 自动禁用 Momentum |
 | Momentum + UniPC2/PC3/Heun/DPM2 | 不支持，自动禁用 |
 | FDG + DCW | 自动禁用 DCW |
 | DCW + Heun/DPM2/DPM++ SDE/Restart 等多次求值采样器 | 自动禁用 DCW |
 | FDG + CNS | 自动禁用 FDG |
-| FreeFuse + Regional | 硬冲突，任务报错 |
-| FreeFuse + Artist Mixer | 硬冲突，任务报错 |
+| FreeFuse + Regional | 同一互斥组，GUI 中最后选择者获胜；headless 时 Regional 让位，infotext 记为 `Anima regional conditioning: disabled: Anima FreeFuse has priority in headless processing` |
+| FreeFuse/Regional + Artist Mixer | 同一互斥组；headless 时 Artist Mixer 让位给 FreeFuse 或 Regional，infotext 记为 `Anima Artist Mixer: disabled: <FreeFuse/Regional> has priority in headless processing` |
 | FreeFuse + Refiner checkpoint switch | 不支持 |
 | NAG + Regional/Artist | 可运行；NAG 只作用基础 prompt 路径 |
 | PiD + Hires fix | PiD 跳过并写入元数据 |
 | Spectrum + NAG/Momentum/Regional/FreeFuse/PC3 probe | 相关步骤强制 actual，速度收益下降或消失 |
 | Stage Scheduler + Layer Weight | 支持；batch 内冲突规则会主动中止 |
+| `Anima SPEED` + img2img/Hires fix 第二遍（denoise < 1，不从纯噪声开始）、inpaint 蒙版 | 本遍改用 Anima Flow Euler，原因写入 `Anima conflict resolution` |
+| `Anima SPEED` + FreeFuse/Regional/Artist Mixer、ControlNet、ControlNet-LLLite/IP-Adapter 等 attention patch、参考 latent（Edit 模型）、Spectrum/MultiDiffusion/Radial 等 model wrapper | 这些都绑定全分辨率网格：本遍改用 Anima Flow Euler 并记录原因。Modulation guidance、CFG-Zero* 的 zero-init、DAVE 和 Cross-Attention Boost 与分辨率无关，不触发回退 |
+| `Anima SPEED` + 小尺寸（半分辨率阶段面积小于 512×384，即全图小于约 1024×768，如 768×768）或 schedule 中没有可切换分辨率的步 | 本遍改用 Anima Flow Euler 并记录原因 |
+| `Anima SPEED` + Dynamic Shift/Beta57/Momentum | SPEED 属于 Flow sampler：锁定 `Anima FlowMatch`，Dynamic Shift 与 Momentum 自动禁用；DCW 支持 |
+| DAVE + Spectrum/torch.compile | 可运行；DAVE 窗口（完整 schedule 的前 `tau`）内 Spectrum 强制 actual，per-block compile 回退 eager |
+| DAVE + Regional/FreeFuse/Artist Mixer、`Anima SPEED` | 可组合：前三者改 cross-attention，DAVE 改 block 输出；SPEED 保留半分辨率阶段 |
+| DAVE + Hires fix/img2img | 窗口按完整 schedule 计算，只有 denoise 覆盖到前 `tau` 的那一遍才生效 |
+| Cross-Attention Boost + Spectrum/torch.compile | 可运行；sigma ≥ Band 的步内 Spectrum 强制 actual，per-block compile 回退 eager |
+| Cross-Attention Boost + Regional/FreeFuse/Artist Mixer | 可组合：Regional 的区域与 FreeFuse 的概念 bias 在正向行一起被放大（两种 wrapper 顺序都有 CPU 测试）；Artist Mixer 挂钩方式相同但没有组合测试；以上都未在 GPU 上联合测试 |
+| Cross-Attention Boost + NAG/NegPiP、CFG 1、`Anima SPEED` | 可组合：NAG 与 NegPiP 在 Boost 包裹的注意力内部起作用；CFG 1 时只有正向行，全部被放大；SPEED 保留半分辨率阶段。Hires/img2img 只有 denoise 达到 Band 的步才放大 |
+| Diffusion in Low Bits `Anima scaled`/`Anima ConvRot` + 已是 FP8、GGUF、混合精度（comfy-quant）或 Nunchaku 的 Anima checkpoint | 不再量化，按 checkpoint 原样加载 |
+| Diffusion in Low Bits `Anima scaled`/`Anima ConvRot` + 非 Anima 模型 | 按选项的普通存储类型加载：`Anima scaled` 为普通 float8-e4m3fn，`Anima ConvRot` 为 Automatic |
+| `float8-e4m3fn (Anima scaled)` + 不支持 bf16 的设备 | 退回普通 FP8 存储（精度敏感层仍保持原精度），只在日志中警告 |
+| `int8 (Anima ConvRot)` + 没有 INT8 GEMM（非 CUDA 13 构建且未加 `--enable-triton-backend`，或 GPU 低于 SM 8.0）或不支持 bf16 的设备 | 以全精度加载，只在日志中警告 |
 
 ## 推荐调参顺序
 
