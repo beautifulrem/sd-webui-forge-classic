@@ -16,7 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent / "sd_forge_anima_guidance"))
 
-from anima_block_compile import AnimaBlockCompileManager, block_compile_config
+from anima_block_compile import RECOMPILE_LIMIT, AnimaBlockCompileManager, block_compile_config
 from backend import memory_management, operations
 from backend.nn.anima import Anima
 from lib_anima_guidance.modulation import _ensure_hooks
@@ -162,8 +162,28 @@ class AnimaBlockCompileDynamoTests(unittest.TestCase):
         self.assertEqual(self.backend.frame_count, frames)
 
 
-# More (batch, H, W) combinations than Dynamo's default recompile limit (8).
-_SIZES = ((2, 8, 8), (4, 8, 8), (2, 8, 16), (4, 16, 8), (2, 16, 16), (4, 8, 24), (2, 24, 8), (4, 16, 24), (2, 24, 24), (4, 24, 16))
+# More (batch, frames, H, W) combinations than Dynamo's default recompile
+# limit (8), as a session produces them: batch 1 (CFG 1 / Turbo, steps outside
+# the CFG range) and two frames (a reference image) are specialized, so they
+# add graphs beyond the dynamic one that covers the other sizes.
+_SIZES = (
+    (2, 1, 8, 8),
+    (1, 1, 8, 8),
+    (4, 1, 8, 8),
+    (2, 1, 8, 16),
+    (1, 1, 8, 16),
+    (2, 2, 8, 8),
+    (1, 2, 8, 8),
+    (4, 1, 16, 8),
+    (2, 2, 16, 16),
+    (1, 1, 16, 16),
+    (4, 1, 8, 24),
+    (1, 2, 24, 8),
+    (2, 1, 24, 24),
+    (4, 2, 16, 24),
+    (1, 1, 24, 16),
+    (2, 1, 24, 16),
+)
 
 
 class AnimaBlockCompileSizesTests(unittest.TestCase):
@@ -188,9 +208,9 @@ class AnimaBlockCompileSizesTests(unittest.TestCase):
     def _run_sizes(self):
         runs = []
         with torch.inference_mode(), torch._dynamo.config.patch(recompile_limit=8):
-            for seed, (batch, height, width) in enumerate(_SIZES):
+            for seed, (batch, frames, height, width) in enumerate(_SIZES):
                 generator = torch.Generator().manual_seed(seed)
-                x = torch.randn(batch, 4, 1, height, width, generator=generator)
+                x = torch.randn(batch, 4, frames, height, width, generator=generator)
                 context = torch.randn(batch, 5, 32, generator=generator)
                 before = self.backend.runs
                 self.kmodel.apply_model(x, torch.rand(batch, generator=generator), context, transformer_options={})
@@ -202,14 +222,19 @@ class AnimaBlockCompileSizesTests(unittest.TestCase):
         runs = self._run_sizes()
         self.assertTrue(all(count > 0 for count in runs), runs)
         self.assertEqual(self.fallbacks, [])
-        self.assertLessEqual(self.backend.frame_count, 4)  # a static graph and a dynamic one
+        # Specialized batch-1 / two-frame graphs go past Dynamo's default 8, within the preset's limit
+        self.assertGreater(self.backend.frame_count, 8)
+        self.assertLessEqual(self.backend.frame_count, RECOMPILE_LIMIT)
+        # The raised limit is scoped to the compiled call
+        self.assertEqual(torch._dynamo.config.recompile_limit, 8)
 
     def test_the_recompile_limit_is_a_reported_fallback(self):
         self._install(dynamic=False)  # a new cache entry per size
-        runs = self._run_sizes()
+        with patch("anima_block_compile.RECOMPILE_LIMIT", 8):
+            runs = self._run_sizes()
         self.assertEqual([type(error).__name__ for error in self.fallbacks], ["FailOnRecompileLimitHit"])
         self.assertEqual(AnimaBlockCompileManager.fallback_reason(self.kmodel), "FailOnRecompileLimitHit")
-        self.assertEqual(runs[8:], [0, 0])  # persistent eager after the fallback
+        self.assertEqual(runs[8:], [0] * (len(_SIZES) - 8))  # persistent eager after the fallback
 
 
 if __name__ == "__main__":

@@ -256,7 +256,9 @@ def sample_anima_speed(model, x, sigmas, extra_args=None, callback=None, disable
                 # The coarse stage ends at the unaligned sigma it expands at.
                 sample = euler_step(sample, denoised, run_sigmas[i], sigmas[i + 1])
     except BaseException:  # also Forge's InterruptedException (Interrupt / Skip)
-        if tuple(sample.shape[-2:]) != full_size:
-            _publish_full_size_latent(full_size)
+        # Not keyed on ``sample``: an interrupt on the first full-size step
+        # raises before the denoiser stores a latent, so the published one is
+        # still the coarse stage's last. The helper checks the shape itself.
+        _publish_full_size_latent(full_size)
         raise
     return sample

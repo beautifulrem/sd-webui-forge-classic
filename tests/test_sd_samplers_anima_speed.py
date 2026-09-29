@@ -240,3 +240,32 @@ def test_interrupt_in_the_coarse_stage_leaves_a_full_size_latent(monkeypatch):
         speed.sample_anima_speed(model, _noise(1, 4, 128, 128), _anima_sigmas(10), disable=True)
 
     assert state.current_latent.shape == (1, 4, 128, 128)
+
+
+def test_interrupt_on_the_switch_step_leaves_a_full_size_latent(monkeypatch):
+    # The sample is already full size when the switch step's denoiser call is
+    # interrupted, but Forge raises before store_latent: the published latent
+    # is still the coarse stage's last one
+    state = SimpleNamespace(current_latent=None)
+    fake_shared = SimpleNamespace(state=state)
+    monkeypatch.setitem(sys.modules, "modules.shared", fake_shared)
+    monkeypatch.setattr(modules, "shared", fake_shared, raising=False)
+    sigmas = _anima_sigmas(10)
+    plan, _ = speed.plan_speed(sigmas.tolist(), 128, 128)
+    shapes = []
+
+    class Interrupted(Exception):
+        pass
+
+    def model(x, sigma, **_extra_args):
+        if len(shapes) == plan.step:
+            raise Interrupted
+        shapes.append(tuple(x.shape[-2:]))
+        state.current_latent = _gaussian_model(x, sigma)
+        return state.current_latent
+
+    with pytest.raises(Interrupted):
+        speed.sample_anima_speed(model, _noise(1, 4, 128, 128), sigmas, disable=True)
+
+    assert plan.step > 0 and set(shapes) == {plan.size}
+    assert state.current_latent.shape == (1, 4, 128, 128)

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import math
+import sys
 
 import gradio as gr
 
@@ -29,6 +31,18 @@ REPORT_ONLY_PREFIX = "report only (not applied): "
 
 def _is_anima(process) -> bool:
     return is_anima_engine(getattr(process, "sd_model", None))
+
+
+def _forge_resolution_step() -> int:
+    """The grid Forge rounds every Hires target to (processing's ``sRound``).
+
+    ``modules.ui`` reads ``opts.res_step`` once at import because the setting
+    needs a restart, so its copy is the one in effect when it is loaded.
+    """
+
+    ui = sys.modules.get("modules.ui")
+    step = getattr(ui, "_STEP", None) or getattr(shared.opts, "res_step", 64)
+    return max(1, int(step))
 
 
 # (preset control name, infotext key) of each script argument, in order
@@ -78,7 +92,7 @@ class AnimaHiresGuardScript(scripts.Script):
                 align = gr.Checkbox(
                     True,
                     label="Align to 16 px",
-                    info="Matches Anima's 8x VAE reduction and 2x transformer patches.",
+                    info="Matches Anima's 8x VAE reduction and 2x transformer patches. Hires targets also follow Forge's Resolution Step setting.",
                 )
             with gr.Row():
                 base_mp = gr.Slider(
@@ -145,6 +159,10 @@ class AnimaHiresGuardScript(scripts.Script):
         # txt2img's Upscale button: width/height are the finished image's size
         # (modules/txt2img.py) and there is no base pass to shrink.
         upscaling_image = bool(getattr(process, "txt2img_upscale", False)) or getattr(process, "firstpass_image", None) is not None
+        # Forge rounds the Hires target to its Resolution Step after this hook
+        # (processing.calculate_target_resolution): guard on a grid that
+        # rounding keeps, or a checked 1440 px axis renders as 1472 px.
+        hires_alignment = math.lcm(limits.alignment, _forge_resolution_step())
 
         result = guard_dimensions(
             process.width,
@@ -155,19 +173,26 @@ class AnimaHiresGuardScript(scripts.Script):
             hr_resize_y=int(getattr(process, "hr_resize_y", 0) or 0),
             limits=limits,
             fixed_base=upscaling_image,
+            hires_alignment=hires_alignment,
         )
         # Same keys as ``self.infotext_fields``, so pasted parameters restore the panel
         values = (True, str(policy), str(preset), bool(align), float(base_mp), float(hires_mp), float(max_upscale))
         process.extra_generation_params.update(zip((key for _, key in FIELDS), values))
         process.extra_generation_params["Anima Hires limits"] = (
             f"base {limits.base_megapixels:g} MP, hires {limits.hires_megapixels:g} MP, "
-            f"upscale {limits.max_upscale:g}x, align {limits.alignment}"
+            f"upscale {limits.max_upscale:g}x, align {limits.alignment}, hires align {hires_alignment}"
         )
+        report_only = str(policy) == "Report only"
+        if not report_only and result.hires_width is not None and result.hires_height is not None:
+            # Always an explicit target, so both axes keep the exact guarded,
+            # grid-aligned values: a scalar hr_scale cannot express rounding.
+            process.hr_resize_x = result.hires_width
+            process.hr_resize_y = result.hires_height
         if not result.changes:
             return
 
         summary = "; ".join(result.changes)
-        if str(policy) == "Report only":
+        if report_only:
             # The image keeps the unsafe size: say so, or the infotext reads as a clamp
             process.extra_generation_params["Anima Hires adjustments"] = f"{REPORT_ONLY_PREFIX}{summary}"
             logger.warning("Anima Hires Guard report: %s", summary)
@@ -176,9 +201,4 @@ class AnimaHiresGuardScript(scripts.Script):
         process.extra_generation_params["Anima Hires adjustments"] = summary
         process.width = result.base_width
         process.height = result.base_height
-        if result.hires_width is not None and result.hires_height is not None:
-            # Use an explicit target so both axes retain the exact guarded,
-            # aligned values; a scalar hr_scale cannot express rounding.
-            process.hr_resize_x = result.hires_width
-            process.hr_resize_y = result.hires_height
         logger.info("Anima Hires Guard applied: %s", summary)

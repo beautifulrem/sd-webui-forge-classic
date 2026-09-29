@@ -89,7 +89,7 @@ class TorchCompileForForge(scripts.Script):
 - **max-autotune:** Best Runtime Speed ; {_indynamic} ; {_no_malloc}
 - **max-autotune-no-cudagraphs:** {_dynamic} ; Faster than **dynamic** ; Even Slower to Compile
 - **reduce-overhead:** Similar to **max-autotune** ; {_indynamic} ; {_no_malloc}
-- **Anima per-block:** Compile each Anima transformer block separately; a changed Resolution / Batch Size recompiles once, then sizes are dynamic ; lower graph-break risk than whole-model compile
+- **Anima per-block:** Compile each Anima transformer block separately; a changed Resolution / Batch Size recompiles once into a dynamic-shape graph, but Batch Size 1 (CFG 1, or steps outside the CFG range) and reference images still compile graphs of their own ; lower graph-break risk than whole-model compile
             """)
 
         register_preset_control(self.tabname, "compile.preset", preset)

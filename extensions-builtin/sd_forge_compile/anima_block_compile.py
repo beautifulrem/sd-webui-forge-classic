@@ -87,9 +87,39 @@ def block_compile_config(guard_filter_fn) -> dict:
     """torch.compile options for the per-block preset. Every block shares
     Block.forward's code object, so with ``dynamic=False`` each new
     (batch, H, W) adds a cache entry until Dynamo's recompile limit, then the
-    blocks run eager. ``dynamic=None`` marks the changed sizes dynamic on the
-    first recompile, so any later size reuses that graph."""
+    blocks run eager. ``dynamic=None`` marks a changed size dynamic on its
+    first recompile, so later sizes reuse that graph, except where Dynamo
+    specializes: a size of 1 always gets a graph of its own (batch 1 at CFG 1
+    or outside the CFG range; the single frame of a pass without reference
+    images, against T=2 with one)."""
     return dict(backend="inductor", dynamic=None, fullgraph=False, options={"guard_filter_fn": guard_filter_fn})
+
+
+# Graph variants the shared Block.forward code object may collect before the
+# per-block preset falls back to eager for good. Dynamo's default (8) counts
+# every variant of all blocks together: the static first graph and its
+# dynamic successor, each again for batch 1 and for T=2 reference frames
+# and per grad mode, fill it during ordinary use. The size sequence in
+# tests/test_anima_block_compile_dynamo.py reaches 11 variants under
+# inference_mode and 15 once no_grad calls join. 32 leaves about twice that
+# while still stopping a guard that recompiles on every step well before
+# Dynamo's accumulated limit (256).
+RECOMPILE_LIMIT = 32
+
+
+def _recompile_limit_patch() -> tuple[object, dict]:
+    """The config module and settings that make hitting RECOMPILE_LIMIT raise.
+
+    The launcher installs PyTorch 2.13 (2.11 for Nunchaku), whose public
+    ``torch.compiler.config`` carries both settings. Older installs only have
+    them in ``torch._dynamo.config``, before 2.7 under their cache-size names."""
+    public = getattr(torch.compiler, "config", None)
+    if all(hasattr(public, name) for name in ("recompile_limit", "fail_on_recompile_limit_hit")):
+        return public, dict(recompile_limit=RECOMPILE_LIMIT, fail_on_recompile_limit_hit=True)
+    dynamo = torch._dynamo.config
+    if hasattr(dynamo, "recompile_limit"):
+        return dynamo, dict(recompile_limit=RECOMPILE_LIMIT, fail_on_recompile_limit_hit=True)
+    return dynamo, dict(cache_size_limit=RECOMPILE_LIMIT, fail_on_cache_limit_hit=True)
 
 
 class AnimaBlockCompileManager:
@@ -145,8 +175,10 @@ class AnimaBlockCompileManager:
                 # default. Per-block mode needs the lazy compiler exception so
                 # it can make its eager fallback explicit and persistent;
                 # that includes the recompile limit, which otherwise runs
-                # the blocks eager without a word.
-                with torch._dynamo.config.patch(suppress_errors=False, fail_on_recompile_limit_hit=True):
+                # the blocks eager without a word, raised to RECOMPILE_LIMIT
+                # for this preset only.
+                limit_config, limit_settings = _recompile_limit_patch()
+                with torch._dynamo.config.patch(suppress_errors=False), limit_config.patch(**limit_settings):
                     result = original_apply_model(*args, **kwargs)
             except Exception as error:
                 if not _is_compile_failure(error):

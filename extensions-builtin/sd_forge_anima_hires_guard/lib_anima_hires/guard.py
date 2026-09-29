@@ -103,6 +103,7 @@ def guard_dimensions(
     hr_resize_y: int,
     limits: GuardLimits,
     fixed_base: bool = False,
+    hires_alignment: int | None = None,
 ) -> GuardResult:
     """Return safe base/Hires dimensions without mutating a processing object.
 
@@ -112,11 +113,19 @@ def guard_dimensions(
 
     ``fixed_base``: the base is an existing image (txt2img's Upscale button),
     not a pass to generate, so only the Hires target relative to it is guarded.
+
+    ``hires_alignment``: grid for the Hires target, default ``limits.alignment``.
+    Forge rounds every Hires target to its Resolution Step with round-half-up
+    (``modules.ui.sRound``), so a caller should pass a multiple of that step:
+    a target already on the grid survives the rounding unchanged, and the caps
+    checked here are the caps of the rendered size.
     """
 
     limits = limits.validated()
     align = limits.alignment
     minimum = max(limits.minimum_side, align)
+    hires_align = align if hires_alignment is None else max(1, int(hires_alignment))
+    hires_minimum = max(limits.minimum_side, hires_align)
     original_base = (int(width), int(height))
     if fixed_base:
         base = original_base
@@ -146,25 +155,27 @@ def guard_dimensions(
         requested = (resize_x, resize_y)
 
     requested_int = (
-        _aligned_nearest(requested[0], align, minimum),
-        _aligned_nearest(requested[1], align, minimum),
+        _aligned_nearest(requested[0], hires_align, hires_minimum),
+        _aligned_nearest(requested[1], hires_align, hires_minimum),
     )
-    hires = _fit(
-        *requested,
+    caps = dict(
         max_pixels=limits.hires_megapixels * 1_000_000,
         max_width=base[0] * limits.max_upscale,
         max_height=base[1] * limits.max_upscale,
-        alignment=align,
-        minimum_side=minimum,
+        alignment=hires_align,
+        minimum_side=hires_minimum,
     )
+    hires = _fit(*requested, **caps)
 
     # Hires fix should never accidentally become a downscale after clamping.
     if hires[0] < base[0] or hires[1] < base[1]:
         # Combining per-axis maxima from differently shaped rectangles can
         # create a third rectangle larger than both and violate max_pixels.
         # Falling back to the already-safe base is the only deterministic way
-        # to honor both the no-downscale and hard-ceiling contracts.
-        hires = base
+        # to honor both the no-downscale and hard-ceiling contracts. A base
+        # off the Hires grid is snapped onto it (downward if nearest would
+        # cross a cap), or Forge's own rounding would move it anyway.
+        hires = base if base[0] % hires_align == base[1] % hires_align == 0 else _fit(*base, **caps)
     if hires != requested_int:
         changes.append(
             f"hires {requested_int[0]}x{requested_int[1]} -> {hires[0]}x{hires[1]}"

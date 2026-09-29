@@ -34,13 +34,13 @@ Forge Neo Remi is a downstream distribution of [Forge Neo](https://github.com/Ha
 | Area | Included capabilities |
 | --- | --- |
 | Sampling | Beta57, Flow Euler, UniPC2, PC3, SPEED (experimental half-res early steps), ER SDE, Dynamic Shift |
-| Guidance | NAG, Momentum Guidance, Skimmed CFG, SMC, CFG-Zero*, APG, FDG, DCW, CNS |
+| Guidance | NAG, Momentum Guidance, Skimmed CFG, SMC, CFG-Zero*, APG, FDG, DCW, CNS, CFG active range (CFG only within a sampling-progress window; outside it the negative pass is skipped unless another hook reads it), CLIP Modulation guidance (on first use by default it downloads a pinned adapter and CLIP-L; local files also work) |
 | Spatial control | Regional Conditioning, FreeFuse multi-LoRA routing, Artist Scheduled Mixer |
 | Diversity | DAVE (early-step DC attenuation for same-prompt layout diversity across seeds) |
 | Prompt adherence | Cross-Attention Boost (positive-prompt cross-attention gain in the high-noise steps, norm-matched, for weak tags and bindings) |
 | LoRA workflow | Layer weights, stage scheduling, 2B LoRAs on 2.9B/3.8B (28/40/52 blocks), prompt rescaling |
 | Reliability | Feature conflict resolver, Hires Guard, generation metadata, safe fallbacks |
-| Acceleration | Spectrum forecasting and Anima per-block `torch.compile` (after the first recompile, changed resolutions and batch sizes compile as dynamic shapes) |
+| Acceleration | Spectrum forecasting and Anima per-block `torch.compile` (after the first recompile, a changed resolution or batch size reuses one dynamic-shape graph; batch 1 (CFG 1, or steps outside the CFG range) and reference frames still get graphs of their own) |
 | Low-bit loading | **Diffusion in Low Bits**: `float8-e4m3fn (Anima scaled)` (per-tensor scaled FP8, same VRAM as plain FP8, more precise) and `int8 (Anima ConvRot)` (INT8 GEMMs; CUDA 13 or `--enable-triton-backend`, SM 8.0+) |
 
 Read the [Remi Anima generation and parameter guide](docs/remi-anima-generation-guide.zh-CN.md) before combining experimental methods.
@@ -146,7 +146,7 @@ Do not install every attention backend blindly. Native PyTorch attention is ofte
 Remi hardens the routes that bundled extensions add to the WebUI server. This matters most with `--share`, `--listen`, or a reverse proxy:
 
 - **Cross-site writes are refused.** Every route an extension adds refuses state-changing browser requests from another site (`Origin` / `Sec-Fetch-Site`). Scripts and API tools send no `Origin` header and are unaffected. Browser front-ends on another origin must be allowed with `--cors-allow-origins` / `--cors-allow-origins-regex`.
-- **DNS rebinding is refused.** Without `--listen`, `--server-name`, `--share` or `--ngrok` the server only listens on loopback, so extension routes only answer to `localhost` / loopback addresses (or a host allowed with `--cors-allow-origins`). A local reverse proxy must pass one of those as `Host`, or allow its public origin with `--cors-allow-origins`.
+- **DNS rebinding is refused.** Without `--listen`, a non-loopback `--server-name`, `--share` or `--ngrok` the server only listens on loopback, so extension routes only answer to `localhost` / loopback addresses (or a host allowed with `--cors-allow-origins`). A local reverse proxy must pass one of those as `Host`, or allow its public origin with `--cors-allow-origins`.
 - **The Gradio login covers extension APIs.** With `--gradio-auth`, the routes of Agent Scheduler, Prompt All-in-One (prompt history, stored API keys), TagComplete, and Prompt Queue require the same login as the UI. Agent Scheduler keeps using HTTP Basic auth when `--api-auth` is set.
 - **Exposed servers log in on every extension route.** With `--share`, `--ngrok`, `--listen` or a non-loopback `--server-name`, and `--gradio-auth` / `--gradio-auth-path`, routes that other extensions add also require the UI login. Scripts and API tools (including ones on your LAN) then authenticate with `--api-auth` HTTP Basic credentials (as for `/sdapi`); without `--api-auth` they are refused. With `--nowebui` (API only, listening on every interface unless `--server-name` says otherwise) there is no UI login: when `--api-auth` is set, those routes require its credentials, as `/sdapi` does. Loopback-only servers keep those routes open to API tools.
 - **Reverse proxies** must forward the public host. If the proxy drops a non-default public port from `Host` (e.g. nginx `$host` on `:8443`), also send `X-Forwarded-Port`; otherwise UI saves are refused as cross-site.

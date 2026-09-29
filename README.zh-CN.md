@@ -34,13 +34,13 @@ Forge Neo Remi 是 [Forge Neo](https://github.com/Haoming02/sd-webui-forge-class
 | 领域 | 内置能力 |
 | --- | --- |
 | 采样 | Beta57、Flow Euler、UniPC2、PC3、SPEED（实验：前段半分辨率）、ER SDE、Dynamic Shift |
-| 引导 | NAG、Momentum Guidance、Skimmed CFG、SMC、CFG-Zero*、APG、FDG、DCW、CNS |
+| 引导 | NAG、Momentum Guidance、Skimmed CFG、SMC、CFG-Zero*、APG、FDG、DCW、CNS、CFG 生效区间（只在采样进度窗口内执行 CFG；窗口外若无其他 hook 读取，则跳过负向推理）、CLIP Modulation guidance（默认首次使用时下载固定版本的 adapter 与 CLIP-L，也可使用本地文件） |
 | 空间控制 | Regional Conditioning、FreeFuse 多 LoRA 路由、Artist Scheduled Mixer |
 | 多样性 | DAVE（前段 DC 衰减，提升同一提示词不同 seed 的构图多样性） |
 | 提示词遵循 | Cross-Attention Boost（高噪声前段放大正向提示词的 cross-attention 并做范数匹配，改善弱标签与多主体绑定） |
 | LoRA 工作流 | 分层权重、阶段调度、2B LoRA 用于 2.9B/3.8B（28/40/52 层）、提示词缩放 |
 | 稳定性 | 功能冲突解析、Hires Guard、生成元数据、安全回退 |
-| 加速 | Spectrum 预测，以及 Anima per-block `torch.compile`（首次重新编译后，改变的分辨率与 batch size 按动态形状编译） |
+| 加速 | Spectrum 预测，以及 Anima per-block `torch.compile`（首次重新编译后，改变的分辨率或 batch size 复用同一个动态形状图；batch 1（CFG 1，或 CFG 区间外的步）和参考帧仍各自编译独立的图） |
 | 低比特加载 | **Diffusion in Low Bits** 中的 `float8-e4m3fn (Anima scaled)`（按张量缩放的 FP8，显存与普通 FP8 相同、精度更高）和 `int8 (Anima ConvRot)`（INT8 矩阵乘；需要 CUDA 13 或 `--enable-triton-backend`，SM 8.0+） |
 
 组合实验性方法前，请先阅读 [Remi Anima 生成与参数指南](docs/remi-anima-generation-guide.zh-CN.md)。
@@ -146,7 +146,7 @@ Remi 随分支提供经筛选的内置扩展，包括：
 Remi 加固了内置扩展添加到 WebUI 服务器上的接口。使用 `--share`、`--listen` 或反向代理时尤其重要：
 
 - **拒绝跨站写请求。** 所有扩展新增的接口都会拒绝来自其他站点的浏览器写请求（依据 `Origin` / `Sec-Fetch-Site`）。脚本和 API 工具不带 `Origin` 头，不受影响。其他来源的浏览器前端需要通过 `--cors-allow-origins` / `--cors-allow-origins-regex` 放行。
-- **拒绝 DNS 重绑定。** 未使用 `--listen`、`--server-name`、`--share` 或 `--ngrok` 时服务只监听本机回环地址，扩展接口只接受 `localhost` / 回环地址（或 `--cors-allow-origins` 放行的主机名）作为 `Host`。本机反向代理需要转发其中之一作为 `Host`，或用 `--cors-allow-origins` 放行其公网来源。
+- **拒绝 DNS 重绑定。** 未使用 `--listen`、非回环地址的 `--server-name`、`--share` 或 `--ngrok` 时服务只监听本机回环地址，扩展接口只接受 `localhost` / 回环地址（或 `--cors-allow-origins` 放行的主机名）作为 `Host`。本机反向代理需要转发其中之一作为 `Host`，或用 `--cors-allow-origins` 放行其公网来源。
 - **Gradio 登录覆盖扩展接口。** 设置 `--gradio-auth` 后，Agent Scheduler、Prompt All-in-One（提示词历史、保存的 API 密钥）、TagComplete 和 Prompt Queue 的接口需要与界面相同的登录。设置 `--api-auth` 时，Agent Scheduler 仍使用 HTTP Basic 认证。
 - **对外暴露时所有扩展接口都要登录。** 使用 `--share`、`--ngrok`、`--listen` 或非回环地址的 `--server-name`，并设置 `--gradio-auth` / `--gradio-auth-path` 时，其他扩展新增的接口同样需要界面登录。脚本和 API 工具（包括局域网内的）此时用 `--api-auth` 的 HTTP Basic 凭据认证（与 `/sdapi` 相同）；未设置 `--api-auth` 时会被拒绝。使用 `--nowebui`（仅 API，除非 `--server-name` 另行指定，否则监听所有网络接口）时没有界面登录：设置 `--api-auth` 后，这些接口需要其凭据，与 `/sdapi` 相同。只监听回环地址的服务对 API 工具保持开放。
 - **反向代理**需要转发公网主机名。如果代理在 `Host` 中去掉了非默认的公网端口（例如 nginx 在 `:8443` 上使用 `$host`），请同时发送 `X-Forwarded-Port`，否则界面上的保存操作会被当作跨站请求拒绝。

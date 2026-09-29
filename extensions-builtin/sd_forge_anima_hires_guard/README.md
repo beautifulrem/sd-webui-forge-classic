@@ -11,12 +11,17 @@ GUI controls for:
 - optional 16-pixel alignment.
 
 The extension is disabled by default. It never changes non-Anima generations.
-When clamping is enabled, the guarded target is written as an explicit Hires
-width and height so both aligned axes survive Forge's target calculation.
+Forge rounds every Hires target to its Resolution Step (Settings, default
+64 px) after the guard runs, so the Hires target is aligned to the least common
+multiple of that step and the 16-pixel grid (just the step when alignment is
+off). A target on that grid comes out of Forge's rounding unchanged, so the
+checked size is the rendered size. When clamping is enabled and Hires is on,
+the guarded target is always written as an explicit Hires width and height.
 Every selected limit and applied adjustment is recorded in image metadata.
 Alignment is ceiling-aware: if nearest-grid rounding would cross an MP or
 per-axis limit, the guard rounds downward. A target that would become smaller
-than the base on either axis falls back to the already-safe base rectangle.
+than the base on either axis falls back to the already-safe base rectangle,
+snapped onto the Hires grid when the base is off it.
 txt2img's Upscale button starts from a finished image, so there the image
 size is kept and only the Hires target relative to it is guarded.
 

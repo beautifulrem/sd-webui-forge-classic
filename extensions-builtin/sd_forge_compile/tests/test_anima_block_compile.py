@@ -12,8 +12,10 @@ sys.path.insert(0, str(ROOT))
 
 from anima_block_compile import (
     _EAGER_OPTION_KEYS,
+    RECOMPILE_LIMIT,
     AnimaBlockCompileManager,
     _needs_eager_blocks,
+    _recompile_limit_patch,
     needs_eager,
     patched_inside,
     without_inactive_modifiers,
@@ -241,6 +243,30 @@ class BlockIndexCompileTests(unittest.TestCase):
         expected = torch.arange(3.0).reshape(3, 1, 1).expand(3, 1, 4)
         torch.testing.assert_close(by_kwarg, expected)
         torch.testing.assert_close(by_position, expected)
+
+
+class RecompileLimitConfigTests(unittest.TestCase):
+    def test_public_compiler_config_is_used_where_it_has_both_settings(self):
+        from types import SimpleNamespace
+
+        config, settings = _recompile_limit_patch()
+        self.assertIs(config, torch.compiler.config)  # the pinned PyTorch has them
+        self.assertEqual(settings, dict(recompile_limit=RECOMPILE_LIMIT, fail_on_recompile_limit_hit=True))
+        with config.patch(**settings):
+            self.assertEqual(torch._dynamo.config.recompile_limit, RECOMPILE_LIMIT)  # an alias of Dynamo's
+            self.assertTrue(torch._dynamo.config.fail_on_recompile_limit_hit)
+        self.assertEqual(torch._dynamo.config.recompile_limit, 8)
+
+        # Older installs: Dynamo's own config, then its pre-2.7 names
+        with patch.object(torch.compiler, "config", SimpleNamespace(), create=True):
+            config, settings = _recompile_limit_patch()
+            self.assertIs(config, torch._dynamo.config)
+            self.assertEqual(settings, dict(recompile_limit=RECOMPILE_LIMIT, fail_on_recompile_limit_hit=True))
+            old_dynamo = SimpleNamespace(cache_size_limit=8, fail_on_cache_limit_hit=False)
+            with patch.object(torch._dynamo, "config", old_dynamo):
+                config, settings = _recompile_limit_patch()
+            self.assertIs(config, old_dynamo)
+            self.assertEqual(settings, dict(cache_size_limit=RECOMPILE_LIMIT, fail_on_cache_limit_hit=True))
 
 
 if __name__ == "__main__":
