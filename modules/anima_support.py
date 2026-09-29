@@ -1,7 +1,8 @@
 """Shared helpers for Anima-only integrations: capability checks (engine,
 auxiliary / Flow denoiser), prompt-batch and conditioning / negpip mask
 plumbing, extra-prompt encoding and caching, block-list and branch-row
-parsing, and model-wrapper helpers."""
+parsing, generated-frame (vs edit reference frame) token spans, and
+model-wrapper helpers."""
 
 from __future__ import annotations
 
@@ -287,6 +288,40 @@ def negpip_mask_for(context, transformer_options):
             return None
         mask = mask.repeat(context.shape[0] // mask.shape[0], *([1] * (mask.ndim - 1)))
     return mask.to(context)
+
+
+def generated_token_frames(input_x, patch_temporal: int = 1) -> int | None:
+    """Token frames of the generated latent ``input_x`` ``(B, C, T, H, W)``
+    of a model call, None when it is not 5-D.
+
+    An edit model's reference-latent frames are appended after these along T
+    (``Anima.forward``), and the frame-major flattening of the blocks puts
+    their tokens after the generated ones: a per-token edit covers the first
+    ``frames * H * W`` tokens only (see :func:`pad_to_sequence`)."""
+
+    import math
+
+    if getattr(input_x, "ndim", None) != 5:
+        return None
+    return math.ceil(int(input_x.shape[2]) / max(1, int(patch_temporal or 1)))
+
+
+def pad_to_sequence(values, length: int, fill: float = 0.0, *, dim: int = 1):
+    """``values`` describing the generated tokens (or token frames), leading
+    along ``dim``, extended to an Anima sequence of ``length`` with ``fill``
+    for the reference-latent tokens an edit model appends after them (see
+    :func:`generated_token_frames`). Raises when ``values`` is longer."""
+
+    import torch
+
+    size = int(values.shape[dim])
+    if size > length:
+        raise RuntimeError(f"Anima generated-token mask {size} does not match Anima sequence {length}")
+    if size == length:
+        return values
+    shape = list(values.shape)
+    shape[dim] = length - size
+    return torch.cat((values, values.new_full(shape, float(fill))), dim=dim)
 
 
 def parse_block_list(text: str, total: int, *, feature: str) -> set[int]:

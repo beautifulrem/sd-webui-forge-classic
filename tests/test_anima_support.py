@@ -7,8 +7,10 @@ from modules.anima_support import (
     NEGPIP_CONTEXT_MASK_KEY,
     NEGPIP_MASK_KEY,
     anima_auxiliary_denoiser,
+    generated_token_frames,
     is_anima_engine,
     negpip_mask_for,
+    pad_to_sequence,
     parse_block_list,
     positive_rows,
     register_negpip_prompts,
@@ -250,6 +252,24 @@ def test_negpip_ignores_extra_prompts_of_a_feature_that_yields():
     set_feature_active(process, REGIONAL, False)
     set_feature_active(process, FREEFUSE)
     assert negpip_extra_prompts(process) == ["other"]
+
+
+def test_generated_token_frames_come_from_the_call_input():
+    assert generated_token_frames(torch.zeros(2, 16, 1, 8, 8)) == 1
+    assert generated_token_frames(torch.zeros(2, 16, 3, 8, 8), patch_temporal=2) == 2
+    assert generated_token_frames(torch.zeros(2, 16, 3, 8, 8), patch_temporal=None) == 3
+    assert generated_token_frames(torch.zeros(2, 16, 8, 8)) is None
+
+
+def test_pad_to_sequence_fills_the_reference_tokens():
+    mask = torch.tensor([[[0.5], [1.0]]])
+    padded = pad_to_sequence(mask, 5)
+    assert torch.equal(padded[0, :, 0], torch.tensor([0.5, 1.0, 0.0, 0.0, 0.0]))
+    assert pad_to_sequence(mask, 2) is mask
+    frames = pad_to_sequence(torch.zeros(1, 1, 2, 2), 3, 1.0, dim=2)
+    assert frames.shape == (1, 1, 3, 2) and torch.equal(frames[:, :, 2:], torch.ones(1, 1, 1, 2))
+    with pytest.raises(RuntimeError, match="does not match Anima sequence 1"):
+        pad_to_sequence(mask, 1)
 
 
 def test_block_list_accepts_reversed_ranges():

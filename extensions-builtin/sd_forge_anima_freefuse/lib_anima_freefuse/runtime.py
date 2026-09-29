@@ -21,7 +21,7 @@ from backend.patcher.lora import merge_lora_to_weight
 from modules_forge.packages.comfy.weight_adapter import LoRAAdapter
 from modules import spectrum_force
 from modules.anima_lora_support import install_add_patches_hook
-from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows, call_model_wrapper, negpip_mask_for
+from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows, call_model_wrapper, generated_token_frames, negpip_mask_for, pad_to_sequence
 from modules.forward_override import cached_overrides, forward_overrides
 from .masks import fit_mask_batch, generate_masks
 
@@ -230,6 +230,8 @@ class AnimaFreeFuseState:
     total_steps: int = 1
     grid_height: int = 0
     grid_width: int = 0
+    # Generated token frames; an edit model's reference frames follow them
+    grid_frames: int = 1
     similarity_samples: dict[str, list[torch.Tensor]] = field(default_factory=dict)
     background_samples: list[torch.Tensor] = field(default_factory=list)
     masks: dict[str, torch.Tensor] = field(default_factory=dict)
@@ -363,6 +365,7 @@ class AnimaFreeFuseState:
     def update_grid(self, input_x: torch.Tensor, dit) -> None:
         self.grid_height = math.ceil(int(input_x.shape[-2]) / int(dit.patch_spatial))
         self.grid_width = math.ceil(int(input_x.shape[-1]) / int(dit.patch_spatial))
+        self.grid_frames = generated_token_frames(input_x, getattr(dit, "patch_temporal", 1)) or 1
 
     @torch.no_grad()
     def collect_similarity(self, x, q, k, transformer_options) -> None:
@@ -441,25 +444,30 @@ class AnimaFreeFuseState:
     ) -> torch.Tensor | None:
         if not spatial_capable:
             return None
-        key = ("mask", name, tuple(output.shape[:-1]), self.grid_height, self.grid_width, output.dtype, output.device)
+        key = ("mask", name, tuple(output.shape[:-1]), self.grid_frames, self.grid_height, self.grid_width, output.dtype, output.device)
         if key not in self._fitted:
             self._fitted[key] = self._fit_mask(name, output)
         return self._fitted[key]
 
     def _fit_mask(self, name: str, output: torch.Tensor) -> torch.Tensor | None:
+        """The routing mask of ``name`` shaped for ``output``: the generated
+        frames' tokens take the mask, the reference-latent frames an edit
+        model appends after them factor 1 (the adapter unrouted)."""
+
         mask = self.masks.get(name)
         if mask is None:
             return None
         mask = fit_mask_batch(mask, int(output.shape[0]))
-        height, width = self.grid_height, self.grid_width
-        if output.ndim == 5 and output.shape[-3:-1] == (height, width):
-            return mask.to(output).view(output.shape[0], 1, height, width, 1)
+        height, width, frames = self.grid_height, self.grid_width, self.grid_frames
+        if output.ndim == 5 and output.shape[-3:-1] == (height, width) and output.shape[1] >= frames:
+            mask = mask.to(output).view(output.shape[0], 1, height, width, 1)
+            if output.shape[1] == frames:
+                return mask
+            return pad_to_sequence(mask.expand(-1, frames, -1, -1, -1), output.shape[1], 1.0)
         spatial = height * width
-        if output.ndim == 3 and output.shape[1] % spatial == 0:
-            repeats = output.shape[1] // spatial
-            return mask.to(output).reshape(output.shape[0], spatial, 1).repeat(
-                1, repeats, 1
-            )
+        if output.ndim == 3 and output.shape[1] % spatial == 0 and output.shape[1] >= frames * spatial:
+            mask = mask.to(output).reshape(output.shape[0], spatial, 1).repeat(1, frames, 1)
+            return pad_to_sequence(mask, output.shape[1], 1.0)
         # Text projections and time-only paths have no spatial axis; official
         # FreeFuse leaves their LoRA contribution unmasked during phase 2.
         return None
@@ -472,19 +480,22 @@ class AnimaFreeFuseState:
         ):
             return None
         spatial = self.grid_height * self.grid_width
-        if q.shape[1] % spatial:
+        if q.shape[1] % spatial or q.shape[1] < spatial * self.grid_frames:
             return None
         markers = tuple(transformer_options.get("cond_or_uncond", []))
-        key = ("bias", markers, tuple(q.shape[:2]), text_length, self.grid_height, self.grid_width, q.dtype, q.device)
+        key = ("bias", markers, tuple(q.shape[:2]), text_length, self.grid_frames, self.grid_height, self.grid_width, q.dtype, q.device)
         if key not in self._fitted:
             self._fitted[key] = self._build_attention_bias(q, text_length, markers)
         return self._fitted[key]
 
     def _build_attention_bias(self, q: torch.Tensor, text_length: int, markers) -> torch.Tensor:
+        """The concept bias of the generated frames' queries; the
+        reference-latent queries an edit model appends after them get none."""
+
         spatial = self.grid_height * self.grid_width
-        repeats = q.shape[1] // spatial
+        repeats = self.grid_frames
         bias = torch.zeros(
-            (q.shape[0], 1, q.shape[1], text_length), device=q.device, dtype=q.dtype
+            (q.shape[0], 1, spatial * repeats, text_length), device=q.device, dtype=q.dtype
         )
         cond = _conditioning_indices(markers, q.shape[0], q.device)
         row_gate = torch.zeros((q.shape[0], 1, 1, 1), device=q.device, dtype=q.dtype)
@@ -503,7 +514,7 @@ class AnimaFreeFuseState:
             for position in self.token_positions[adapter.name]:
                 if 0 <= position < text_length:
                     bias[..., position : position + 1] += term
-        return bias
+        return pad_to_sequence(bias, q.shape[1], 0.0, dim=2)
 
 
 @dataclass(frozen=True)

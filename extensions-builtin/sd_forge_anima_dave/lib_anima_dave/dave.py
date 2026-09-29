@@ -14,7 +14,6 @@ defaults come from the author's per-block probe of Anima 2B.
 
 from __future__ import annotations
 
-import math
 import threading
 from dataclasses import dataclass
 
@@ -22,7 +21,7 @@ import torch
 
 from modules import spectrum_force
 from modules.anima_lora_support import REFERENCE_BLOCKS, anima_model_block, sigma_progress
-from modules.anima_support import call_model_wrapper, inherit_wrapper_flags, parse_block_list
+from modules.anima_support import call_model_wrapper, generated_token_frames, inherit_wrapper_flags, parse_block_list
 from modules.forward_override import cached_overrides, forward_overrides
 
 # The reference band and defaults are written for the REFERENCE_BLOCKS (2B) layout.
@@ -118,10 +117,8 @@ def apply_dave_patch(model, state: DaveState):
         # the same model as the step it predicts: no probe special case.
         if not state.active(args["timestep"]):
             return call_model_wrapper(previous, model_function, args)
-        input_x = args["input"]
-        patch_t = int(getattr(dit, "patch_temporal", 1) or 1)
         with _PATCH_LOCK:
-            state.frames = math.ceil(input_x.shape[2] / patch_t) if input_x.ndim == 5 else None
+            state.frames = generated_token_frames(args["input"], getattr(dit, "patch_temporal", 1))
             try:
                 with forward_overrides(override(index) for index in state.blocks if index < len(dit.blocks)):
                     return call_model_wrapper(previous, model_function, args)

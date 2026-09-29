@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 import torch
 
 from modules import spectrum_force
-from modules.anima_support import call_model_wrapper, inherit_wrapper_flags, positive_rows, sigma_value
+from modules.anima_support import call_model_wrapper, inherit_wrapper_flags, pad_to_sequence, positive_rows, sigma_value
 from modules.forward_override import cached_overrides, forward_overrides
 
 
@@ -103,18 +103,12 @@ class RegionalState:
         """Blend weight ``(1, length, 1)`` of region ``number`` on an Anima
         sequence of ``length`` tokens.
 
-        The masks cover the generated frames only. An edit model appends its
-        reference-latent frames after them along T (``Anima.forward``), and
-        the frame-major flattening puts their tokens after the generated
-        ones; those get weight 0 so region prompts never touch the reference
-        image."""
+        The masks cover the generated frames only; the reference-latent
+        tokens an edit model appends after them (``pad_to_sequence``) get
+        weight 0 so region prompts never touch the reference image."""
 
         def build():
-            mask = self.current_masks[number]
-            if mask.shape[1] > length:
-                raise RuntimeError(f"Regional token mask {mask.shape[1]} does not match Anima sequence {length}")
-            if mask.shape[1] < length:
-                mask = torch.nn.functional.pad(mask, (0, 0, 0, length - mask.shape[1]))
+            mask = pad_to_sequence(self.current_masks[number], length, 0.0)
             return mask.to(like) * float(self.regions[number].strength)
 
         return self.cached(("alpha", self.current_mask_key, number, length, like.device, like.dtype), build)

@@ -10,6 +10,32 @@ MASKS = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MASKS)
 fit_mask_batch = MASKS.fit_mask_batch
 generate_masks = MASKS.generate_masks
+morphological_clean = MASKS._morphological_clean
+
+
+def _clean(image):
+    height, width = image.shape
+    return morphological_clean(image.reshape(1, -1), height, width).view(height, width)
+
+
+def test_morphological_clean_keeps_a_clean_region_in_place():
+    square = torch.zeros(16, 16)
+    square[4:12, 4:12] = 1.0
+    assert torch.equal(_clean(square), square)
+
+    corner = torch.zeros(9, 7)  # non-square grid, region on the border
+    corner[:5, 3:] = 1.0
+    assert torch.equal(_clean(corner), corner)
+    assert torch.equal(_clean(torch.ones(5, 6)), torch.ones(5, 6))
+
+
+def test_morphological_clean_removes_specks_and_fills_pinholes():
+    square = torch.zeros(16, 16)
+    square[4:12, 4:12] = 1.0
+    noisy = square.clone()
+    noisy[1, 14] = 1.0  # isolated speck
+    noisy[7, 7] = 0.0  # pinhole
+    assert torch.equal(_clean(noisy), square)
 
 
 def test_generate_masks_preserves_per_image_assignments():

@@ -224,6 +224,45 @@ def test_attention_bias_is_reused_until_the_mask_set_changes():
     assert state.attention_bias(q, 3, options) is not first
 
 
+def test_update_grid_counts_the_generated_frames():
+    runtime, _, _ = _load()
+    state = _state(runtime)
+    state.update_grid(torch.zeros(1, 16, 1, 8, 12), SimpleNamespace(patch_spatial=2, patch_temporal=1))
+    assert (state.grid_frames, state.grid_height, state.grid_width) == (1, 4, 6)
+
+
+def test_edit_reference_frames_keep_the_whole_adapter():
+    # An edit model appends a reference frame after the generated one: its
+    # tokens follow the generated tokens and are never routed.
+    runtime, _, _ = _load()
+    state = _state(runtime)
+    state.grid_height = state.grid_width = 2
+    state.masks = {"A": torch.tensor([[1.0, 0.0, 0.0, 1.0]])}
+    state.phase = "generate"
+
+    flat = state.mask_for_output("A", torch.zeros(1, 8, 3), spatial_capable=True)
+    assert torch.equal(flat[0, :, 0], torch.tensor([1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0]))
+    grid = state.mask_for_output("A", torch.zeros(1, 2, 2, 2, 3), spatial_capable=True)
+    assert torch.equal(grid[0, 0, ..., 0], torch.tensor([[1.0, 0.0], [0.0, 1.0]]))
+    assert torch.equal(grid[0, 1], torch.ones(2, 2, 1))
+
+
+def test_edit_reference_queries_get_no_concept_bias():
+    runtime, _, _ = _load()
+    state = _state(runtime)
+    state.token_positions = {"A": [1]}
+    state.bias_scale = 1.0
+    state.grid_height = state.grid_width = 2
+    state.masks = {"A": torch.tensor([[1.0, 0.0, 0.0, 1.0]])}
+    state.phase = "generate"
+
+    bias = state.attention_bias(torch.zeros(1, 8, 1, 1), 3, {"cond_or_uncond": [0]})
+
+    assert bias.shape == (1, 1, 8, 3)
+    assert torch.equal(bias[0, 0, :4, 1], torch.tensor([0.0, -1.0, -1.0, 0.0]))
+    assert torch.equal(bias[0, 0, 4:], torch.zeros(4, 3))
+
+
 def _routed_linear(runtime, ModelPatcher, state):
     patcher = _patcher(ModelPatcher, online=True)
     state.validate_patches(patcher)

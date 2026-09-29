@@ -6,3 +6,9 @@ Reference revision: 7a76c3ac43ef3c27c7a3f8126e29e6021d837c80
 Reference license: Apache License 2.0
 
 The Forge Neo/Anima runtime integration is an independent implementation.
+
+Deviation from the reference: its foreground cleanup (mask_utils.py) resizes
+the one-token-larger output of each padded 2x2 max pool back to the grid,
+which shifts the foreground by about two tokens down and right. This port
+crops that output instead, keeping the reference's 2x2 opening and closing
+without moving the mask.

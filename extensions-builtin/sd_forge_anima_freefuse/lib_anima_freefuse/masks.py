@@ -80,16 +80,21 @@ def stabilized_balanced_argmax(
 
 
 def _morphological_clean(mask: torch.Tensor, height: int, width: int) -> torch.Tensor:
+    """Opening then closing with the reference's 2x2 structuring element.
+
+    A padded 2x2 max pool is one token larger than the grid; cropping it
+    instead of resizing keeps the operations shift-free: dilation takes the
+    window ending at a token (``[:H, :W]``), erosion the one starting there
+    (``[1:, 1:]``), so each opening / closing pair cancels out and a clean
+    region keeps its place (the reference resizes and moves it)."""
+
     image = mask.float().view(mask.shape[0], 1, height, width)
 
     def dilate(value):
-        result = F.max_pool2d(value, 2, stride=1, padding=1)
-        if result.shape[-2:] != (height, width):
-            result = F.interpolate(result, size=(height, width), mode="nearest")
-        return result
+        return F.max_pool2d(value, 2, stride=1, padding=1)[..., :height, :width]
 
     def erode(value):
-        return 1.0 - dilate(1.0 - value)
+        return 1.0 - F.max_pool2d(1.0 - value, 2, stride=1, padding=1)[..., 1:, 1:]
 
     return erode(dilate(dilate(erode(image)))).view(mask.shape[0], -1).to(mask.dtype)
 
