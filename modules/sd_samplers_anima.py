@@ -489,9 +489,11 @@ def _pc3_correct(
         + w_endpoint * denoised_pred
     )
 
-    # The RMS are per-image [B, 1, ...] float32 tensors. As 0-d tensors they
-    # used to promote to the schedule's float64 in the scalar math below; the
-    # casts keep that precision (and upstream parity) now that they have dims.
+    # The RMS are per-image [B, 1, ...] float32 tensors: with dims they win
+    # type promotion over the 0-d x.dtype lambdas and tolerance below, which
+    # as 0-d tensors they used to promote with. The casts keep that dtype:
+    # float32 for half-precision / float32 latents, float64 for float64 ones
+    # (the upstream parity fixtures).
     scalar_dtype = torch.promote_types(torch.float32, x.dtype)
     error = (_rms(x_corrected - x_pred) / (_rms(x_pred) + _EPS)).to(scalar_dtype)
     # A no-op for the driver's device tensor; a float would be a host upload.

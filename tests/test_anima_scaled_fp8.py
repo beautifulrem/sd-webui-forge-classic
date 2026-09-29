@@ -51,16 +51,19 @@ def test_only_non_sensitive_block_linears_are_quantized():
     assert detect_quantization(state, is_unet=True) is not None
 
 
-def test_fp8_matmul_keeps_the_fast_path_except_for_the_ffn_down_projection():
+def test_fp8_matmul_keeps_the_fast_path_except_for_the_ffn_down_projection_and_modulation():
     state = _checkpoint()
     scale_fp8_state_dict(state, fp8_matmul=True)
     configs = {k: _config(state, k) for k in state if k.endswith("comfy_quant")}
     for key, config in configs.items():
-        if key.endswith("mlp.layer2.comfy_quant"):
-            assert config == {"format": "float8_e4m3fn", "full_precision_matrix_mult": True}
+        # The AdaLN modulation GEMMs have one row per image: FP8 there only
+        # adds input-quantization kernels and rounding.
+        if key.endswith("mlp.layer2.comfy_quant") or ".adaln_modulation_" in key:
+            assert config == {"format": "float8_e4m3fn", "full_precision_matrix_mult": True}, key
         else:
             assert config == {"format": "float8_e4m3fn"}, key
     assert any(key.endswith("mlp.layer2.comfy_quant") for key in configs)
+    assert any(".adaln_modulation_" in key and state[key[: -len("comfy_quant")] + "weight"].dtype == FP8 for key in configs)
 
 
 def test_scaled_weights_are_closer_than_a_plain_cast():

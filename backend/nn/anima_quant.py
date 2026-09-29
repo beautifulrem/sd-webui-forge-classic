@@ -70,6 +70,7 @@ _INT8_LINEAR_SUFFIXES = (
     "mlp.layer1.weight",
 )
 _FFN_DOWN_SUFFIX = "mlp.layer2.weight"
+_ADALN_MODULATION = ".adaln_modulation_"
 
 
 def _comfy_quant_conf(conf: dict) -> torch.Tensor:
@@ -98,8 +99,10 @@ def scale_fp8_state_dict(state_dict: dict[str, torch.Tensor], *, fp8_matmul: boo
     weights (many fall below e4m3's smallest normal); scaling each tensor by
     ``absmax / 448`` keeps them at full relative precision for the same VRAM.
     ``fp8_matmul`` keeps FP8 GEMMs (``--fast-fp8``) except for the FFN down
-    projection, whose input activations exceed FP8's range most; otherwise
-    every weight is dequantized for a regular matmul. Scaling runs on ``device``
+    projection, whose input activations exceed FP8's range most, and the AdaLN
+    modulation (one row per image: quantizing its input costs kernels and
+    precision without a GEMM worth speeding up); otherwise every weight is
+    dequantized for a regular matmul. Scaling runs on ``device``
     (the load device) and the results are stored on the CPU, as for INT8.
     Returns how many weights were quantized."""
 
@@ -112,7 +115,7 @@ def scale_fp8_state_dict(state_dict: dict[str, torch.Tensor], *, fp8_matmul: boo
         scale = weight.abs().amax().clamp_min(1e-12) / _FP8_E4M3_MAX
         state_dict[key] = (weight / scale).clamp_(-_FP8_E4M3_MAX, _FP8_E4M3_MAX).to(torch.float8_e4m3fn).cpu()
         state_dict[f"{prefix}weight_scale"] = scale.cpu()
-        state_dict[f"{prefix}comfy_quant"] = fp8_gemm if fp8_matmul and not key.endswith(_FFN_DOWN_SUFFIX) else full_gemm
+        state_dict[f"{prefix}comfy_quant"] = fp8_gemm if fp8_matmul and not key.endswith(_FFN_DOWN_SUFFIX) and _ADALN_MODULATION not in key else full_gemm
         quantized += 1
     return quantized
 

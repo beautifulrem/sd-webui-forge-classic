@@ -125,6 +125,24 @@ class SplitBranchTests(unittest.TestCase):
             for step in range(STEPS):
                 torch.testing.assert_close(outputs[branch][step], torch.full((1, 1), _trend(branch, step)), rtol=0, atol=1e-3)
 
+    def test_legacy_forecasts_each_and_sub_prompt_on_its_own(self):
+        # AND sub-prompts share cond_or_uncond 0 in one batch: each chunk has
+        # its own trend and must not be merged with the other's on cached steps.
+        branches = [0, 0, 1]
+        slopes = torch.tensor([1.0, 5.0, 2.0]).reshape(3, 1)
+        context = torch.stack([torch.full((4, 8), float(row)) for row in range(3)])
+        patcher, _state = _patch("Legacy / fastest")
+        actual = []
+        for step in range(STEPS):
+
+            def model_function(x, timestep, step=step, **_kwargs):
+                actual.append(step)
+                return slopes * step
+
+            output = patcher.wrapper(model_function, {"input": torch.zeros(3, 1), "timestep": _sigma(step), "c": {"c_crossattn": context}, "cond_or_uncond": branches})
+            torch.testing.assert_close(output, slopes * step, rtol=0, atol=1e-3)
+        self.assertTrue([step for step in range(STEPS) if step not in actual], actual)
+
 
 if __name__ == "__main__":
     unittest.main()

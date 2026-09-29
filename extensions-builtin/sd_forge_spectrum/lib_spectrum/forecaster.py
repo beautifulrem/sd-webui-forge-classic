@@ -186,6 +186,20 @@ def _branch_info(args, batch: int):
     return branches, valid
 
 
+def _branch_keys(branches: Sequence[int]) -> list:
+    """Per-chunk keys of a call's forecasters and signatures: the branch
+    value, and ``(branch, n)`` for its ``n``-th repeat in the call (AND
+    sub-prompts share ``cond_or_uncond`` 0), so repeated chunks are never
+    merged into one history."""
+    seen: dict[int, int] = {}
+    keys = []
+    for branch in branches:
+        count = seen.get(branch, 0)
+        seen[branch] = count + 1
+        keys.append(branch if count == 0 else (branch, count))
+    return keys
+
+
 def _safe_simple_branches(branches: Sequence[int]) -> bool:
     return len(branches) in (1, 2) and len(set(branches)) == len(branches) and all(item in (0, 1) for item in branches)
 
@@ -449,12 +463,13 @@ class SpectrumNode:
             input_x = args["input"]
             sigma = args["timestep"]
             branches, valid_branches = _branch_info(args, input_x.shape[0])
-            current_sigma, signatures = _call_samples(sigma, args.get("c") if valid_branches else None, branches)
+            keys = _branch_keys(branches)
+            current_sigma, signatures = _call_samples(sigma, args.get("c") if valid_branches else None, keys)
             new_step = state.advance(current_sigma, input_x)
             # When one CFG batch does not fit, Forge runs uncond and cond as
             # separate calls at the same sigma (uncond first): each branch's
             # first call at a sigma is its step, not a repeated-sigma call.
-            branch_step = not new_step and not state.step_branches.intersection(branches)
+            branch_step = not new_step and not state.step_branches.intersection(keys)
 
             shape_changed = state.input_shape is not None and tuple(input_x.shape[1:]) != state.input_shape
             previous_signatures = state.conditioning_signature
@@ -476,14 +491,14 @@ class SpectrumNode:
                 # calls bring the other branch.
                 for key in [key for key in state.forecasters if key not in state.step_branches]:
                     del state.forecasters[key]
-                state.step_branches = set(branches)
+                state.step_branches = set(keys)
                 if state.forecasting_ended:
                     # Nothing is forecast again this pass: free the
                     # (full-resolution) history before the tail, VAE decode
                     # and Hires rather than when the next pass starts.
                     state.forecasters.clear()
             else:
-                state.step_branches.update(branches)
+                state.step_branches.update(keys)
             state.input_shape = tuple(input_x.shape[1:])
 
             compatible = valid_branches
@@ -508,7 +523,7 @@ class SpectrumNode:
                         state.warned_wrapper = True
 
             if new_step:
-                state.mode = state.decide(branches) if compatible else "actual"
+                state.mode = state.decide(keys) if compatible else "actual"
                 if state.verbose:
                     logger.info("Spectrum step %d/%d sigma=%.6g mode=%s", state.step + 1, state.steps, current_sigma, state.mode)
             elif compat_policy != "Legacy / fastest" and not branch_step:
@@ -516,8 +531,8 @@ class SpectrumNode:
 
             # A split step's later branch follows the step's decision, as the
             # same branch would in one batch; it is not another cached step.
-            if state.mode == "cached" and compatible and state.ready(branches):
-                feature = predict_branches([state.forecasters[key] for key in branches], state.step)
+            if state.mode == "cached" and compatible and state.ready(keys):
+                feature = predict_branches([state.forecasters[key] for key in keys], state.step)
                 if feature_cache:
                     result = _fast_forward(dit, predictor, sigma, input_x, feature)
                 else:
@@ -548,9 +563,9 @@ class SpectrumNode:
             else:
                 result = actual_forward(model_function, args)
                 feature = result
-            if feeds and feature is not None and feature.shape[0] % len(branches) == 0:
-                chunks = feature.chunk(len(branches), dim=0)
-                for key, chunk in zip(branches, chunks):
+            if feeds and feature is not None and feature.shape[0] % len(keys) == 0:
+                chunks = feature.chunk(len(keys), dim=0)
+                for key, chunk in zip(keys, chunks):
                     forecaster = state.forecasters.get(key)
                     if forecaster is None:
                         forecaster = ChebyshevForecaster(degree, history_size, lam, steps, weight)
