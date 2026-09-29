@@ -69,6 +69,11 @@ def patch_anima_negpip(cls: "NegPiP", *, unpatch=False):
     _hook_compile_conditions(False)
 
 
+def patched_engine() -> Optional["AnimaEngine"]:
+    """The engine the active hook is on; None if unhooked or since unloaded."""
+    return None if _PATCHED_TARGETS is None else _PATCHED_TARGETS[0]()
+
+
 # ================================================================================ #
 
 

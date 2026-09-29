@@ -376,6 +376,23 @@ def test_template_management_leaves_the_panels_selections_alone(module):
     assert "renamed" not in hires["choices"]
 
 
+def test_combo_templates_take_their_window_from_shift_when_applied(module):
+    # Auto timing recomputes the window from Shift: a combo stores none
+    module._save_preset_combo_template_ui("combo", [module.PRESET_STYLE_ALLOW], 5.0)
+    saved = module._load_custom_templates()["combo"]
+    assert saved["auto"] is True and not {"start", "end", "peak"} & set(saved)
+
+    # Templates saved with a window (older versions) still apply from Shift
+    module._TEMPLATES.edit(lambda data: (data.update(old={**saved, "start": 0.9, "end": 0.95, "peak": 0.9}), ("old", "")))
+    for name in ("combo", "old"):
+        _, start, end, peak, strength, _ = module._apply_template_ui(name, 5.0)
+        window = module._auto_stage_values(module.STAGE_STYLE, 5.0)[:3]
+        assert (start["value"], end["value"], peak["value"]) == tuple(round(value, 4) for value in window), name
+        assert strength["value"] == 1.0
+        config = module._build_pass_config(module.MODE_PROMPT_ALL, "", "", name, "", True, None, 0.2, 0.8, 0.5, 1.0, module.CURVE_SMOOTH, 5.0)
+        assert (config.start, config.end, config.peak) == window, name
+
+
 def test_template_messages_follow_the_ui_language(module, monkeypatch):
     from modules import shared
 

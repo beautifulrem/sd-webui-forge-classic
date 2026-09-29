@@ -1696,7 +1696,7 @@ def _dispatch_concat(original_forward, state, x, context, rope_emb, transformer_
     if plan is None:
         return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
     kv, kv_mask = _concat_kv(state, plan, active)
-    artist_options =plan.branch.options(plan.options, "artist_context", kv_mask)
+    artist_options = plan.branch.options(plan.options, "artist_context", kv_mask)
     artist_out = original_forward(plan.x, context=kv, rope_emb=rope_emb, transformer_options=artist_options)
     base_out = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
     return _blend_rows(state, base_out, artist_out, plan)

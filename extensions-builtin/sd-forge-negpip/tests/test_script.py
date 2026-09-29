@@ -95,3 +95,69 @@ def test_a_batch_without_negative_weights_leaves_the_previous_hooks_undone(anima
     assert not script.active and p.extra_generation_params == {}
     assert negpip.NegPiP._patched == [False, False]
     _assert_restored(model, dit, originals)
+
+
+class _HiresProcess(SimpleNamespace):
+    """Records the Hires conditioning encoded by whichever model is loaded."""
+
+    def calculate_hr_conds(self):
+        if self.hr_c is not None:
+            return
+        self.hr_c = negpip_anima.shared.sd_model.get_learned_conditioning(["(dog:-1)"])
+        self.encodes += 1
+
+
+def _hires_process(model):
+    p = _process(model)
+    return _HiresProcess(**vars(p), hr_c="first model's", hr_uc="first model's", encodes=0)
+
+
+def test_a_hires_checkpoint_is_hooked_and_its_conditioning_encoded_again(anima):
+    model, dit, originals = anima
+    script = negpip.NegPiP()
+    p = _hires_process(model)
+    script.process_batch(p)
+    p.cached_hr_c = ["stale", "stale", "stale"]
+
+    # The Hires pass loaded another checkpoint (and encoded with it, unhooked)
+    hires_dit = _DiT()
+    hires_model = _Model(hires_dit)
+    p.sd_model = negpip_anima.shared.sd_model = hires_model
+    script.before_hr(p)
+
+    assert script.active and script.is_hr
+    assert negpip_anima.patched_engine() is hires_model
+    assert "get_learned_conditioning" in hires_model.__dict__ and "forward" in hires_dit.__dict__
+    assert "get_learned_conditioning" not in model.__dict__ and "forward" not in dit.__dict__
+    assert p.encodes == 1 and "c_negpip_mask" in p.hr_c  # encoded again, through the hook
+    assert p.cached_hr_c == [None] * 3
+
+    script.cleanup(p)
+    _assert_restored(hires_model, hires_dit, originals)
+
+
+def test_the_same_model_in_hires_keeps_its_conditioning(anima):
+    model, dit, originals = anima
+    script = negpip.NegPiP()
+    p = _hires_process(model)
+    script.process_batch(p)
+    script.before_hr(p)
+    assert script.active and p.encodes == 0 and p.hr_c == "first model's"
+    assert negpip_anima.patched_engine() is model
+
+
+def test_a_hires_checkpoint_that_is_not_anima_turns_negpip_off_visibly(anima):
+    model, dit, originals = anima
+    script = negpip.NegPiP()
+    p = _hires_process(model)
+    script.process_batch(p)
+
+    hires_model = _Model(_DiT())
+    hires_model.is_anima_engine = False
+    p.sd_model = negpip_anima.shared.sd_model = hires_model
+    script.before_hr(p)
+
+    assert not script.active and p.encodes == 0
+    assert negpip.NegPiP._patched == [False, False]
+    _assert_restored(model, dit, originals)
+    assert "NegPiP off in Hires" in str(p.extra_generation_params)

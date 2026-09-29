@@ -8,11 +8,12 @@ if TYPE_CHECKING:
 import torch
 from backend.logging import setup_logger
 from lib_negpip import IS_NEO, INCOMPATIBLE_EXTENSIONS
-from lib_negpip.anima import patch_anima_negpip
+from lib_negpip.anima import patch_anima_negpip, patched_engine
 from lib_negpip.sd import patch_sd_negpip
 from lib_negpip.utils import NEG_PATTERN, any_negative, hr_dealer, reset_prompt_cache
 
-from modules import scripts
+from modules import devices, scripts
+from modules.anima_feature_conflicts import record_conflict_resolution
 from modules.anima_support import is_anima_engine
 from modules.prompt_parser import (
     SdConditioning,
@@ -174,8 +175,26 @@ class NegPiP(scripts.Script):
         # Runs even when generation raises, so hooks never outlive a failed run.
         self.reset()
 
-    def before_hr(self, *args, **kwargs):
+    def before_hr(self, p: "StableDiffusionProcessing", *args, **kwargs):
         self.is_hr = True
+        if self.active and self.is_anima and patched_engine() is not p.sd_model:
+            self._rehook_anima_for_hires(p)
+
+    def _rehook_anima_for_hires(self, p: "StableDiffusionProcessing"):
+        # A Hires checkpoint (or module set) was loaded after process_batch:
+        # the hooks sit on the first pass model, and the Hires conditioning
+        # was just encoded by the new, unhooked one.
+        patch_anima_negpip(NegPiP, unpatch=True)
+        model = p.sd_model
+        if model.is_webui_legacy_model() or not is_anima_engine(model):
+            self.active = False
+            record_conflict_resolution(p, "NegPiP off in Hires: the Hires checkpoint is not Anima")
+            return
+        patch_anima_negpip(NegPiP)
+        reset_prompt_cache(p)  # the Hires lookup falls back to the first pass cache
+        p.hr_c = p.hr_uc = None
+        with devices.autocast():
+            p.calculate_hr_conds()
 
     def denoiser_callback(self, params: CFGDenoiserParams):
         if (not self.active) or self.is_anima:

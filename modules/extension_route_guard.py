@@ -245,9 +245,13 @@ def _routes(app):
 
 def guard_routes(app, prefixes: Iterable[str]) -> int:
     """Login + cross-site checks for UI-only routes under ``prefixes``;
-    returns how many were wrapped."""
+    returns how many were wrapped. Under --nowebui there is no Gradio login:
+    --api-auth credentials are the login, as for /sdapi. Not with the UI: on a
+    server with --api-auth but no Gradio login they would refuse the UI's own
+    browser requests, which carry no Basic credentials."""
     prefixes = tuple(prefixes)
-    return _wrap(app, [r for r in _routes(app) if getattr(r, "path", "").startswith(prefixes)], True)
+    routes = [r for r in _routes(app) if getattr(r, "path", "").startswith(prefixes)]
+    return _wrap(app, routes, True, accept_api_auth=bool(getattr(_cmd_opts(), "nowebui", False)))
 
 
 def snapshot_routes(app) -> set:

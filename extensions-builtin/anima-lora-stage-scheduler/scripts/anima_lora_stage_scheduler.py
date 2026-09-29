@@ -810,7 +810,6 @@ def _save_preset_combo_template_ui(name, selected_presets, shift_value=3.0, *pan
         return _template_updates(error, panels=panels)
 
     primary = next((part for part in parts if part["mode"] == PART_ALLOW), parts[0])
-    start, end, peak, strength = _auto_stage_values(primary["stage"], 3.0)
     presets_text = " + ".join(_part_preset_display_name(part) for part in parts)
     preview = _preset_combo_preview_text(selected_presets, shift_value)
 
@@ -819,10 +818,8 @@ def _save_preset_combo_template_ui(name, selected_presets, shift_value=3.0, *pan
             "auto": True,
             "stage": primary["stage"],
             "parts": parts,
-            "start": start,
-            "end": end,
-            "peak": peak,
-            "strength": strength,
+            # No start/end/peak: auto timing takes them from Shift when applied
+            "strength": 1.0,
             "curve": primary.get("curve", STAGE_DEFAULT_CURVES.get(primary["stage"], CURVE_SMOOTH)),
         }
         return name, _t("combo_saved").format(name=name, presets=presets_text, preview=preview)

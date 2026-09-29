@@ -185,6 +185,7 @@ USAGE_TEXT_EN = """Usage:
 def _usage_text():
     return USAGE_TEXT_EN if _language() == "en" else USAGE_TEXT
 
+
 _ACTIVE_RULE = None
 _LAST_SIGNATURE = None
 # ActiveRule.text_encoder_signature of the last batch

@@ -320,6 +320,41 @@ def test_api_only_servers_without_api_auth_stay_open(monkeypatch):
     assert _api_only_app(monkeypatch, server_name="127.0.0.1").post("/ext/api").json() == "ext"
 
 
+def test_api_only_servers_require_api_auth_for_routes_extensions_guard_themselves(monkeypatch):
+    # guard_routes marks its routes guarded, so guard_new_routes skips them:
+    # they must need the same --api-auth login as the unmarked ones
+    from modules.extension_route_guard import guard_new_routes, snapshot_routes
+
+    _guard_options(monkeypatch, nowebui=True, gradio_auth=None, gradio_auth_path=None, api_auth="api:secret")
+    app = FastAPI()
+    before = snapshot_routes(app)
+
+    @app.post("/queue/add")
+    def marked():
+        return "marked"
+
+    @app.post("/ext/api")
+    def unmarked():
+        return "ext"
+
+    assert guard_routes(app, ("/queue/",)) == 1
+    assert guard_new_routes(app, before) == 1
+    client = TestClient(app, base_url="http://127.0.0.1:7861")
+    for path, body in (("/queue/add", "marked"), ("/ext/api", "ext")):
+        assert client.post(path).status_code == 401, path
+        assert client.post(path, headers=_basic("api", "wrong")).status_code == 401, path
+        assert client.post(path, headers=_basic("api", "secret")).json() == body
+
+
+def test_ui_servers_do_not_take_api_auth_for_routes_extensions_guard_themselves(monkeypatch):
+    # With the UI, guard_routes routes stay UI-only: no Gradio login, no login
+    _guard_options(monkeypatch, gradio_auth=None, gradio_auth_path=None, api_auth="api:secret")
+    client = _client()
+    assert client.post("/ext/write").json() == "written"
+    client = _client(gradio_auth=[("user", "pw")])
+    assert client.post("/ext/write", headers=_basic("api", "secret")).status_code == 401
+
+
 def test_refusal_uses_api_auth_when_the_app_has_no_gradio_login(monkeypatch):
     from types import SimpleNamespace
 
