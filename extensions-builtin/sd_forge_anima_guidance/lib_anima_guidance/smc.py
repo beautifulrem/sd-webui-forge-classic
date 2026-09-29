@@ -12,7 +12,7 @@ from typing import Optional
 
 import torch
 
-from lib_anima_guidance.advanced import sigma_broadcast
+from lib_anima_guidance.advanced import effective_cfg_scale, sigma_broadcast
 from modules.anima_support import is_anima_auxiliary_denoiser
 
 
@@ -56,8 +56,7 @@ def make_smc_cfg_function(state: SMCCFGState, process=None):
     def cfg_function(args):
         x_in = args["input"]
         cond = args["cond_denoised"]
-        scale = float(args["cond_scale"])
-        if math.isclose(scale, 1.0):
+        if math.isclose(float(args["cond_scale"]), 1.0):
             # Skipped at CFG 1 like the reference: there is no guidance to
             # correct, Forge skips the unconditional pass, and its
             # placeholder must not enter the error history.
@@ -70,7 +69,7 @@ def make_smc_cfg_function(state: SMCCFGState, process=None):
         v_out = state.combine(
             v_cond,
             v_uncond,
-            scale,
+            effective_cfg_scale(args),
             update_state=not is_anima_auxiliary_denoiser(process),
         )
 

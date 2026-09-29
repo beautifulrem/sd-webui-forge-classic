@@ -20,12 +20,22 @@ def sigma_broadcast(value, reference: torch.Tensor):
     return max(float(value), 1e-12)
 
 
+def effective_cfg_scale(args) -> float:
+    """CFG scale times the AND-prompt weight sum, as Forge's default combine.
+
+    Forge averages ``a AND b`` sub-prompts by weight into ``cond_denoised``
+    and multiplies the guidance by the weight sum (``edit_strength``).
+    """
+
+    return float(args["cond_scale"]) * float(args.get("edit_strength", 1.0))
+
+
 def standard_cfg_residual(args) -> torch.Tensor:
     """Forge's default combine, including its AND-prompt weight sum."""
 
     cond = args["cond_denoised"]
     uncond = args["uncond_denoised"]
-    denoised = uncond + (cond - uncond) * float(args["cond_scale"]) * float(args.get("edit_strength", 1.0))
+    denoised = uncond + (cond - uncond) * effective_cfg_scale(args)
     return args["input"] - denoised
 
 
@@ -141,16 +151,30 @@ def make_momentum_post_cfg_function(state: MomentumGuidanceState, process=None):
     return post_cfg
 
 
-def _low_frequency(value: torch.Tensor) -> torch.Tensor:
-    """Return a shape-preserving low-pass image without optional dependencies."""
+def _pyramid_blur(planes: torch.Tensor) -> torch.Tensor:
+    """kornia's pyramid blur: reflect padding and the 5x5 binomial kernel."""
 
-    if value.ndim < 4 or min(value.shape[-2:]) < 2:
+    taps = planes.new_tensor([1.0, 4.0, 6.0, 4.0, 1.0]) / 16.0
+    kernel = torch.outer(taps, taps).reshape(1, 1, 5, 5)
+    return F.conv2d(F.pad(planes, (2, 2, 2, 2), mode="reflect"), kernel)
+
+
+def _low_frequency(value: torch.Tensor) -> torch.Tensor:
+    """``pyrup(pyrdown(value))``: the low band of a two-level Laplacian pyramid.
+
+    Same as kornia's ``pyrdown`` / ``pyrup`` (0.6.12 and main), which the
+    reference FDG node uses: blur, bilinear to half size, bilinear back,
+    blur. For an odd side the upsample returns to the original size instead
+    of doubling (the reference zero-pads to a power of two first).
+    """
+
+    if value.ndim < 4 or min(value.shape[-2:]) < 3:
         return value
     height, width = value.shape[-2:]
-    planes = value.reshape(-1, 1, height, width)
-    low = F.avg_pool2d(planes, kernel_size=2, stride=2, ceil_mode=True)
-    restored = F.interpolate(low, size=(height, width), mode="bilinear", align_corners=False)
-    return restored.reshape(value.shape)
+    planes = value.reshape(-1, 1, height, width).float()
+    low = F.interpolate(_pyramid_blur(planes), size=(height // 2, width // 2), mode="bilinear", align_corners=False)
+    restored = _pyramid_blur(F.interpolate(low, size=(height, width), mode="bilinear", align_corners=False))
+    return restored.to(value.dtype).reshape(value.shape)
 
 
 def fdg_combine(
@@ -170,11 +194,13 @@ def fdg_combine(
 def make_fdg_cfg_function(high_frequency_scale: float):
     @torch.no_grad()
     def cfg_function(args):
+        # The AND-prompt weight scales the whole update, so both bands.
+        weight = float(args.get("edit_strength", 1.0))
         denoised = fdg_combine(
             args["cond_denoised"],
             args["uncond_denoised"],
-            float(args["cond_scale"]),
-            float(high_frequency_scale),
+            float(args["cond_scale"]) * weight,
+            float(high_frequency_scale) * weight,
         )
         return args["input"] - denoised
 
@@ -260,10 +286,13 @@ def make_cfg_zero_star_cfg_function():
     @torch.no_grad()
     def cfg_function(args):
         x = args["input"]
+        if math.isclose(float(args["cond_scale"]), 1.0):
+            # Forge skipped the unconditional pass (zero placeholder).
+            return x - args["cond_denoised"]
         return cfg_zero_star_combine(
             x - args["cond_denoised"],
             x - args["uncond_denoised"],
-            float(args["cond_scale"]),
+            effective_cfg_scale(args),
         )
 
     return cfg_function
@@ -386,15 +415,14 @@ def make_apg_cfg_function(state: APGState, process=None):
     def cfg_function(args):
         x = args["input"]
         cond = args["cond_denoised"]
-        scale = float(args["cond_scale"])
-        if math.isclose(scale, 1.0):
+        if math.isclose(float(args["cond_scale"]), 1.0):
             # Guidance adds nothing, and Forge's CFG 1 placeholder
             # unconditional prediction must not enter the momentum.
             return x - cond
         denoised = state.combine(
             cond,
             args["uncond_denoised"],
-            scale,
+            effective_cfg_scale(args),
             update_state=not is_anima_auxiliary_denoiser(process),
         )
         return x - denoised

@@ -17,7 +17,7 @@
 - CFG-Zero* 依论文独立实现为同一下拉框中的 CFG combine 模式（与 SMC/APG/FDG 天然互斥，禁用 Momentum）：逐样本最优缩放 s* 在 Forge 的 `x - denoised = sigma * v` 残差上计算，可选 zero-init 前 N 步（默认 1）；zero-init 作为最外层 CFG hook，能看到 active range 窗口外的步骤，且只在 pass 从纯噪声（调度最大 sigma）开始时生效，Hires/img2img pass 不会被置零；
 - APG（arXiv:2410.02416）作为同一下拉框中的 CFG combine 模式：按论文 Algorithm 1（亦见 Apache-2.0 的 diffusers `guiders/adaptive_projected_guidance.py`）在去噪预测 x0 空间计算，`eta` 加权平行分量、`norm threshold` 限制每个样本更新的 L2 范数、反向 momentum 通过 stateful guidance 注册表按 pass 重置；
 - SMC-CFG 的 switching gain 按样本计算（参考实现对整个 batch 求均值，batch 1 时等价），同 batch 图片不再互相影响；
-- Guidance Active Range 使用归一化采样进度映射当前 scheduler sigma；
+- Guidance Active Range 的起止值是模型去噪时间的比例，经 Forge 的 `percent_to_sigma` 换算为 sigma（Anima shift 3：0.5 对应 sigma 0.75），与 scheduler 无关，也不是步数比例（Beta57/30 步时 end 0.5 只覆盖 13 步）；NAG 的 start/end 同此约定；
 - 现有 PiD 后处理器修复了类级结果泄漏和多批次 prompt/seed 错位，并在 GUI 中明示 Hires 互斥与权重许可限制。
 
 目前已完成 CPU 单元/组合回归、Ruff、`compileall` 和 `git diff --check`；仍需在含 Anima 权重的 NVIDIA 环境执行报告末尾的 GPU 固定 seed 矩阵，才能对画质收益和编译加速比例作实证结论。
@@ -107,7 +107,7 @@ Forge 已有 `extensions-builtin/sd_forge_compile/scripts/compile.py`，因此�
 
 [FDG 论文](https://arxiv.org/abs/2506.19713)把 cond-uncond guidance update 经 Laplacian pyramid 拆成低频与高频分量：低频保留结构/提示词约束，高频使用独立强度增强细节。论文报告它在低 CFG 下提高 fidelity 并减轻高 CFG 的过饱和；[MIT 节点实现](https://github.com/pamparamm/sd-perturbed-attention/blob/904319bff623b185f15047e231a446d615ee48c6/fdg_nodes.py)额外依赖 `kornia`。
 
-它没有 Anima 实测证据，并且会完全接管 CFG combine，不能直接与 SMC、CFG-Zero* 或 APG 同时启用。它和 DCW/CNS 都涉及频域，但作用点不同：FDG 分解同一步的 guidance residual，DCW/CNS 修正跨步误差或噪声；无定义叠加仍可能过锐。上游还会把 latent padding 到下一次方尺寸，非标准长宽比会增加显存。建议将其作为 Guidance controller 的互斥实验模式，若进入 Forge 核心则自行实现小型 Gaussian/Laplacian 分解，避免把 `kornia` 变成硬依赖。
+它没有 Anima 实测证据，并且会完全接管 CFG combine，不能直接与 SMC、CFG-Zero* 或 APG 同时启用。它和 DCW/CNS 都涉及频域，但作用点不同：FDG 分解同一步的 guidance residual，DCW/CNS 修正跨步误差或噪声；无定义叠加仍可能过锐。上游还会把 latent padding 到下一次方尺寸，非标准长宽比会增加显存。建议将其作为 Guidance controller 的互斥实验模式，若进入 Forge 核心则自行实现小型 Gaussian/Laplacian 分解，避免把 `kornia` 变成硬依赖。**已实现**：低频段即两层 Laplacian pyramid 的 `pyrup(pyrdown(delta))`，按 kornia 的 5×5 二项核、reflect padding 与 bilinear 重采样用纯 PyTorch 重写（测试与 kornia 0.6.12 逐元素对照）；不做上游的二次幂 zero padding，奇数边长直接重采样回原尺寸。
 
 ### P2：PiD 4× 解码器 —— 高潜力、重依赖的输出后处理
 
@@ -129,7 +129,7 @@ Forge 的 `backend/diffusion_engine/pid.py` 已能把 PiD 当作独立扩散模�
 
 [ComfyUI-ppm 的固定版本 Guidance Limiter 源码](https://github.com/pamparamm/ComfyUI-ppm/blob/00ede55ac1d58e750b5c456245ca463597e08557/src/nodes_ppm/guidance.py)基于论文 [Applying Guidance in a Limited Interval](https://arxiv.org/abs/2404.07724)，在早期/晚期区间关闭 CFG，只在中间区间保留引导。仓库为 AGPL-3.0；原作者的[参考实现](https://github.com/kynkaat/guidance-interval)为 Apache-2.0。
 
-它对普通 CFG 模型有明确研究依据，但 Turbo 本来就是 CFG 1，因此对 Turbo 没意义；对 Anima Base/Aesthetic 可能降低过饱和并改善分布质量。PPM 默认 `sigma_start=5.42/sigma_end=0.28` 来自非 flow schedule，不能用于 Anima 的 `0..1` flow sigma；Forge 应存储归一化采样进度，再映射到实际 schedule。当前 Guidance 扩展已有多种 CFG 控制，最佳集成方式是增加一个“CFG active range”，而不是预装整个 PPM 节点包。**已实现**为 Anima Guidance 的 CFG active range（界面 “Limit CFG to a sampling range”，按归一化采样进度映射当前 scheduler sigma）；仍需以 Base/Aesthetic、CFG 4–7 做 A/B。
+它对普通 CFG 模型有明确研究依据，但 Turbo 本来就是 CFG 1，因此对 Turbo 没意义；对 Anima Base/Aesthetic 可能降低过饱和并改善分布质量。PPM 默认 `sigma_start=5.42/sigma_end=0.28` 来自非 flow schedule，不能用于 Anima 的 `0..1` flow sigma；Forge 应存储归一化采样进度，再映射到实际 schedule。当前 Guidance 扩展已有多种 CFG 控制，最佳集成方式是增加一个“CFG active range”，而不是预装整个 PPM 节点包。**已实现**为 Anima Guidance 的 CFG active range（界面 “Limit CFG to a sampling range”）；起止值按 Forge 的 `percent_to_sigma` 解释为模型去噪时间比例（与 Forge 自身的 start/end percent 相同），不随 scheduler 变化，因此覆盖的步数比例取决于调度器；仍需以 Base/Aesthetic、CFG 4–7 做 A/B。
 
 PPM 的 AttentionCouple 和 NegPiP 已分别被当前 Regional 与 NegPiP 覆盖；AttentionCouple 会再次占用 attention/mask patch seam，与 Regional 同时启用还会产生未定义的 hook 顺序、mask resize 和 Spectrum cache 语义，因此不移植。动态采样器和 CFG++ 也不能未经 flow/const 数学验证直接套到 Anima。
 

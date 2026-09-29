@@ -7,9 +7,11 @@ works in denoised/x0 space; ``make_skim_cfg_function`` adapts it to that hook.
 
 from __future__ import annotations
 
+import math
+
 import torch
 
-from lib_anima_guidance.advanced import sigma_value, standard_cfg_residual
+from lib_anima_guidance.advanced import effective_cfg_scale, sigma_value, standard_cfg_residual
 from modules.spectrum_force import in_sigma_window
 
 
@@ -143,7 +145,8 @@ def make_skim_cfg_function(
         sigma = sigma_value(args.get("sigma", args.get("timestep")))
 
         adjusted_args = args
-        if in_sigma_window(sigma, sigma_start, sigma_end):
+        # At CFG 1 the unconditional prediction is Forge's zero placeholder.
+        if in_sigma_window(sigma, sigma_start, sigma_end) and not math.isclose(float(args["cond_scale"]), 1.0):
             flip_filter = bool(disable_flipping_filter)
             if flip_sigma is not None and sigma > flip_sigma:
                 flip_filter = not flip_filter
@@ -152,7 +155,8 @@ def make_skim_cfg_function(
                 x_orig,
                 args["cond_denoised"],
                 args["uncond_denoised"],
-                float(args["cond_scale"]),
+                # The scale the combine applies, AND-prompt weight included.
+                effective_cfg_scale(args),
                 float(skimming_scale),
                 full_skim_negative=bool(full_skim_negative),
                 disable_flipping_filter=flip_filter,

@@ -13,6 +13,7 @@ from lib_anima_guidance.advanced import (
     APGState,
     CFGZeroStarState,
     MomentumGuidanceState,
+    _low_frequency,
     apg_project,
     cfg_zero_star_combine,
     cfg_zero_star_scale,
@@ -20,12 +21,37 @@ from lib_anima_guidance.advanced import (
     make_apg_cfg_function,
     make_cfg_zero_star_cfg_function,
     IGNORES_UNCOND,
+    make_fdg_cfg_function,
     make_guidance_range_cfg_function,
     make_guidance_range_uncond_skip,
     make_momentum_post_cfg_function,
     make_zero_init_cfg_function,
     make_zero_init_model_wrapper,
 )
+
+FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
+
+
+def _run_forge_combine(x, cond_value, uncond_value, *, cond_scale=4.0, strengths=(0.7, 0.8), **options):
+    """Forge's real ``sampling_function_inner`` with fixed model predictions."""
+
+    from backend.sampling.sampling_function import sampling_function_inner
+
+    class Model:
+        apply_model = None  # the wrapper below replaces it
+
+        def memory_required(self, shape):
+            return 0
+
+    def model_wrapper(apply_model, args):
+        return torch.cat([cond_value if kind == 0 else uncond_value for kind in args["cond_or_uncond"]])
+
+    cond = [{"model_conds": {}, "strength": strength} for strength in strengths]
+    uncond = [{"model_conds": {}}]
+    return sampling_function_inner(
+        Model(), x, torch.tensor([0.5]), uncond, cond, cond_scale,
+        model_options={"model_function_wrapper": model_wrapper, **options},
+    )
 
 
 class MomentumGuidanceTests(unittest.TestCase):
@@ -83,9 +109,37 @@ class FrequencyDecoupledGuidanceTests(unittest.TestCase):
         expected = uncond + scale * (cond - uncond)
         self.assertTrue(torch.allclose(actual, expected, atol=1e-6))
 
+    def test_low_band_matches_the_frozen_kornia_pyramid(self):
+        # Generated once with kornia 0.6.12: pyrup(pyrdown(value)), the low
+        # band of the reference node's two-level Laplacian pyramid.
+        fixture = torch.load(FIXTURES / "fdg_pyramid_low_band.pt")
+        self.assertTrue(torch.allclose(_low_frequency(fixture["value"]), fixture["low"], atol=1e-6))
+
+    def test_low_band_matches_kornia_when_installed(self):
+        try:
+            import kornia
+        except ImportError:
+            self.skipTest("kornia is not installed")
+        torch.manual_seed(13)
+        for shape in ((1, 4, 16, 16), (2, 16, 104, 152), (1, 3, 6, 10)):
+            value = torch.randn(shape)
+            expected = kornia.geometry.pyrup(kornia.geometry.pyrdown(value))
+            self.assertTrue(torch.allclose(_low_frequency(value), expected, atol=1e-6), shape)
+        # Anima's (B, C, T, H, W) latents filter each plane the same way.
+        value = torch.randn(2, 4, 1, 8, 12)
+        expected = kornia.geometry.pyrup(kornia.geometry.pyrdown(value.reshape(2, 4, 8, 12)))
+        self.assertTrue(torch.allclose(_low_frequency(value), expected.reshape(value.shape), atol=1e-6))
+
+    def test_odd_sides_keep_their_size(self):
+        value = torch.randn(1, 4, 7, 9)
+        low = _low_frequency(value)
+        self.assertEqual(low.shape, value.shape)
+        self.assertTrue(torch.isfinite(low).all())
+
     def test_constant_delta_is_all_low_band(self):
-        # A constant survives the 2x2 average pool and the bilinear upsample
-        # unchanged, so it has no detail band: the detail scale is inert.
+        # A constant survives the reflect-padded blur and the bilinear
+        # resampling unchanged, so it has no detail band: the detail scale
+        # is inert.
         uncond = torch.randn(1, 4, 4, 6)
         cond = uncond + 0.5
         expected = uncond + 4.0 * 0.5
@@ -93,8 +147,9 @@ class FrequencyDecoupledGuidanceTests(unittest.TestCase):
             self.assertTrue(torch.allclose(fdg_combine(cond, uncond, 4.0, detail), expected, atol=1e-6))
 
     def test_zero_mean_checkerboard_delta_is_all_detail_band(self):
-        # Every aligned 2x2 block of the checkerboard averages to zero, so its
-        # low band is zero and the whole delta is guided by the detail scale.
+        # The binomial taps 1 - 4 + 6 - 4 + 1 cancel on the checkerboard (the
+        # reflect padding keeps it alternating), so its low band is zero and
+        # the whole delta is guided by the detail scale.
         uncond = torch.randn(1, 4, 4, 6)
         delta = torch.tensor([[1.0, -1.0], [-1.0, 1.0]]).repeat(2, 3)
         cond = uncond + delta
@@ -369,39 +424,103 @@ class GuidanceRangeTests(unittest.TestCase):
 
     def test_full_window_matches_forge_default_combine_with_and_prompt_weights(self):
         # AND sub-prompt weights summing to 1.5: Forge's default combine
-        # multiplies the guidance by that sum (edit_strength).
-        from backend.sampling.sampling_function import sampling_function_inner
+        # multiplies the guidance by that sum (edit_strength). Every combine
+        # mode at its identity settings must do the same.
+        from lib_anima_guidance.skim import make_skim_cfg_function
+        from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
 
         torch.manual_seed(5)
         x = torch.randn(1, 4, 8, 8)
         cond_value, uncond_value = torch.randn_like(x), torch.randn_like(x)
-
-        class Model:
-            apply_model = None  # the wrapper below replaces it
-
-            def memory_required(self, shape):
-                return 0
-
-        def model_wrapper(apply_model, args):
-            return torch.cat([cond_value if kind == 0 else uncond_value for kind in args["cond_or_uncond"]])
-
-        cond = [{"model_conds": {}, "strength": 0.7}, {"model_conds": {}, "strength": 0.8}]
-        uncond = [{"model_conds": {}}]
-
-        def run(**options):
-            return sampling_function_inner(
-                Model(), x, torch.tensor([0.5]), uncond, cond, 4.0,
-                model_options={"model_function_wrapper": model_wrapper, **options},
-            )
-
-        expected = run()
+        expected = _run_forge_combine(x, cond_value, uncond_value)
         self.assertTrue(torch.allclose(expected, uncond_value + (cond_value - uncond_value) * 4.0 * 1.5))
+
         ranged = make_guidance_range_cfg_function(None, sigma_start=1.0, sigma_end=0.0)
-        actual = run(
-            sampler_cfg_function=ranged,
-            sampler_pre_cfg_function=[make_guidance_range_uncond_skip(ranged)],
+        identity_hooks = {
+            "range": ranged,
+            "fdg equal scales": make_fdg_cfg_function(4.0),
+            "apg eta 1": make_apg_cfg_function(APGState(eta=1.0, norm_threshold=0.0, momentum=0.0)),
+            "smc alpha 0": make_smc_cfg_function(SMCCFGState(lam=5.0, alpha=0.0)),
+            "skim outside its window": make_skim_cfg_function(
+                None, sigma_start=0.4, sigma_end=0.0, skimming_scale=2.0,
+                full_skim_negative=False, disable_flipping_filter=False, flip_sigma=None,
+            ),
+        }
+        for name, hook in identity_hooks.items():
+            with self.subTest(name):
+                actual = _run_forge_combine(
+                    x, cond_value, uncond_value,
+                    sampler_cfg_function=hook,
+                    sampler_pre_cfg_function=[make_guidance_range_uncond_skip(ranged)] if hook is ranged else [],
+                )
+                self.assertTrue(torch.allclose(actual, expected, atol=1e-5))
+
+        # CFG-Zero* is plain CFG when s* = 1: the conditional residual is the
+        # unconditional one plus a part orthogonal to it.
+        uncond_residual = torch.randn_like(x)
+        extra = torch.randn_like(x)
+        extra -= (extra * uncond_residual).sum() / uncond_residual.square().sum() * uncond_residual
+        cond_star, uncond_star = x - (uncond_residual + extra), x - uncond_residual
+        actual = _run_forge_combine(x, cond_star, uncond_star, sampler_cfg_function=make_cfg_zero_star_cfg_function())
+        self.assertTrue(torch.allclose(actual, _run_forge_combine(x, cond_star, uncond_star), atol=1e-5))
+
+    def test_and_prompt_weight_acts_like_a_larger_cfg_scale(self):
+        # Outside the identity settings too, weights summing to 1.5 at CFG 4
+        # guide like one prompt at CFG 6 (Skimmed CFG's mask and fallback
+        # included), as in Forge's default combine.
+        from lib_anima_guidance.skim import make_skim_cfg_function
+        from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
+
+        torch.manual_seed(9)
+        x = torch.randn(1, 4, 8, 8)
+        cond_value, uncond_value = torch.randn_like(x), torch.randn_like(x)
+        hooks = {
+            "cfg-zero*": make_cfg_zero_star_cfg_function,
+            "apg": lambda: make_apg_cfg_function(APGState(eta=0.0, norm_threshold=5.0, momentum=-0.5)),
+            "smc": lambda: make_smc_cfg_function(SMCCFGState(lam=5.0, alpha=0.2)),
+            "skim": lambda: make_skim_cfg_function(
+                None, sigma_start=1.0, sigma_end=0.0, skimming_scale=2.0,
+                full_skim_negative=False, disable_flipping_filter=False, flip_sigma=None,
+            ),
+        }
+        for name, make_hook in hooks.items():
+            with self.subTest(name):
+                weighted = _run_forge_combine(x, cond_value, uncond_value, sampler_cfg_function=make_hook())
+                single = _run_forge_combine(
+                    x, cond_value, uncond_value, cond_scale=6.0, strengths=(1.0,), sampler_cfg_function=make_hook(),
+                )
+                self.assertTrue(torch.allclose(weighted, single, atol=1e-5))
+        # FDG scales both bands by the weight.
+        weighted = _run_forge_combine(x, cond_value, uncond_value, sampler_cfg_function=make_fdg_cfg_function(8.0))
+        single = _run_forge_combine(
+            x, cond_value, uncond_value, cond_scale=6.0, strengths=(1.0,), sampler_cfg_function=make_fdg_cfg_function(12.0),
         )
-        self.assertTrue(torch.allclose(actual, expected, atol=1e-5))
+        self.assertTrue(torch.allclose(weighted, single, atol=1e-5))
+
+    def test_cfg_one_ignores_the_placeholder_even_with_and_prompt_weights(self):
+        # At CFG 1 Forge skips the negative pass; the combine modes return
+        # the conditional prediction instead of guiding against zeros.
+        from lib_anima_guidance.skim import make_skim_cfg_function
+        from lib_anima_guidance.smc import SMCCFGState, make_smc_cfg_function
+
+        torch.manual_seed(10)
+        x = torch.randn(1, 4, 8, 8)
+        cond = torch.randn_like(x)
+        args = {
+            "input": x, "sigma": torch.tensor([0.5]), "cond_denoised": cond,
+            "uncond_denoised": torch.zeros_like(x), "cond_scale": 1.0, "edit_strength": 1.5,
+        }
+        skim = make_skim_cfg_function(
+            make_cfg_zero_star_cfg_function(), sigma_start=1.0, sigma_end=0.0, skimming_scale=2.0,
+            full_skim_negative=False, disable_flipping_filter=False, flip_sigma=None,
+        )
+        for hook in (
+            make_cfg_zero_star_cfg_function(),
+            make_apg_cfg_function(APGState()),
+            make_smc_cfg_function(SMCCFGState()),
+            skim,
+        ):
+            self.assertTrue(torch.equal(hook(args), x - cond))
 
 
     def test_cfg_one_does_not_need_the_unconditional_prediction(self):

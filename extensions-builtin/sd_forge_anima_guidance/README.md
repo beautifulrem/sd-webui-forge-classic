@@ -9,6 +9,12 @@ The panel is available in txt2img and img2img. It is inert for non-Anima
 models, patches a cloned model for one generation, preserves an existing Forge
 CFG function by wrapping it, and records active settings in generation info.
 
+Like Forge's own combine, every CFG mode below (and Skimmed CFG's mask and
+fallback) multiplies the guidance scale by the sum of `AND` sub-prompt
+weights, so the identity settings each section lists reproduce Forge's result
+with weighted prompts too. At CFG 1, where Forge skips the negative pass, the
+modes that return the conditional prediction still do so.
+
 ## Skimmed CFG
 
 - `Skimming fallback CFG`: effective CFG used only for flagged values.
@@ -96,12 +102,18 @@ an existing CFG function and disables Momentum Guidance.
 ## FDG (experimental)
 
 Frequency-Decoupled Guidance splits the CFG update `cond - uncond` (in
-denoised space) into a low band (2x2 average pool, bilinear upsample) and the
-high-frequency remainder. The low band uses the normal CFG scale; the high
+denoised space) into a low band and the high-frequency remainder, the two
+levels of the reference's Laplacian pyramid: the low band is kornia's
+`pyrup(pyrdown(delta))` (5x5 binomial blur with reflect padding, bilinear
+half-size resample and back, blur), reimplemented in a few lines of PyTorch.
+The reference zero-pads the latent to a power of two first; here an odd side
+is resampled back to its own size instead. The low band uses the normal CFG
+scale; the high
 band uses `FDG detail guidance` (default 12.0, the reference's
 `strength_high`), an absolute scale like CFG. The paper guides the high band
 harder than the low band, so keep it above CFG; below CFG it weakens detail
-guidance. Equal scales reproduce plain CFG. It is pure PyTorch, owns the CFG combine like SMC-CFG, and is disabled
+guidance. Equal scales reproduce plain CFG; an `AND` weight sum scales both
+bands. It is pure PyTorch, owns the CFG combine like SMC-CFG, and is disabled
 with DCW (DCW wins only when it is the last switch changed), Momentum and the
 `Anima ER SDE CNS` sampler.
 
@@ -111,8 +123,10 @@ Normalized Attention Guidance works inside Anima's cross-attention rather than
 on the CFG combine, so it also acts at CFG 1 (Turbo). For the positive rows it
 extrapolates away from the negative prompt's attention output,
 `z + scale * (z - z_neg)`, clamps the L1-norm growth to `tau`, and blends the
-result back with `alpha` (defaults: scale 2.0, tau 2.5, alpha 0.5, active
-over the first half of sampling, start 0.0 to end 0.5). Unconditional rows
+result back with `alpha` (defaults: scale 2.0, tau 2.5, alpha 0.5, start 0.0
+to end 0.5). Like the CFG active range below, start and end are fractions of
+the model's denoising time, not of the step count: end 0.5 is sigma 0.75.
+Unconditional rows
 and self-attention are untouched. Outside its window NAG reports itself
 inactive (`active(transformer_options)`), so torch.compile keeps the compiled
 blocks on those steps.
@@ -141,7 +155,10 @@ mode.
 
 `Limit CFG to a sampling range` applies the CFG combine (including SMC-CFG,
 CFG-Zero*, APG, FDG and Skimmed CFG) only between `CFG range start` and `CFG range
-end`, given as fractions of sampling progress (defaults 0.0 and 1.0).
+end` (defaults 0.0 and 1.0). They are fractions of the model's denoising
+time, converted with Forge's `percent_to_sigma` (Anima's shift 3: 0.5 is
+sigma 0.75), not fractions of the step count, so the share of steps a range
+covers depends on the scheduler: end 0.5 covers 13 of 30 Beta57 steps.
 Outside it the conditional prediction is used alone, and the negative forward
 pass is skipped on those steps as long as no other hook still reads it.
 
