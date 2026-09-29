@@ -14,11 +14,13 @@ import torch
 import torch.nn.functional as F
 
 from backend.memory_management import cast_to_device
-from backend.operations import main_stream_worker, weights_manual_cast
+from backend.operations import ForgeWeights, main_stream_worker, weights_manual_cast
+from backend.operations_gguf import dequantize_tensor
 from backend.patcher.base import LowVramPatch, OnlineLoRAPatch
 from backend.patcher.lora import merge_lora_to_weight
 from modules_forge.packages.comfy.weight_adapter import LoRAAdapter
 from modules import spectrum_force
+from modules.anima_lora_support import install_add_patches_hook
 from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows, call_model_wrapper, negpip_mask_for
 from modules.forward_override import cached_overrides, forward_overrides
 from .masks import fit_mask_batch, generate_masks
@@ -138,43 +140,26 @@ def _merge_unrouted(resolved, unpatched, generating, deltas, factors=None):
     return base
 
 
+def _add_patches_with_metadata(original, patcher, patches, strength_patch, strength_model, filename, online_mode):
+    for value in patches.values():
+        _tag_patch_value(value, filename)
+    return original(
+        patcher,
+        patches,
+        strength_patch=strength_patch,
+        strength_model=strength_model,
+        filename=filename,
+        online_mode=online_mode,
+    )
+
+
 def install_patch_metadata_hook() -> bool:
     """Tag patch payloads without changing Forge's patch tuple ABI.
 
     Returns True only when this call installed the hook: patches loaded
     before that carry no filename tag."""
 
-    from backend.patcher.base import ModelPatcher
-    from backend.patcher.function_chain import function_chain_contains
-
-    current = ModelPatcher.add_patches
-    if function_chain_contains(current, "_anima_freefuse_metadata"):
-        return False
-
-    def add_patches_with_metadata(
-        self,
-        patches,
-        strength_patch=1.0,
-        strength_model=1.0,
-        *,
-        filename=None,
-        online_mode=None,
-    ):
-        for value in patches.values():
-            _tag_patch_value(value, filename)
-        return current(
-            self,
-            patches,
-            strength_patch=strength_patch,
-            strength_model=strength_model,
-            filename=filename,
-            online_mode=online_mode,
-        )
-
-    add_patches_with_metadata._anima_freefuse_metadata = True
-    add_patches_with_metadata.__wrapped__ = current
-    ModelPatcher.add_patches = add_patches_with_metadata
-    return True
+    return install_add_patches_hook("freefuse_metadata", _add_patches_with_metadata)
 
 
 def _loaded_patch_entries(patcher):
@@ -592,6 +577,41 @@ def _make_cross_attention_forward(
     return wrapped
 
 
+def _dense(value: torch.Tensor) -> torch.Tensor:
+    """A layer's cast weight or bias as a plain dense tensor: a GGUF one
+    dequantized, a parameter subclass (GGUF's) unwrapped."""
+
+    value = dequantize_tensor(value)
+    return value if type(value) is torch.Tensor else value.as_subclass(torch.Tensor)
+
+
+def _is_linear(module) -> bool:
+    """Whether FreeFuse can route ``module`` as a Linear: torch's, or a Forge
+    Linear of other storage (GGUF, and the mixed-precision ops of pre-quantized
+    files and the Anima scaled FP8 / INT8 ConvRot modes), which subclass
+    ``nn.Module`` only. Their weights report the logical 2-D shape."""
+
+    if isinstance(module, torch.nn.Linear):
+        return True
+    weight = getattr(module, "weight", None)
+    return isinstance(module, ForgeWeights) and not isinstance(module, torch.nn.Embedding) and weight is not None and len(weight.shape) == 2
+
+
+def _left_global(dit, key: str) -> bool:
+    """Whether the adapter patch at ``key`` is left unrouted by design: the
+    scale or shift of a normalization (a 1-D weight). FreeFuse routes Linear
+    layers only, like its reference."""
+
+    if not key.startswith("diffusion_model."):
+        return False
+    try:
+        module = dit.get_submodule(key.removeprefix("diffusion_model.").rpartition(".")[0])
+    except AttributeError:
+        return False
+    weight = getattr(module, "weight", None)
+    return weight is not None and len(weight.shape) <= 1
+
+
 def _make_linear_forward(
     original,
     module,
@@ -632,11 +652,13 @@ def _make_linear_forward(
         self.weight_function = []
         self.bias_function = []
         try:
+            # With a weight_fn, weights_manual_cast dequantizes a quantized
+            # (mixed-precision) weight; _dense dequantizes a GGUF one.
             raw_weight, raw_bias, signal = weights_manual_cast(
                 self,
                 x,
-                weight_fn=lambda value: value,
-                bias_fn=(lambda value: value) if self.bias is not None else None,
+                weight_fn=_dense,
+                bias_fn=_dense if self.bias is not None else None,
             )
         finally:
             self.weight_function = saved_weight
@@ -697,14 +719,19 @@ def apply_freefuse_patch(model, state: AnimaFreeFuseState):
     # Only layers that carry an adapter's LoRA (weight or bias) are routed;
     # the rest keep their normal forward and cost nothing per call. Built
     # once per pass: each model call only installs and removes them.
-    linear_overrides = [
-        (module, _make_linear_forward(module.forward, module, state, module_name))
-        for module_name, module in dit.named_modules()
-        if isinstance(module, torch.nn.Linear)
-        and not state.routed_weight_keys.isdisjoint(
-            (f"diffusion_model.{module_name}.weight", f"diffusion_model.{module_name}.bias")
-        )
-    ]
+    linear_overrides = []
+    unrouted = set(state.routed_weight_keys)
+    for module_name, module in dit.named_modules():
+        keys = {f"diffusion_model.{module_name}.weight", f"diffusion_model.{module_name}.bias"}
+        if _is_linear(module) and not unrouted.isdisjoint(keys):
+            linear_overrides.append((module, _make_linear_forward(module.forward, module, state, module_name)))
+            unrouted -= keys
+    # An adapter patch no override masks would apply to the whole image
+    unrouted = sorted(key for key in unrouted if not _left_global(dit, key))
+    if unrouted:
+        shown = ", ".join(key.removeprefix("diffusion_model.") for key in unrouted[:3])
+        more = f" and {len(unrouted) - 3} more" if len(unrouted) > 3 else ""
+        raise ValueError(f"Anima FreeFuse cannot route the subject LoRA patches of {shown}{more}: they are not on Linear layers")
 
     def wrapper(model_function, args):
         with _PATCH_LOCK:

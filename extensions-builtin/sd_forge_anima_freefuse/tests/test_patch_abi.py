@@ -425,6 +425,117 @@ def test_layers_with_only_an_adapter_bias_patch_are_routed():
     assert routed == [True]
 
 
+def _quantized_linear(kind):
+    """A Forge Linear of the GGUF or mixed-precision ops (the Anima scaled FP8
+    and INT8 ConvRot modes), and the dense weight it computes with."""
+    import backend.operations as operations
+    from backend.nn.anima_quant import quantize_int8_convrot_state_dict, scale_fp8_state_dict
+
+    torch.manual_seed(0)
+    weight, bias = torch.randn(4, 256), torch.randn(4)
+    if kind == "gguf":
+        from backend.operations_gguf import ParameterGGUF, dequantize_tensor
+        from modules_forge.packages import gguf
+
+        packed = ParameterGGUF(
+            torch.from_numpy(gguf.quantize(weight.numpy(), gguf.GGMLQuantizationType.Q8_0)),
+            tensor_type=gguf.GGMLQuantizationType.Q8_0,
+            tensor_shape=weight.shape,
+        )
+        packed.gguf_cls.bake(packed)
+        f32_bias = ParameterGGUF(bias, tensor_type=gguf.GGMLQuantizationType.F32, tensor_shape=bias.shape)
+        operations.current_device, operations.current_dtype = torch.device("cpu"), torch.float32
+        layer = operations.ForgeOperationsGGUF.Linear()
+        layer._load_from_state_dict({"weight": packed, "bias": f32_bias}, "", {}, True, [], [], [])
+        return layer, dequantize_tensor(packed).float()
+    from backend.operations_mixed_precision import mixed_precision_ops
+
+    state_dict = {"blocks.1.mlp.layer1.weight": weight, "blocks.1.mlp.layer1.bias": bias}
+    if kind == "fp8":
+        assert scale_fp8_state_dict(state_dict, fp8_matmul=False) == 1
+    else:
+        assert quantize_int8_convrot_state_dict(state_dict) == 1
+    layer = mixed_precision_ops({}, compute_dtype=torch.float32).Linear(256, 4)
+    layer.load_state_dict({key.removeprefix("blocks.1.mlp.layer1."): value for key, value in state_dict.items()}, strict=False)
+    assert not isinstance(layer, torch.nn.Linear)
+    return layer, layer.weight.dequantize().float()
+
+
+@pytest.mark.parametrize("kind", ["fp8", "int8", "gguf"])
+def test_quantized_linears_are_routed(kind):
+    runtime, ModelPatcher, _ = _load()
+    layer, dense = _quantized_linear(kind)
+    dit = torch.nn.Module()
+    dit.blocks = torch.nn.ModuleList()
+    dit.proj = layer
+    state = _state(runtime)
+    delta_weight = torch.randn(4, 256) * 0.1
+    state.validate_patches = lambda patcher: state.routed_weight_keys.add("diffusion_model.proj.weight")
+    state.update_grid = lambda input_x, model: None
+    installed = []
+
+    def model_function(x, t, **c):
+        installed.append("forward" in layer.__dict__)
+        return x
+
+    patched = runtime.apply_freefuse_patch(_WrapperPatcher(dit), state)
+    patched.model_options["model_function_wrapper"](model_function, {"input": torch.zeros(1), "timestep": torch.ones(1), "c": {}})
+    assert installed == [True]
+
+    # The routed forward dequantizes the layer and masks the adapter's delta
+    model = torch.nn.Module()
+    model.layer = layer
+    patcher = ModelPatcher(model, torch.device("cpu"), torch.device("cpu"))
+    patcher.add_patches({"layer.weight": ("diff", (delta_weight,))}, filename="/loras/cat.safetensors", online_mode=True)
+    state = _state(runtime)
+    state.routing_strength = 0.5
+    state.validate_patches(patcher)
+    layer.weight_function = list(patcher.weight_wrapper_patches["layer.weight"])
+    layer.bias_function = []
+    state.grid_height, state.grid_width = 1, 2
+    state.masks = {"A": torch.tensor([[1.0, 0.0]])}
+    state.phase = "generate"
+    forward = runtime._make_linear_forward(layer.forward, layer, state, "blocks.0.mlp.layer1")
+    x = torch.randn(1, 2, 256)
+
+    output = forward(x)
+
+    base = torch.nn.functional.linear(x, dense, layer.bias.float())
+    delta = torch.nn.functional.linear(x, delta_weight)
+    factors = torch.tensor([1.0, 0.5]).view(1, 2, 1)
+    assert output.shape == (1, 2, 4)
+    assert torch.allclose(output, base + delta * factors, atol=1e-3)
+
+
+def test_unroutable_adapter_layers_abort_instead_of_applying_globally():
+    runtime, _, _ = _load()
+    dit = torch.nn.Module()
+    dit.blocks = torch.nn.ModuleList()
+    dit.embedding = torch.nn.Embedding(4, 2)
+    dit.norm = torch.nn.LayerNorm(2)
+    state = SimpleNamespace(validate_patches=lambda patcher: None, update_grid=lambda input_x, model: None)
+
+    # A norm's scale is left global, as FreeFuse routes Linear layers only
+    state.routed_weight_keys = {"diffusion_model.norm.weight", "diffusion_model.norm.bias"}
+    runtime.apply_freefuse_patch(_WrapperPatcher(dit), state)
+
+    for key in ("diffusion_model.embedding.weight", "diffusion_model.missing.weight"):
+        state.routed_weight_keys = {key, "diffusion_model.norm.weight"}
+        with pytest.raises(ValueError, match="cannot route") as error:
+            runtime.apply_freefuse_patch(_WrapperPatcher(dit), state)
+        assert key.split(".")[1] in str(error.value) and "norm" not in str(error.value)
+
+
+def test_patch_metadata_hook_uses_the_shared_add_patches_hook():
+    runtime, ModelPatcher, _ = _load()
+    from backend.patcher.function_chain import function_chain_contains
+    from modules import anima_lora_support
+
+    assert runtime.install_patch_metadata_hook() is False  # installed by _load
+    assert anima_lora_support.script_hooks["freefuse_metadata"] is runtime._add_patches_with_metadata
+    assert function_chain_contains(ModelPatcher.add_patches, "_anima_hook_freefuse_metadata")
+
+
 def test_collect_similarity_matches_a_direct_computation():
     runtime, _, _ = _load()
     state = _state(runtime)
