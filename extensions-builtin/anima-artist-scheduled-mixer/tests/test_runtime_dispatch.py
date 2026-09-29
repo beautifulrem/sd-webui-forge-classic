@@ -364,6 +364,33 @@ def test_process_registers_the_artists_of_the_passes_that_run():
     assert mixer._resolve_run_rows(_run_p(), None, False) is None
 
 
+@pytest.mark.parametrize("prompts", [["1girl AND a cat"], ["1girl and a cat", "1girl AND rain:0.5"]])
+def test_and_prompts_turn_the_mixer_off_with_a_note(monkeypatch, prompts):
+    # Forge samples each AND sub-prompt as its own cond chunk; the artist
+    # context of the whole prompt on every positive row undid the composition.
+    from modules.anima_support import NEGPIP_EXTRA_PROMPTS
+
+    monkeypatch.setattr(mixer, "_build_artists", lambda *args: pytest.fail("artists encoded for an AND prompt"))
+    p = _run_p(prompts=prompts, enable_hr=True)
+    mixer.Script().process(p, *_run_args())
+    assert getattr(p, NEGPIP_EXTRA_PROMPTS)[mixer.ARTIST_MIXER] == []
+    assert "Anima Artist Mixer" not in p.extra_generation_params  # reported once, at sampling
+
+    mixer.Script().process_before_every_sampling(p, *_run_args())
+    assert "model_function_wrapper" not in p.sd_model.forge_objects.unet.model_options
+    assert runtime._RUN_STATES == [] and not mixer.is_feature_active(p, mixer.ARTIST_MIXER)
+    assert p.extra_generation_params["Anima Artist Mixer"] == "disabled: AND prompts are not supported"
+
+
+def test_a_lowercase_and_is_plain_prompt_text(monkeypatch):
+    p, unet, _attention = _sampling_pass(monkeypatch, prompts=["1girl and a cat"])
+    try:
+        assert "model_function_wrapper" in unet.model_options
+        assert p.extra_generation_params["Anima Artist Mixer"].startswith("2 artists")
+    finally:
+        runtime._cleanup_runtime()
+
+
 def test_conditioning_cache_key_follows_the_text_encoder_patches(monkeypatch):
     # Qwen layer weights re-apply the TE LoRA patches; by sampling time the
     # LoRA hash is back to the plain LoRA list, so it cannot tell them apart.

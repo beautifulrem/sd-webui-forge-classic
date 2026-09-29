@@ -122,6 +122,16 @@ def test_concepts_must_sit_at_the_same_tokens_across_the_batch(script):
         module.AnimaFreeFuseScript._configure_sampling(_process(chunks=2), _values())
 
 
+@pytest.mark.parametrize("prompts", [("alice and bob AND a forest",), ("alice and bob", "alice and bob AND rain:0.5")])
+def test_and_prompts_are_rejected_before_sampling(script, prompts):
+    module, applied = script
+    # Forge would split these into sub-prompt conds: wrong concept positions and
+    # one collected mask per sub-prompt row, failing only inside phase 2.
+    with pytest.raises(ValueError, match="does not support AND prompts"):
+        module.AnimaFreeFuseScript._configure_sampling(_process(prompts), _values())
+    assert applied == []
+
+
 def test_artist_mixer_in_the_same_pass_is_rejected(script):
     module, _ = script
     p = _process()

@@ -366,14 +366,11 @@ def _artist_forward_batched(state, original_forward, plan, rope_emb, artists, fu
     context_rep, mask_rep = _batched_kv(state, plan, artists, fusion_mode in BASE_CONTEXT_FUSIONS)
     count = len(artists)
     x_rep = plan.x.repeat(count, *([1] * (plan.x.dim() - 1)))
-    rope_rep = rope_emb
-    if torch.is_tensor(rope_emb) and rope_emb.dim() > 0 and rope_emb.shape[0] == batch_size:
-        rope_rep = rope_emb.repeat(count, *([1] * (rope_emb.dim() - 1)))
     opts = plan.branch.options(plan.options, "artist_context", mask_rep)
     cou = opts.get("cond_or_uncond")
     if cou is not None:
         opts["cond_or_uncond"] = list(cou) * count
-    out = original_forward(x_rep, context=context_rep, rope_emb=rope_rep, transformer_options=opts)
+    out = original_forward(x_rep, context=context_rep, rope_emb=rope_emb, transformer_options=opts)
     out = out.view(count, batch_size, *out.shape[1:])
     # Python-float weights: no host-to-device copy per block
     weights = plan.weights

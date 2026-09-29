@@ -30,6 +30,7 @@ from modules.anima_feature_conflicts import (
 from modules.anima_support import effective_prompt_batch, is_anima_engine
 from modules.anima_presets import register_preset_control
 from modules.infotext_utils import PasteField
+from modules.prompt_parser import get_multicond_prompt_list
 from modules.ui_components import InputAccordion
 
 logger = logging.getLogger("AnimaFreeFuse")
@@ -394,6 +395,13 @@ class AnimaFreeFuseScript(scripts.Script):
             raise ValueError("Anima FreeFuse requires two or three active subjects")
 
         prompts, _negative_prompts = effective_prompt_batch(p)
+        # Forge splits AND prompts into sub-prompt conds: the concept positions
+        # and the one-mask-per-image collection only fit a single prompt.
+        subprompt_indexes, _flat, _index = get_multicond_prompt_list(
+            [str(prompt) for prompt in prompts]
+        )
+        if any(len(indexes) > 1 for indexes in subprompt_indexes):
+            raise ValueError("Anima FreeFuse does not support AND prompts")
         engine = p.sd_model.text_processing_engine_anima
         concepts = {adapter.name: adapter.concept for adapter in adapters}
         token_positions = None

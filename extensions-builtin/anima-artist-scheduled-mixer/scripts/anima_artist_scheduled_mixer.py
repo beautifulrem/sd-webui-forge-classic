@@ -40,6 +40,7 @@ from modules.anima_lora_ui import UI_LANGUAGES, register_language_option, ui_lan
 from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
 from modules.anima_support import effective_prompt_batch, register_negpip_prompts
+from modules.prompt_parser import get_multicond_prompt_list
 
 
 logger = logging.getLogger("anima_artist_scheduled_mixer")
@@ -1329,11 +1330,22 @@ def _build_artists(p, entries, use_cache):
 _MAX_ARTISTS = {OPT_PERFORMANCE: 6, OPT_BALANCE: 10, OPT_QUALITY: 16}
 
 
+def _has_and_prompts(p):
+    """Whether a positive prompt of the pass is split into AND sub-prompts."""
+    try:
+        prompts = effective_prompt_batch(p)[0]
+    except RuntimeError:  # _build_artists reports the batch mismatch
+        return False
+    indexes, _flat, _index = get_multicond_prompt_list(prompts)
+    return any(len(subprompts) > 1 for subprompts in indexes)
+
+
 def _resolve_run_rows(p, args, hires, report=True):
     """``(dm, unet, shift, rows)`` the Mixer runs with (``args``: _MixerArgs)
     on the base or the ``hires`` pass, or None when it does not run there:
     disabled, yielding to FreeFuse/Regional, hires mixing off, an ADetailer
-    inner run or no Anima model. ``report`` notes why in the infotext and the log."""
+    inner run, no Anima model or an AND prompt. ``report`` notes why in the
+    infotext and the log."""
     if args is None or not args.enable:
         return None
     owner = next((feature for feature in (FREEFUSE, REGIONAL) if is_feature_active(p, feature)), None)
@@ -1355,6 +1367,17 @@ def _resolve_run_rows(p, args, hires, report=True):
     if dm is None:
         if report:
             logger.warning("Anima artist mixer disabled: %s", msg)
+        return None
+    # The artist contexts are encoded per image and tiled over the positive
+    # rows. Forge runs each AND sub-prompt as its own cond chunk, and a model
+    # call does not say which sub-prompt a chunk is (the chunks come in
+    # reverse, and split with the free memory), so every sub-prompt's rows
+    # would attend to the whole prompt and undo the AND composition.
+    if _has_and_prompts(p):
+        if report:
+            message = "disabled: AND prompts are not supported"
+            p.extra_generation_params["Anima Artist Mixer"] = message
+            logger.warning("Anima Artist Mixer %s", message)
         return None
     own_rows = hires and args.hires_independent
     shift = _runtime_shift_from_processing(p, args.runtime_hires_shift if own_rows else args.runtime_base_shift, hires)
