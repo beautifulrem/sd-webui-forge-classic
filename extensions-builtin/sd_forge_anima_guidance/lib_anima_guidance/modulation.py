@@ -13,7 +13,9 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 
 import torch
 import torch.nn.functional as F
@@ -59,8 +61,11 @@ _POOLED_CACHE_SIZE = 8
 
 def resolve_artifact(mode: str, local_path: str, automatic_path: str, *, url: str, sha256: str, maximum_bytes: int) -> str:
     if mode == "Local file":
-        path = os.path.abspath(os.path.expanduser(str(local_path).strip()))
-        if not path or not os.path.isfile(path):
+        local_path = str(local_path or "").strip()
+        if not local_path:
+            raise RuntimeError("Anima modulation local artifact path is empty")
+        path = os.path.abspath(os.path.expanduser(local_path))
+        if not os.path.isfile(path):
             raise RuntimeError(f"Anima modulation local artifact was not found: {path}")
         return path
     if mode != "Auto-download pinned":
@@ -274,11 +279,9 @@ def validate_for_dit(scales: torch.Tensor, dit) -> tuple[int, ...]:
     return block_layout(int(scales.shape[0]), dit_block_count(dit))
 
 
-def _modulation_pre_hook(module, args, kwargs):
-    local_state = getattr(module, "_forge_anima_modulation_local", None)
-    delta = getattr(local_state, "delta", None)
-    if delta is None:
-        return args, kwargs
+def _add_delta(delta, module, args, kwargs):
+    """Forward pre-hook (bound to ``delta`` with ``functools.partial``)."""
+
     current = kwargs.get("adaln_lora_B_T_3D")
     if current is None:
         raise RuntimeError("Anima modulation could not find the block AdaLN-LoRA input")
@@ -287,12 +290,26 @@ def _modulation_pre_hook(module, args, kwargs):
     return args, updated
 
 
-def _ensure_hooks(dit):
-    for block in dit.blocks:
-        if not getattr(block, "_forge_anima_modulation_hook", False):
-            block._forge_anima_modulation_local = threading.local()
-            block.register_forward_pre_hook(_modulation_pre_hook, with_kwargs=True)
-            block._forge_anima_modulation_hook = True
+@contextmanager
+def _block_deltas(pairs):
+    """Add each ``(block, delta)`` pair's delta to the block's AdaLN-LoRA input
+    for the ``with`` block only; the hooks are removed on exit, also when the
+    block raises.
+
+    A forward pre-hook rather than a forward override (``modules/forward_override.py``):
+    per-block compile runs every call with an override inside the blocks
+    eager, while Dynamo traces a hook as a frame of its own, so modulated
+    calls keep the compiled blocks. See docs/remi-architecture-notes.md.
+    """
+
+    handles = []
+    try:
+        for block, delta in pairs:
+            handles.append(block.register_forward_pre_hook(partial(_add_delta, delta), with_kwargs=True))
+        yield
+    finally:
+        for handle in reversed(handles):
+            handle.remove()
 
 
 def _expand_rows(value: torch.Tensor, batch: int) -> torch.Tensor:
@@ -327,7 +344,6 @@ class ModulationPatch:
         end = total_blocks - 1 if int(self.end_layer) < 0 else min(int(self.end_layer), total_blocks - 1)
         if start > end:
             raise RuntimeError(f"Anima modulation start layer {start} is after end layer {end}")
-        _ensure_hooks(dit)
         # (model block, adapter scale row) of each modulated block
         targets = [(layout[row], row) for row in range(start, end + 1)]
 
@@ -354,13 +370,9 @@ class ModulationPatch:
                 logger.warning("Anima modulation skipped a non-divisible conditioning batch.")
                 return call_model_wrapper(previous, model_function, args)
             chunk = input_x.shape[0] // len(branches)
-            try:
-                for (index, _), delta in zip(targets, deltas_for(branches, chunk, input_x)):
-                    dit.blocks[index]._forge_anima_modulation_local.delta = delta
+            pairs = zip((dit.blocks[index] for index, _ in targets), deltas_for(branches, chunk, input_x))
+            with _block_deltas(pairs):
                 return call_model_wrapper(previous, model_function, args)
-            finally:
-                for index, _ in targets:
-                    dit.blocks[index]._forge_anima_modulation_local.delta = None
 
         # Per-row pooled vectors work at any latent size (Anima SPEED).
         inherit_wrapper_flags(wrapper, previous)

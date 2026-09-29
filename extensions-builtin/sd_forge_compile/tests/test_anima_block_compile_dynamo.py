@@ -19,7 +19,7 @@ sys.path.insert(0, str(ROOT.parent / "sd_forge_anima_guidance"))
 from anima_block_compile import RECOMPILE_LIMIT, AnimaBlockCompileManager, block_compile_config
 from backend import memory_management, operations
 from backend.nn.anima import Anima
-from lib_anima_guidance.modulation import _ensure_hooks
+from lib_anima_guidance.modulation import _block_deltas
 from modules.forward_override import forward_overrides
 
 _BLOCKS = 12  # more than Dynamo's recompile limit (8): one graph per block would fall back
@@ -109,23 +109,19 @@ class AnimaBlockCompileDynamoTests(unittest.TestCase):
         self.assertTrue(all(type(block).__name__ != "OptimizedModule" for block in self.model.blocks))
 
     def test_modulation_pre_hooks_take_effect_in_the_compiled_blocks(self):
-        """Dynamo compiles the pre-hook as a frame of its own (one graph with a
-        delta, none without): toggling it recompiles nothing after the first time."""
+        """Dynamo compiles Modulation's per-call pre-hook as a frame of its own
+        (one graph with the hook, none without): toggling it recompiles nothing
+        after the first time."""
         delta = torch.randn(2, 1, 128 * 3, generator=torch.Generator().manual_seed(9)) * 0.5
 
         def modulated(seed):
-            for block in self.model.blocks:
-                block._forge_anima_modulation_local.delta = delta
-            try:
+            # As Modulation's model wrapper: the hooks live for the call only.
+            with _block_deltas((block, delta) for block in self.model.blocks):
                 return self._both(seed)
-            finally:
-                for block in self.model.blocks:
-                    block._forge_anima_modulation_local.delta = None
 
         with torch.inference_mode():
             self._both(0)
             frames = self.backend.frame_count
-            _ensure_hooks(self.model)  # Modulation guidance, registered after compiling
             eager, compiled, runs = modulated(1)
             unmodulated, compiled_off, runs_off = self._both(1)
             toggled = self.backend.frame_count
@@ -139,6 +135,7 @@ class AnimaBlockCompileDynamoTests(unittest.TestCase):
         self.assertLessEqual(toggled, frames + 1)
         self.assertEqual(self.backend.frame_count, toggled)
         self.assertEqual(self.fallbacks, [])
+        self.assertTrue(all(not block._forward_pre_hooks for block in self.model.blocks))
 
     def test_a_forward_override_inside_the_blocks_runs_eager(self):
         block = self.model.blocks[3]

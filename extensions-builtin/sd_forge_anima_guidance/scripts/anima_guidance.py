@@ -943,7 +943,8 @@ class AnimaGuidanceScript(scripts.Script):
             _install_nag(p, args, unet, predictor)
         _install_cfg_hooks(p, args, unet, predictor)
         # resolve_guidance_conflicts() already dropped Momentum for unsupported
-        # samplers and SMC/FDG modes, and recorded why.
+        # samplers and every mode but Standard CFG (or reset the mode to
+        # Standard when Momentum was the last switch), and recorded why.
         if args.momentum_enable:
             _install_momentum(p, args, unet)
         if dcw_enabled:

@@ -9,6 +9,7 @@ on purpose. Read this before "fixing" one of them.
 |---|---|---|
 | Attention modifier chain | `backend/nn/anima_attention.py` (`ANIMA_ATTENTION_MODIFIERS`, `ANIMA_PROJECT_KV`) | NAG |
 | Temporary forward overrides | `modules/forward_override.py` | Regional, Artist Mixer, FreeFuse, DAVE, cross-attention boost, NegPiP's DiT hook (`lib_negpip/anima.py`) and its SD1/SDXL cross-attention hook (`lib_negpip/sd.py`) |
+| Per-call block forward pre-hooks (registered inside a `model_function_wrapper`, removed in its `finally`) | `_block_deltas` in `extensions-builtin/sd_forge_anima_guidance/lib_anima_guidance/modulation.py` | Modulation (adds its AdaLN-LoRA delta to the modulated blocks' input) |
 | `compute_qkv(value_context=...)` / `compute_kv(value_context=...)` (cross-attention only) | `backend/nn/anima.py` | NegPiP, FreeFuse, NAG's negative-prompt K/V via `ANIMA_PROJECT_KV` (V from the masked context) |
 | `model_function_wrapper` chain | `call_model_wrapper` in `modules/anima_support.py` | Modulation, Regional, FreeFuse, Artist Mixer, DAVE, cross-attention boost, CFG-Zero* zero-init (skips the forward of zero-init steps), Spectrum |
 | Spectrum "run a real forward" requests | `modules/spectrum_force.py` | every feature Spectrum cannot forecast |
@@ -38,6 +39,15 @@ on purpose. Read this before "fixing" one of them.
   rather than being attention modifiers. They swap in whole contexts (with
   their own NegPiP masks) and blend outputs; moving them onto the modifier
   chain is possible but changes numerics that need GPU A/B tests first.
+- **Modulation uses per-call forward pre-hooks, not forward overrides.**
+  Per-block compile runs any call with a forward override inside the blocks
+  eager (`patched_inside` in `sd_forge_compile/anima_block_compile.py`), so
+  an override would cost modulation users the compiled blocks for the whole
+  generation. Dynamo traces a pre-hook as a frame of its own and keeps the
+  compiled blocks, and adding or removing the hooks between calls
+  recompiles nothing (`sd_forge_anima_guidance/tests/test_modulation_compile.py`). The hooks live
+  only for the model call, like an override: between calls, and whenever
+  modulation is off, the blocks carry none.
 - **NegPiP patches `compile_conditions`** to carry its mask through
   conditioning. This is the bundled Forge NegPiP extension's own design;
   changing it would mean diverging from that extension and upstream sampling.

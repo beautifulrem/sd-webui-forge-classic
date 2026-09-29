@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import functools
+import os
 import pathlib
 import sys
-import threading
 import types
 import unittest
 
@@ -13,11 +14,12 @@ sys.path.insert(0, str(ROOT))
 
 from lib_anima_guidance.modulation import (
     ModulationPatch,
+    _add_delta,
     _expand_rows,
-    _modulation_pre_hook,
     clip_prompt_text,
     prepare_modulation_vectors,
     project_pooled,
+    resolve_artifact,
 )
 
 
@@ -29,6 +31,22 @@ def _adapter():
         "text_embedder_clip.linear_2.weight": torch.eye(6),
         "text_embedder_clip.linear_2.bias": torch.zeros(6),
     }
+
+
+class _Block(torch.nn.Module):
+    """Returns the AdaLN-LoRA input it receives, as modulation's hook left it."""
+
+    def forward(self, x, adaln_lora_B_T_3D=None):
+        return adaln_lora_B_T_3D
+
+
+def _delta_of(block):
+    """The delta modulation's pre-hook adds to ``block`` right now, or None."""
+
+    for hook in block._forward_pre_hooks.values():
+        if isinstance(hook, functools.partial) and hook.func is _add_delta:
+            return hook.args[0]
+    return None
 
 
 class ModulationTests(unittest.TestCase):
@@ -58,14 +76,8 @@ class ModulationTests(unittest.TestCase):
         self.assertFalse(torch.allclose(positive, project_pooled(torch.tensor([[1.0, 0.0, 0.0]]), adapter)))
 
     def test_block_hook_adds_delta_without_mutating_input(self):
-        class Block:
-            _forge_anima_modulation_local = threading.local()
-
-        block = Block()
-        block._forge_anima_modulation_local.delta = torch.ones(2, 1, 6)
-
         current = torch.zeros(2, 1, 6)
-        _, updated = _modulation_pre_hook(block, (), {"adaln_lora_B_T_3D": current})
+        _, updated = _add_delta(torch.ones(2, 1, 6), torch.nn.Identity(), (), {"adaln_lora_B_T_3D": current})
         self.assertTrue(torch.equal(current, torch.zeros_like(current)))
         self.assertTrue(torch.equal(updated["adaln_lora_B_T_3D"], torch.ones_like(current)))
 
@@ -77,7 +89,7 @@ class ModulationTests(unittest.TestCase):
         class Patcher:
             def __init__(self, previous):
                 dit = types.SimpleNamespace(
-                    blocks=[torch.nn.Identity(), torch.nn.Identity()],
+                    blocks=[_Block(), _Block()],
                     final_layer=types.SimpleNamespace(hidden_size=2),
                 )
                 self.model = types.SimpleNamespace(diffusion_model=dit)
@@ -107,7 +119,7 @@ class ModulationTests(unittest.TestCase):
 class _Patcher:
     def __init__(self, block_count, hidden_size=2):
         dit = types.SimpleNamespace(
-            blocks=[torch.nn.Identity() for _ in range(block_count)],
+            blocks=[_Block() for _ in range(block_count)],
             final_layer=types.SimpleNamespace(hidden_size=hidden_size),
         )
         self.model = types.SimpleNamespace(diffusion_model=dit)
@@ -140,7 +152,7 @@ def _deltas_by_block(model_blocks, start=0, end=-1):
 
     def observe(blocks):
         for index, block in enumerate(blocks):
-            delta = getattr(block._forge_anima_modulation_local, "delta", None)
+            delta = _delta_of(block)
             seen[index] = None if delta is None else int(delta.flatten()[0]) - 1
 
     _call(patched, [0], observe)
@@ -192,7 +204,7 @@ class ModulationBlockLayoutTests(unittest.TestCase):
         deltas = []
 
         def observe(blocks):
-            deltas.append(blocks[5]._forge_anima_modulation_local.delta)
+            deltas.append(_delta_of(blocks[5]))
 
         _call(patched, [0], observe)
         _call(patched, [0], observe)
@@ -200,6 +212,48 @@ class ModulationBlockLayoutTests(unittest.TestCase):
         self.assertIs(deltas[0], deltas[1])
         self.assertEqual(tuple(deltas[2].shape), (2, 1, 6))
         self.assertTrue(torch.equal(deltas[2][:, 0, 0], torch.tensor([1.0, 0.0])))  # cond row, uncond row
+
+    def test_blocks_carry_the_hook_only_during_a_model_call(self):
+        # No hook outlives the call: with modulation off (or between calls)
+        # the blocks run hook-free, as with the temporary forward overrides.
+        scales = torch.arange(1.0, 29.0).unsqueeze(1).repeat(1, 6)
+        patched, _, _ = ModulationPatch(torch.ones(1, 6), torch.zeros(1, 6), scales, 2, 4).apply(_Patcher(28))
+        blocks = patched.model.diffusion_model.blocks
+        self.assertTrue(all(not block._forward_pre_hooks for block in blocks))
+        outputs = {}
+
+        def observe(blocks):
+            for index in (1, 2, 4, 5):
+                outputs[index] = blocks[index](None, adaln_lora_B_T_3D=torch.full((1, 1, 6), 0.5))
+
+        _call(patched, [0], observe)
+        self.assertTrue(torch.equal(outputs[1], torch.full((1, 1, 6), 0.5)))  # outside the window
+        self.assertTrue(torch.equal(outputs[2], torch.full((1, 1, 6), 3.5)))  # 0.5 + row 2's scale (3)
+        self.assertTrue(torch.equal(outputs[4], torch.full((1, 1, 6), 5.5)))
+        self.assertTrue(torch.equal(outputs[5], torch.full((1, 1, 6), 0.5)))
+        self.assertTrue(all(not block._forward_pre_hooks for block in blocks))
+
+        def fail(blocks):
+            raise ValueError("model call failed")
+
+        with self.assertRaises(ValueError):
+            _call(patched, [0], fail)
+        self.assertTrue(all(not block._forward_pre_hooks for block in blocks))
+
+
+class ResolveArtifactTests(unittest.TestCase):
+    def test_an_empty_local_path_is_reported_as_empty_not_as_the_working_directory(self):
+        for value in ("", "   ", None):
+            with self.assertRaises(RuntimeError) as raised:
+                resolve_artifact("Local file", value, "unused", url="unused", sha256="unused", maximum_bytes=1)
+            self.assertIn("empty", str(raised.exception))
+            self.assertNotIn(os.getcwd(), str(raised.exception))
+
+    def test_a_missing_local_file_names_its_path(self):
+        missing = os.path.join(os.getcwd(), "no-such-adapter.pt")
+        with self.assertRaises(RuntimeError) as raised:
+            resolve_artifact("Local file", f" {missing} ", "unused", url="unused", sha256="unused", maximum_bytes=1)
+        self.assertIn(missing, str(raised.exception))
 
 
 class ClipPromptTextTests(unittest.TestCase):

@@ -172,7 +172,12 @@ class NAGAttentionModifier:
         ).clamp_min(1e-6)
         ratio = norm_guided / norm_positive
         normalized = ratio.clamp(max=self.tau) / ratio * guided
+        blended = positive_attention.lerp(normalized, self.alpha)
+        if rows == slice(0, base.shape[0]):
+            # Every row is positive (CFG 1 / Turbo): the blend is a new tensor
+            # already, so a copy of ``base`` would only be overwritten.
+            return blended
         # A copy: ``base`` may be shared by another modifier or cache
         result = base.clone()
-        result[rows] = positive_attention.lerp(normalized, self.alpha)
+        result[rows] = blended
         return result

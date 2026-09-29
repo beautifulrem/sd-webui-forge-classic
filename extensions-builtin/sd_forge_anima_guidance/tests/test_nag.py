@@ -3,6 +3,7 @@ from __future__ import annotations
 import pathlib
 import sys
 import unittest
+import unittest.mock
 
 import torch
 
@@ -162,6 +163,34 @@ class NAGTests(unittest.TestCase):
         )
 
         self.assertTrue(torch.allclose(positive_only, batched[:1]))
+
+    def test_all_positive_rows_skip_the_copy_of_the_attention_output(self):
+        # CFG 1 / Turbo: every row is positive, so the blend is the result;
+        # copying ``base`` first would only be overwritten. A CFG batch
+        # still copies (the negative rows keep the shared output).
+        modifier = NAGAttentionModifier(scale=1.5, tau=2.0, alpha=0.7, sigma_start=0.0, sigma_end=1.0)
+        base = torch.tensor([[[1.0, 2.0]], [[3.0, -1.0]]])
+        negative = torch.tensor([[[0.5, 0.0]], [[-2.0, 1.0]]])
+        original_clone = torch.Tensor.clone
+        clones = []
+
+        def counting_clone(tensor, *args, **kwargs):
+            clones.append(tensor.shape)
+            return original_clone(tensor, *args, **kwargs)
+
+        with unittest.mock.patch.object(torch.Tensor, "clone", counting_clone):
+            actual = modifier._blend(base, [0, 1], negative)
+            self.assertEqual(clones, [])
+            partial = modifier._blend(base, [0], negative[:1])
+            self.assertEqual(clones, [base.shape])
+
+        guided = base + 1.5 * (base - negative)
+        ratio = guided.abs().sum(-1, keepdim=True) / base.abs().sum(-1, keepdim=True)
+        expected = base.lerp(ratio.clamp(max=2.0) / ratio * guided, 0.7)
+        torch.testing.assert_close(actual, expected)
+        torch.testing.assert_close(partial[:1], expected[:1])
+        self.assertTrue(torch.equal(partial[1:], base[1:]))
+        self.assertTrue(torch.equal(base, torch.tensor([[[1.0, 2.0]], [[3.0, -1.0]]])))  # not written to
 
     def test_positive_only_call_applies_the_negative_prompts_negpip_mask(self):
         # `(tag:-1)` in the negative prompt: batched CFG projects the uncond V
