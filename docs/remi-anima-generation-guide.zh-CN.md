@@ -25,7 +25,7 @@
 | `Official Turbo — Fast (CFG 1 · 10 steps)` | 仅 Anima-Turbo | `Euler`、`10` 步、CFG `1.0`、`Automatic` scheduler |
 | `Turbo + NAG negative prompt (CFG 1 · 10 steps)` | 仅 Anima-Turbo，需要负面提示生效时 | Turbo 设置 + 开启 NAG（scale `2.0`、tau `2.5`、alpha `0.5`、范围 `0.0–0.5`） |
 
-三个预设都会把 Guidance、DAVE、Cross-Attention Boost、Dynamic Shift、Spectrum、Regional、Artist Mixer、FreeFuse、PiD、Hires Guard、LoRA Stage/Layer、Prompt Rescale、分辨率随机化和 Hires/Refiner 等可选栈关闭；这些模块内部的数值也会恢复为本文推荐起点。Torch Compile 回到 `Automatic`。
+三个预设都会把 Guidance、DAVE、Cross-Attention Boost、Dynamic Shift、Spectrum、Regional、Artist Mixer、FreeFuse、PiD、Hires Guard、LoRA Stage/Layer、Prompt Rescale、分辨率随机化和 Hires/Refiner 等可选栈关闭；除 LoRA Stage/Layer 只关闭开关、保留其面板内的数值外，这些模块内部的数值也会恢复为本文推荐起点。Torch Compile 回到 `Automatic`。
 
 预设不会清空正/负提示词、Regional prompt、Artist 名称与权重、LoRA 名称、FreeFuse trigger phrase、PiD 模型选择或本地 adapter/encoder 路径。这样可以安全建立采样基线，而不破坏用户正在编辑的核心创作内容。Turbo checkpoint 请直接选 `Official Turbo — Fast`（或 `Turbo + NAG`），不需要应用 Base 预设后再手动改步数、CFG 和采样器。
 
@@ -345,7 +345,7 @@ Remi 会按 checkpoint 实际结构识别 28 层、40 层/2.9B 和 52 层/3.8B A
 - 融合模式 `插值融合`；
 - 全局强度 `0.70`。
 
-画师介入时间（开始/结束）按采样步数比例计算；基础 prompt 里的提示词编辑（`[a:b:N]`、`[a|b]`）会在每个画师分支中逐步解析，与主 prompt 一致。风格太强时先切 `保真增量` 或降低全局强度，不要先增加更多画师。Artist Mixer 与 FreeFuse 是硬冲突；与 Regional 虽能组合，也应先分别建立基线。
+画师介入时间（开始/结束）按采样步数比例计算；基础 prompt 里的提示词编辑（`[a:b:N]`、`[a|b]`）会在每个画师分支中逐步解析，与主 prompt 一致。风格太强时先切 `保真增量` 或降低全局强度，不要先增加更多画师。Artist Mixer、Regional 与 FreeFuse 三者互斥，一次只能启用其中一个。
 
 正向 prompt 含 `AND`（Forge 的多子提示组合）时，Artist Mixer 在该遍不生效：生成照常进行，infotext 记为 `Anima Artist Mixer: disabled: AND prompts are not supported`。需要画师混合时请把 prompt 改写成不含 `AND` 的单一提示。
 
