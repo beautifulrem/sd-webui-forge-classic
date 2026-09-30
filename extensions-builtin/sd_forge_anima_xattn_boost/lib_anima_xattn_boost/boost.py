@@ -62,7 +62,8 @@ class BoostState:
     renorm: float
     # (boosted rows, batch) of the current model call
     call: tuple | None = None
-    # self/cross-attention outputs of the block being run (norm matching)
+    # self/cross-attention outputs and self/cross AdaLN modulation Linear
+    # outputs of the block being run (norm matching)
     captured: dict | None = None
     # (rows, batch, device, dtype) -> (B, 1, 1) row factors, built once per
     # pass on the device in the compute dtype (the rows repeat every call)
@@ -105,23 +106,49 @@ def _make_cross_forward(original, state: BoostState):
     return forward
 
 
-def _make_self_capture(original, state: BoostState):
+def _make_capture(original, state: BoostState, key: str):
+    """``original`` unchanged, its output recorded as ``state.captured[key]``
+    while a norm-matched block call runs."""
+
     def forward(*args, **kwargs):
         out = original(*args, **kwargs)
         if state.captured is not None:
-            state.captured["self"] = out
+            state.captured[key] = out
         return out
 
     return forward
 
 
-def _gate(mlp, silu_emb, adaln_lora):
-    """The ``gate`` chunk of one AdaLN modulation, as ``Block.forward`` makes it."""
+# captured key -> Block's AdaLN modulation MLP whose output Linear is captured
+_MODULATIONS = (("modulation_self", "adaln_modulation_self_attn"), ("modulation_cross", "adaln_modulation_cross_attn"))
 
-    modulation = mlp[2](mlp[1](silu_emb))
+
+def _modulation_linear(block, name):
+    """The Linear whose output ``Block.forward`` adds to ``adaln_lora`` and
+    chunks (``mlp[2]``), or None for a block without that modulation MLP."""
+
+    mlp = getattr(block, name, None)
+    return mlp[2] if isinstance(mlp, torch.nn.Sequential) and len(mlp) == 3 else None
+
+
+def _gate(modulation, adaln_lora):
+    """The ``gate`` chunk of one AdaLN modulation Linear output, as
+    ``Block.forward`` makes it."""
+
     if adaln_lora is not None:
         modulation = modulation + adaln_lora
     return modulation.chunk(3, dim=-1)[2][:, :, None, None, :]
+
+
+def _modulation(captured, key, block, name, silu_emb):
+    """The modulation Linear output this block call computed (captured), or,
+    if the block did not run that Linear through the capture, a recompute."""
+
+    out = captured.get(key)
+    if out is not None:
+        return out
+    mlp = getattr(block, name)
+    return mlp[2](mlp[1](silu_emb()))
 
 
 def _make_block_forward(original, block, state: BoostState, attention_overrides):
@@ -134,8 +161,11 @@ def _make_block_forward(original, block, state: BoostState, attention_overrides)
     cross-attention output the block actually adds.
 
     For norm matching the self/cross-attention outputs are captured to
-    rebuild ``x`` (before cross-attention) and ``x_new``. The reference
-    scales ``x_new`` by ``s`` before the MLP; the MLP reads it through a
+    rebuild ``x`` (before cross-attention) and ``x_new``, and so are the
+    self/cross AdaLN modulation Linear outputs for their gates, so those
+    Linears (and an online LoRA's weight functions on them) run once per
+    block call; a block that does not run them gets them recomputed. The
+    reference scales ``x_new`` by ``s`` before the MLP; the MLP reads it through a
     LayerNorm, which ``s`` does not change, so the result is
     ``out + (s - 1) * x_new``."""
 
@@ -154,16 +184,19 @@ def _make_block_forward(original, block, state: BoostState, attention_overrides)
         if "self" not in captured or "cross" not in captured:
             return out  # the block did not run its attentions through ours
         options = {**dict(zip(_BLOCK_ARGS, args)), **kwargs}
-        silu_emb = options.get("silu_emb_B_T_D")
-        if silu_emb is None:
-            silu_emb = torch.nn.functional.silu(emb)
+
+        def silu_emb():
+            given = options.get("silu_emb_B_T_D")
+            return torch.nn.functional.silu(emb) if given is None else given
+
         adaln_lora = options.get("adaln_lora_B_T_3D")
         dtype = x.dtype
         if options.get("extra_per_block_pos_emb") is not None:
             x = x + options["extra_per_block_pos_emb"]
         shape = x.shape
-        gate_self = _gate(block.adaln_modulation_self_attn, silu_emb, adaln_lora).to(dtype)
-        gate_cross = _gate(block.adaln_modulation_cross_attn, silu_emb, adaln_lora).to(dtype)
+        (key_self, name_self), (key_cross, name_cross) = _MODULATIONS
+        gate_self = _gate(_modulation(captured, key_self, block, name_self, silu_emb), adaln_lora).to(dtype)
+        gate_cross = _gate(_modulation(captured, key_cross, block, name_cross, silu_emb), adaln_lora).to(dtype)
         x_mid = torch.addcmul(x, gate_self, captured["self"].unflatten(1, shape[1:4]).to(dtype))
         cross = gate_cross * captured["cross"].unflatten(1, shape[1:4]).to(dtype)
         plain = x_mid + cross
@@ -178,12 +211,22 @@ def _make_block_forward(original, block, state: BoostState, attention_overrides)
 def apply_xattn_boost_patch(model, state: BoostState):
     dit = model.model.diffusion_model  # shared by the clone
     cross = cached_overrides(lambda index: dit.blocks[index].cross_attn, lambda original, _index: _make_cross_forward(original, state))
-    capture = cached_overrides(lambda index: dit.blocks[index].self_attn, lambda original, _index: _make_self_capture(original, state))
+    capture = cached_overrides(lambda index: dit.blocks[index].self_attn, lambda original, _index: _make_capture(original, state, "self"))
+    modulations = [
+        (name, cached_overrides(lambda index, name=name: _modulation_linear(dit.blocks[index], name), lambda original, _index, key=key: _make_capture(original, state, key)))
+        for key, name in _MODULATIONS
+    ]
 
     def attention_overrides(index):
+        # Installed for the block call only, like the self-attention capture.
+        # Per-block compile never traces them: the block overrides, on for
+        # the whole model call, already make it run the eager blocks.
         yield cross(index)
         if state.renorm > 0.0:
             yield capture(index)
+            for name, modulation in modulations:
+                if _modulation_linear(dit.blocks[index], name) is not None:
+                    yield modulation(index)
 
     blocks = cached_overrides(
         lambda index: dit.blocks[index],

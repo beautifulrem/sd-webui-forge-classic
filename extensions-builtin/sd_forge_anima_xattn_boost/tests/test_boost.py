@@ -367,3 +367,97 @@ def test_composes_with_dave_in_either_wrapper_order(renorm):
         expected = attenuate_dc(_reference(block, x, emb, context, lora, torch.tensor([2.0, 1.0]), renorm), 0.3)
     for wrap in (lambda model: boost(dave(model)), lambda model: dave(boost(model))):
         torch.testing.assert_close(run(wrap), expected, rtol=1e-5, atol=1e-5)
+
+
+def _modulation_linears(block):
+    return [block.adaln_modulation_self_attn[2], block.adaln_modulation_cross_attn[2]]
+
+
+def _count_calls(modules):
+    calls = [0] * len(modules)
+    for i, module in enumerate(modules):
+        module.register_forward_hook(lambda *_a, i=i: calls.__setitem__(i, calls[i] + 1))
+    return calls
+
+
+@pytest.mark.parametrize("renorm", [0.5, 1.0])
+def test_captured_modulation_is_bit_identical_to_the_recompute(renorm, monkeypatch):
+    from lib_anima_xattn_boost import boost
+
+    block, _, captured, _ = _boosted(renorm=renorm)
+    # A block that does not run its modulation Linears through the capture
+    # gets the gates recomputed: the old path, bit for bit.
+    monkeypatch.setattr(boost, "_modulation_linear", lambda *_a: None)
+    _, _, recomputed, _ = _boosted(renorm=renorm)
+    assert torch.equal(captured, recomputed)
+
+
+def test_modulation_linears_run_once_per_boosted_block_call(monkeypatch):
+    from lib_anima_xattn_boost import boost
+
+    blocks = [_block(0), _block(1)]
+    x, emb, context, lora = _inputs()
+    dit = _dit(*blocks)
+    counts = [_count_calls(_modulation_linears(block)) for block in blocks]
+    wrapper = apply_xattn_boost_patch(_Patcher(dit), BoostState(gain=2.0, band=0.85, renorm=0.5)).model_options["model_function_wrapper"]
+    with torch.no_grad():
+        for _ in range(2):
+            wrapper(_run(dit, x, emb, context, lora), _args(1.0))
+    assert counts == [[2, 2], [2, 2]]  # two model calls, once each
+    # The recompute fallback runs them twice per call (what the capture saves)
+    monkeypatch.setattr(boost, "_modulation_linear", lambda *_a: None)
+    with torch.no_grad():
+        wrapper(_run(dit, x, emb, context, lora), _args(1.0))
+    assert counts == [[4, 4], [4, 4]]
+
+
+def _no_overrides(block):
+    from modules.forward_override import overridden_modules
+
+    modules = [block, block.self_attn, block.cross_attn, *_modulation_linears(block)]
+    active = {id(module) for module in overridden_modules()}
+    return all("forward" not in module.__dict__ and id(module) not in active for module in modules)
+
+
+def test_modulation_captures_are_on_for_the_block_call_only():
+    import gc
+    import weakref
+
+    block = _block()
+    x, emb, context, lora = _inputs()
+    dit = _dit(block)
+    seen, outputs = [], []
+    for linear in _modulation_linears(block):
+        linear.register_forward_hook(lambda _m, _i, out: outputs.append(weakref.ref(out)))
+    block.mlp.register_forward_hook(lambda *_a: seen.append(["forward" in m.__dict__ for m in _modulation_linears(block)]))
+    state = BoostState(gain=2.0, band=0.85, renorm=0.5)
+    wrapper = apply_xattn_boost_patch(_Patcher(dit), state).model_options["model_function_wrapper"]
+    with torch.no_grad():
+        out = wrapper(_run(dit, x, emb, context, lora), _args(1.0))
+    assert seen == [[True, True]] and _no_overrides(block) and state.captured is None
+    del out
+    gc.collect()
+    assert len(outputs) == 2 and all(ref() is None for ref in outputs)  # nothing kept alive
+
+    # renorm 0 needs no gates: nothing captured
+    raw = apply_xattn_boost_patch(_Patcher(dit), BoostState(gain=2.0, band=0.85, renorm=0.0)).model_options["model_function_wrapper"]
+    with torch.no_grad():
+        raw(_run(dit, x, emb, context, lora), _args(1.0))
+    assert seen[-1] == [False, False] and _no_overrides(block)
+
+
+def test_modulation_captures_are_removed_when_the_block_raises():
+    block = _block()
+    x, emb, context, lora = _inputs()
+    dit = _dit(block)
+
+    def fail(*_a):
+        assert all("forward" in m.__dict__ for m in _modulation_linears(block))
+        raise RuntimeError("block failed")
+
+    block.mlp.register_forward_hook(fail)
+    state = BoostState(gain=2.0, band=0.85, renorm=0.5)
+    wrapper = apply_xattn_boost_patch(_Patcher(dit), state).model_options["model_function_wrapper"]
+    with torch.no_grad(), pytest.raises(RuntimeError, match="block failed"):
+        wrapper(_run(dit, x, emb, context, lora), _args(1.0))
+    assert _no_overrides(block) and state.captured is None and state.call is None
