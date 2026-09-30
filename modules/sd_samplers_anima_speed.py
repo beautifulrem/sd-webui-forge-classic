@@ -67,7 +67,9 @@ _DELTA = 0.01
 _SPECTRUM_A = 219.484718
 _SPECTRUM_BETA = 2.422687
 # User override of the switch sigma (Settings > Sampler Parameters); 0 keeps
-# the delta-optimal value. Bounded to the range anima_lora benched on Anima.
+# the delta-optimal value. anima_lora benched switches of 0.5-0.8 on Anima;
+# 0.9 is an unbenched conservative extension (at or above the automatic value
+# at every supported size).
 SWITCH_SIGMA_OPTION = "anima_speed_switch_sigma"
 SWITCH_SIGMA_INFOTEXT = "SPEED switch sigma"
 SWITCH_SIGMA_RANGE = (0.5, 0.9)

@@ -1,7 +1,7 @@
 # Forge Neo Remi 功能与 Anima 生成指南
 
 > 适用分支：`remi`  
-> 代码核对基线：`37122ae9`（2026-09-30）  
+> 代码核对基线：`54e9ab37`（2026-10-01）  
 > 本文中的“推荐”是保守起步值，不是对所有模型、LoRA 和提示词都最优的固定答案。
 
 ## 先看结论
@@ -119,7 +119,7 @@ Remi 还把 ADetailer-Neo、Detail Daemon、Repeat Generate、Agent Scheduler、
 | 更强的端点修正实验 | `Anima Flow PC3` | 默认 gamma `1.0`、tolerance `0.005`；额外求值更多 |
 | ER-SDE 频谱噪声实验 | `Anima ER SDE CNS` | 在 `Anima Guidance & Corrections` 中控制强度 |
 | 2–3 个主体 LoRA 空间分离 | `Anima FreeFuse Euler` | 开启 FreeFuse 后会自动选择 |
-| txt2img 提速实验 | `Anima SPEED` | 前段在半分辨率 latent 上运行，只在 txt2img 从纯噪声开始时生效（回退条件见下文冲突表）；切换 sigma 默认 `0`（自动，δ-optimal，1024² 约 0.69、832×1216 约 0.75）。设置 → Sampler Parameters 的 `[Anima SPEED] Switch sigma` 可设为 `0.5–0.9`：越低，半分辨率步越多、越快，但与全分辨率结果偏离越大，anima_lora 作者观察到画面会更锐、对比更高；非 0 值写入 infotext `SPEED switch sigma`，粘贴时恢复 |
+| txt2img 提速实验 | `Anima SPEED` | 前段在半分辨率 latent 上运行，只在 txt2img 从纯噪声开始时生效（回退条件见下文冲突表）；切换 sigma 默认 `0`（自动，δ-optimal，1024² 约 0.69、832×1216 约 0.75）。设置 → Sampler Parameters 的 `[Anima SPEED] Switch sigma` 可设为 `0.5–0.9`（作者在 Anima 上测过 0.5–0.8，0.9 是更保守的延伸）：越低，半分辨率步越多、越快，但与全分辨率结果偏离越大，anima_lora 作者观察到画面会更锐、对比更高；非 0 值写入 infotext `SPEED switch sigma`，粘贴时恢复 |
 
 三个 `Anima Flow *` 采样器会把 scheduler 锁定为 `Anima FlowMatch`。因此：
 
