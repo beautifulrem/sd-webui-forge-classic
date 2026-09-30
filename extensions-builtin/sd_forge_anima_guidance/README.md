@@ -21,7 +21,9 @@ modes that return the conditional prediction still do so.
 - `Full skim negative`: more strongly limits flagged negative-prompt values.
 - `Disable flipping filter`: aggressive mode which disables the sign-flip
   safety predicate.
-- Start/end/flip controls constrain the effect to a denoising interval.
+- Start/end/flip controls constrain the effect to a denoising interval. Like
+  the CFG active range they are fractions of model time (`percent_to_sigma`),
+  not of the step count.
 
 The numerical predicates are adapted from
 [Extraltodeus/Skimmed_CFG](https://github.com/Extraltodeus/Skimmed_CFG),
@@ -75,7 +77,7 @@ passes (which start mid-schedule) are not zeroed. It is the outermost CFG
 hook, so with the CFG range it still zeroes the first steps of the schedule,
 not the first steps inside the range.
 
-Like SMC-CFG, APG and FDG it replaces an existing CFG function (recorded in
+Like SMC-CFG, APG, TCFG and FDG it replaces an existing CFG function (recorded in
 metadata) and disables Momentum; Skimmed CFG, the CFG range and DCW compose.
 
 ## APG
@@ -98,6 +100,33 @@ momentum -0.5 (the paper's reverse momentum). The momentum is per pass, reset
 after FreeFuse's probe pass, and not advanced by PC3 probes; at CFG 1 APG
 returns the conditional prediction. Like the other combine modes it replaces
 an existing CFG function and disables Momentum Guidance.
+
+## TCFG
+
+Tangential Damping CFG ([arXiv:2503.18137](https://arxiv.org/abs/2503.18137),
+CVPR 2025, CC BY 4.0) is a combine mode written from the paper. Per image it
+stacks the unconditional and conditional predictions into the 2 x N matrix
+`A = [uncond; cond]`, keeps only the unconditional prediction's component
+along `A`'s first right singular vector `v1` (the direction the two share),
+drops the rest (the "tangential" part), and runs plain CFG against it:
+`uncond' + w * (cond - uncond')`. `v1` comes from the closed-form top
+eigenvector of the 2 x 2 Gram matrix `A A^T`, so there is no N-wide SVD, no
+host sync and no extra forward; it runs in float32 for half inputs.
+
+The paper filters scores (for SD3, the rectified-flow velocity), and the
+ComfyUI `TCFG` node filters `x - denoised`. Forge's residuals `x - denoised`
+are `sigma * v` for Anima, and `v1` ignores a common per-image factor, so TCFG
+runs on those residuals, not on the denoised (x0) predictions. Parallel
+predictions leave the unconditional one unchanged (plain CFG); at CFG 1 it
+returns the conditional prediction, so Forge still skips the negative pass.
+It has no settings. The paper reports a better zero-shot MS-COCO FID on SD3
+(16.66 to 13.74, same CLIPScore), SDXL and SD1.5; there is no Anima
+measurement yet. The code is a clean-room implementation of the paper; the
+ComfyUI node (GPL-3.0,
+[`a061b06`](https://github.com/Comfy-Org/ComfyUI/blob/a061b06321b4e91d05c7c436b1e9b188360c5377/comfy_extras/nodes_tcfg.py))
+was read only to confirm the residual space, and the tests compare against a
+direct `torch.linalg.svd` projection. Like the other combine modes it
+replaces an existing CFG function and disables Momentum Guidance.
 
 ## FDG (experimental)
 
@@ -154,7 +183,7 @@ mode.
 ## CFG active range
 
 `Limit CFG to a sampling range` applies the CFG combine (including SMC-CFG,
-CFG-Zero*, APG, FDG and Skimmed CFG) only between `CFG range start` and `CFG range
+CFG-Zero*, APG, TCFG, FDG and Skimmed CFG) only between `CFG range start` and `CFG range
 end` (defaults 0.0 and 1.0). They are fractions of the model's denoising
 time, converted with Forge's `percent_to_sigma` (Anima's shift 3: 0.5 is
 sigma 0.75), not fractions of the step count, so the share of steps a range

@@ -18,8 +18,9 @@ SMC_GUIDANCE = "SMC-CFG"
 FDG_GUIDANCE = "FDG (experimental)"
 CFG_ZERO_STAR_GUIDANCE = "CFG-Zero*"
 APG_GUIDANCE = "APG"
+TCFG_GUIDANCE = "TCFG"
 # One dropdown: the CFG combine modes are mutually exclusive by construction.
-GUIDANCE_MODES = (STANDARD_GUIDANCE, SMC_GUIDANCE, CFG_ZERO_STAR_GUIDANCE, APG_GUIDANCE, FDG_GUIDANCE)
+GUIDANCE_MODES = (STANDARD_GUIDANCE, SMC_GUIDANCE, CFG_ZERO_STAR_GUIDANCE, APG_GUIDANCE, TCFG_GUIDANCE, FDG_GUIDANCE)
 
 # Runs part of the pass at half resolution; it falls back to Anima Flow Euler
 # for img2img, masks and resolution-bound hooks (sd_samplers_anima_speed).

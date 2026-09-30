@@ -60,3 +60,18 @@ def test_local_path_boxes_are_hidden_under_hide_ui_dir_config(guidance, monkeypa
         controls = dict(zip(guidance.SCRIPT_ARG_NAMES, harness.build_ui(guidance.AnimaGuidanceScript())))
         for name in ("adapter_path", "clip_path"):
             assert controls[name].visible is not hidden, name
+
+
+def test_every_cfg_mode_is_offered_and_pasted_back(guidance):
+    from modules.anima_feature_conflicts import GUIDANCE_MODES, TCFG_GUIDANCE
+    from modules.anima_presets import preset_controls
+
+    script = guidance.AnimaGuidanceScript()
+    controls = dict(zip(guidance.SCRIPT_ARG_NAMES, harness.build_ui(script)))
+    choices = [choice[0] if isinstance(choice, (tuple, list)) else choice for choice in controls["guidance_mode"].choices]
+    assert TCFG_GUIDANCE in GUIDANCE_MODES
+    assert choices == list(GUIDANCE_MODES)
+    # One infotext key writes and pastes back the mode, and the preset owns it.
+    assert "Anima CFG guidance mode" in script.paste_field_names
+    names, components, _ = preset_controls("txt2img")
+    assert components[list(names).index("guidance.mode")] is controls["guidance_mode"]

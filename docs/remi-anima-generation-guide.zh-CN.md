@@ -93,7 +93,7 @@ Turbo 的稳定性和默认风格更强，但多样性较低。不要把 Base/Ae
 
 - `Beta57` scheduler；
 - `Anima Flow Euler`、`Anima Flow UniPC2`、`Anima Flow PC3`；
-- Skimmed CFG、SMC-CFG、CFG-Zero*、APG、FDG、Guidance Active Range；
+- Skimmed CFG、SMC-CFG、CFG-Zero*、APG、TCFG、FDG、Guidance Active Range；
 - NAG、Momentum Guidance、DCW、ER-SDE CNS、CLIP modulation；
 - Spectrum hidden-feature forecasting 与 SEA；
 - Dynamic Shift；
@@ -157,6 +157,7 @@ Base/Aesthetic 可先保守试 `scale 1.0–1.5`、`alpha 0.25–0.4`、`tau 2.5
 注意：
 
 - 正负条件在同一个 batch 时复用负分支的 K/V；CFG 1 或低显存导致 Forge 拆分分支时，用该层 K/V 权重投影负面提示的 context（负面提示中 NegPiP 的 `(tag:-1)` 同样只取反 V），不需要额外的负向前向；两者都不可用时会明确记录为 inactive；
+- Start/End 与 CFG 范围一样是模型去噪时间（sigma）的比例，不是步数比例：end `0.5` 对应 sigma 0.75，覆盖的步数取决于 scheduler；
 - NAG 不增加模型前向，但在 Start/End 窗口内每个 cross-attention 层要多算一次对负面 context 的注意力，速度与显存开销随之增加；Spectrum 只在 NAG 的 sigma 窗口内强制 actual forward，窗口外的步骤仍可预测；
 - torch.compile 只在 NAG 的 Start/End 窗口内回退 eager，窗口外的步骤仍使用编译后的 block；
 - 与 Regional/Artist Mixer 同时使用时，NAG 只引导基础 prompt 路径，合成的区域/画师 context 会保持隔离。
@@ -170,7 +171,7 @@ Base/Aesthetic 可先保守试 `scale 1.0–1.5`、`alpha 0.25–0.4`、`tau 2.5
 硬限制：
 
 - 只支持 `Euler`、`Anima Flow Euler`、`Anima FreeFuse Euler`；
-- 选择任何非 Standard 的 CFG guidance mode（SMC-CFG、CFG-Zero*、APG、FDG）时自动禁用；
+- 选择任何非 Standard 的 CFG guidance mode（SMC-CFG、CFG-Zero*、APG、TCFG、FDG）时自动禁用；
 - 不用于 UniPC2、PC3、Heun、DPM2 等含中间求值的采样器；
 - FreeFuse 的收集阶段结束后会重置 Momentum 状态。
 
@@ -183,7 +184,7 @@ Base/Aesthetic 可先保守试 `scale 1.0–1.5`、`alpha 0.25–0.4`、`tau 2.5
 - `Skimming fallback CFG = 2.5`；
 - `Full skim negative = Off`；
 - `Disable flipping filter = Off`；
-- Start/End 先用 `0.0/1.0`。
+- Start/End 先用 `0.0/1.0`（与 CFG 范围相同，是模型时间比例，不是步数比例）。
 
 它是比直接堆另一种 CFG controller 更适合先试的防烧修正。Turbo CFG 1 通常没有必要开启。
 
@@ -216,7 +217,7 @@ SMC-CFG 会占用 CFG combine，并自动禁用 Momentum。不要同时选择 FD
 
 硬限制：
 
-- 与 SMC-CFG、APG、FDG 在同一个下拉框中互斥；
+- 与 SMC-CFG、APG、TCFG、FDG 在同一个下拉框中互斥；
 - 自动禁用 Momentum；可与 DCW、CNS、Skimmed CFG 和 active range 共用。
 
 ### APG
@@ -227,13 +228,24 @@ SMC-CFG 会占用 CFG combine，并自动禁用 Momentum。不要同时选择 FD
 
 硬限制：
 
-- 与 SMC-CFG、CFG-Zero*、FDG 在同一个下拉框中互斥；
+- 与 SMC-CFG、CFG-Zero*、TCFG、FDG 在同一个下拉框中互斥；
 - 自动禁用 Momentum Guidance；可与 DCW、CNS、Skimmed CFG 和 active range 共用；
 - 每个 pass 重新开始 momentum，FreeFuse 收集阶段结束后也会重置。
 
+### TCFG
+
+用途：Tangential Damping CFG（[arXiv:2503.18137](https://arxiv.org/abs/2503.18137)，CVPR 2025）每步把负向（无条件）预测与正向预测拼成 2×N 矩阵，只保留负向预测在二者共同主方向（第一右奇异向量）上的分量，去掉与之正交的“切向”分量，再做普通 CFG。按论文与 ComfyUI 参考节点，在 Forge 的残差 `x − denoised`（Anima rectified flow 下等于 `sigma·v`）上计算，而不是在 x0 上；每张图单独计算，不增加前向次数，也没有额外参数。
+
+论文在 SD3（rectified flow）上报告 MS-COCO 30k 零样本 FID 16.66 → 13.74、CLIPScore 不变，SDXL、SD1.5 与 DiT 上也有 FID 改善；尚无 Anima GPU 量化结论，按研究 A/B 使用。Base/Aesthetic、CFG 4–7 才有意义；CFG 1（Turbo）时直接返回条件预测，Forge 仍跳过负向前向。正负预测平行时与普通 CFG 完全相同。
+
+硬限制：
+
+- 与 SMC-CFG、CFG-Zero*、APG、FDG 在同一个下拉框中互斥；
+- 自动禁用 Momentum Guidance；可与 DCW、CNS、Skimmed CFG 和 active range 共用。
+
 ### Limit CFG to a sampling range
 
-用途：只在采样中段使用 CFG，减少早期或末期过强引导。Base/Aesthetic、CFG 4–7 才值得试；Turbo CFG 1 基本没有收益。
+用途：只在模型时间（sigma）的中段使用 CFG，减少早期或末期过强引导。Base/Aesthetic、CFG 4–7 才值得试；Turbo CFG 1 基本没有收益。
 
 建议从 `0.10–0.80` 做 A/B。范围外只用 conditional 预测（等同 CFG 1），只要没有其他 hook 仍读取负向预测，这些步也会跳过负向前向。start/end 是模型去噪时间的比例，经 Forge 的 `percent_to_sigma` 换算成 sigma（Anima shift 3 下 0.5 对应 sigma 0.75），不是步数比例；所以一个范围覆盖多少步取决于 scheduler：30 步 `Beta57` 时 end `0.5` 只覆盖 13 步。
 
@@ -421,8 +433,8 @@ Remi 会在 GUI 中采用“最后选择的功能获胜”：冲突项会被自�
 | `Beta57` + `Anima Flow Euler/UniPC2/PC3` | Flow sampler 锁定 scheduler，Beta57 不生效 |
 | Dynamic Shift + `Anima Flow *` | 被 scheduler lock 忽略 |
 | Dynamic Shift + Beta57 | Dynamic Shift override 实际接管 schedule；不要当作双重增强 |
-| SMC / CFG-Zero* / APG / FDG | 同一下拉框，互斥模式 |
-| Momentum + SMC/CFG-Zero*/APG/FDG | 自动禁用 Momentum |
+| SMC / CFG-Zero* / APG / TCFG / FDG | 同一下拉框，互斥模式 |
+| Momentum + SMC/CFG-Zero*/APG/TCFG/FDG | 自动禁用 Momentum |
 | Momentum + UniPC2/PC3/Heun/DPM2 | 不支持，自动禁用 |
 | FDG + DCW | 互斥：GUI 中后开启的一方生效并锁定另一方；API 同时开启时禁用 DCW |
 | DCW + Heun/DPM2/DPM++ SDE/Restart 等多次求值采样器 | 自动禁用 DCW |

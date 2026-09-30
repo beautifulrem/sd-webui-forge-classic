@@ -21,6 +21,7 @@ from modules.anima_feature_conflicts import (
     FDG_GUIDANCE,
     SMC_GUIDANCE,
     STANDARD_GUIDANCE,
+    TCFG_GUIDANCE,
 )
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_guidance.py"
@@ -215,6 +216,7 @@ def test_uncond_skip_is_bound_to_the_installed_hook():
         (dict(guidance_mode=FDG_GUIDANCE), True, []),
         (dict(guidance_mode=CFG_ZERO_STAR_GUIDANCE), False, [CFGZeroStarState]),
         (dict(guidance_mode=APG_GUIDANCE), False, [APGState]),
+        (dict(guidance_mode=TCFG_GUIDANCE), False, []),
         (dict(skim_enable=True), False, []),
         (dict(guidance_range_enable=True), False, []),
     ],
@@ -357,6 +359,12 @@ INFOTEXT_CONFIGS = {
         None,
         dict(guidance_mode=APG_GUIDANCE, apg_eta=0.3, apg_norm_threshold=5.0, apg_momentum=-0.25, dcw_enable=True),
     ),
+    "tcfg_skim_momentum": (
+        "Euler",
+        None,
+        None,
+        dict(guidance_mode=TCFG_GUIDANCE, skim_enable=True, momentum_enable=True, guidance_range_enable=True),
+    ),
     "conflicts": ("Anima ER SDE CNS", None, None, dict(guidance_mode=FDG_GUIDANCE, momentum_enable=True, dcw_enable=True)),
     "modulation": (
         "Euler",
@@ -441,6 +449,16 @@ INFOTEXT_SNAPSHOTS = {
         ("Anima DCW lambda", -0.015),
         ("Anima DCW schedule", "one_minus_sigma"),
         ("Anima DCW bands", "LL"),
+    ],
+    "tcfg_skim_momentum": [
+        ("Anima guidance enabled", True),
+        ("Anima conflict resolution", "Momentum disabled: incompatible with TCFG"),
+        ("Anima CFG guidance mode", "TCFG"),
+        ("Anima CFG active range", True),
+        ("Anima CFG range start", 0.0),
+        ("Anima CFG range end", 1.0),
+        ("Anima Skimmed CFG", True),
+        ("Anima skim CFG", 2.5),
     ],
     "conflicts": [
         ("Anima guidance enabled", True),

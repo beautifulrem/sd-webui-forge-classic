@@ -25,8 +25,11 @@ from lib_anima_guidance.advanced import (
     make_guidance_range_cfg_function,
     make_guidance_range_uncond_skip,
     make_momentum_post_cfg_function,
+    make_tcfg_cfg_function,
     make_zero_init_cfg_function,
     make_zero_init_model_wrapper,
+    tcfg_combine,
+    tcfg_damp_uncond,
 )
 
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
@@ -411,6 +414,118 @@ class AdaptiveProjectedGuidanceTests(unittest.TestCase):
         self.assertIsNone(state._running)
 
 
+def _tcfg_svd_reference(cond, uncond):
+    """TCFG's damping as the paper states it: a full SVD of [uncond; cond] per sample, in float64."""
+
+    damped = []
+    for c, u in zip(cond.double(), uncond.double()):
+        _, _, vh = torch.linalg.svd(torch.stack([u.flatten(), c.flatten()]), full_matrices=False)
+        v1 = vh[0]
+        damped.append(((u.flatten() @ v1) * v1).reshape(u.shape))
+    return torch.stack(damped)
+
+
+class TCFGTests(unittest.TestCase):
+    def test_damping_matches_a_full_svd_projection(self):
+        torch.manual_seed(20)
+        base = torch.randn(3, 4, 1, 6, 5)
+        cases = {
+            "independent": (torch.randn_like(base), torch.randn_like(base)),
+            # Typical CFG: the two predictions differ by a small part.
+            "close": (base, base + 0.1 * torch.randn_like(base)),
+            "uncond larger": (base, 3.0 * base + torch.randn_like(base)),
+        }
+        for name, (cond, uncond) in cases.items():
+            with self.subTest(name):
+                actual = tcfg_damp_uncond(cond, uncond)
+                self.assertEqual(actual.dtype, torch.float32)
+                expected = _tcfg_svd_reference(cond, uncond)
+                self.assertTrue(torch.allclose(actual.double(), expected, atol=1e-5, rtol=1e-4))
+
+    def test_the_damped_part_is_what_the_svd_calls_tangential(self):
+        # uncond' lies along v1 and the dropped part is orthogonal to it.
+        torch.manual_seed(21)
+        cond, uncond = torch.randn(2, 16, 8), torch.randn(2, 16, 8)
+        damped = tcfg_damp_uncond(cond, uncond)
+        dropped = uncond - damped
+        self.assertTrue(torch.allclose((dropped * damped).sum(dim=(1, 2)), torch.zeros(2), atol=1e-4))
+        # Parallel predictions have no tangential part: plain CFG.
+        self.assertTrue(torch.allclose(tcfg_damp_uncond(cond, -2.0 * cond), -2.0 * cond, atol=1e-5))
+        self.assertTrue(torch.allclose(tcfg_combine(cond, 0.5 * cond, 4.0), 0.5 * cond + 4.0 * (cond - 0.5 * cond), atol=1e-5))
+
+    def test_residuals_or_velocities_give_the_same_combine(self):
+        # Forge's residual is sigma * v; the SVD direction ignores that factor.
+        torch.manual_seed(22)
+        cond, uncond = torch.randn(1, 4, 8, 8), torch.randn(1, 4, 8, 8)
+        self.assertTrue(torch.allclose(tcfg_combine(0.7 * cond, 0.7 * uncond, 5.0), 0.7 * tcfg_combine(cond, uncond, 5.0), atol=1e-5))
+
+    def test_degenerate_predictions_stay_finite(self):
+        zero, value = torch.zeros(1, 4, 2, 2), torch.randn(1, 4, 2, 2)
+        self.assertTrue(torch.equal(tcfg_damp_uncond(zero, zero), zero))
+        # A zero unconditional prediction projects to zero.
+        self.assertTrue(torch.allclose(tcfg_damp_uncond(value, zero), zero, atol=1e-6))
+        # Equal singular values: every direction is singular, uncond is kept.
+        cond = torch.tensor([1.0, 0.0]).reshape(1, 1, 1, 2)
+        uncond = torch.tensor([0.0, 1.0]).reshape(1, 1, 1, 2)
+        self.assertTrue(torch.allclose(tcfg_damp_uncond(cond, uncond), uncond))
+
+    def test_each_image_is_damped_on_its_own(self):
+        torch.manual_seed(23)
+        cond, uncond = torch.randn(3, 4, 1, 4, 4), torch.randn(3, 4, 1, 4, 4)
+        batched = tcfg_combine(cond, uncond, 4.5)
+        for index in range(3):
+            single = tcfg_combine(cond[index : index + 1], uncond[index : index + 1], 4.5)
+            self.assertTrue(torch.allclose(batched[index : index + 1], single, atol=1e-6))
+        # Changing one image leaves the others alone.
+        other = uncond.clone()
+        other[1] = 10.0 * torch.randn_like(other[1])
+        changed = tcfg_combine(cond, other, 4.5)
+        self.assertTrue(torch.equal(changed[0], batched[0]))
+        self.assertTrue(torch.equal(changed[2], batched[2]))
+
+    def test_cfg_function_runs_on_velocity_residuals(self):
+        torch.manual_seed(24)
+        x = torch.randn(2, 4, 8, 8)
+        sigma = 0.6
+        v_cond, v_uncond = torch.randn_like(x), torch.randn_like(x)
+        args = {
+            "input": x,
+            "sigma": torch.tensor([sigma] * 2),
+            "cond_denoised": x - sigma * v_cond,
+            "uncond_denoised": x - sigma * v_uncond,
+            "cond_scale": 4.0,
+        }
+        residual = make_tcfg_cfg_function()(args)
+        damped = _tcfg_svd_reference(v_cond, v_uncond).float()
+        expected = sigma * (damped + 4.0 * (v_cond - damped))
+        self.assertTrue(torch.allclose(residual, expected, atol=1e-4))
+
+    def test_half_inputs_are_computed_in_float32(self):
+        torch.manual_seed(25)
+        x = torch.randn(1, 4, 8, 8)
+        cond, uncond = x - 0.5 * torch.randn_like(x), x - 0.5 * torch.randn_like(x)
+        args = {"input": x, "cond_denoised": cond, "uncond_denoised": uncond, "cond_scale": 5.0}
+        half = {key: value.half() if torch.is_tensor(value) else value for key, value in args.items()}
+        full = make_tcfg_cfg_function()(args)
+        actual = make_tcfg_cfg_function()(half)
+        self.assertEqual(actual.dtype, torch.float16)
+        expected = make_tcfg_cfg_function()({key: value.float() if torch.is_tensor(value) else value for key, value in half.items()})
+        self.assertTrue(torch.allclose(actual.float(), expected, atol=1e-2))
+        self.assertTrue(torch.allclose(actual.float(), full, atol=5e-2))
+
+    def test_cfg_one_is_the_conditional_prediction(self):
+        torch.manual_seed(26)
+        x = torch.randn(1, 4, 8, 8)
+        cond, uncond = torch.randn_like(x), torch.randn_like(x)
+        cfg = make_tcfg_cfg_function()
+        placeholder = {"input": x, "cond_denoised": cond, "uncond_denoised": torch.zeros_like(x), "cond_scale": 1.0, "edit_strength": 1.5}
+        self.assertTrue(torch.equal(cfg(placeholder), x - cond))
+        # A real unconditional pass at CFG 1 and weight 1 is plain CFG 1 too.
+        real = {"input": x, "cond_denoised": cond, "uncond_denoised": uncond, "cond_scale": 1.0,
+                "model_options": {"disable_cfg1_optimization": True}}
+        self.assertTrue(torch.allclose(cfg(real), x - cond, atol=1e-6))
+
+
 class GuidanceRangeTests(unittest.TestCase):
     def test_outside_uses_conditional_and_inside_delegates(self):
         x = torch.full((1, 1, 1, 1), 10.0)
@@ -464,6 +579,11 @@ class GuidanceRangeTests(unittest.TestCase):
         actual = _run_forge_combine(x, cond_star, uncond_star, sampler_cfg_function=make_cfg_zero_star_cfg_function())
         self.assertTrue(torch.allclose(actual, _run_forge_combine(x, cond_star, uncond_star), atol=1e-5))
 
+        # TCFG is plain CFG when the residuals are parallel (no tangential part).
+        cond_par, uncond_par = x - 0.5 * uncond_residual, x - uncond_residual
+        actual = _run_forge_combine(x, cond_par, uncond_par, sampler_cfg_function=make_tcfg_cfg_function())
+        self.assertTrue(torch.allclose(actual, _run_forge_combine(x, cond_par, uncond_par), atol=1e-5))
+
     def test_and_prompt_weight_acts_like_a_larger_cfg_scale(self):
         # Outside the identity settings too, weights summing to 1.5 at CFG 4
         # guide like one prompt at CFG 6 (Skimmed CFG's mask and fallback
@@ -476,6 +596,7 @@ class GuidanceRangeTests(unittest.TestCase):
         cond_value, uncond_value = torch.randn_like(x), torch.randn_like(x)
         hooks = {
             "cfg-zero*": make_cfg_zero_star_cfg_function,
+            "tcfg": make_tcfg_cfg_function,
             "apg": lambda: make_apg_cfg_function(APGState(eta=0.0, norm_threshold=5.0, momentum=-0.5)),
             "smc": lambda: make_smc_cfg_function(SMCCFGState(lam=5.0, alpha=0.2)),
             "skim": lambda: make_skim_cfg_function(
@@ -516,6 +637,7 @@ class GuidanceRangeTests(unittest.TestCase):
         )
         for hook in (
             make_cfg_zero_star_cfg_function(),
+            make_tcfg_cfg_function(),
             make_apg_cfg_function(APGState()),
             make_smc_cfg_function(SMCCFGState()),
             skim,

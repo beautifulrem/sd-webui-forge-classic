@@ -42,6 +42,7 @@ from lib_anima_guidance.advanced import (
     make_guidance_range_cfg_function,
     make_guidance_range_uncond_skip,
     make_momentum_post_cfg_function,
+    make_tcfg_cfg_function,
     make_zero_init_cfg_function,
     make_zero_init_model_wrapper,
     sigma_value,
@@ -59,6 +60,7 @@ from modules.anima_feature_conflicts import (
     GUIDANCE_MODES,
     SMC_GUIDANCE,
     STANDARD_GUIDANCE,
+    TCFG_GUIDANCE,
     record_conflict_resolution,
     resolve_guidance_conflicts,
 )
@@ -133,6 +135,13 @@ SCRIPT_ARGS = (
 )
 SCRIPT_ARG_NAMES = tuple(row[0] for row in SCRIPT_ARGS)
 INFOTEXT_KEYS = {name: key for name, key, _, _ in SCRIPT_ARGS if key is not None}
+
+# The CFG range, NAG and Skim windows go through Forge's percent_to_sigma,
+# unlike the step fractions of other panels.
+MODEL_TIME_INFO = (
+    "Fraction of model (sigma) time, not of the step count: with Anima's shift 3, "
+    "0.5 is sigma 0.75, so the steps a window covers depend on the scheduler."
+)
 
 
 def _record(p, name: str, value) -> None:
@@ -405,6 +414,10 @@ def _cfg_mode_function(p, args: SimpleNamespace, previous):
         _record(p, "apg_norm_threshold", float(args.apg_norm_threshold))
         _record(p, "apg_momentum", float(args.apg_momentum))
         return cfg_function
+    if mode == TCFG_GUIDANCE:
+        cfg_function = make_tcfg_cfg_function()
+        _record(p, "guidance_mode", TCFG_GUIDANCE)
+        return cfg_function
     return previous
 
 
@@ -473,7 +486,7 @@ def _install_cfg_hooks(p, args: SimpleNamespace, unet, predictor, cfg_mode_enabl
         spectrum_force.request(unet, zero_init_state.would_zero_init)
 
     if cfg_mode_enabled or args.skim_enable or args.guidance_range_enable:
-        # At CFG 1 Skimmed CFG, SMC-CFG, CFG-Zero*, APG and the CFG range all
+        # At CFG 1 Skimmed CFG, SMC-CFG, CFG-Zero*, APG, TCFG and the CFG range all
         # reduce to the conditional prediction, AND-prompt weights or not
         # (CFG-Zero*'s zero-init reads neither), so only FDG (whose detail band still guides there) keeps
         # Forge from skipping that pass. A wrapped hook from another
@@ -574,7 +587,7 @@ class AnimaGuidanceScript(scripts.Script):
                 list(GUIDANCE_MODES),
                 value=STANDARD_GUIDANCE,
                 label="CFG guidance mode",
-                info="SMC-CFG, CFG-Zero*, APG and FDG are mutually exclusive combine modes. Skimmed CFG is applied before the selected combine.",
+                info="SMC-CFG, CFG-Zero*, APG, TCFG and FDG are mutually exclusive combine modes. Skimmed CFG is applied before the selected combine. TCFG has no settings: it drops the part of the negative prediction that does not lie along the direction it shares with the positive one.",
             )
             with gr.Row():
                 smc_alpha = gr.Slider(
@@ -604,8 +617,8 @@ class AnimaGuidanceScript(scripts.Script):
                     nag_tau = gr.Slider(0.1, 10.0, value=2.5, step=0.1, label="NAG normalization tau")
                     nag_alpha = gr.Slider(0.0, 1.0, value=0.5, step=0.01, label="NAG blend alpha")
                 with gr.Row():
-                    nag_start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="NAG start")
-                    nag_end = gr.Slider(0.0, 1.0, value=0.5, step=0.01, label="NAG end")
+                    nag_start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="NAG start", info=MODEL_TIME_INFO)
+                    nag_end = gr.Slider(0.0, 1.0, value=0.5, step=0.01, label="NAG end", info=MODEL_TIME_INFO)
                 momentum_enable = gr.Checkbox(False, label="Enable Momentum Guidance")
                 with gr.Row():
                     momentum_strength = gr.Slider(0.0, 1.5, value=0.5, step=0.01, label="Momentum strength")
@@ -653,8 +666,12 @@ class AnimaGuidanceScript(scripts.Script):
                     )
                 guidance_range_enable = gr.Checkbox(False, label="Limit CFG to a sampling range")
                 with gr.Row():
-                    guidance_range_start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="CFG range start")
-                    guidance_range_end = gr.Slider(0.0, 1.0, value=1.0, step=0.01, label="CFG range end")
+                    guidance_range_start = gr.Slider(
+                        0.0, 1.0, value=0.0, step=0.01, label="CFG range start", info=MODEL_TIME_INFO
+                    )
+                    guidance_range_end = gr.Slider(
+                        0.0, 1.0, value=1.0, step=0.01, label="CFG range end", info=MODEL_TIME_INFO
+                    )
             skim_enable = gr.Checkbox(False, label="Skimmed CFG anti-burn")
             with gr.Row():
                 skim_scale = gr.Slider(
@@ -676,15 +693,15 @@ class AnimaGuidanceScript(scripts.Script):
                     info="More aggressive; keeps values normally rejected by the sign-flip safety filter.",
                 )
             with gr.Row():
-                start_percent = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="Skim start")
-                end_percent = gr.Slider(0.0, 1.0, value=1.0, step=0.01, label="Skim end")
+                start_percent = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="Skim start", info=MODEL_TIME_INFO)
+                end_percent = gr.Slider(0.0, 1.0, value=1.0, step=0.01, label="Skim end", info=MODEL_TIME_INFO)
                 flip_percent = gr.Slider(
                     0.0,
                     1.0,
                     value=0.0,
                     step=0.01,
                     label="Filter flip point",
-                    info="0 disables timed inversion of the flipping filter.",
+                    info="0 disables timed inversion of the flipping filter. A model (sigma) time fraction, like Skim start/end.",
                 )
             with gr.Accordion("DCW latent bias correction", open=False):
                 dcw_enable = gr.Checkbox(False, label="Enable DCW")

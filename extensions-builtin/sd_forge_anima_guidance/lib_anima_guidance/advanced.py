@@ -360,6 +360,79 @@ def make_zero_init_model_wrapper(previous: Callable | None, state: CFGZeroStarSt
     return inherit_wrapper_flags(zero_init_model_wrapper, previous)
 
 
+def tcfg_damp_uncond(cond: torch.Tensor, uncond: torch.Tensor) -> torch.Tensor:
+    """TCFG's unconditional prediction without its tangential part (arXiv:2503.18137).
+
+    Per sample, ``uncond`` is projected onto ``v1``, the dominant right
+    singular vector of the 2 x N matrix ``A = [uncond; cond]``. ``v1`` is
+    ``A^T e / sqrt(lambda)`` with ``(e, lambda)`` the top eigenpair of the
+    2 x 2 Gram matrix ``G = A A^T``, and since ``(G e)_0 = lambda e_0`` the
+    projection reduces to ``e_0 * (e_0 * uncond + e_1 * cond)``: three dot
+    products and a closed-form angle, no N-wide SVD and no host sync. With
+    ``e = (cos t, sin t)`` and ``tan 2t = 2 <u, c> / (|u|^2 - |c|^2)`` the
+    coefficients are ``(1 + cos 2t) / 2`` and ``sin 2t / 2``.
+
+    The sign of ``v1`` does not matter, and a positive per-sample factor on
+    both predictions does not change it, so residuals ``sigma * v`` give the
+    same result as velocities. When the two singular values tie (``uncond``
+    orthogonal to ``cond`` with the same norm) every direction is singular;
+    ``uncond`` is then kept unchanged (plain CFG). Computed and returned in
+    float32.
+    """
+
+    batch = cond.shape[0]
+    cond_flat = cond.reshape(batch, -1).float()
+    uncond_flat = uncond.reshape(batch, -1).float()
+    # |u|^2 - |c|^2 as (u - c).(u + c): cond and uncond are usually close,
+    # and the angle is decided by that small difference.
+    norm_gap = ((uncond_flat - cond_flat) * (uncond_flat + cond_flat)).sum(dim=1)
+    cross = (uncond_flat * cond_flat).sum(dim=1)
+    double_angle = torch.atan2(2.0 * cross, norm_gap)
+    uncond_weight = (0.5 * (1.0 + torch.cos(double_angle))).unsqueeze(1)
+    cond_weight = (0.5 * torch.sin(double_angle)).unsqueeze(1)
+    damped = uncond_weight * uncond_flat + cond_weight * cond_flat
+    return damped.reshape(uncond.shape)
+
+
+def tcfg_combine(cond: torch.Tensor, uncond: torch.Tensor, guidance_scale: float) -> torch.Tensor:
+    """CFG against TCFG's damped unconditional prediction, in float32.
+
+    ``uncond' + w * (cond - uncond')`` written as ``cond + (w - 1) * (cond -
+    uncond')``, so ``w = 1`` returns ``cond`` exactly.
+    """
+
+    cond_f = cond.float()
+    damped = tcfg_damp_uncond(cond_f, uncond)
+    return cond_f + (float(guidance_scale) - 1.0) * (cond_f - damped)
+
+
+def make_tcfg_cfg_function():
+    """Forge CFG hook for TCFG, Tangential Damping CFG (arXiv:2503.18137).
+
+    The paper filters the unconditional *score* (for SD3, the rectified-flow
+    velocity) and then runs the usual CFG combine; the ComfyUI TCFG node does
+    the same on ``x - denoised``. Forge's residuals ``x - denoised`` are
+    ``sigma * v`` for Anima, so the damping and the combine run on them, not
+    on the denoised (x0) predictions. It keeps no state and adds no forward.
+    """
+
+    @torch.no_grad()
+    def cfg_function(args):
+        x = args["input"]
+        if uncond_is_placeholder(args):
+            # Forge skipped the unconditional pass (zero placeholder).
+            return x - args["cond_denoised"]
+        x_f = x.float()
+        residual = tcfg_combine(
+            x_f - args["cond_denoised"].float(),
+            x_f - args["uncond_denoised"].float(),
+            effective_cfg_scale(args),
+        )
+        return residual.to(x.dtype)
+
+    return cfg_function
+
+
 def apg_project(value: torch.Tensor, direction: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Per-sample parallel / orthogonal parts of ``value`` w.r.t. ``direction``."""
 
