@@ -379,12 +379,26 @@ INFOTEXT_CONFIGS = {
 }
 
 # The exact extra_generation_params (keys, values and order) of each
-# configuration, captured before the installers were split up.
+# configuration, captured before the installers were split up. Once Guidance
+# is on, the mode and every sub-feature switch are written, off ones as False,
+# and a feature that is on writes all its settings: a UI paste leaves the
+# control of a missing key as the panel has it.
 INFOTEXT_SNAPSHOTS = {
     "disabled": [],
-    "smc_alpha_zero": [("Anima guidance enabled", True)],
+    "smc_alpha_zero": [
+        ("Anima guidance enabled", True),
+        ("Anima CFG guidance mode", "Standard / preserve existing"),
+        ("Anima Skimmed CFG", False),
+        ("Anima DCW", False),
+        ("Anima modulation guidance", False),
+        ("Anima NAG", False),
+        ("Anima Momentum Guidance", False),
+        ("Anima CFG active range", False),
+    ],
     "standard_extras": [
         ("Anima guidance enabled", True),
+        ("Anima CFG guidance mode", "Standard / preserve existing"),
+        ("Anima modulation guidance", False),
         ("Anima NAG", True),
         ("Anima NAG scale", 3.0),
         ("Anima NAG tau", 2.0),
@@ -411,6 +425,11 @@ INFOTEXT_SNAPSHOTS = {
     ],
     "smc_unipc": [
         ("Anima guidance enabled", True),
+        ("Anima DCW", False),
+        ("Anima modulation guidance", False),
+        ("Anima NAG", False),
+        ("Anima Momentum Guidance", False),
+        ("Anima CFG active range", False),
         ("Anima Flow UniPC solver type", "bh1"),
         ("Anima Flow UniPC disabled correctors", 2),
         ("Anima Flow UniPC thresholding", True),
@@ -421,9 +440,20 @@ INFOTEXT_SNAPSHOTS = {
         ("Anima SMC lambda", 4.0),
         ("Anima Skimmed CFG", True),
         ("Anima skim CFG", 2.5),
+        ("Anima skim full negative", False),
+        ("Anima skim disable flip filter", False),
+        ("Anima skim start", 0.0),
+        ("Anima skim end", 1.0),
+        ("Anima skim flip", 0.0),
     ],
     "fdg_pc3_replaced": [
         ("Anima guidance enabled", True),
+        ("Anima Skimmed CFG", False),
+        ("Anima DCW", False),
+        ("Anima modulation guidance", False),
+        ("Anima NAG", False),
+        ("Anima Momentum Guidance", False),
+        ("Anima CFG active range", False),
         ("Anima Flow PC3 gamma", 0.5),
         ("Anima Flow PC3 tolerance", 0.01),
         ("Anima CFG guidance mode", "FDG (experimental)"),
@@ -432,15 +462,25 @@ INFOTEXT_SNAPSHOTS = {
     ],
     "cfg_zero_cns": [
         ("Anima guidance enabled", True),
+        ("Anima Skimmed CFG", False),
+        ("Anima DCW", False),
+        ("Anima modulation guidance", False),
+        ("Anima NAG", False),
+        ("Anima Momentum Guidance", False),
         ("Anima CNS strength", 0.5),
         ("Anima CFG guidance mode", "CFG-Zero*"),
-        ("Anima CFG-Zero* zero-init steps", 2),
+        ("Anima CFG-Zero zero-init steps", 2),
         ("Anima CFG active range", True),
         ("Anima CFG range start", 0.0),
         ("Anima CFG range end", 1.0),
     ],
     "apg_dcw": [
         ("Anima guidance enabled", True),
+        ("Anima Skimmed CFG", False),
+        ("Anima modulation guidance", False),
+        ("Anima NAG", False),
+        ("Anima Momentum Guidance", False),
+        ("Anima CFG active range", False),
         ("Anima CFG guidance mode", "APG"),
         ("Anima APG eta", 0.3),
         ("Anima APG norm threshold", 5.0),
@@ -453,12 +493,21 @@ INFOTEXT_SNAPSHOTS = {
     "tcfg_skim_momentum": [
         ("Anima guidance enabled", True),
         ("Anima conflict resolution", "Momentum disabled: incompatible with TCFG"),
+        ("Anima DCW", False),
+        ("Anima modulation guidance", False),
+        ("Anima NAG", False),
+        ("Anima Momentum Guidance", False),
         ("Anima CFG guidance mode", "TCFG"),
         ("Anima CFG active range", True),
         ("Anima CFG range start", 0.0),
         ("Anima CFG range end", 1.0),
         ("Anima Skimmed CFG", True),
         ("Anima skim CFG", 2.5),
+        ("Anima skim full negative", False),
+        ("Anima skim disable flip filter", False),
+        ("Anima skim start", 0.0),
+        ("Anima skim end", 1.0),
+        ("Anima skim flip", 0.0),
     ],
     "conflicts": [
         ("Anima guidance enabled", True),
@@ -466,6 +515,12 @@ INFOTEXT_SNAPSHOTS = {
             "Anima conflict resolution",
             "FDG disabled: incompatible with Anima ER SDE CNS; Momentum disabled: unsupported sampler Anima ER SDE CNS",
         ),
+        ("Anima CFG guidance mode", "Standard / preserve existing"),
+        ("Anima Skimmed CFG", False),
+        ("Anima modulation guidance", False),
+        ("Anima NAG", False),
+        ("Anima Momentum Guidance", False),
+        ("Anima CFG active range", False),
         ("Anima CNS strength", 1.0),
         ("Anima DCW", True),
         ("Anima DCW lambda", -0.015),
@@ -474,6 +529,11 @@ INFOTEXT_SNAPSHOTS = {
     ],
     "modulation": [
         ("Anima guidance enabled", True),
+        ("Anima CFG guidance mode", "Standard / preserve existing"),
+        ("Anima Skimmed CFG", False),
+        ("Anima DCW", False),
+        ("Anima Momentum Guidance", False),
+        ("Anima CFG active range", False),
         ("Anima modulation guidance", True),
         ("Anima modulation weight", 2.5),
         ("Anima modulation start block", 2),
@@ -492,6 +552,11 @@ INFOTEXT_SNAPSHOTS = {
     ],
     "modulation_failed_nag_unbatched": [
         ("Anima guidance enabled", True),
+        ("Anima CFG guidance mode", "Standard / preserve existing"),
+        ("Anima Skimmed CFG", False),
+        ("Anima DCW", False),
+        ("Anima Momentum Guidance", False),
+        ("Anima CFG active range", False),
         ("Anima modulation guidance", "disabled: OSError"),
         ("Anima NAG", "inactive: no negative context for a positive-only call"),
         ("Anima NAG scale", 2.0),
@@ -503,8 +568,10 @@ INFOTEXT_SNAPSHOTS = {
 }
 
 
-@pytest.mark.parametrize("name", list(INFOTEXT_CONFIGS))
-def test_infotext_snapshot(monkeypatch, name):
+def _config_run(monkeypatch, name, **arguments):
+    """The process of configuration ``name`` run with ``arguments`` (its own
+    overrides when none are given)."""
+
     sampler, existing, setup, overrides = INFOTEXT_CONFIGS[name]
 
     def other_cfg(args):
@@ -516,11 +583,17 @@ def test_infotext_snapshot(monkeypatch, name):
     if existing is not None:
         p.sd_model.forge_objects.unet.model_options["sampler_cfg_function"] = other_cfg
     p.sampler_name = sampler
-    _run(p, **overrides)
+    _run(p, **(arguments or overrides))
     if getattr(p, "_anima_nag_modifier", None) is not None and name.endswith("_nag_unbatched"):
         p._anima_nag_modifier.on_unbatched()
+    return p
+
+
+@pytest.mark.parametrize("name", list(INFOTEXT_CONFIGS))
+def test_infotext_snapshot(monkeypatch, name):
+    params = _config_run(monkeypatch, name).extra_generation_params
     # repr() also pins the value types (True vs 1, 2 vs 2.0) infotext prints.
-    actual = [(key, repr(value)) for key, value in p.extra_generation_params.items()]
+    actual = [(key, repr(value)) for key, value in params.items()]
     assert actual == [(key, repr(value)) for key, value in INFOTEXT_SNAPSHOTS[name]]
 
 
@@ -530,7 +603,7 @@ def test_dcw_is_not_installed_on_a_multi_evaluation_sampler():
     _run(p, dcw_enable=True)
     assert p._anima_dcw_state is None
     assert _registered(p) == []
-    assert "Anima DCW" not in p.extra_generation_params
+    assert p.extra_generation_params["Anima DCW"] is False
     assert p.extra_generation_params["Anima conflict resolution"] == "DCW disabled: unsupported sampler Heun"
 
 
@@ -540,7 +613,7 @@ def test_dcw_is_not_installed_with_an_inpaint_mask():
     _run(p, dcw_enable=True)
     assert p._anima_dcw_state is None
     assert _registered(p) == []
-    assert "Anima DCW" not in p.extra_generation_params
+    assert p.extra_generation_params["Anima DCW"] is False
     assert p.extra_generation_params["Anima conflict resolution"] == "DCW disabled: incompatible with an inpaint mask"
 
 
@@ -557,7 +630,9 @@ def test_dcw_drops_itself_when_the_denoiser_has_a_mask():
     SCRIPT_MODULE._dcw_before_denoiser(params)
     assert torch.equal(x, torch.ones_like(x))
     assert p._anima_dcw_state is None
-    assert not any(key.startswith("Anima DCW") for key in p.extra_generation_params)
+    # Its settings are dropped; the switch is recorded off, as DCW did not run.
+    assert [key for key in p.extra_generation_params if key.startswith("Anima DCW")] == ["Anima DCW"]
+    assert p.extra_generation_params["Anima DCW"] is False
     assert p.extra_generation_params["Anima conflict resolution"] == "DCW disabled: incompatible with an inpaint mask"
 
 
@@ -726,3 +801,184 @@ def test_process_prefetches_the_cns_gamma_table_before_sampling(monkeypatch, sam
     p.hr_sampler_name = hr_sampler
     SCRIPT_MODULE.AnimaGuidanceScript().process(p, *_positional(**overrides))
     assert fetched == ([p] if expected else [])
+
+
+# --- Infotext round trip ----------------------------------------------------
+# Minimal local stand-ins for the paste / replay helpers; swap them for the
+# shared ones in tests/extension_script_harness.py once those land.
+
+_REPO = Path(__file__).parents[3]
+
+
+def _source_definitions(path, wanted, namespace):
+    """The top-level functions / assignments ``wanted`` of ``path``, executed in
+    ``namespace``: the modules they live in need the full WebUI install."""
+
+    import ast
+
+    tree = ast.parse(path.read_text(encoding="utf8"))
+    nodes = [
+        node
+        for node in tree.body
+        if (isinstance(node, ast.FunctionDef) and node.name in wanted)
+        or (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) in wanted)
+    ]
+    exec(compile(ast.Module(nodes, []), str(path), "exec"), namespace)  # noqa: S102 - our own source file
+    assert set(wanted) <= set(namespace)
+    return namespace
+
+
+def _infotext_utils_helpers():
+    """``re_param_code``, ``quote``, ``unquote`` and ``_parse_info`` of modules/infotext_utils.py."""
+
+    import json
+
+    import gradio as gr
+
+    namespace = {"json": json, "gr": gr, "Any": object, "type_of_gr_update": type(gr.skip()), "errors": types.SimpleNamespace(report=print)}
+    return _source_definitions(_REPO / "modules" / "infotext_utils.py", {"re_param_code", "quote", "unquote", "_parse_info"}, namespace)
+
+
+def _api_pasted_value():
+    """``pasted_value`` of modules/api/api.py."""
+
+    return _source_definitions(_REPO / "modules" / "api" / "api.py", {"pasted_value"}, {})["pasted_value"]
+
+
+def _build_panel(script, tab="txt2img"):
+    """``script``'s controls, built on a fresh preset registry."""
+
+    import gradio as gr
+
+    from modules.anima_presets import reset_preset_controls
+
+    reset_preset_controls(tab)
+    script.tabname = tab
+    with gr.Blocks():
+        return script.ui(tab == "img2img")
+
+
+def _infotext_round_trip(params):
+    """``params`` as processing.create_infotext writes them and
+    parse_generation_parameters reads them back (key -> string)."""
+
+    import re
+
+    helpers = _infotext_utils_helpers()
+    line = "Steps: 20, Sampler: Euler, " + ", ".join(
+        f"{key}: {helpers['quote'](value)}" for key, value in params.items() if value is not None
+    )
+    return {key: helpers["unquote"](value) for key, value in re.findall(helpers["re_param_code"], line)}
+
+
+def _ui_paste(script, controls, params, panel):
+    """The panel values after pasting ``params``'s infotext into a panel set to
+    ``panel``: each paste field converted by infotext_utils._parse_info; a
+    field whose key is missing (gr.skip()) keeps the panel's value."""
+
+    parse_info = _infotext_utils_helpers()["_parse_info"]
+    parsed = _infotext_round_trip(params)
+    names = {id(component): name for component, name in zip(controls, SCRIPT_MODULE.SCRIPT_ARG_NAMES)}
+    pasted = dict(panel)
+    for component, key in script.infotext_fields:
+        update = parse_info(component, key, parsed)
+        if "value" in update:
+            pasted[names[id(component)]] = update["value"]
+    return pasted
+
+
+def _api_replay(script, controls, params):
+    """The script args the API's infotext replay (modules/api/api.py) runs
+    ``params`` with: each paste field's value converted by pasted_value to
+    its control's value type, the other args at the controls' defaults."""
+
+    pasted_value = _api_pasted_value()
+    parsed = _infotext_round_trip(params)
+    names = {id(component): name for component, name in zip(controls, SCRIPT_MODULE.SCRIPT_ARG_NAMES)}
+    replayed = {name: component.value for name, component in zip(SCRIPT_MODULE.SCRIPT_ARG_NAMES, controls)}
+    for component, key in script.infotext_fields:
+        value = parsed.get(key)
+        if value is not None:
+            replayed[names[id(component)]] = pasted_value(value, type(component.value))
+    return replayed
+
+
+# The panel a PNG is pasted into: every sub-feature on, every setting off its default.
+EVERYTHING_ON = dict(
+    enable=True, guidance_mode=SMC_GUIDANCE, smc_alpha=0.7, smc_lambda=3.0,
+    skim_enable=True, skim_scale=4.0, full_negative=True, disable_flip_filter=True,
+    start_percent=0.3, end_percent=0.7, flip_percent=0.4,
+    dcw_enable=True, dcw_lambda=0.05, dcw_schedule="constant", dcw_bands="HH",
+    cns_strength=0.25, flow_unipc_solver_type="bh1", flow_unipc_disable_corrector_first=3,
+    flow_unipc_thresholding=True, flow_unipc_dynamic_thresholding_ratio=0.9, flow_unipc_sample_max_value=3.0,
+    flow_pc3_gamma=0.25, flow_pc3_tolerance=0.02,
+    modulation_enable=True, modulation_weight=-4.0, modulation_start=5, modulation_end=10,
+    modulation_base="panel base", modulation_positive="panel good", modulation_negative="panel bad",
+    adapter_mode="Local file", adapter_path="a.pt", clip_mode="Local file", clip_path="c.safetensors",
+    nag_enable=True, nag_scale=5.0, nag_tau=4.0, nag_alpha=0.9, nag_start=0.2, nag_end=0.9,
+    momentum_enable=True, momentum_strength=1.2, momentum_ema=0.9, fdg_high_scale=20.0,
+    guidance_range_enable=True, guidance_range_start=0.3, guidance_range_end=0.6,
+    cfg_zero_init_steps=5, apg_eta=0.8, apg_norm_threshold=50.0, apg_momentum=0.5,
+)
+# Guidance off records nothing, like every other panel: the paste keeps the panel.
+ROUND_TRIP_CONFIGS = [name for name in INFOTEXT_CONFIGS if name != "disabled"]
+# What a run did rather than how it was set: a re-run without the conflict does not repeat it.
+_NOT_SETTINGS = {"Anima conflict resolution"}
+
+
+def _settings(p):
+    params = {key: value for key, value in p.extra_generation_params.items() if key not in _NOT_SETTINGS}
+    unet = p.sd_model.forge_objects.unet
+    return params, _registered(p), sorted(unet.model_options), unet.cfg1_disabled
+
+
+def test_everything_on_panel_sets_every_argument():
+    assert set(EVERYTHING_ON) == set(SCRIPT_MODULE.SCRIPT_ARG_NAMES)
+    defaults = dict(zip(SCRIPT_MODULE.SCRIPT_ARG_NAMES, (c.value for c in _build_panel(SCRIPT_MODULE.AnimaGuidanceScript()))))
+    same = [name for name, value in EVERYTHING_ON.items() if value == defaults[name] and name != "enable"]
+    assert same == []
+
+
+@pytest.mark.parametrize("path", ["ui", "api"])
+@pytest.mark.parametrize("name", ROUND_TRIP_CONFIGS)
+def test_pasted_infotext_reruns_the_same_generation(monkeypatch, name, path):
+    """Record -> paste (UI: onto a panel with every sub-feature on; API: onto
+    the defaults) -> re-run: the same arguments take effect."""
+
+    script = SCRIPT_MODULE.AnimaGuidanceScript()
+    controls = _build_panel(script)
+    original = _config_run(monkeypatch, name)
+    params = dict(original.extra_generation_params)
+    if path == "ui":
+        pasted = _ui_paste(script, controls, params, EVERYTHING_ON)
+    else:
+        pasted = _api_replay(script, controls, params)
+    rerun = _config_run(monkeypatch, name, **pasted)
+    assert _settings(rerun) == _settings(original)
+    # Each sub-feature switch is pasted as the run had it; a recorded False turns it off.
+    for switch in ("skim_enable", "dcw_enable", "modulation_enable", "nag_enable", "momentum_enable", "guidance_range_enable"):
+        recorded = params[SCRIPT_MODULE.INFOTEXT_KEYS[switch]]
+        assert bool(pasted[switch]) is (recorded is not False), switch
+
+
+def test_a_hires_pass_that_drops_a_feature_keeps_the_first_pass_record():
+    p = FakeProcess()
+    _run(p, momentum_enable=True, guidance_mode=STANDARD_GUIDANCE)
+    p.is_hr_pass, p.hr_sampler_name = True, "Heun"  # Momentum is unsupported there
+    _run(p, momentum_enable=True)
+    assert p.extra_generation_params["Anima Momentum Guidance"] is True
+
+    p = FakeProcess()
+    _run(p, guidance_mode=FDG_GUIDANCE)
+    p.is_hr_pass, p.hr_sampler_name = True, "Anima ER SDE CNS"  # FDG is disabled there
+    _run(p, guidance_mode=FDG_GUIDANCE)
+    assert p.extra_generation_params["Anima CFG guidance mode"] == FDG_GUIDANCE
+
+    # And a feature the first pass dropped but the hires pass ran is recorded on.
+    p = FakeProcess()
+    p.sampler_name = "Heun"
+    _run(p, momentum_enable=True)
+    assert p.extra_generation_params["Anima Momentum Guidance"] is False
+    p.is_hr_pass, p.hr_sampler_name = True, "Euler"
+    _run(p, momentum_enable=True)
+    assert p.extra_generation_params["Anima Momentum Guidance"] is True

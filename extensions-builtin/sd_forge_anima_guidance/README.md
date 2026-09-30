@@ -7,7 +7,11 @@ sliding-mode controller operating in Anima's velocity space.
 
 The panel is available in txt2img and img2img. It is inert for non-Anima
 models, patches a cloned model for one generation, preserves an existing Forge
-CFG function by wrapping it, and records active settings in generation info.
+CFG function by wrapping it, and records its settings in generation info.
+With the panel on, the CFG mode (Standard included) and every sub-feature
+switch are written, the ones that are off as `False` without their settings,
+so pasting the PNG back turns off what the run had off instead of keeping the
+panel's current state.
 
 Like Forge's own combine, every CFG mode below (and Skimmed CFG's mask and
 fallback) multiplies the guidance scale by the sum of `AND` sub-prompt
@@ -238,7 +242,8 @@ UniPC2` and `Anima Flow PC3` paths. UniPC supports `bh1`/`bh2`, suppression of
 early correctors, and optional per-sample dynamic thresholding. PC3 exposes
 its maximum correction gamma and error tolerance. The defaults preserve the
 conservative Diffusers-grid profiles; controls are written to generation
-metadata only when their corresponding sampler is active.
+metadata only when their corresponding sampler is active (UniPC thresholding
+as `False` too, its percentile and maximum only when it is on).
 
 ## CLIP modulation guidance
 

@@ -79,7 +79,8 @@ _REQUIRED = object()
 # API's positional order): (name of the control and parameter, infotext key
 # or None, preset name or None, default when an API call omits it). The local
 # modulation file paths have no key: they are never written to infotext, and
-# a pasted PNG must not pick which local file is loaded.
+# a pasted PNG must not pick which local file is loaded. Keys use only word
+# characters, spaces, "-" and "/": parse_generation_parameters reads no other.
 SCRIPT_ARGS = (
     ("enable", "Anima guidance enabled", "guidance.enabled", _REQUIRED),
     ("guidance_mode", "Anima CFG guidance mode", "guidance.mode", _REQUIRED),
@@ -128,7 +129,7 @@ SCRIPT_ARGS = (
     ("guidance_range_enable", "Anima CFG active range", "guidance.range_enabled", False),
     ("guidance_range_start", "Anima CFG range start", "guidance.range_start", 0.0),
     ("guidance_range_end", "Anima CFG range end", "guidance.range_end", 1.0),
-    ("cfg_zero_init_steps", "Anima CFG-Zero* zero-init steps", "guidance.cfg_zero_init_steps", 1),
+    ("cfg_zero_init_steps", "Anima CFG-Zero zero-init steps", "guidance.cfg_zero_init_steps", 1),
     ("apg_eta", "Anima APG eta", "guidance.apg_eta", 0.0),
     ("apg_norm_threshold", "Anima APG norm threshold", "guidance.apg_norm_threshold", 0.0),
     ("apg_momentum", "Anima APG momentum", "guidance.apg_momentum", -0.5),
@@ -144,13 +145,42 @@ MODEL_TIME_INFO = (
 )
 
 
-def _record(p, name: str, value) -> None:
+def _record(p, name: str, value, *, unless_recorded: bool = False) -> None:
     """Write ``value`` to infotext under the key SCRIPT_ARGS gives control ``name``.
 
     The key is the one ``infotext_fields`` pastes back into that control.
+    ``unless_recorded`` keeps a value an earlier pass of the job wrote.
     """
 
-    p.extra_generation_params[INFOTEXT_KEYS[name]] = value
+    if unless_recorded:
+        p.extra_generation_params.setdefault(INFOTEXT_KEYS[name], value)
+    else:
+        p.extra_generation_params[INFOTEXT_KEYS[name]] = value
+
+
+def _record_switched_off(p, args: SimpleNamespace, dcw_enabled: bool) -> None:
+    """Record the Standard mode and each sub-feature this pass leaves off.
+
+    Forge's UI paste leaves a control whose key is missing as it is, so
+    without these a pasted PNG keeps whatever the panel had switched on.
+    Only the switch is written, not the settings of a feature that is off.
+    A hires pass whose sampler drops a feature keeps the first pass's value.
+    """
+
+    if args.guidance_mode == STANDARD_GUIDANCE:
+        _record(p, "guidance_mode", STANDARD_GUIDANCE, unless_recorded=True)
+    if not args.skim_enable:
+        _record(p, "skim_enable", False, unless_recorded=True)
+    if not dcw_enabled:
+        _record(p, "dcw_enable", False, unless_recorded=True)
+    if not args.modulation_enable:
+        _record(p, "modulation_enable", False, unless_recorded=True)
+    if not args.nag_enable:
+        _record(p, "nag_enable", False, unless_recorded=True)
+    if not args.momentum_enable:
+        _record(p, "momentum_enable", False, unless_recorded=True)
+    if not args.guidance_range_enable:
+        _record(p, "guidance_range_enable", False, unless_recorded=True)
 
 
 def _is_anima(p) -> bool:
@@ -172,6 +202,7 @@ def _dcw_before_denoiser(params) -> None:
         params_dict = process.extra_generation_params
         for key in [key for key in params_dict if key.startswith("Anima DCW")]:
             del params_dict[key]
+        _record(process, "dcw_enable", False)
         record_conflict_resolution(process, DCW_INPAINT_MESSAGE)
         logger.warning("Anima DCW was disabled: %s", DCW_INPAINT_MESSAGE)
         return
@@ -242,8 +273,8 @@ def _install_sampler_tuning(p, args: SimpleNamespace, active_sampler: str) -> No
         )
         _record(p, "flow_unipc_solver_type", p.flow_unipc_solver_type)
         _record(p, "flow_unipc_disable_corrector_first", p.flow_unipc_disable_corrector_first)
+        _record(p, "flow_unipc_thresholding", p.flow_unipc_thresholding)
         if p.flow_unipc_thresholding:
-            _record(p, "flow_unipc_thresholding", True)
             _record(p, "flow_unipc_dynamic_thresholding_ratio", p.flow_unipc_dynamic_thresholding_ratio)
             _record(p, "flow_unipc_sample_max_value", p.flow_unipc_sample_max_value)
 
@@ -330,8 +361,8 @@ def _install_modulation(p, args: SimpleNamespace, unet):
         _record(p, "modulation_negative", str(args.modulation_negative))
         _record(p, "adapter_mode", str(args.adapter_mode))
         _record(p, "clip_mode", str(args.clip_mode))
-        if base.strip():
-            _record(p, "modulation_base", base)
+        # Empty too: a pasted PNG must not keep the panel's override.
+        _record(p, "modulation_base", base)
         return patched
     except Exception as error:
         logger.exception("Anima modulation guidance was disabled for this generation: %s", error)
@@ -546,17 +577,14 @@ def _install_dcw(p, args: SimpleNamespace, unet) -> None:
 
 
 def _record_skim(p, args: SimpleNamespace) -> None:
+    # Every setting, defaults too: a pasted PNG must not keep the panel's.
     _record(p, "skim_enable", True)
     _record(p, "skim_scale", float(args.skim_scale))
-    if args.full_negative:
-        _record(p, "full_negative", True)
-    if args.disable_flip_filter:
-        _record(p, "disable_flip_filter", True)
-    if not math.isclose(float(args.start_percent), 0.0) or not math.isclose(float(args.end_percent), 1.0):
-        _record(p, "start_percent", float(args.start_percent))
-        _record(p, "end_percent", float(args.end_percent))
-    if 0.0 < float(args.flip_percent) < 1.0:
-        _record(p, "flip_percent", float(args.flip_percent))
+    _record(p, "full_negative", bool(args.full_negative))
+    _record(p, "disable_flip_filter", bool(args.disable_flip_filter))
+    _record(p, "start_percent", float(args.start_percent))
+    _record(p, "end_percent", float(args.end_percent))
+    _record(p, "flip_percent", float(args.flip_percent))
 
 
 class AnimaGuidanceScript(scripts.Script):
@@ -981,6 +1009,7 @@ class AnimaGuidanceScript(scripts.Script):
             record_conflict_resolution(p, *conflict_state.messages)
             logger.warning("Anima compatibility resolver: %s", resolution)
 
+        _record_switched_off(p, args, dcw_enabled)
         _install_sampler_tuning(p, args, active_sampler)
 
         if not (
