@@ -1,4 +1,3 @@
-import re
 import sys
 import time
 from pathlib import Path
@@ -8,21 +7,23 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from lib_negpip.utils import NEG_PATTERN, has_negative  # noqa: E402
+from backend.text_processing.parsing import parse_prompt_attention  # noqa: E402
+from lib_negpip.utils import has_negative, negative_weights  # noqa: E402
 
 
 @pytest.mark.parametrize(
     ("prompt", "found"),
     [
         ("a cat, (dog:-1)", ["(dog:-1)"]),
-        ("( hat :- 1.5 ), (cap: -.5)", ["( hat :- 1.5 )", "(cap: -.5)"]),
+        ("( hat :- 1.5 ), (cap: -.5)", ["(cap: -.5)"]),
         (r"(a\(b\):-0.5)", [r"(a\(b\):-0.5)"]),
         ("(  :-1)", ["(  :-1)"]),
         ("((x:-1)", ["(x:-1)"]),
-        ("(\tx\n:\t-\n2\n)", ["(\tx\n:\t-\n2\n)"]),
-        ("(:-1), (x:-1.), (x:1), (x:-a), (a(b:-1)", ["(b:-1)"]),
+        ("(\tx\n:\t-2\n)", ["(\tx\n:\t-2\n)"]),
+        ("(\tx\n:\t-\n2\n)", []),
+        ("(:-1), (x:-1.), (x:1), (x:-a), (a(b:-1)", ["(x:-1.)", "(b:-1)"]),
         ("(x:-.), (x:-1..5), (x:-1.5.), (x:- 1 . 5)", []),
-        ("(x:-007), (y:-0.25)", ["(x:-007)", "(y:-0.25)"]),
+        ("(x:-007), (y:-0.25), (z:-0), (w:-0.0)", ["(x:-007)", "(y:-0.25)"]),
         # The attention parser reads \( as a literal bracket, \\( as a real one.
         (r"\(x:-1)", []),
         (r"\\(x:-1)", ["(x:-1)"]),
@@ -30,8 +31,36 @@ from lib_negpip.utils import NEG_PATTERN, has_negative  # noqa: E402
     ],
 )
 def test_negative_weights_are_found(prompt, found):
-    assert re.findall(NEG_PATTERN, prompt) == found
+    assert [match for match, _, _ in negative_weights(prompt)] == found
     assert has_negative(prompt) is bool(found)
+
+
+def _parser_negatives(prompt: str) -> list[tuple[str, float]]:
+    """The (text, weight) pieces Forge's attention parser weights below zero."""
+    try:
+        parsed = parse_prompt_attention(prompt)
+    except ValueError:  # e.g. "(x:-1..5)": float() of the parser's [.\d]+ fails
+        return []
+    return [(text, weight) for text, weight in parsed if weight < 0 and (text, weight) != ("BREAK", -1)]
+
+
+# Each form alone: the parser weights one piece below zero exactly when NegPiP
+# takes it, with the same text and weight.
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "(foo:-1)", "(foo:-0.5)", "(foo:-.5)", "(foo:-1.)", "(foo:-007)", "(foo:-1.50)", "(foo:-\u0661)",
+        "(foo :-1)", "(foo: -1)", "(foo : -1 )", "(foo:\t-2\n)", "(foo  :  -3  )",
+        "(foo:- 1)", "(foo:-\t1)", "(foo:- .5)", "(foo:-0)", "(foo:-0.0)", "(foo:-.0)", "(foo:-0.)",
+        "(foo:+-1)", "(foo:--1)", "(foo:-+1)", "(foo:1)", "(foo:+1)", "(foo:-1e2)", "(foo:-1.5.)",
+        "(foo:-1..5)", "(foo:-.)", "(foo:-)", "(foo:-1", "foo:-1)", r"\(foo:-1)", r"\\(foo:-1)",
+    ],
+)
+def test_negative_weights_agree_with_forges_attention_parser(prompt):
+    expected = _parser_negatives(prompt)
+    assert len(expected) <= 1
+    assert [(text, weight) for _, text, weight in negative_weights(prompt)] == expected
+    assert has_negative(prompt) is bool(expected)
 
 
 @pytest.mark.parametrize(

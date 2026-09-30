@@ -165,6 +165,89 @@ def test_a_hires_checkpoint_that_is_not_anima_turns_negpip_off_visibly(anima):
     assert "NegPiP off in Hires" in str(p.extra_generation_params)
 
 
+# Forge's attention parser reads "(foo:- 1)" as the literal text "foo:- 1" at
+# weight 1.1 (no space may follow the minus); "(foo:-1.)" is weight -1.
+_NOT_NEGATIVE = ["a cat, (foo:- 1)", "a cat, (foo:-0)", "a cat, (foo:- .5)"]
+_NEGATIVE = {"a cat, (foo:-1)": -1.0, "a cat, (foo:-0.5)": -0.5, "a cat, (foo:-.5)": -0.5, "a cat, (foo:-1.)": -1.0, "a cat, (foo : -2 )": -2.0}
+
+
+@pytest.mark.parametrize("prompt", _NOT_NEGATIVE)
+def test_anima_text_the_parser_reads_as_no_negative_weight_installs_nothing(anima, prompt):
+    model, dit, originals = anima
+    script = negpip.NegPiP()
+    p = _process(model, prompt)
+    script.process_batch(p)
+    assert not script.active and p.extra_generation_params == {} and p.prompts == [prompt]
+    assert negpip.NegPiP._patched == [False, False]
+    _assert_restored(model, dit, originals)
+
+
+@pytest.mark.parametrize("prompt", list(_NEGATIVE))
+def test_anima_negative_weights_install_the_hooks(anima, prompt):
+    model, dit, originals = anima
+    script = negpip.NegPiP()
+    p = _process(model, prompt)
+    script.process_batch(p)
+    assert script.active and p.extra_generation_params == {"NegPiP": True}
+    assert p.prompts == [prompt]  # Anima reads the weights from the encoder's multipliers
+
+
+class _SDModel:
+    is_sdxl = False
+
+    def __init__(self, unet):
+        self.forge_objects = SimpleNamespace(unet=SimpleNamespace(model=SimpleNamespace(diffusion_model=unet)))
+        self.text_processing_engine = SimpleNamespace(tokenize_line=lambda line: (None, len(line.split())))
+
+    def is_webui_legacy_model(self):
+        return True
+
+
+@pytest.fixture
+def sd(monkeypatch):
+    model = _SDModel(torch.nn.Module())
+    monkeypatch.setattr(negpip_sd, "shared", SimpleNamespace(sd_model=model))  # the real one loads a checkpoint
+    monkeypatch.setattr(negpip.NegPiP, "_patched", [False, False])
+    monkeypatch.setattr(negpip, "on_cfg_denoiser", lambda callback: None)
+    script = negpip.NegPiP()
+    encoded = []
+
+    def cond_dealer(p, target):  # the text encoder is not loaded
+        encoded.append(target)
+        return torch.zeros(1, 2, 6), 2
+
+    monkeypatch.setattr(script, "_cond_dealer", cond_dealer)
+    yield model, script, encoded
+    negpip_sd.patch_sd_negpip(None, negpip.NegPiP, unpatch=True)
+
+
+def _sd_process(model, prompt):
+    p = _process(model, prompt)
+    p.steps, p.batch_size, p.sampler_name = 20, 1, "Euler"
+    return p
+
+
+@pytest.mark.parametrize("prompt", _NOT_NEGATIVE)
+def test_sd_text_the_parser_reads_as_no_negative_weight_is_left_in_the_prompt(sd, prompt):
+    # It used to be cut from the prompt, then float("- 1") raised
+    model, script, encoded = sd
+    p = _sd_process(model, prompt)
+    script.process_batch(p)
+    assert not script.active and p.extra_generation_params == {} and encoded == []
+    assert p.prompts == [prompt]
+
+
+@pytest.mark.parametrize(("prompt", "weight"), list(_NEGATIVE.items()))
+def test_sd_negative_weights_are_moved_out_of_the_prompt_and_encoded(sd, prompt, weight):
+    model, script, encoded = sd
+    p = _sd_process(model, prompt)
+    script.process_batch(p)
+    assert script.active and p.extra_generation_params == {"NegPiP": True}
+    assert p.prompts == ["a cat, "]
+    text = prompt[prompt.index("(") + 1 : prompt.index(":")]
+    assert encoded == [(text, weight)] and script.conds_all[0][0][2] == 2
+
+
 # Tokens each negative target encodes to (text tokens + end token, as _cond_dealer counts them)
 _TARGET_TOKENS = {"red fur": 2, "blue eyes": 3, "green": 1, "a dark night sky": 4, "ugly": 1, "bad hands": 2}
 

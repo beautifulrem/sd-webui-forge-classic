@@ -1,5 +1,4 @@
 import logging
-import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -10,7 +9,7 @@ from backend.logging import setup_logger
 from lib_negpip import IS_NEO, INCOMPATIBLE_EXTENSIONS
 from lib_negpip.anima import patch_anima_negpip, patched_engine
 from lib_negpip.sd import patch_sd_negpip
-from lib_negpip.utils import NEG_PATTERN, any_negative, hr_dealer, reset_prompt_cache
+from lib_negpip.utils import any_negative, hr_dealer, negative_weights, reset_prompt_cache
 
 from modules import devices, scripts
 from modules.anima_feature_conflicts import record_conflict_resolution
@@ -233,20 +232,11 @@ class NegPiP(scripts.Script):
             stepout = []
 
             for step, prompt in batch_schedule:
-                neg_matches: list[str] = re.findall(NEG_PATTERN, prompt)
-                neg_targets = []
-
-                for minusmatch in neg_matches:
-                    prompts[i] = prompts[i].replace(minusmatch, "")
-                    neg_targets.append(minusmatch.strip("(").strip(")"))
-
-                neg_targets: list[tuple[str, str]] = [x.split(":") for x in neg_targets]
                 text_weights: list[tuple[str, float]] = []
 
-                for text, weight in neg_targets:
-                    if text.strip() in ("BREAK", "AND", "ADDCOL", "ADDROW"):
-                        continue
-                    if (weight := float(weight)) < 0.0:
+                for match, text, weight in negative_weights(prompt):
+                    prompts[i] = prompts[i].replace(match, "")
+                    if text.strip() not in ("BREAK", "AND", "ADDCOL", "ADDROW"):
                         text_weights.append((text, weight))
 
                 stepout.append((step, text_weights))

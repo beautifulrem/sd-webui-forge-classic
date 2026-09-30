@@ -1,5 +1,8 @@
+import functools
+import importlib.util
 import pathlib
 import sys
+import types
 from types import SimpleNamespace
 
 import pytest
@@ -333,6 +336,69 @@ def test_composes_with_regional_in_either_wrapper_order(renorm):
         out = run(wrap)
         torch.testing.assert_close(out, expected, rtol=1e-5, atol=1e-5)
         assert torch.equal(out[1], regional_only[1]) and not torch.allclose(out[0], regional_only[0])
+
+
+@functools.cache
+def _artist_mixer():
+    """The Artist Mixer script, loaded through the shared harness like its own suite does."""
+    mixer_root = ROOT.parent / "anima-artist-scheduled-mixer"
+    if str(mixer_root) not in sys.path:
+        sys.path.insert(0, str(mixer_root))
+    spec = importlib.util.spec_from_file_location("extension_script_harness", ROOT.parents[1] / "tests" / "extension_script_harness.py")
+    harness = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(harness)
+    import modules
+
+    try:
+        from modules import sd_models  # noqa: F401
+    except ImportError:
+        # The model loader needs the full WebUI install; the Mixer's wrapper does not use it
+        modules.sd_models = sys.modules["modules.sd_models"] = types.ModuleType("modules.sd_models")
+    return harness.load_script(mixer_root / "scripts" / "anima_artist_scheduled_mixer.py", "anima_artist_mixer_under_boost_test")
+
+
+@pytest.mark.parametrize("renorm", [0.0, 0.5])
+def test_composes_with_the_artist_mixer_in_either_wrapper_order(renorm):
+    # The Mixer's cross-attention override, installed for each model call like
+    # Regional's, blends an artist's output into the positive row (output
+    # average, strength 0.8). The boost scales the blended output the block
+    # adds, whichever wrapper installs its override first.
+    mixer = _artist_mixer()
+    block = _block()
+    x, emb, context, lora = _inputs()
+    artist_context = torch.randn(1, 5, CTX, generator=torch.Generator().manual_seed(5))
+    states = []
+
+    def artist_mixer(model):
+        artist = mixer.ArtistRuntime("artist", 0.6, {0}, 0.0, 1.0, 0.5, mixer.CURVE_HOLD, artist_context)
+        state = mixer.MixerState("run", True, 0.8, mixer.COMBINE_OUTPUT_AVG, mixer.FUSION_INTERPOLATE, False, [artist])
+        states.append(state)
+        model = model.clone()
+        mixer._install_model_wrapper(model, model.model.diffusion_model, state)
+        return model
+
+    def boost(model):
+        return apply_xattn_boost_patch(model, BoostState(gain=2.0, band=0.85, renorm=renorm))
+
+    def run(wrap, model_function=None):
+        dit = _dit(block)
+        wrapper = wrap(_Patcher(dit)).model_options["model_function_wrapper"]
+        with torch.no_grad():
+            out = wrapper(model_function or _run(dit, x, emb, context, lora), _args(0.9))
+        assert all("forward" not in module.__dict__ for module in (block, block.self_attn, block.cross_attn))
+        return out
+
+    options = {"cond_or_uncond": [0, 1]}
+    expected = run(artist_mixer, lambda *a, **k: _reference(block, x, emb, context, lora, torch.tensor([2.0, 1.0]), renorm, options))
+    mixer_only = run(artist_mixer)
+    with torch.no_grad():
+        plain = _run(_dit(block), x, emb, context, lora)(None, None)
+    assert torch.equal(mixer_only[1], plain[1]) and not torch.allclose(mixer_only[0], plain[0])  # the artist mixed in
+    for wrap in (lambda model: boost(artist_mixer(model)), lambda model: artist_mixer(boost(model))):
+        out = run(wrap)
+        assert states[-1].active_calls == 1 and states[-1].enabled
+        torch.testing.assert_close(out, expected, rtol=1e-5, atol=1e-5)
+        assert torch.equal(out[1], mixer_only[1]) and not torch.allclose(out[0], mixer_only[0])
 
 
 @pytest.mark.parametrize("renorm", [0.0, 0.5])

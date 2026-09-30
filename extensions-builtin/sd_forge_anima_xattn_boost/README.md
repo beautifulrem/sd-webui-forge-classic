@@ -42,11 +42,11 @@ Behavior:
 - The boost installs its cross-attention hook for each block call, on top of
   the hooks other features install per model call, so it scales the
   cross-attention output the block actually adds whatever order the scripts
-  patch in. Composition with Regional Conditioning and FreeFuse is covered by
-  CPU tests in both wrapper orders (Regional regions and FreeFuse's concept
-  bias are boosted on the positive rows); NegPiP and NAG act inside the
-  attention the hook wraps. Artist Mixer hooks the same way as Regional but
-  has no composition test. None of these were tested together on a GPU.
+  patch in. Composition with Regional Conditioning, FreeFuse and the Artist
+  Mixer is covered by CPU tests in both wrapper orders (Regional regions,
+  FreeFuse's concept bias and the Mixer's blended artist output are boosted
+  on the positive rows); NegPiP and NAG act inside the attention the hook
+  wraps. None of these were tested together on a GPU.
 - Norm matching rescales the state after cross-attention exactly as the
   reference does; the following MLP reads it through a LayerNorm that the
   scale does not change, so the correction is applied to the block output.
