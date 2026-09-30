@@ -25,7 +25,6 @@ from modules.anima_lora_support import (
     parse_targets as _parse_targets,
     resolve_network,
     split_weight_sections,
-    fold_weight_text,
     anima_lora_block_count,
     lora_key_factor,
     model_key as _model_key,
@@ -441,6 +440,10 @@ def _parse_preset_sections(text: str) -> PresetWeights:
     )
 
 
+# A preset name ends at its first "=" or ":", ASCII or full-width
+_PRESET_SEPARATORS = frozenset("=:＝：")
+
+
 def _parse_presets(text: str) -> dict[str, PresetWeights]:
     presets: dict[str, PresetWeights] = {}
     for line in str(text or "").replace("\r", "\n").split("\n"):
@@ -448,10 +451,9 @@ def _parse_presets(text: str) -> dict[str, PresetWeights]:
         if not line or line.startswith("#"):
             continue
 
-        # The name ends at its first separator, "=" or ":" as folded ("＝",
-        # "："): the body holds "=" too (name：blocks=...). The name itself
-        # is kept as written
-        separator = next((index for index, mark in enumerate(line) if fold_weight_text(mark) in ("=", ":")), -1)
+        # The name ends at its first separator: the body holds "=" too
+        # (name：blocks=...). The name itself is kept as written
+        separator = next((index for index, mark in enumerate(line) if mark in _PRESET_SEPARATORS), -1)
         if separator < 0:
             logger.warning("Ignored invalid preset line: %s", line)
             continue

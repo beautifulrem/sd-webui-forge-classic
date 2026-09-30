@@ -286,6 +286,28 @@ def test_weight_text_folds_full_width_input_to_ascii():
     assert not is_plain_number("0：5") and not is_plain_number("０．５ｘ")
 
 
+@pytest.mark.parametrize("dash", ["\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015", "\u2212", "\ufe63", "\uff0d"])
+def test_dash_variants_read_as_ascii_hyphens(dash):
+    # Ranges pasted from prose ("0–9=0.7", as the generation guide once wrote them)
+    from modules.anima_lora_support import parse_layer_weights, plain_number
+
+    assert parse_layer_weights(f"0{dash}9=0.7, 10{dash}18=1").values == {**dict.fromkeys(range(10), 0.7), **dict.fromkeys(range(10, 19), 1.0)}
+    assert plain_number(f"{dash}0.5") == -0.5
+
+
+def test_compatibility_digits_are_not_read_as_other_numbers(caplog):
+    # Superscripts, circled digits and ligatures are not decimal digits: they are
+    # rejected with a warning, never silently read as another value
+    from modules.anima_lora_support import parse_layer_weights, plain_number
+
+    for text in ("0.5\u00b2", "\u2460", "\u2474", "1\u2044" "2"):
+        assert plain_number(text) is None, text
+    assert parse_layer_weights("0-9=0.5\u00b2").values == {}
+    assert "0-9=0.5\u00b2" in caplog.text
+    assert plain_number("\u0665") == 5.0  # a decimal digit of another script, as float() reads it
+    assert plain_number("0\u30025") == 0.5  # the ideographic full stop as a decimal point
+
+
 def _seconds(parse, text, repeats=3):
     import time
 
@@ -310,7 +332,7 @@ def _seconds(parse, text, repeats=3):
 )
 def test_weight_text_parses_in_linear_time_on_long_whitespace_runs(parser, shape):
     # <lora:x:0=1      x> reaches the tokenizer from every prompt: time must
-    # grow with the text (x2 per doubling), not with its square (x4)
+    # grow with the text (x4 for four times the text), not with its square (x16)
     import logging
 
     import modules.anima_lora_support as support
@@ -318,10 +340,10 @@ def test_weight_text_parses_in_linear_time_on_long_whitespace_runs(parser, shape
     parse = getattr(support, parser)
     logging.disable(logging.WARNING)
     try:
-        short, long = (_seconds(parse, shape(" " * n)) for n in (20000, 40000))
+        short, long = (_seconds(parse, shape(" " * n)) for n in (10000, 40000))
     finally:
         logging.disable(logging.NOTSET)
-    assert long < 3 * short + 1e-3, (short, long)
+    assert long < 8 * short + 1e-3, (short, long)
 
 
 def test_layer_weights_from_a_prompt_are_bounded_and_finite(caplog):

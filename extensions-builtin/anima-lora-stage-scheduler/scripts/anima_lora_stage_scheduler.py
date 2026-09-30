@@ -35,11 +35,10 @@ from modules.anima_lora_support import (
     parse_targets as _parse_targets,
     resolve_network,
     split_weight_sections,
-    fold_weight_text,
     active_template_parts,
     anima_lora_block_count,
     current_sampling_position,
-    is_plain_number as _is_plain_number,
+    plain_number as _plain_number,
     lora_key_factor,
     model_key as _model_key,
     stage_window_of,
@@ -538,8 +537,8 @@ def _parse_panel_weight(text) -> PanelWeightSpec:
     if not raw:
         return spec
 
-    if _is_plain_number(raw):
-        value = _to_float(fold_weight_text(raw), 0.0)  # "０．５", "－0.5"
+    value = _plain_number(raw)  # also "０．５", "−0.5"
+    if value is not None:
         if abs(value) > 1e-12:
             spec.numeric = value
         return spec

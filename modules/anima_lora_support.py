@@ -11,7 +11,6 @@ import logging
 import math
 import os
 import re
-import unicodedata
 from dataclasses import dataclass, field
 
 from modules.anima_support import parse_block_list, sigma_value
@@ -557,20 +556,43 @@ def compact_text(text) -> str:
     return " ".join(str(text or "").replace("\r", "\n").split())
 
 
+# How every weight-text entry point reads input typed with an IME or copied
+# from prose: full-width ASCII forms (U+FF01-FF5E, "，；＝－＋．", "０-９",
+# letters) by offset, the ideographic space, "：" as "=" (it separates a name
+# from its value, "modules：mlp=0.5"), "。" as ".", and dash variants (hyphen,
+# en/em dash, minus sign) as "-" ("0–9=0.5"). Only these: a superscript or
+# circled digit ("0.5²", "①") stays as written and is rejected, not read as
+# another number.
+_WEIGHT_TEXT_FOLD = str.maketrans(
+    {
+        **{code: code - 0xFEE0 for code in range(0xFF01, 0xFF5F)},
+        0x3000: " ",
+        ord("："): "=",
+        ord("。"): ".",
+        **dict.fromkeys((0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212, 0xFE63), "-"),
+    }
+)
+# Decimal digits of any script, as float() reads them; not superscripts or circled digits
+_PLAIN_NUMBER_RE = re.compile(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)\s*")
+
+
 def fold_weight_text(text) -> str:
-    """A weight text in ASCII, as every weight-text entry point reads it.
+    """A weight text as every weight-text entry point reads it (see
+    ``_WEIGHT_TEXT_FOLD``)."""
 
-    NFKC folds IME full-width input: "，；＝－＋．", digits "０-９", letters
-    and the ideographic space. It would fold "：" to ":", which separates
-    nothing, so "：" is read as "=" first ("modules：mlp=0.5")."""
+    return str(text or "").translate(_WEIGHT_TEXT_FOLD)
 
-    return unicodedata.normalize("NFKC", str(text or "").replace("：", "="))
+
+def plain_number(text) -> float | None:
+    """The value of a lone strength such as "0.6", "-.5", "０．５" or
+    "−0.5" (folded first), else None."""
+
+    folded = fold_weight_text(text)
+    return float(folded) if _PLAIN_NUMBER_RE.fullmatch(folded) else None
 
 
 def is_plain_number(text) -> bool:
-    """A lone strength such as "0.6", "-.5" or "０．５" (folded first)."""
-
-    return re.fullmatch(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)\s*", fold_weight_text(text)) is not None
+    return plain_number(text) is not None
 
 
 def module_key(name: str) -> str:
