@@ -23,7 +23,6 @@ def _load():
     except ImportError:
         # The model loader needs the full WebUI install; the encode cache key reads model_data only
         modules.sd_models = sys.modules["modules.sd_models"] = types.ModuleType("modules.sd_models")
-    # Stubs modules.infotext_utils with Forge's own PasteField, which ui() of later suites needs
     module = harness.load_script(SCRIPT, "anima_regional_under_test")
     module.is_anima_engine = lambda model: True
     return module

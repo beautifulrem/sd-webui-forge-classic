@@ -1,6 +1,5 @@
 import importlib.util
 import sys
-import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,12 +11,7 @@ EXTENSION_PATH = Path(__file__).parents[1]
 
 def _load(monkeypatch):
     monkeypatch.syspath_prepend(str(EXTENSION_PATH))
-    if "modules.infotext_utils" not in sys.modules:
-        # The real module pulls in the sampler stack (k_diffusion); the
-        # script only needs PasteField at import time.
-        stub = types.ModuleType("modules.infotext_utils")
-        stub.PasteField = lambda component, key: (component, key)
-        monkeypatch.setitem(sys.modules, "modules.infotext_utils", stub)
+    # modules.infotext_utils: set up by conftest.py for the whole session
     spec = importlib.util.spec_from_file_location("anima_freefuse_under_test", EXTENSION_PATH / "scripts" / "anima_freefuse.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

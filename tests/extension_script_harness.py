@@ -3,7 +3,8 @@
 Not a test module. The extension suites load it by file path: each runs from
 its own extension folder, where the repo ``tests`` directory is not an
 importable package (and putting it on sys.path would shadow the real
-``backend`` package with ``tests/backend``).
+``backend`` package with ``tests/backend``). Each suite's ``conftest.py``
+calls :func:`prepare_webui_imports` before collection.
 
 Besides building panels and fake passes, it replays a run's infotext the
 three ways Forge does, with Forge's own code read from its source (the
@@ -29,20 +30,33 @@ import torch
 REPO = Path(__file__).resolve().parents[1]
 
 
-def load_script(path, name):
-    """Import one extension script the way Forge does, without the full WebUI."""
+def prepare_webui_imports():
+    """Make the WebUI modules importable outside the WebUI, the same way for
+    every suite, whatever file runs first.
 
-    # The WebUI modules parse sys.argv on first import: keep pytest's away
+    Each extension suite's ``tests/conftest.py`` calls it before collection;
+    it is idempotent. The WebUI modules parse ``sys.argv`` on first import, so
+    pytest's own arguments are dropped. ``modules.infotext_utils`` needs the
+    full WebUI install (its image helpers): where it cannot be imported, a
+    module holding Forge's own ``PasteField`` (read from its source) stands in
+    for it for the whole session, since the scripts import it lazily inside
+    ``ui()``."""
+
     sys.argv = sys.argv[:1]
     import modules
 
     try:
         from modules import infotext_utils  # noqa: F401
     except ImportError:
-        # Its image helpers need the full WebUI install; the script only needs PasteField
         stub = types.ModuleType("modules.infotext_utils")
         stub.PasteField = forge_infotext().PasteField
         modules.infotext_utils = sys.modules["modules.infotext_utils"] = stub
+
+
+def load_script(path, name):
+    """Import one extension script the way Forge does, without the full WebUI."""
+
+    prepare_webui_imports()
     spec = importlib.util.spec_from_file_location(name, Path(path))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

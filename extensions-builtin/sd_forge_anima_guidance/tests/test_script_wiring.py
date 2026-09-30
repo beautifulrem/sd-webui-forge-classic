@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.util
-import sys
 import types
 from pathlib import Path
 
@@ -28,21 +27,10 @@ SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_guidance.py"
 
 
 def _load_script():
-    sys.argv = sys.argv[:1]
-    # The real module pulls in the sampler stack (k_diffusion); the script
-    # only needs PasteField at import time.
-    stubbed = "modules.infotext_utils" not in sys.modules
-    if stubbed:
-        stub = types.ModuleType("modules.infotext_utils")
-        stub.PasteField = lambda component, key: (component, key)
-        sys.modules["modules.infotext_utils"] = stub
-    try:
-        spec = importlib.util.spec_from_file_location("anima_guidance_under_test", SCRIPT)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-    finally:
-        if stubbed:
-            sys.modules.pop("modules.infotext_utils", None)
+    # sys.argv and modules.infotext_utils: set up by conftest.py for the whole session
+    spec = importlib.util.spec_from_file_location("anima_guidance_under_test", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
     return module
 
 

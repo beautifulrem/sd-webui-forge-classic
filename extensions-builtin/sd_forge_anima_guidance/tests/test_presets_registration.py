@@ -2,7 +2,6 @@
 
 import importlib.util
 import sys
-import types
 from pathlib import Path
 
 import pytest
@@ -25,12 +24,8 @@ UNOWNED = (
 
 
 @pytest.fixture
-def guidance(monkeypatch):
-    # The panel builds PasteField(component, key) pairs; the real module needs
-    # the full WebUI install, and no stub is left behind for the other suites
-    stub = types.ModuleType("modules.infotext_utils")
-    stub.PasteField = lambda component, target: (component, target)
-    monkeypatch.setitem(sys.modules, "modules.infotext_utils", stub)
+def guidance():
+    # modules.infotext_utils (the panel's PasteField): set up by conftest.py for the whole session
     return harness.load_script(ROOT / "scripts" / "anima_guidance.py", "anima_guidance_presets_under_test")
 
 

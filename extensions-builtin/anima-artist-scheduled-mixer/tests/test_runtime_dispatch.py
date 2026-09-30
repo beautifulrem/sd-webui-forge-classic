@@ -25,7 +25,6 @@ def _load():
     except ImportError:
         # The model loader needs the full WebUI install; the dispatch does not use it
         modules.sd_models = sys.modules["modules.sd_models"] = types.ModuleType("modules.sd_models")
-    # Forge's real PasteField when modules.infotext_utils cannot be imported
     return harness.load_script(SCRIPT, "anima_artist_mixer_under_test")
 
 

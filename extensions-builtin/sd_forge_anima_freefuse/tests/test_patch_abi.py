@@ -399,13 +399,8 @@ def _scheduled_strength(monkeypatch, base_strength):
     hands it to Forge (loaded by path like its own suites)."""
 
     import importlib.util
-    import types
 
-    monkeypatch.setattr(sys, "argv", sys.argv[:1])
-    # The real module pulls in the image stack; the script only needs PasteField
-    stub = types.ModuleType("modules.infotext_utils")
-    stub.PasteField = lambda component, target: (component, target)
-    monkeypatch.setitem(sys.modules, "modules.infotext_utils", stub)
+    # sys.argv and modules.infotext_utils: set up by conftest.py for the whole session
     path = EXTENSION_PATH.parent / "anima-lora-stage-scheduler" / "scripts" / "anima_lora_stage_scheduler.py"
     spec = importlib.util.spec_from_file_location("anima_lora_stage_scheduler_for_freefuse", path)
     module = importlib.util.module_from_spec(spec)
