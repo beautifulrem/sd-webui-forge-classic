@@ -64,6 +64,24 @@ def test_block_weights_keep_model_indices_without_a_known_lora_layout(module):
     assert spec.strength_for_key(_block(20, "self_attn.q_proj"), 0.7, 52, 52) == 0.5
 
 
+@pytest.mark.parametrize("text, numeric", [("０．５", 0.5), ("－0.5", -0.5), ("＋．５", 0.5)])
+def test_a_full_width_panel_strength_is_a_number(module, text, numeric, caplog):
+    spec = module._parse_panel_weight(text)
+
+    assert (spec.numeric, spec.raw) == (numeric, text)
+    assert "Ignored" not in caplog.text
+
+
+@pytest.mark.parametrize("text", ["ｍｏｄｕｌｅｓ＝ｍｌｐ＝０．５", "modules＝mlp=0.5", "modules：mlp=0.5", "ＢＬＯＣＫＳ＝０－９＝０．２；ｍｏｄｕｌｅｓ＝ｍｌｐ＝０．５"])
+def test_full_width_panel_sections_are_recognised(module, text, caplog):
+    spec = module._parse_panel_weight(text)
+
+    assert spec.has_module and spec.module_weights == {"mlp": 0.5} and spec.raw == text
+    if spec.has_block:
+        assert spec.block_weights.factor(9) == 0.2 and spec.block_weights.factor(10) == 1.0
+    assert "Ignored" not in caplog.text
+
+
 def test_added_patches_get_scheduled_per_key_strengths(module):
     config = _config(module, module.PRESET_CHARACTER_ALLOW, panel=BLOCKS)
     state = module.RuntimeState(SimpleNamespace(), True, config, config, module.DISABLE_NONE, [], False)

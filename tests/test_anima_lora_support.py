@@ -272,6 +272,56 @@ def test_a_section_name_ends_at_its_first_separator():
 
     assert split_weight_sections("modules：mlp=0.5") == {"modules": "mlp=0.5"}
     assert split_weight_sections("blocks：0-9=0.5；qwen：0-3=0") == {"blocks": "0-9=0.5", "qwen": "0-3=0"}
+    assert split_weight_sections("modules＝mlp=0.5") == {"modules": "mlp=0.5"}
+    assert split_weight_sections("ＢＬＯＣＫＳ＝０－９＝０．５；ｍｏｄｕｌｅｓ＝ｍｌｐ＝０．５") == {"blocks": "0-9=0.5", "modules": "mlp=0.5"}
+
+
+def test_weight_text_folds_full_width_input_to_ascii():
+    from modules.anima_lora_support import fold_weight_text, is_plain_number
+
+    assert fold_weight_text("ｍｏｄｕｌｅｓ：ｍｌｐ＝０．５，ｃｒｏｓｓ＝－１；　ａｌｌ＝1") == "modules=mlp=0.5,cross=-1; all=1"
+    assert fold_weight_text("0-9=0.5;modules=mlp=0.8") == "0-9=0.5;modules=mlp=0.8"
+    assert fold_weight_text(None) == ""
+    assert is_plain_number("０．５") and is_plain_number("－0.5") and is_plain_number(" ＋.５ ")
+    assert not is_plain_number("0：5") and not is_plain_number("０．５ｘ")
+
+
+def _seconds(parse, text, repeats=3):
+    import time
+
+    best = float("inf")
+    for _ in range(repeats):
+        start = time.perf_counter()
+        parse(text)
+        best = min(best, time.perf_counter() - start)
+    return best
+
+
+@pytest.mark.parametrize("parser", ["parse_layer_weights", "looks_like_layer_weights", "parse_module_weights", "split_weight_sections"])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        lambda spaces: f"0=1{spaces}x",  # spaces around "=" are dropped
+        lambda spaces: f"0{spaces}-{spaces}9=1",  # and around a range's dash
+        lambda spaces: f"block_lrs{spaces}x",
+        lambda spaces: f"1{spaces}x",
+    ],
+    ids=["spaced-equals", "spaced-range-dash", "block-lrs-prefix", "bare-tokens"],
+)
+def test_weight_text_parses_in_linear_time_on_long_whitespace_runs(parser, shape):
+    # <lora:x:0=1      x> reaches the tokenizer from every prompt: time must
+    # grow with the text (x2 per doubling), not with its square (x4)
+    import logging
+
+    import modules.anima_lora_support as support
+
+    parse = getattr(support, parser)
+    logging.disable(logging.WARNING)
+    try:
+        short, long = (_seconds(parse, shape(" " * n)) for n in (20000, 40000))
+    finally:
+        logging.disable(logging.NOTSET)
+    assert long < 3 * short + 1e-3, (short, long)
 
 
 def test_layer_weights_from_a_prompt_are_bounded_and_finite(caplog):
@@ -348,6 +398,8 @@ def test_layer_weight_forms_parse_as_before_the_shared_tokenizer(text, default, 
         ("０００５-０００７=0.3", 1.0, {5: 0.3, 6: 0.3, 7: 0.3}),
         ("０－９＝０．５，１０＝１；ａｌｌ＝0.8", 0.8, {**_BLOCKS_0_9, 10: 1.0}),
         ("0-9=0.5　10=1", 1.0, {**_BLOCKS_0_9, 10: 1.0}),  # ideographic space
+        ("0-9：0.5", 1.0, _BLOCKS_0_9),
+        ("ｂｌｏｃｋ＿ｌｒｓ＝０－９＝０．５", 1.0, _BLOCKS_0_9),
     ],
 )
 def test_layer_weights_allow_spaces_and_full_width_input(text, default, values, caplog):

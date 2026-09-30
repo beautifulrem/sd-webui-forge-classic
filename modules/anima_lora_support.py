@@ -557,8 +557,20 @@ def compact_text(text) -> str:
     return " ".join(str(text or "").replace("\r", "\n").split())
 
 
+def fold_weight_text(text) -> str:
+    """A weight text in ASCII, as every weight-text entry point reads it.
+
+    NFKC folds IME full-width input: "，；＝－＋．", digits "０-９", letters
+    and the ideographic space. It would fold "：" to ":", which separates
+    nothing, so "：" is read as "=" first ("modules：mlp=0.5")."""
+
+    return unicodedata.normalize("NFKC", str(text or "").replace("：", "="))
+
+
 def is_plain_number(text) -> bool:
-    return re.fullmatch(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)\s*", str(text or "")) is not None
+    """A lone strength such as "0.6", "-.5" or "０．５" (folded first)."""
+
+    return re.fullmatch(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)\s*", fold_weight_text(text)) is not None
 
 
 def module_key(name: str) -> str:
@@ -700,11 +712,7 @@ class LayerWeights:
 
 
 def _normalized_weight_text(text) -> str:
-    # NFKC folds IME full-width input to ASCII: "，；＝－", digits "０-９" and
-    # the ideographic space. It folds "：" to ":", which is not a separator,
-    # so that is mapped to "=" first
-    source = unicodedata.normalize("NFKC", str(text or "").replace("：", "=")).strip()
-    return re.sub(r"\bblock_lrs?\s*=", "", source, flags=re.IGNORECASE)
+    return re.sub(r"\bblock_lrs?\s*=", "", fold_weight_text(text).strip(), flags=re.IGNORECASE)
 
 
 _RANGE_SELECTOR_SPACING = re.compile(r"(?<![\w.])(\d+)\s*-\s*(\d+)(?==)")
@@ -726,7 +734,10 @@ def _weight_entries(text, *, spaced_names: bool = False) -> list[tuple[str | Non
         return [(None, token) for token in re.split(r"[\s,;]+", source) if token]
     entries = []
     for part in re.split(r"[,;\n]+", source):
-        part = _RANGE_SELECTOR_SPACING.sub(r"\1-\2", re.sub(r"\s*=\s*", "=", part.strip()))
+        # A split, not re.sub(r"\s*=\s*"): that retries a whitespace run from
+        # each of its spaces, quadratic in a prompt's "0=1      x"
+        part = "=".join(piece.strip() for piece in part.split("="))
+        part = _RANGE_SELECTOR_SPACING.sub(r"\1-\2", part)
         for token in [part] if spaced_names else part.split():
             if "=" in token:
                 selector, value = token.split("=", 1)
@@ -813,14 +824,16 @@ def parse_layer_weights(text) -> LayerWeights:
 def split_weight_sections(text) -> dict[str, str]:
     """``blocks`` / ``modules`` / ``qwen`` sections of a weight text such as
     "blocks=0-9=0.8,10-27=1;modules=mlp=0.5;qwen=0-3=0". Parts without a
-    section name (and the "block_lrs=" form) are block weights."""
+    section name (and the "block_lrs=" form) are block weights. The text is
+    read, and returned, folded by fold_weight_text."""
 
     sections: dict[str, str] = {}
     bare_parts = []
-    for part in [p.strip() for p in re.split(r"[;；]+", str(text or "")) if p.strip()]:
-        if "=" in part or "：" in part:
-            # The first separator ends the section name: "modules：mlp=0.5"
-            left, right = re.split(r"[=：]", part, maxsplit=1)
+    for part in [p.strip() for p in fold_weight_text(text).split(";") if p.strip()]:
+        if "=" in part:
+            # The first "=" ends the section name: "modules=mlp=0.5",
+            # "modules：mlp=0.5", "ｍｏｄｕｌｅｓ＝ｍｌｐ＝０．５"
+            left, right = part.split("=", 1)
             key = left.strip().lower()
             if key in {"blocks", "block", "layers", "layer"}:
                 sections["blocks"] = right.strip()

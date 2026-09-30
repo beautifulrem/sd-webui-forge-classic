@@ -35,6 +35,7 @@ from modules.anima_lora_support import (
     parse_targets as _parse_targets,
     resolve_network,
     split_weight_sections,
+    fold_weight_text,
     active_template_parts,
     anima_lora_block_count,
     current_sampling_position,
@@ -538,7 +539,7 @@ def _parse_panel_weight(text) -> PanelWeightSpec:
         return spec
 
     if _is_plain_number(raw):
-        value = _to_float(raw, 0.0)
+        value = _to_float(fold_weight_text(raw), 0.0)  # "０．５", "－0.5"
         if abs(value) > 1e-12:
             spec.numeric = value
         return spec

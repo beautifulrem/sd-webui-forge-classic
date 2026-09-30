@@ -74,6 +74,23 @@ def test_inline_prompt_rules(module):
     assert module._parse_inline_prompt_rule("mlp=0.5") is None  # modules need their section name
 
 
+@pytest.mark.parametrize("text", ["modules＝mlp=0.2", "ｍｏｄｕｌｅｓ＝ｍｌｐ＝０．２", "ＢＬＯＣＫＳ＝０－９＝０．５；ｍｏｄｕｌｅｓ：ｍｌｐ＝０．２"])
+def test_inline_prompt_rules_take_full_width_input(module, text):
+    rule = module._parse_inline_prompt_rule(text)
+
+    assert rule is not None and rule.module_weights["mlp"] == 0.2 and rule.module_weights["cross_attn"] == 1.0
+    assert rule.block_weights.factor(9) == (0.5 if "ＢＬＯＣＫＳ" in text else 1.0)
+
+
+def test_a_full_width_prompt_strength_is_a_plain_strength(module, monkeypatch):
+    monkeypatch.setattr(module, "_prompt_lora_is_controlled", lambda name, *args: name == "cat")
+
+    rewritten, rules = module._rewrite_lora_prompts(["<lora:cat:０．５> <lora:cat:－0.5> <lora:dog:０．５>", "<lora:cat:modules＝mlp=0.2>"], "", "lora")
+
+    assert rewritten == ["<lora:cat:1.0> <lora:cat:1.0> <lora:dog:０．５>", "<lora:cat:1.0>"]
+    assert rules["cat"].module_weights["mlp"] == 0.2
+
+
 def _lora_rule(module, lora):
     """The rule of the LoRA tab controls ``lora`` (TAB_ARGS order, without
     the preset slots) with the LoKR tab off."""
@@ -275,6 +292,11 @@ def test_apply_preset_writes_the_presets_inline_weights(module, monkeypatch):
     assert module._select_preset(" BALANCED ", presets) == parsed["balanced"]
     assert module._select_preset("", presets) == parsed["balanced"]  # no name: the first
     assert module._select_preset("missing", presets) is None
+
+    # A full-width "＝" or "：" ends the name too; the name is kept as written
+    full_width = module._parse_presets("平衡＝blocks=0-9=0.6;modules=mlp=0.8\nＳｔｙｌｅ：ｂｌｏｃｋｓ＝１９－２７＝０．９；ｍｏｄｕｌｅｓ＝ｍｌｐ＝１")
+    assert full_width == {"平衡": module.PresetWeights("0-9=0.6", "mlp=0.8"), "ｓｔｙｌｅ": module.PresetWeights("19-27=0.9", "mlp=1")}
+    assert module._select_preset("Ｓｔｙｌｅ", "Ｓｔｙｌｅ＝blocks=0=1") == module.PresetWeights("0=1", None)
 
     kinds = {"cat": "lora", "dog": "lora", "fox": "lokr"}
     _fake_index(module, monkeypatch, kinds)
