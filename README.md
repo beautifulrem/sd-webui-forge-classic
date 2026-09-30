@@ -33,7 +33,7 @@ Forge Neo Remi is a downstream distribution of [Forge Neo](https://github.com/Ha
 
 | Area | Included capabilities |
 | --- | --- |
-| Sampling | Beta57, Flow Euler, UniPC2, PC3, SPEED (experimental half-res early steps), ER SDE, Dynamic Shift |
+| Sampling | Beta57, Flow Euler, UniPC2, PC3, SPEED (experimental half-res early steps; switch sigma adjustable in Settings), ER SDE, Dynamic Shift |
 | Guidance | NAG, Momentum Guidance, Skimmed CFG, SMC, CFG-Zero*, APG, TCFG, FDG, DCW, CNS, CFG active range (CFG only within a model-time window: start/end are fractions of the model's denoising time, converted to sigma with `percent_to_sigma`, not step fractions; outside it the negative pass is skipped unless another hook reads it), CLIP Modulation guidance (on first use by default it downloads a pinned adapter and CLIP-L; local files also work) |
 | Spatial control | Regional Conditioning, FreeFuse multi-LoRA routing, Artist Scheduled Mixer |
 | Diversity | DAVE (early-step DC attenuation for same-prompt layout diversity across seeds) |

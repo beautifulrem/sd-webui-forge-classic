@@ -33,7 +33,7 @@ Forge Neo Remi 是 [Forge Neo](https://github.com/Haoming02/sd-webui-forge-class
 
 | 领域 | 内置能力 |
 | --- | --- |
-| 采样 | Beta57、Flow Euler、UniPC2、PC3、SPEED（实验：前段半分辨率）、ER SDE、Dynamic Shift |
+| 采样 | Beta57、Flow Euler、UniPC2、PC3、SPEED（实验：前段半分辨率；切换 sigma 可在设置中调整）、ER SDE、Dynamic Shift |
 | 引导 | NAG、Momentum Guidance、Skimmed CFG、SMC、CFG-Zero*、APG、TCFG、FDG、DCW、CNS、CFG 生效区间（只在模型时间窗口内执行 CFG：起止值是模型去噪时间的比例，经 `percent_to_sigma` 换算为 sigma，不是步数比例；窗口外若无其他 hook 读取，则跳过负向推理）、CLIP Modulation guidance（默认首次使用时下载固定版本的 adapter 与 CLIP-L，也可使用本地文件） |
 | 空间控制 | Regional Conditioning、FreeFuse 多 LoRA 路由、Artist Scheduled Mixer |
 | 多样性 | DAVE（前段 DC 衰减，提升同一提示词不同 seed 的构图多样性） |

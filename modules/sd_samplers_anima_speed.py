@@ -62,8 +62,15 @@ _COARSE_SCALE = 0.5
 _DELTA = 0.01
 # Power-law fit of the Wan 2.1 VAE latent spectrum (paper Table 4); Anima
 # encodes with the Wan VAE, so this is the measured spectrum closest to it.
+# anima_lora measured beta = 2.26 on Anima latents but published no amplitude
+# or normalization to pair it with (docs/research/anima-generation-optimizations.md).
 _SPECTRUM_A = 219.484718
 _SPECTRUM_BETA = 2.422687
+# User override of the switch sigma (Settings > Sampler Parameters); 0 keeps
+# the delta-optimal value. Bounded to the range anima_lora benched on Anima.
+SWITCH_SIGMA_OPTION = "anima_speed_switch_sigma"
+SWITCH_SIGMA_INFOTEXT = "SPEED switch sigma"
+SWITCH_SIGMA_RANGE = (0.5, 0.9)
 # Anima is trained at 512^2-class resolutions and up; a coarse stage smaller
 # than 512 x 384 px (e.g. from 768 x 768) would leave that distribution.
 _MIN_COARSE_AREA = 64 * 48
@@ -82,6 +89,20 @@ def transition_sigma(height: int, width: int) -> float:
 
     omega = _COARSE_SCALE * min(height, width) / 2.0
     return activation_time(_SPECTRUM_A * omega ** (-_SPECTRUM_BETA))
+
+
+def resolve_switch_sigma(value) -> float | None:
+    """The override clamped to :data:`SWITCH_SIGMA_RANGE`, or ``None`` (use the
+    delta-optimal sigma) for 0, negative or missing values."""
+
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not value > 0.0:
+        return None
+    low, high = SWITCH_SIGMA_RANGE
+    return min(max(value, low), high)
 
 
 def align(sigma: float, ratio: float) -> tuple[float, float]:
@@ -144,15 +165,20 @@ class SpeedPlan:
     kappa: float
 
 
-def plan_speed(sigmas: list[float], height: int, width: int) -> tuple[SpeedPlan | None, str | None]:
+def plan_speed(sigmas: list[float], height: int, width: int, switch_sigma: float | None = None) -> tuple[SpeedPlan | None, str | None]:
     """The two-stage plan for a schedule, or ``(None, reason)`` when SPEED has
-    nothing sound to do and the caller should run plain Flow Euler."""
+    nothing sound to do and the caller should run plain Flow Euler.
+
+    ``switch_sigma`` overrides the delta-optimal switch (see
+    :func:`resolve_switch_sigma`): full resolution starts at the first step
+    whose sigma is at or below it."""
 
     size = _coarse_size(height, width)
     if size[0] * size[1] < _MIN_COARSE_AREA:
         return None, "the half-resolution stage would be smaller than 512x384"
     total = len(sigmas) - 1
-    threshold = transition_sigma(height, width)
+    override = resolve_switch_sigma(switch_sigma)
+    threshold = transition_sigma(height, width) if override is None else override
     step = next((i for i in range(total) if sigmas[i] <= threshold), total)
     if step < 1 or step >= total or sigmas[step] <= 0.0:
         return None, "the schedule has no step to switch resolution at"
@@ -255,6 +281,12 @@ def _publish_full_size_latent(size: tuple[int, int]) -> None:
         shared.state.current_latent = _resize(latent, size)
 
 
+def _switch_sigma_setting() -> float | None:
+    from modules import shared
+
+    return resolve_switch_sigma(getattr(getattr(shared, "opts", None), SWITCH_SIGMA_OPTION, 0.0))
+
+
 @torch.no_grad()
 def sample_anima_speed(model, x, sigmas, extra_args=None, callback=None, disable=None):
     """Anima Flow Euler with SPEED's half-resolution first stage."""
@@ -264,11 +296,15 @@ def sample_anima_speed(model, x, sigmas, extra_args=None, callback=None, disable
     values = sigmas.detach().cpu().tolist()
     full_size = tuple(x.shape[-2:])
     process = getattr(model, "p", None)
+    switch_sigma = _switch_sigma_setting()
+    if switch_sigma is not None and hasattr(process, "extra_generation_params"):
+        # Pasting it back restores the setting as an override (like "Eta")
+        process.extra_generation_params[SWITCH_SIGMA_INFOTEXT] = switch_sigma
 
     reason = fallback_reason(model, values)
     plan = None
     if reason is None:
-        plan, reason = plan_speed(values, *full_size)
+        plan, reason = plan_speed(values, *full_size, switch_sigma)
     if plan is None:
         if hasattr(process, "extra_generation_params"):
             record_conflict_resolution(process, f"{SPEED_SAMPLER} ran as Anima Flow Euler: {reason}")

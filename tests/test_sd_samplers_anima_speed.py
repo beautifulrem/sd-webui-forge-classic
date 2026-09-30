@@ -116,6 +116,96 @@ def test_stage_schedule_is_monotone_and_ends_at_full_resolution():
     assert SPEED_SAMPLER in model.p.extra_generation_params
 
 
+@pytest.mark.parametrize(
+    "size, sigma, step",
+    [
+        ((128, 128), 0.694, 18),  # 1024 x 1024
+        ((152, 104), 0.748, 16),  # 832 x 1216
+    ],
+)
+def test_default_switch_is_the_delta_optimal_sigma_of_the_wan_vae_spectrum(size, sigma, step):
+    # Paper Table 4 Wan 2.1 VAE fit; anima_lora's Anima beta = 2.26 is not
+    # adopted (no amplitude published with it), see the research doc.
+    assert (speed._SPECTRUM_A, speed._SPECTRUM_BETA) == (219.484718, 2.422687)
+    assert speed.transition_sigma(*size) == pytest.approx(sigma, abs=1e-3)
+
+    plan, _ = speed.plan_speed(_anima_sigmas(30).tolist(), *size)
+
+    assert plan.step == step
+
+
+def _first_step_at_or_below(sigmas, threshold):
+    return next(i for i, sigma in enumerate(sigmas) if sigma <= threshold)
+
+
+def test_switch_sigma_override_moves_the_switch_step():
+    sigmas = _anima_sigmas(30).tolist()
+    automatic, _ = speed.plan_speed(sigmas, 128, 128)
+
+    later, _ = speed.plan_speed(sigmas, 128, 128, 0.5)
+    earlier, _ = speed.plan_speed(sigmas, 128, 128, 0.8)
+
+    assert later.step == _first_step_at_or_below(sigmas, 0.5) > automatic.step
+    assert earlier.step == _first_step_at_or_below(sigmas, 0.8) < automatic.step
+    assert later.sigma <= 0.5 < sigmas[later.step - 1]
+    assert later.aligned_sigma == pytest.approx(speed.align(later.sigma, 2.0)[1])
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [(None, None), (0, None), (0.0, None), (-0.3, None), ("", None), ("0.6", 0.6), (0.2, 0.5), (0.5, 0.5), (0.9, 0.9), (0.99, 0.9), (5, 0.9)],
+)
+def test_switch_sigma_override_is_bounded(value, expected):
+    assert speed.resolve_switch_sigma(value) == expected
+
+
+def test_out_of_range_overrides_plan_like_their_bound():
+    sigmas = _anima_sigmas(30).tolist()
+
+    assert speed.plan_speed(sigmas, 128, 128, 0.1) == speed.plan_speed(sigmas, 128, 128, 0.5)
+    assert speed.plan_speed(sigmas, 128, 128, 1.0) == speed.plan_speed(sigmas, 128, 128, 0.9)
+    assert speed.plan_speed(sigmas, 128, 128, 0.0) == speed.plan_speed(sigmas, 128, 128)
+
+
+def _fake_shared(monkeypatch, switch_sigma):
+    fake_shared = SimpleNamespace(state=SimpleNamespace(current_latent=None), opts=SimpleNamespace(**{speed.SWITCH_SIGMA_OPTION: switch_sigma}))
+    monkeypatch.setitem(sys.modules, "modules.shared", fake_shared)
+    monkeypatch.setattr(modules, "shared", fake_shared, raising=False)
+
+
+def test_the_switch_sigma_setting_drives_the_run_and_is_recorded(monkeypatch):
+    _fake_shared(monkeypatch, 0.55)
+    model = _RecordingModel()
+    sigmas = _anima_sigmas(30)
+
+    speed.sample_anima_speed(model, _noise(1, 4, 128, 128), sigmas, disable=True)
+
+    step = _first_step_at_or_below(sigmas.tolist(), 0.55)
+    assert model.shapes.count((64, 64)) == step
+    assert model.p.extra_generation_params[speed.SWITCH_SIGMA_INFOTEXT] == 0.55
+    assert f"until step {step}/30" in model.p.extra_generation_params[SPEED_SAMPLER]
+
+
+def test_the_automatic_switch_sigma_writes_no_infotext(monkeypatch):
+    _fake_shared(monkeypatch, 0.0)
+    model = _RecordingModel()
+
+    speed.sample_anima_speed(model, _noise(1, 4, 128, 128), _anima_sigmas(30), disable=True)
+
+    assert speed.SWITCH_SIGMA_INFOTEXT not in model.p.extra_generation_params
+    assert SPEED_SAMPLER in model.p.extra_generation_params
+
+
+def test_the_switch_sigma_setting_is_pasteable_from_its_infotext_key():
+    from modules.shared_options import options_templates
+
+    option = options_templates[speed.SWITCH_SIGMA_OPTION]
+
+    assert option.infotext == speed.SWITCH_SIGMA_INFOTEXT
+    assert option.default == 0.0
+    assert option.component_args["maximum"] == speed.SWITCH_SIGMA_RANGE[1]
+
+
 def test_odd_latent_sizes_run_on_an_even_coarse_grid_and_return_the_input_shape():
     model = _RecordingModel()
     x = _noise(1, 4, 131, 157)

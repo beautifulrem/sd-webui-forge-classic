@@ -525,6 +525,7 @@ options_templates.update(
         {
             "hide_samplers": OptionInfo([], "Hide Samplers", ui_components.DropdownMulti, lambda: {"choices": [x.name for x in shared_items.list_samplers()]}).needs_reload_ui(),
             "hide_schedulers": OptionInfo([], "Hide Schedulers", ui_components.DropdownMulti, lambda: {"choices": shared_items.list_schedulers()}).needs_restart(),
+            "anima_speed_switch_sigma": OptionInfo(0.0, "[Anima SPEED] Switch sigma", gr.Slider, {"minimum": 0.0, "maximum": 0.9, "step": 0.01}, infotext="SPEED switch sigma").info("sigma at which <b>Anima SPEED</b> switches from the half-resolution stage to full resolution").info("0 = automatic (δ-optimal; ≈0.69 at 1024², ≈0.75 at 832×1216); lower = more half-resolution steps, faster but less faithful; values below 0.5 count as 0.5"),
         },
     )
 )

@@ -119,6 +119,7 @@ Remi 还把 ADetailer-Neo、Detail Daemon、Repeat Generate、Agent Scheduler、
 | 更强的端点修正实验 | `Anima Flow PC3` | 默认 gamma `1.0`、tolerance `0.005`；额外求值更多 |
 | ER-SDE 频谱噪声实验 | `Anima ER SDE CNS` | 在 `Anima Guidance & Corrections` 中控制强度 |
 | 2–3 个主体 LoRA 空间分离 | `Anima FreeFuse Euler` | 开启 FreeFuse 后会自动选择 |
+| txt2img 提速实验 | `Anima SPEED` | 前段在半分辨率 latent 上运行，只在 txt2img 从纯噪声开始时生效（回退条件见下文冲突表）；切换 sigma 默认 `0`（自动，δ-optimal，1024² 约 0.69、832×1216 约 0.75）。设置 → Sampler Parameters 的 `[Anima SPEED] Switch sigma` 可设为 `0.5–0.9`：越低，半分辨率步越多、越快，但与全分辨率结果偏离越大，anima_lora 作者观察到画面会更锐、对比更高；非 0 值写入 infotext `SPEED switch sigma`，粘贴时恢复 |
 
 三个 `Anima Flow *` 采样器会把 scheduler 锁定为 `Anima FlowMatch`。因此：
 
@@ -330,7 +331,7 @@ Remi 会按 checkpoint 实际结构识别 28 层、40 层/2.9B 和 52 层/3.8B A
 
 - blocks `0-27`（2B 布局，在 40/52 层模型上同样是全部层）；
 - progress `0.0–0.65`（模型时间，即经模型 shift 换算的 sigma 比例，不是采样步数比例；只有 Simple 这类等距调度两者才一致）；
-- feather `0.03`；
+- feather `0.03`（只羽化画面内部的边，渐变以边为中心，相邻两个区域在交界处合起来仍是满权重、没有缝；贴着画布边缘的边不羽化）；
 - base preserve `0.15`；
 - region strength `1.0`（区域内的混合不透明度，1 即完全替换，再扣除 base preserve；高于 1 不会更强，只会让羽化边缘更早到满强度，并在重叠处压过较弱的区域）。
 
