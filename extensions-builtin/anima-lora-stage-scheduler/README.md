@@ -55,6 +55,15 @@ LoRAs without a rule use the panel template.
 
 The template manager can save the current base panel as a template, rename custom templates, delete custom templates, and create combination templates from built-in stage presets. Built-in templates cannot be overwritten, renamed, or deleted.
 
+## Saved Settings
+
+A scheduled image's infotext (PNG parameters) records every panel setting the run used, as `Anima LoRA stage ...` keys: target scope and list, panel weight, template, per-LoRA templates, auto timing, the start/end/peak the run used (computed from Shift under auto timing), stage strength and curve; with Hires. fix, whether its panel was independent (and then its settings too) and the Hires. fix LoRA disabling. Pasting the infotext (the paste button next to the prompt, or PNG Info's send buttons) restores the panels, so the same prompt and seed reproduce the image.
+
+- The prompt keeps its LoRA tags as written (`<lora:x:0.6>`); a non-zero panel weight, which replaced that weight in the run, is recorded as its own key and restored with the panel.
+- Choices are recorded as fixed codes (`auto`/`all`/`targets`, `smooth`/`triangle`/..., `none`/`all`/`selected`), so zh and en UIs paste each other's images.
+- Custom templates are recorded by name. A template missing on the pasting install leaves the template dropdown unchanged, with a warning in the console.
+- Images made before this change carry only a one-line `Anima LoRA Stage Scheduler` summary; pasting them leaves the panel unchanged.
+
 ## Language Setting
 
 Open **Settings**, find **Anima LoRA Stage Scheduler**, and set the language to `zh` or `en`. Reload UI after changing the option.

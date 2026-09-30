@@ -2,6 +2,7 @@ import logging
 import weakref
 import uuid
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 import gradio as gr
@@ -324,6 +325,8 @@ CURVE_TRIANGLE = "线性三角"
 CURVE_FRONT = "前强后弱"
 CURVE_BACK = "后强前弱"
 CURVE_CHOICES = [CURVE_SMOOTH, CURVE_HOLD, CURVE_TRIANGLE, CURVE_FRONT, CURVE_BACK]
+# Each curve's window_curve_factor shape, also its value in infotext
+CURVE_CODES = {CURVE_SMOOTH: "smooth", CURVE_HOLD: "hold", CURVE_TRIANGLE: "triangle", CURVE_FRONT: "front", CURVE_BACK: "back"}
 
 DISABLE_NONE = "不禁用"
 DISABLE_ALL = "禁用全部 LoRA"
@@ -335,6 +338,34 @@ DISABLE_EN = {
     DISABLE_SELECTED: "Disable listed full tags",
 }
 DISABLE_ALIASES = {value: key for key, value in DISABLE_EN.items()}
+
+# Infotext values of the choices whose labels follow the UI language, so a
+# zh UI and an en UI paste each other's images
+TARGET_MODE_CODES = {MODE_AUTO_ANIMA: "auto", MODE_PROMPT_ALL: "all", MODE_TARGETS: "targets"}
+DISABLE_CODES = {DISABLE_NONE: "none", DISABLE_ALL: "all", DISABLE_SELECTED: "selected"}
+
+# Infotext keys, one per control that changes the run, in the order of the
+# controls returned by ``ui``; ``infotext_fields`` pastes each back into its
+# control. A panel records these fields (_panel_infotext):
+PANEL_INFOTEXT_FIELDS = ("scope", "targets", "weight", "template", "per-LoRA templates", "auto timing", "start", "end", "peak", "strength", "curve")
+INFOTEXT_ENABLED = "Anima LoRA stage enabled"
+INFOTEXT_HIRES_INDEPENDENT = "Anima LoRA stage hires independent"
+INFOTEXT_HIRES_DISABLE = "Anima LoRA stage hires disable"
+INFOTEXT_HIRES_DISABLE_TAGS = "Anima LoRA stage hires disable tags"
+
+
+def _panel_key(pass_name: str, field_name: str) -> str:
+    return f"Anima LoRA stage {pass_name} {field_name}"
+
+
+INFOTEXT_KEYS = (
+    INFOTEXT_ENABLED,
+    *(_panel_key("base", name) for name in PANEL_INFOTEXT_FIELDS),
+    INFOTEXT_HIRES_INDEPENDENT,
+    *(_panel_key("hires", name) for name in PANEL_INFOTEXT_FIELDS),
+    INFOTEXT_HIRES_DISABLE,
+    INFOTEXT_HIRES_DISABLE_TAGS,
+)
 
 STAGE_DEFAULT_CURVES = {
     STAGE_COMPOSITION: CURVE_FRONT,
@@ -767,6 +798,29 @@ def _auto_timing_ui(template_name, shift_value, auto, start, end, peak, strength
     )
 
 
+def _reapplying_changed_templates(action):
+    """Template management ``action`` (its last two inputs the base and hires
+    panels' selected templates, its first two outputs their dropdowns), then,
+    for a panel whose template it changed (renamed, or deleted and fallen
+    back), what selecting that template does: _apply_template_ui. Takes the
+    two panels' Shifts after ``action``'s inputs; returns the two panels'
+    _apply_template_ui outputs (no-ops for the others) after its outputs.
+
+    The dropdowns re-apply templates on user selection only (.input): a
+    pasted template must keep the timing, strength and curve pasted with it."""
+
+    def run(*args):
+        *inputs, base_shift, hires_shift = args
+        updates = action(*inputs)
+        applied = []
+        for before, update, shift in zip(inputs[-2:], updates[:2], (base_shift, hires_shift)):
+            after = update.get("value", before) if isinstance(update, dict) else before
+            applied.extend(_apply_template_ui(after, shift) if after != before else [gr.update() for _ in range(6)])
+        return (*updates, *applied)
+
+    return run
+
+
 def _save_template_ui(name, auto, template_name, start, end, peak, strength, curve, *panels):
     """``panels``: the base and hires panels' selected templates."""
     name = str(name or "").strip()
@@ -1043,11 +1097,8 @@ def _sampling_progress(params) -> float:
     return _clamp(step / (total_steps - 1), 0.0, 1.0) if total_steps > 1 else 0.0
 
 
-_CURVE_SHAPES = {CURVE_HOLD: "hold", CURVE_TRIANGLE: "triangle", CURVE_FRONT: "front", CURVE_BACK: "back"}
-
-
 def _curve_factor_for_window(progress, start, end, peak, strength, curve) -> float:
-    factor = window_curve_factor(progress, start, end, peak, _CURVE_SHAPES.get(curve, "smooth"))
+    factor = window_curve_factor(progress, start, end, peak, CURVE_CODES.get(curve, "smooth"))
     return _clamp(factor * _clamp(strength, 0.0, 4.0), 0.0, 4.0)
 
 
@@ -1380,6 +1431,90 @@ def _build_pass_config(target_mode, target_loras, panel_weight, template_name, l
     )
     config.finalize_timing()
     return config
+
+
+def _panel_infotext(pass_name: str, config: PassConfig, lora_templates_text) -> dict:
+    """Infotext of one pass's panel, keyed by ``_panel_key``: what the run
+    used (the timing resolved by finalize_timing, the Shift's under auto
+    timing), with choices by code. Text a run ignored or left empty is left
+    out; pasting such a panel empties that field (_translate_pasted_infotext)."""
+
+    values = {
+        "scope": TARGET_MODE_CODES[config.target_mode],
+        "targets": config.target_loras.strip() if config.target_mode == MODE_TARGETS else "",
+        "weight": config.panel_weight.raw,
+        "template": config.template_name,
+        # As typed: its lines are the per-LoRA template map
+        "per-LoRA templates": str(lora_templates_text or "").strip(),
+        "auto timing": config.auto_timing,
+        "start": round(config.start, 4),
+        "end": round(config.end, 4),
+        "peak": round(config.peak, 4),
+        "strength": round(config.stage_strength, 4),
+        "curve": CURVE_CODES[config.curve],
+    }
+    return {_panel_key(pass_name, name): value for name, value in values.items() if value != ""}
+
+
+def _run_infotext(p, state: RuntimeState, hr_independent, base_lora_templates, hr_lora_templates) -> dict:
+    """The infotext of a scheduled run, keyed by INFOTEXT_KEYS. The Hires. fix
+    section only when the run has a Hires. fix pass, its panel only when
+    independent (else the base panel runs it at the Hires Shift)."""
+
+    params = {INFOTEXT_ENABLED: True, **_panel_infotext("base", state.base, base_lora_templates)}
+    if not getattr(p, "enable_hr", False):
+        return params
+    params[INFOTEXT_HIRES_INDEPENDENT] = bool(hr_independent)
+    if hr_independent:
+        params.update(_panel_infotext("hires", state.hires, hr_lora_templates))
+    if state.hr_disable_mode != DISABLE_NONE:
+        params[INFOTEXT_HIRES_DISABLE] = DISABLE_CODES[state.hr_disable_mode]
+        if state.hr_disable_mode == DISABLE_SELECTED and state.hr_disable_tags:
+            params[INFOTEXT_HIRES_DISABLE_TAGS] = "\n".join(state.hr_disable_tags)
+    return params
+
+
+def _translate_pasted_choice(params, key, codes, display, aliases=None, default=None):
+    """Make ``params[key]``, the code of a choice (``codes`` maps choices to
+    codes), ``display`` of that choice. A choice or its label in ``aliases``
+    (label -> choice) is taken as well. An unknown value is dropped, leaving
+    the control alone; a missing one reads as ``default``."""
+
+    value = params.get(key, codes.get(default))
+    by_code = {code: choice for choice, code in codes.items()}
+    choice = by_code.get(value) or (value if value in codes else (aliases or {}).get(value))
+    if choice is None:
+        if value is not None:
+            logger.warning("Ignored unknown pasted %s: %s", key, value)
+        params.pop(key, None)
+    else:
+        params[key] = display(choice)
+
+
+def _translate_pasted_infotext(infotext, params):
+    """Turn the recorded values into control values before Forge pastes them
+    (on_infotext_pasted): codes into the labels of the UI language, the text
+    fields a recorded panel left out into empty ones. A template missing here
+    leaves its dropdown alone. Keys a run did not record (older PNGs carry
+    only one summary line) leave their controls alone."""
+
+    for pass_name in ("base", "hires"):
+        key = partial(_panel_key, pass_name)
+        if key("template") not in params:
+            continue
+        _translate_pasted_choice(params, key("scope"), TARGET_MODE_CODES, _display_target_mode, TARGET_MODE_ALIASES)
+        _translate_pasted_choice(params, key("curve"), CURVE_CODES, str)
+        for name in ("targets", "per-LoRA templates"):
+            params.setdefault(key(name), "")
+        if params[key("template")] not in _template_names():
+            logger.warning("Pasted Anima LoRA stage template is not installed: %s", params[key("template")])
+            del params[key("template")]
+    if INFOTEXT_HIRES_INDEPENDENT in params:
+        _translate_pasted_choice(params, INFOTEXT_HIRES_DISABLE, DISABLE_CODES, _display_disable_mode, DISABLE_ALIASES, DISABLE_NONE)
+        params.setdefault(INFOTEXT_HIRES_DISABLE_TAGS, "")
+
+
+script_callbacks.on_infotext_pasted(_translate_pasted_infotext, name="anima_lora_stage_scheduler")
 
 
 def _remove_hires_lora_tags(p, state: RuntimeState):
@@ -1817,7 +1952,9 @@ class Script(scripts.Script):
             (base_template, base_shift, base_auto, base_start, base_end, base_peak, base_stage_strength, base_curve, base_help_template, base_copy_template),
             (hr_template, hires_shift, hr_auto, hr_start, hr_end, hr_peak, hr_stage_strength, hr_curve, hr_help_template, hr_copy_template),
         ]:
-            template_component.change(
+            # User selections only (.input): a pasted template comes with its
+            # own timing, which .change would overwrite with the template's.
+            template_component.input(
                 fn=_apply_template_ui,
                 inputs=[template_component, shift_component],
                 outputs=[auto_component, start_component, end_component, peak_component, strength_component, curve_component],
@@ -1916,34 +2053,37 @@ class Script(scripts.Script):
                     show_progress=False,
                 )
 
+        # See _reapplying_changed_templates
+        panel_shifts = [base_shift, hires_shift]
+        panel_timings = [base_auto, base_start, base_end, base_peak, base_stage_strength, base_curve, hr_auto, hr_start, hr_end, hr_peak, hr_stage_strength, hr_curve]
         save_current_template.click(
-            fn=_save_template_ui,
-            inputs=[custom_name, custom_auto, base_template, base_start, base_end, base_peak, base_stage_strength, base_curve, base_template, hr_template],
-            outputs=[base_template, hr_template, manage_template, template_status],
+            fn=_reapplying_changed_templates(_save_template_ui),
+            inputs=[custom_name, custom_auto, base_template, base_start, base_end, base_peak, base_stage_strength, base_curve, base_template, hr_template, *panel_shifts],
+            outputs=[base_template, hr_template, manage_template, template_status, *panel_timings],
             show_progress=False,
         )
         save_combo_template.click(
-            fn=_save_preset_combo_template_ui,
-            inputs=[builder_name, builder_presets, builder_shift, base_template, hr_template],
-            outputs=[base_template, hr_template, manage_template, builder_status],
+            fn=_reapplying_changed_templates(_save_preset_combo_template_ui),
+            inputs=[builder_name, builder_presets, builder_shift, base_template, hr_template, *panel_shifts],
+            outputs=[base_template, hr_template, manage_template, builder_status, *panel_timings],
             show_progress=False,
         )
         rename_template.click(
-            fn=_rename_template_ui,
-            inputs=[manage_template, rename_template_name, base_template, hr_template],
-            outputs=[base_template, hr_template, manage_template, template_status],
+            fn=_reapplying_changed_templates(_rename_template_ui),
+            inputs=[manage_template, rename_template_name, base_template, hr_template, *panel_shifts],
+            outputs=[base_template, hr_template, manage_template, template_status, *panel_timings],
             show_progress=False,
         )
         delete_template.click(
-            fn=_delete_template_ui,
-            inputs=[manage_template, base_template, hr_template],
-            outputs=[base_template, hr_template, manage_template, template_status],
+            fn=_reapplying_changed_templates(_delete_template_ui),
+            inputs=[manage_template, base_template, hr_template, *panel_shifts],
+            outputs=[base_template, hr_template, manage_template, template_status, *panel_timings],
             show_progress=False,
         )
 
         register_preset_control(self.tabname, "lora_stage.enabled", enabled)
 
-        return [
+        controls = [
             enabled,
             base_target_mode,
             base_target_loras,
@@ -1971,6 +2111,14 @@ class Script(scripts.Script):
             hr_disable_mode,
             hr_disable_tags,
         ]
+        # Imported here: infotext_utils needs the full WebUI, and CPU tests
+        # (tests/test_anima_lora_patches.py) load this module without it
+        from modules.infotext_utils import PasteField
+
+        # _translate_pasted_infotext turns the recorded codes into these controls' values
+        self.infotext_fields = [PasteField(control, key) for control, key in zip(controls, INFOTEXT_KEYS, strict=True)]
+        self.paste_field_names = list(INFOTEXT_KEYS)
+        return controls
 
     def process(
         self,
@@ -2039,12 +2187,8 @@ class Script(scripts.Script):
 
         _remove_hires_lora_tags(p, state)
 
-        p.extra_generation_params["Anima LoRA Stage Scheduler"] = (
-            f"base={base_config.template_name}:{base_config.start:.2f}-{base_config.end:.2f}, "
-            f"hires={hires_config.template_name}:{hires_config.start:.2f}-{hires_config.end:.2f}"
-        )
-        if state.hr_disable_mode != DISABLE_NONE:
-            p.extra_generation_params["Anima Hires LoRA Disable"] = state.hr_disable_mode
+        # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
+        p.extra_generation_params.update(_run_infotext(p, state, hr_independent, base_lora_templates, hr_lora_templates))
 
     def before_process_batch(self, p, *args, **kwargs):
         state = getattr(p, "_anima_lora_stage_scheduler_state", None)
