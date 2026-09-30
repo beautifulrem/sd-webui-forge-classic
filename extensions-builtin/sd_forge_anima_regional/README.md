@@ -18,7 +18,10 @@ applied in order, so swapping region rows does not change the blend. A region's
 strength is its blend opacity, capped at full replacement (less Base preserve):
 above 1 it does not push harder inside the rectangle, it only brings the
 feathered edge to full opacity sooner and gives the region more weight where it
-overlaps weaker ones. Spectrum
+overlaps weaker ones. Feather only softens edges inside the image: the ramp is
+centred on the edge, so two regions that share an edge (the default left and
+right halves) sum to full weight across the seam, and edges on the canvas
+border are not faded. Spectrum
 is explicitly forced to actual forwards while regional routing is active.
 
 The approach follows the independently encoded regional context and spatial

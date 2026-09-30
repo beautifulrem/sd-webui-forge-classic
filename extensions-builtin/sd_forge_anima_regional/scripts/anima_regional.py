@@ -151,7 +151,15 @@ class AnimaRegionalScript(scripts.Script):
                 )
                 start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="Start progress", info=_PROGRESS_INFO)
                 end = gr.Slider(0.0, 1.0, value=0.65, step=0.01, label="End progress", info=_PROGRESS_INFO)
-                feather = gr.Slider(0.0, 0.25, value=0.03, step=0.005, label="Edge feather")
+                feather = gr.Slider(
+                    0.0,
+                    0.25,
+                    value=0.03,
+                    step=0.005,
+                    label="Edge feather",
+                    info="Fades a region's edges inside the image, centred on the edge, so regions that share an edge "
+                    "meet without a gap; edges on the canvas border are not feathered.",
+                )
                 base_preserve = gr.Slider(0.0, 1.0, value=0.15, step=0.01, label="Base preserve")
             region_controls = {}
             defaults = [

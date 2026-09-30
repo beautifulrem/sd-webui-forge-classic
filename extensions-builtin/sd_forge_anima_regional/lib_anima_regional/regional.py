@@ -17,21 +17,39 @@ from modules.forward_override import cached_overrides
 _PATCH_LOCK = threading.RLock()
 
 
+def _edge_ramp(coord: torch.Tensor, low: float, high: float, feather: float) -> torch.Tensor:
+    """Weight of the span ``[low, high]`` at ``coord`` along one axis.
+
+    An edge inside the image ramps linearly over ``feather`` centred on it
+    (0.5 on the edge itself), so two rectangles sharing an edge sum to 1
+    across it. An edge on the canvas border (``low <= 0`` or ``high >= 1``)
+    has nothing to fade into and stays at full weight. Feather 0 is a hard
+    edge."""
+    if high <= low:
+        return torch.zeros_like(coord)
+    half = float(feather) / 2.0
+    edge = max(float(feather), 1e-6)
+    ramp = torch.ones_like(coord)
+    if low > 0.0:
+        ramp = torch.minimum(ramp, (coord - low + half) / edge)
+    if high < 1.0:
+        ramp = torch.minimum(ramp, (high + half - coord) / edge)
+    return ramp.clamp_min(0.0)
+
+
 def rectangle_token_mask(*, latent_t, latent_h, latent_w, patch_t, patch_h, x, y, width, height, feather, device, dtype):
     token_t = math.ceil(latent_t / patch_t)
     token_h = math.ceil(latent_h / patch_h)
     token_w = math.ceil(latent_w / patch_h)
     yy = (torch.arange(token_h, device=device, dtype=torch.float32) + 0.5) / token_h
     xx = (torch.arange(token_w, device=device, dtype=torch.float32) + 0.5) / token_w
-    grid_y, grid_x = torch.meshgrid(yy, xx, indexing="ij")
     left = min(max(float(x), 0.0), 1.0)
     top = min(max(float(y), 0.0), 1.0)
     right = min(max(left + float(width), 0.0), 1.0)
     bottom = min(max(top + float(height), 0.0), 1.0)
-    edge = max(float(feather), 1e-6)
-    horizontal = torch.minimum((grid_x - left) / edge, (right - grid_x) / edge).clamp(0.0, 1.0)
-    vertical = torch.minimum((grid_y - top) / edge, (bottom - grid_y) / edge).clamp(0.0, 1.0)
-    mask = torch.minimum(horizontal, vertical)
+    horizontal = _edge_ramp(xx, left, right, feather)
+    vertical = _edge_ramp(yy, top, bottom, feather)
+    mask = torch.minimum(vertical.view(-1, 1), horizontal.view(1, -1))
     mask = mask.unsqueeze(0).expand(token_t, -1, -1).reshape(1, -1, 1)
     return mask.to(dtype=dtype)
 

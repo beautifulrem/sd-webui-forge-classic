@@ -166,6 +166,67 @@ class RegionalTests(unittest.TestCase):
         self.assertFalse(torch.allclose(blended(2.0, 0.1), blended(1.0, 0.1)))
         self.assertFalse(torch.allclose(blended(2.0, 0.0, overlap=True), blended(1.0, 0.0, overlap=True)))
 
+    @staticmethod
+    def _blend_map(rectangles, feather, base_preserve=0.15):
+        """The wrapper's regional blend weight at each token of a 1024² image
+        (64x64 tokens): the base context gives 0 and every region prompt 1,
+        so the blended output of a ones input is the blend itself."""
+        from lib_anima_regional.regional import Region, RegionalState, _make_cross_attention_wrapper
+
+        regions = [Region(torch.ones(1, 3, 4), x, y, width, height, 1.0) for x, y, width, height in rectangles]
+        state = RegionalState(regions, {0}, feather, base_preserve, 0.0, 1.0)
+        state.prepare_masks(torch.zeros(1, 4, 1, 128, 128), type("Dit", (), {"patch_temporal": 1, "patch_spatial": 2})())
+
+        def attention(x, context=None, rope_emb=None, transformer_options={}):
+            return x * context.mean(dim=(1, 2)).view(-1, 1, 1)
+
+        out = _make_cross_attention_wrapper(attention, state)(torch.ones(1, 64 * 64, 1), context=torch.zeros(1, 3, 4), transformer_options={})
+        return out.view(64, 64)
+
+    def test_touching_regions_blend_evenly_across_the_seam_and_up_to_the_canvas_border(self):
+        # The default preset: left and right halves. Edges on the canvas border
+        # do not fade, and the two ramps at the shared edge sum to full weight,
+        # so every token gets the interior blend 1 - Base preserve.
+        halves = [(0.0, 0.0, 0.5, 1.0), (0.5, 0.0, 0.5, 1.0)]
+        for feather in (0.03, 4 / 64, 0.25):  # the default, 4 tokens, the slider maximum
+            blend = self._blend_map(halves, feather)
+            self.assertTrue(torch.allclose(blend, torch.full_like(blend, 0.85), atol=1e-5), (feather, blend.min().item()))
+
+    def test_a_free_interior_edge_ramps_into_the_base_prompt_across_the_feather(self):
+        # The left half alone: its right edge (x = 0.5, token 32) is inside the
+        # image, so the region fades out over 4 tokens centred on it, while the
+        # left, top and bottom edges on the canvas border stay at full weight.
+        blend = self._blend_map([(0.0, 0.0, 0.5, 1.0)], 4 / 64)
+        ramp = torch.tensor([1.0] * 30 + [0.875, 0.625, 0.375, 0.125] + [0.0] * 30) * 0.85
+        self.assertTrue(torch.allclose(blend, ramp.expand(64, -1), atol=1e-5))
+        # A rectangle clear of the border fades on all four sides
+        blend = self._blend_map([(0.25, 0.25, 0.5, 0.5)], 4 / 64)
+        self.assertTrue(torch.allclose(blend[14:18, 32], ramp[30:34].flip(0), atol=1e-5))
+        self.assertTrue(torch.allclose(blend[32, 46:50], ramp[30:34], atol=1e-5))
+        self.assertAlmostEqual(blend[32, 32].item(), 0.85, places=5)
+        self.assertEqual(blend[:12].abs().sum().item(), 0.0)
+
+    def test_zero_feather_is_a_hard_rectangle(self):
+        # latent 100x70 -> 50x35 tokens: no token centre lies on these edges
+        rectangles = [(0.0, 0.0, 0.5, 1.0), (0.5, 0.0, 0.5, 1.0), (0.25, 0.25, 0.5, 0.5), (0.3, 0.1, 0.33, 0.47), (-0.2, 0.9, 0.5, 0.4)]
+        yy = ((torch.arange(50) + 0.5) / 50).view(50, 1)
+        xx = ((torch.arange(35) + 0.5) / 35).view(1, 35)
+        for x, y, width, height in rectangles:
+            mask = rectangle_token_mask(
+                latent_t=1, latent_h=100, latent_w=70, patch_t=1, patch_h=2, x=x, y=y, width=width, height=height, feather=0.0, device="cpu", dtype=torch.float32
+            )
+            left, top = max(x, 0.0), max(y, 0.0)
+            right, bottom = min(left + width, 1.0), min(top + height, 1.0)
+            inside = ((xx > left) & (xx < right) & (yy > top) & (yy < bottom)).float()
+            self.assertTrue(torch.equal(mask.view(50, 35), inside), (x, y, width, height))
+        # A zero-size rectangle covers nothing, feathered or not
+        for feather in (0.0, 0.1):
+            for x, width in ((0.0, 0.0), (0.5, 0.0), (1.0, 0.3)):
+                mask = rectangle_token_mask(
+                    latent_t=1, latent_h=64, latent_w=64, patch_t=1, patch_h=2, x=x, y=0.0, width=width, height=1.0, feather=feather, device="cpu", dtype=torch.float32
+                )
+                self.assertEqual(mask.sum().item(), 0.0, (feather, x, width))
+
     def test_rows_outside_the_markers_are_all_blended(self):
         from lib_anima_regional.regional import Region, RegionalState, _make_cross_attention_wrapper
 
