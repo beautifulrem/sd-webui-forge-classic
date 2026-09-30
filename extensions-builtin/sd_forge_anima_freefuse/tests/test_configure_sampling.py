@@ -8,6 +8,10 @@ import pytest
 
 sys.argv = sys.argv[:1]
 EXTENSION_PATH = Path(__file__).parents[1]
+# Shared with the DAVE / Cross-Attention Boost suites, loaded by path (see its docstring)
+_spec = importlib.util.spec_from_file_location("extension_script_harness", EXTENSION_PATH.parents[1] / "tests" / "extension_script_harness.py")
+harness = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(harness)
 
 
 def _load(monkeypatch):
@@ -93,6 +97,39 @@ def test_valid_subjects_build_the_state(script):
     params = p.extra_generation_params
     assert params["Anima FreeFuse subject 3 active"] is False and "Anima FreeFuse subject 3 LoRA" not in params
     assert params["Anima FreeFuse collect block"] == 18 and params["Anima FreeFuse bias blocks"] == "0-51"
+
+
+SUMMARY_KEYS = {"Anima FreeFuse", "Anima FreeFuse collect", "Anima FreeFuse routing", "Anima FreeFuse bias"}
+
+
+@pytest.mark.parametrize(
+    "subjects, background, unwritten",
+    [
+        ((*SUBJECTS[:6], True, "carol_lora", "carol"), "forest", set()),
+        # An inactive subject records only its switch, an empty background nothing
+        (SUBJECTS, "", {"Anima FreeFuse subject 3 LoRA", "Anima FreeFuse subject 3 concept", "Anima FreeFuse background"}),
+    ],
+)
+def test_written_infotext_restores_the_panel_controls(script, subjects, background, unwritten):
+    module, applied = script
+    panel = module.AnimaFreeFuseScript()
+    controls = harness.build_ui(panel)
+    fields = {key: component for component, key in panel.infotext_fields}
+    assert list(fields) == panel.paste_field_names == list(module.INFOTEXT_KEYS)
+    assert len(fields) == len(controls)
+    p = _process(("alice and bob with carol in a forest",))
+    module.set_feature_active(p, module.FREEFUSE)
+    args = (True, *_values(subjects, background=background))
+
+    panel.process_before_every_sampling(p, *args)
+
+    assert len(applied) == 1
+    written = p.extra_generation_params
+    assert set(written) - set(fields) == SUMMARY_KEYS  # diagnostics only
+    assert set(fields) - set(written) == unwritten
+    for key in fields.keys() & written.keys():
+        index = next(number for number, control in enumerate(controls) if control is fields[key])
+        assert written[key] == args[index], key
 
 
 @pytest.mark.parametrize(

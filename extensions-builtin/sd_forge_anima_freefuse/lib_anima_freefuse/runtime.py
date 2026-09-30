@@ -6,7 +6,6 @@ import logging
 import math
 import os
 import threading
-from contextlib import ExitStack
 from dataclasses import dataclass, field
 from types import MethodType
 
@@ -21,7 +20,7 @@ from backend.patcher.lora import merge_lora_to_weight
 from modules_forge.packages.comfy.weight_adapter import LoRAAdapter
 from modules import spectrum_force
 from modules.anima_lora_support import install_add_patches_hook
-from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows, call_model_wrapper, generated_token_frames, negpip_mask_for, pad_to_sequence
+from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows, call_model_wrapper, generated_token_frames, pad_to_sequence
 from modules.forward_override import cached_overrides, forward_overrides
 from .masks import fit_mask_batch, generate_masks
 
@@ -488,16 +487,20 @@ class AnimaFreeFuseState:
             self._fitted[key] = self._build_attention_bias(q, text_length, markers)
         return self._fitted[key]
 
-    def _build_attention_bias(self, q: torch.Tensor, text_length: int, markers) -> torch.Tensor:
+    def _build_attention_bias(self, q: torch.Tensor, text_length: int, markers) -> torch.Tensor | None:
         """The concept bias of the generated frames' queries; the
-        reference-latent queries an edit model appends after them get none."""
+        reference-latent queries an edit model appends after them get none.
+        None for a call without a positive-prompt row (an uncond-only call of
+        split CFG), which would get an all-zero bias forcing masked attention."""
 
+        cond = _conditioning_indices(markers, q.shape[0], q.device)
+        if cond.numel() == 0:
+            return None
         spatial = self.grid_height * self.grid_width
         repeats = self.grid_frames
         bias = torch.zeros(
             (q.shape[0], 1, spatial * repeats, text_length), device=q.device, dtype=q.dtype
         )
-        cond = _conditioning_indices(markers, q.shape[0], q.device)
         row_gate = torch.zeros((q.shape[0], 1, 1, 1), device=q.device, dtype=q.dtype)
         row_gate[cond] = 1.0
         for adapter in self.adapters:
@@ -541,48 +544,32 @@ def _make_cross_attention_forward(
     forward, NegPiP's, or another feature's per-call override such as the
     Cross-Attention Boost), which keeps running.
 
-    For the duration of the call, instance overrides of ``compute_qkv`` and
-    ``compute_attention`` add FreeFuse's part: NegPiP's V-only negation when
-    the forward did not apply it, similarity collection on the collect block
-    and the concept bias on the bias blocks. A swapped-in context (a Regional
-    region or Mixer artist, marked by ``NEGPIP_CONTEXT_MASK_KEY``) holds other
-    tokens than the concept positions and is left alone.
+    For the duration of the call, an instance override of
+    ``compute_attention`` adds FreeFuse's part: similarity collection on the
+    collect block and the concept bias on the bias blocks. A swapped-in
+    context (a Regional region or Mixer artist, marked by
+    ``NEGPIP_CONTEXT_MASK_KEY``) holds other tokens than the concept positions
+    and is left alone.
     """
 
     def wrapped(x, context=None, rope_emb=None, transformer_options={}):
-        if context is None:
-            return original(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
-        overrides = []
-        # K keeps the sign-restored tokens; only V is negated.
-        negpip_mask = negpip_mask_for(context, transformer_options)
-        if negpip_mask is not None:
-            compute_qkv = module.compute_qkv
-
-            def qkv(query_input, key_context=None, rope_emb=None, value_context=None):
-                if value_context is None and key_context is context:
-                    value_context = context * negpip_mask
-                return compute_qkv(query_input, key_context, rope_emb=rope_emb, value_context=value_context)
-
-            overrides.append((module, qkv, "compute_qkv"))
         collect = block_index == state.collect_block
         bias_block = block_index in state.bias_blocks
-        if collect or bias_block:
-            compute_attention = module.compute_attention
+        if context is None or not (collect or bias_block):
+            return original(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
+        compute_attention = module.compute_attention
 
-            def attention(q, k, v, transformer_options=None, mask=None):
-                options = transformer_options or {}
-                if NEGPIP_CONTEXT_MASK_KEY not in options:
-                    if collect:
-                        state.collect_similarity(x, q, k, options)
-                    bias = state.attention_bias(q, k.shape[1], options) if bias_block else None
-                    if bias is not None:
-                        mask = bias if mask is None else mask + bias
-                return compute_attention(q, k, v, transformer_options=transformer_options, mask=mask)
+        def attention(q, k, v, transformer_options=None, mask=None):
+            options = transformer_options or {}
+            if NEGPIP_CONTEXT_MASK_KEY not in options:
+                if collect:
+                    state.collect_similarity(x, q, k, options)
+                bias = state.attention_bias(q, k.shape[1], options) if bias_block else None
+                if bias is not None:
+                    mask = bias if mask is None else mask + bias
+            return compute_attention(q, k, v, transformer_options=transformer_options, mask=mask)
 
-            overrides.append((module, attention, "compute_attention"))
-        with ExitStack() as stack:
-            for target, method, name in overrides:
-                stack.enter_context(forward_overrides([(target, method)], name=name))
+        with forward_overrides([(module, attention)], name="compute_attention"):
             return original(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
 
     return wrapped

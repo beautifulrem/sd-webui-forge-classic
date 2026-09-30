@@ -67,7 +67,6 @@ def sample_anima_freefuse_euler(
     total_steps = len(sigmas) - 1
     runtime.configure_steps(total_steps)
     collect_steps = min(total_steps, runtime.collect_step + 1)
-    original_model_step = int(getattr(model, "step", 0))
 
     # Both passes start from ``x``. The probe gets its own copy: denoiser
     # callbacks (on_cfg_denoiser, DCW) may change the model input in place.
@@ -84,9 +83,9 @@ def sample_anima_freefuse_euler(
         runtime.abort()
         raise
 
-    # CFGDenoiser owns prompt schedule state; the probe pass must be invisible
-    # to the real pass. Stateful guidance receives the same reset treatment.
-    model.step = original_model_step
+    # The probe pass must be invisible to the real pass. CFGDenoiser's prompt
+    # schedule step needs nothing: denoise_step sets it before every call.
+    # Stateful guidance carries state across calls and is reset.
     reset_stateful_guidance(model)
     runtime.begin_generate()
 

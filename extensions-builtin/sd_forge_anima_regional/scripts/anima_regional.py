@@ -19,6 +19,29 @@ from modules.ui_components import InputAccordion
 logger = logging.getLogger("AnimaRegional")
 setup_logger(logger)
 
+# Infotext keys, in the order of the controls returned by ``ui``
+INFOTEXT_KEYS = (
+    "Anima regional enabled",
+    "Anima regional blocks",
+    "Anima regional start",
+    "Anima regional end",
+    "Anima regional feather",
+    "Anima regional base preserve",
+    *(f"Anima region {index} {field}" for index in range(1, 4) for field in ("active", "prompt", "x", "y", "width", "height", "strength")),
+)
+_REGION_TYPES = (str, float, float, float, float, float)  # prompt .. strength
+
+
+def generation_params(blocks, start, end, feather, base_preserve, region_values) -> dict:
+    """Infotext for one regional pass; keys match ``INFOTEXT_KEYS``. An
+    inactive region records only its switch."""
+
+    values = [True, str(blocks), float(start), float(end), float(feather), float(base_preserve)]
+    for active, *settings in _region_rows(region_values):
+        values.append(bool(active))
+        values.extend(kind(value) if active else None for kind, value in zip(_REGION_TYPES, settings))
+    return {key: value for key, value in zip(INFOTEXT_KEYS, values) if value is not None}
+
 
 def _encode_cached(p, text: str):
     """:func:`_encode`, reused across the batches and passes of one generation."""
@@ -132,17 +155,8 @@ class AnimaRegionalScript(scripts.Script):
                 f"regional.region{number}_strength": strength,
             }.items():
                 register_preset_control(self.tabname, name, component)
-        keys = [
-            "Anima regional enabled",
-            "Anima regional blocks",
-            "Anima regional start",
-            "Anima regional end",
-            "Anima regional feather",
-            "Anima regional base preserve",
-            *[f"Anima region {index} {name}" for index in range(1, 4) for name in ("active", "prompt", "x", "y", "width", "height", "strength")],
-        ]
-        self.infotext_fields = [PasteField(control, key) for control, key in zip(controls, keys)]
-        self.paste_field_names = keys
+        self.infotext_fields = [PasteField(control, key) for control, key in zip(controls, INFOTEXT_KEYS)]
+        self.paste_field_names = list(INFOTEXT_KEYS)
         return controls
 
     def process(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
@@ -194,21 +208,4 @@ class AnimaRegionalScript(scripts.Script):
         )
         p.sd_model.forge_objects.unet = apply_regional_patch(unet, state)
         # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
-        params = p.extra_generation_params
-        params["Anima regional enabled"] = True
-        params["Anima regional blocks"] = str(blocks)
-        params["Anima regional start"] = float(start)
-        params["Anima regional end"] = float(end)
-        params["Anima regional feather"] = float(feather)
-        params["Anima regional base preserve"] = float(base_preserve)
-        for index, offset in enumerate(range(0, len(region_values), 7), start=1):
-            active, text, x, y, width, height, strength = region_values[offset : offset + 7]
-            params[f"Anima region {index} active"] = bool(active)
-            if not active:
-                continue
-            params[f"Anima region {index} prompt"] = str(text)
-            params[f"Anima region {index} x"] = float(x)
-            params[f"Anima region {index} y"] = float(y)
-            params[f"Anima region {index} width"] = float(width)
-            params[f"Anima region {index} height"] = float(height)
-            params[f"Anima region {index} strength"] = float(strength)
+        p.extra_generation_params.update(generation_params(blocks, start, end, feather, base_preserve, region_values))

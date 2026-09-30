@@ -158,32 +158,6 @@ def test_model_wrapper_runs_and_restores_every_forward():
     assert all("forward" not in module.__dict__ for module in dit.modules())
 
 
-def test_cross_attention_applies_negpip_to_values_only():
-    runtime, _, _ = _load()
-    from backend.nn.anima import SelfCrossAttention
-
-    torch.manual_seed(0)
-    attention = SelfCrossAttention(8, context_dim=6, n_heads=2, head_dim=4)
-    x = torch.randn(1, 5, 8)
-    context = torch.randn(1, 3, 6)
-    mask = torch.tensor([[[1.0], [-1.0], [1.0]]])
-    captured = {}
-
-    def compute_attention(q, k, v, transformer_options=None, mask=None):
-        captured.update(k=k, v=v)
-        return q
-
-    attention.compute_attention = compute_attention
-    state = SimpleNamespace(collect_block=-1, bias_blocks=set())
-    forward = runtime._make_cross_attention_forward(attention.forward, attention, state, 0)
-    forward(x, context=context, transformer_options={"negpip_mask": mask})
-
-    _, expected_k, _ = attention.compute_qkv(x, context)
-    _, _, expected_v = attention.compute_qkv(x, context * mask)
-    assert torch.allclose(captured["k"], expected_k)
-    assert torch.allclose(captured["v"], expected_v)
-
-
 def test_adapter_lookup_is_cached_per_patch_object():
     runtime, _, _ = _load()
     state = _state(runtime)
@@ -222,6 +196,23 @@ def test_attention_bias_is_reused_until_the_mask_set_changes():
     state.masks = {"A": torch.tensor([[0.0, 0.0, 0.0, 0.0]])}
     state.phase = "generate"
     assert state.attention_bias(q, 3, options) is not first
+
+
+def test_calls_without_a_positive_row_get_no_attention_bias():
+    # Split CFG runs the negative prompt alone: an all-zero bias would only
+    # force the masked attention path.
+    runtime, _, _ = _load()
+    state = _state(runtime)
+    state.token_positions = {"A": [1]}
+    state.bias_scale = 1.0
+    state.grid_height = state.grid_width = 2
+    state.masks = {"A": torch.tensor([[1.0, 0.0, 0.0, 1.0]])}
+    state.phase = "generate"
+    q = torch.zeros(2, 4, 1, 1)
+
+    assert state.attention_bias(q, 3, {"cond_or_uncond": [1]}) is None
+    assert state.attention_bias(q, 3, {"cond_or_uncond": [1, 1]}) is None
+    assert state.attention_bias(q, 3, {"cond_or_uncond": [0]}) is not None
 
 
 def test_update_grid_counts_the_generated_frames():

@@ -39,6 +39,43 @@ setup_logger(logger)
 # Name of FreeFuse's lease on Forge's online-LoRA switch
 ONLINE_LORA_OWNER = "anima_freefuse"
 
+# Infotext keys, in the order of the controls returned by ``ui``
+INFOTEXT_KEYS = (
+    "Anima FreeFuse enabled",
+    *(f"Anima FreeFuse subject {index} {field}" for index in range(1, 4) for field in ("active", "LoRA", "concept")),
+    "Anima FreeFuse collect step",
+    "Anima FreeFuse collect block",
+    "Anima FreeFuse top-k",
+    "Anima FreeFuse temperature",
+    "Anima FreeFuse background",
+    "Anima FreeFuse background scale",
+    "Anima FreeFuse balance iterations",
+    "Anima FreeFuse feather",
+    "Anima FreeFuse routing strength",
+    "Anima FreeFuse routing end",
+    "Anima FreeFuse bias scale",
+    "Anima FreeFuse positive bias",
+    "Anima FreeFuse bias blocks",
+)
+# collect step .. bias blocks
+_SETTING_TYPES = (int, int, float, float, str, float, int, int, float, float, float, float, str)
+
+
+def generation_params(values) -> dict:
+    """Infotext restoring the panel from the script args after ``enable``;
+    keys match ``INFOTEXT_KEYS``. An inactive subject records only its switch,
+    an empty background phrase nothing."""
+
+    written = [True]
+    for offset in range(0, 9, 3):
+        active, selector, concept = values[offset : offset + 3]
+        written += [bool(active), *((str(selector).strip(), str(concept).strip()) if active else (None, None))]
+    settings = [kind(value) for kind, value in zip(_SETTING_TYPES, values[9:])]
+    background = _SETTING_TYPES.index(str)
+    if not settings[background].strip():
+        settings[background] = None
+    return {key: value for key, value in zip(INFOTEXT_KEYS, written + settings) if value is not None}
+
 
 def _loaded_patches_untagged(sd_model) -> bool:
     """Whether the LoRA-patched unet a matching LoRA hash would reuse holds
@@ -270,31 +307,10 @@ class AnimaFreeFuseScript(scripts.Script):
             "freefuse.bias_blocks": bias_blocks,
         }.items():
             register_preset_control(self.tabname, name, component)
-        keys = [
-            "Anima FreeFuse enabled",
-            *[
-                f"Anima FreeFuse subject {index} {field}"
-                for index in range(1, 4)
-                for field in ("active", "LoRA", "concept")
-            ],
-            "Anima FreeFuse collect step",
-            "Anima FreeFuse collect block",
-            "Anima FreeFuse top-k",
-            "Anima FreeFuse temperature",
-            "Anima FreeFuse background",
-            "Anima FreeFuse background scale",
-            "Anima FreeFuse balance iterations",
-            "Anima FreeFuse feather",
-            "Anima FreeFuse routing strength",
-            "Anima FreeFuse routing end",
-            "Anima FreeFuse bias scale",
-            "Anima FreeFuse positive bias",
-            "Anima FreeFuse bias blocks",
-        ]
         self.infotext_fields = [
-            PasteField(control, key) for control, key in zip(controls, keys)
+            PasteField(control, key) for control, key in zip(controls, INFOTEXT_KEYS)
         ]
-        self.paste_field_names = keys
+        self.paste_field_names = list(INFOTEXT_KEYS)
         return controls
 
     def process(self, p, enable, *values, **kwargs):
@@ -468,28 +484,7 @@ class AnimaFreeFuseScript(scripts.Script):
             f"negative {float(bias_scale):.2f}, positive {float(positive_bias):.2f}, blocks {bias_blocks}"
         )
         # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
-        params = p.extra_generation_params
-        params["Anima FreeFuse enabled"] = True
-        for index, offset in enumerate(range(0, 9, 3), start=1):
-            active, selector, concept = adapter_values[offset : offset + 3]
-            params[f"Anima FreeFuse subject {index} active"] = bool(active)
-            if active:
-                params[f"Anima FreeFuse subject {index} LoRA"] = str(selector).strip()
-                params[f"Anima FreeFuse subject {index} concept"] = str(concept).strip()
-        params["Anima FreeFuse collect step"] = int(collect_step)
-        params["Anima FreeFuse collect block"] = int(collect_block)
-        params["Anima FreeFuse top-k"] = float(top_k)
-        params["Anima FreeFuse temperature"] = float(temperature)
-        if str(background).strip():
-            params["Anima FreeFuse background"] = str(background)
-        params["Anima FreeFuse background scale"] = float(bg_scale)
-        params["Anima FreeFuse balance iterations"] = int(balance_iterations)
-        params["Anima FreeFuse feather"] = int(feather)
-        params["Anima FreeFuse routing strength"] = float(routing_strength)
-        params["Anima FreeFuse routing end"] = float(routing_end)
-        params["Anima FreeFuse bias scale"] = float(bias_scale)
-        params["Anima FreeFuse positive bias"] = float(positive_bias)
-        params["Anima FreeFuse bias blocks"] = str(bias_blocks)
+        p.extra_generation_params.update(generation_params(values))
 
     @staticmethod
     def _cleanup_runtime(p):
