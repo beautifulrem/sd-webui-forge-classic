@@ -232,9 +232,10 @@ INFOTEXT_KEYS = tuple(_infotext_key(kind, name) for kind in ADAPTER_KINDS for na
 
 def _arguments(values, kwargs=None) -> dict[str, SimpleNamespace]:
     """The script args ``values`` (a keyword named in SCRIPT_ARG_NAMES
-    overrides its slot), per adapter kind one attribute per TAB_ARGS name.
-    Args past the table are not this script's."""
+    overrides its slot), per adapter kind one attribute per TAB_ARGS name."""
 
+    if len(values) > len(SCRIPT_ARG_NAMES):
+        raise TypeError(f"Anima LoRA layer weight takes {len(SCRIPT_ARG_NAMES)} script arguments, got {len(values)}")
     arguments = dict(zip(SCRIPT_ARG_NAMES, values))
     arguments.update((name, value) for name, value in (kwargs or {}).items() if name in SCRIPT_ARG_NAMES)
     missing = [name for name in SCRIPT_ARG_NAMES if name not in arguments]

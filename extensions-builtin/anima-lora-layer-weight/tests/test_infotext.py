@@ -112,10 +112,12 @@ def test_the_script_args_table_is_the_ui_and_hook_order(module, monkeypatch):
     args = [f"arg {index}" for index in range(len(module.SCRIPT_ARG_NAMES))]
     args[0] = args[12] = False  # both tabs off: no prompt rewrite
     with pytest.raises(Read):
-        module.Script().before_process_batch(SimpleNamespace(prompts=[], extra_generation_params={}), *args, "not a script arg", batch_number=0)
+        module.Script().before_process_batch(SimpleNamespace(prompts=[], extra_generation_params={}), *args, batch_number=0)
     assert read == args
     with pytest.raises(TypeError, match="lokr_preset_text"):
         module.Script().before_process_batch(SimpleNamespace(prompts=[]), *args[:-1])
+    with pytest.raises(TypeError, match="takes 24 script arguments"):
+        module.Script().before_process_batch(SimpleNamespace(prompts=[]), *args, "not a script arg")
 
 
 @pytest.mark.parametrize("run_language, paste_language",[("zh", "zh"), ("en", "zh"), ("zh", "en"), ("en", "en")])

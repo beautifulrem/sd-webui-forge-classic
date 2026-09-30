@@ -405,6 +405,7 @@ def _arguments(values) -> SimpleNamespace:
         raise TypeError(f"Anima LoRA stage scheduler takes {len(SCRIPT_ARG_NAMES)} script arguments, got {len(values)}")
     return SimpleNamespace(**dict(zip(SCRIPT_ARG_NAMES, values, strict=True)))
 
+
 STAGE_DEFAULT_CURVES = {
     STAGE_COMPOSITION: CURVE_FRONT,
     STAGE_CHARACTER: CURVE_SMOOTH,
