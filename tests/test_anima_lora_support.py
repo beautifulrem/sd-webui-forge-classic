@@ -286,6 +286,14 @@ def test_layer_weights_from_a_prompt_are_bounded_and_finite(caplog):
     assert parse_layer_weights("0.5, inf, nan").values == {0: 0.5}
 
 
+def test_layer_indices_may_have_leading_zeros(caplog):
+    from modules.anima_lora_support import parse_layer_weights
+
+    weights = parse_layer_weights(f"05=0.5, 0010-0012=0.3, {'0' * 5000}7=0.2")
+    assert weights.values == {5: 0.5, 7: 0.2, 10: 0.3, 11: 0.3, 12: 0.3}
+    assert "past index" not in caplog.text
+
+
 def test_non_finite_module_weights_are_skipped():
     from modules.anima_lora_support import parse_module_weights
 

@@ -733,8 +733,10 @@ def _finite_weight(text) -> float | None:
 
 
 def _layer_index(text: str) -> int:
-    # Longer digit strings than any index could have are not converted at all
-    return int(text) if len(text) <= 3 else MAX_LAYER_INDEX + 1
+    # Leading zeros are allowed ("05"); longer digit strings than any index
+    # could have are not converted at all
+    digits = text.lstrip("0") or "0"
+    return int(digits) if len(digits) <= 3 else MAX_LAYER_INDEX + 1
 
 
 def parse_layer_weights(text) -> LayerWeights:
@@ -763,8 +765,8 @@ def parse_layer_weights(text) -> LayerWeights:
                 logger.warning("Ignored Anima layer range past index %d: %s", MAX_LAYER_INDEX, left)
                 continue
             values.update(dict.fromkeys(range(start, min(end, MAX_LAYER_INDEX) + 1), value))
-        elif left.isdecimal() and _layer_index(left) <= MAX_LAYER_INDEX:
-            values[int(left)] = value
+        elif left.isdecimal() and (index := _layer_index(left)) <= MAX_LAYER_INDEX:
+            values[index] = value
         else:
             logger.warning("Ignored invalid Anima layer selector: %s", left)
     if bare_values and not values:
