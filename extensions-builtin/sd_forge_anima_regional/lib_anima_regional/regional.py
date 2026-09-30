@@ -9,8 +9,8 @@ from dataclasses import dataclass, field
 import torch
 
 from modules import spectrum_force
-from modules.anima_support import call_model_wrapper, inherit_wrapper_flags, pad_to_sequence, positive_rows, sigma_value
-from modules.forward_override import cached_overrides, forward_overrides
+from modules.anima_support import pad_to_sequence, positive_rows, sigma_value, windowed_override_patch
+from modules.forward_override import cached_overrides
 
 
 _PATCH_LOCK = threading.RLock()
@@ -139,9 +139,9 @@ class RegionalState:
         return [mask.to(device=input_x.device, dtype=input_x.dtype) for mask in masks], nonempty
 
 
-def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_index: int):
+def _make_cross_attention_wrapper(original_forward, state: RegionalState):
     def wrapped(x, context=None, rope_emb=None, transformer_options={}):
-        if context is None or state.current_masks is None or block_index not in state.blocks:
+        if context is None or state.current_masks is None:
             return original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
         base = original_forward(x, context=context, rope_emb=rope_emb, transformer_options=transformer_options)
         batch = base.shape[0]
@@ -179,29 +179,23 @@ def _make_cross_attention_wrapper(original_forward, state: RegionalState, block_
 
 
 def apply_regional_patch(model, state: RegionalState):
-    patched = model.clone()
-    dit = patched.model.diffusion_model
-    previous = patched.model_options.get("model_function_wrapper")
-    override = cached_overrides(lambda index: dit.blocks[index].cross_attn, lambda original, index: _make_cross_attention_wrapper(original, state, index))
+    dit = model.model.diffusion_model  # shared by the clone
+    override = cached_overrides(lambda index: dit.blocks[index].cross_attn, lambda original, _index: _make_cross_attention_wrapper(original, state))
 
-    def wrapper(model_function, args):
-        sigma = sigma_value(args["timestep"])
-        if not state.active(sigma):
-            return call_model_wrapper(previous, model_function, args)
-        with _PATCH_LOCK:
-            state.prepare_masks(args["input"], dit)
-            try:
-                with forward_overrides(override(index) for index in state.blocks):
-                    return call_model_wrapper(previous, model_function, args)
-            finally:
-                state.end_call()
+    def gate(args):
+        return args["input"] if state.active(sigma_value(args["timestep"])) else None
 
-    # Outside its window the wrapper is a pass-through, and the request below
-    # forces actual forwards inside it, so Spectrum may cache the other steps.
-    # Its region masks are tied to the full-resolution grid.
-    inherit_wrapper_flags(wrapper, previous, resolution_independent=False)
-    patched.set_model_unet_function_wrapper(wrapper)
-    # Spectrum wraps this wrapper, so it must see the request on the patcher.
-    # Only steps inside the regional window need actual forwards.
-    spectrum_force.request(patched, state.active)
-    return patched
+    # Only steps inside the regional window need actual forwards. The masks
+    # follow the latent shape (prepare_masks), but Anima SPEED keeps Regional
+    # at full resolution by policy (``fallback_reason`` in
+    # modules/sd_samplers_anima_speed.py), and the wrapper flag says the same.
+    return windowed_override_patch(
+        model,
+        gate=gate,
+        begin=lambda input_x: state.prepare_masks(input_x, dit),
+        overrides=lambda _input_x: (override(index) for index in state.blocks),
+        end=lambda: state.end_call(),
+        lock=_PATCH_LOCK,
+        force_actual=state.active,
+        resolution_independent=False,
+    )

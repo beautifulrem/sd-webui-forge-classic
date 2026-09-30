@@ -60,7 +60,7 @@ class RegionalTests(unittest.TestCase):
         x = torch.randn(2, 16, 4)
         context = torch.randn(2, 3, 4)
         options = {"cond_or_uncond": [0, 1]}
-        wrapped = _make_cross_attention_wrapper(attention, state, 0)
+        wrapped = _make_cross_attention_wrapper(attention, state)
         first = wrapped(x, context=context, transformer_options=options)
         second = wrapped(x, context=context, transformer_options=options)  # served from the call cache
         self.assertTrue(torch.equal(first, second))
@@ -100,7 +100,7 @@ class RegionalTests(unittest.TestCase):
             return x * context.mean(dim=(1, 2)).view(-1, 1, 1)
 
         x, context = torch.randn(1, 32, 4), torch.randn(1, 3, 4)
-        wrapped = _make_cross_attention_wrapper(attention, state, 0)
+        wrapped = _make_cross_attention_wrapper(attention, state)
         out = wrapped(x, context=context, transformer_options={})
         base = attention(x, context=context)
         # The reference frame keeps the base output
@@ -136,7 +136,7 @@ class RegionalTests(unittest.TestCase):
                 regions.append(Region(second, 0.25, 0.0, 0.5, 1.0, 1.0))
             state = RegionalState(regions, {0}, feather, 0.15, 0.0, 1.0)
             state.prepare_masks(torch.zeros(1, 4, 1, 64, 64), dit)
-            return _make_cross_attention_wrapper(attention, state, 0)(x, context=context, transformer_options={})
+            return _make_cross_attention_wrapper(attention, state)(x, context=context, transformer_options={})
 
         # Fully inside a lone rectangle, 1 is already full opacity
         self.assertTrue(torch.equal(blended(2.0, 0.0), blended(1.0, 0.0)))
@@ -156,7 +156,7 @@ class RegionalTests(unittest.TestCase):
             return x * context.mean(dim=(1, 2)).view(-1, 1, 1)
 
         x = torch.randn(3, 16, 4)
-        wrapped = _make_cross_attention_wrapper(attention, state, 0)
+        wrapped = _make_cross_attention_wrapper(attention, state)
         # Markers that do not divide the batch: every row is treated as positive
         out = wrapped(x, context=torch.randn(3, 3, 4), transformer_options={"cond_or_uncond": [0, 1]})
         self.assertTrue(torch.allclose(out, attention(x, context=state.regions[0].conditioning.expand(3, -1, -1))))
@@ -186,7 +186,7 @@ class RegionalTests(unittest.TestCase):
 
         base_mask = -torch.ones(4, 3, 1)
         options = {"cond_or_uncond": [1, 0], NEGPIP_MASK_KEY: base_mask}
-        _make_cross_attention_wrapper(attention, state, 0)(torch.randn(4, 16, 4), context=torch.randn(4, 3, 4), transformer_options=options)
+        _make_cross_attention_wrapper(attention, state)(torch.randn(4, 16, 4), context=torch.randn(4, 3, 4), transformer_options=options)
 
         base, first, second = seen
         self.assertNotIn(NEGPIP_CONTEXT_MASK_KEY, base)

@@ -19,10 +19,9 @@ from dataclasses import dataclass
 
 import torch
 
-from modules import spectrum_force
 from modules.anima_lora_support import REFERENCE_BLOCKS, anima_model_block, sigma_progress
-from modules.anima_support import call_model_wrapper, generated_token_frames, inherit_wrapper_flags, parse_block_list
-from modules.forward_override import cached_overrides, forward_overrides
+from modules.anima_support import generated_token_frames, parse_block_list, windowed_override_patch
+from modules.forward_override import cached_overrides
 
 # The reference band and defaults are written for the REFERENCE_BLOCKS (2B) layout.
 DEFAULT_BLOCKS = "8-18"
@@ -105,36 +104,38 @@ def _make_block_forward(original_forward, state: DaveState):
 
 
 def apply_dave_patch(model, state: DaveState):
-    patched = model.clone()
-    dit = patched.model.diffusion_model
-    previous = patched.model_options.get("model_function_wrapper")
+    dit = model.model.diffusion_model  # shared by the clone
     override = cached_overrides(lambda index: dit.blocks[index], lambda original, _index: _make_block_forward(original, state))
 
-    def wrapper(model_function, args):
+    def gate(args):
         options = args.get("c", {}).get("transformer_options", {})
         state.schedule = options.get("sampling_sigmas", state.schedule)
         # Stateless and gated by its own sigma, so a PC3 endpoint probe sees
         # the same model as the step it predicts: no probe special case.
-        if not state.active(args["timestep"]):
-            return call_model_wrapper(previous, model_function, args)
-        with _PATCH_LOCK:
-            state.frames = generated_token_frames(args["input"], getattr(dit, "patch_temporal", 1))
-            try:
-                with forward_overrides(override(index) for index in state.blocks if index < len(dit.blocks)):
-                    return call_model_wrapper(previous, model_function, args)
-            finally:
-                state.frames = None
+        return args["input"] if state.active(args["timestep"]) else None
 
-    # Outside its window the wrapper is a pass-through, and the request below
-    # forces actual forwards inside it, so Spectrum may cache the other steps.
-    # A token mean works at any latent size (Anima SPEED's half-res stage).
-    inherit_wrapper_flags(wrapper, previous)
-    patched.set_model_unet_function_wrapper(wrapper)
+    def begin(input_x):
+        state.frames = generated_token_frames(input_x, getattr(dit, "patch_temporal", 1))
 
-    # Spectrum wraps this wrapper and may ask before the first call has
-    # published the schedule: force until the window is known.
+    def end():
+        state.frames = None
+
+    # Spectrum may ask before the first call has published the schedule:
+    # force until the window is known.
     def force_actual(sigma):
         return state.schedule is None or state.active(sigma)
 
-    spectrum_force.request(patched, force_actual)
-    return patched
+    # Outermost: DAVE attenuates the whole block output, including what
+    # another block override adds (the cross-attention boost's norm
+    # matching), whichever of the two wrappers runs first. A token mean works
+    # at any latent size (Anima SPEED's half-res stage).
+    return windowed_override_patch(
+        model,
+        gate=gate,
+        begin=begin,
+        overrides=lambda _input_x: (override(index) for index in state.blocks),
+        end=end,
+        lock=_PATCH_LOCK,
+        force_actual=force_actual,
+        outermost=True,
+    )

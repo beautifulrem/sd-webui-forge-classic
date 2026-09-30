@@ -1,8 +1,9 @@
 """Shared helpers for Anima-only integrations: capability checks (engine,
 auxiliary / Flow denoiser), prompt-batch and conditioning / negpip mask
 plumbing, extra-prompt encoding and caching, block-list and branch-row
-parsing, generated-frame (vs edit reference frame) token spans, and
-model-wrapper helpers."""
+parsing, generated-frame (vs edit reference frame) token spans,
+model-wrapper helpers (windowed forward-override patches) and the block-patch
+panels' script mixin."""
 
 from __future__ import annotations
 
@@ -467,3 +468,99 @@ def call_model_wrapper(previous, model_function, args):
     if previous is not None:
         return previous(model_function, args)
     return model_function(args["input"], args["timestep"], **args["c"])
+
+
+def windowed_override_patch(model, *, gate, overrides, lock, force_actual, begin=None, end=None, outermost=False, resolution_independent=True):
+    """A clone of the UNet patcher ``model`` whose ``model_function_wrapper``
+    runs the model calls ``gate`` admits under temporary forward overrides
+    (``modules/forward_override.py``), and passes the others through.
+
+    ``gate(args)`` returns a token for the call, or None to pass it through
+    untouched; it runs outside ``lock``. Under ``lock``, ``begin(token)`` sets
+    up the call, ``overrides(token)`` gives the ``(module, forward)`` pairs
+    (read at install time, so each wraps the forward its module has then) and
+    ``end()`` always runs after the call.
+
+    An override installed later wraps the one installed before it. Overrides
+    go on when this wrapper runs, before the wrappers it delegates to install
+    theirs, so theirs wrap these. ``outermost`` installs them around the model
+    function instead, once every wrapper beneath this one has installed its
+    own: they then wrap every other override of the same modules whatever the
+    wrapper order (an edit of a block's whole output, such as DAVE's).
+
+    Outside the calls it admits the wrapper is a pass-through, and
+    ``force_actual`` (a Spectrum request on the clone, see
+    ``modules/spectrum_force.py``) makes Spectrum run actual forwards for
+    them, so Spectrum may cache the other steps. ``resolution_independent``
+    tells Anima SPEED whether the patch works at any latent size
+    (:func:`inherit_wrapper_flags`)."""
+
+    from modules import spectrum_force
+    from modules.forward_override import forward_overrides
+
+    patched = model.clone()
+    previous = patched.model_options.get("model_function_wrapper")
+
+    def wrapper(model_function, args):
+        token = gate(args)
+        if token is None:
+            return call_model_wrapper(previous, model_function, args)
+        with lock:
+            try:
+                if begin is not None:
+                    begin(token)
+                if not outermost:
+                    with forward_overrides(overrides(token)):
+                        return call_model_wrapper(previous, model_function, args)
+
+                def overridden(*call_args, **call_kwargs):
+                    with forward_overrides(overrides(token)):
+                        return model_function(*call_args, **call_kwargs)
+
+                return call_model_wrapper(previous, overridden, args)
+            finally:
+                if end is not None:
+                    end()
+
+    inherit_wrapper_flags(wrapper, previous, resolution_independent=resolution_independent)
+    patched.set_model_unet_function_wrapper(wrapper)
+    # Spectrum wraps this wrapper, so it must see the request on the patcher.
+    spectrum_force.request(patched, force_actual)
+    return patched
+
+
+class AnimaPatchPanel:
+    """Mixin for an always-visible Anima panel that patches the UNet of each
+    pass (DAVE, cross-attention boost). Its ``ui`` returns the enable switch
+    and then the settings, in the order of ``INFOTEXT_KEYS``."""
+
+    INFOTEXT_KEYS: tuple[str, ...] = ()
+
+    def show(self, is_img2img):
+        from modules import scripts
+
+        return scripts.AlwaysVisible
+
+    def register_paste_fields(self, controls: list) -> list:
+        """Infotext paste fields for ``ui``'s ``controls``; returns them.
+
+        The panel registers its Anima preset fields with
+        ``register_preset_control`` itself: ``tests/test_anima_presets.py``
+        finds the panels that own preset features by that call in their
+        source."""
+
+        from modules.infotext_utils import PasteField
+
+        self.infotext_fields = [PasteField(control, key) for control, key in zip(controls, self.INFOTEXT_KEYS)]
+        self.paste_field_names = list(self.INFOTEXT_KEYS)
+        return controls
+
+    @staticmethod
+    def patch_pass(p, patch, infotext: dict) -> None:
+        """Give this pass ``patch(unet)`` of its own UNet patcher and record
+        ``infotext``. A fresh patch per pass on the pass's own patcher:
+        nothing outlives it."""
+
+        objects = p.sd_model.forge_objects
+        objects.unet = patch(objects.unet)
+        p.extra_generation_params.update(infotext)

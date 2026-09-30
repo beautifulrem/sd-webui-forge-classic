@@ -333,3 +333,37 @@ def test_composes_with_regional_in_either_wrapper_order(renorm):
         out = run(wrap)
         torch.testing.assert_close(out, expected, rtol=1e-5, atol=1e-5)
         assert torch.equal(out[1], regional_only[1]) and not torch.allclose(out[0], regional_only[0])
+
+
+@pytest.mark.parametrize("renorm", [0.0, 0.5])
+def test_composes_with_dave_in_either_wrapper_order(renorm):
+    # Both replace the block forward for the whole model call. DAVE removes
+    # part of the token mean of the boosted, norm-matched block output (the
+    # default hook order, DAVE first, so the boost's wrapper runs first), also
+    # when the boost patches first: its (s - 1) * x_new must not escape it.
+    sys.path.insert(0, str(ROOT.parent / "sd_forge_anima_dave"))
+    from lib_anima_dave.dave import DaveState, apply_dave_patch, attenuate_dc
+
+    block = _block()
+    x, emb, context, lora = _inputs()
+
+    def dave(model):
+        return apply_dave_patch(model, DaveState(blocks=(0,), strength=0.3, tau=0.1))
+
+    def boost(model):
+        return apply_xattn_boost_patch(model, BoostState(gain=2.0, band=0.85, renorm=renorm))
+
+    def run(wrap):
+        dit = _dit(block)
+        wrapper = wrap(_Patcher(dit)).model_options["model_function_wrapper"]
+        args = _args(1.0)
+        args["c"]["transformer_options"]["sampling_sigmas"] = torch.linspace(1.0, 0.0, 11)
+        with torch.no_grad():
+            out = wrapper(_run(dit, x, emb, context, lora), args)
+        assert all("forward" not in module.__dict__ for module in (block, block.self_attn, block.cross_attn))
+        return out
+
+    with torch.no_grad():
+        expected = attenuate_dc(_reference(block, x, emb, context, lora, torch.tensor([2.0, 1.0]), renorm), 0.3)
+    for wrap in (lambda model: boost(dave(model)), lambda model: dave(boost(model))):
+        torch.testing.assert_close(run(wrap), expected, rtol=1e-5, atol=1e-5)

@@ -21,8 +21,7 @@ from dataclasses import dataclass, field
 
 import torch
 
-from modules import spectrum_force
-from modules.anima_support import branch_rows, call_model_wrapper, inherit_wrapper_flags, sigma_value
+from modules.anima_support import branch_rows, sigma_value, windowed_override_patch
 from modules.forward_override import cached_overrides, forward_overrides
 
 # anima_lora 703b34b defaults: --xattn_boost 2.0, band 0.85, renorm img, frac 0.5
@@ -177,9 +176,7 @@ def _make_block_forward(original, block, state: BoostState, attention_overrides)
 
 
 def apply_xattn_boost_patch(model, state: BoostState):
-    patched = model.clone()
-    dit = patched.model.diffusion_model
-    previous = patched.model_options.get("model_function_wrapper")
+    dit = model.model.diffusion_model  # shared by the clone
     cross = cached_overrides(lambda index: dit.blocks[index].cross_attn, lambda original, _index: _make_cross_forward(original, state))
     capture = cached_overrides(lambda index: dit.blocks[index].self_attn, lambda original, _index: _make_self_capture(original, state))
 
@@ -193,32 +190,36 @@ def apply_xattn_boost_patch(model, state: BoostState):
         lambda original, index: _make_block_forward(original, dit.blocks[index], state, lambda: attention_overrides(index)),
     )
 
-    def wrapper(model_function, args):
+    def gate(args):
         # Stateless and gated by its own sigma, so a PC3 endpoint probe sees
         # the same model as the step it predicts: no probe special case.
         if not state.active(args["timestep"]):
-            return call_model_wrapper(previous, model_function, args)
+            return None
         input_x = args["input"]
         markers = args.get("cond_or_uncond")
         if markers is None:
             markers = args.get("c", {}).get("transformer_options", {}).get("cond_or_uncond")
         rows = branch_rows(markers, input_x.shape[0])
-        if not rows:  # no positive rows, or a batch the markers do not describe
-            return call_model_wrapper(previous, model_function, args)
-        with _PATCH_LOCK:
-            state.call = (tuple(rows), input_x.shape[0])
-            try:
-                with forward_overrides(blocks(index) for index in range(len(dit.blocks))):
-                    return call_model_wrapper(previous, model_function, args)
-            finally:
-                state.call = None
-                state.captured = None
+        # None: no positive rows, or a batch the markers do not describe
+        return (tuple(rows), input_x.shape[0]) if rows else None
 
-    # Outside its band the wrapper is a pass-through, and the request below
-    # forces actual forwards inside it, so Spectrum may cache the other steps.
-    # A per-token gain and a per-image mean norm work at any latent size
-    # (Anima SPEED's half-res stage).
-    inherit_wrapper_flags(wrapper, previous)
-    patched.set_model_unet_function_wrapper(wrapper)
-    spectrum_force.request(patched, state.active)
-    return patched
+    def begin(call):
+        state.call = call
+
+    def end():
+        state.call = None
+        state.captured = None
+
+    # The block overrides go on when this wrapper runs; DAVE's go on around
+    # the model function (outermost), so DAVE attenuates the norm-matched
+    # block output in either wrapper order. A per-token gain and a per-image
+    # mean norm work at any latent size (Anima SPEED's half-res stage).
+    return windowed_override_patch(
+        model,
+        gate=gate,
+        begin=begin,
+        overrides=lambda _call: (blocks(index) for index in range(len(dit.blocks))),
+        end=end,
+        lock=_PATCH_LOCK,
+        force_actual=state.active,
+    )

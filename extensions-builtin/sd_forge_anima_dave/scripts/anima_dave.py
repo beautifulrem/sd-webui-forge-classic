@@ -10,8 +10,7 @@ from backend.logging import setup_logger
 from lib_anima_dave.dave import DEFAULT_BLOCKS, DEFAULT_STRENGTH, DEFAULT_TAU, DaveState, apply_dave_patch, model_blocks
 from modules import scripts
 from modules.anima_presets import register_preset_control
-from modules.anima_support import is_anima_engine
-from modules.infotext_utils import PasteField
+from modules.anima_support import AnimaPatchPanel, is_anima_engine
 from modules.ui_components import InputAccordion
 
 logger = logging.getLogger("AnimaDAVE")
@@ -29,14 +28,12 @@ def generation_params(strength, tau, blocks) -> dict:
     return dict(zip(INFOTEXT_KEYS, (True, float(strength), float(tau), str(blocks))))
 
 
-class AnimaDaveScript(scripts.Script):
+class AnimaDaveScript(AnimaPatchPanel, scripts.Script):
+    INFOTEXT_KEYS = INFOTEXT_KEYS
     sorting_priority = 2028
 
     def title(self):
         return "Anima DAVE Diversity"
-
-    def show(self, is_img2img):
-        return scripts.AlwaysVisible
 
     def ui(self, *args, **kwargs):
         with InputAccordion(False, label=self.title()) as enable:
@@ -53,9 +50,7 @@ class AnimaDaveScript(scripts.Script):
                     label="Blocks (2B layout)",
                     info="28-block indices; mapped onto the original blocks of 40/52-block models.",
                 )
-        controls = [enable, strength, tau, blocks]
-        self.infotext_fields = [PasteField(control, key) for control, key in zip(controls, INFOTEXT_KEYS)]
-        self.paste_field_names = list(INFOTEXT_KEYS)
+        controls = self.register_paste_fields([enable, strength, tau, blocks])
         for name, control in zip(PRESET_FIELDS, controls):
             register_preset_control(self.tabname, name, control)
         return controls
@@ -63,12 +58,9 @@ class AnimaDaveScript(scripts.Script):
     def process_before_every_sampling(self, p, enable, strength, tau, blocks, **kwargs):
         if not enable or float(strength) <= 0.0 or not is_anima_engine(getattr(p, "sd_model", None)):
             return
-        unet = p.sd_model.forge_objects.unet
-        total_blocks = len(unet.model.diffusion_model.blocks)
+        total_blocks = len(p.sd_model.forge_objects.unet.model.diffusion_model.blocks)
         selected = model_blocks(str(blocks), total_blocks)
         state = DaveState(blocks=selected, strength=float(strength), tau=float(tau))
-        # A fresh patch per pass on the pass's own patcher: nothing outlives it,
-        # and block forwards are only overridden inside a windowed model call.
-        p.sd_model.forge_objects.unet = apply_dave_patch(unet, state)
-        p.extra_generation_params.update(generation_params(strength, tau, blocks))
+        # Block forwards are only overridden inside a windowed model call.
+        self.patch_pass(p, lambda unet: apply_dave_patch(unet, state), generation_params(strength, tau, blocks))
         logger.debug("Anima DAVE: strength %.3f, tau %.3f, model blocks %s", float(strength), float(tau), selected)

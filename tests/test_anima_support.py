@@ -400,3 +400,95 @@ def test_sigma_value_caches_inference_tensors_by_identity():
     with torch.inference_mode():
         other = torch.tensor([0.25])  # may reuse the freed tensor's id
     assert sigma_value(other) == 0.25
+
+
+class _WindowPatcher:
+    """The slice of a Forge UNet patcher ``windowed_override_patch`` touches."""
+
+    def __init__(self, options=None):
+        self.model = SimpleNamespace(diffusion_model=None)
+        self.model_options = dict(options or {})
+
+    def clone(self):
+        return _WindowPatcher(self.model_options)
+
+    def set_model_unet_function_wrapper(self, wrapper):
+        self.model_options["model_function_wrapper"] = wrapper
+
+
+def _window_patch(model, module, tag, log, *, outermost=False, admit=True):
+    import threading
+
+    from modules.anima_support import windowed_override_patch
+
+    def make(original):
+        return lambda x: [tag, *original(x)]
+
+    return windowed_override_patch(
+        model,
+        gate=lambda args: args["input"] if admit else None,
+        begin=lambda token: log.append(("begin", tag)),
+        overrides=lambda token: [(module, make(module.forward))],
+        end=lambda: log.append(("end", tag)),
+        lock=threading.RLock(),
+        force_actual=lambda sigma: sigma > 0.5,
+        outermost=outermost,
+    )
+
+
+def _window_args():
+    return {"input": torch.zeros(1), "timestep": torch.ones(1), "c": {}}
+
+
+class _Leaf(torch.nn.Module):
+    def forward(self, x):
+        return ["leaf"]
+
+
+def test_windowed_override_patch_installs_for_admitted_calls_only():
+    from modules import spectrum_force
+
+    module, log = _Leaf(), []
+    base = _WindowPatcher()
+    patched = _window_patch(base, module, "a", log)
+    wrapper = patched.model_options["model_function_wrapper"]
+    assert patched is not base and "model_function_wrapper" not in base.model_options
+    assert wrapper(lambda x, t, **c: module(x), _window_args()) == ["a", "leaf"]
+    assert log == [("begin", "a"), ("end", "a")] and "forward" not in module.__dict__
+    assert wrapper.__spectrum_cache_safe__ and wrapper.__resolution_independent__
+    force = patched.model_options["transformer_options"][spectrum_force.KEY]
+    assert spectrum_force.is_forced(force, 1.0) and not spectrum_force.is_forced(force, 0.25)
+
+    log.clear()
+    passing = _window_patch(base, module, "a", log, admit=False).model_options["model_function_wrapper"]
+    assert passing(lambda x, t, **c: module(x), _window_args()) == ["leaf"] and log == []
+
+
+@pytest.mark.parametrize("outermost", [False, True])
+def test_windowed_override_patch_restores_and_ends_when_the_call_raises(outermost):
+    module, log = _Leaf(), []
+    wrapper = _window_patch(_WindowPatcher(), module, "a", log, outermost=outermost).model_options["model_function_wrapper"]
+
+    def model_function(x, t, **c):
+        assert "forward" in module.__dict__
+        raise RuntimeError("model call failed")
+
+    with pytest.raises(RuntimeError, match="model call failed"):
+        wrapper(model_function, _window_args())
+    assert "forward" not in module.__dict__ and log == [("begin", "a"), ("end", "a")]
+
+
+def test_windowed_override_patch_outermost_wraps_the_others_in_either_order():
+    module = _Leaf()
+
+    def run(*patches):
+        model = _WindowPatcher()
+        for tag, outermost in patches:
+            model = _window_patch(model, module, tag, [], outermost=outermost)
+        out = model.model_options["model_function_wrapper"](lambda x, t, **c: module(x), _window_args())
+        assert "forward" not in module.__dict__
+        return out
+
+    # Without it the wrapper that runs first (applied last) installs first: innermost.
+    assert run(("a", False), ("b", False)) == ["a", "b", "leaf"]
+    assert run(("a", True), ("b", False)) == run(("b", False), ("a", True)) == ["a", "b", "leaf"]
