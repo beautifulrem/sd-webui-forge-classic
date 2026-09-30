@@ -19,6 +19,7 @@ import ast
 import functools
 import importlib.util
 import json
+import os
 import re
 import sys
 import types
@@ -40,8 +41,10 @@ def prepare_webui_imports():
     full WebUI install (its image helpers): where it cannot be imported, a
     module holding Forge's own ``PasteField`` (read from its source) stands in
     for it for the whole session, since the scripts import it lazily inside
-    ``ui()``."""
+    ``ui()``. Gradio's analytics / online version check is switched off, as
+    the WebUI does at startup (modules/launch_utils.py)."""
 
+    os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
     sys.argv = sys.argv[:1]
     import modules
 

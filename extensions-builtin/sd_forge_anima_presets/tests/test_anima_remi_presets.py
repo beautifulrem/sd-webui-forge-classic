@@ -4,13 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import logging
-import os
 import re
 import sys
 from pathlib import Path
-
-# Building gr.Blocks otherwise waits on Gradio's online version check
-os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_remi_presets.py"
 BUILTIN = Path(__file__).parents[2]
