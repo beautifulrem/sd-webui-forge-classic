@@ -7,6 +7,7 @@ import logging
 import re
 
 from modules.anima_lora_support import fold_weight_text, plain_number, window_curve_factor
+from modules.anima_support import block_index_token
 
 logger = logging.getLogger("anima_artist_scheduled_mixer")
 
@@ -17,24 +18,16 @@ CURVE_FRONT = "Front loaded"
 CURVE_BACK = "Back loaded"
 
 
-def _block_index(text):
-    """A block index: an optional sign ("-" counts from the end) and decimal
-    digits. int() alone would also read "0_5" as 5."""
-    digits = text[1:] if text[:1] in ("+", "-") else text
-    if not digits.isdecimal():
-        raise ValueError(text)
-    return int(text)
-
-
 def parse_inline_weight(text):
     """``(artist:1.2)``, ``[artist:0.8]`` or ``artist:1.2``: the artist and its
-    weight. The last colon ("：" too) separates them, and the weight reads as
-    in the weight fields (plain_number: "１．５", "−0.5"); anything else is the
+    weight. The last colon ("：" too) separates them, the brackets may be
+    IME ones ("（artist：1.2）", "［…］", "【…】"), and the weight reads as in
+    the weight fields (plain_number: "１．５", "−0.5"); anything else is the
     artist at weight 1."""
     value = str(text or "").strip()
     if not value:
         return "", 1.0
-    wrapped = re.fullmatch(r"[\(\[](.+)[：:]([^：:]+)[\)\]]", value)
+    wrapped = re.fullmatch(r"[(\[（［【](.+)[：:]([^：:]+)[)\]）］】]", value)
     if wrapped and (weight := plain_number(wrapped.group(2))) is not None:
         return wrapped.group(1).strip(), weight
     if not (value.startswith("<") and value.endswith(">")):
@@ -44,26 +37,32 @@ def parse_inline_weight(text):
     return value, 1.0
 
 
+_DASH_SPACING = re.compile(r"\s*-\s*")
+
+
 def parse_blocks(text, num_blocks):
     """Per-artist block field: empty means every block, negative indices count
     from the end, IME input is read as in the weight fields (full-width forms,
     "，", dash variants: modules.anima_lora_support.fold_weight_text) and bad
-    parts are skipped.
+    parts are skipped. Spaces around a range's dash are dropped ("0 - 5");
+    any other whitespace inside a part makes it bad ("1 0" is not block 10;
+    parse_block_list refuses it too).
     A field that selects nothing (only bad or out-of-range parts) is the empty
     set, with a warning: that artist mixes into no block.
     (anima_support.parse_block_list is the strict panel-level variant.)"""
-    source = fold_weight_text(text).replace(" ", "")
-    if not source.strip(","):
+    parts = [part.strip() for part in fold_weight_text(text).split(",")]
+    if not any(parts):
         return set(range(num_blocks))
     result = set()
-    for token in source.split(","):
-        if not token:
+    for part in parts:
+        if not part:
             continue
+        token = _DASH_SPACING.sub("-", part)
         if "-" in token[1:]:
             dash = token.index("-", 1)
             try:
-                start = _block_index(token[:dash])
-                end = _block_index(token[dash + 1 :])
+                start = block_index_token(token[:dash], signed=True)
+                end = block_index_token(token[dash + 1 :], signed=True)
             except ValueError:
                 continue
             if start < 0:
@@ -76,7 +75,7 @@ def parse_blocks(text, num_blocks):
                 result.add(idx)
         else:
             try:
-                idx = _block_index(token)
+                idx = block_index_token(token, signed=True)
             except ValueError:
                 continue
             if idx < 0:

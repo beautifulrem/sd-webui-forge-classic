@@ -39,6 +39,29 @@ def test_block_field_syntax():
     assert parse_blocks("0_5, 7", 28) == {7} and parse_blocks("1_0-3, 9", 28) == {9}
 
 
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("0 - 5", set(range(6))),
+        ("0　－　5", set(range(6))),
+        ("- 1, 0 - -27", {0, 1, 27}),
+        ("1 0, 5", {5}),  # "1 0" is not block 10: skipped, the rest counts
+        ("１　０, 5", {5}),
+        ("1\t0, 5", {5}),
+        ("1 0-3, 9", {9}),
+    ],
+)
+def test_block_field_whitespace(text, expected):
+    assert parse_blocks(text, 28) == expected
+
+
+@pytest.mark.parametrize("text", ["1 0", "１　０", "1\t0"])
+def test_a_block_field_with_a_spaced_number_selects_nothing(text, caplog):
+    with caplog.at_level("WARNING"):
+        assert parse_blocks(text, 28) == set()
+    assert "selects none" in caplog.text
+
+
 def test_a_block_field_selecting_nothing_is_no_block(caplog):
     assert parse_blocks(" ，", 4) == {0, 1, 2, 3}  # only separators: an empty field
     with caplog.at_level("WARNING"):
@@ -56,6 +79,10 @@ def test_inline_weight_syntax():
     assert parse_inline_weight("(artist:１．５)") == ("artist", 1.5)
     assert parse_inline_weight("[artist：−0.5]") == ("artist", -0.5)
     assert parse_inline_weight("(a:b:1.2)") == ("a:b", 1.2)
+    # IME brackets, with either colon
+    assert parse_inline_weight("（wlop：1.5）") == ("wlop", 1.5)
+    assert parse_inline_weight("【wlop：1.5】") == ("wlop", 1.5)
+    assert parse_inline_weight("［wlop:0.5］") == ("wlop", 0.5)
     # Not a number: the whole text is the artist, at weight 1
     assert parse_inline_weight("(artist:foo)") == ("(artist:foo)", 1.0)
     assert parse_inline_weight("artist:0_5") == ("artist:0_5", 1.0)

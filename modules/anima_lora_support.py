@@ -13,7 +13,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
-from modules.anima_support import fold_weight_text, parse_block_list, sigma_value  # fold_weight_text: re-exported
+from modules.anima_support import block_index_token, fold_weight_text, parse_block_list, sigma_value  # fold_weight_text: re-exported
 
 logger = logging.getLogger(__name__)
 
@@ -764,7 +764,7 @@ def looks_like_layer_weights(text) -> bool:
     for selector, token in _weight_entries(text):
         if selector is not None:
             selector = selector.lower()
-            if selector in _DEFAULT_SELECTORS or selector.isdecimal() or _RANGE_SELECTOR.fullmatch(selector):
+            if selector in _DEFAULT_SELECTORS or _layer_index(selector) is not None or _RANGE_SELECTOR.fullmatch(selector):
                 return True
             continue
         if is_plain_number(token):
@@ -782,24 +782,33 @@ def _finite_weight(text) -> float | None:
     return plain_number(text)
 
 
-def _layer_index(text: str) -> int:
-    # Leading zeros are allowed ("05"); longer digit strings than any index
-    # could have are not converted at all
-    digits = text.lstrip("0") or "0"
-    return int(digits) if len(digits) <= 3 else MAX_LAYER_INDEX + 1
+def _layer_index(text: str) -> int | None:
+    # Leading zeros are allowed ("05"); a digit string longer than any index
+    # reads as past MAX_LAYER_INDEX (anima_support.block_index_token)
+    try:
+        return block_index_token(text)
+    except ValueError:
+        return None
 
 
 def parse_layer_weights(text) -> LayerWeights:
+    """Block (or layer) weights of a weight text. Bare numbers are weights in
+    block order only when no block is selected ("0.5 0.8 1", "0.5 all=0.8");
+    next to a selector they are ignored with a warning ("0.8, 3=0.2" is
+    {3: 0.2}). Whitespace separates entries ("12=2 all=0.8"), so "0-9=0 5" is
+    blocks 0-9 at 0 and a stray "5", warned about, not a value "0 5" (which
+    plain_number would refuse)."""
+
     values: dict[int, float] = {}
     default = 1.0
-    bare_values = []
+    bare: list[tuple[str, float]] = []
     for selector, token in _weight_entries(text):
         if selector is None:
             value = _finite_weight(token)
             if value is None:
                 logger.warning("Ignored invalid Anima layer weight token: %s", token)
             else:
-                bare_values.append(value)
+                bare.append((token, value))
             continue
         left = selector.lower()
         value = _finite_weight(token)
@@ -809,17 +818,19 @@ def parse_layer_weights(text) -> LayerWeights:
         if left in _DEFAULT_SELECTORS:
             default = value
         elif range_match := _RANGE_SELECTOR.fullmatch(left):
-            start, end = sorted((_layer_index(range_match.group(1)), _layer_index(range_match.group(2))))
+            start, end = sorted((block_index_token(range_match.group(1)), block_index_token(range_match.group(2))))
             if start > MAX_LAYER_INDEX:
                 logger.warning("Ignored Anima layer range past index %d: %s", MAX_LAYER_INDEX, left)
                 continue
             values.update(dict.fromkeys(range(start, min(end, MAX_LAYER_INDEX) + 1), value))
-        elif left.isdecimal() and (index := _layer_index(left)) <= MAX_LAYER_INDEX:
+        elif (index := _layer_index(left)) is not None and index <= MAX_LAYER_INDEX:
             values[index] = value
         else:
             logger.warning("Ignored invalid Anima layer selector: %s", left)
-    if bare_values and not values:
-        values.update(enumerate(bare_values))
+    if bare and values:
+        logger.warning("Ignored Anima layer weights without a selector: %s", " ".join(token for token, _ in bare))
+    elif bare:
+        values.update(enumerate(value for _, value in bare))
     return LayerWeights(default=default, values=values)
 
 

@@ -6,9 +6,11 @@ import pytest
 import torch
 
 from modules.anima_support import (
+    BLOCK_INDEX_CAP,
     NEGPIP_CONTEXT_MASK_KEY,
     NEGPIP_MASK_KEY,
     anima_auxiliary_denoiser,
+    block_index_token,
     generated_token_frames,
     is_anima_engine,
     negpip_mask_for,
@@ -320,6 +322,46 @@ def test_block_list_reads_ime_input_like_the_weight_fields(text):
 def test_block_list_names_the_feature_and_the_bad_part(text):
     with pytest.raises(ValueError, match=rf"DAVE block selection .*'{text}'"):
         parse_block_list(f"0,{text}", 8, feature="DAVE")
+
+
+@pytest.mark.parametrize("text", ["1 0", "１　０", "1\t0", "0-1 0"])
+def test_block_list_refuses_whitespace_inside_a_number(text):
+    # "1 0" is not block 10 (nor block 0): the same text the Mixer's block
+    # field and the layer weights read
+    with pytest.raises(ValueError, match="DAVE block selection has an invalid part"):
+        parse_block_list(text, 28, feature="DAVE")
+
+
+@pytest.mark.parametrize("text", ["0 - 5", "0　－　5", "0\t-\t5"])
+def test_block_list_allows_spaces_around_the_dash(text):
+    assert parse_block_list(text, 28, feature="DAVE") == set(range(6))
+
+
+@pytest.mark.parametrize(
+    "text, signed, expected",
+    [
+        ("7", False, 7),
+        (" 05 ", False, 5),
+        pytest.param("0" * 5000 + "7", False, 7, id="5000-leading-zeros"),
+        pytest.param("9" * 5000, False, BLOCK_INDEX_CAP, id="5000-digits"),  # past int()'s digit limit
+        ("1000", False, BLOCK_INDEX_CAP),
+        ("999", False, 999),
+        ("-3", True, -3),
+        ("+3", True, 3),
+        ("-" + "9" * 20, True, -BLOCK_INDEX_CAP),
+    ],
+)
+def test_block_index_token_reads_one_decimal_index(text, signed, expected):
+    assert block_index_token(text, signed=signed) == expected
+
+
+@pytest.mark.parametrize(
+    "text, signed",
+    [("", False), ("-3", False), ("+3", False), ("0_5", False), ("1 0", False), ("1.0", False), ("²", False), ("-", True), ("- 5", True), ("--5", True), ("x", True)],
+)
+def test_block_index_token_refuses_anything_else(text, signed):
+    with pytest.raises(ValueError):
+        block_index_token(text, signed=signed)
 
 
 def test_positive_rows_pick_the_cond_rows_of_a_cfg_batch():

@@ -33,11 +33,14 @@ def test_layer_weight_selectors():
     assert weights.factor(1) == 0.5 and weights.factor(27) == 0.8
 
 
-def test_bare_numbers_are_block_order_only_without_selectors():
+def test_bare_numbers_are_block_order_only_without_selectors(caplog):
     in_order = parse_layer_weights(",".join(str(index / 10) for index in range(28)))
     assert in_order.values == {index: index / 10 for index in range(28)} and in_order.default == 1.0
+    assert "Ignored" not in caplog.text
 
-    assert parse_layer_weights("0.5, 3=0.2").values == {3: 0.2}
+    with caplog.at_level("WARNING"):
+        assert parse_layer_weights("0.5, 3=0.2").values == {3: 0.2}
+    assert "Ignored Anima layer weights without a selector: 0.5" in caplog.text
 
 
 @pytest.mark.parametrize(

@@ -358,6 +358,23 @@ def test_layer_weights_from_a_prompt_are_bounded_and_finite(caplog):
     assert parse_layer_weights("0.5, inf, nan").values == {0: 0.5}
 
 
+@pytest.mark.parametrize(
+    "text, values, ignored",
+    [
+        ("0-9=0 5", dict.fromkeys(range(10), 0.0), "5"),  # not a value "0 5", not a silent 0-9=0
+        ("1 0=0.5", {0: 0.5}, "1"),  # not block 10
+        ("0.8, 3=0.2", {3: 0.2}, "0.8"),
+        ("0.5 0.6 3=0.2", {3: 0.2}, "0.5 0.6"),
+    ],
+)
+def test_bare_numbers_next_to_selectors_are_ignored_with_a_warning(text, values, ignored, caplog):
+    from modules.anima_lora_support import parse_layer_weights
+
+    with caplog.at_level("WARNING"):
+        assert parse_layer_weights(text).values == values
+    assert f"Ignored Anima layer weights without a selector: {ignored}" in caplog.text
+
+
 def test_layer_indices_may_have_leading_zeros(caplog):
     from modules.anima_lora_support import parse_layer_weights
 

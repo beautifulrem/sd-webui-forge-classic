@@ -430,6 +430,32 @@ def fold_weight_text(text) -> str:
     return str(text or "").translate(_WEIGHT_TEXT_FOLD)
 
 
+# Past every block or layer index (the deepest Anima DiT has 52 blocks, the
+# Qwen3 text encoder 28 layers): what a longer digit string reads as
+BLOCK_INDEX_CAP = 1000
+
+
+def block_index_token(text, *, signed: bool = False) -> int:
+    """One block or layer index as every block field reads it: decimal digits
+    with surrounding whitespace ignored and leading zeros allowed ("05"), and,
+    when ``signed``, an optional "+" / "-" (what a negative index means is the
+    caller's). No "_" separators (int() would read "0_5" as 5) and no inner
+    whitespace ("1 0" is not 10). More than three significant digits read as
+    ``BLOCK_INDEX_CAP`` (keeping the sign), past every index, without
+    converting a prompt's 5000-digit string. Raises ValueError otherwise;
+    whether a bad part is skipped or refused is the caller's."""
+
+    value = str(text).strip()
+    sign = 1
+    if signed and value[:1] in ("+", "-"):
+        sign = -1 if value[0] == "-" else 1
+        value = value[1:]
+    if not value.isdecimal():
+        raise ValueError(f"not a block index: {text!r}")
+    digits = value.lstrip("0") or "0"
+    return sign * (int(digits) if len(digits) <= 3 else BLOCK_INDEX_CAP)
+
+
 def parse_block_list(text: str, total: int, *, feature: str) -> set[int]:
     """Parse ``"0-3,7"`` into block indices below ``total``; out-of-range parts
     are clipped away and a reversed range (``"7-3"``) counts as ``"3-7"``.
@@ -442,10 +468,8 @@ def parse_block_list(text: str, total: int, *, feature: str) -> set[int]:
         if not part:
             continue
         try:
-            sides = [side.strip() for side in part.split("-", 1)]
-            if not all(side.isdecimal() for side in sides):  # int() would read "0_5" as 5
-                raise ValueError
-            left, right = (int(sides[0]), int(sides[-1]))
+            sides = [block_index_token(side) for side in part.split("-", 1)]
+            left, right = sides[0], sides[-1]
         except ValueError:
             raise ValueError(f"{feature} block selection has an invalid part {part!r} (use indices like 0-3,7)") from None
         low, high = sorted((left, right))
