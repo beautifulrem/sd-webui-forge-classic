@@ -310,6 +310,12 @@ def test_block_list_accepts_reversed_ranges():
     assert parse_block_list(" 3 - 3 ", 8, feature="DAVE") == {3}
 
 
+@pytest.mark.parametrize("text", ["0-2，5", "０－２，５", "0–2, 5", "0—2,５", "0\u22122,5"])
+def test_block_list_reads_ime_input_like_the_weight_fields(text):
+    # Full-width forms, "，" and dash variants, as fold_weight_text reads them
+    assert parse_block_list(text, 8, feature="Regional") == {0, 1, 2, 5}
+
+
 @pytest.mark.parametrize("text", ["-1", "a", "1-", "2-x", "1-2-3"])
 def test_block_list_names_the_feature_and_the_bad_part(text):
     with pytest.raises(ValueError, match=rf"DAVE block selection .*'{text}'"):

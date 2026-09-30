@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 import re
 
-from modules.anima_lora_support import to_float, window_curve_factor
+from modules.anima_lora_support import fold_weight_text, to_float, window_curve_factor
 
 logger = logging.getLogger("anima_artist_scheduled_mixer")
 
@@ -34,11 +34,13 @@ def parse_inline_weight(text):
 
 def parse_blocks(text, num_blocks):
     """Per-artist block field: empty means every block, negative indices count
-    from the end, full-width commas are accepted and bad parts are skipped.
+    from the end, IME input is read as in the weight fields (full-width forms,
+    "，", dash variants: modules.anima_lora_support.fold_weight_text) and bad
+    parts are skipped.
     A field that selects nothing (only bad or out-of-range parts) is the empty
     set, with a warning: that artist mixes into no block.
     (anima_support.parse_block_list is the strict panel-level variant.)"""
-    source = str(text or "").replace("，", ",").replace(" ", "")
+    source = fold_weight_text(text).replace(" ", "")
     if not source.strip(","):
         return set(range(num_blocks))
     result = set()

@@ -410,8 +410,11 @@ def parse_block_list(text: str, total: int, *, feature: str) -> set[int]:
     are clipped away and a reversed range (``"7-3"``) counts as ``"3-7"``.
     Raises when a part is not a number or range, or when nothing is left."""
 
+    from modules.anima_lora_support import fold_weight_text
+
     result = set()
-    for part in str(text).split(","):
+    # IME input reads as in the weight fields: "0-9，19-27", "０－２７", "0–27"
+    for part in fold_weight_text(text).split(","):
         part = part.strip()
         if not part:
             continue

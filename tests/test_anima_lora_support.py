@@ -625,3 +625,17 @@ def test_unterminated_lora_tags_are_scanned_in_linear_time():
     assert LORA_TAG_RE.findall("<lora:" * 4000) == []
     assert LORA_TAG_RE.findall("<lora:a:" * 4000 + ">") == [("a", "")]
     assert time.perf_counter() - start < 0.2  # about 1 s with the unbounded pattern
+
+
+def test_weight_numbers_share_one_grammar(caplog):
+    # A lone strength and a value inside a weight text read the same way: an
+    # exponent is fine, a "_" separator is refused ("0_5" is not 5), as are
+    # inf / nan and overflow
+    from modules.anima_lora_support import parse_layer_weights, parse_module_weights, plain_number
+
+    assert plain_number("1e-1") == 0.1 and parse_layer_weights("0=1e-1").values == {0: 0.1}
+    for text in ("0_5", "1_000", "inf", "nan", "1e999"):
+        assert plain_number(text) is None, text
+    assert parse_layer_weights("0-9=0_5, all=0_5").values == {} and parse_layer_weights("all=0_5").default == 1.0
+    assert parse_module_weights("mlp=0_5") == {}
+    assert "0-9=0_5" in caplog.text and "mlp=0_5" in caplog.text

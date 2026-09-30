@@ -32,6 +32,8 @@ def test_block_field_syntax():
     assert parse_blocks("", 4) == {0, 1, 2, 3}
     assert parse_blocks("0-1，-1", 28) == {0, 1, 27}
     assert parse_blocks("3-1, x, 9", 5) == {1, 2, 3}
+    # IME input as in the weight fields: full-width forms and dash variants
+    assert parse_blocks("０－２，５", 28) == parse_blocks("0–2, 5", 28) == parse_blocks("0—2,-23", 28) == {0, 1, 2, 5}
 
 
 def test_a_block_field_selecting_nothing_is_no_block(caplog):

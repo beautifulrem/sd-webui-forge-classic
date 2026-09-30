@@ -572,8 +572,10 @@ _WEIGHT_TEXT_FOLD = str.maketrans(
         **dict.fromkeys((0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212, 0xFE63), "-"),
     }
 )
-# Decimal digits of any script, as float() reads them; not superscripts or circled digits
-_PLAIN_NUMBER_RE = re.compile(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)\s*")
+# The one number grammar of weight texts: decimal digits of any script (as
+# float() reads them; not superscripts or circled digits), an optional
+# exponent, no "_" separators ("0_5" would read as 5) and no inf / nan
+_PLAIN_NUMBER_RE = re.compile(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*")
 
 
 def fold_weight_text(text) -> str:
@@ -584,11 +586,14 @@ def fold_weight_text(text) -> str:
 
 
 def plain_number(text) -> float | None:
-    """The value of a lone strength such as "0.6", "-.5", "０．５" or
-    "−0.5" (folded first), else None."""
+    """The finite value of a lone number such as "0.6", "-.5", "1e-1",
+    "０．５" or "−0.5" (folded first), else None."""
 
     folded = fold_weight_text(text)
-    return float(folded) if _PLAIN_NUMBER_RE.fullmatch(folded) else None
+    if not _PLAIN_NUMBER_RE.fullmatch(folded):
+        return None
+    value = float(folded)
+    return value if math.isfinite(value) else None
 
 
 def is_plain_number(text) -> bool:
@@ -795,11 +800,8 @@ MAX_LAYER_INDEX = 255
 
 
 def _finite_weight(text) -> float | None:
-    try:
-        value = float(text)
-    except ValueError:
-        return None
-    return value if math.isfinite(value) else None
+    # The same grammar as a lone strength: "0_5" is refused, not read as 5
+    return plain_number(text)
 
 
 def _layer_index(text: str) -> int:
