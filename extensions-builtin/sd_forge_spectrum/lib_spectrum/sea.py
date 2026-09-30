@@ -7,10 +7,11 @@ import hashlib
 import json
 import math
 import os
-import tempfile
 from collections.abc import Sequence
 
 import torch
+
+from modules.anima_user_data import atomic_replace
 
 _EPS = 1e-8
 
@@ -153,19 +154,6 @@ class SeaCalibration:
     def solve_and_save(self, distances):
         ratio = self.auto_ratio if self.refresh_ratio <= 0 else min(1.0, self.refresh_ratio)
         delta = solve_delta_for_refresh_ratio(distances, ratio)
-        os.makedirs(self.cache_dir, exist_ok=True)
-        fd, temporary = tempfile.mkstemp(prefix="spectrum-sea-", suffix=".tmp", dir=self.cache_dir)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump({"schema": 1, "delta": delta, "refresh_ratio": ratio}, handle)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.chmod(temporary, 0o644)  # what a plain new file gets (mkstemp makes 0600)
-            os.replace(temporary, self.path)
-        except Exception:
-            try:
-                os.unlink(temporary)
-            except OSError:
-                pass
-            raise
+        payload = json.dumps({"schema": 1, "delta": delta, "refresh_ratio": ratio}).encode("utf-8")
+        atomic_replace(self.path, lambda handle: handle.write(payload))
         return delta

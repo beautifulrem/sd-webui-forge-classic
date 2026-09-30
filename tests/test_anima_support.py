@@ -156,6 +156,32 @@ def test_split_conditioning_batches_prompts_of_different_lengths():
     assert torch.allclose(plain, tiled, atol=1e-6)
 
 
+def test_prompts_whose_lengths_do_not_tile_are_padded_to_the_longest():
+    """512 and 600 tokens tiled to their LCM of 38400 (and 512/600/530 to
+    ~2M tokens, ~12.5 GB): past ConditionCrossAttn's factor 4, rows are
+    padded to the longest the way Anima and NegPiP pad prompts."""
+
+    short, long = torch.randn(512, 4), torch.randn(600, 4)
+    short_mask = torch.ones(512, 1)
+    short_mask[3] = -1.0
+    masks = [short_mask, torch.ones(600, 1)]
+
+    context, mask = split_conditioning({"crossattn": [short, long], "c_negpip_mask": masks})
+
+    assert context.shape == (2, 600, 4) and mask.shape == (2, 600, 1)
+    assert torch.equal(context[0, :512], short) and torch.equal(context[1], long)
+    assert not context[0, 512:].any()  # zero embeddings, Anima's padding
+    assert torch.equal(mask[0, :512], short_mask) and bool((mask[0, 512:] == 1).all())  # neutral
+    assert bool((mask[1] == 1).all())
+
+    from modules.anima_support import encode_extra_prompts
+
+    model = SimpleNamespace(get_learned_conditioning=lambda prompt: [torch.ones(1, 512, 4), torch.ones(1, 600, 4), torch.ones(1, 530, 4)])
+    context, mask = encode_extra_prompts(SimpleNamespace(sd_model=model), ["a", "b", "c"])
+    assert context.shape == (3, 600, 4) and mask is None
+    assert [int(row.any(dim=-1).sum()) for row in context] == [512, 600, 530]
+
+
 def test_extra_prompt_encoding_keeps_the_reference_latents(monkeypatch):
     from types import SimpleNamespace
 

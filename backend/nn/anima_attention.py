@@ -30,6 +30,21 @@ def active_attention_modifiers(transformer_options: dict[str, Any]) -> tuple:
     )
 
 
+def mask_honouring_attention(base_attention: Callable[..., torch.Tensor]) -> Callable[..., torch.Tensor]:
+    """``base_attention``, or PyTorch SDPA when it would not apply a mask.
+
+    SageAttention's CUDA kernels ignore ``attn_mask`` (FreeFuse's concept bias
+    would silently do nothing) and FlashAttention rejects it (an error log and
+    an SDPA fallback on every biased call), so masked calls on those backends
+    go to ``attention_pytorch`` directly; unmasked calls keep the fast one."""
+
+    from backend import attention as backends
+
+    if base_attention is backends.attention_sage or base_attention is backends.attention_flash:
+        return backends.attention_pytorch
+    return base_attention
+
+
 def run_anima_attention(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -48,7 +63,8 @@ def run_anima_attention(
     without replacing one another.  NAG is the only modifier today; the
     cross-attention wrappers (Regional, Artist Mixer, FreeFuse, ...) replace the
     attention module's ``forward`` through ``modules.forward_override``
-    instead, which composes them separately.
+    instead, which composes them separately. A call that carries a mask runs
+    on a backend that applies it (:func:`mask_honouring_attention`).
     """
 
     options = transformer_options or {}
@@ -57,7 +73,8 @@ def run_anima_attention(
         q_heads = q_value.movedim(-2, 1)
         k_heads = k_value.movedim(-2, 1)
         v_heads = v_value.movedim(-2, 1)
-        return base_attention(
+        attention = base_attention if mask is None else mask_honouring_attention(base_attention)
+        return attention(
             q_heads,
             k_heads,
             v_heads,

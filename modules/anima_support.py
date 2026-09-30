@@ -169,23 +169,36 @@ def split_conditioning(conds):
     context, mask = conditioning_context(conds), conds.get("c_negpip_mask")
     if isinstance(context, (list, tuple)):  # prompts padded to different lengths
         context = _stack_tiled(context)
-        mask = _stack_tiled(mask) if isinstance(mask, (list, tuple)) else None
+        mask = _stack_tiled(mask, fill=1.0) if isinstance(mask, (list, tuple)) else None
     if not torch.is_tensor(mask) or not bool((mask < 0).any()):
         mask = None
     return context, mask
 
 
-def _stack_tiled(values):
+_MAX_TILE_FACTOR = 4  # ConditionCrossAttn.can_concat's limit
+
+
+def _stack_tiled(values, fill: float = 0.0):
     """Stack per-prompt ``(tokens, ...)`` tensors, tiling each along the tokens
     to their least common multiple like Forge's ``ConditionCrossAttn``.
-    Repeating a whole key/value sequence leaves attention unchanged."""
+    Repeating a whole key/value sequence leaves attention unchanged.
+
+    Prompts over 512 tokens have odd lengths (512, 600, 530 have an LCM of
+    ~2M tokens), so past the factor ``ConditionCrossAttn.can_concat`` allows,
+    every row is padded with ``fill`` to the longest instead: zeros for
+    contexts, as Anima pads prompts under 512 tokens; 1 (neutral) for NegPiP
+    masks, as NegPiP pads them (V of a zero context row is zero either way)."""
 
     import math
 
     import torch
 
-    length = math.lcm(*(value.shape[0] for value in values))
-    return torch.stack([value.repeat(length // value.shape[0], *([1] * (value.ndim - 1))) for value in values])
+    lengths = [value.shape[0] for value in values]
+    length = math.lcm(*lengths)
+    if length // min(lengths) <= _MAX_TILE_FACTOR:
+        return torch.stack([value.repeat(length // value.shape[0], *([1] * (value.ndim - 1))) for value in values])
+    longest = max(lengths)
+    return torch.stack([torch.cat((value, value.new_full((longest - value.shape[0], *value.shape[1:]), fill))) for value in values])
 
 
 @contextmanager

@@ -50,20 +50,66 @@ def data_file(extension: str, filename: str, *, seed=None) -> Path:
     return path
 
 
-def _copy_atomic(source, path: Path) -> None:
+def _process_umask() -> int:
+    """The process umask. It can only be read by setting it, so this is done
+    once, at import, before worker threads create files."""
+
+    current = os.umask(0o022)
+    os.umask(current)
+    return current
+
+
+_UMASK = _process_umask()
+
+
+def new_file_mode() -> int:
+    """The permissions a plain ``open(path, "w")`` gives a new file."""
+
+    return 0o666 & ~_UMASK
+
+
+def atomic_replace(path, write, *, mode: int | None = None) -> None:
+    """Replace ``path`` with what ``write(handle)`` writes to a binary handle
+    of a temporary file next to it, so that ``path`` is always either the old
+    or the new complete file. The temporary file is removed when anything
+    raises (Ctrl+C included).
+
+    The new file gets ``mode`` if given, else the replaced file's permissions,
+    else those of a plain new file (:func:`new_file_mode`; mkstemp's owner-only
+    0600 would hide it from other users that a umask lets read it)."""
+
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
-    os.close(descriptor)
     try:
-        shutil.copyfile(source, temporary)
-        os.chmod(temporary, 0o644)  # what a plain copy to a new file gives (mkstemp makes 0600)
+        with os.fdopen(descriptor, "wb") as handle:
+            descriptor = -1  # owned (and closed) by the handle
+            write(handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if mode is None:
+            try:
+                mode = os.stat(path).st_mode & 0o777
+            except OSError:
+                mode = new_file_mode()
+        os.chmod(temporary, mode)
         os.replace(temporary, path)
     except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
         try:
             os.unlink(temporary)
         except OSError:
             pass
         raise
+
+
+def _copy_atomic(source, path: Path) -> None:
+    def copy(handle):
+        with open(source, "rb") as original:
+            shutil.copyfileobj(original, handle)
+
+    atomic_replace(path, copy)
 
 
 def read_json_object(path) -> dict:
@@ -87,29 +133,9 @@ def read_json_object(path) -> dict:
 
 
 def write_json_atomic(path, data) -> None:
-    """Write ``data`` as JSON so that ``path`` is always either the old or the
-    new complete file, keeping an existing file's permissions."""
+    """Write ``data`` as JSON with :func:`atomic_replace`."""
 
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=path.name, suffix=".tmp")
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(data, handle, ensure_ascii=False, indent=2)
-            handle.flush()
-            os.fsync(handle.fileno())
-        try:
-            mode = os.stat(path).st_mode & 0o777
-        except OSError:
-            mode = 0o644  # what a plain write of a new file gives (mkstemp makes 0600)
-        os.chmod(temporary, mode)
-        os.replace(temporary, path)
-    except BaseException:
-        try:
-            os.unlink(temporary)
-        except OSError:
-            pass
-        raise
+    atomic_replace(path, lambda handle: handle.write(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")))
 
 
 class TemplateStore:

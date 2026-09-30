@@ -5,7 +5,7 @@ import time
 import pytest
 
 from modules import anima_user_data, paths_internal
-from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
+from modules.anima_user_data import TemplateStore, UnreadableDataFile, atomic_replace, data_file, read_json_object, write_json_atomic
 
 
 def test_data_file_lives_in_the_data_dir_and_is_seeded_once(tmp_path, monkeypatch):
@@ -29,20 +29,20 @@ def test_seeding_copies_under_the_edit_lock_and_never_leaves_a_partial_file(tmp_
     seed = tmp_path / "bundled.json"
     seed.write_text('{"default": 1}', encoding="utf-8")
     target = tmp_path / "data" / "extension-data" / "some-extension" / "templates.json"
-    copy = anima_user_data.shutil.copyfile
+    copy = anima_user_data.shutil.copyfileobj
 
     def interrupted_copy(source, destination):
         assert anima_user_data._edit_lock(target).locked()
-        with open(destination, "w", encoding="utf-8") as handle:
-            handle.write('{"def')
+        destination.write(b'{"def')
         raise OSError("disk full")
 
-    monkeypatch.setattr(anima_user_data.shutil, "copyfile", interrupted_copy)
+    monkeypatch.setattr(anima_user_data.shutil, "copyfileobj", interrupted_copy)
     with pytest.raises(OSError):
         data_file("some-extension", "templates.json", seed=seed)
     assert not target.exists() and os.listdir(target.parent) == []
 
-    monkeypatch.setattr(anima_user_data.shutil, "copyfile", copy)
+    monkeypatch.setattr(anima_user_data.shutil, "copyfileobj", copy)
+    monkeypatch.setattr(anima_user_data, "_UMASK", 0o022)
     assert read_json_object(data_file("some-extension", "templates.json", seed=seed)) == {"default": 1}
     assert os.stat(target).st_mode & 0o777 == 0o644
 
@@ -60,6 +60,7 @@ def test_unreadable_files_raise_instead_of_reading_as_empty(tmp_path):
 
 
 def test_atomic_write_keeps_permissions_and_leaves_no_temp_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(anima_user_data, "_UMASK", 0o022)
     path = tmp_path / "state.json"
     write_json_atomic(path, {"a": 1})
     assert os.stat(path).st_mode & 0o777 == 0o644
@@ -67,11 +68,74 @@ def test_atomic_write_keeps_permissions_and_leaves_no_temp_file(tmp_path, monkey
     write_json_atomic(path, {"a": 2})
     assert os.stat(path).st_mode & 0o777 == 0o600 and read_json_object(path) == {"a": 2}
 
-    monkeypatch.setattr(anima_user_data.json, "dump", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("disk full")))
+    monkeypatch.setattr(anima_user_data.json, "dumps", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("disk full")))
     with pytest.raises(RuntimeError):
         write_json_atomic(path, {"a": 3})
     assert read_json_object(path) == {"a": 2}
     assert [entry.name for entry in tmp_path.iterdir()] == ["state.json"]
+
+
+def test_the_process_umask_is_read_without_changing_it():
+    previous = os.umask(0o077)
+    try:
+        assert anima_user_data._process_umask() == 0o077
+        assert os.umask(0o077) == 0o077  # restored
+    finally:
+        os.umask(previous)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+@pytest.mark.parametrize(("umask", "expected"), [(0o077, 0o600), (0o022, 0o644), (0o002, 0o664)])
+def test_a_new_file_gets_the_umask_permissions_of_a_plain_write(tmp_path, monkeypatch, umask, expected):
+    """A hard-coded 0644 made files world-readable under umask 077."""
+
+    monkeypatch.setattr(anima_user_data, "_UMASK", umask)
+    path = tmp_path / "new.bin"
+    atomic_replace(path, lambda handle: handle.write(b"data"))
+    assert path.read_bytes() == b"data"
+    assert os.stat(path).st_mode & 0o777 == expected
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+def test_a_replaced_file_keeps_its_permissions_unless_a_mode_is_given(tmp_path, monkeypatch):
+    monkeypatch.setattr(anima_user_data, "_UMASK", 0o022)
+    path = tmp_path / "existing.bin"
+    path.write_bytes(b"old")
+    os.chmod(path, 0o640)
+    atomic_replace(path, lambda handle: handle.write(b"new"))
+    assert path.read_bytes() == b"new" and os.stat(path).st_mode & 0o777 == 0o640
+    atomic_replace(path, lambda handle: handle.write(b"newer"), mode=0o600)
+    assert path.read_bytes() == b"newer" and os.stat(path).st_mode & 0o777 == 0o600
+
+
+class _Interrupted(KeyboardInterrupt):
+    pass
+
+
+@pytest.mark.parametrize("error", [RuntimeError, _Interrupted])
+def test_atomic_replace_cleans_up_and_keeps_the_old_file_when_writing_fails(tmp_path, monkeypatch, error):
+    descriptors = []
+    real_mkstemp = anima_user_data.tempfile.mkstemp
+
+    def mkstemp(*args, **kwargs):
+        descriptor, name = real_mkstemp(*args, **kwargs)
+        descriptors.append(descriptor)
+        return descriptor, name
+
+    monkeypatch.setattr(anima_user_data.tempfile, "mkstemp", mkstemp)
+    path = tmp_path / "existing.bin"
+    path.write_bytes(b"old")
+
+    def write(handle):
+        handle.write(b"half")
+        raise error
+
+    with pytest.raises(error):
+        atomic_replace(path, write)
+    assert path.read_bytes() == b"old"
+    assert [entry.name for entry in tmp_path.iterdir()] == ["existing.bin"]
+    with pytest.raises(OSError):
+        os.fstat(descriptors[0])  # closed
 
 
 def test_template_store_edits_in_place_and_never_replaces_an_unreadable_file(tmp_path, monkeypatch):

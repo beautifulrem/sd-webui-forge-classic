@@ -137,10 +137,15 @@ class SeaStateTests(unittest.TestCase):
 
     @unittest.skipIf(os.name != "posix", "POSIX permission bits")
     def test_saved_calibration_is_readable_like_a_plain_new_file(self):
-        with tempfile.TemporaryDirectory() as cache_dir:
-            calibration = _calibration(cache_dir)
-            calibration.solve_and_save([0.1, 0.2, 0.3])
-            self.assertEqual(stat.S_IMODE(os.stat(calibration.path).st_mode), 0o644)  # not mkstemp's 0600
+        # Not mkstemp's 0600, and not a hard-coded 0644 under umask 077.
+        from modules import anima_user_data
+
+        for umask, expected in ((0o022, 0o644), (0o077, 0o600)):
+            with self.subTest(umask=oct(umask)), tempfile.TemporaryDirectory() as cache_dir, mock.patch.object(anima_user_data, "_UMASK", umask):
+                calibration = _calibration(cache_dir)
+                calibration.solve_and_save([0.1, 0.2, 0.3])
+                self.assertEqual(stat.S_IMODE(os.stat(calibration.path).st_mode), expected)
+                self.assertEqual(os.listdir(cache_dir), [os.path.basename(calibration.path)])  # no temporary left
 
     def test_spectral_beta_is_part_of_the_calibration_key(self):
         # The saved delta is solved from beta-filtered distances.

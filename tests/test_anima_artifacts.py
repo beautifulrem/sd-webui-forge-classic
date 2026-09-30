@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from modules import anima_artifacts
+from modules import anima_artifacts, anima_user_data
 
 
 def test_a_verified_file_is_not_blocked_by_another_download(tmp_path):
@@ -54,7 +54,7 @@ def _source(served, payload=b"weights"):
 
 
 def _leftovers(folder):
-    return sorted(path.name for path in folder.iterdir() if path.name.endswith(".part"))
+    return sorted(path.name for path in folder.iterdir() if path.name.endswith(".tmp"))
 
 
 def test_download_is_verified_and_written_atomically(tmp_path, monkeypatch, _served):
@@ -72,12 +72,16 @@ def test_download_is_verified_and_written_atomically(tmp_path, monkeypatch, _ser
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
-def test_a_downloaded_artifact_is_readable_like_a_plain_new_file(tmp_path, _served):
+@pytest.mark.parametrize(("umask", "expected"), [(0o022, 0o644), (0o077, 0o600)])
+def test_a_downloaded_artifact_is_readable_like_a_plain_new_file(tmp_path, monkeypatch, _served, umask, expected):
+    """mkstemp's owner-only 0600 hid it from other users; a hard-coded 0644
+    showed it to everyone under umask 077."""
+    monkeypatch.setattr(anima_user_data, "_UMASK", umask)
     url, digest = _source(_served)
     target = tmp_path / "artifact.bin"
 
     anima_artifacts.ensure_pinned_download(path=str(target), url=url, sha256=digest, maximum_bytes=100)
-    assert stat.S_IMODE(target.stat().st_mode) == 0o644  # not mkstemp's owner-only 0600
+    assert stat.S_IMODE(target.stat().st_mode) == expected
 
 
 def test_checksum_mismatch_keeps_the_existing_file_and_cleans_up(tmp_path, _served):
@@ -147,7 +151,7 @@ def test_an_interrupted_download_leaks_no_descriptor_or_part_file(tmp_path, monk
             raise _Interrupted
         return _Response()
 
-    monkeypatch.setattr(anima_artifacts.tempfile, "mkstemp", mkstemp)
+    monkeypatch.setattr(anima_user_data.tempfile, "mkstemp", mkstemp)
     monkeypatch.setattr(anima_artifacts, "_open", urlopen)
     target = tmp_path / "artifact.bin"
 

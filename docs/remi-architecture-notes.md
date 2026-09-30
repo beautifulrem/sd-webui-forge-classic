@@ -8,6 +8,7 @@ on purpose. Read this before "fixing" one of them.
 | Seam | Where | Used by |
 |---|---|---|
 | Attention modifier chain | `backend/nn/anima_attention.py` (`ANIMA_ATTENTION_MODIFIERS`, `ANIMA_PROJECT_KV`) | NAG |
+| Masked attention (a call with a mask runs on PyTorch SDPA when the active backend is Sage, which ignores masks, or Flash, which rejects them) | `mask_honouring_attention` in `backend/nn/anima_attention.py` | FreeFuse's concept bias |
 | Temporary forward overrides | `modules/forward_override.py` | Regional, Artist Mixer, FreeFuse, DAVE, cross-attention boost, NegPiP's DiT hook (`lib_negpip/anima.py`) and its SD1/SDXL cross-attention hook (`lib_negpip/sd.py`) |
 | Per-call block forward pre-hooks (registered inside a `model_function_wrapper`, removed in its `finally`) | `_block_deltas` in `extensions-builtin/sd_forge_anima_guidance/lib_anima_guidance/modulation.py` | Modulation (adds its AdaLN-LoRA delta to the modulated blocks' input) |
 | `compute_qkv(value_context=...)` / `compute_kv(value_context=...)` (cross-attention only) | `backend/nn/anima.py` | NegPiP, FreeFuse, NAG's negative-prompt K/V via `ANIMA_PROJECT_KV` (V from the masked context) |

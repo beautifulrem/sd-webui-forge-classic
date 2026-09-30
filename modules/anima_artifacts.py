@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import hashlib
 import os
-import tempfile
 import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+
+from modules.anima_user_data import atomic_replace
 
 
 # One lock per target file: a long download or first hash of one artifact
@@ -75,33 +76,21 @@ def ensure_pinned_download(*, path: str, url: str, sha256: str, maximum_bytes: i
         if os.path.isfile(path) and _cached_sha256(path) == sha256:
             return path
 
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        descriptor, temporary = tempfile.mkstemp(prefix="anima-download-", suffix=".part", dir=os.path.dirname(path))
-        try:
+        def download(output):
             digest = hashlib.sha256()
             total = 0
             request = urllib.request.Request(url, headers={"User-Agent": user_agent})  # noqa: S310 - https only, checked above
-            with _open(request, timeout) as response, os.fdopen(descriptor, "wb") as output:
-                descriptor = -1
+            with _open(request, timeout) as response:
                 for chunk in iter(lambda: response.read(1024 * 1024), b""):
                     total += len(chunk)
                     if total > maximum_bytes:
                         raise RuntimeError(f"download exceeded the {maximum_bytes} byte safety limit")
                     digest.update(chunk)
                     output.write(chunk)
-                output.flush()
-                os.fsync(output.fileno())
             if digest.hexdigest() != sha256:
                 raise RuntimeError("downloaded artifact failed its SHA-256 check")
-            os.chmod(temporary, 0o644)  # what a plain new file gets (mkstemp makes 0600), as anima_user_data does
-            os.replace(temporary, path)
-            _VERIFIED[file_version(path)] = sha256  # hashed while downloading
-        except BaseException:  # also Ctrl+C / shutdown: no leaked descriptor or .part file
-            if descriptor >= 0:
-                os.close(descriptor)
-            try:
-                os.unlink(temporary)
-            except OSError:
-                pass
-            raise
+
+        # Also on Ctrl+C / shutdown: no leaked descriptor or temporary file.
+        atomic_replace(path, download)
+        _VERIFIED[file_version(path)] = sha256  # hashed while downloading
         return path
