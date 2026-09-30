@@ -245,6 +245,20 @@ def resolve_guidance_conflicts(
     )
 
 
+FLOW_SCHEDULER = "Anima FlowMatch"
+
+
+def _flow_scheduler_choice() -> str:
+    """The Schedule type a Flow sampler shows: its locked scheduler, or
+    "Automatic" (which ``get_sigmas`` resolves to it) when the user hid that
+    scheduler, so the dropdown never holds a value outside its choices."""
+
+    from modules import shared
+
+    hidden = getattr(getattr(shared, "opts", None), "hide_schedulers", None) or ()
+    return "Automatic" if FLOW_SCHEDULER in hidden else FLOW_SCHEDULER
+
+
 def resolve_schedule_conflicts(
     *,
     sampler: str,
@@ -264,7 +278,7 @@ def resolve_schedule_conflicts(
         if dynamic_shift:
             messages.append(f"Dynamic Shift disabled: {sampler} locks its scheduler")
         return ScheduleConflictState(
-            scheduler="Anima FlowMatch",
+            scheduler=_flow_scheduler_choice(),
             dynamic_shift=False,
             scheduler_interactive=False,
             dynamic_shift_interactive=False,

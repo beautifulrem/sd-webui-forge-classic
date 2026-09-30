@@ -201,6 +201,19 @@ class ScheduleConflictTests(unittest.TestCase):
         self.assertFalse(state.scheduler_interactive)
         self.assertFalse(state.dynamic_shift_interactive)
 
+    def test_a_hidden_flow_scheduler_shows_as_automatic(self):
+        # "Hide schedulers" drops it from the dropdown; get_sigmas still resolves "Automatic" to it
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from modules import shared
+
+        with mock.patch.object(shared, "opts", SimpleNamespace(hide_schedulers=["Anima FlowMatch"]), create=True):
+            state = resolve_schedule_conflicts(sampler="Anima Flow PC3", scheduler="Beta57", dynamic_shift=False)
+
+        self.assertEqual(state.scheduler, "Automatic")
+        self.assertFalse(state.scheduler_interactive)
+
     def test_selecting_dynamic_shift_replaces_beta57_and_locks_scheduler(self):
         state = resolve_schedule_conflicts(
             sampler="Euler",
