@@ -13,7 +13,8 @@ Two refresh schedules are available:
 - **SEA (auto-calibrated)** filters the current latent with SeaCache's
   spectral-evolution-aware metric. The first run of a matching
   sampler/CFG/resolution configuration measures a threshold; later runs load
-  that threshold from `data/cache/spectrum-sea`.
+  that threshold from `<data dir>/cache/spectrum-sea` (the WebUI folder unless
+  `--data-dir` is set).
 
 Base, img2img and Hires passes use their actual, independent step count (img2img
 counts only the steps its denoising strength runs), sampler and CFG values when building the forecast and SEA calibration state.
