@@ -42,3 +42,9 @@ def test_missing_values_are_filled_from_a_mapping_of_defaults():
 def test_a_sequence_of_defaults_must_cover_every_name():
     with pytest.raises(ValueError, match="Panel has 2 script argument defaults for 3 names"):
         script_arguments("Panel", NAMES, [True], defaults=(1.0, "slow"))
+
+
+def test_a_long_missing_tail_names_its_first_arguments_only():
+    names = [f"slot{index}" for index in range(12)]
+    with pytest.raises(TypeError, match=r"^Panel takes 12 script arguments, got 2; missing: slot2, slot3, slot4, slot5, slot6 and 5 more$"):
+        script_arguments("Panel", names, [1, 2])

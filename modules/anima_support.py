@@ -609,6 +609,9 @@ def windowed_override_patch(model, *, gate, overrides, lock, force_actual, begin
     return patched
 
 
+_MISSING_SHOWN = 5
+
+
 def script_arguments(owner: str, names, values, *, defaults=None) -> SimpleNamespace:
     """A panel's positional script args ``values``, one attribute per name
     of ``names`` (the order ``ui`` returns its controls in). Call it before
@@ -640,7 +643,9 @@ def script_arguments(owner: str, names, values, *, defaults=None) -> SimpleNames
             fill = {}
         missing = [name for name in names[len(values) :] if name not in fill]
         if missing:
-            raise TypeError(f"{owner} takes {len(names)} script arguments, got {len(values)}; missing: {', '.join(missing)}")
+            # The first few names locate the gap; a panel with hundreds of slots stays readable
+            shown = ", ".join(missing[:_MISSING_SHOWN]) + (f" and {len(missing) - _MISSING_SHOWN} more" if len(missing) > _MISSING_SHOWN else "")
+            raise TypeError(f"{owner} takes {len(names)} script arguments, got {len(values)}; missing: {shown}")
         arguments.update((name, fill[name]) for name in names[len(values) :])
     return SimpleNamespace(**arguments)
 
