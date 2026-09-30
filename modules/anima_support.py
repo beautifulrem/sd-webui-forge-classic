@@ -563,9 +563,9 @@ class AnimaPatchPanel:
         from modules.anima_presets import register_preset_control
         from modules.infotext_utils import PasteField
 
-        self.infotext_fields = [PasteField(control, key) for control, key in zip(controls, self.INFOTEXT_KEYS)]
+        self.infotext_fields = [PasteField(control, key) for control, key in zip(controls, self.INFOTEXT_KEYS, strict=True)]
         self.paste_field_names = list(self.INFOTEXT_KEYS)
-        for name, control in zip(self.PRESET_FIELDS, controls):
+        for name, control in zip(self.PRESET_FIELDS, controls, strict=True):
             register_preset_control(self.tabname, name, control)
         return controls
 

@@ -175,11 +175,11 @@ class SpectrumForForge(scripts.Script):
                     queue=False,
                 )
 
-        self.infotext_fields = [PasteField(component, key) for component, key in zip(controls, INFOTEXT_KEYS)]
+        self.infotext_fields = [PasteField(component, key) for component, key in zip(controls, INFOTEXT_KEYS, strict=True)]
         self.paste_field_names = [field.label for field in self.infotext_fields]
 
         register_preset_control(self.tabname, "spectrum.enabled", enable)
-        for (_, name, _, _), component in zip(CONTROLS, controls):
+        for (_, name, _, _), component in zip(CONTROLS, controls, strict=True):
             register_preset_control(self.tabname, name, component)
 
         return [enable, *controls]

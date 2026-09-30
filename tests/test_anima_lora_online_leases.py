@@ -41,3 +41,22 @@ def test_releasing_a_lease_never_held_changes_nothing():
     assert leases.user_online_lora() is True
     leases.release_online_lora(owner, "freefuse")
     assert dynamic_args.online_lora is True
+
+
+def test_a_settings_refresh_during_a_lease_waits_for_the_last_release():
+    owner = SimpleNamespace()
+    leases.acquire_online_lora(owner, "scheduler")
+    leases.apply_user_setting(False)  # e.g. a mid-run Hires checkpoint switch
+    assert dynamic_args.online_lora is True and leases.user_online_lora() is False
+
+    leases.apply_user_setting(True)
+    leases.apply_user_setting(False)  # the latest setting wins
+    leases.release_online_lora(owner, "scheduler")
+    assert dynamic_args.online_lora is False and leases.user_online_lora() is False
+
+
+def test_a_settings_refresh_without_leases_applies_at_once():
+    leases.apply_user_setting(True)
+    assert dynamic_args.online_lora is True and leases.user_online_lora() is True
+    leases.apply_user_setting(False)
+    assert dynamic_args.online_lora is False
