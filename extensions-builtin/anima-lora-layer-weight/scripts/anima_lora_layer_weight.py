@@ -11,6 +11,8 @@ from modules.anima_lora_support import (
     install_add_patches_hook,
     lora_control_files,
     note_lora_control_yield,
+    restore_batch_prompts,
+    restore_run_prompts,
     rewrite_batch_prompts,
     looks_like_layer_weights as _looks_like_layer_weights,
     parse_layer_weights,
@@ -379,16 +381,14 @@ def _parse_presets(text: str) -> dict[str, PresetWeights]:
         if not line or line.startswith("#"):
             continue
 
-        if "=" in line:
-            name, body = line.split("=", 1)
-        elif "：" in line:
-            name, body = line.split("：", 1)
-        elif ":" in line:
-            name, body = line.split(":", 1)
-        else:
+        # The name ends at its first separator: the body holds "=" too
+        # (name：blocks=...)
+        separator = min((line.find(mark) for mark in ("=", "：", ":") if mark in line), default=-1)
+        if separator < 0:
             logger.warning("Ignored invalid preset line: %s", line)
             continue
 
+        name, body = line[:separator], line[separator + 1 :]
         name = _preset_key(name)
         if not name:
             continue
@@ -468,10 +468,8 @@ def _apply_preset_to_prompt_text(
         if not controlled:
             return match.group(0)
 
-        raw_args = match.group(2) or ""
-        _, extra_args = _split_lora_args(raw_args) if raw_args else ("", [])
-        if extra_args:
-            return f"<lora:{name}:{weight_text}:{':'.join(extra_args)}>"
+        # Its text-encoder / UNet arguments would be dropped at generation
+        # anyway: the rewrite to 1.0 keeps the weight alone
         return f"<lora:{name}:{weight_text}>"
 
     return LORA_TAG_RE.sub(replace, prompt_text)
@@ -866,9 +864,15 @@ class Script(scripts.Script):
         if _ACTIVE_RULE.enabled:
             p.extra_generation_params["Anima LoRA/LoKR Layer Weight"] = _ACTIVE_RULE.signature
 
+    def postprocess_batch_list(self, p, pp, *args, **kwargs):
+        # The batch's infotexts record the tags as written, <lora:x:0-9=0.5>
+        # rather than the <lora:x:1.0> it loaded
+        restore_batch_prompts(p)
+
     def postprocess(self, p, processed, *args, **kwargs):
         global _ACTIVE_RULE
         _ACTIVE_RULE = None
+        restore_run_prompts(p)
 
     def cleanup(self, p, *args, **kwargs):
         global _ACTIVE_RULE

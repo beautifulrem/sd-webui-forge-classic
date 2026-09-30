@@ -156,7 +156,11 @@ def rewrite_batch_prompts(p, rewrite, rewrite_hires) -> None:
 
     p.hr_prompts is not rewritten: parse_extra_network_prompts re-slices it
     from all_hr_prompts after the script hooks. Every rewrite runs before any
-    is stored, so one that raises leaves all prompts as they were."""
+    is stored, so one that raises leaves all prompts as they were.
+
+    The prompts as written are noted on ``p``: restore_batch_prompts and
+    restore_run_prompts put them back, so the infotext records the tags the
+    user wrote rather than the ones the batch loaded."""
 
     start = getattr(p, "iteration", 0) * getattr(p, "batch_size", 1)
     batch = slice(start, start + getattr(p, "batch_size", 1))
@@ -171,7 +175,76 @@ def rewrite_batch_prompts(p, rewrite, rewrite_hires) -> None:
         if selection is None:
             setattr(p, attribute, values)
         else:
+            _note_rewrite(p, attribute, start, getattr(p, attribute)[selection], values)
             getattr(p, attribute)[selection] = values
+
+
+# ``p``'s record of the prompts rewrite_batch_prompts rewrote:
+# {"owner": id(p), "all_prompts" / "all_hr_prompts": {index: (as written, as rewritten)}}
+_PROMPT_RECORD = "_anima_rewritten_prompts"
+
+
+def _prompt_record(p, create=False) -> dict | None:
+    record = getattr(p, _PROMPT_RECORD, None)
+    # A shallow copy of p (a nested run) carries the outer run's record
+    if isinstance(record, dict) and record.get("owner") == id(p):
+        return record
+    if not create:
+        return None
+    record = {"owner": id(p)}
+    setattr(p, _PROMPT_RECORD, record)
+    return record
+
+
+def _note_rewrite(p, attribute: str, start: int, before, after) -> None:
+    entries = _prompt_record(p, create=True).setdefault(attribute, {})
+    for index, (old, new) in enumerate(zip(before, after), start):
+        entry = entries.get(index)
+        # Rewritten again (the other adapter kind, another Anima LoRA script):
+        # it keeps the text as the user wrote it
+        written = entry[0] if entry is not None and entry[1] == old else old
+        entries[index] = (written, new)
+
+
+def _restore_prompts(values, entries: dict, offset: int = 0, indices=None) -> None:
+    """Put back ``values[index - offset]`` as written for each recorded index
+    (in ``indices``), unless another script has changed it since."""
+    if not isinstance(values, list):
+        return
+    for index, (written, rewritten) in entries.items():
+        position = index - offset
+        if (indices is None or index in indices) and 0 <= position < len(values) and values[position] == rewritten:
+            values[position] = written
+
+
+def restore_batch_prompts(p) -> None:
+    """Put the current batch's rewritten prompts back as written in
+    ``p.prompts`` and ``p.all_hr_prompts``, which its infotexts (and "Hires
+    prompt") are built from. For postprocess_batch_list: processing re-slices
+    p.prompts from all_prompts after postprocess_batch.
+
+    ``p.all_prompts`` stays rewritten until restore_run_prompts: a nested run
+    (ADetailer, in postprocess_image) takes its prompt from there, and must
+    load the LoRAs as the batch did."""
+    record = _prompt_record(p)
+    if record is None:
+        return
+    start = getattr(p, "iteration", 0) * getattr(p, "batch_size", 1)
+    _restore_prompts(getattr(p, "prompts", None), record.get("all_prompts", {}), offset=start)
+    batch = range(start, start + getattr(p, "batch_size", 1))
+    _restore_prompts(getattr(p, "all_hr_prompts", None), record.get("all_hr_prompts", {}), indices=batch)
+
+
+def restore_run_prompts(p) -> None:
+    """Put every rewritten prompt of the run back as written in
+    ``p.all_prompts`` and ``p.all_hr_prompts``, then forget them. For
+    postprocess: the run's Processed holds the same lists."""
+    record = _prompt_record(p)
+    if record is None:
+        return
+    _restore_prompts(getattr(p, "all_prompts", None), record.get("all_prompts", {}))
+    _restore_prompts(getattr(p, "all_hr_prompts", None), record.get("all_hr_prompts", {}))
+    setattr(p, _PROMPT_RECORD, None)
 
 
 def invalidate_cond_caches(p) -> None:

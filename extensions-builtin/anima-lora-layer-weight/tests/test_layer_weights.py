@@ -175,6 +175,62 @@ def test_conflicting_inline_rules_abort_the_batch_untouched(module, monkeypatch)
     assert module._ACTIVE_RULE.lora_rule.inline_rules["cat"].block_weights.factor(9) == 0.5
 
 
+def test_the_infotext_keeps_the_inline_rules_as_written(module, monkeypatch):
+    """The batch loads <lora:cat:1.0>, its rules moved to add_patches; the
+    infotext, built from p.prompts and all_hr_prompts after
+    postprocess_batch_list, must keep the tags as written, or the image
+    recalled from its PNG info renders another one."""
+    monkeypatch.setattr(module, "install_patch", lambda: None)
+    monkeypatch.setattr(module, "_prompt_lora_is_controlled", lambda *args: True)
+    monkeypatch.setattr(module, "_ACTIVE_RULE", None)
+    monkeypatch.setattr(module, "_LAST_SIGNATURE", None)
+    written = ["a <lora:cat:0-9=0.5;modules=mlp=0.2>", "b <lora:cat:1,1,0.5>"]
+    loaded = ["a <lora:cat:1.0>", "b <lora:cat:1.0>"]
+    p = SimpleNamespace(iteration=1, batch_size=1, all_prompts=list(written), all_hr_prompts=list(written), extra_generation_params={})
+    args = [True, "", True, "all=1.0", False, "", False, "", False, "", "", ""] + [False, "", True, "all=1.0", False, "", False, "", False, "", "", ""]
+    script = module.Script()
+
+    # The second batch, in the order of processing.process_images_inner
+    p.prompts = p.all_prompts[1:2]
+    script.before_process_batch(p, *args)
+    assert (p.prompts, p.all_hr_prompts) == (loaded[1:], written[:1] + loaded[1:])
+    p.prompts = p.all_prompts[1:2]  # re-sliced after postprocess_batch
+    script.postprocess_batch_list(p, SimpleNamespace(images=[]), *args)
+
+    assert p.prompts == written[1:]
+    assert p.all_hr_prompts == written  # else a "Hires prompt" of the loaded tags
+    # A nested run (ADetailer, in postprocess_image) loads the LoRAs as the batch did
+    assert p.all_prompts == written[:1] + loaded[1:]
+
+    script.postprocess(p, SimpleNamespace(), *args)
+    assert p.all_prompts == written
+
+
+def test_apply_preset_writes_the_presets_inline_weights(module, monkeypatch):
+    presets = "Balanced=blocks=0-9=0.6,10-27=1.0;modules=mlp=0.8\n# a comment\nno separator\nstyle：blocks=19-27=0.9;qwen=0-3=0"
+    parsed = module._parse_presets(presets)
+    assert set(parsed) == {"balanced", "style"}
+    assert parsed["style"] == module.PresetWeights("19-27=0.9", None)  # Qwen weights come from the panel only
+    assert module._select_preset(" BALANCED ", presets) == parsed["balanced"]
+    assert module._select_preset("", presets) == parsed["balanced"]  # no name: the first
+    assert module._select_preset("missing", presets) is None
+
+    kinds = {"cat": "lora", "dog": "lora", "fox": "lokr"}
+    monkeypatch.setattr(module, "_adapter_kind_for_prompt_name", lambda name: kinds.get(name))
+    monkeypatch.setattr(module, "_is_anima_prompt_lora", lambda name, kind: name in kinds)
+    prompt = "<lora:cat:0.6:te=0.2> <lora:dog:1> <lora:fox:0.5> <lora:other:1>"
+    inline = "blocks=0-9=0.6,10-27=1.0;modules=mlp=0.8"
+
+    # The tag's other arguments go: generation rewrites a controlled tag to <lora:x:1.0>
+    applied = module._apply_preset_to_prompt_text(prompt, "", "lora", "balanced", module.PRESET_SCOPE_ALL_EN, presets)
+    assert applied == f"<lora:cat:{inline}> <lora:dog:{inline}> <lora:fox:0.5> <lora:other:1>"
+    targeted = module._apply_preset_to_prompt_text(prompt, "dog", "lora", "balanced", "Target list only", presets)
+    assert targeted == f"<lora:cat:0.6:te=0.2> <lora:dog:{inline}> <lora:fox:0.5> <lora:other:1>"
+    lokr = module._apply_preset_to_prompt_text(prompt, "", "lokr", "style", module.PRESET_SCOPE_ALL, presets)
+    assert lokr == "<lora:cat:0.6:te=0.2> <lora:dog:1> <lora:fox:blocks=19-27=0.9> <lora:other:1>"
+    assert module._apply_preset_to_prompt_text(prompt, "", "lora", "missing", module.PRESET_SCOPE_ALL, presets) == prompt
+
+
 def test_prompt_conds_are_recomputed_when_qwen_layer_weights_change(module, monkeypatch):
     monkeypatch.setattr(module, "install_patch", lambda: None)
     monkeypatch.setattr(module, "_prompt_lora_is_controlled", lambda *args: True)

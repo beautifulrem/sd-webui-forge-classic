@@ -346,6 +346,37 @@ def test_batch_prompt_rewrite_is_all_or_nothing():
     assert (p.prompts, p.all_prompts, p.all_hr_prompts) == (["B"], ["a", "B"], ["ha", "hb!"])
 
 
+def test_rewritten_prompts_are_restored_as_written():
+    import copy
+
+    from modules.anima_lora_support import restore_batch_prompts, restore_run_prompts, rewrite_batch_prompts
+
+    p = SimpleNamespace(iteration=1, batch_size=2, all_prompts=["a", "b", "c", "d"], all_hr_prompts=["ha", "hb", "hc", "hd"])
+    p.prompts = p.all_prompts[2:4]
+    # Two rewriters of the batch (the layer weight's two tabs, the stage scheduler)
+    rewrite_batch_prompts(p, lambda prompts: [x + "1" for x in prompts], lambda prompts: [x + "1" for x in prompts])
+    rewrite_batch_prompts(p, lambda prompts: [x + "2" for x in prompts], None)
+    assert p.all_prompts == ["a", "b", "c12", "d12"] and p.all_hr_prompts == ["ha", "hb", "hc1", "hd1"]
+
+    p.all_prompts[3] = "changed by another script"
+    p.prompts = p.all_prompts[2:4]  # processing re-slices it after postprocess_batch
+    # A nested run on a shallow copy of p has nothing of its own to restore
+    nested = copy.copy(p)
+    nested.prompts = list(p.prompts)
+    restore_batch_prompts(nested)
+    assert nested.prompts == ["c12", "changed by another script"]
+
+    restore_batch_prompts(p)
+    assert p.prompts == ["c", "changed by another script"] and p.all_hr_prompts == ["ha", "hb", "hc", "hd"]
+    assert p.all_prompts == ["a", "b", "c12", "changed by another script"]  # a nested run still reads what was loaded
+
+    restore_run_prompts(p)
+    assert p.all_prompts == ["a", "b", "c", "changed by another script"]
+    p.all_prompts[2] = "c12"
+    restore_run_prompts(p)  # forgotten after the run
+    assert p.all_prompts[2] == "c12"
+
+
 def test_to_float_falls_back_on_what_is_not_a_number():
     assert [to_float(value, 3.0) for value in (None, "", "x", [1], "0.5", 2, True)] == [3.0, 3.0, 3.0, 3.0, 0.5, 2.0, 1.0]
     assert clamp(5, 0, 1) == 1 and clamp(-1, 0, 1) == 0 and clamp(0.5, 0, 1) == 0.5

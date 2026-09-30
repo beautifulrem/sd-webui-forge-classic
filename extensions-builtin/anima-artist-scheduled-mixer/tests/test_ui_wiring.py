@@ -165,3 +165,34 @@ def test_only_user_edits_rewrite_the_rows(monkeypatch, tmp_path):
     for row in range(mixer.MAX_ARTIST_ROWS):
         stage, auto_shift = base_rows[row * mixer.ROW_WIDTH + 8], base_rows[row * mixer.ROW_WIDTH + 9]
         assert rewrites(stage) == ["input"] and rewrites(auto_shift) == ["input"]
+
+
+def test_a_generation_remembers_the_panel_once_from_the_ui(monkeypatch):
+    from types import SimpleNamespace
+
+    from modules import shared
+
+    from test_runtime_dispatch import _run_args
+
+    saved = []
+    monkeypatch.setattr(mixer, "_save_runtime_current_settings", lambda tab, args: saved.append(args.base_row_count))
+    monkeypatch.setattr(shared, "state", SimpleNamespace(job_count=1, job_no=0))
+    script = mixer.Script()
+    script.tabname = "txt2img"
+
+    def generate(p):
+        saved.clear()
+        script.process_before_every_sampling(p, *_run_args())
+        return len(saved)
+
+    run = SimpleNamespace(is_api=False, extra_generation_params={})
+    assert generate(run) == 1
+    assert generate(run) == 0  # the same run's next batch or Hires pass
+    assert generate(SimpleNamespace(is_api=False, is_hr_pass=True, extra_generation_params={})) == 0
+    assert generate(SimpleNamespace(is_api=True, extra_generation_params={})) == 0  # API args are not the panel
+
+    # An X/Y/Z grid: one job per cell, each on a copy of p with its own args
+    shared.state.job_count = 4
+    assert generate(SimpleNamespace(is_api=False, extra_generation_params={})) == 1  # the first cell
+    shared.state.job_no = 1
+    assert generate(SimpleNamespace(is_api=False, extra_generation_params={})) == 0

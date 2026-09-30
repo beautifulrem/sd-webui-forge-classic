@@ -445,3 +445,39 @@ def test_per_lora_templates_resolve_their_stage_and_curve_like_the_panel(module)
     fox = base.config_for_file("fox.safetensors", {"fox"})
     assert fox.stage == module.STAGE_STYLE and fox.parts == module._template_parts(module.BUILTIN_TEMPLATES[module.PRESET_STYLE_ALLOW])
     assert base.config_for_file("other.safetensors", {"other"}) is base
+
+
+def test_per_lora_templates_named_apart_by_case_stay_apart(module):
+    late = {"auto": False, "stage": module.STAGE_STYLE, "start": 0.6, "end": 0.9, "peak": 0.7}
+    lower = {"auto": False, "stage": module.STAGE_STYLE, "start": 0.1, "end": 0.3, "peak": 0.2}
+    module._TEMPLATES.edit(lambda data: (data.update(Late=late, late=lower), ("Late", "")))
+    base = module._build_pass_config(module.MODE_PROMPT_ALL, "", "", module.PRESET_CHARACTER_ALLOW, "cat=Late\ndog=late", True, module.STAGE_CHARACTER, 0.2, 0.8, 0.5, 1.0, module.CURVE_SMOOTH, 3.0)
+
+    cat = base.config_for_file("cat.safetensors", {"cat"})
+    dog = base.config_for_file("dog.safetensors", {"dog"})
+
+    assert (cat.template_name, cat.start, cat.end) == ("Late", 0.6, 0.9)
+    assert (dog.template_name, dog.start, dog.end) == ("late", 0.1, 0.3)
+    assert base.config_for_file("cat.safetensors", {"cat"}) is cat  # cached
+
+
+def test_the_infotext_keeps_the_lora_weights_as_written(module):
+    """The batch loads its LoRAs at the panel's multiplier; the infotext, built
+    from p.prompts and all_hr_prompts after postprocess_batch_list, keeps the
+    tags as written."""
+    config = _config(module, module.PRESET_CHARACTER_ALLOW, panel="0.5")
+    state = module.RuntimeState(None, True, config, config, module.DISABLE_NONE, [], False)
+    written = ["a <lora:cat:1.2:te=0>", "b <lora:cat:0.8>"]
+    p = SimpleNamespace(iteration=1, batch_size=1, enable_hr=True, all_prompts=list(written), all_hr_prompts=list(written), hr_prompts=[])
+    script = module.Script()
+
+    p.prompts = p.all_prompts[1:2]
+    module._rewrite_batch_prompts(p, state)  # before_process_batch
+    assert (p.prompts, p.all_hr_prompts[1]) == (["b <lora:cat:0.5>"], "b <lora:cat:0.5>")
+    p.prompts = p.all_prompts[1:2]  # re-sliced after postprocess_batch
+    script.postprocess_batch_list(p, SimpleNamespace(images=[]))
+
+    assert p.prompts == written[1:] and p.all_hr_prompts == written
+    assert p.all_prompts[1] == "b <lora:cat:0.5>"  # what a nested run (ADetailer) reads
+    script.postprocess(p, SimpleNamespace())
+    assert p.all_prompts == written

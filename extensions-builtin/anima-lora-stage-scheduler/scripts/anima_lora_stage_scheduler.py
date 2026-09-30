@@ -19,6 +19,8 @@ from modules.anima_lora_support import (
     lora_control_files,
     manual_window_bans,
     note_lora_control_yield,
+    restore_batch_prompts,
+    restore_run_prompts,
     rewrite_batch_prompts,
     sigma_progress,
     window_curve_factor,
@@ -424,10 +426,6 @@ def _note_text_encoder_signature(p, signature):
 def _format_float(value):
     text = f"{_to_float(value):.8f}".rstrip("0").rstrip(".")
     return text if text not in {"", "-0"} else "0"
-
-
-def _normalize_name(name: str) -> str:
-    return str(name or "").strip().lower()
 
 
 @dataclass
@@ -1161,8 +1159,8 @@ class PassConfig:
         if not template_name or template_name == self.template_name:
             return self
 
-        cache_key = _normalize_name(template_name)
-        cached = self._lora_template_cache.get(cache_key)
+        # Template names are exact: "Late" and "late" are two templates
+        cached = self._lora_template_cache.get(template_name)
         if cached is not None:
             return cached
 
@@ -1192,7 +1190,7 @@ class PassConfig:
         )
         # Resolves the template's parts, stage and timing, as for the panel's
         config.finalize_timing()
-        self._lora_template_cache[cache_key] = config
+        self._lora_template_cache[template_name] = config
         return config
 
     def prompt_name_matches(self, lora_name: str) -> bool:
@@ -2061,8 +2059,14 @@ class Script(scripts.Script):
 
         state.set_factor(0.0)
 
+    def postprocess_batch_list(self, p, pp, *args, **kwargs):
+        # The batch's infotexts record the LoRA weights as written, not the
+        # panel's multiplier the batch loaded them at
+        restore_batch_prompts(p)
+
     def postprocess(self, p, processed, *args, **kwargs):
         _cleanup_runtime(p)
+        restore_run_prompts(p)
 
     def cleanup(self, p, *args, **kwargs):
         _cleanup_runtime(p)
