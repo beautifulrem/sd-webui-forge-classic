@@ -1,7 +1,7 @@
 # Forge Neo Remi 功能与 Anima 生成指南
 
 > 适用分支：`remi`  
-> 代码核对基线：`20c8c255`（2026-09-30）  
+> 代码核对基线：`37122ae9`（2026-09-30）  
 > 本文中的“推荐”是保守起步值，不是对所有模型、LoRA 和提示词都最优的固定答案。
 
 ## 先看结论
@@ -329,12 +329,12 @@ Remi 会按 checkpoint 实际结构识别 28 层、40 层/2.9B 和 52 层/3.8B A
 适合把最多三个独立 prompt 路由到矩形区域。保守起点就是默认值：
 
 - blocks `0-27`（2B 布局，在 40/52 层模型上同样是全部层）；
-- progress `0.0–0.65`；
+- progress `0.0–0.65`（模型时间，即经模型 shift 换算的 sigma 比例，不是采样步数比例；只有 Simple 这类等距调度两者才一致）；
 - feather `0.03`；
 - base preserve `0.15`；
 - region strength `1.0`（区域内的混合不透明度，1 即完全替换，再扣除 base preserve；高于 1 不会更强，只会让羽化边缘更早到满强度，并在重叠处压过较弱的区域）。
 
-先从一个区域开始，再增加第二个。区域重叠会做归一化，不依赖行顺序。它和 NAG 可同时启用，但 NAG 不会对合成 regional context 再做负向引导。Regional 与 FreeFuse 是硬冲突。
+区域 prompt 支持 Forge 的提示词编辑（`[a:b:N]`、`[a|b]`），会像主 prompt 一样逐步解析。先从一个区域开始，再增加第二个。区域重叠会做归一化，不依赖行顺序。它和 NAG 可同时启用，但 NAG 不会对合成 regional context 再做负向引导。Regional 与 FreeFuse 是硬冲突。
 
 ### Anima Artist Scheduled Mixer
 
@@ -345,7 +345,7 @@ Remi 会按 checkpoint 实际结构识别 28 层、40 层/2.9B 和 52 层/3.8B A
 - 融合模式 `插值融合`；
 - 全局强度 `0.70`。
 
-风格太强时先切 `保真增量` 或降低全局强度，不要先增加更多画师。Artist Mixer 与 FreeFuse 是硬冲突；与 Regional 虽能组合，也应先分别建立基线。
+画师介入时间（开始/结束）按采样步数比例计算；基础 prompt 里的提示词编辑（`[a:b:N]`、`[a|b]`）会在每个画师分支中逐步解析，与主 prompt 一致。风格太强时先切 `保真增量` 或降低全局强度，不要先增加更多画师。Artist Mixer 与 FreeFuse 是硬冲突；与 Regional 虽能组合，也应先分别建立基线。
 
 正向 prompt 含 `AND`（Forge 的多子提示组合）时，Artist Mixer 在该遍不生效：生成照常进行，infotext 记为 `Anima Artist Mixer: disabled: AND prompts are not supported`。需要画师混合时请把 prompt 改写成不含 `AND` 的单一提示。
 
@@ -379,6 +379,7 @@ Remi 会按 checkpoint 实际结构识别 28 层、40 层/2.9B 和 52 层/3.8B A
 - 每个启用项都要填写匹配已加载文件名/Stem 的 LoRA 名；
 - trigger phrase 必须逐字出现在每一张图的正向 prompt；
 - 正向 prompt 不能含 `AND`（Forge 的多子提示组合）：FreeFuse 会中止采样而不是静默跳过，控制台记录 `Anima FreeFuse does not support AND prompts`；
+- 提示词编辑（`[a:b:N]`、`[a|b]`）按步解析，但各步文本中的概念与背景 token 位置必须完全一致，否则同样中止采样；未填写 background phrase 时背景取 prompt 末尾槽位，任何改变 token 数的编辑都会使它移动；
 - `S-churn = 0`；
 - 不与 Regional、Artist Mixer 或 Refiner checkpoint switch 同跑；
 - LoRA stage/layer weight 与 modulation 可以组合；
