@@ -71,6 +71,11 @@ def _values(subjects=SUBJECTS, collect_block=18, bias_blocks="0-51", background=
     return (*subjects, 3, collect_block, 0.1, 300, background, 0.95, 15, 1, 1.0, 1.0, 6.0, 1.0, bias_blocks)
 
 
+def _configure(module, p, values):
+    """``_configure_sampling`` of an enabled panel with the script args after ``enable``."""
+    module.AnimaFreeFuseScript._configure_sampling(p, module._arguments((True, *values)))
+
+
 @pytest.fixture
 def script(monkeypatch):
     module = _load(monkeypatch)
@@ -82,7 +87,7 @@ def script(monkeypatch):
 def test_valid_subjects_build_the_state(script):
     module, applied = script
     p = _process()
-    module.AnimaFreeFuseScript._configure_sampling(p, _values())
+    _configure(module, p, _values())
 
     (state,) = applied
     assert p.sd_model.forge_objects.unet == "patched"
@@ -139,19 +144,19 @@ def test_written_infotext_restores_the_panel_controls(script, subjects, backgrou
 def test_invalid_subjects_are_rejected(script, subjects, message):
     module, applied = script
     with pytest.raises(ValueError, match=message):
-        module.AnimaFreeFuseScript._configure_sampling(_process(), _values(subjects))
+        _configure(module, _process(), _values(subjects))
     assert applied == []
 
 
 def test_concepts_must_sit_at_the_same_tokens_across_the_batch(script):
     module, applied = script
     # Same positions in both prompts: accepted
-    module.AnimaFreeFuseScript._configure_sampling(_process(("alice and bob", "alice and bob")), _values())
+    _configure(module, _process(("alice and bob", "alice and bob")), _values())
     assert len(applied) == 1
     with pytest.raises(ValueError, match="identical concept token positions"):
-        module.AnimaFreeFuseScript._configure_sampling(_process(("alice and bob", "alice with bob")), _values())
+        _configure(module, _process(("alice and bob", "alice with bob")), _values())
     with pytest.raises(ValueError, match="single Anima conditioning chunk"):
-        module.AnimaFreeFuseScript._configure_sampling(_process(chunks=2), _values())
+        _configure(module, _process(chunks=2), _values())
 
 
 class _RecordingEngine(_Engine):
@@ -177,7 +182,7 @@ def test_concept_positions_come_from_each_resolved_step_text(script, prompt, tex
     module, applied = script
     p = _process((prompt,))
     p.sd_model.text_processing_engine_anima = engine = _RecordingEngine()
-    module.AnimaFreeFuseScript._configure_sampling(p, _values())
+    _configure(module, p, _values())
 
     assert engine.lines == texts  # each distinct text once
     (state,) = applied
@@ -196,13 +201,13 @@ def test_concept_positions_come_from_each_resolved_step_text(script, prompt, tex
 def test_prompt_editing_that_moves_token_positions_is_rejected(script, prompt, background):
     module, applied = script
     with pytest.raises(ValueError, match=r"prompt editing \(\[a:b:N\], \[a\|b\]\) to keep"):
-        module.AnimaFreeFuseScript._configure_sampling(_process((prompt,)), _values(background=background))
+        _configure(module, _process((prompt,)), _values(background=background))
     assert applied == []
 
 
 def test_prompt_editing_after_the_background_phrase_is_accepted(script):
     module, applied = script
-    module.AnimaFreeFuseScript._configure_sampling(_process(("alice and bob in a forest [cat:bird:5]",)), _values(background="forest"))
+    _configure(module, _process(("alice and bob in a forest [cat:bird:5]",)), _values(background="forest"))
     (state,) = applied
     assert state.background_positions == [19, 20, 21, 22, 23, 24]
 
@@ -213,7 +218,7 @@ def test_and_prompts_are_rejected_before_sampling(script, prompts):
     # Forge would split these into sub-prompt conds: wrong concept positions and
     # one collected mask per sub-prompt row, failing only inside phase 2.
     with pytest.raises(ValueError, match="does not support AND prompts"):
-        module.AnimaFreeFuseScript._configure_sampling(_process(prompts), _values())
+        _configure(module, _process(prompts), _values())
     assert applied == []
 
 
@@ -222,7 +227,7 @@ def test_artist_mixer_in_the_same_pass_is_rejected(script):
     p = _process()
     module.set_feature_active(p, module.ARTIST_MIXER)
     with pytest.raises(ValueError, match="Artist Mixer"):
-        module.AnimaFreeFuseScript._configure_sampling(p, _values())
+        _configure(module, p, _values())
 
 
 @pytest.mark.parametrize(
@@ -238,7 +243,7 @@ def test_collect_and_bias_blocks_map_from_the_2b_layout(script, blocks, collect,
     module, applied = script
     collect_2b = 18 if blocks != 52 else 1
     p = _process(blocks=blocks)
-    module.AnimaFreeFuseScript._configure_sampling(p, _values(collect_block=collect_2b, bias_blocks=bias_text))
+    _configure(module, p, _values(collect_block=collect_2b, bias_blocks=bias_text))
     (state,) = applied
     assert state.collect_block == collect  # the original block, not a copy
     assert state.bias_blocks == bias
@@ -249,7 +254,7 @@ def test_collect_and_bias_blocks_map_from_the_2b_layout(script, blocks, collect,
 def test_every_block_is_biased_by_the_full_range(script, blocks):
     module, applied = script
     for text in ("0-27", "0-51"):
-        module.AnimaFreeFuseScript._configure_sampling(_process(blocks=blocks), _values(bias_blocks=text))
+        _configure(module, _process(blocks=blocks), _values(bias_blocks=text))
         assert applied.pop().bias_blocks == set(range(blocks))
 
 
@@ -283,3 +288,23 @@ def test_disabled_or_inactive_feature_does_nothing(monkeypatch):
         module.AnimaFreeFuseScript().process_before_every_sampling(p, enable, *_values())
         assert p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {}
 
+
+
+@pytest.mark.parametrize("values", [(*_values(), "extra"), _values()[:-1]], ids=["one-too-many", "one-short"])
+def test_a_wrong_argument_count_is_refused_before_anything_changes(monkeypatch, values):
+    from modules import anima_online_lora
+
+    module = _load(monkeypatch)
+    monkeypatch.setattr(anima_online_lora, "_leases", set())
+    count = len(module.SCRIPT_ARG_NAMES)
+    p = _process()
+    p.sampler_name, p.enable_hr = "Euler", False
+    unet = p.sd_model.forge_objects.unet
+    with pytest.raises(TypeError, match=f"Anima FreeFuse takes {count} script arguments, got {len(values) + 1}"):
+        module.AnimaFreeFuseScript().process(p, True, *values)
+    assert p.sampler_name == "Euler" and not module.is_feature_active(p, module.FREEFUSE) and anima_online_lora._leases == set()
+    module.set_feature_active(p, module.FREEFUSE)
+    # Raised, not turned into the sampler's configuration error
+    with pytest.raises(TypeError, match=f"got {len(values) + 1}"):
+        module.AnimaFreeFuseScript().process_before_every_sampling(p, True, *values)
+    assert p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {}

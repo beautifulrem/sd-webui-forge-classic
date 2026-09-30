@@ -65,7 +65,7 @@ from modules.anima_feature_conflicts import (
     resolve_guidance_conflicts,
 )
 from modules.anima_presets import register_preset_control
-from modules.anima_support import effective_prompt_batch, is_anima_auxiliary_denoiser, is_anima_engine, process_ref, schedule_steps
+from modules.anima_support import effective_prompt_batch, is_anima_auxiliary_denoiser, is_anima_engine, process_ref, schedule_steps, script_arguments
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -77,7 +77,8 @@ _REQUIRED = object()
 
 # One row per script argument, in the order ui() returns the components (the
 # API's positional order): (name of the control and parameter, infotext key
-# or None, preset name or None, default when an API call omits it). The local
+# or None, preset name or None, default for an argument list stored before the
+# control was added, see script_arguments, or _REQUIRED). The local
 # modulation file paths have no key: they are never written to infotext, and
 # a pasted PNG must not pick which local file is loaded. Keys use only word
 # characters, spaces, "-" and "/": parse_generation_parameters reads no other.
@@ -135,6 +136,7 @@ SCRIPT_ARGS = (
     ("apg_momentum", "Anima APG momentum", "guidance.apg_momentum", -0.5),
 )
 SCRIPT_ARG_NAMES = tuple(row[0] for row in SCRIPT_ARGS)
+SCRIPT_ARG_DEFAULTS = {name: default for name, _, _, default in SCRIPT_ARGS if default is not _REQUIRED}
 INFOTEXT_KEYS = {name: key for name, key, _, _ in SCRIPT_ARGS if key is not None}
 
 # The CFG range, NAG and Skim windows go through Forge's percent_to_sigma,
@@ -945,28 +947,18 @@ class AnimaGuidanceScript(scripts.Script):
         return [component for component, _, _ in fields]
 
     @staticmethod
-    def _arguments(values, kwargs) -> SimpleNamespace:
+    def _arguments(values) -> SimpleNamespace:
         # Positional script args are named by SCRIPT_ARGS, the table ui()
         # returns its components from, so their order is written only once.
         # Forge's own keywords (x, noise, c, uc) are not script args.
-        arguments = dict(zip(SCRIPT_ARG_NAMES, values))
-        for name, _, _, default in SCRIPT_ARGS:
-            if name in kwargs:
-                arguments[name] = kwargs[name]
-            elif name not in arguments and default is not _REQUIRED:
-                arguments[name] = default
-        missing = [name for name in SCRIPT_ARG_NAMES if name not in arguments]
-        if missing:
-            raise TypeError(f"Anima guidance is missing script arguments: {', '.join(missing)}")
-        # One attribute per SCRIPT_ARGS name.
-        return SimpleNamespace(**arguments)
+        return script_arguments("Anima guidance", SCRIPT_ARG_NAMES, values, defaults=SCRIPT_ARG_DEFAULTS)
 
     def process(self, p, *values):
         # Once per job, before any pass samples.
-        _prefetch_cns_gamma(p, self._arguments(values, {}))
+        _prefetch_cns_gamma(p, self._arguments(values))
 
     def process_before_every_sampling(self, p, *values, **kwargs):
-        self._process_before_every_sampling(p, self._arguments(values, kwargs))
+        self._process_before_every_sampling(p, self._arguments(values))
 
     def _process_before_every_sampling(self, p, args: SimpleNamespace):
         # The global pre-denoiser hook applies whatever DCW state p holds: a

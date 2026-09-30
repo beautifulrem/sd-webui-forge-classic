@@ -181,6 +181,8 @@ def test_ui_and_process_name_the_script_args_in_table_order(module, monkeypatch)
 
     with pytest.raises(TypeError, match=f"takes {len(args)} script arguments, got {len(args) - 1}"):
         module.Script().process(SimpleNamespace(), *args[:-1])
+    with pytest.raises(TypeError, match=f"takes {len(args)} script arguments, got {len(args) + 1}"):
+        module.Script().process(SimpleNamespace(), *args, "not a script arg")
 
 
 def test_the_infotext_records_stable_values_whatever_the_ui_language(module, monkeypatch):

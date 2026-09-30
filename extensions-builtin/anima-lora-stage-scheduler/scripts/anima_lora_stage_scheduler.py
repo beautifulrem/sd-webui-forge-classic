@@ -47,6 +47,7 @@ from modules.anima_lora_support import (
 )
 from modules.anima_lora_ui import intro_block, register_language_option, ui_language, ui_text
 from modules.anima_presets import register_preset_control
+from modules.anima_support import script_arguments
 
 
 logger = logging.getLogger("anima_lora_stage_scheduler")
@@ -401,9 +402,7 @@ INFOTEXT_KEYS = tuple(row[1] for row in SCRIPT_ARGS)
 def _arguments(values) -> SimpleNamespace:
     """The script args, one attribute per SCRIPT_ARGS name."""
 
-    if len(values) != len(SCRIPT_ARG_NAMES):
-        raise TypeError(f"Anima LoRA stage scheduler takes {len(SCRIPT_ARG_NAMES)} script arguments, got {len(values)}")
-    return SimpleNamespace(**dict(zip(SCRIPT_ARG_NAMES, values, strict=True)))
+    return script_arguments("Anima LoRA stage scheduler", SCRIPT_ARG_NAMES, values)
 
 
 STAGE_DEFAULT_CURVES = {

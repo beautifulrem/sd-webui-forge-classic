@@ -143,8 +143,8 @@ def test_old_seven_value_presets_are_padded_with_defaults(monkeypatch):
     assert [update["value"] for update in updates] == [*old, *DEFAULTS[len(old) :]]
 
 
-def test_upstream_short_argument_list_is_padded_with_defaults():
-    # Upstream Forge Neo's API arity stops before Feature History and the SEA controls.
+def test_an_older_stored_argument_list_is_padded_with_defaults():
+    # Stored before Feature History and the SEA controls were added (upstream Forge Neo's arity).
     short = _args(spec_m=3)[:8]
     p = _process()
     spectrum.SpectrumForForge().process_before_every_sampling(p, True, *short, x=torch.zeros(2, 16, 8, 8))
@@ -152,3 +152,12 @@ def test_upstream_short_argument_list_is_padded_with_defaults():
     assert p.extra_generation_params["spec_m"] == 3
     assert p.extra_generation_params["spec_history_size"] == DEFAULTS[INFOTEXT_KEYS.index("spec_history_size")]
     assert p.extra_generation_params["spec_schedule"] == "Window"
+
+
+def test_extra_arguments_are_refused_before_the_patch():
+    p = _process()
+    unet = p.sd_model.forge_objects.unet
+    count = len(INFOTEXT_KEYS) + 1
+    with pytest.raises(TypeError, match=f"Spectrum takes {count} script arguments, got {count + 1}"):
+        spectrum.SpectrumForForge().process_before_every_sampling(p, True, *_args(), "extra", x=torch.zeros(2, 16, 8, 8))
+    assert p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {} and not hasattr(p, "_spectrum_states")

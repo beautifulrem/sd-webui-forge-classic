@@ -30,10 +30,12 @@ def _load():
 
 regional = _load()
 REGION = (True, "a red cat", 0.0, 0.0, 0.5, 1.0, 1.0)
+UNUSED_REGION = (False, "", 0.0, 0.0, 0.5, 1.0, 1.0)
 
 
 def _process(p, *region):
-    regional.AnimaRegionalScript().process(p, True, "0-3", 0.0, 0.65, 0.03, 0.15, *region)
+    """process() with ``region`` as region 1 and the other regions unused."""
+    regional.AnimaRegionalScript().process(p, True, "0-3", 0.0, 0.65, 0.03, 0.15, *region, *UNUSED_REGION, *UNUSED_REGION)
 
 
 @pytest.mark.parametrize("artist_mixer_first", [True, False])

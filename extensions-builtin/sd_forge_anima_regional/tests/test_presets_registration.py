@@ -84,3 +84,27 @@ def test_an_inactive_region_writes_only_its_switch(sampling):
     for key, value in written.items():
         index = next(number for number, control in enumerate(controls) if control is fields[key])
         assert value == args[index], key
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        # One region too many used to become a fourth region, installed before the infotext raised
+        (*SETTINGS, *(value for region in REGIONS for value in region), *REGIONS[0]),
+        # A partial region used to raise only while the regions were built
+        (*SETTINGS, *(value for region in REGIONS for value in region))[:-1],
+    ],
+    ids=["extra-region", "partial-region"],
+)
+def test_a_wrong_argument_count_installs_nothing(sampling, monkeypatch, args):
+    from modules.anima_feature_conflicts import REGIONAL, is_feature_active
+
+    built = []
+    monkeypatch.setattr(sampling, "_region", lambda *region: built.append(region))
+    p, unet = harness.make_process()
+    count = len(sampling.SCRIPT_ARGS)
+    for hook in (sampling.AnimaRegionalScript().process, sampling.AnimaRegionalScript().process_before_every_sampling):
+        with pytest.raises(TypeError, match=f"Anima Regional Conditioning takes {count} script arguments, got {len(args)}"):
+            hook(p, *args)
+    assert built == [] and p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {}
+    assert not is_feature_active(p, REGIONAL)

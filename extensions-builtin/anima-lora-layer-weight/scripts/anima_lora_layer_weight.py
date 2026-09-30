@@ -37,7 +37,7 @@ from modules.anima_lora_files import adapter_kind_for_file as _adapter_kind_for_
 from modules.anima_lora_files import is_anima_adapter_file as _is_anima_adapter_file
 from modules.anima_lora_files import lora_coverage as _lora_coverage
 from modules.anima_presets import register_preset_control
-from modules.anima_support import PasteKey
+from modules.anima_support import PasteKey, script_arguments
 
 
 logger = logging.getLogger("anima_lora_layer_weight")
@@ -230,17 +230,11 @@ def _infotext_key(adapter_kind: str, field_name: str) -> str:
 INFOTEXT_KEYS = tuple(_infotext_key(kind, name) for kind in ADAPTER_KINDS for name in TAB_INFOTEXT_FIELDS)
 
 
-def _arguments(values, kwargs=None) -> dict[str, SimpleNamespace]:
-    """The script args ``values`` (a keyword named in SCRIPT_ARG_NAMES
-    overrides its slot), per adapter kind one attribute per TAB_ARGS name."""
+def _arguments(values) -> dict[str, SimpleNamespace]:
+    """The script args ``values``, per adapter kind one attribute per
+    TAB_ARGS name."""
 
-    if len(values) > len(SCRIPT_ARG_NAMES):
-        raise TypeError(f"Anima LoRA layer weight takes {len(SCRIPT_ARG_NAMES)} script arguments, got {len(values)}")
-    arguments = dict(zip(SCRIPT_ARG_NAMES, values))
-    arguments.update((name, value) for name, value in (kwargs or {}).items() if name in SCRIPT_ARG_NAMES)
-    missing = [name for name in SCRIPT_ARG_NAMES if name not in arguments]
-    if missing:
-        raise TypeError(f"Anima LoRA layer weight is missing script arguments: {', '.join(missing)}")
+    arguments = vars(script_arguments("Anima LoRA layer weight", SCRIPT_ARG_NAMES, values))
     return {kind: SimpleNamespace(**{name: arguments[f"{kind}_{name}"] for name in TAB_ARG_NAMES}) for kind in ADAPTER_KINDS}
 
 
@@ -854,9 +848,9 @@ class Script(scripts.Script):
     def before_process_batch(self, p, *args, **kwargs):
         global _ACTIVE_RULE
 
+        tabs = _arguments(args)
         install_patch()
         _ACTIVE_RULE = None
-        tabs = _arguments(args, kwargs)
         # The hidden preset switches keep their argument slots for API callers,
         # but presets are only applied to the prompt, by their button.
         try:

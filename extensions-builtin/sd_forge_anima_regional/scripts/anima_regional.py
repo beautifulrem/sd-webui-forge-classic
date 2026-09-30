@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from functools import partial
+from types import SimpleNamespace
 
 import gradio as gr
 
@@ -22,6 +23,7 @@ from modules.anima_support import (
     prompt_step,
     register_negpip_prompts,
     schedule_steps,
+    script_arguments,
 )
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
@@ -37,7 +39,9 @@ _REGION_FIELDS = (("active", bool), ("prompt", str), ("x", float), ("y", float),
 # API's positional order): (name of the control, infotext key, preset name or
 # None, type written to infotext). Region prompts are user content, which
 # presets leave alone. process() and process_before_every_sampling() name the
-# rows before the regions as parameters.
+# rows before the regions as parameters (Agent Scheduler stores a queued API
+# task's script args by process()'s parameter names) and check the whole list
+# with _arguments.
 SCRIPT_ARGS = (
     ("enable", "Anima regional enabled", "regional.enabled", bool),
     ("blocks", "Anima regional blocks", "regional.blocks", str),
@@ -51,6 +55,7 @@ SCRIPT_ARGS = (
         for field, kind in _REGION_FIELDS
     ),
 )
+SCRIPT_ARG_NAMES = tuple(row[0] for row in SCRIPT_ARGS)
 INFOTEXT_KEYS = tuple(row[1] for row in SCRIPT_ARGS)
 _PROGRESS_INFO = (
     "A fraction of model time (sigma through the model's Shift), not of the sampling steps: "
@@ -58,16 +63,21 @@ _PROGRESS_INFO = (
 )
 
 
-def generation_params(blocks, start, end, feather, base_preserve, region_values) -> dict:
-    """Infotext for one regional pass; keys come from SCRIPT_ARGS. An
-    inactive region records only its switch."""
+def _arguments(values) -> SimpleNamespace:
+    """The script args, ``enable`` first, one attribute per SCRIPT_ARGS name."""
 
-    values = [True, blocks, start, end, feather, base_preserve]
-    for active, *settings in _region_rows(region_values):
+    return script_arguments("Anima Regional Conditioning", SCRIPT_ARG_NAMES, values)
+
+
+def generation_params(args: SimpleNamespace) -> dict:
+    """Infotext for one regional pass from its script args ``args`` (see
+    ``_arguments``); keys come from SCRIPT_ARGS. An inactive region records
+    only its switch."""
+
+    values = [True, args.blocks, args.start, args.end, args.feather, args.base_preserve]
+    for active, *settings in _region_rows(args):
         values += [active, *(settings if active else [None] * len(settings))]
-    # An API call may pass fewer regions than the panel has: only theirs are written
-    rows = SCRIPT_ARGS[: len(values)]
-    return {key: kind(value) for (_, key, _, kind), value in zip(rows, values, strict=True) if value is not None}
+    return {key: kind(value) for (_, key, _, kind), value in zip(SCRIPT_ARGS, values, strict=True) if value is not None}
 
 
 def _encode_cached(p, text: str):
@@ -107,9 +117,10 @@ def _region(p, text: str, x, y, width, height, strength) -> Region:
     return Region(cond, *placement, negpip_mask, ends=ends, entries=entries)
 
 
-def _region_rows(region_values):
-    width = len(_REGION_FIELDS)
-    return [tuple(region_values[offset : offset + width]) for offset in range(0, len(region_values), width)]
+def _region_rows(args: SimpleNamespace) -> list[tuple]:
+    """Each region's values, in _REGION_FIELDS order."""
+
+    return [tuple(getattr(args, f"region{index}_{field}") for field, _ in _REGION_FIELDS) for index in REGIONS]
 
 
 def _region_is_used(active, text, width, height, strength) -> bool:
@@ -188,13 +199,14 @@ class AnimaRegionalScript(scripts.Script):
         return [component for component, _, _ in fields]
 
     def process(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
+        args = _arguments((enable, blocks, start, end, feather, base_preserve, *region_values))
         # Runs before NegPiP's process_batch: let a negative weight in a region
         # prompt that will actually be encoded enable NegPiP.
         prompts = []
-        if enable and is_anima_engine(getattr(p, "sd_model", None)) and not is_feature_active(p, FREEFUSE):
+        if args.enable and is_anima_engine(getattr(p, "sd_model", None)) and not is_feature_active(p, FREEFUSE):
             prompts = [
                 text
-                for active, text, x, y, width, height, strength in _region_rows(region_values)
+                for active, text, x, y, width, height, strength in _region_rows(args)
                 if _region_is_used(active, text, width, height, strength)
             ]
         register_negpip_prompts(p, REGIONAL, prompts)
@@ -206,7 +218,9 @@ class AnimaRegionalScript(scripts.Script):
         set_feature_active(p, REGIONAL, False)
 
     def process_before_every_sampling(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
-        if not enable or not is_anima_engine(getattr(p, "sd_model", None)):
+        # Checked before any region is built or the patch installed.
+        args = _arguments((enable, blocks, start, end, feather, base_preserve, *region_values))
+        if not args.enable or not is_anima_engine(getattr(p, "sd_model", None)):
             return
         if is_feature_active(p, FREEFUSE):
             message = "disabled: Anima FreeFuse has priority in headless processing"
@@ -215,9 +229,9 @@ class AnimaRegionalScript(scripts.Script):
             return
         unet = p.sd_model.forge_objects.unet
         total_blocks = len(unet.model.diffusion_model.blocks)
-        selected_blocks = model_block_set(str(blocks), total_blocks, feature="Anima Regional Conditioning")
+        selected_blocks = model_block_set(str(args.blocks), total_blocks, feature="Anima Regional Conditioning")
         regions = []
-        for active, text, x, y, width, height, strength in _region_rows(region_values):
+        for active, text, x, y, width, height, strength in _region_rows(args):
             if not _region_is_used(active, text, width, height, strength):
                 continue
             regions.append(_region(p, str(text), x, y, width, height, strength))
@@ -228,12 +242,12 @@ class AnimaRegionalScript(scripts.Script):
         state = RegionalState(
             regions=regions,
             blocks=selected_blocks,
-            feather=float(feather),
-            base_preserve=float(base_preserve),
-            start_sigma=float(predictor.percent_to_sigma(float(start))),
-            end_sigma=float(predictor.percent_to_sigma(float(end))),
+            feather=float(args.feather),
+            base_preserve=float(args.base_preserve),
+            start_sigma=float(predictor.percent_to_sigma(float(args.start))),
+            end_sigma=float(predictor.percent_to_sigma(float(args.end))),
             step_of=partial(prompt_step, process_ref(p)),
         )
         p.sd_model.forge_objects.unet = apply_regional_patch(unet, state)
         # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
-        p.extra_generation_params.update(generation_params(blocks, start, end, feather, base_preserve, region_values))
+        p.extra_generation_params.update(generation_params(args))

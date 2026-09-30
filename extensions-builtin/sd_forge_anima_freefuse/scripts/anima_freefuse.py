@@ -28,7 +28,7 @@ from modules.anima_feature_conflicts import (
     resolve_freefuse_refiner_conflicts,
     set_feature_active,
 )
-from modules.anima_support import effective_prompt_batch, is_anima_engine, prompt_schedule, schedule_steps
+from modules.anima_support import effective_prompt_batch, is_anima_engine, prompt_schedule, schedule_steps, script_arguments
 from modules.anima_presets import register_preset_control
 from modules.infotext_utils import PasteField
 from modules.prompt_parser import get_multicond_prompt_list
@@ -74,12 +74,9 @@ INFOTEXT_KEYS = tuple(row[1] for row in SCRIPT_ARGS)
 
 
 def _arguments(values) -> SimpleNamespace:
-    """The script args after ``enable``, one attribute per SCRIPT_ARGS name."""
+    """The script args, ``enable`` first, one attribute per SCRIPT_ARGS name."""
 
-    names = SCRIPT_ARG_NAMES[1:]
-    if len(values) != len(names):
-        raise ValueError(f"Anima FreeFuse takes {len(names)} script arguments after enable, got {len(values)}")
-    return SimpleNamespace(**dict(zip(names, values, strict=True)))
+    return script_arguments("Anima FreeFuse", SCRIPT_ARG_NAMES, values)
 
 
 def _subject(args: SimpleNamespace, index: int) -> tuple:
@@ -88,12 +85,11 @@ def _subject(args: SimpleNamespace, index: int) -> tuple:
     return tuple(getattr(args, f"subject{index}_{suffix}") for suffix, _, _ in _SUBJECT_FIELDS)
 
 
-def generation_params(values) -> dict:
-    """Infotext restoring the panel from the script args after ``enable``;
-    keys come from SCRIPT_ARGS. An inactive subject records only its switch,
-    an empty background phrase nothing."""
+def generation_params(args: SimpleNamespace) -> dict:
+    """Infotext restoring the panel from the script args ``args`` (see
+    ``_arguments``); keys come from SCRIPT_ARGS. An inactive subject records
+    only its switch, an empty background phrase nothing."""
 
-    args = _arguments(values)
     written = {name: kind(getattr(args, name)) for name, _, _, kind in SCRIPT_ARGS[1:]}
     written["enable"] = True
     for index in SUBJECTS:
@@ -317,7 +313,9 @@ class AnimaFreeFuseScript(scripts.Script):
         return [component for component, _, _ in fields]
 
     def process(self, p, enable, *values, **kwargs):
-        if not enable:
+        # A wrong argument count is refused before the sampler or the online-LoRA lease changes.
+        args = _arguments((enable, *values))
+        if not args.enable:
             return
         current_model = getattr(p, "sd_model", None)
         if current_model is not None and not is_anima_engine(current_model):
@@ -359,10 +357,12 @@ class AnimaFreeFuseScript(scripts.Script):
             sd_model.current_lora_hash = "anima-freefuse:reload"
 
     def process_before_every_sampling(self, p, enable, *values, **kwargs):
-        if not enable or not is_feature_active(p, FREEFUSE):
+        # A wrong argument count raises here, not as the sampler's configuration error.
+        args = _arguments((enable, *values))
+        if not args.enable or not is_feature_active(p, FREEFUSE):
             return
         try:
-            self._configure_sampling(p, values)
+            self._configure_sampling(p, args)
         except Exception as error:
             logger.exception("Anima FreeFuse configuration failed: %s", error)
             unet = p.sd_model.forge_objects.unet
@@ -372,7 +372,7 @@ class AnimaFreeFuseScript(scripts.Script):
             )
 
     @staticmethod
-    def _configure_sampling(p, values):
+    def _configure_sampling(p, args: SimpleNamespace):
         # Regional runs after FreeFuse (script load order) and yields to it;
         # Artist Mixer runs first, yields too, and is checked here.
         if is_feature_active(p, ARTIST_MIXER):
@@ -380,7 +380,6 @@ class AnimaFreeFuseScript(scripts.Script):
                 "Anima FreeFuse and Anima Artist Mixer cannot run in the same pass"
             )
 
-        args = _arguments(values)
         adapters = []
         for index in SUBJECTS:
             active, selector, concept = _subject(args, index)
@@ -487,7 +486,7 @@ class AnimaFreeFuseScript(scripts.Script):
             f"negative {float(args.bias_scale):.2f}, positive {float(args.positive_bias):.2f}, blocks {args.bias_blocks}"
         )
         # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
-        p.extra_generation_params.update(generation_params(values))
+        p.extra_generation_params.update(generation_params(args))
 
     @staticmethod
     def _cleanup_runtime(p):

@@ -41,7 +41,7 @@ def test_script_args_name_the_registered_preset_fields(guidance):
     harness.build_ui(guidance.AnimaGuidanceScript())
     names, _, _ = preset_controls("txt2img")
     assert list(names) == [preset for _, _, preset, _ in guidance.SCRIPT_ARGS if preset is not None]
-    # An API call that omits a later argument gets the preset's default for it
+    # An argument list stored before a later control was added gets the preset's default for it
     for _, _, preset, default in guidance.SCRIPT_ARGS:
         if default is not guidance._REQUIRED:
             assert default == SAFE_BASE_AESTHETIC_PRESET[preset], preset

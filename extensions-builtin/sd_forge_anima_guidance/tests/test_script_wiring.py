@@ -121,7 +121,8 @@ def anima_model(monkeypatch):
 
 
 def _run(p, **overrides):
-    SCRIPT_MODULE.AnimaGuidanceScript().process_before_every_sampling(p, **{**DEFAULTS, **overrides})
+    # Positional, as Forge passes script args
+    SCRIPT_MODULE.AnimaGuidanceScript().process_before_every_sampling(p, *_positional(**overrides))
     return p.sd_model.forge_objects.unet
 
 
@@ -634,8 +635,9 @@ def test_positional_script_args_follow_the_table():
     assigned = {node.id for node in ast.walk(ui) if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)}
     assert set(names) <= assigned
 
-    # An API call with the positional values of the first 34 args only (the
-    # rest take their defaults) plus Forge's own keywords.
+    # An argument list stored before the later controls were added (the
+    # values of the first 34 args only: the rest take their defaults) plus
+    # Forge's own keywords.
     required = [name for name, _, _, default in SCRIPT_MODULE.SCRIPT_ARGS if default is SCRIPT_MODULE._REQUIRED]
     assert tuple(required) == names[: len(required)]
     values = [{**DEFAULTS, "dcw_enable": True}[name] for name in required]
@@ -649,8 +651,15 @@ def test_positional_script_args_follow_the_table():
     # All positional values, with a trailing one set: it reaches its parameter.
     values = [{**DEFAULTS, "apg_momentum": 0.25, "guidance_mode": APG_GUIDANCE}.get(name, default) for name, _, _, default in SCRIPT_MODULE.SCRIPT_ARGS]
     p = FakeProcess()
-    SCRIPT_MODULE.AnimaGuidanceScript().process_before_every_sampling(p, *values, "extra positional")
+    SCRIPT_MODULE.AnimaGuidanceScript().process_before_every_sampling(p, *values)
     assert p.extra_generation_params["Anima APG momentum"] == 0.25
+    # One value too many: the list is misaligned, refused before anything is installed.
+    p = FakeProcess()
+    unet = p.sd_model.forge_objects.unet
+    for hook in (SCRIPT_MODULE.AnimaGuidanceScript().process, SCRIPT_MODULE.AnimaGuidanceScript().process_before_every_sampling):
+        with pytest.raises(TypeError, match=f"Anima guidance takes {len(names)} script arguments, got {len(names) + 1}"):
+            hook(p, *values, "extra positional")
+    assert p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {}
 
 
 def test_cfg_zero_star_zero_init_steps_skip_the_model():
@@ -761,6 +770,7 @@ def test_local_modulation_files_follow_the_servers_directory_policy(monkeypatch,
 
 
 def _positional(**overrides):
+    assert set(overrides) <= set(SCRIPT_MODULE.SCRIPT_ARG_NAMES), overrides
     values = {**DEFAULTS, **overrides}
     return [values.get(name, default) for name, _, _, default in SCRIPT_MODULE.SCRIPT_ARGS]
 

@@ -4,15 +4,18 @@ import gradio as gr
 from lib_spectrum import logger
 from lib_spectrum.forecaster import SpectrumNode
 from lib_spectrum.pass_context import resolve_pass_context
-from lib_spectrum.presets import CONTROLS, DEFAULT, DEFAULTS, ENABLE_KEY, INFOTEXT_KEYS, PresetManager
+from lib_spectrum.presets import CONTROLS, DEFAULT, ENABLE_KEY, INFOTEXT_KEYS, PresetManager
 
 from modules import paths, scripts, shared
 from modules.anima_presets import register_preset_control
+from modules.anima_support import script_arguments
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
 PresetManager.load_presets()
 
+# The script arguments: the switch, then the settings in CONTROLS order.
+SCRIPT_ARG_NAMES = ("enable", *INFOTEXT_KEYS)
 # Positions in the script arguments after ``enable`` (CONTROLS order).
 _DEGREE = INFOTEXT_KEYS.index("spec_m")
 _HISTORY = INFOTEXT_KEYS.index("spec_history_size")
@@ -193,12 +196,14 @@ class SpectrumForForge(scripts.Script):
         p._spectrum_states = []
 
     def process_before_every_sampling(self, p, enable: bool, *args, **kwargs):
-        if not enable:
+        # An argument list stored before the newer controls were added (e.g. a
+        # UI task Agent Scheduler queued earlier) gets their defaults, as
+        # saved presets do; one with extra values is refused.
+        named = script_arguments("Spectrum", SCRIPT_ARG_NAMES, (enable, *args), defaults=DEFAULT)
+        if not named.enable:
             return
 
-        # API callers with upstream's shorter argument list get the defaults
-        # for the newer controls (saved presets are padded the same way).
-        args = [*args, *DEFAULTS[len(args) :]]
+        args = [getattr(named, key) for key in INFOTEXT_KEYS]
         degree = int(args[_DEGREE])
         minimum_history = degree + 2
         if int(args[_HISTORY]) < minimum_history:

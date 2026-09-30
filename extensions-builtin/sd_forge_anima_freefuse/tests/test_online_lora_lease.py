@@ -18,6 +18,11 @@ def _load(monkeypatch):
     return module
 
 
+def _enabled(module):
+    """Script args of an enabled panel: process() reads only the switch."""
+    return (True, *[None] * (len(module.SCRIPT_ARG_NAMES) - 1))
+
+
 def test_online_lora_stays_on_until_freefuse_and_the_stage_scheduler_both_end(monkeypatch):
     from backend.args import dynamic_args
     from modules import anima_online_lora
@@ -30,7 +35,7 @@ def test_online_lora_stays_on_until_freefuse_and_the_stage_scheduler_both_end(mo
     script = module.AnimaFreeFuseScript()
 
     anima_online_lora.acquire_online_lora(p, "anima_lora_stage_scheduler")  # its process() ran first
-    script.process(p, True)
+    script.process(p, *_enabled(module))
     assert dynamic_args.online_lora is True
 
     anima_online_lora.release_online_lora(p, "anima_lora_stage_scheduler")  # its postprocess() ran first
@@ -57,7 +62,7 @@ def _run_process(monkeypatch, module, *, hook_installed, tagged):
     sd_model = SimpleNamespace(current_lora_hash="loaded", forge_objects_after_applying_lora=SimpleNamespace(unet=unet))
     p = SimpleNamespace(sd_model=sd_model, sampler_name="Euler", enable_hr=False, extra_generation_params={})
     script = module.AnimaFreeFuseScript()
-    script.process(p, True)
+    script.process(p, *_enabled(module))
     script.postprocess(p, None)
     script.cleanup(p)
     return sd_model.current_lora_hash

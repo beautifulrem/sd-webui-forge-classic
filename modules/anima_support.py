@@ -2,12 +2,15 @@
 auxiliary / Flow denoiser), prompt-batch and conditioning / negpip mask
 plumbing, extra-prompt encoding and caching, block-list and branch-row
 parsing, generated-frame (vs edit reference frame) token spans,
-model-wrapper helpers (windowed forward-override patches), infotext paste
-keys and the block-patch panels' script mixin."""
+model-wrapper helpers (windowed forward-override patches), the panels'
+script-argument check, infotext paste keys and the block-patch panels'
+script mixin."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 
 _AUXILIARY_DENOISER_ATTRIBUTE = "_anima_auxiliary_denoiser"
@@ -604,6 +607,42 @@ def windowed_override_patch(model, *, gate, overrides, lock, force_actual, begin
     # Spectrum wraps this wrapper, so it must see the request on the patcher.
     spectrum_force.request(patched, force_actual)
     return patched
+
+
+def script_arguments(owner: str, names, values, *, defaults=None) -> SimpleNamespace:
+    """A panel's positional script args ``values``, one attribute per name
+    of ``names`` (the order ``ui`` returns its controls in). Call it before
+    the hook changes anything: a wrong count raises ``TypeError`` naming
+    ``owner`` and the counts, so nothing is half-applied.
+
+    More values than names are refused: Forge and the API give a script
+    exactly its own slots (the API fills every one from the UI defaults
+    first), so an extra value means the list is misaligned. Fewer values are
+    filled from ``defaults`` (a sequence as long as ``names``, or a mapping
+    from name to default) when the panel gives them: an argument list stored
+    before a control was added, e.g. a UI task Agent Scheduler queued earlier,
+    is replayed as it was saved, with nothing filled in. A missing name
+    without a default is refused."""
+
+    names = tuple(names)
+    values = tuple(values)
+    if len(values) > len(names):
+        raise TypeError(f"{owner} takes {len(names)} script arguments, got {len(values)}")
+    arguments = dict(zip(names, values))
+    if len(values) < len(names):
+        if isinstance(defaults, Mapping):
+            fill = defaults
+        elif defaults is not None:
+            if len(defaults) != len(names):
+                raise ValueError(f"{owner} has {len(defaults)} script argument defaults for {len(names)} names")
+            fill = dict(zip(names, defaults))
+        else:
+            fill = {}
+        missing = [name for name in names[len(values) :] if name not in fill]
+        if missing:
+            raise TypeError(f"{owner} takes {len(names)} script arguments, got {len(values)}; missing: {', '.join(missing)}")
+        arguments.update((name, fill[name]) for name in names[len(values) :])
+    return SimpleNamespace(**arguments)
 
 
 class PasteKey(str):
