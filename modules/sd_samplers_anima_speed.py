@@ -68,8 +68,9 @@ _SPECTRUM_A = 219.484718
 _SPECTRUM_BETA = 2.422687
 # User override of the switch sigma (Settings > Sampler Parameters); 0 keeps
 # the delta-optimal value. anima_lora benched switches of 0.5-0.8 on Anima;
-# 0.9 is an unbenched conservative extension (at or above the automatic value
-# at every supported size).
+# 0.9 is an unbenched conservative extension. The automatic value depends on
+# the short side only: at most 0.9 from a 392 px short side up (0.903 at the
+# narrowest supported strips, 376 px), below 0.5 only from 1984 px (0.49 at 2048).
 SWITCH_SIGMA_OPTION = "anima_speed_switch_sigma"
 SWITCH_SIGMA_INFOTEXT = "SPEED switch sigma"
 SWITCH_SIGMA_RANGE = (0.5, 0.9)

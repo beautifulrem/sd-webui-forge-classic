@@ -416,3 +416,18 @@ def test_interrupt_on_the_switch_step_leaves_a_full_size_latent(monkeypatch):
 
     assert plan.step > 0 and set(shapes) == {plan.size}
     assert state.current_latent.shape == (1, 4, 128, 128)
+
+
+def test_the_automatic_switch_sigma_stays_within_the_documented_bounds():
+    # Over every size the UI offers (8 px steps) that SPEED runs at: the
+    # automatic switch depends on the short side only, at most 0.9 from a
+    # 392 px short side up, and below 0.5 only from 1984 px (see SWITCH_SIGMA_RANGE)
+    for short_px in range(64, 2049, 8):
+        coarse = speed._coarse_size(short_px // 8, 2048 // 8)
+        if coarse[0] * coarse[1] < speed._MIN_COARSE_AREA:
+            continue
+        sigma = speed.transition_sigma(short_px // 8, 2048 // 8)
+        assert sigma == speed.transition_sigma(2048 // 8, short_px // 8)
+        assert sigma <= 0.9 or short_px < 392, short_px
+        assert round(sigma, 3) <= 0.903, short_px  # the narrowest supported strips
+        assert (sigma < 0.5) == (short_px >= 1984), short_px
