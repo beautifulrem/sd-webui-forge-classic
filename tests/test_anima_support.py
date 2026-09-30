@@ -316,7 +316,7 @@ def test_block_list_reads_ime_input_like_the_weight_fields(text):
     assert parse_block_list(text, 8, feature="Regional") == {0, 1, 2, 5}
 
 
-@pytest.mark.parametrize("text", ["-1", "a", "1-", "2-x", "1-2-3"])
+@pytest.mark.parametrize("text", ["-1", "a", "1-", "2-x", "1-2-3", "0_5", "1_0-3", "2-1_0"])
 def test_block_list_names_the_feature_and_the_bad_part(text):
     with pytest.raises(ValueError, match=rf"DAVE block selection .*'{text}'"):
         parse_block_list(f"0,{text}", 8, feature="DAVE")

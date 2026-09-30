@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 import re
 
-from modules.anima_lora_support import fold_weight_text, to_float, window_curve_factor
+from modules.anima_lora_support import fold_weight_text, plain_number, window_curve_factor
 
 logger = logging.getLogger("anima_artist_scheduled_mixer")
 
@@ -17,18 +17,30 @@ CURVE_FRONT = "Front loaded"
 CURVE_BACK = "Back loaded"
 
 
+def _block_index(text):
+    """A block index: an optional sign ("-" counts from the end) and decimal
+    digits. int() alone would also read "0_5" as 5."""
+    digits = text[1:] if text[:1] in ("+", "-") else text
+    if not digits.isdecimal():
+        raise ValueError(text)
+    return int(text)
+
+
 def parse_inline_weight(text):
+    """``(artist:1.2)``, ``[artist:0.8]`` or ``artist:1.2``: the artist and its
+    weight. The last colon ("：" too) separates them, and the weight reads as
+    in the weight fields (plain_number: "１．５", "−0.5"); anything else is the
+    artist at weight 1."""
     value = str(text or "").strip()
     if not value:
         return "", 1.0
-    number = r"([-+]?(?:\d+(?:\.\d*)?|\.\d+))"
-    wrapped = re.fullmatch(rf"[\(\[](.+?)[：:]\s*{number}[\)\]]", value)
-    if wrapped:
-        return wrapped.group(1).strip(), to_float(wrapped.group(2), 1.0)
+    wrapped = re.fullmatch(r"[\(\[](.+)[：:]([^：:]+)[\)\]]", value)
+    if wrapped and (weight := plain_number(wrapped.group(2))) is not None:
+        return wrapped.group(1).strip(), weight
     if not (value.startswith("<") and value.endswith(">")):
-        trailing = re.fullmatch(rf"(.+?)[：:]\s*{number}", value)
-        if trailing:
-            return trailing.group(1).strip(), to_float(trailing.group(2), 1.0)
+        trailing = re.fullmatch(r"(.+)[：:]([^：:]+)", value)
+        if trailing and (weight := plain_number(trailing.group(2))) is not None:
+            return trailing.group(1).strip(), weight
     return value, 1.0
 
 
@@ -50,9 +62,9 @@ def parse_blocks(text, num_blocks):
         if "-" in token[1:]:
             dash = token.index("-", 1)
             try:
-                start = int(token[:dash])
-                end = int(token[dash + 1 :])
-            except Exception:
+                start = _block_index(token[:dash])
+                end = _block_index(token[dash + 1 :])
+            except ValueError:
                 continue
             if start < 0:
                 start += num_blocks
@@ -64,8 +76,8 @@ def parse_blocks(text, num_blocks):
                 result.add(idx)
         else:
             try:
-                idx = int(token)
-            except Exception:
+                idx = _block_index(token)
+            except ValueError:
                 continue
             if idx < 0:
                 idx += num_blocks

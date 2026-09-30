@@ -405,12 +405,35 @@ def pad_to_sequence(values, length: int, fill: float = 0.0, *, dim: int = 1):
     return torch.cat((values, values.new_full(shape, float(fill))), dim=dim)
 
 
+# How every weight-text entry point reads input typed with an IME or copied
+# from prose: full-width ASCII forms (U+FF01-FF5E, "，；＝－＋．", "０-９",
+# letters) by offset, the ideographic space, "：" as "=" (it separates a name
+# from its value, "modules：mlp=0.5"), "。" as ".", and dash variants (hyphen,
+# en/em dash, minus sign) as "-" ("0–9=0.5"). Only these: a superscript or
+# circled digit ("0.5²", "①") stays as written and is rejected, not read as
+# another number.
+_WEIGHT_TEXT_FOLD = str.maketrans(
+    {
+        **{code: code - 0xFEE0 for code in range(0xFF01, 0xFF5F)},
+        0x3000: " ",
+        ord("："): "=",
+        ord("。"): ".",
+        **dict.fromkeys((0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212, 0xFE63), "-"),
+    }
+)
+
+
+def fold_weight_text(text) -> str:
+    """A weight text as every weight-text entry point reads it (see
+    ``_WEIGHT_TEXT_FOLD``)."""
+
+    return str(text or "").translate(_WEIGHT_TEXT_FOLD)
+
+
 def parse_block_list(text: str, total: int, *, feature: str) -> set[int]:
     """Parse ``"0-3,7"`` into block indices below ``total``; out-of-range parts
     are clipped away and a reversed range (``"7-3"``) counts as ``"3-7"``.
     Raises when a part is not a number or range, or when nothing is left."""
-
-    from modules.anima_lora_support import fold_weight_text
 
     result = set()
     # IME input reads as in the weight fields: "0-9，19-27", "０－２７", "0–27"
@@ -419,7 +442,10 @@ def parse_block_list(text: str, total: int, *, feature: str) -> set[int]:
         if not part:
             continue
         try:
-            left, right = (int(value) for value in part.split("-", 1)) if "-" in part else (int(part),) * 2
+            sides = [side.strip() for side in part.split("-", 1)]
+            if not all(side.isdecimal() for side in sides):  # int() would read "0_5" as 5
+                raise ValueError
+            left, right = (int(sides[0]), int(sides[-1]))
         except ValueError:
             raise ValueError(f"{feature} block selection has an invalid part {part!r} (use indices like 0-3,7)") from None
         low, high = sorted((left, right))

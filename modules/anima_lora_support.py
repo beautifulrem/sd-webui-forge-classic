@@ -13,7 +13,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
-from modules.anima_support import parse_block_list, sigma_value
+from modules.anima_support import fold_weight_text, parse_block_list, sigma_value  # fold_weight_text: re-exported
 
 logger = logging.getLogger(__name__)
 
@@ -556,33 +556,11 @@ def compact_text(text) -> str:
     return " ".join(str(text or "").replace("\r", "\n").split())
 
 
-# How every weight-text entry point reads input typed with an IME or copied
-# from prose: full-width ASCII forms (U+FF01-FF5E, "，；＝－＋．", "０-９",
-# letters) by offset, the ideographic space, "：" as "=" (it separates a name
-# from its value, "modules：mlp=0.5"), "。" as ".", and dash variants (hyphen,
-# en/em dash, minus sign) as "-" ("0–9=0.5"). Only these: a superscript or
-# circled digit ("0.5²", "①") stays as written and is rejected, not read as
-# another number.
-_WEIGHT_TEXT_FOLD = str.maketrans(
-    {
-        **{code: code - 0xFEE0 for code in range(0xFF01, 0xFF5F)},
-        0x3000: " ",
-        ord("："): "=",
-        ord("。"): ".",
-        **dict.fromkeys((0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212, 0xFE63), "-"),
-    }
-)
+
 # The one number grammar of weight texts: decimal digits of any script (as
 # float() reads them; not superscripts or circled digits), an optional
 # exponent, no "_" separators ("0_5" would read as 5) and no inf / nan
 _PLAIN_NUMBER_RE = re.compile(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*")
-
-
-def fold_weight_text(text) -> str:
-    """A weight text as every weight-text entry point reads it (see
-    ``_WEIGHT_TEXT_FOLD``)."""
-
-    return str(text or "").translate(_WEIGHT_TEXT_FOLD)
 
 
 def plain_number(text) -> float | None:

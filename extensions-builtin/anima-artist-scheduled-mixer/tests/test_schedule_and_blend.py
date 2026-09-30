@@ -34,6 +34,9 @@ def test_block_field_syntax():
     assert parse_blocks("3-1, x, 9", 5) == {1, 2, 3}
     # IME input as in the weight fields: full-width forms and dash variants
     assert parse_blocks("０－２，５", 28) == parse_blocks("0–2, 5", 28) == parse_blocks("0—2,-23", 28) == {0, 1, 2, 5}
+    # A "_" is refused like in the weight fields ("0_5" is not block 5), the
+    # rest of the field still counts
+    assert parse_blocks("0_5, 7", 28) == {7} and parse_blocks("1_0-3, 9", 28) == {9}
 
 
 def test_a_block_field_selecting_nothing_is_no_block(caplog):
@@ -49,6 +52,13 @@ def test_inline_weight_syntax():
     assert parse_inline_weight("artist：0.5") == ("artist", 0.5)
     assert parse_inline_weight("<lora:x:0.5>") == ("<lora:x:0.5>", 1.0)
     assert parse_inline_weight("") == ("", 1.0)
+    # IME input as in the weight fields; the last colon separates a name that has colons
+    assert parse_inline_weight("(artist:１．５)") == ("artist", 1.5)
+    assert parse_inline_weight("[artist：−0.5]") == ("artist", -0.5)
+    assert parse_inline_weight("(a:b:1.2)") == ("a:b", 1.2)
+    # Not a number: the whole text is the artist, at weight 1
+    assert parse_inline_weight("(artist:foo)") == ("(artist:foo)", 1.0)
+    assert parse_inline_weight("artist:0_5") == ("artist:0_5", 1.0)
 
 
 def test_norm_limited_delta_caps_each_row_separately():
