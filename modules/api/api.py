@@ -38,6 +38,18 @@ def script_name_to_index(name, scripts):
         raise HTTPException(status_code=422, detail=f"Script '{name}' not found") from e
 
 
+def pasted_value(value, target_type):
+    """A paste field's result as a request / script argument value. A
+    ``gr.update`` gives its value: Gradio 3 tags it "generic_update",
+    Gradio 4 "update"."""
+
+    if isinstance(value, dict) and value.get("__type__") in ("generic_update", "update"):
+        value = value.get("value")
+    if value is not None and not isinstance(value, target_type):
+        value = target_type(value)
+    return value
+
+
 def validate_sampler_name(name):
     config = sd_samplers.all_samplers_map.get(name, None)
     if config is None:
@@ -393,13 +405,7 @@ class Api:
             if target_type == type(None):
                 return None
 
-            if isinstance(value, dict) and value.get("__type__") == "generic_update":  # this is a gradio.update rather than a value
-                value = value.get("value")
-
-            if value is not None and not isinstance(value, target_type):
-                value = target_type(value)
-
-            return value
+            return pasted_value(value, target_type)
 
         for field in possible_fields:
             if not field.api:
