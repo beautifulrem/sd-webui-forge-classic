@@ -474,8 +474,8 @@ def _install_cfg_hooks(p, args: SimpleNamespace, unet, predictor, cfg_mode_enabl
 
     if cfg_mode_enabled or args.skim_enable or args.guidance_range_enable:
         # At CFG 1 Skimmed CFG, SMC-CFG, CFG-Zero*, APG and the CFG range all
-        # reduce to the conditional prediction (CFG-Zero*'s zero-init reads
-        # neither), so only FDG (whose detail band still guides there) keeps
+        # reduce to the conditional prediction, AND-prompt weights or not
+        # (CFG-Zero*'s zero-init reads neither), so only FDG (whose detail band still guides there) keeps
         # Forge from skipping that pass. A wrapped hook from another
         # extension set its own flag already.
         unet.set_model_sampler_cfg_function(

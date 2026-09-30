@@ -61,6 +61,47 @@ class DCWTests(unittest.TestCase):
         for band in change[1:]:  # LH, HL, HH
             self.assertTrue(torch.allclose(band, torch.zeros_like(band), rtol=0.0, atol=1e-6))
 
+    def test_real_euler_sampling_corrects_the_samplers_latent(self):
+        # DCW works only because Forge's cfg_denoiser callback gets the very
+        # latent tensor the sampler steps from. The child runs k-diffusion's
+        # sample_euler through the real CFGDenoiser, callback and CFG combine
+        # (with a closed-form model) with DCW off and on.
+        import os
+        import subprocess
+        import tempfile
+
+        import torch.nn.functional as F
+
+        repo = ROOT.parents[1]
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(filter(None, (str(repo), str(ROOT), env.get("PYTHONPATH"))))
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory) / "latents.pt"
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "tests" / "dcw_sampler_run.py"), str(output)],
+                cwd=repo, env=env, capture_output=True, text=True, timeout=600,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout[-3000:] + result.stderr[-3000:])
+            run = torch.load(output)
+
+        def reference(dcw_lambda):
+            # The model's CFG 3 prediction is 0.3 * x. Before each step after
+            # the first, x += lambda * (1 - previous sigma) * LL(x - previous
+            # denoised); an LL-only Haar reconstruction is the 2x2 block mean.
+            sigmas = run["sigmas"].tolist()
+            x, denoised = run["noise"].clone(), None
+            for i in range(len(sigmas) - 1):
+                if denoised is not None:
+                    low = F.interpolate(F.avg_pool2d(x - denoised, 2), scale_factor=2, mode="nearest")
+                    x = x + dcw_lambda * (1.0 - sigmas[i - 1]) * low
+                denoised = 0.3 * x
+                x = x + (x - denoised) / sigmas[i] * (sigmas[i + 1] - sigmas[i])
+            return x
+
+        self.assertTrue(torch.allclose(run["off"], reference(0.0), rtol=0.0, atol=1e-6))
+        self.assertTrue(torch.allclose(run["on"], reference(-0.2), rtol=0.0, atol=1e-6))
+        self.assertGreater((run["on"] - run["off"]).abs().max().item(), 1e-2)
+
     def test_warnings_use_the_panels_visible_logger(self):
         # Forge's root logger is at ERROR: a plain module logger's warnings
         # never show. The panel's "AnimaGuidance" logger has its own handler.

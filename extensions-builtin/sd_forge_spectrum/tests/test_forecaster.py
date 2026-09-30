@@ -20,6 +20,26 @@ class ForecasterTests(unittest.TestCase):
         self.assertTrue(forecaster.ready)
         self.assertTrue(torch.allclose(prediction, torch.full_like(prediction, 6.0), atol=2e-2))
 
+    def test_unregularized_fit_matches_float64_least_squares(self):
+        # Regularization 0 is on the slider; at degree 8 the normal matrix's
+        # condition number (~1e9) is beyond what a float32 solve resolves.
+        torch.manual_seed(3)
+        for degree, history in ((4, 6), (8, 10), (8, 16)):
+            with self.subTest(degree=degree, history=history):
+                forecaster = ChebyshevForecaster(degree=degree, history_size=history, lam=0.0, steps=30, weight=1.0)
+                for step in range(0, 2 * history, 2):
+                    forecaster.update(step, torch.randn(64) * 3.0)
+                step = 2 * history
+
+                taus = 2.0 * torch.tensor(forecaster.times, dtype=torch.float64) / 30 - 1.0
+                design = forecaster._design(taus)
+                query = forecaster._design(torch.tensor([2.0 * step / 30 - 1.0], dtype=torch.float64))
+                features = torch.stack(forecaster.features).double()
+                reference = (query @ torch.linalg.lstsq(design, features, driver="gelsd").solution).squeeze(0)
+
+                prediction = forecaster.predict(step).double()
+                self.assertLess(((prediction - reference).norm() / reference.norm()).item(), 1e-4)
+
     def test_blend_equals_explicit_taylor_and_chebyshev_mix(self):
         torch.manual_seed(0)
         features = [torch.randn(2, 3) for _ in range(5)]

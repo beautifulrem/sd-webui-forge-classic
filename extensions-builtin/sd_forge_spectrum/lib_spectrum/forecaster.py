@@ -80,11 +80,13 @@ class ChebyshevForecaster:
         original_dtype = self.features[-1].dtype
         # The ridge system is only (history x degree): solve it on the CPU
         # instead of a dozen tiny GPU kernels plus a readback per branch.
-        times = torch.tensor(self.times, dtype=torch.float32)
+        # In float64: at Regularization 0 the normal matrix's condition
+        # number reaches ~1e9 at degree 8, beyond float32's precision.
+        times = torch.tensor(self.times, dtype=torch.float64)
         design = self._design(self._tau(times))
-        regularizer = self.lam * torch.eye(design.shape[1], dtype=torch.float32)
+        regularizer = self.lam * torch.eye(design.shape[1], dtype=torch.float64)
         normal = design.T @ design + regularizer
-        query = torch.tensor([self._tau(float(step))], dtype=torch.float32)
+        query = torch.tensor([self._tau(float(step))], dtype=torch.float64)
         query_design = self._design(query)
         try:
             factor = torch.linalg.cholesky(normal)

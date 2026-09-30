@@ -30,10 +30,26 @@ def effective_cfg_scale(args) -> float:
     return float(args["cond_scale"]) * float(args.get("edit_strength", 1.0))
 
 
+def uncond_is_placeholder(args) -> bool:
+    """Whether Forge skipped the unconditional pass at CFG 1 and passed zeros."""
+
+    if not math.isclose(float(args["cond_scale"]), 1.0):
+        return False
+    return not (args.get("model_options") or {}).get("disable_cfg1_optimization", False)
+
+
 def standard_cfg_residual(args) -> torch.Tensor:
-    """Forge's default combine, including its AND-prompt weight sum."""
+    """Forge's default combine, including its AND-prompt weight sum.
+
+    Against Forge's CFG 1 zero placeholder that combine gives ``edit_strength
+    * cond``; the conditional prediction is returned instead, as the other
+    combine modes and the CFG range outside its window do, so AND-prompt
+    weights cannot make x0 jump at a window edge.
+    """
 
     cond = args["cond_denoised"]
+    if uncond_is_placeholder(args):
+        return args["input"] - cond
     uncond = args["uncond_denoised"]
     denoised = uncond + (cond - uncond) * effective_cfg_scale(args)
     return args["input"] - denoised

@@ -32,7 +32,7 @@ from lib_anima_guidance.advanced import (
 FIXTURES = pathlib.Path(__file__).resolve().parent / "fixtures"
 
 
-def _run_forge_combine(x, cond_value, uncond_value, *, cond_scale=4.0, strengths=(0.7, 0.8), **options):
+def _run_forge_combine(x, cond_value, uncond_value, *, cond_scale=4.0, strengths=(0.7, 0.8), sigma=0.5, **options):
     """Forge's real ``sampling_function_inner`` with fixed model predictions."""
 
     from backend.sampling.sampling_function import sampling_function_inner
@@ -49,7 +49,7 @@ def _run_forge_combine(x, cond_value, uncond_value, *, cond_scale=4.0, strengths
     cond = [{"model_conds": {}, "strength": strength} for strength in strengths]
     uncond = [{"model_conds": {}}]
     return sampling_function_inner(
-        Model(), x, torch.tensor([0.5]), uncond, cond, cond_scale,
+        Model(), x, torch.tensor([sigma]), uncond, cond, cond_scale,
         model_options={"model_function_wrapper": model_wrapper, **options},
     )
 
@@ -522,6 +522,55 @@ class GuidanceRangeTests(unittest.TestCase):
         ):
             self.assertTrue(torch.equal(hook(args), x - cond))
 
+
+    def test_cfg_one_has_no_jump_at_the_window_edge_with_and_prompt_weights(self):
+        # Forge's own combine gives edit_strength * cond against its CFG 1
+        # zero placeholder; the CFG range (with its uncond skip) and Skimmed
+        # CFG alone give the conditional prediction inside and outside their
+        # windows instead, like SMC-CFG, APG and CFG-Zero*.
+        from lib_anima_guidance.skim import make_skim_cfg_function
+
+        torch.manual_seed(11)
+        x = torch.randn(1, 4, 8, 8)
+        cond_value, uncond_value = torch.randn_like(x), torch.randn_like(x)
+        ranged = make_guidance_range_cfg_function(None, sigma_start=0.8, sigma_end=0.2)
+        hooks = {
+            "range": {"sampler_cfg_function": ranged,
+                      "sampler_pre_cfg_function": [make_guidance_range_uncond_skip(ranged)]},
+            "skim": {"sampler_cfg_function": make_skim_cfg_function(
+                None, sigma_start=0.8, sigma_end=0.2, skimming_scale=2.0,
+                full_skim_negative=False, disable_flipping_filter=False, flip_sigma=None,
+            )},
+        }
+        for name, options in hooks.items():
+            for sigma in (0.5, 0.9):
+                with self.subTest(name, sigma=sigma):
+                    actual = _run_forge_combine(
+                        x, cond_value, uncond_value, cond_scale=1.0, sigma=sigma, **options,
+                    )
+                    self.assertTrue(torch.allclose(actual, cond_value, atol=1e-6))
+            with self.subTest(name, weights="sum to 1"):
+                # Where the weights sum to 1 this is Forge's default combine.
+                actual = _run_forge_combine(
+                    x, cond_value, uncond_value, cond_scale=1.0, strengths=(0.4, 0.6), **options,
+                )
+                expected = _run_forge_combine(x, cond_value, uncond_value, cond_scale=1.0, strengths=(0.4, 0.6))
+                self.assertTrue(torch.allclose(actual, expected, atol=1e-6))
+
+    def test_cfg_one_with_a_real_unconditional_pass_keeps_forge_default_combine(self):
+        # With disable_cfg1_optimization the negative pass runs, so inside
+        # the window the range combines as Forge does.
+        torch.manual_seed(12)
+        x = torch.randn(1, 4, 8, 8)
+        cond_value, uncond_value = torch.randn_like(x), torch.randn_like(x)
+        ranged = make_guidance_range_cfg_function(None, sigma_start=0.8, sigma_end=0.2)
+        actual = _run_forge_combine(
+            x, cond_value, uncond_value, cond_scale=1.0,
+            sampler_cfg_function=ranged, disable_cfg1_optimization=True,
+        )
+        expected = _run_forge_combine(x, cond_value, uncond_value, cond_scale=1.0, disable_cfg1_optimization=True)
+        self.assertTrue(torch.allclose(expected, uncond_value + (cond_value - uncond_value) * 1.5, atol=1e-6))
+        self.assertTrue(torch.allclose(actual, expected, atol=1e-6))
 
     def test_cfg_one_does_not_need_the_unconditional_prediction(self):
         # Forge skips the negative pass at CFG 1 and passes zeros instead.
