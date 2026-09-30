@@ -63,3 +63,11 @@ def test_beta57_is_registered_as_the_fixed_beta_preset(sd_schedulers, monkeypatc
 
     assert scheduler.function(8, 0.03, 14.6, None, "cpu") == "sigmas"
     assert calls == [{"alpha": 0.5, "beta": 0.7}]
+
+
+def test_every_scheduler_alias_resolves_like_its_label(sd_schedulers):
+    aliased = [scheduler for scheduler in sd_schedulers.schedulers if scheduler.aliases]
+    assert {"Beta 57", "RES4LYF Beta57", "Anima Diffusers FlowMatch"} <= {alias for scheduler in aliased for alias in scheduler.aliases}
+    for scheduler in aliased:
+        for alias in scheduler.aliases:
+            assert sd_schedulers.schedulers_map[alias] is scheduler is sd_schedulers.schedulers_map[scheduler.label]

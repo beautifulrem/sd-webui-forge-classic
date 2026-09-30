@@ -28,6 +28,7 @@ _ns = {
         schedulers_map={
             "anima_flow_match": _FLOW,
             "Anima FlowMatch": _FLOW,
+            "Anima Diffusers FlowMatch": _FLOW,  # an alias, as the real map holds them
             "Karras": SimpleNamespace(label="Karras", function=lambda n, **_: _KARRAS, default_rho=7.0, need_inner_model=False),
         }
     ),
@@ -90,7 +91,7 @@ def test_locked_samplers_replace_an_api_scheduler_choice(lock, hires, caplog):
         assert warned == []
 
 
-@pytest.mark.parametrize("choice", ["Anima FlowMatch", "anima_flow_match", "Automatic", None])
+@pytest.mark.parametrize("choice", ["Anima FlowMatch", "anima_flow_match", "Anima Diffusers FlowMatch", "Automatic", None])
 def test_locked_samplers_do_not_flag_their_own_scheduler(choice, caplog):
     p = SimpleNamespace(is_hr_pass=False, scheduler=choice, extra_generation_params={}, sampler_noise_scheduler_override=None)
 

@@ -333,4 +333,5 @@ all_schedulers = [
 
 schedulers = [s for s in all_schedulers if s.label not in shared.opts.hide_schedulers]
 
-schedulers_map = {**{x.name: x for x in schedulers}, **{x.label: x for x in schedulers}}
+# Aliases too: API / XYZ / Hires scheduler fields may carry them, not just "Sampler Scheduler" infotext
+schedulers_map = {**{alias: x for x in schedulers for alias in x.aliases or ()}, **{x.name: x for x in schedulers}, **{x.label: x for x in schedulers}}
