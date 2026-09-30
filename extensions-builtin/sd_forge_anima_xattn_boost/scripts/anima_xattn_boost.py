@@ -9,7 +9,6 @@ import gradio as gr
 from backend.logging import setup_logger
 from lib_anima_xattn_boost.boost import DEFAULT_BAND, DEFAULT_GAIN, DEFAULT_RENORM, BoostState, apply_xattn_boost_patch
 from modules import scripts
-from modules.anima_presets import register_preset_control
 from modules.anima_support import AnimaPatchPanel, is_anima_engine
 from modules.ui_components import InputAccordion
 
@@ -30,6 +29,7 @@ def generation_params(strength, band, renorm) -> dict:
 
 class AnimaXattnBoostScript(AnimaPatchPanel, scripts.Script):
     INFOTEXT_KEYS = INFOTEXT_KEYS
+    PRESET_FIELDS = PRESET_FIELDS
     sorting_priority = 2029
 
     def title(self):
@@ -48,8 +48,6 @@ class AnimaXattnBoostScript(AnimaPatchPanel, scripts.Script):
                 band = gr.Slider(0.5, 1.0, value=DEFAULT_BAND, step=0.01, label="Band (sigma)", info="Boost model calls whose sigma is at or above this; 0.85 is the only tested band.")
                 renorm = gr.Slider(0.0, 1.0, value=DEFAULT_RENORM, step=0.05, label="Norm matching", info="Pulls each boosted image back toward its unboosted mean token norm (0 = raw gain).")
         controls = self.register_paste_fields([enable, strength, band, renorm])
-        for name, control in zip(PRESET_FIELDS, controls):
-            register_preset_control(self.tabname, name, control)
         return controls
 
     def process_before_every_sampling(self, p, enable, strength, band, renorm, **kwargs):

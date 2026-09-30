@@ -9,7 +9,6 @@ import gradio as gr
 from backend.logging import setup_logger
 from lib_anima_dave.dave import DEFAULT_BLOCKS, DEFAULT_STRENGTH, DEFAULT_TAU, DaveState, apply_dave_patch, model_blocks
 from modules import scripts
-from modules.anima_presets import register_preset_control
 from modules.anima_support import AnimaPatchPanel, is_anima_engine
 from modules.ui_components import InputAccordion
 
@@ -30,6 +29,7 @@ def generation_params(strength, tau, blocks) -> dict:
 
 class AnimaDaveScript(AnimaPatchPanel, scripts.Script):
     INFOTEXT_KEYS = INFOTEXT_KEYS
+    PRESET_FIELDS = PRESET_FIELDS
     sorting_priority = 2028
 
     def title(self):
@@ -51,8 +51,6 @@ class AnimaDaveScript(AnimaPatchPanel, scripts.Script):
                     info="28-block indices; mapped onto the original blocks of 40/52-block models.",
                 )
         controls = self.register_paste_fields([enable, strength, tau, blocks])
-        for name, control in zip(PRESET_FIELDS, controls):
-            register_preset_control(self.tabname, name, control)
         return controls
 
     def process_before_every_sampling(self, p, enable, strength, tau, blocks, **kwargs):

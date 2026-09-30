@@ -162,7 +162,8 @@ class PresetConsistencyTests(unittest.TestCase):
         registering = [
             source
             for source in (path.read_text(encoding="utf-8") for path in BUILTIN.glob("*/scripts/*.py"))
-            if "register_preset_control(" in source
+            # Direct calls, or an AnimaPatchPanel's PRESET_FIELDS
+            if "register_preset_control(" in source or "PRESET_FIELDS = (" in source
         ]
         for feature in sorted({name.split(".", 1)[0] for name in SAFE_BASE_AESTHETIC_PRESET}):
             with self.subTest(feature):

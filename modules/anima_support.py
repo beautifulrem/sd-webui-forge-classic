@@ -535,6 +535,8 @@ class AnimaPatchPanel:
     and then the settings, in the order of ``INFOTEXT_KEYS``."""
 
     INFOTEXT_KEYS: tuple[str, ...] = ()
+    # Anima preset control names, in the same order (see modules/anima_presets.py)
+    PRESET_FIELDS: tuple[str, ...] = ()
 
     def show(self, is_img2img):
         from modules import scripts
@@ -542,17 +544,16 @@ class AnimaPatchPanel:
         return scripts.AlwaysVisible
 
     def register_paste_fields(self, controls: list) -> list:
-        """Infotext paste fields for ``ui``'s ``controls``; returns them.
+        """Infotext paste fields and Anima preset controls for ``ui``'s
+        ``controls``; returns them."""
 
-        The panel registers its Anima preset fields with
-        ``register_preset_control`` itself: ``tests/test_anima_presets.py``
-        finds the panels that own preset features by that call in their
-        source."""
-
+        from modules.anima_presets import register_preset_control
         from modules.infotext_utils import PasteField
 
         self.infotext_fields = [PasteField(control, key) for control, key in zip(controls, self.INFOTEXT_KEYS)]
         self.paste_field_names = list(self.INFOTEXT_KEYS)
+        for name, control in zip(self.PRESET_FIELDS, controls):
+            register_preset_control(self.tabname, name, control)
         return controls
 
     @staticmethod
