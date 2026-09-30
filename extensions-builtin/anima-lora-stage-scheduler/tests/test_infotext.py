@@ -15,19 +15,21 @@ import pytest
 sys.argv = sys.argv[:1]
 SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_lora_stage_scheduler.py"
 INFOTEXT_UTILS = Path(__file__).parents[3] / "modules" / "infotext_utils.py"
+API = Path(__file__).parents[3] / "modules" / "api" / "api.py"
 _MODULE = []
 
 
 def _infotext_helpers() -> dict:
-    """``re_param_code``, ``quote``, ``unquote`` and ``_parse_info`` from
-    modules/infotext_utils.py, whose import needs the full WebUI install."""
+    """``re_param_code``, ``quote``, ``unquote``, ``_parse_info`` and
+    ``PasteField`` from modules/infotext_utils.py, whose import needs the full
+    WebUI install."""
 
     tree = ast.parse(INFOTEXT_UTILS.read_text(encoding="utf8"))
-    wanted = {"re_param_code", "quote", "unquote", "_parse_info"}
+    wanted = {"re_param_code", "quote", "unquote", "_parse_info", "PasteField"}
     nodes = [
         node
         for node in tree.body
-        if (isinstance(node, ast.FunctionDef) and node.name in wanted)
+        if (isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in wanted)
         or (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) in wanted)
     ]
     namespace = {"json": json, "gr": gr, "Any": object, "type_of_gr_update": type(gr.skip()), "errors": SimpleNamespace(report=print)}
@@ -37,6 +39,19 @@ def _infotext_helpers() -> dict:
 
 
 INFOTEXT = _infotext_helpers()
+
+
+def _api_pasted_value():
+    """``pasted_value`` from modules/api/api.py (same reason)."""
+
+    tree = ast.parse(API.read_text(encoding="utf8"))
+    node = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "pasted_value")
+    namespace = {}
+    exec(compile(ast.Module([node], []), str(API), "exec"), namespace)  # noqa: S102 - our own source file
+    return namespace["pasted_value"]
+
+
+pasted_value = _api_pasted_value()
 
 
 @pytest.fixture
@@ -89,16 +104,73 @@ def _run(module, args, enable_hr=True):
     return p.extra_generation_params, state
 
 
-def _paste(module, script, params):
-    """What pasting ``params`` sets each control to (None: left alone): the
-    infotext line as processing.create_infotext writes it, read back as
-    parse_generation_parameters and connect_paste do."""
+def _through_infotext(params):
+    """``(line, parsed)``: the infotext line of ``params`` as
+    processing.create_infotext writes it, and its values as
+    parse_generation_parameters reads them back."""
 
     line = "Steps: 20, Sampler: Euler, " + ", ".join(f"{key}: {INFOTEXT['quote'](value)}" for key, value in params.items())
-    parsed = {key: INFOTEXT["unquote"](value) for key, value in re.findall(INFOTEXT["re_param_code"], line)}
+    return line, {key: INFOTEXT["unquote"](value) for key, value in re.findall(INFOTEXT["re_param_code"], line)}
+
+
+def _paste(module, script, params):
+    """What pasting ``params`` sets each control to (None: left alone): the
+    infotext line read back as connect_paste does."""
+
+    line, parsed = _through_infotext(params)
     module._translate_pasted_infotext(line, parsed)
     updates = [INFOTEXT["_parse_info"](component, key, parsed) for component, key in script.infotext_fields]
     return [update.get("value") if "value" in update else None for update in updates]
+
+
+def _api_replay(script, controls, params):
+    """The script args the API's infotext replay (modules/api/api.py
+    apply_infotext) runs ``params`` with: the infotext line parsed, without
+    on_infotext_pasted; each script field (a PasteField, as add_paste_fields
+    makes it) set to get_field_value of it (its function's value, else its
+    key's) converted by pasted_value to its control's value type; the other
+    controls at their defaults (the API's default script args)."""
+
+    _, parsed = _through_infotext(params)
+    args = [component.value for component in controls]
+    indexes = {component: index for index, component in enumerate(controls)}
+    for field in (INFOTEXT["PasteField"](*field) for field in script.infotext_fields):
+        if field.component not in indexes:
+            continue
+        value = field.function(parsed) if field.function else parsed.get(field.label)
+        target_type = type(field.component.value)
+        if value is None or target_type is type(None):
+            continue
+        value = pasted_value(value, target_type)
+        if value is not None:
+            args[indexes[field.component]] = value
+    return args
+
+
+def _schedule(module, state):
+    """What a run schedules: each pass's panel as the LoRAs mylora (which has
+    a per-LoRA template in _args) and other run it, and the Hires. fix
+    disabling (its tags only when it disables those). Times rounded as the
+    infotext records them."""
+
+    def config(pass_config):
+        return (
+            pass_config.target_mode,
+            pass_config.targets,
+            pass_config.panel_weight,
+            pass_config.lora_templates,
+            pass_config.template_name,
+            pass_config.auto_timing,
+            pass_config.stage,
+            pass_config.parts,
+            pass_config.ban_window,
+            *(round(value, 4) for value in (pass_config.start, pass_config.end, pass_config.peak, pass_config.stage_strength, pass_config.shift)),
+            pass_config.curve,
+        )
+
+    files = (("mylora.safetensors", {"mylora"}), ("other.safetensors", {"other"}))
+    passes = [[config(pass_config.config_for_file(filename, names)) for filename, names in files] for pass_config in (state.base, state.hires)]
+    return passes, state.hr_disable_mode, state.hr_disable_tags if state.hr_disable_mode == module.DISABLE_SELECTED else None
 
 
 def _args(module, labels):
@@ -184,12 +256,7 @@ def test_the_pasted_panel_runs_the_same_schedule_per_lora_templates_included(mod
     pasted, pasted_state = _run(module, _paste(module, script, params))
 
     assert pasted == params
-    for config, pasted_config in ((state.base, pasted_state.base), (state.hires, pasted_state.hires)):
-        for filename, names in (("mylora.safetensors", {"mylora"}), ("other.safetensors", {"other"})):
-            before, after = config.config_for_file(filename, names), pasted_config.config_for_file(filename, names)
-            assert (after.template_name, after.stage, after.parts, after.curve) == (before.template_name, before.stage, before.parts, before.curve)
-            assert (after.start, after.end, after.peak, after.stage_strength) == pytest.approx((before.start, before.end, before.peak, before.stage_strength))
-        assert (pasted_config.target_mode, pasted_config.targets, pasted_config.panel_weight) == (config.target_mode, config.targets, config.panel_weight)
+    assert _schedule(module, pasted_state) == _schedule(module, state)
 
     # mylora runs on its own template's (composition) window, not the panel's
     mylora = pasted_state.base.config_for_file("mylora.safetensors", {"mylora"})
@@ -197,6 +264,45 @@ def test_the_pasted_panel_runs_the_same_schedule_per_lora_templates_included(mod
     assert (mylora.start, mylora.end, mylora.peak) == module._auto_stage_values(module.STAGE_COMPOSITION, 3.0)[:3]
     assert (pasted_state.base.start, pasted_state.base.end) == (0.3, 0.7)
     assert pasted_state.hr_disable_tags == ["<lora:a:0.5>", "<lora:b:blocks=0-9=0.8,10-27=1>"]
+
+
+@pytest.mark.parametrize("run_language, api_language", [("zh", "en"), ("en", "zh"), ("en", "en")])
+@pytest.mark.parametrize("hires", ["independent", "shared"])
+def test_the_api_replays_the_infotext_into_the_same_schedule(module, monkeypatch, run_language, api_language, hires):
+    # The API sets the script args from the recorded values as they are (the
+    # scope, curve and disable mode codes), without on_infotext_pasted; its
+    # pasted_value reads a recorded "False" as False
+    labels = {"zh": _zh, "en": _en}[run_language]
+    _language(module, monkeypatch, run_language)
+    args = _args(module, labels)
+    if hires == "shared":
+        args[12], args[24] = False, labels(module.DISABLE_ALL)
+    params, state = _run(module, args)
+    _language(module, monkeypatch, api_language)
+    script, controls, _ = _build_ui(module)
+    replayed, replayed_state = _run(module, _api_replay(script, controls, params))
+
+    assert replayed == params
+    assert _schedule(module, replayed_state) == _schedule(module, state)
+    assert (replayed_state.base.target_mode, replayed_state.base.curve) == (module.MODE_TARGETS, module.CURVE_TRIANGLE)
+    # Recorded "False" checkboxes: base manual timing; a shared Hires panel
+    assert params[module._panel_key("base", "auto timing")] is False and replayed_state.base.auto_timing is False
+    assert (replayed_state.base.start, replayed_state.base.end) == (0.3, 0.7)
+    if hires == "shared":
+        assert params[module.INFOTEXT_HIRES_INDEPENDENT] is False
+        assert replayed_state.hires.template_name == replayed_state.base.template_name and replayed_state.hires.target_mode == module.MODE_TARGETS
+    assert replayed_state.hr_disable_mode == (module.DISABLE_SELECTED if hires == "independent" else module.DISABLE_ALL)
+
+
+def test_the_run_takes_each_choice_as_its_code_its_zh_label_or_its_en_label(module):
+    for codes, labels, normalize in (
+        (module.TARGET_MODE_CODES, module.TARGET_MODE_EN, module._normalize_target_mode),
+        (module.DISABLE_CODES, module.DISABLE_EN, module._normalize_disable_mode),
+        (module.CURVE_CODES, {}, module._normalize_curve),
+    ):
+        for choice, code in codes.items():
+            assert normalize(code) == normalize(choice) == normalize(labels.get(choice, choice)) == choice
+    assert (module._normalize_target_mode("?"), module._normalize_disable_mode(None), module._normalize_curve("")) == (module.MODE_AUTO_ANIMA, module.DISABLE_NONE, module.CURVE_SMOOTH)
 
 
 def test_text_a_run_ignored_pastes_empty_and_no_hires_leaves_the_hires_section_alone(module, monkeypatch):

@@ -242,11 +242,21 @@ def _display_target_mode(value):
     return TARGET_MODE_EN.get(canonical, canonical) if _language() == "en" else canonical
 
 
-def _normalize_target_mode(value):
-    value = str(value or "")
-    if value in TARGET_MODE_CHOICES:
+def _lookup_choice(value, codes, aliases=None):
+    """The choice ``value`` names, else None: the choice itself (a key of
+    ``codes``, which maps choices to their infotext codes), its code, or its
+    label in ``aliases`` (label -> choice). The API replays an infotext's
+    codes straight into the run (it does not run on_infotext_pasted), so the
+    run side takes codes as well as labels."""
+
+    if value in codes:
         return value
-    return TARGET_MODE_ALIASES.get(value, MODE_AUTO_ANIMA)
+    by_code = {code: choice for choice, code in codes.items()}
+    return by_code.get(value) or (aliases or {}).get(value)
+
+
+def _normalize_target_mode(value):
+    return _lookup_choice(str(value or ""), TARGET_MODE_CODES, TARGET_MODE_ALIASES) or MODE_AUTO_ANIMA
 
 
 def _disable_choices():
@@ -259,10 +269,11 @@ def _display_disable_mode(value):
 
 
 def _normalize_disable_mode(value):
-    value = str(value or "")
-    if value in DISABLE_CHOICES:
-        return value
-    return DISABLE_ALIASES.get(value, DISABLE_NONE)
+    return _lookup_choice(str(value or ""), DISABLE_CODES, DISABLE_ALIASES) or DISABLE_NONE
+
+
+def _normalize_curve(value):
+    return _lookup_choice(str(value or ""), CURVE_CODES) or CURVE_SMOOTH
 
 
 def _register_ui_settings():
@@ -1195,8 +1206,7 @@ class PassConfig:
             self.peak = _clamp(_to_float(self.peak), self.start, self.end)
         self.stage_strength = _clamp(_to_float(self.stage_strength, 1.0), 0.0, 4.0)
 
-        if self.curve not in CURVE_CHOICES:
-            self.curve = CURVE_SMOOTH
+        self.curve = _normalize_curve(self.curve)
 
     def config_for_file(self, filename, names=None):
         names = _names_for_lora_file(filename) if names is None else names
@@ -1426,7 +1436,7 @@ def _build_pass_config(target_mode, target_loras, panel_weight, template_name, l
         end=_to_float(end, 0.8),
         peak=_to_float(peak, 0.5),
         stage_strength=_to_float(stage_strength, 1.0),
-        curve=curve if curve in CURVE_CHOICES else CURVE_SMOOTH,
+        curve=_normalize_curve(curve),
         shift=_to_float(shift, 3.0),
     )
     config.finalize_timing()
@@ -1481,8 +1491,7 @@ def _translate_pasted_choice(params, key, codes, display, aliases=None, default=
     the control alone; a missing one reads as ``default``."""
 
     value = params.get(key, codes.get(default))
-    by_code = {code: choice for choice, code in codes.items()}
-    choice = by_code.get(value) or (value if value in codes else (aliases or {}).get(value))
+    choice = _lookup_choice(value, codes, aliases)
     if choice is None:
         if value is not None:
             logger.warning("Ignored unknown pasted %s: %s", key, value)
