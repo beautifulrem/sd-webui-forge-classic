@@ -11,6 +11,7 @@ import logging
 import math
 import os
 import re
+import unicodedata
 from dataclasses import dataclass, field
 
 from modules.anima_support import parse_block_list, sigma_value
@@ -699,8 +700,44 @@ class LayerWeights:
 
 
 def _normalized_weight_text(text) -> str:
-    source = str(text or "").strip().replace("，", ",").replace("；", ";").replace("：", "=")
+    # NFKC folds IME full-width input to ASCII: "，；＝－", digits "０-９" and
+    # the ideographic space. It folds "：" to ":", which is not a separator,
+    # so that is mapped to "=" first
+    source = unicodedata.normalize("NFKC", str(text or "").replace("：", "=")).strip()
     return re.sub(r"\bblock_lrs?\s*=", "", source, flags=re.IGNORECASE)
+
+
+_RANGE_SELECTOR_SPACING = re.compile(r"(?<![\w.])(\d+)\s*-\s*(\d+)(?==)")
+
+
+def _weight_entries(text, *, spaced_names: bool = False) -> list[tuple[str | None, str]]:
+    """``(selector, value)`` entries of a weight text, both stripped; a token
+    without "=" is ``(None, token)``.
+
+    Without any "=" the text is a bare list split on commas, semicolons and
+    whitespace ("0.5 0.8 1", "0.5, 0.8"). With one, entries are split on
+    commas, semicolons and newlines, and spaces around "=" (and around the
+    dash of a range selector) are dropped: "0 - 9 = 0.5" is one entry. Within
+    an entry, whitespace still separates tokens ("12=2 all=0.8"), unless
+    ``spaced_names``: a module name may contain spaces ("self attention=0.9")."""
+
+    source = _normalized_weight_text(text)
+    if "=" not in source:
+        return [(None, token) for token in re.split(r"[\s,;]+", source) if token]
+    entries = []
+    for part in re.split(r"[,;\n]+", source):
+        part = _RANGE_SELECTOR_SPACING.sub(r"\1-\2", re.sub(r"\s*=\s*", "=", part.strip()))
+        for token in [part] if spaced_names else part.split():
+            if "=" in token:
+                selector, value = token.split("=", 1)
+                entries.append((selector.strip(), value.strip()))
+            elif token:
+                entries.append((None, token))
+    return entries
+
+
+_DEFAULT_SELECTORS = {"*", "all", "default"}
+_RANGE_SELECTOR = re.compile(r"(\d+)\s*-\s*(\d+)")
 
 
 def looks_like_layer_weights(text) -> bool:
@@ -708,10 +745,10 @@ def looks_like_layer_weights(text) -> bool:
     if not value or is_plain_number(value):
         return False
     numeric_count = 0
-    for token in [t for t in re.split(r"[\s,;]+", value) if t]:
-        if "=" in token:
-            left = token.split("=", 1)[0].strip().lower()
-            if left in {"*", "all", "default"} or left.isdigit() or re.fullmatch(r"\d+\s*-\s*\d+", left):
+    for selector, token in _weight_entries(text):
+        if selector is not None:
+            selector = selector.lower()
+            if selector in _DEFAULT_SELECTORS or selector.isdecimal() or _RANGE_SELECTOR.fullmatch(selector):
                 return True
             continue
         if is_plain_number(token):
@@ -743,23 +780,22 @@ def parse_layer_weights(text) -> LayerWeights:
     values: dict[int, float] = {}
     default = 1.0
     bare_values = []
-    for token in [t for t in re.split(r"[\s,;]+", _normalized_weight_text(text)) if t]:
-        if "=" not in token:
+    for selector, token in _weight_entries(text):
+        if selector is None:
             value = _finite_weight(token)
             if value is None:
                 logger.warning("Ignored invalid Anima layer weight token: %s", token)
             else:
                 bare_values.append(value)
             continue
-        left, right = token.split("=", 1)
-        left = left.strip().lower()
-        value = _finite_weight(right)
+        left = selector.lower()
+        value = _finite_weight(token)
         if value is None:
-            logger.warning("Ignored invalid Anima layer weight: %s", token)
+            logger.warning("Ignored invalid Anima layer weight: %s=%s", selector, token)
             continue
-        if left in {"*", "all", "default"}:
+        if left in _DEFAULT_SELECTORS:
             default = value
-        elif range_match := re.match(r"^(\d+)\s*-\s*(\d+)$", left):
+        elif range_match := _RANGE_SELECTOR.fullmatch(left):
             start, end = sorted((_layer_index(range_match.group(1)), _layer_index(range_match.group(2))))
             if start > MAX_LAYER_INDEX:
                 logger.warning("Ignored Anima layer range past index %d: %s", MAX_LAYER_INDEX, left)
@@ -805,15 +841,13 @@ def parse_module_weights(text) -> dict[str, float]:
     """Explicitly written ``module=weight`` entries (module names normalised)."""
 
     weights = {}
-    source = str(text or "").replace("，", ",").replace("；", ";").replace("：", "=")
-    for token in [t for t in re.split(r"[\n,;]+", source) if t.strip()]:
-        if "=" not in token:
+    for name, token in _weight_entries(text, spaced_names=True):
+        if name is None:
             continue
-        left, right = token.split("=", 1)
-        value = _finite_weight(right)
+        value = _finite_weight(token)
         if value is None:
-            logger.warning("Ignored invalid Anima module weight: %s", token.strip())
+            logger.warning("Ignored invalid Anima module weight: %s=%s", name, token)
             continue
-        weights[module_key(left)] = value
+        weights[module_key(name)] = value
     return weights
 

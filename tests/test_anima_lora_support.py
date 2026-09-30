@@ -294,6 +294,86 @@ def test_layer_indices_may_have_leading_zeros(caplog):
     assert "past index" not in caplog.text
 
 
+_BLOCKS_0_9 = dict.fromkeys(range(10), 0.5)
+
+
+# (text, default, values, looks like layer weights): forms (and rejections) from before the
+# shared weight tokenizer, which must parse the same
+@pytest.mark.parametrize(
+    "text, default, values, looks",
+    [
+        ("0.5 0.8 1", 1.0, {0: 0.5, 1: 0.8, 2: 1.0}, True),
+        ("0.5, 0.8", 1.0, {0: 0.5, 1: 0.8}, True),
+        ("0.5;0.8\n1", 1.0, {0: 0.5, 1: 0.8, 2: 1.0}, True),
+        ("0.5 -0.3", 1.0, {0: 0.5, 1: -0.3}, True),
+        ("0.5 -0.3 all=0.8", 0.8, {0: 0.5, 1: -0.3}, True),  # bare values count when only the default is set
+        ("0.5 0.6 3=0.2", 1.0, {3: 0.2}, True),
+        ("0-9=0.5,10-27=1", 1.0, {**_BLOCKS_0_9, **dict.fromkeys(range(10, 28), 1.0)}, True),
+        ("0-9=0.5 10-12=1", 1.0, {**_BLOCKS_0_9, 10: 1.0, 11: 1.0, 12: 1.0}, True),
+        ("0-9=0.5\n10=1", 1.0, {**_BLOCKS_0_9, 10: 1.0}, True),
+        ("\t0-3=0.5\r\n4=1\r\n", 1.0, {0: 0.5, 1: 0.5, 2: 0.5, 3: 0.5, 4: 1.0}, True),
+        ("0-3=0.5 all=0 12=1", 0.0, {0: 0.5, 1: 0.5, 2: 0.5, 3: 0.5, 12: 1.0}, True),
+        ("*=0.8", 0.8, {}, True),
+        ("DEFAULT=0.8", 0.8, {}, True),
+        ("block_lr=0.5,0.6", 1.0, {0: 0.5, 1: 0.6}, True),
+        ("0-9=0.5；10=1", 1.0, {**_BLOCKS_0_9, 10: 1.0}, True),
+        ("0.5，0.6", 1.0, {0: 0.5, 1: 0.6}, True),
+        ("3=０.５", 1.0, {3: 0.5}, True),
+        ("0-2=1e-1, 3=+0.5, 4=.5, 5=-0.5", 1.0, {0: 0.1, 1: 0.1, 2: 0.1, 3: 0.5, 4: 0.5, 5: -0.5}, True),
+        ("3=0.2 x", 1.0, {3: 0.2}, True),
+        ("0-9-12=0.5", 1.0, {}, False),
+        ("mlp=0.5", 1.0, {}, False),
+        ("0.5 x", 1.0, {0: 0.5}, False),
+        ("0.5", 1.0, {0: 0.5}, False),
+        ("", 1.0, {}, False),
+    ],
+)
+def test_layer_weight_forms_parse_as_before_the_shared_tokenizer(text, default, values, looks):
+    from modules.anima_lora_support import looks_like_layer_weights, parse_layer_weights
+
+    weights = parse_layer_weights(text)
+    assert (weights.default, weights.values, looks_like_layer_weights(text)) == (default, values, looks)
+
+
+@pytest.mark.parametrize(
+    "text, default, values",
+    [
+        ("0-9 = 0.5", 1.0, _BLOCKS_0_9),
+        ("0 - 9=0.5", 1.0, _BLOCKS_0_9),
+        ("0 - 9 = 0.5, 10 = 1", 1.0, {**_BLOCKS_0_9, 10: 1.0}),
+        ("all = 0.8", 0.8, {}),
+        ("0-9 =0.5, 10-27 = 1", 1.0, {**_BLOCKS_0_9, **dict.fromkeys(range(10, 28), 1.0)}),
+        ("12 = 2 all = 0.8", 0.8, {12: 2.0}),
+        ("０００５=0.5", 1.0, {5: 0.5}),
+        ("０００５-０００７=0.3", 1.0, {5: 0.3, 6: 0.3, 7: 0.3}),
+        ("０－９＝０．５，１０＝１；ａｌｌ＝0.8", 0.8, {**_BLOCKS_0_9, 10: 1.0}),
+        ("0-9=0.5　10=1", 1.0, {**_BLOCKS_0_9, 10: 1.0}),  # ideographic space
+    ],
+)
+def test_layer_weights_allow_spaces_and_full_width_input(text, default, values, caplog):
+    from modules.anima_lora_support import looks_like_layer_weights, parse_layer_weights
+
+    weights = parse_layer_weights(text)
+    assert (weights.default, weights.values) == (default, values)
+    assert looks_like_layer_weights(text)
+    assert "Ignored" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("mlp = 0.5", {"mlp": 0.5}),
+        (" self attention = 0.9 , cross = 0.3 ", {"self_attn": 0.9, "cross_attn": 0.3}),
+        ("ｍｌｐ＝０．５", {"mlp": 0.5}),
+        ("mlp：0.5，cross：0.3", {"mlp": 0.5, "cross_attn": 0.3}),
+    ],
+)
+def test_module_weights_allow_spaces_and_full_width_input(text, expected):
+    from modules.anima_lora_support import parse_module_weights
+
+    assert parse_module_weights(text) == expected
+
+
 def test_non_finite_module_weights_are_skipped():
     from modules.anima_lora_support import parse_module_weights
 
