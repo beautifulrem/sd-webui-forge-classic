@@ -40,7 +40,7 @@ from modules.anima_lora_support import clamp as _clamp, model_block_set, stage_w
 from modules.anima_lora_ui import intro_block, register_language_option, ui_language, ui_text
 from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
-from modules.anima_support import PasteKey, effective_prompt_batch, process_ref, prompt_schedule, prompt_step, register_negpip_prompts, schedule_steps
+from modules.anima_support import PasteKey, effective_prompt_batch, process_ref, prompt_schedule, prompt_step, register_negpip_prompts, schedule_steps, script_arguments
 from modules.infotext_utils import PasteField
 from modules.prompt_parser import get_multicond_prompt_list
 
@@ -107,12 +107,19 @@ TABLE_HEADERS = [
 ]
 # Components per artist row; a panel (base or hires) has MAX_ARTIST_ROWS rows
 ROW_WIDTH = len(TABLE_HEADERS)
+# The row chains ui() returns after the header, in order
+ROW_CHAINS = ("base", "hires")
+# One script-arg name per row component, as its elem_id: "base_artist_0", ...
+ROW_ARGS = tuple(
+    f"{chain}_{header.lower().replace(' ', '_')}_{index}" for chain in ROW_CHAINS for index in range(MAX_ARTIST_ROWS) for header in TABLE_HEADERS
+)
+SCRIPT_ARGS_OWNER = "Anima Artist Scheduled Mixer"
 
 
 @dataclass(frozen=True)
 class _MixerArgs:
     """The script args: the HEADER_ARGS controls ui() returns first, then the
-    base and the hires row components (``component_values``)."""
+    base and the hires row components (``component_values``, ROW_ARGS)."""
 
     enable: object
     base_row_count: object
@@ -131,10 +138,13 @@ class _MixerArgs:
 
     @classmethod
     def from_args(cls, args):
-        """None when ``args`` does not hold the whole header."""
-        if len(args) < len(HEADER_ARGS):
-            return None
-        return cls(*args[: len(HEADER_ARGS)], component_values=tuple(args[len(HEADER_ARGS) :]))
+        """The panel's positional script args, checked by ``script_arguments``:
+        a list that is not exactly SCRIPT_ARG_NAMES long raises TypeError. No
+        default fills a short list: the layout has not changed since the
+        panel's first version, so there is no older, shorter list to replay,
+        and a control added later would shift every row after it."""
+        named = script_arguments(SCRIPT_ARGS_OWNER, SCRIPT_ARG_NAMES, args)
+        return cls(**{name: getattr(named, name) for name in HEADER_ARGS}, component_values=tuple(getattr(named, name) for name in ROW_ARGS))
 
     def row_values(self, hires):
         """Component values of the base or the ``hires`` rows."""
@@ -143,6 +153,8 @@ class _MixerArgs:
 
 
 HEADER_ARGS = tuple(name for name in _MixerArgs.__dataclass_fields__ if name != "component_values")
+# Every script arg, in the order ui() returns its controls
+SCRIPT_ARG_NAMES = (*HEADER_ARGS, *ROW_ARGS)
 
 
 OPTION_LABELS = {
@@ -1887,10 +1899,10 @@ class Script(scripts.Script):
         # Runs before NegPiP's process_batch: let a negative weight in an
         # artist name that will actually be encoded enable NegPiP. Same
         # gating and rows as process_before_every_sampling, for each pass.
+        mixer_args = _MixerArgs.from_args(args)  # a wrong count raises before anything changes
         names = []
         passes = [False]
-        mixer_args = _MixerArgs.from_args(args)
-        if mixer_args is not None and getattr(p, "enable_hr", False) and mixer_args.hires_independent:  # hires rows of its own
+        if getattr(p, "enable_hr", False) and mixer_args.hires_independent:  # hires rows of its own
             passes.append(True)
         for hires in passes:
             run = _resolve_run_rows(p, mixer_args, hires, report=False)
@@ -1901,9 +1913,7 @@ class Script(scripts.Script):
         register_negpip_prompts(p, ARTIST_MIXER, names)
 
     def process_before_every_sampling(self, p, *args, **kwargs):
-        mixer_args = _MixerArgs.from_args(args)
-        if mixer_args is None:
-            return
+        mixer_args = _MixerArgs.from_args(args)  # a wrong count raises before anything changes
         if _should_remember_settings(p):
             _save_runtime_current_settings(self.tabname, mixer_args)
 

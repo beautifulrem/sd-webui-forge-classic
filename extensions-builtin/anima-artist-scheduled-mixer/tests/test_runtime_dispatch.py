@@ -176,7 +176,8 @@ def test_artist_mixer_yields_to_regional_in_headless_runs():
 
     p = SimpleNamespace(is_api=True, extra_generation_params={})
     set_feature_active(p, REGIONAL)
-    args = [True, 1, 1, False, False, 0, 0, 1.0, "balance", runtime.COMBINE_OUTPUT_AVG, runtime.FUSION_INTERPOLATE, False, False]
+    head = [True, 1, 1, False, False, 0, 0, 1.0, "balance", runtime.COMBINE_OUTPUT_AVG, runtime.FUSION_INTERPOLATE, False, False]
+    args = [*head, *[None] * len(mixer.ROW_ARGS)]
     mixer.Script().process_before_every_sampling(p, *args)
 
     message = "disabled: Anima Regional Conditioning has priority in headless processing"
@@ -411,9 +412,47 @@ def test_process_registers_the_artists_of_the_passes_that_run():
     run = mixer._resolve_run_rows(_run_p(), mixer._MixerArgs.from_args(_run_args(enable_hires_rows=True)), True)
     assert run[3][0][1] == "hires artist"
     assert mixer._resolve_run_rows(_run_p(), mixer._MixerArgs.from_args(_run_args()), True)[3][0][1] == "(base artist:-1)"
-    # A caller without the whole header runs nothing
-    assert mixer._MixerArgs.from_args(_run_args()[:12]) is None
     assert mixer._resolve_run_rows(_run_p(), None, False) is None
+
+
+def test_the_script_arg_names_follow_the_panel_layout():
+    assert len(mixer.SCRIPT_ARG_NAMES) == len(set(mixer.SCRIPT_ARG_NAMES)) == len(_run_args())
+    assert mixer.SCRIPT_ARG_NAMES[: len(mixer.HEADER_ARGS)] == mixer.HEADER_ARGS
+    assert mixer.ROW_ARGS[: mixer.ROW_WIDTH] == ("base_enabled_0", "base_artist_0", "base_weight_0", "base_blocks_0", "base_start_0", "base_end_0", "base_peak_0", "base_curve_0", "base_stage_0", "base_auto_shift_0")
+    assert mixer.ROW_ARGS[-1] == f"hires_auto_shift_{mixer.MAX_ARTIST_ROWS - 1}"
+    args = mixer._MixerArgs.from_args(_run_args(enable_hires_rows=True))
+    assert args.hires_independent is True and args.row_values(False)[1] == "(base artist:-1)" and args.row_values(True)[1] == "hires artist"
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        # A short header used to return early: an enabled panel silently did nothing
+        _run_args()[: len(mixer.HEADER_ARGS) - 1],
+        # Extra values used to be ignored
+        [*_run_args(), None, None],
+        # A partial row used to be dropped
+        _run_args()[:-3],
+    ],
+    ids=["short-header", "extras", "partial-row"],
+)
+def test_a_wrong_argument_count_installs_nothing(monkeypatch, args):
+    from modules.anima_support import NEGPIP_EXTRA_PROMPTS
+
+    remembered = []
+    monkeypatch.setattr(mixer, "_build_artists", lambda *a: pytest.fail("artists built from a misaligned argument list"))
+    monkeypatch.setattr(mixer, "_save_runtime_current_settings", lambda *a: remembered.append(a))
+    p = _run_p()
+    p.is_api = False  # a UI run remembers its panel
+    unet = p.sd_model.forge_objects.unet
+    count = len(mixer.SCRIPT_ARG_NAMES)
+    for hook in (mixer.Script().process, mixer.Script().process_before_every_sampling):
+        with pytest.raises(TypeError, match=f"Anima Artist Scheduled Mixer takes {count} script arguments, got {len(args)}"):
+            hook(p, *args)
+    assert remembered == [] and not hasattr(p, "_anima_artist_settings_remembered")
+    assert p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {} and runtime._RUN_STATES == []
+    assert not hasattr(p, NEGPIP_EXTRA_PROMPTS)
+    assert not mixer.is_feature_active(p, mixer.ARTIST_MIXER)
 
 
 @pytest.mark.parametrize("prompts", [["1girl AND a cat"], ["1girl and a cat", "1girl AND rain:0.5"]])
