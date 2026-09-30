@@ -24,15 +24,12 @@ _ns = {
     "torch": torch,
     "devices": SimpleNamespace(cpu="cpu"),
     "logger": logging.getLogger("modules.sd_samplers_kdiffusion"),
-    "sd_schedulers": SimpleNamespace(
-        schedulers_map={
-            "anima_flow_match": _FLOW,
-            "Anima FlowMatch": _FLOW,
-            "Anima Diffusers FlowMatch": _FLOW,  # an alias, as the real map holds them
-            "Karras": SimpleNamespace(label="Karras", function=lambda n, **_: _KARRAS, default_rho=7.0, need_inner_model=False),
-        }
-    ),
+    "sd_schedulers": SimpleNamespace(),
 }
+_KARRAS_SCHEDULER = SimpleNamespace(label="Karras", function=lambda n, **_: _KARRAS, default_rho=7.0, need_inner_model=False)
+# The real maps: every scheduler (with aliases), and the ones the user did not hide
+_ALL = {"anima_flow_match": _FLOW, "Anima FlowMatch": _FLOW, "Anima Diffusers FlowMatch": _FLOW, "Karras": _KARRAS_SCHEDULER}
+_ns["sd_schedulers"].all_schedulers_map = _ns["sd_schedulers"].schedulers_map = _ALL
 exec(compile(ast.Module([_method], []), str(_SOURCE), "exec"), _ns)  # noqa: S102 - our own source file
 get_sigmas = _ns["get_sigmas"]
 
@@ -100,5 +97,18 @@ def test_locked_samplers_do_not_flag_their_own_scheduler(choice, caplog):
 
     assert torch.equal(sigmas, _GRID)
     assert "Anima Flow replaced scheduler" not in p.extra_generation_params
+    assert p.extra_generation_params["Schedule type"] == "Anima FlowMatch"
+    assert caplog.records == []
+
+
+def test_a_locked_sampler_keeps_its_scheduler_when_the_user_hides_it(monkeypatch, caplog):
+    # "Hide schedulers" drops Anima FlowMatch from the dropdowns' map only
+    monkeypatch.setattr(_ns["sd_schedulers"], "schedulers_map", {"Karras": _KARRAS_SCHEDULER})
+    p = SimpleNamespace(is_hr_pass=False, scheduler="Automatic", extra_generation_params={}, sampler_noise_scheduler_override=None)
+
+    with caplog.at_level(logging.WARNING, logger="modules.sd_samplers_kdiffusion"):
+        sigmas = get_sigmas(_sampler(True), p, 2)
+
+    assert torch.equal(sigmas, _GRID)
     assert p.extra_generation_params["Schedule type"] == "Anima FlowMatch"
     assert caplog.records == []

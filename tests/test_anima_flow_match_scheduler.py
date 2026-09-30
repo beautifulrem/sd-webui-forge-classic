@@ -71,3 +71,16 @@ def test_every_scheduler_alias_resolves_like_its_label(sd_schedulers):
     for scheduler in aliased:
         for alias in scheduler.aliases:
             assert sd_schedulers.schedulers_map[alias] is scheduler is sd_schedulers.schedulers_map[scheduler.label]
+
+
+def test_hidden_schedulers_leave_the_dropdown_map_but_not_the_full_one(monkeypatch):
+    from modules import shared
+
+    monkeypatch.setattr(shared, "opts", SimpleNamespace(hide_schedulers=["Anima FlowMatch"], **dict.fromkeys(TOGGLES, False)))
+    monkeypatch.delitem(sys.modules, "modules.sd_schedulers", raising=False)
+    import modules.sd_schedulers as sd_schedulers
+
+    assert "Anima FlowMatch" not in sd_schedulers.schedulers_map
+    for key in ("anima_flow_match", "Anima FlowMatch", "Anima Diffusers FlowMatch"):
+        assert sd_schedulers.all_schedulers_map[key].name == "anima_flow_match"
+    monkeypatch.delitem(sys.modules, "modules.sd_schedulers", raising=False)

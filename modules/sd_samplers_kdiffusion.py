@@ -103,7 +103,7 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
             # the UI greys the Schedule type out, but API/XYZ runs reach here with any scheduler;
             # the Anima Flow tail thresholds are tuned for the sampler's own grid
             locked_name = self.config.options["scheduler"]
-            if scheduler_name not in ("Automatic", "automatic") and sd_schedulers.schedulers_map.get(scheduler_name) is not sd_schedulers.schedulers_map.get(locked_name):
+            if scheduler_name not in ("Automatic", "automatic") and sd_schedulers.all_schedulers_map.get(scheduler_name) is not sd_schedulers.all_schedulers_map.get(locked_name):
                 p.extra_generation_params["Anima Flow replaced hires scheduler" if p.is_hr_pass else "Anima Flow replaced scheduler"] = scheduler_name
                 logger.warning("Anima Flow scheduler lock: %s replaced by the sampler's own schedule", scheduler_name)
             scheduler_name = locked_name
@@ -118,7 +118,8 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
             if scheduler_name is None and not p.sd_model.is_webui_legacy_model():
                 scheduler_name = "Normal"
 
-        scheduler = sd_schedulers.schedulers_map.get(scheduler_name)
+        # the locked scheduler resolves even when hidden from the dropdowns
+        scheduler = (sd_schedulers.all_schedulers_map if lock_scheduler_override else sd_schedulers.schedulers_map).get(scheduler_name)
 
         m_sigma_min, m_sigma_max = self.model_wrap.sigmas[0].item(), self.model_wrap.sigmas[-1].item()
 

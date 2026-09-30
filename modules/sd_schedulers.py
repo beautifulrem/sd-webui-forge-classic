@@ -333,5 +333,13 @@ all_schedulers = [
 
 schedulers = [s for s in all_schedulers if s.label not in shared.opts.hide_schedulers]
 
-# Aliases too: API / XYZ / Hires scheduler fields may carry them, not just "Sampler Scheduler" infotext
-schedulers_map = {**{alias: x for x in schedulers for alias in x.aliases or ()}, **{x.name: x for x in schedulers}, **{x.label: x for x in schedulers}}
+
+def _by_name(items):
+    # Aliases too: API / XYZ / Hires scheduler fields may carry them, not just "Sampler Scheduler" infotext
+    return {**{alias: x for x in items for alias in x.aliases or ()}, **{x.name: x for x in items}, **{x.label: x for x in items}}
+
+
+schedulers_map = _by_name(schedulers)
+# Hidden ones included: a sampler that locks its own scheduler (Anima Flow)
+# keeps it when the user hides that scheduler from the dropdowns
+all_schedulers_map = _by_name(all_schedulers)
