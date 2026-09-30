@@ -7,6 +7,10 @@ import gradio as gr
 from lib_spectrum import logger
 
 PRESET_FILE: Final[os.PathLike] = os.path.join(os.path.dirname(os.path.dirname(__file__)), "presets.json")
+# Infotext key of the enable switch: written only when Spectrum runs, so
+# pasting (UI, "Send to", API infotext) turns Spectrum back on. It is not a
+# CONTROLS entry: presets store the settings, never the switch.
+ENABLE_KEY: Final[str] = "spec_enabled"
 # The script arguments after ``enable``, in API order:
 # (infotext key, Anima preset control name, type, default)
 CONTROLS: Final[tuple] = (

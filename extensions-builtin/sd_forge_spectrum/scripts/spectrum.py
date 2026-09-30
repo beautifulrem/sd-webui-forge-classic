@@ -4,7 +4,7 @@ import gradio as gr
 from lib_spectrum import logger
 from lib_spectrum.forecaster import SpectrumNode
 from lib_spectrum.pass_context import resolve_pass_context
-from lib_spectrum.presets import CONTROLS, DEFAULT, DEFAULTS, INFOTEXT_KEYS, PresetManager
+from lib_spectrum.presets import CONTROLS, DEFAULT, DEFAULTS, ENABLE_KEY, INFOTEXT_KEYS, PresetManager
 
 from modules import paths, scripts, shared
 from modules.anima_presets import register_preset_control
@@ -175,7 +175,8 @@ class SpectrumForForge(scripts.Script):
                     queue=False,
                 )
 
-        self.infotext_fields = [PasteField(component, key) for component, key in zip(controls, INFOTEXT_KEYS, strict=True)]
+        # Infotext without ENABLE_KEY (older images, Spectrum off) leaves the switch alone.
+        self.infotext_fields = [PasteField(enable, ENABLE_KEY), *(PasteField(component, key) for component, key in zip(controls, INFOTEXT_KEYS, strict=True))]
         self.paste_field_names = [field.label for field in self.infotext_fields]
 
         register_preset_control(self.tabname, "spectrum.enabled", enable)
@@ -232,5 +233,6 @@ class SpectrumForForge(scripts.Script):
         )
         p.sd_model.forge_objects.unet = unet
 
+        p.extra_generation_params[ENABLE_KEY] = True
         for k, v in zip(INFOTEXT_KEYS, args):
             p.extra_generation_params[k] = v

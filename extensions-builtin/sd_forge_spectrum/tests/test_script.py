@@ -25,7 +25,7 @@ def _load():
     except ImportError:
         # Its image helpers need the full WebUI install; the script only needs PasteField
         stub = types.ModuleType("modules.infotext_utils")
-        stub.PasteField = tuple
+        stub.PasteField = lambda component, target: (component, target)
         modules.infotext_utils = sys.modules["modules.infotext_utils"] = stub
     PresetManager.presets = {}  # the import must not create presets.json
     spec = importlib.util.spec_from_file_location("spectrum_script_under_test", SCRIPT)
