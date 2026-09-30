@@ -1,8 +1,9 @@
+import json
 import logging
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
-from functools import partial
+from functools import lru_cache, partial
 from pathlib import Path
 
 import gradio as gr
@@ -40,6 +41,7 @@ from modules.anima_lora_ui import intro_block, register_language_option, ui_lang
 from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
 from modules.anima_support import effective_prompt_batch, process_ref, prompt_schedule, prompt_step, register_negpip_prompts, schedule_steps
+from modules.infotext_utils import PasteField
 from modules.prompt_parser import get_multicond_prompt_list
 
 
@@ -1362,6 +1364,148 @@ def _resolve_run_rows(p, args, hires, report=True):
     return dm, unet, shift, rows
 
 
+# Infotext keys recording the panel beside the "Anima Artist Mixer" summary,
+# each one JSON value in internal (not localized) values:
+#   options: the global controls that change the output
+#   base, hires: the rows that mix, [artist, weight, blocks, start, end, peak,
+#     curve, stage, auto_shift] each; hires only when the Hires pass mixes
+#     with rows of its own
+INFOTEXT_OPTIONS = "Anima Artist Mixer options"
+INFOTEXT_BASE = "Anima Artist Mixer base"
+INFOTEXT_HIRES = "Anima Artist Mixer hires"
+INFOTEXT_KEYS = (INFOTEXT_OPTIONS, INFOTEXT_BASE, INFOTEXT_HIRES)
+
+
+def _to_json(value):
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _infotext_rows(rows):
+    """The rows of ``rows`` (normalized, display=False) that mix: the enabled
+    rows with an artist, without their Enabled column."""
+    return [row[1:] for row in rows if row[0] and row[1]]
+
+
+def generation_params(p, args) -> dict:
+    """Infotext of the panel ``args`` (a _MixerArgs) mixes ``p`` with; keys
+    match ``INFOTEXT_KEYS``. Each chain's timings are those of its pass's Shift."""
+    options = {
+        "strength": _to_float(args.global_strength, 0.7),
+        "optimization": _option_key("optimization", args.optimization, OPT_BALANCE),
+        "combine": _option_key("combine", args.combine_mode, COMBINE_OUTPUT_AVG),
+        "fusion": _option_key("fusion", args.fusion_mode, FUSION_INTERPOLATE),
+        "apply_uncond": bool(args.apply_uncond),
+        "hires_independent": bool(args.hires_independent),
+        "disable_hires_mixing": bool(args.disable_hires_mixing),
+    }
+
+    def chain(hires):
+        shift = _runtime_shift_from_processing(p, args.runtime_hires_shift if hires else args.runtime_base_shift, hires)
+        row_count = args.hires_row_count if hires else args.base_row_count
+        return _to_json(_infotext_rows(_active_rows_from_components(row_count, shift, args.optimization, *args.row_values(hires), display=False)))
+
+    params = {INFOTEXT_OPTIONS: _to_json(options), INFOTEXT_BASE: chain(False)}
+    if getattr(p, "enable_hr", False) and args.hires_independent and not args.disable_hires_mixing:
+        params[INFOTEXT_HIRES] = chain(True)
+    return params
+
+
+def _json_value(text, kind):
+    """``text`` decoded from JSON when that is a ``kind``; else None."""
+    try:
+        value = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, kind) else None
+
+
+@lru_cache(maxsize=4)
+def _paste_plan(options_text, base_text, hires_text, base_shift, hires_shift, language):
+    """Control name -> update (a tuple of updates for "base_rows" and
+    "hires_rows") restoring the panel an infotext records; empty for an
+    infotext without it, e.g. the summary alone earlier versions wrote.
+    ``language`` is the UI language the labels are in (a cache key)."""
+    options = _json_value(options_text, dict)
+    chains = {"base": _json_value(base_text, list), "hires": _json_value(hires_text, list)}
+    if options is None and chains["base"] is None and chains["hires"] is None:
+        return {}
+    options = options or {}
+    optimization = _option_key("optimization", options.get("optimization"), OPT_BALANCE)
+    plan = {"enable": gr.update(value=True)}
+    if "strength" in options:
+        plan["global_strength"] = gr.update(value=_clamp(_to_float(options["strength"], 0.7), 0.0, 2.0))
+    for name, group, fallback in (("optimization", "optimization", OPT_BALANCE), ("combine_mode", "combine", COMBINE_OUTPUT_AVG), ("fusion_mode", "fusion", FUSION_INTERPOLATE)):
+        key = name.removesuffix("_mode")
+        if key in options:
+            plan[name] = gr.update(value=_option_label(group, _option_key(group, options[key], fallback)))
+    for name in ("apply_uncond", "hires_independent", "disable_hires_mixing"):
+        if name in options:
+            plan[name] = gr.update(value=_to_bool(options[name]))
+    for prefix, shift in (("base", base_shift), ("hires", hires_shift)):
+        if chains[prefix] is None:
+            continue
+        rows = [[True, *row] for row in chains[prefix] if isinstance(row, (list, tuple))]
+        count = _row_count(len(rows))
+        plan[f"{prefix}_row_count"] = gr.update(value=count)
+        plan[f"{prefix}_rows"] = tuple(_component_values_from_rows(rows, shift, optimization, count))
+    return plan
+
+
+def _pasted_plan(params):
+    """:func:`_paste_plan` of the parsed infotext ``params``."""
+    base_shift = _to_float(params.get("Distilled CFG Scale"), 3.0)
+    hires_shift = _to_float(params.get("Hires Distilled CFG Scale"), base_shift)
+    texts = (params.get(key) for key in INFOTEXT_KEYS)
+    return _paste_plan(*(text if isinstance(text, str) else None for text in texts), base_shift, hires_shift, _language())
+
+
+def _pasted_update(name, params, index=None):
+    """The update pasting ``params`` makes to control ``name`` (to its
+    ``index``-th row component for "base_rows"/"hires_rows"); None leaves it."""
+    update = _pasted_plan(params).get(name)
+    if update is not None and index is not None:
+        update = update[index]
+    return None if update is None else dict(update)
+
+
+def _pasted_marker(params):
+    """A fresh value when ``params`` restores the panel: its change saves the
+    pasted panel like an edit, also when only the textboxes (which save on
+    blur) changed."""
+    return gr.update(value=uuid.uuid4().hex) if _pasted_plan(params) else None
+
+
+class _PasteKey(str):
+    """An infotext key that is also the paste function of one control. Forge
+    pastes through the function, so one recorded value fills many controls;
+    being the key, it lets the "Send to" buttons carry the control like any
+    field named in ``paste_field_names``."""
+
+    def __new__(cls, key, function):
+        self = super().__new__(cls, key)
+        self.function = function
+        return self
+
+    def __call__(self, params):
+        return self.function(params)
+
+
+def _paste_fields(header, base_rows, hires_rows, marker):
+    """``infotext_fields`` of the panel: the ``header`` controls (name ->
+    component, as ui() returns them), the base and hires row components and
+    the autosave ``marker``."""
+    keys = {"base_row_count": INFOTEXT_BASE, "hires_row_count": INFOTEXT_HIRES}
+    fields = [
+        PasteField(component, _PasteKey(keys.get(name, INFOTEXT_OPTIONS), partial(_pasted_update, name)))
+        for name, component in header.items()
+        if name in {"enable", "base_row_count", "hires_row_count", "hires_independent", "disable_hires_mixing", "global_strength", "optimization", "combine_mode", "fusion_mode", "apply_uncond"}
+    ]
+    for name, key, components in (("base_rows", INFOTEXT_BASE, base_rows), ("hires_rows", INFOTEXT_HIRES, hires_rows)):
+        fields.extend(PasteField(component, _PasteKey(key, partial(_pasted_update, name, index=index))) for index, component in enumerate(components))
+    fields.append(PasteField(marker, _pasted_marker))
+    return fields
+
+
 # Generation-panel Shift sliders: (elem_id, attribute the Script keeps it in)
 _SHIFT_SOURCES = (
     ("txt2img_distilled_cfg_scale", "base_shift_component"),
@@ -1412,6 +1556,8 @@ class Script(scripts.Script):
             runtime_hires_shift = gr.Number(value=getattr(hires_shift_input, "value", 3.0), visible=False, elem_id=self.elem_id("runtime_hires_shift"))
             base_shift_input = base_shift_input or runtime_base_shift
             hires_shift_input = hires_shift_input or runtime_hires_shift
+            # Changed by pasting an infotext that records the panel: saves it
+            paste_marker = gr.Textbox(value="", visible=False, elem_id=self.elem_id("paste_marker"))
             enable = gr.Checkbox(label=_t("enable"), value=defaults["enable"], elem_id=self.elem_id("enable"))
             gr.Markdown(
                 "Compatibility: Artist Mixer, FreeFuse, and Regional Conditioning are "
@@ -1684,11 +1830,12 @@ class Script(scripts.Script):
             *base_row_components,
             *hires_row_components,
         ]
-        _do_not_save_to_ui_config(*current_settings_inputs)
+        _do_not_save_to_ui_config(*current_settings_inputs, paste_marker)
         # Remember this tab's panel as it is edited; "always_last" folds a
-        # burst of changes (applying a template) into one final save. A
-        # textbox saves once its edit is done (blur, Enter), not per keystroke;
-        # handlers writing the textboxes save after they finish.
+        # burst of changes (applying a template, pasting an infotext) into one
+        # final save. A textbox saves once its edit is done (blur, Enter), not
+        # per keystroke; handlers writing the textboxes save after they finish,
+        # and a paste through the marker.
         autosave = {
             "fn": partial(_save_current_settings_ui, self.tabname),
             "inputs": current_settings_inputs,
@@ -1698,7 +1845,7 @@ class Script(scripts.Script):
             **_internal_event_kwargs(),
         }
         gr.on(
-            triggers=_autosave_triggers(current_settings_inputs),
+            triggers=[*_autosave_triggers(current_settings_inputs), paste_marker.change],
             trigger_mode="always_last",
             **autosave,
         )
@@ -1744,6 +1891,11 @@ class Script(scripts.Script):
             "apply_uncond": apply_uncond,
             "enable_cache": enable_cache,
         }
+        # Pasting an infotext that records the panel restores it (not the
+        # cache switch, which does not change the output); the summary alone
+        # of earlier versions leaves the panel as it is.
+        self.infotext_fields = _paste_fields(header, base_row_components, hires_row_components, paste_marker)
+        self.paste_field_names = list(INFOTEXT_KEYS)
         return [*(header[name] for name in HEADER_ARGS), *base_row_components, *hires_row_components]
 
     def process(self, p, *args, **kwargs):
@@ -1814,6 +1966,8 @@ class Script(scripts.Script):
             f"{len(artists)} artists, strength={state.global_strength:.2f}, "
             f"{state.combine_mode}/{state.fusion_mode}, preset={optimization}, shift={shift:.2f}"
         )
+        # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
+        p.extra_generation_params.update(generation_params(p, mixer_args))
 
     def postprocess_batch(self, p, *args, **kwargs):
         # Sampling (hires included) is over for this batch. The overrides

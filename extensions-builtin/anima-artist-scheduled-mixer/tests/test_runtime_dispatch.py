@@ -16,6 +16,13 @@ def _load():
     import modules
 
     try:
+        from modules import infotext_utils  # noqa: F401
+    except ImportError:
+        # Its image helpers need the full WebUI install; the panel only needs PasteField
+        stub = types.ModuleType("modules.infotext_utils")
+        stub.PasteField = lambda component, target: (component, target)
+        modules.infotext_utils = sys.modules["modules.infotext_utils"] = stub
+    try:
         from modules import sd_models  # noqa: F401
     except ImportError:
         # The model loader needs the full WebUI install; the dispatch does not use it

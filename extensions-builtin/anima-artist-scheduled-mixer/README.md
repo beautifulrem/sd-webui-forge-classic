@@ -13,6 +13,7 @@ Special thanks to **An1X3R/Anima-Artist-Mixer** and **汐浮尘/utowo** for the 
 - Inline row weights in the artist cell, for example `(wlop:1.2)`, `[wlop:0.8]`, or `wlop:1.2`; this multiplier is combined with the row `Weight`.
 - Separate Base and Hires. fix artist chains. Hires. fix is disabled by default and inherits Base settings.
 - Current settings are saved automatically when controls change, then restored after refreshing the UI or restarting Forge.
+- The infotext records the rows and controls a generation mixed with, so pasting an image's parameters restores the panel (see Infotext And Pasting).
 - Template save, apply, rename, and delete. Templates remain editable after applying and can be reused across sessions.
 - Reset all settings to the built-in defaults when you want a clean state.
 - Optional switch to disable artist mixing during Hires. fix while keeping it active for the base pass.
@@ -38,6 +39,16 @@ Changing any main control (a text field once you leave it or press Enter) update
 Use `Reset all to defaults` to clear the local current-settings file and restore the built-in defaults. Template files are not deleted by reset.
 
 The Hires. fix tab includes `Disable artist mixing during Hires. fix`. When enabled, the plugin does not mix during the Hires pass: nothing is installed for it, so Hires. fix generation is untouched.
+
+## Infotext And Pasting
+
+A generation that mixes records its panel next to the `Anima Artist Mixer` summary line. Each key holds one JSON value in the internal values templates use (never the localized labels):
+
+- `Anima Artist Mixer options`: the global controls that change the image: `strength`, `optimization`, `combine`, `fusion`, `apply_uncond`, `hires_independent`, `disable_hires_mixing`.
+- `Anima Artist Mixer base`: the base rows that mix (enabled rows with an artist; disabled and empty rows are left out), each `[artist, weight, blocks, start, end, peak, curve, stage, auto_shift]`. Start/End/Peak are the values at that pass's Shift.
+- `Anima Artist Mixer hires`: the same for the Hires. fix rows, written only when the Hires pass mixes with rows of its own.
+
+Pasting those parameters (the paste button next to the prompt, or PNG Info's Send to) restores the panel in either UI language. It turns the Mixer on, sets the recorded controls, fills one row per recorded row (the row count follows), and saves the tab's current settings as an edit would. It does not change templates, the template dropdown or the text-encoding cache switch. When an infotext has no Hires rows, the Hires rows are left as they are. An infotext without these keys leaves the panel untouched: a generation without the Mixer, or one from an earlier version that wrote only the summary. The Send to buttons under the gallery also carry the panel from txt2img to img2img, as the other Anima panels do.
 
 ## Recommended Defaults
 
