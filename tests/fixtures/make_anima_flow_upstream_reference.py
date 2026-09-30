@@ -26,6 +26,11 @@ SCHEDULES = {
     "shift3_16": shifted(16),
     "shift3_30": shifted(30),
     "uneven_10": torch.tensor([1.0, 0.93, 0.82, 0.66, 0.47, 0.3, 0.17, 0.09, 0.045, 0.02, 0.0], dtype=torch.float64),
+    # img2img / Hires start: the tail of a longer schedule, first sigma < 1
+    "shift3_16_from6": shifted(16)[6:],
+    # the shortest schedules: no history for the multistep predictor/corrector
+    "shift3_2": shifted(2),
+    "shift3_1": shifted(1),
 }
 # name -> (upstream solver, upstream kwargs, our sampler, our kwargs)
 VARIANTS = {

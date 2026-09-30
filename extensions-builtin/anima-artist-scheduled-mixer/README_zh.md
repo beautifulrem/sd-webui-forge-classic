@@ -51,6 +51,8 @@ Anima 画师串调度混合是一个 Forge Neo 扩展，用来让 Anima 的画�
 
 Anima 使用非线性的 LLM 文本编码器，因此无法做到 SDXL 画师混合那种近似无损。这个插件的目标是降低画师标签之间的上下文干扰，让风格混合更可控。
 
+不支持含 `AND`（Forge 的多子提示组合）的提示词：Forge 会把每个子提示作为单独的条件块运行，把画师混入每个块会破坏 AND 组合。遇到这种情况插件在该遍不做混合，图片照常生成，infotext 记为 `Anima Artist Mixer: disabled: AND prompts are not supported`。
+
 插件只在每次模型调用期间覆盖 Anima cross-attention，调用结束（包括出错）后立即还原原始 forward；不会修改文本编码器层或模型文件。
 
 ## 许可

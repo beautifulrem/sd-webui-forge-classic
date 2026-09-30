@@ -1,7 +1,7 @@
 # Forge Neo Remi 功能与 Anima 生成指南
 
 > 适用分支：`remi`  
-> 代码核对基线：`529e492f`（2026-09-30）  
+> 代码核对基线：`20c8c255`（2026-09-30）  
 > 本文中的“推荐”是保守起步值，不是对所有模型、LoRA 和提示词都最优的固定答案。
 
 ## 先看结论
@@ -17,11 +17,17 @@
 
 ## GUI 内置推荐预设
 
-打开 txt2img 或 img2img 后，在页面下方展开 `Anima Remi Presets`，选择界面已预选的 `Official Base/Aesthetic — Safe (Recommended)`，然后点击 `Apply recommended preset`。预设不会在启动时强行改写当前界面，只有点击后才应用。
+打开 txt2img 或 img2img 后，在页面下方展开 `Anima Remi Presets`，选择预设后点击 `Apply preset`。预设不会在启动时强行改写当前界面，只有点击后才应用。下拉框中有三项：
 
-它会一次设置 `ER SDE`、`36` 步、CFG `4.5`、`Automatic` scheduler，并把 Guidance、DAVE、Cross-Attention Boost、Dynamic Shift、Spectrum、Regional、Artist Mixer、FreeFuse、PiD、Hires Guard、LoRA Stage/Layer、Prompt Rescale、分辨率随机化和 Hires/Refiner 等可选栈关闭；这些模块内部的数值也会恢复为本文推荐起点。Torch Compile 回到 `Automatic`。
+| 预设 | 适用 | 设置 |
+|---|---|---|
+| `Official Base/Aesthetic — Safe (Recommended)`（默认预选） | Base/Aesthetic | `ER SDE`、`36` 步、CFG `4.5`、`Automatic` scheduler |
+| `Official Turbo — Fast (CFG 1 · 10 steps)` | 仅 Anima-Turbo | `Euler`、`10` 步、CFG `1.0`、`Automatic` scheduler |
+| `Turbo + NAG negative prompt (CFG 1 · 10 steps)` | 仅 Anima-Turbo，需要负面提示生效时 | Turbo 设置 + 开启 NAG（scale `2.0`、tau `2.5`、alpha `0.5`、范围 `0.0–0.5`） |
 
-预设不会清空正/负提示词、Regional prompt、Artist 名称与权重、LoRA 名称、FreeFuse trigger phrase、PiD 模型选择或本地 adapter/encoder 路径。这样可以安全建立采样基线，而不破坏用户正在编辑的核心创作内容。它面向 Anima Base/Aesthetic；Turbo 请在应用后再改为约 `10` 步、CFG `1.0` 和 `Euler`/`Anima Flow Euler`。
+三个预设都会把 Guidance、DAVE、Cross-Attention Boost、Dynamic Shift、Spectrum、Regional、Artist Mixer、FreeFuse、PiD、Hires Guard、LoRA Stage/Layer、Prompt Rescale、分辨率随机化和 Hires/Refiner 等可选栈关闭；这些模块内部的数值也会恢复为本文推荐起点。Torch Compile 回到 `Automatic`。
+
+预设不会清空正/负提示词、Regional prompt、Artist 名称与权重、LoRA 名称、FreeFuse trigger phrase、PiD 模型选择或本地 adapter/encoder 路径。这样可以安全建立采样基线，而不破坏用户正在编辑的核心创作内容。Turbo checkpoint 请直接选 `Official Turbo — Fast`（或 `Turbo + NAG`），不需要应用 Base 预设后再手动改步数、CFG 和采样器。
 
 ## 三套可以直接起步的配置
 
@@ -50,6 +56,8 @@ Base 更自由、更多样，也更依赖画师和质量标签；Aesthetic 默�
 | Sampler | `Euler` 或 `Anima Flow Euler` |
 | Guidance | 先关闭；负面提示控制不足时再单独试 NAG |
 | Spectrum | 通常关闭：少步数下可跳过的实际前向很少 |
+
+上表就是内置预设 `Official Turbo — Fast (CFG 1 · 10 steps)` 的设置，直接应用即可；CFG 1 会忽略负面提示，需要负面提示生效时改用 `Turbo + NAG negative prompt`（参数见下文 NAG 一节，与其 Turbo 起点相同）。想试 `Anima Flow Euler` 时再手动切换采样器。
 
 Turbo 的稳定性和默认风格更强，但多样性较低。不要把 Base/Aesthetic 的 CFG 4–5 直接套给 Turbo。
 
@@ -135,7 +143,7 @@ UniPC2 和 PC3 第一次使用应保留界面默认值。只有在固定 seed �
 
 用途：负面提示控制弱、Turbo CFG 1 下需要更明确排除某些内容，或普通 CFG 已难以继续提高而不烧图。
 
-Turbo 建议起点：
+Turbo 建议起点（即 `Turbo + NAG negative prompt` 预设的设置）：
 
 | 参数 | 起点 |
 |---|---|
@@ -296,7 +304,7 @@ NAG、Momentum、Regional、FreeFuse、PC3 probe 等需要真实模型状态的�
 - Triton/Inductor 与系统编译工具链可用；
 - 能接受第一次生成明显变慢。
 
-改分辨率或 batch 时会重新编译一次，之后按动态形状复用，不必固定尺寸；频繁换模型时保持 `Automatic`/不编译更省事。懒编译失败或达到重编译上限会记录到当前图片元数据并持续回退 eager；Windows 缺少 C++ 编译器（`cl` 或 `CXX`）时会提前禁用。
+改分辨率或 batch 时会重新编译一次，之后按动态形状复用，不必固定尺寸；频繁换模型时保持 `Automatic`/不编译更省事。例外：batch 为 1 的前向（CFG 1，或处于 CFG 范围之外、只算正向的步）和带参考图（Edit 模型的参考 latent）的前向形状不同，会各自再编译一张图，所以 Turbo、`Limit CFG to a sampling range` 或 Edit 工作流第一次会多出几次编译。懒编译失败或达到重编译上限会记录到当前图片元数据并持续回退 eager；Windows 缺少 C++ 编译器（`cl` 或 `CXX`）时会提前禁用。
 
 Spectrum 与 compile 可以技术上组合：前者减少完整前向次数，后者加速仍然执行的 block。但收益不相加，必须用本机计时验证。
 
@@ -327,6 +335,8 @@ Remi 会按 checkpoint 实际结构识别 28 层、40 层/2.9B 和 52 层/3.8B A
 
 风格太强时先切 `保真增量` 或降低全局强度，不要先增加更多画师。Artist Mixer 与 FreeFuse 是硬冲突；与 Regional 虽能组合，也应先分别建立基线。
 
+正向 prompt 含 `AND`（Forge 的多子提示组合）时，Artist Mixer 在该遍不生效：生成照常进行，infotext 记为 `Anima Artist Mixer: disabled: AND prompts are not supported`。需要画师混合时请把 prompt 改写成不含 `AND` 的单一提示。
+
 ### Anima LoRA Stage Scheduler
 
 只在 LoRA 影响阶段不合适时开启，例如人物 LoRA 破坏构图、风格 LoRA 太早锁死布局。建议：
@@ -356,6 +366,7 @@ Remi 会按 checkpoint 实际结构识别 28 层、40 层/2.9B 和 52 层/3.8B A
 
 - 每个启用项都要填写匹配已加载文件名/Stem 的 LoRA 名；
 - trigger phrase 必须逐字出现在每一张图的正向 prompt；
+- 正向 prompt 不能含 `AND`（Forge 的多子提示组合）：FreeFuse 会中止采样而不是静默跳过，控制台记录 `Anima FreeFuse does not support AND prompts`；
 - `S-churn = 0`；
 - 不与 Regional、Artist Mixer 或 Refiner checkpoint switch 同跑；
 - LoRA stage/layer weight 与 modulation 可以组合；
@@ -419,6 +430,7 @@ Remi 会在 GUI 中采用“最后选择的功能获胜”：冲突项会被自�
 | FreeFuse + Regional | 同一互斥组，GUI 中最后选择者获胜；headless 时 Regional 让位，infotext 记为 `Anima regional conditioning: disabled: Anima FreeFuse has priority in headless processing` |
 | FreeFuse/Regional + Artist Mixer | 同一互斥组；headless 时 Artist Mixer 让位给 FreeFuse 或 Regional，infotext 记为 `Anima Artist Mixer: disabled: <FreeFuse/Regional> has priority in headless processing` |
 | FreeFuse + Refiner checkpoint switch | 不支持 |
+| FreeFuse / Artist Mixer + 含 `AND` 的正向 prompt | FreeFuse 中止采样并记录原因；Artist Mixer 跳过该遍，infotext 记为 `disabled: AND prompts are not supported` |
 | NAG + Regional/Artist | 可运行；NAG 只作用基础 prompt 路径 |
 | PiD + Hires fix | PiD 跳过并写入元数据 |
 | Spectrum + NAG/Momentum/Regional/FreeFuse/PC3 probe | 相关步骤强制 actual，速度收益下降或消失 |

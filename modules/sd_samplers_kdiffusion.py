@@ -105,7 +105,7 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
             locked_name = self.config.options["scheduler"]
             if scheduler_name not in ("Automatic", "automatic") and sd_schedulers.schedulers_map.get(scheduler_name) is not sd_schedulers.schedulers_map.get(locked_name):
                 p.extra_generation_params["Anima Flow replaced hires scheduler" if p.is_hr_pass else "Anima Flow replaced scheduler"] = scheduler_name
-                logger.warning(f"Anima Flow scheduler lock: {scheduler_name} replaced by the sampler's own schedule")
+                logger.warning("Anima Flow scheduler lock: %s replaced by the sampler's own schedule", scheduler_name)
             scheduler_name = locked_name
         elif scheduler_name == "Automatic":
             from backend.args import dynamic_args
@@ -124,7 +124,7 @@ class KDiffusionSampler(sd_samplers_common.Sampler):
 
         if p.sampler_noise_scheduler_override and lock_scheduler_override:
             p.extra_generation_params["Anima Flow scheduler lock"] = True
-            logger.warning("Anima Flow scheduler lock: ignoring a script's noise schedule override ; the sampler keeps its own schedule")
+            logger.warning("Anima Flow scheduler lock: ignoring a script's noise schedule override, the sampler keeps its own schedule")
         if p.sampler_noise_scheduler_override and not lock_scheduler_override:
             sigmas = p.sampler_noise_scheduler_override(steps)
         elif scheduler is None or scheduler.function is None:

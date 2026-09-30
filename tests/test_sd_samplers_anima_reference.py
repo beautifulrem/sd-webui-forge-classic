@@ -58,3 +58,13 @@ def test_reference_covers_every_variant_and_thresholding_is_exercised():
     # the Gaussian data (MU + STD > 1) gets clipped: thresholding is not a no-op here
     assert not torch.allclose(cases["shift3_16/unipc2_thresholding"]["x"], cases["shift3_16/unipc2_bh2"]["x"])
     assert not torch.allclose(cases["shift3_16/unipc2_thresholding_quantile"]["x"], cases["shift3_16/unipc2_thresholding"]["x"])
+
+
+def test_reference_covers_truncated_and_shortest_schedules():
+    cases = _REFERENCE["cases"]
+    for variant in VARIANTS:
+        # an img2img / Hires pass starts mid-schedule: the first model call is below sigma 1
+        assert cases[f"shift3_16_from6/{variant}"]["calls"][0] == SCHEDULES["shift3_16_from6"][0] < 1
+        # 1 and 2 steps: one model call per step, the predictor/corrector never has more history
+        assert len(cases[f"shift3_1/{variant}"]["calls"]) == 1
+        assert len(cases[f"shift3_2/{variant}"]["calls"]) == 2

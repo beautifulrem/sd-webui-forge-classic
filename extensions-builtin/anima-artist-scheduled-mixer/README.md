@@ -51,6 +51,8 @@ The Hires. fix tab includes `Disable artist mixing during Hires. fix`. When enab
 
 This cannot be perfectly lossless like SDXL artist mixing because Anima uses a non-linear LLM text encoder. The goal is controlled, usable style blending with lower interference between artist tags.
 
+Prompts containing `AND` (Forge's composable sub-prompts) are not supported: Forge runs each sub-prompt as its own conditioning chunk, and mixing artists into every chunk would undo the AND composition. For such a pass the Mixer does nothing, the image still generates, and the infotext records `Anima Artist Mixer: disabled: AND prompts are not supported`.
+
 The extension overrides Anima cross-attention only for the duration of each model call and restores the original forwards right after it (also when it fails). It does not edit text-encoder layers or model files.
 
 ## License

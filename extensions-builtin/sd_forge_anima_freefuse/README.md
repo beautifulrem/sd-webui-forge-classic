@@ -35,6 +35,11 @@ Forge online mode. The original online-LoRA setting is restored afterwards.
 - An Anima checkpoint and two or three active subject LoRAs.
 - Each GUI LoRA selector must match its loaded filename/stem.
 - Each trigger phrase must occur verbatim in every positive prompt in a batch.
+- Positive prompts must not contain `AND` (Forge's composable sub-prompts):
+  the concept token positions and the one-mask-per-image collection only fit
+  a single prompt. FreeFuse rejects such a prompt and aborts sampling rather
+  than silently skipping; the console logs `Anima FreeFuse does not support
+  AND prompts`.
 - S-churn must remain zero so the collection and generation paths are
   deterministic and identical up to the collection step.
 - Regional Conditioning and Artist Mixer are mutually exclusive because they
