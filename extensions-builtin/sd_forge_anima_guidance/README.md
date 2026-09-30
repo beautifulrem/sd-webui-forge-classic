@@ -34,8 +34,8 @@ The numerical predicates are adapted from
 licensed under Apache-2.0. Modifications include a non-mutating numerical API,
 Forge's residual-return CFG contract, existing-CFG-function composition, and
 Anima-only lifecycle/UI integration. This derivative is distributed as part
-of Forge Neo under the repository's AGPL-3.0 license; the upstream copyright
-and Apache-2.0 notice are preserved here.
+of Forge Neo under the repository's AGPL-3.0 license; the source and its
+Apache-2.0 license (in `LICENSE-APACHE-2.0`) are credited in `NOTICE`.
 
 ## SMC-CFG
 

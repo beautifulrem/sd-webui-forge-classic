@@ -1,7 +1,9 @@
 Skimmed CFG numerical predicates
-Copyright (c) Extraltodeus contributors
-Source: https://github.com/Extraltodeus/Skimmed_CFG
-License: Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+Source: https://github.com/Extraltodeus/Skimmed_CFG (revision
+d83005832ac42783adfd6f4ae96f6ef6406d1a74); its LICENSE names no copyright
+holder (it keeps the Apache template's placeholder) and it ships no NOTICE file
+License: Apache License 2.0, a copy of which is in LICENSE-APACHE-2.0 next to
+this file
 
 Modified for Forge Neo by the forge-neo-remi contributors.
 
@@ -38,7 +40,7 @@ Modified for Forge Neo by the forge-neo-remi contributors.
 Adaptive Projected Guidance (APG) momentum buffer and norm cap
 Copyright (c) The HuggingFace Team
 Source: https://github.com/huggingface/diffusers/blob/main/src/diffusers/guiders/adaptive_projected_guidance.py
-License: Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0)
+License: Apache License 2.0 (copy in LICENSE-APACHE-2.0 next to this file)
 
 Reimplemented for Forge Neo from arXiv:2410.02416 Algorithm 1 by the
 forge-neo-remi contributors; the combine is the paper's

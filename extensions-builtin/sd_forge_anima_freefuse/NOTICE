@@ -3,7 +3,9 @@ Yao-Xiang Ding, and Kun Zhou and studies the Apache-2.0 reference code at:
 https://github.com/yaoliliu/FreeFuse
 
 Reference revision: 7a76c3ac43ef3c27c7a3f8126e29e6021d837c80
-Reference license: Apache License 2.0
+Reference license: Apache License 2.0, a copy of which is in LICENSE-APACHE-2.0
+next to this file. The reference ships no NOTICE file and its LICENSE names no
+copyright holder. lib_anima_freefuse/masks.py ports its mask_utils.py.
 
 The Forge Neo/Anima runtime integration is an independent implementation.
 
