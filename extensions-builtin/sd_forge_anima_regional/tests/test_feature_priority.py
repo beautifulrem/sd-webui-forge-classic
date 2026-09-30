@@ -7,27 +7,24 @@ from types import SimpleNamespace
 import pytest
 
 sys.argv = sys.argv[:1]
-SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_regional.py"
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "anima_regional.py"
+# Shared with the other suites of this folder, loaded by path (see its docstring)
+_spec = importlib.util.spec_from_file_location("extension_script_harness", ROOT.parents[1] / "tests" / "extension_script_harness.py")
+harness = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(harness)
 
 
 def _load():
     import modules
 
     try:
-        from modules import infotext_utils  # noqa: F401
-    except ImportError:
-        # Its image helpers need the full WebUI install; the hooks only need PasteField
-        stub = types.ModuleType("modules.infotext_utils")
-        stub.PasteField = tuple
-        modules.infotext_utils = sys.modules["modules.infotext_utils"] = stub
-    try:
         from modules import sd_models  # noqa: F401
     except ImportError:
         # The model loader needs the full WebUI install; the encode cache key reads model_data only
         modules.sd_models = sys.modules["modules.sd_models"] = types.ModuleType("modules.sd_models")
-    spec = importlib.util.spec_from_file_location("anima_regional_under_test", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # Stubs modules.infotext_utils with Forge's own PasteField, which ui() of later suites needs
+    module = harness.load_script(SCRIPT, "anima_regional_under_test")
     module.is_anima_engine = lambda model: True
     return module
 

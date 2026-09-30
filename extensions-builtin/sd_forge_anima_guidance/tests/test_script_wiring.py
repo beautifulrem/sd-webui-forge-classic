@@ -804,103 +804,10 @@ def test_process_prefetches_the_cns_gamma_table_before_sampling(monkeypatch, sam
 
 
 # --- Infotext round trip ----------------------------------------------------
-# Minimal local stand-ins for the paste / replay helpers; swap them for the
-# shared ones in tests/extension_script_harness.py once those land.
-
-_REPO = Path(__file__).parents[3]
-
-
-def _source_definitions(path, wanted, namespace):
-    """The top-level functions / assignments ``wanted`` of ``path``, executed in
-    ``namespace``: the modules they live in need the full WebUI install."""
-
-    import ast
-
-    tree = ast.parse(path.read_text(encoding="utf8"))
-    nodes = [
-        node
-        for node in tree.body
-        if (isinstance(node, ast.FunctionDef) and node.name in wanted)
-        or (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) in wanted)
-    ]
-    exec(compile(ast.Module(nodes, []), str(path), "exec"), namespace)  # noqa: S102 - our own source file
-    assert set(wanted) <= set(namespace)
-    return namespace
-
-
-def _infotext_utils_helpers():
-    """``re_param_code``, ``quote``, ``unquote`` and ``_parse_info`` of modules/infotext_utils.py."""
-
-    import json
-
-    import gradio as gr
-
-    namespace = {"json": json, "gr": gr, "Any": object, "type_of_gr_update": type(gr.skip()), "errors": types.SimpleNamespace(report=print)}
-    return _source_definitions(_REPO / "modules" / "infotext_utils.py", {"re_param_code", "quote", "unquote", "_parse_info"}, namespace)
-
-
-def _api_pasted_value():
-    """``pasted_value`` of modules/api/api.py."""
-
-    return _source_definitions(_REPO / "modules" / "api" / "api.py", {"pasted_value"}, {})["pasted_value"]
-
-
-def _build_panel(script, tab="txt2img"):
-    """``script``'s controls, built on a fresh preset registry."""
-
-    import gradio as gr
-
-    from modules.anima_presets import reset_preset_controls
-
-    reset_preset_controls(tab)
-    script.tabname = tab
-    with gr.Blocks():
-        return script.ui(tab == "img2img")
-
-
-def _infotext_round_trip(params):
-    """``params`` as processing.create_infotext writes them and
-    parse_generation_parameters reads them back (key -> string)."""
-
-    import re
-
-    helpers = _infotext_utils_helpers()
-    line = "Steps: 20, Sampler: Euler, " + ", ".join(
-        f"{key}: {helpers['quote'](value)}" for key, value in params.items() if value is not None
-    )
-    return {key: helpers["unquote"](value) for key, value in re.findall(helpers["re_param_code"], line)}
-
-
-def _ui_paste(script, controls, params, panel):
-    """The panel values after pasting ``params``'s infotext into a panel set to
-    ``panel``: each paste field converted by infotext_utils._parse_info; a
-    field whose key is missing (gr.skip()) keeps the panel's value."""
-
-    parse_info = _infotext_utils_helpers()["_parse_info"]
-    parsed = _infotext_round_trip(params)
-    names = {id(component): name for component, name in zip(controls, SCRIPT_MODULE.SCRIPT_ARG_NAMES)}
-    pasted = dict(panel)
-    for component, key in script.infotext_fields:
-        update = parse_info(component, key, parsed)
-        if "value" in update:
-            pasted[names[id(component)]] = update["value"]
-    return pasted
-
-
-def _api_replay(script, controls, params):
-    """The script args the API's infotext replay (modules/api/api.py) runs
-    ``params`` with: each paste field's value converted by pasted_value to
-    its control's value type, the other args at the controls' defaults."""
-
-    pasted_value = _api_pasted_value()
-    parsed = _infotext_round_trip(params)
-    names = {id(component): name for component, name in zip(controls, SCRIPT_MODULE.SCRIPT_ARG_NAMES)}
-    replayed = {name: component.value for name, component in zip(SCRIPT_MODULE.SCRIPT_ARG_NAMES, controls)}
-    for component, key in script.infotext_fields:
-        value = parsed.get(key)
-        if value is not None:
-            replayed[names[id(component)]] = pasted_value(value, type(component.value))
-    return replayed
+# Shared with the other panels' suites, loaded by path (see its docstring)
+_spec = importlib.util.spec_from_file_location("extension_script_harness", Path(__file__).parents[3] / "tests" / "extension_script_harness.py")
+harness = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(harness)
 
 
 # The panel a PNG is pasted into: every sub-feature on, every setting off its default.
@@ -934,7 +841,7 @@ def _settings(p):
 
 def test_everything_on_panel_sets_every_argument():
     assert set(EVERYTHING_ON) == set(SCRIPT_MODULE.SCRIPT_ARG_NAMES)
-    defaults = dict(zip(SCRIPT_MODULE.SCRIPT_ARG_NAMES, (c.value for c in _build_panel(SCRIPT_MODULE.AnimaGuidanceScript()))))
+    defaults = dict(zip(SCRIPT_MODULE.SCRIPT_ARG_NAMES, (c.value for c in harness.build_ui(SCRIPT_MODULE.AnimaGuidanceScript()))))
     same = [name for name, value in EVERYTHING_ON.items() if value == defaults[name] and name != "enable"]
     assert same == []
 
@@ -946,13 +853,14 @@ def test_pasted_infotext_reruns_the_same_generation(monkeypatch, name, path):
     the defaults) -> re-run: the same arguments take effect."""
 
     script = SCRIPT_MODULE.AnimaGuidanceScript()
-    controls = _build_panel(script)
+    controls = harness.build_ui(script)
     original = _config_run(monkeypatch, name)
     params = dict(original.extra_generation_params)
     if path == "ui":
-        pasted = _ui_paste(script, controls, params, EVERYTHING_ON)
+        args = harness.pasted_args(script, controls, params, start=[EVERYTHING_ON[arg] for arg in SCRIPT_MODULE.SCRIPT_ARG_NAMES])
     else:
-        pasted = _api_replay(script, controls, params)
+        args = harness.api_replay(script, controls, params)
+    pasted = dict(zip(SCRIPT_MODULE.SCRIPT_ARG_NAMES, args, strict=True))
     rerun = _config_run(monkeypatch, name, **pasted)
     assert _settings(rerun) == _settings(original)
     # Each sub-feature switch is pasted as the run had it; a recorded False turns it off.

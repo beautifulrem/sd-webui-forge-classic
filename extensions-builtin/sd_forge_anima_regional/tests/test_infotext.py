@@ -3,7 +3,6 @@ the WebUI's paste and through the API's infotext replay."""
 
 import importlib.util
 import sys
-import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -33,10 +32,6 @@ REGION_THREE_OFF = [
 
 @pytest.fixture
 def regional(monkeypatch):
-    # Another suite of this folder may leave a one-argument PasteField stub behind
-    stub = types.ModuleType("modules.infotext_utils")
-    stub.PasteField = harness.forge_infotext().PasteField
-    monkeypatch.setitem(sys.modules, "modules.infotext_utils", stub)
     module = harness.load_script(ROOT / "scripts" / "anima_regional.py", "anima_regional_infotext_under_test")
     # No text encoder or patch: the infotext is what the pass records
     monkeypatch.setattr(module, "_region", lambda p, text, *placement: (text, placement))

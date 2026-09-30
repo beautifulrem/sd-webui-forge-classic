@@ -2,13 +2,9 @@
 through the UI paste ("Send to" pastes the same fields) and the API's infotext
 replay."""
 
-import ast
 import importlib.util
-import json
 import pathlib
-import re
 import sys
-import types
 from types import SimpleNamespace
 
 import gradio as gr
@@ -23,8 +19,6 @@ sys.path.insert(0, str(ROOT))
 from lib_spectrum.presets import CONTROLS, DEFAULTS, ENABLE_KEY, INFOTEXT_KEYS, PresetManager
 
 SCRIPT = ROOT / "scripts" / "spectrum.py"
-INFOTEXT_UTILS = REPO / "modules" / "infotext_utils.py"
-API = REPO / "modules" / "api" / "api.py"
 
 # Every control off its default, so a control that does not round-trip shows.
 SETTINGS = {
@@ -45,98 +39,18 @@ SETTINGS = {
 }
 
 
-# --- Local paste/replay helpers (swap for tests/extension_script_harness.py's shared ones) ---
-
-
-def _local_infotext_helpers() -> dict:
-    """``re_param_code``, ``quote``, ``unquote``, ``_parse_info`` and
-    ``PasteField`` from modules/infotext_utils.py, whose import needs the full
-    WebUI install."""
-
-    tree = ast.parse(INFOTEXT_UTILS.read_text(encoding="utf8"))
-    wanted = {"re_param_code", "quote", "unquote", "_parse_info", "PasteField"}
-    nodes = [
-        node
-        for node in tree.body
-        if (isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in wanted)
-        or (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) in wanted)
-    ]
-    namespace = {"json": json, "gr": gr, "Any": object, "type_of_gr_update": type(gr.skip()), "errors": SimpleNamespace(report=print)}
-    exec(compile(ast.Module(nodes, []), str(INFOTEXT_UTILS), "exec"), namespace)  # noqa: S102 - our own source file
-    assert wanted <= set(namespace)
-    return namespace
-
-
-def _local_api_pasted_value():
-    """``pasted_value`` from modules/api/api.py (same reason)."""
-
-    tree = ast.parse(API.read_text(encoding="utf8"))
-    node = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "pasted_value")
-    namespace = {}
-    exec(compile(ast.Module([node], []), str(API), "exec"), namespace)  # noqa: S102 - our own source file
-    return namespace["pasted_value"]
-
-
-INFOTEXT = _local_infotext_helpers()
-pasted_value = _local_api_pasted_value()
-
-
-def _local_through_infotext(params: dict) -> dict:
-    """``params`` written as processing.create_infotext writes them and read
-    back as parse_generation_parameters reads them."""
-
-    line = "Steps: 20, Sampler: Euler, " + ", ".join(f"{key}: {INFOTEXT['quote'](value)}" for key, value in params.items())
-    return {key: INFOTEXT["unquote"](value) for key, value in re.findall(INFOTEXT["re_param_code"], line)}
-
-
-def _local_ui_paste(script, inputs, params) -> list:
-    """The script args after pasting ``params`` (connect_paste: _parse_info of
-    each infotext field) over a panel at its defaults."""
-
-    parsed = _local_through_infotext(params)
-    updates = {field.component: INFOTEXT["_parse_info"](field.component, field.label, parsed) for field in script.infotext_fields}
-    return [updates[c]["value"] if c in updates and "value" in updates[c] else c.value for c in inputs]
-
-
-def _local_api_replay(script, inputs, params) -> list:
-    """The script args modules/api/api.py apply_infotext runs ``params`` with:
-    each script field's value converted by pasted_value to
-    type(component.value); the other args at their defaults."""
-
-    parsed = _local_through_infotext(params)
-    args = [component.value for component in inputs]
-    indexes = {component: index for index, component in enumerate(inputs)}
-    for field in script.infotext_fields:
-        if field.component not in indexes:
-            continue
-        value = field.function(parsed) if field.function else parsed.get(field.label)
-        target_type = type(field.component.value)
-        if value is None or target_type is type(None):
-            continue
-        value = pasted_value(value, target_type)
-        if value is not None:
-            args[indexes[field.component]] = value
-    return args
+# Shared with the other panels' suites, loaded by path (see its docstring)
+_spec = importlib.util.spec_from_file_location("extension_script_harness", REPO / "tests" / "extension_script_harness.py")
+harness = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(harness)
 
 
 # --- The script under test ---
 
 
 def _load():
-    import modules
-
-    try:
-        from modules import infotext_utils  # noqa: F401
-    except ImportError:
-        stub = types.ModuleType("modules.infotext_utils")
-        stub.PasteField = lambda component, target: (component, target)
-        modules.infotext_utils = sys.modules["modules.infotext_utils"] = stub
     PresetManager.presets = {}  # the import must not create presets.json
-    spec = importlib.util.spec_from_file_location("spectrum_script_infotext_under_test", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    module.PasteField = INFOTEXT["PasteField"]  # the real one, with .component / .label
-    return module
+    return harness.load_script(SCRIPT, "spectrum_script_infotext_under_test")
 
 
 spectrum = _load()
@@ -210,7 +124,7 @@ def test_spectrum_off_records_nothing():
     assert _record(False, *_settings_args()) == {}
 
 
-@pytest.mark.parametrize("replay", [_local_ui_paste, _local_api_replay], ids=["ui paste", "api replay"])
+@pytest.mark.parametrize("replay", [harness.pasted_args, harness.api_replay], ids=["ui paste", "api replay"])
 def test_a_recorded_run_pastes_back_enabled_with_the_same_settings(panel, replay):
     script, inputs = panel
     params = _record(True, *_settings_args())
@@ -223,7 +137,7 @@ def test_a_recorded_run_pastes_back_enabled_with_the_same_settings(panel, replay
     assert _record(enable, *args) == params
 
 
-@pytest.mark.parametrize("replay", [_local_ui_paste, _local_api_replay], ids=["ui paste", "api replay"])
+@pytest.mark.parametrize("replay", [harness.pasted_args, harness.api_replay], ids=["ui paste", "api replay"])
 def test_infotext_without_the_enable_key_leaves_the_switch_alone(panel, replay):
     # Images from before the key: the settings paste, the switch keeps its state (default off).
     script, inputs = panel
@@ -238,7 +152,7 @@ def test_infotext_without_the_enable_key_leaves_the_switch_alone(panel, replay):
 def test_send_to_carries_the_enable_switch(panel):
     script, inputs = panel
     assert script.paste_field_names == [ENABLE_KEY, *INFOTEXT_KEYS]
-    assert [field.component for field in script.infotext_fields] == inputs
+    assert [field.component for field in harness.paste_fields(script)] == inputs
 
 
 def test_presets_store_the_settings_not_the_switch(panel, monkeypatch):

@@ -1,7 +1,6 @@
 import importlib.util
 import pathlib
 import sys
-import types
 from types import SimpleNamespace
 
 import pytest
@@ -15,23 +14,15 @@ from lib_spectrum.presets import DEFAULTS, INFOTEXT_KEYS, PresetManager
 
 SCRIPT = ROOT / "scripts" / "spectrum.py"
 SEA = "SEA (auto-calibrated)"
+# Shared with the other panels' suites, loaded by path (see its docstring)
+_spec = importlib.util.spec_from_file_location("extension_script_harness", ROOT.parents[1] / "tests" / "extension_script_harness.py")
+harness = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(harness)
 
 
 def _load():
-    import modules
-
-    try:
-        from modules import infotext_utils  # noqa: F401
-    except ImportError:
-        # Its image helpers need the full WebUI install; the script only needs PasteField
-        stub = types.ModuleType("modules.infotext_utils")
-        stub.PasteField = lambda component, target: (component, target)
-        modules.infotext_utils = sys.modules["modules.infotext_utils"] = stub
     PresetManager.presets = {}  # the import must not create presets.json
-    spec = importlib.util.spec_from_file_location("spectrum_script_under_test", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return harness.load_script(SCRIPT, "spectrum_script_under_test")
 
 
 spectrum = _load()

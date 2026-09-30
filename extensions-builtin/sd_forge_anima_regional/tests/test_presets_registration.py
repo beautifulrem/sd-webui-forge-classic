@@ -3,7 +3,6 @@ infotext a pass writes restores the panel."""
 
 import importlib.util
 import sys
-import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,12 +18,7 @@ _spec.loader.exec_module(harness)
 
 
 @pytest.fixture
-def regional(monkeypatch):
-    # The panel builds PasteField(component, key) pairs; other suites of this
-    # folder may leave a stub behind that takes one argument
-    stub = types.ModuleType("modules.infotext_utils")
-    stub.PasteField = lambda component, target: (component, target)
-    monkeypatch.setitem(sys.modules, "modules.infotext_utils", stub)
+def regional():
     return harness.load_script(ROOT / "scripts" / "anima_regional.py", "anima_regional_presets_under_test")
 
 

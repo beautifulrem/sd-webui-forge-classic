@@ -210,11 +210,14 @@ def ui_paste(script, params: dict, callbacks=()) -> list:
     return [update.get("value") if update is not None else None for update in ui_paste_updates(script, params, callbacks)]
 
 
-def pasted_args(script, controls, params: dict, callbacks=()) -> list:
-    """The script args of a panel with ``controls`` (as ``ui`` returns them,
-    at their defaults) after the paste button pasted ``params`` into it."""
+def pasted_args(script, controls, params: dict, callbacks=(), start=None) -> list:
+    """The script args of a panel with ``controls`` (as ``ui`` returns them)
+    after the paste button pasted ``params`` into it. ``start``: the script
+    args the panel is set to before the paste (default: the controls'
+    defaults); a control the paste leaves alone keeps its ``start`` value."""
 
-    args = [control.value for control in controls]
+    args = [control.value for control in controls] if start is None else list(start)
+    assert len(args) == len(controls)
     indexes = {id(control): index for index, control in enumerate(controls)}
     for field, value in zip(paste_fields(script), ui_paste(script, params, callbacks), strict=True):
         if value is not None and id(field.component) in indexes:
