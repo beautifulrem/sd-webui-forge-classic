@@ -1,15 +1,19 @@
 import math
+import os
 import pathlib
+import stat
 import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 import torch
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from lib_spectrum import forecaster, sea
 from lib_spectrum.forecaster import SpectrumState
 from lib_spectrum.sea import (
     SeaCalibration,
@@ -53,6 +57,19 @@ class SeaTests(unittest.TestCase):
             gain = sea_gain(8, 8, t, 2.0, "cpu")
             self.assertTrue(torch.isfinite(gain).all() and (gain > 0).all())
 
+    def test_gain_prior_is_built_once_per_latent_size(self):
+        sea._power_spectrum.cache_clear()
+        with mock.patch.object(sea, "radial_frequency", wraps=sea.radial_frequency) as built:
+            gains = [sea_gain(8, 10, t, 2.0, "cpu") for t in (0.9, 0.5, 0.1)]
+            self.assertEqual(built.call_count, 1)  # only sigma changed
+            sea_gain(8, 12, 0.5, 2.0, "cpu")
+            sea_gain(8, 10, 0.5, 3.0, "cpu")
+            self.assertEqual(built.call_count, 3)  # new size, new beta
+        for t, gain in zip((0.9, 0.5, 0.1), gains):
+            spectrum = sea.radial_frequency(8, 10, "cpu").clamp_min(1.0 / 10).pow(-2.0)
+            expected = (1 - t) * spectrum / ((1 - t) ** 2 * spectrum + t * t + 1e-8)
+            self.assertTrue(torch.equal(gain, expected / expected.mean()))
+
     def test_window_fraction_is_bounded(self):
         fraction = window_refresh_fraction(30, 6, 3, 2.0, 0.25)
         self.assertTrue(0.0 <= fraction <= 1.0)
@@ -89,7 +106,7 @@ def _state(calibration, steps=10):
     )
 
 
-def _run(state, steps=10, batch=lambda step: 1):
+def _run(state, steps=10, batch=lambda step: 1, copies=lambda step: 1):
     generator = torch.Generator().manual_seed(0)
     image = torch.randn(1, 4, 1, 8, 8, generator=generator)
     for step in range(steps):
@@ -97,7 +114,7 @@ def _run(state, steps=10, batch=lambda step: 1):
         noise = torch.randn(image.shape, generator=generator)
         latent = (1.0 - sigma) * image + sigma * noise
         # Branch copies of x are identical, as Forge batches them.
-        state.advance(sigma, latent.repeat(batch(step), 1, 1, 1, 1))
+        state.advance(sigma, latent.repeat(batch(step), 1, 1, 1, 1), copies(step))
 
 
 class SeaStateTests(unittest.TestCase):
@@ -117,6 +134,13 @@ class SeaStateTests(unittest.TestCase):
             _run(again)
             self.assertEqual(again.sea_distances, [])  # calibrated: nothing re-collected
             self.assertIsNone(_state(_calibration(cache_dir, steps=12)).sea_delta)  # other config
+
+    @unittest.skipIf(os.name != "posix", "POSIX permission bits")
+    def test_saved_calibration_is_readable_like_a_plain_new_file(self):
+        with tempfile.TemporaryDirectory() as cache_dir:
+            calibration = _calibration(cache_dir)
+            calibration.solve_and_save([0.1, 0.2, 0.3])
+            self.assertEqual(stat.S_IMODE(os.stat(calibration.path).st_mode), 0o644)  # not mkstemp's 0600
 
     def test_spectral_beta_is_part_of_the_calibration_key(self):
         # The saved delta is solved from beta-filtered distances.
@@ -145,6 +169,55 @@ class SeaStateTests(unittest.TestCase):
         _run(single)
         self.assertEqual(dropped.sea_distances, single.sea_distances)
         self.assertAlmostEqual(dropped.sea_accumulated, single.sea_accumulated)
+
+    def test_only_one_branch_copy_is_filtered(self):
+        # cond + uncond (+ an AND sub-prompt) batch the same x: filter one copy.
+        filtered_rows = []
+
+        def recording_filter(value, *args):
+            filtered_rows.append(value.shape[0])
+            return sea_filter(value, *args)
+
+        batched = _state(None)
+        with mock.patch.object(forecaster, "sea_filter", recording_filter):
+            _run(batched, batch=lambda step: 3 if step < 5 else 1, copies=lambda step: 3 if step < 5 else 1)
+        self.assertEqual(filtered_rows, [1] * 10)
+        single = _state(None)
+        _run(single)
+        self.assertEqual(batched.sea_distances, single.sea_distances)
+        self.assertEqual(batched.sea_accumulated, single.sea_accumulated)
+
+    def test_the_sampling_wrapper_filters_one_copy_of_a_cfg_batch(self):
+        class Patcher:
+            model = SimpleNamespace(diffusion_model=torch.nn.Identity(), predictor=object())
+            model_options = {}
+            wrapper = None
+
+            def clone(self):
+                return self
+
+            def set_model_unet_function_wrapper(self, wrapper):
+                self.wrapper = wrapper
+
+        with tempfile.TemporaryDirectory() as cache_dir:
+            patcher = forecaster.SpectrumNode.patch(
+                Patcher(), steps=10, weight=1.0, degree=1, lam=1e-6, window_size=2,
+                flex_window=0.0, warmup_steps=2, stop_caching_step=1.0, tail_actual_steps=2,
+                history_size=3, schedule=SEA, refresh_ratio=0.0, sea_beta=2.0,
+                compat_policy="Legacy / fastest", verbose=False, sea_cache_dir=cache_dir,
+                sea_cache_context={}, process=SimpleNamespace(),
+            )
+            filtered_rows = []
+
+            def recording_filter(value, *args):
+                filtered_rows.append(value.shape[0])
+                return sea_filter(value, *args)
+
+            x = torch.randn(1, 4, 1, 8, 8)
+            args = {"input": torch.cat([x, x]), "timestep": torch.tensor([0.9]), "c": {"c_crossattn": torch.randn(2, 4, 8)}, "cond_or_uncond": [1, 0]}
+            with mock.patch.object(forecaster, "sea_filter", recording_filter):
+                patcher.wrapper(lambda value, timestep, **_kwargs: value, args)
+        self.assertEqual(filtered_rows, [1])
 
 
 if __name__ == "__main__":

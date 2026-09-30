@@ -93,6 +93,7 @@ def ensure_pinned_download(*, path: str, url: str, sha256: str, maximum_bytes: i
                 os.fsync(output.fileno())
             if digest.hexdigest() != sha256:
                 raise RuntimeError("downloaded artifact failed its SHA-256 check")
+            os.chmod(temporary, 0o644)  # what a plain new file gets (mkstemp makes 0600), as anima_user_data does
             os.replace(temporary, path)
             _VERIFIED[file_version(path)] = sha256  # hashed while downloading
         except BaseException:  # also Ctrl+C / shutdown: no leaked descriptor or .part file

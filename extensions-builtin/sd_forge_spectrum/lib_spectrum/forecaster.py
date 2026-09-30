@@ -288,7 +288,11 @@ class SpectrumState:
         self.sea_distances.clear()
         self.was_forced = False
 
-    def advance(self, sigma: float, latent: torch.Tensor) -> bool:
+    def advance(self, sigma: float, latent: torch.Tensor, copies: int = 1) -> bool:
+        """``copies``: how many branch chunks (cond, uncond, AND sub-prompts)
+        the call batches ``latent`` into. Each chunk is the same x, so SEA
+        filters and compares only the first one."""
+
         if self.last_sigma is not None and sigma > self.last_sigma + 1e-7:
             self.reset()
         new_step = self.last_sigma is None or abs(sigma - self.last_sigma) > 1e-7
@@ -297,12 +301,15 @@ class SpectrumState:
         self.step += 1
         self.last_sigma = sigma
         if self.schedule == "SEA (auto-calibrated)":
+            if copies > 1 and latent.shape[0] % copies == 0:
+                latent = latent[: latent.shape[0] // copies]
             current = sea_filter(latent, flow_time(sigma, self.flow_sigmas), self.sea_beta)
             previous = self.sea_previous
             if previous is not None and current.shape[1:] == previous.shape[1:]:
-                # A CFG range can drop the uncond copies (batch 2 -> 1). Every
-                # branch chunk is the same x, so row i is image i % batch in
-                # both: compare the rows the two steps share.
+                # Without branch info (copies 1) a CFG range dropping the
+                # uncond copies still changes the batch (2 -> 1). Every branch
+                # chunk is the same x, so row i is image i % batch in both:
+                # compare the rows the two steps share.
                 rows = min(current.shape[0], previous.shape[0])
                 distance = l1rel(current[:rows], previous[:rows])
                 self.sea_accumulated += distance
@@ -465,7 +472,7 @@ class SpectrumNode:
             branches, valid_branches = _branch_info(args, input_x.shape[0])
             keys = _branch_keys(branches)
             current_sigma, signatures = _call_samples(sigma, args.get("c") if valid_branches else None, keys)
-            new_step = state.advance(current_sigma, input_x)
+            new_step = state.advance(current_sigma, input_x, len(branches) if valid_branches else 1)
             # When one CFG batch does not fit, Forge runs uncond and cond as
             # separate calls at the same sigma (uncond first): each branch's
             # first call at a sigma is its step, not a repeated-sigma call.

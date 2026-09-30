@@ -1,4 +1,6 @@
 import hashlib
+import os
+import stat
 import threading
 
 import pytest
@@ -67,6 +69,15 @@ def test_download_is_verified_and_written_atomically(tmp_path, monkeypatch, _ser
     monkeypatch.setattr(anima_artifacts, "sha256_file", lambda path: hashed.append(path) or digest)
     anima_artifacts.ensure_pinned_download(path=str(target), url="https://unused", sha256=digest, maximum_bytes=100)
     assert hashed == []  # the verified version is remembered, not re-hashed
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits")
+def test_a_downloaded_artifact_is_readable_like_a_plain_new_file(tmp_path, _served):
+    url, digest = _source(_served)
+    target = tmp_path / "artifact.bin"
+
+    anima_artifacts.ensure_pinned_download(path=str(target), url=url, sha256=digest, maximum_bytes=100)
+    assert stat.S_IMODE(target.stat().st_mode) == 0o644  # not mkstemp's owner-only 0600
 
 
 def test_checksum_mismatch_keeps_the_existing_file_and_cleans_up(tmp_path, _served):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import math
@@ -30,13 +31,22 @@ def flow_time(sigma: float, flow: bool) -> float:
     return sigma if flow else sigma / (1.0 + sigma)
 
 
+@functools.lru_cache(maxsize=8)
+def _power_spectrum(height: int, width: int, beta: float, device: torch.device) -> torch.Tensor:
+    """The ``|f|^-beta`` prior of :func:`sea_gain`. Only sigma changes between
+    steps, so it is built once per latent size, beta and device (a few
+    ``H x W`` float32 tensors); callers must not modify it in place."""
+
+    frequency = radial_frequency(height, width, device)
+    return frequency.clamp_min(1.0 / max(height, width)).pow(-beta)
+
+
 def sea_gain(height: int, width: int, sigma: float, beta: float, device) -> torch.Tensor:
     """Wiener-style gain for a flow latent at noise fraction ``sigma``."""
 
     signal = 1.0 - float(sigma)
     noise = float(sigma)
-    frequency = radial_frequency(height, width, device)
-    spectrum = frequency.clamp_min(1.0 / max(height, width)).pow(-float(beta))
+    spectrum = _power_spectrum(int(height), int(width), float(beta), torch.device(device))
     gain = signal * spectrum / (signal * signal * spectrum + noise * noise + _EPS)
     return gain / gain.mean().clamp_min(_EPS)
 
@@ -150,6 +160,7 @@ class SeaCalibration:
                 json.dump({"schema": 1, "delta": delta, "refresh_ratio": ratio}, handle)
                 handle.flush()
                 os.fsync(handle.fileno())
+            os.chmod(temporary, 0o644)  # what a plain new file gets (mkstemp makes 0600)
             os.replace(temporary, self.path)
         except Exception:
             try:
