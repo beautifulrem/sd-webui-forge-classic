@@ -40,7 +40,7 @@ from modules.anima_lora_support import clamp as _clamp, model_block_set, stage_w
 from modules.anima_lora_ui import intro_block, register_language_option, ui_language, ui_text
 from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
-from modules.anima_support import effective_prompt_batch, process_ref, prompt_schedule, prompt_step, register_negpip_prompts, schedule_steps
+from modules.anima_support import PasteKey, effective_prompt_batch, process_ref, prompt_schedule, prompt_step, register_negpip_prompts, schedule_steps
 from modules.infotext_utils import PasteField
 from modules.prompt_parser import get_multicond_prompt_list
 
@@ -1475,33 +1475,18 @@ def _pasted_marker(params):
     return gr.update(value=uuid.uuid4().hex) if _pasted_plan(params) else None
 
 
-class _PasteKey(str):
-    """An infotext key that is also the paste function of one control. Forge
-    pastes through the function, so one recorded value fills many controls;
-    being the key, it lets the "Send to" buttons carry the control like any
-    field named in ``paste_field_names``."""
-
-    def __new__(cls, key, function):
-        self = super().__new__(cls, key)
-        self.function = function
-        return self
-
-    def __call__(self, params):
-        return self.function(params)
-
-
 def _paste_fields(header, base_rows, hires_rows, marker):
     """``infotext_fields`` of the panel: the ``header`` controls (name ->
     component, as ui() returns them), the base and hires row components and
     the autosave ``marker``."""
     keys = {"base_row_count": INFOTEXT_BASE, "hires_row_count": INFOTEXT_HIRES}
     fields = [
-        PasteField(component, _PasteKey(keys.get(name, INFOTEXT_OPTIONS), partial(_pasted_update, name)))
+        PasteField(component, PasteKey(keys.get(name, INFOTEXT_OPTIONS), partial(_pasted_update, name)))
         for name, component in header.items()
         if name in {"enable", "base_row_count", "hires_row_count", "hires_independent", "disable_hires_mixing", "global_strength", "optimization", "combine_mode", "fusion_mode", "apply_uncond"}
     ]
     for name, key, components in (("base_rows", INFOTEXT_BASE, base_rows), ("hires_rows", INFOTEXT_HIRES, hires_rows)):
-        fields.extend(PasteField(component, _PasteKey(key, partial(_pasted_update, name, index=index))) for index, component in enumerate(components))
+        fields.extend(PasteField(component, PasteKey(key, partial(_pasted_update, name, index=index))) for index, component in enumerate(components))
     fields.append(PasteField(marker, _pasted_marker))
     return fields
 

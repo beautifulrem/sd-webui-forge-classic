@@ -36,6 +36,7 @@ from modules.anima_lora_files import adapter_kind_for_file as _adapter_kind_for_
 from modules.anima_lora_files import is_anima_adapter_file as _is_anima_adapter_file
 from modules.anima_lora_files import lora_coverage as _lora_coverage
 from modules.anima_presets import register_preset_control
+from modules.anima_support import PasteKey
 
 
 logger = logging.getLogger("anima_lora_layer_weight")
@@ -242,25 +243,8 @@ def _pasted_value(adapter_kind: str, field_name: str, params: dict):
     return str(value)
 
 
-class _PasteKey(str):
-    """An infotext key that is also the paste function of its control, as in
-    anima_artist_scheduled_mixer. Forge's paste and its API infotext replay
-    (which runs no on_infotext_pasted callback) both take the function's
-    value, so a text the run left out pastes empty in either; being the key,
-    it lets the "Send to" buttons carry the control like any field named in
-    ``paste_field_names``."""
-
-    def __new__(cls, key, function):
-        self = super().__new__(cls, key)
-        self.function = function
-        return self
-
-    def __call__(self, params):
-        return self.function(params)
-
-
-def _paste_key(adapter_kind: str, field_name: str) -> _PasteKey:
-    return _PasteKey(_infotext_key(adapter_kind, field_name), partial(_pasted_value, adapter_kind, field_name))
+def _paste_key(adapter_kind: str, field_name: str) -> PasteKey:
+    return PasteKey(_infotext_key(adapter_kind, field_name), partial(_pasted_value, adapter_kind, field_name))
 
 
 _ACTIVE_RULE = None

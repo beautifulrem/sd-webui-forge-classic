@@ -1,12 +1,8 @@
 """A layer-weighted run's infotext pastes back into the panel it was run
 from, through the WebUI's paste and through the API's infotext replay."""
 
-import ast
 import importlib.util
-import json
-import re
 import sys
-import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,49 +11,17 @@ import pytest
 
 sys.argv = sys.argv[:1]
 SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_lora_layer_weight.py"
-REPO = Path(__file__).parents[3]
+# Shared with the other panels' suites, loaded by path (see its docstring)
+_spec = importlib.util.spec_from_file_location("extension_script_harness", Path(__file__).parents[3] / "tests" / "extension_script_harness.py")
+harness = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(harness)
 _MODULE = []
-
-
-def _extract(path: Path, wanted: set, namespace: dict) -> dict:
-    """The top-level functions, classes and assignments named in ``wanted``
-    from ``path``, whose module needs the full WebUI install to import."""
-
-    tree = ast.parse(path.read_text(encoding="utf8"))
-    nodes = [
-        node
-        for node in tree.body
-        if (isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in wanted)
-        or (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) in wanted)
-    ]
-    exec(compile(ast.Module(nodes, []), str(path), "exec"), namespace)  # noqa: S102 - our own source file
-    assert wanted <= set(namespace)
-    return namespace
-
-
-# re_param_code, quote, unquote, _parse_info and PasteField of modules/infotext_utils.py
-INFOTEXT = _extract(
-    REPO / "modules" / "infotext_utils.py",
-    {"re_param_code", "quote", "unquote", "_parse_info", "PasteField"},
-    {"json": json, "gr": gr, "Any": object, "type_of_gr_update": type(gr.skip()), "errors": SimpleNamespace(report=print)},
-)
-# The API's conversion of a paste field's value (modules/api/api.py)
-pasted_value = _extract(REPO / "modules" / "api" / "api.py", {"pasted_value"}, {})["pasted_value"]
 
 
 @pytest.fixture
 def module(monkeypatch):
     if not _MODULE:
-        import modules
-
-        if "modules.infotext_utils" not in sys.modules:
-            # Its image helpers need the full WebUI install; the script only needs PasteField
-            stub = types.ModuleType("modules.infotext_utils")
-            stub.PasteField = INFOTEXT["PasteField"]
-            modules.infotext_utils = sys.modules["modules.infotext_utils"] = stub
-        spec = importlib.util.spec_from_file_location("anima_lora_layer_weight_infotext", SCRIPT)
-        _MODULE.append(importlib.util.module_from_spec(spec))
-        spec.loader.exec_module(_MODULE[0])
+        _MODULE.append(harness.load_script(SCRIPT, "anima_lora_layer_weight_infotext"))
     module = _MODULE[0]
     monkeypatch.setattr(module, "install_patch", lambda: None)
     monkeypatch.setattr(module, "_prompt_lora_is_controlled", lambda *args: True)
@@ -91,37 +55,6 @@ def _run(module, args):
     p = SimpleNamespace(prompts=["<lora:cat:0.6> <lora:fox:0.5>"], extra_generation_params={})
     module.Script().before_process_batch(p, *args)
     return p.extra_generation_params, module._ACTIVE_RULE
-
-
-def _parse(params) -> dict:
-    """``params`` as processing.create_infotext writes them, read back as
-    parse_generation_parameters does."""
-
-    line = "Steps: 20, Sampler: Euler, " + ", ".join(f"{key}: {INFOTEXT['quote'](value)}" for key, value in params.items())
-    return {key: INFOTEXT["unquote"](value) for key, value in re.findall(INFOTEXT["re_param_code"], line)}
-
-
-def _paste(script, params):
-    """What pasting ``params`` in the WebUI sets each control to (None: left alone)."""
-
-    updates = [INFOTEXT["_parse_info"](field.component, field.label, _parse(params)) for field in script.infotext_fields]
-    return [update.get("value") if "value" in update else None for update in updates]
-
-
-def _api_replay(script, controls, params):
-    """The script args an API request with ``params`` as its infotext runs:
-    the controls' defaults, each mentioned field replaced as
-    Api.apply_infotext's get_field_value does (field function or label, then
-    pasted_value to the control's value type). No on_infotext_pasted callback runs."""
-
-    parsed = _parse(params)
-    indexes = {id(control): index for index, control in enumerate(controls)}
-    args = [control.value for control in controls]
-    for field in script.infotext_fields:
-        value = field.function(parsed) if field.function else parsed.get(field.label)
-        if value is not None:
-            args[indexes[id(field.component)]] = pasted_value(value, type(field.component.value))
-    return args
 
 
 def _args(module, scope_label):
@@ -160,15 +93,16 @@ def test_a_runs_infotext_restores_every_control(module, monkeypatch, run_languag
     _language(module, monkeypatch, paste_language)
     script, controls = _build_ui(module)
 
-    assert [field.component for field in script.infotext_fields] == _recorded(controls)
+    assert [field.component for field in harness.paste_fields(script)] == _recorded(controls)
     # Plain keys, so the "Send to" buttons carry the controls
-    assert script.paste_field_names == list(module.INFOTEXT_KEYS) == [field.label for field in script.infotext_fields]
+    assert script.paste_field_names == list(module.INFOTEXT_KEYS) == [field.label for field in harness.paste_fields(script)]
     assert all(type(name) is str for name in script.paste_field_names)
+    assert harness.send_to_components(script) == _recorded(controls)
     assert set(params) <= set(module.INFOTEXT_KEYS)
 
     expected = _recorded(args)
     expected[11], expected[15] = None, None  # LoKR block / Qwen text with its switch off: not recorded, left alone
-    assert _paste(script, params) == expected
+    assert harness.ui_paste(script, params) == expected
 
 
 def test_the_infotext_records_one_stable_key_per_control(module, monkeypatch):
@@ -203,10 +137,7 @@ def test_the_pasted_panel_runs_the_same_weights(module, monkeypatch):
     script, controls = _build_ui(module)
 
     # Into a fresh panel: the controls left alone keep their defaults
-    pasted = [control.value for control in controls]
-    for index, value in zip([*range(LORA.start, LORA.stop), *range(LOKR.start, LOKR.stop)], _paste(script, params), strict=True):
-        if value is not None:
-            pasted[index] = value
+    pasted = harness.pasted_args(script, controls, params)
     pasted_params, pasted_rule = _run(module, pasted)
 
     assert pasted_params == params
@@ -226,7 +157,7 @@ def test_the_api_infotext_replay_runs_the_same_weights(module, monkeypatch):
     config = _config(rule)
     script, controls = _build_ui(module)
 
-    replayed = _api_replay(script, controls, params)
+    replayed = harness.api_replay(script, controls, params)
     replayed_params, replayed_rule = _run(module, replayed)
 
     assert replayed_params == params
@@ -255,8 +186,8 @@ def test_a_disabled_tab_records_its_switch_alone(module, monkeypatch):
     script, controls = _build_ui(module)
 
     assert {key for key in params if " lokr " in key} == {"Anima LoRA layer lokr enabled"}
-    assert _paste(script, params)[8:] == [False] + [None] * 7  # its other controls stay as they are
-    replayed = _api_replay(script, controls, params)
+    assert harness.ui_paste(script, params)[8:] == [False] + [None] * 7  # its other controls stay as they are
+    replayed = harness.api_replay(script, controls, params)
     assert replayed[12] is False and replayed[LOKR][1:] == [control.value for control in controls[LOKR][1:]]
 
     both_off = [False, *args[1:12], False, *args[13:]]
@@ -271,5 +202,5 @@ def test_an_old_signature_only_infotext_leaves_the_panel_alone(module, monkeypat
         "Anima LoRA/LoKR Layer Weight skipped": "cat.safetensors",
     }
 
-    assert _paste(script, old) == [None] * len(module.INFOTEXT_KEYS)
-    assert _api_replay(script, controls, old) == [control.value for control in controls]
+    assert harness.ui_paste(script, old) == [None] * len(module.INFOTEXT_KEYS)
+    assert harness.api_replay(script, controls, old) == [control.value for control in controls]

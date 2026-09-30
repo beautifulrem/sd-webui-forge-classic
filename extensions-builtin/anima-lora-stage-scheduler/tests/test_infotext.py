@@ -1,11 +1,7 @@
 """A scheduled run's infotext pastes back into the panel it was run from."""
 
-import ast
 import importlib.util
-import json
-import re
 import sys
-import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,44 +10,11 @@ import pytest
 
 sys.argv = sys.argv[:1]
 SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_lora_stage_scheduler.py"
-INFOTEXT_UTILS = Path(__file__).parents[3] / "modules" / "infotext_utils.py"
-API = Path(__file__).parents[3] / "modules" / "api" / "api.py"
+# Shared with the other panels' suites, loaded by path (see its docstring)
+_spec = importlib.util.spec_from_file_location("extension_script_harness", Path(__file__).parents[3] / "tests" / "extension_script_harness.py")
+harness = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(harness)
 _MODULE = []
-
-
-def _infotext_helpers() -> dict:
-    """``re_param_code``, ``quote``, ``unquote``, ``_parse_info`` and
-    ``PasteField`` from modules/infotext_utils.py, whose import needs the full
-    WebUI install."""
-
-    tree = ast.parse(INFOTEXT_UTILS.read_text(encoding="utf8"))
-    wanted = {"re_param_code", "quote", "unquote", "_parse_info", "PasteField"}
-    nodes = [
-        node
-        for node in tree.body
-        if (isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in wanted)
-        or (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) in wanted)
-    ]
-    namespace = {"json": json, "gr": gr, "Any": object, "type_of_gr_update": type(gr.skip()), "errors": SimpleNamespace(report=print)}
-    exec(compile(ast.Module(nodes, []), str(INFOTEXT_UTILS), "exec"), namespace)  # noqa: S102 - our own source file
-    assert wanted <= set(namespace)
-    return namespace
-
-
-INFOTEXT = _infotext_helpers()
-
-
-def _api_pasted_value():
-    """``pasted_value`` from modules/api/api.py (same reason)."""
-
-    tree = ast.parse(API.read_text(encoding="utf8"))
-    node = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "pasted_value")
-    namespace = {}
-    exec(compile(ast.Module([node], []), str(API), "exec"), namespace)  # noqa: S102 - our own source file
-    return namespace["pasted_value"]
-
-
-pasted_value = _api_pasted_value()
 
 
 @pytest.fixture
@@ -63,16 +26,7 @@ def module(tmp_path, monkeypatch):
     monkeypatch.setattr(paths_internal, "data_path", str(tmp_path))
     monkeypatch.setattr(dynamic_args, "online_lora", False)
     if not _MODULE:
-        import modules
-
-        if "modules.infotext_utils" not in sys.modules:
-            # Its image helpers need the full WebUI install; the script only needs PasteField
-            stub = types.ModuleType("modules.infotext_utils")
-            stub.PasteField = lambda component, target: (component, target)
-            modules.infotext_utils = sys.modules["modules.infotext_utils"] = stub
-        spec = importlib.util.spec_from_file_location("anima_lora_stage_scheduler_infotext", SCRIPT)
-        _MODULE.append(importlib.util.module_from_spec(spec))
-        spec.loader.exec_module(_MODULE[0])
+        _MODULE.append(harness.load_script(SCRIPT, "anima_lora_stage_scheduler_infotext"))
     monkeypatch.setattr(_MODULE[0], "_TEXT_ENCODER_SIGNATURE", None, raising=False)
     return _MODULE[0]
 
@@ -104,47 +58,11 @@ def _run(module, args, enable_hr=True):
     return p.extra_generation_params, state
 
 
-def _through_infotext(params):
-    """``(line, parsed)``: the infotext line of ``params`` as
-    processing.create_infotext writes it, and its values as
-    parse_generation_parameters reads them back."""
-
-    line = "Steps: 20, Sampler: Euler, " + ", ".join(f"{key}: {INFOTEXT['quote'](value)}" for key, value in params.items())
-    return line, {key: INFOTEXT["unquote"](value) for key, value in re.findall(INFOTEXT["re_param_code"], line)}
-
-
 def _paste(module, script, params):
-    """What pasting ``params`` sets each control to (None: left alone): the
-    infotext line read back as connect_paste does."""
+    """What pasting ``params`` sets each control to (None: left alone),
+    through the panel's on_infotext_pasted callback."""
 
-    line, parsed = _through_infotext(params)
-    module._translate_pasted_infotext(line, parsed)
-    updates = [INFOTEXT["_parse_info"](component, key, parsed) for component, key in script.infotext_fields]
-    return [update.get("value") if "value" in update else None for update in updates]
-
-
-def _api_replay(script, controls, params):
-    """The script args the API's infotext replay (modules/api/api.py
-    apply_infotext) runs ``params`` with: the infotext line parsed, without
-    on_infotext_pasted; each script field (a PasteField, as add_paste_fields
-    makes it) set to get_field_value of it (its function's value, else its
-    key's) converted by pasted_value to its control's value type; the other
-    controls at their defaults (the API's default script args)."""
-
-    _, parsed = _through_infotext(params)
-    args = [component.value for component in controls]
-    indexes = {component: index for index, component in enumerate(controls)}
-    for field in (INFOTEXT["PasteField"](*field) for field in script.infotext_fields):
-        if field.component not in indexes:
-            continue
-        value = field.function(parsed) if field.function else parsed.get(field.label)
-        target_type = type(field.component.value)
-        if value is None or target_type is type(None):
-            continue
-        value = pasted_value(value, target_type)
-        if value is not None:
-            args[indexes[field.component]] = value
-    return args
+    return harness.ui_paste(script, params, callbacks=[module._translate_pasted_infotext])
 
 
 def _schedule(module, state):
@@ -280,7 +198,7 @@ def test_the_api_replays_the_infotext_into_the_same_schedule(module, monkeypatch
     params, state = _run(module, args)
     _language(module, monkeypatch, api_language)
     script, controls, _ = _build_ui(module)
-    replayed, replayed_state = _run(module, _api_replay(script, controls, params))
+    replayed, replayed_state = _run(module, harness.api_replay(script, controls, params))
 
     assert replayed == params
     assert _schedule(module, replayed_state) == _schedule(module, state)

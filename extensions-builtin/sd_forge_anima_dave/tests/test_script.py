@@ -2,6 +2,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 # Shared with the Cross-Attention Boost suite, loaded by path (see its docstring)
@@ -40,3 +42,22 @@ def test_disabled_zero_strength_and_non_anima_are_no_ops():
         dave.AnimaDaveScript().process_before_every_sampling(p, enable, strength, 0.1, "8-18")
         assert p.sd_model.forge_objects.unet is unet
         assert p.extra_generation_params == {}
+
+
+def _record(args):
+    """The infotext a pass with the script args ``args`` records."""
+    p, _ = harness.make_process(40)
+    dave.AnimaDaveScript().process_before_every_sampling(p, *args)
+    return p.extra_generation_params
+
+
+@pytest.mark.parametrize("enable", [True, False], ids=["every-control-changed", "off"])
+def test_the_infotext_replays_into_the_same_script_args(enable):
+    script = dave.AnimaDaveScript()
+    controls = harness.build_ui(script)
+    args = [enable, *(True, 0.15, 0.05, "0-5, 12")[1:]]
+    assert all(value != control.value for value, control in zip(args[1:], controls[1:]))
+    # Off records nothing: the paste and the API leave the panel at its defaults
+    expected = args if enable else [control.value for control in controls]
+    params = harness.assert_infotext_round_trip(script, controls, args, _record, expected)
+    assert (params == {}) is not enable

@@ -606,6 +606,33 @@ def windowed_override_patch(model, *, gate, overrides, lock, force_actual, begin
     return patched
 
 
+class PasteKey(str):
+    """An infotext key that is also the paste function of one control.
+
+    Forge's ``PasteField(component, target)`` reads ``target`` as a label
+    when it is a str and as a function when it is callable; a PasteKey is
+    both, so each of Forge's three paste paths finds what it looks for:
+
+    - UI paste (``infotext_utils._parse_info``) calls it, as any callable
+      target: the function may fill many controls from one recorded value,
+      or give a value the run left out of the infotext (an empty text).
+    - "Send to" carries the fields whose target is in the panel's
+      ``paste_field_names``: being its key, the control is carried like any
+      plainly keyed field.
+    - The API's infotext replay (``api.Api.apply_infotext``) takes
+      ``field.function``'s value, running no ``on_infotext_pasted``
+      callback: the function is the one place a panel converts a recorded
+      value for both the UI paste and the API."""
+
+    def __new__(cls, key, function):
+        self = super().__new__(cls, key)
+        self.function = function
+        return self
+
+    def __call__(self, params):
+        return self.function(params)
+
+
 class AnimaPatchPanel:
     """Mixin for an always-visible Anima panel that patches the UNet of each
     pass (DAVE, cross-attention boost). Its ``ui`` returns the enable switch

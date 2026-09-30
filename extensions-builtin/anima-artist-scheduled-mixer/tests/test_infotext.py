@@ -1,46 +1,23 @@
-import ast
+import importlib.util
 import json
-import re
 from pathlib import Path
 from types import SimpleNamespace
 
-import gradio as gr
 import pytest
 
 from test_runtime_dispatch import _run_args, _sampling_pass, mixer, runtime
 from test_ui_wiring import _build_ui, _element
 
-# modules/infotext_utils.re_param_code: how Forge splits the parameters line
-RE_PARAM = re.compile(r'\s*([\w\s\-\/]+):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)')
-REPO = Path(__file__).resolve().parents[3]
-
-
-def _from_source(path, name):
-    """The top-level function or class ``name`` of the WebUI module at
-    ``path``, whose import needs the full WebUI install."""
-    node = next(node for node in ast.parse(path.read_text(encoding="utf-8")).body if getattr(node, "name", None) == name)
-    namespace = {"gr": gr}
-    exec(compile(ast.Module([node], []), str(path), "exec"), namespace)  # noqa: S102 - our own source file
-    return namespace[name]
-
-
-pasted_value = _from_source(REPO / "modules" / "api" / "api.py", "pasted_value")
-PasteField = _from_source(REPO / "modules" / "infotext_utils.py", "PasteField")
+# Shared with the other panels' suites, loaded by path (see its docstring)
+_spec = importlib.util.spec_from_file_location("extension_script_harness", Path(__file__).resolve().parents[3] / "tests" / "extension_script_harness.py")
+harness = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(harness)
 
 
 def _through_infotext(params):
-    """``params`` written as Forge writes the parameters line (quoting values
-    with a comma, colon or newline as JSON) and parsed back as a pasted
-    infotext is (unquoting them)."""
-
-    def quote(text):
-        return json.dumps(text, ensure_ascii=False) if any(char in text for char in ",:\n") else text
-
-    line = ", ".join(f"{key}: {quote(str(value))}" for key, value in params.items())
-    parsed = {}
-    for key, value in RE_PARAM.findall(line):
-        parsed[key] = json.loads(value) if value.startswith('"') and value.endswith('"') else value
-    return parsed
+    """``params`` written as Forge writes the parameters line and parsed
+    back as a pasted infotext is."""
+    return harness.through_infotext(params)[1]
 
 
 def _row(artist, weight=1.0, blocks="0-51", start=0.0, end=1.0, peak=0.5, curve=mixer.CURVE_HOLD, stage=mixer.PRESET_CUSTOM, auto=False, enabled=True):
@@ -92,9 +69,8 @@ def _paste(monkeypatch, tmp_path, params, language="en"):
     monkeypatch.setattr(mixer, "_language", lambda: language)
     mixer._paste_plan.cache_clear()
     script, _demo, _base, _hires, controls = _build_ui(monkeypatch, tmp_path)
-    updates = {}
-    for component, key in script.infotext_fields:
-        updates[component._id] = key(params) if callable(key) else params.get(key)
+    fields = harness.paste_fields(script)
+    updates = {field.component._id: update for field, update in zip(fields, harness.ui_paste_updates(script, params), strict=True)}
     return script, controls, updates
 
 
@@ -173,28 +149,6 @@ def test_pasting_the_infotext_restores_the_panel(monkeypatch, tmp_path, record_l
     assert args_component(controls, "enable_cache")._id not in updates
 
 
-def _api_replay(script, controls, params):
-    """The script args the API's infotext replay (modules/api/api.py
-    apply_infotext) runs the parsed infotext ``params`` with: each script
-    field (a PasteField, as add_paste_fields makes it) set to get_field_value
-    of it (its function's value, else its key's) converted by pasted_value to
-    its control's value type; the other controls at their defaults (the API's
-    default script args)."""
-    args = [component.value for component in controls]
-    indexes = {component: index for index, component in enumerate(controls)}
-    for field in (PasteField(*field) for field in script.infotext_fields):
-        if field.component not in indexes:
-            continue
-        value = field.function(params) if field.function else params.get(field.label)
-        target_type = type(field.component.value)
-        if value is None or target_type is type(None):
-            continue
-        value = pasted_value(value, target_type)
-        if value is not None:
-            args[indexes[field.component]] = value
-    return args
-
-
 @pytest.mark.parametrize("record_language, api_language", [("en", "en"), ("zh", "zh"), ("en", "zh"), ("zh", "en")])
 def test_the_api_replays_the_infotext_into_the_same_rows_and_options(monkeypatch, tmp_path, record_language, api_language):
     # The paste functions give Gradio 4 gr.update dicts; the API takes their values
@@ -203,7 +157,7 @@ def test_the_api_replays_the_infotext_into_the_same_rows_and_options(monkeypatch
     monkeypatch.setattr(mixer, "_language", lambda: api_language)
     mixer._paste_plan.cache_clear()
     script, _demo, _base, _hires, controls = _build_ui(monkeypatch, tmp_path)
-    replayed = mixer._MixerArgs.from_args(_api_replay(script, controls, parsed))
+    replayed = mixer._MixerArgs.from_args(harness.api_replay(script, controls, parsed))
 
     assert mixer.generation_params(_p(), replayed) == params
     assert replayed.enable is True and (replayed.base_row_count, replayed.hires_row_count) == (2, 2)
@@ -260,6 +214,6 @@ def test_send_to_carries_the_panel_by_its_infotext_keys(monkeypatch, tmp_path):
     # panel to the same fields of the other's; the paste functions are those keys
     script, controls, _updates = _paste(monkeypatch, tmp_path, {})
     assert script.paste_field_names == list(mixer.INFOTEXT_KEYS)
-    named = [component._id for component, key in script.infotext_fields if key in script.paste_field_names]
+    named = [component._id for component in harness.send_to_components(script)]
     unrecorded = {args_component(controls, name)._id for name in ("runtime_base_shift", "runtime_hires_shift", "enable_cache")}
     assert named == [component._id for component in controls if component._id not in unrecorded]
