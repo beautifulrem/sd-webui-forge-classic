@@ -14,11 +14,18 @@ Anima LoRA/LoKR 分层权重是一个 Forge/WebUI 插件，用于按 Anima block
 - 支持在提示词内直接写单 LoRA 的 block/module 权重。
 - 支持命名预设和 **应用预设到提示词** 按钮。
 - 权重签名变化时会自动刷新 LoRA 缓存。
+- infotext 会记录生成时使用的面板设置，粘贴图片参数即可恢复（见“Infotext 与粘贴”）。
 - 设置页提供界面语言切换：`zh` 和 `en`。
 
 ## 使用
 
 已内置于 Forge Neo Remi：在 txt2img 或 img2img 展开 **Anima LoRA/LoKR 分层权重**。
+
+## Infotext 与粘贴
+
+任一标签页启用时，图片的 infotext（PNG 参数）会以 `Anima LoRA layer lora ...` 和 `Anima LoRA layer lokr ...` 键记录两个标签页的设置，每个控件一个键：`enabled`（启用）、`targets`（目标）、`blocks enabled`、`blocks`（block 层权重开关与内容）、`modules enabled`、`modules`（模块权重开关与内容）、`qwen enabled`、`qwen`（Qwen 文本编码器层权重开关与内容）。未启用的标签页只记录 `enabled: False`。内容为空或对应开关关闭的文本框不写入，因为本次生成没有用到它。
+
+粘贴这些参数（提示词旁的粘贴按钮，或 PNG 信息页的发送按钮）会恢复两个标签页，中英文界面可互相粘贴，相同提示词和种子即可复现图片。开关开启但未写入的文本框会被清空，生成时的效果与原来的空内容相同。因开关关闭而未写入的文本框，以及只用于改写提示词的预设控件，保持不变。图库下方的发送按钮也会把面板从文生图带到图生图。通过 API 请求传入 infotext 时，同样会恢复这些设置。没有这些键的 infotext（未使用分层权重的生成，或旧版本只写了 `Anima LoRA/LoKR Layer Weight` 摘要行的图片）不会改动面板。
 
 ## 权重语法
 

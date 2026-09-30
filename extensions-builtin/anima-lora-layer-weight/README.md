@@ -14,11 +14,18 @@ Anima LoRA/LoKR Layer Weight is a Forge/WebUI extension for controlling Anima Lo
 - Inline prompt syntax for per-LoRA block/module weights.
 - Named presets and an **Apply preset to prompt** button.
 - Automatic cache invalidation when the active weight signature changes.
+- The infotext records the panel settings a generation used, and pasting an image's parameters restores them (see Infotext And Pasting).
 - Settings-page UI language switch: `zh` and `en`.
 
 ## Usage
 
 Built into Forge Neo Remi: expand **Anima LoRA/LoKR Layer Weight** in txt2img or img2img.
+
+## Infotext And Pasting
+
+When a tab is enabled, the image's infotext (PNG parameters) records the settings of both tabs as `Anima LoRA layer lora ...` and `Anima LoRA layer lokr ...` keys, one per control: `enabled`, `targets`, `blocks enabled`, `blocks`, `modules enabled`, `modules`, `qwen enabled` and `qwen`. A disabled tab records only `enabled: False`. A text field that was empty, or whose switch was off, is left out, since the run did not use it.
+
+Pasting those parameters (the paste button next to the prompt, or PNG Info's Send to) restores the tabs in either UI language, so the same prompt and seed reproduce the image. A field left out while its switch was on is pasted empty, which the run reads the same way. Fields left out because their switch was off, and the preset controls, which only rewrite the prompt, are not changed. The Send to buttons under the gallery also carry the panel from txt2img to img2img. An API request that passes the infotext restores the same settings. An infotext without these keys leaves the panel untouched: a generation without Layer Weight, or one from an earlier version that wrote only the `Anima LoRA/LoKR Layer Weight` summary line.
 
 ## Weight Syntax
 

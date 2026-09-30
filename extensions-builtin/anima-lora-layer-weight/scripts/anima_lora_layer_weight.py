@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from functools import partial
 
 import gradio as gr
 
@@ -189,6 +190,79 @@ def _usage_text():
     return USAGE_TEXT_EN if _language() == "en" else USAGE_TEXT
 
 
+# Infotext keys, one per control that changes the run, in the order of the
+# controls a tab returns (_lora_tab, after its enable switch);
+# ``infotext_fields`` pastes each back into its control. The preset controls
+# only rewrite the prompt, which the infotext keeps as written.
+TAB_INFOTEXT_FIELDS = ("enabled", "targets", "blocks enabled", "blocks", "modules enabled", "modules", "qwen enabled", "qwen")
+# The switch of each text field: its text only counts while the switch is on
+TAB_TEXT_SWITCHES = {"targets": "enabled", "blocks": "blocks enabled", "modules": "modules enabled", "qwen": "qwen enabled"}
+
+
+def _infotext_key(adapter_kind: str, field_name: str) -> str:
+    return f"Anima LoRA layer {adapter_kind} {field_name}"
+
+
+INFOTEXT_KEYS = tuple(_infotext_key(kind, name) for kind in ("lora", "lokr") for name in TAB_INFOTEXT_FIELDS)
+
+
+def _switch(value) -> bool:
+    """A switch argument: the checkbox's bool, or a recorded / API-given text
+    ("True", "False")."""
+    if isinstance(value, str):
+        return value.strip().lower() not in {"", "false", "0", "no", "off", "none"}
+    return bool(value)
+
+
+def _tab_infotext(adapter_kind, enabled, target_loras, block_enabled, block_weights, module_enabled, module_weights, text_layer_enabled, text_layer_weights) -> dict:
+    """Infotext of one tab, keyed by ``_infotext_key``. A disabled tab records
+    its switch alone; an enabled one every control, but not the text of a
+    field that is empty or whose switch is off (the run ignored it)."""
+
+    if not _switch(enabled):
+        return {_infotext_key(adapter_kind, "enabled"): False}
+    switches = {"enabled": True, "blocks enabled": _switch(block_enabled), "modules enabled": _switch(module_enabled), "qwen enabled": _switch(text_layer_enabled)}
+    texts = {"targets": target_loras, "blocks": block_weights, "modules": module_weights, "qwen": text_layer_weights}
+    values = {**switches, **{name: str(text or "").strip() if switches[TAB_TEXT_SWITCHES[name]] else "" for name, text in texts.items()}}
+    return {_infotext_key(adapter_kind, name): values[name] for name in TAB_INFOTEXT_FIELDS if values[name] != ""}
+
+
+def _pasted_value(adapter_kind: str, field_name: str, params: dict):
+    """The value pasting the infotext ``params`` gives one tab control (None
+    leaves it alone): a switch's bool, a field's text. A text the recorded
+    tab left out while its switch was on pastes empty, which the run reads
+    as it read the empty field."""
+
+    value = params.get(_infotext_key(adapter_kind, field_name))
+    switch = TAB_TEXT_SWITCHES.get(field_name)
+    if switch is None:
+        return None if value is None else _switch(value)
+    if value is None:
+        return "" if _switch(params.get(_infotext_key(adapter_kind, switch), False)) else None
+    return str(value)
+
+
+class _PasteKey(str):
+    """An infotext key that is also the paste function of its control, as in
+    anima_artist_scheduled_mixer. Forge's paste and its API infotext replay
+    (which runs no on_infotext_pasted callback) both take the function's
+    value, so a text the run left out pastes empty in either; being the key,
+    it lets the "Send to" buttons carry the control like any field named in
+    ``paste_field_names``."""
+
+    def __new__(cls, key, function):
+        self = super().__new__(cls, key)
+        self.function = function
+        return self
+
+    def __call__(self, params):
+        return self.function(params)
+
+
+def _paste_key(adapter_kind: str, field_name: str) -> _PasteKey:
+    return _PasteKey(_infotext_key(adapter_kind, field_name), partial(_pasted_value, adapter_kind, field_name))
+
+
 _ACTIVE_RULE = None
 _LAST_SIGNATURE = None
 # ActiveRule.text_encoder_signature of the last batch
@@ -231,16 +305,17 @@ class AdapterRule:
         inline_rules: dict[str, PromptRule],
     ):
         self.adapter_kind = adapter_kind
-        self.enabled = bool(enabled)
+        # _switch: an API infotext replay may give the recorded "False"
+        self.enabled = _switch(enabled)
         if not self.enabled:
             # A disabled tab weights nothing: its fields are not parsed, and
             # editing them must not change the signature (a LoRA reload)
             target_loras = block_weights = module_weights = text_layer_weights = ""
             block_enabled = module_enabled = text_layer_enabled = False
         self.targets = _parse_targets(target_loras)
-        self.block_enabled = bool(block_enabled)
-        self.module_enabled = bool(module_enabled)
-        self.text_layer_enabled = bool(text_layer_enabled)
+        self.block_enabled = _switch(block_enabled)
+        self.module_enabled = _switch(module_enabled)
+        self.text_layer_enabled = _switch(text_layer_enabled)
         self.block_weights = _parse_layer_weights(block_weights, DEFAULT_BLOCK_WEIGHTS) if self.block_enabled else LayerWeights()
         self.module_weights = _parse_module_weights(module_weights) if self.module_enabled else {}
         self.text_layer_weights = _parse_layer_weights(text_layer_weights, "") if self.text_layer_enabled else LayerWeights()
@@ -770,6 +845,18 @@ class Script(scripts.Script):
         register_preset_control(self.tabname, "lora_layer.lora_enabled", lora_enabled)
         register_preset_control(self.tabname, "lora_layer.lokr_enabled", lokr_enabled)
 
+        # Imported here: infotext_utils needs the full WebUI, and CPU tests
+        # (tests/test_anima_lora_patches.py) load this module without it
+        from modules.infotext_utils import PasteField
+
+        # In the order of TAB_INFOTEXT_FIELDS
+        tab_controls = {
+            "lora": (lora_enabled, lora_target_loras, lora_block_enabled, lora_block_weights, lora_module_enabled, lora_module_weights, lora_text_layer_enabled, lora_text_layer_weights),
+            "lokr": (lokr_enabled, lokr_target_loras, lokr_block_enabled, lokr_block_weights, lokr_module_enabled, lokr_module_weights, lokr_text_layer_enabled, lokr_text_layer_weights),
+        }
+        self.infotext_fields = [PasteField(control, _paste_key(kind, name)) for kind, controls in tab_controls.items() for control, name in zip(controls, TAB_INFOTEXT_FIELDS, strict=True)]
+        self.paste_field_names = list(INFOTEXT_KEYS)
+
         return [
             lora_enabled,
             lora_target_loras,
@@ -834,8 +921,8 @@ class Script(scripts.Script):
         # The hidden preset switches keep their argument slots for API callers,
         # but presets are only applied to the prompt, by their button.
         try:
-            lora_inline_rules = _apply_prompt_rewrite(p, lora_target_loras, "lora") if lora_enabled else {}
-            lokr_inline_rules = _apply_prompt_rewrite(p, lokr_target_loras, "lokr") if lokr_enabled else {}
+            lora_inline_rules = _apply_prompt_rewrite(p, lora_target_loras, "lora") if _switch(lora_enabled) else {}
+            lokr_inline_rules = _apply_prompt_rewrite(p, lokr_target_loras, "lokr") if _switch(lokr_enabled) else {}
         except ValueError as error:
             raise scripts.ScriptAbort(str(error)) from error
         _ACTIVE_RULE = ActiveRule(
@@ -862,7 +949,13 @@ class Script(scripts.Script):
         _reset_lora_cache_if_needed(p, _ACTIVE_RULE.signature, _ACTIVE_RULE.text_encoder_signature)
 
         if _ACTIVE_RULE.enabled:
-            p.extra_generation_params["Anima LoRA/LoKR Layer Weight"] = _ACTIVE_RULE.signature
+            # Keys match ``self.infotext_fields`` so pasted parameters restore the panel
+            p.extra_generation_params.update(
+                {
+                    **_tab_infotext("lora", lora_enabled, lora_target_loras, lora_block_enabled, lora_block_weights, lora_module_enabled, lora_module_weights, lora_text_layer_enabled, lora_text_layer_weights),
+                    **_tab_infotext("lokr", lokr_enabled, lokr_target_loras, lokr_block_enabled, lokr_block_weights, lokr_module_enabled, lokr_module_weights, lokr_text_layer_enabled, lokr_text_layer_weights),
+                }
+            )
 
     def postprocess_batch_list(self, p, pp, *args, **kwargs):
         # The batch's infotexts record the tags as written, <lora:x:0-9=0.5>
