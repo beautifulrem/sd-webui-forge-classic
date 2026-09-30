@@ -245,18 +245,20 @@ def resolve_guidance_conflicts(
     )
 
 
+# Label of the scheduler the Flow samplers lock to (their "scheduler" option in
+# sd_samplers_kdiffusion; tests/test_anima_feature_conflicts.py keeps them equal)
 FLOW_SCHEDULER = "Anima FlowMatch"
 
 
 def _flow_scheduler_choice() -> str:
     """The Schedule type a Flow sampler shows: its locked scheduler, or
-    "Automatic" (which ``get_sigmas`` resolves to it) when the user hid that
-    scheduler, so the dropdown never holds a value outside its choices."""
+    "Automatic" (which ``get_sigmas`` resolves to it) when that scheduler is
+    not among the dropdown's choices, which ``sd_schedulers.schedulers`` holds
+    as built at startup (hiding one takes effect after a restart)."""
 
-    from modules import shared
+    from modules import sd_schedulers
 
-    hidden = getattr(getattr(shared, "opts", None), "hide_schedulers", None) or ()
-    return "Automatic" if FLOW_SCHEDULER in hidden else FLOW_SCHEDULER
+    return FLOW_SCHEDULER if any(scheduler.label == FLOW_SCHEDULER for scheduler in sd_schedulers.schedulers) else "Automatic"
 
 
 def resolve_schedule_conflicts(

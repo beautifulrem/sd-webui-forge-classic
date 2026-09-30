@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import re
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
+import modules
 from modules.anima_feature_conflicts import (
+    FLOW_SAMPLERS,
+    FLOW_SCHEDULER,
     record_conflict_resolution,
     resolve_exclusive_features,
     resolve_freefuse_refiner_conflicts,
@@ -187,7 +194,18 @@ class GuidanceConflictTests(unittest.TestCase):
         self.assertEqual(state.messages, ())
 
 
+def _dropdown(*labels):
+    """modules.sd_schedulers as far as the resolver reads it: the Schedule
+    type dropdown's choices (sd_schedulers needs the WebUI's k_diffusion to import)."""
+    return mock.patch.object(modules, "sd_schedulers", SimpleNamespace(schedulers=[SimpleNamespace(label=label) for label in labels]), create=True)
+
+
 class ScheduleConflictTests(unittest.TestCase):
+    def setUp(self):
+        patcher = _dropdown("Automatic", "Beta57", FLOW_SCHEDULER)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_flow_sampler_locks_anima_scheduler_and_dynamic_shift(self):
         state = resolve_schedule_conflicts(
             sampler="Anima Flow PC3",
@@ -202,17 +220,21 @@ class ScheduleConflictTests(unittest.TestCase):
         self.assertFalse(state.dynamic_shift_interactive)
 
     def test_a_hidden_flow_scheduler_shows_as_automatic(self):
-        # "Hide schedulers" drops it from the dropdown; get_sigmas still resolves "Automatic" to it
-        from types import SimpleNamespace
-        from unittest import mock
-
-        from modules import shared
-
-        with mock.patch.object(shared, "opts", SimpleNamespace(hide_schedulers=["Anima FlowMatch"]), create=True):
+        # "Hide schedulers" left it out of the dropdown at startup; get_sigmas still resolves "Automatic" to it
+        with _dropdown("Automatic", "Beta57"):
             state = resolve_schedule_conflicts(sampler="Anima Flow PC3", scheduler="Beta57", dynamic_shift=False)
 
         self.assertEqual(state.scheduler, "Automatic")
         self.assertFalse(state.scheduler_interactive)
+
+    def test_the_flow_samplers_and_their_scheduler_match_the_sampler_table(self):
+        root = Path(__file__).resolve().parents[1]
+        samplers = (root / "modules" / "sd_samplers_kdiffusion.py").read_text(encoding="utf-8")
+        locked = dict(re.findall(r'\("([^"]+)", [^\n]*\{"scheduler": "(\w+)", "lock_scheduler_override": True\}\)', samplers))
+        self.assertEqual(set(locked), FLOW_SAMPLERS)
+        (name,) = set(locked.values())
+        schedulers = (root / "modules" / "sd_schedulers.py").read_text(encoding="utf-8")
+        self.assertIn(f'Scheduler("{name}", "{FLOW_SCHEDULER}",', schedulers)
 
     def test_selecting_dynamic_shift_replaces_beta57_and_locks_scheduler(self):
         state = resolve_schedule_conflicts(
