@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -128,12 +129,15 @@ def clamp(value, low, high):
 
 
 def to_float(value, fallback=0.0):
-    """``float(value)``, or ``fallback`` when it is not a number (None, "", text)."""
+    """``float(value)``, or ``fallback`` when it is not a finite number (None,
+    "", text, and the NaN / Infinity JSON from the API or pasted infotext
+    accepts: clamp(nan, low, high) would give ``high``)."""
 
     try:
-        return float(value)
+        value = float(value)
     except Exception:
         return fallback
+    return value if math.isfinite(value) else fallback
 
 
 def active_template_parts(auto_timing: bool, parts):
@@ -755,11 +759,6 @@ def looks_like_layer_weights(text) -> bool:
 MAX_LAYER_INDEX = 255
 
 
-def _finite_weight(text) -> float | None:
-    # The same grammar as a lone strength: "0_5" is refused, not read as 5
-    return plain_number(text)
-
-
 def _layer_index(text: str) -> int | None:
     # Leading zeros are allowed ("05"); a digit string longer than any index
     # reads as past MAX_LAYER_INDEX (anima_support.block_index_token)
@@ -782,14 +781,14 @@ def parse_layer_weights(text) -> LayerWeights:
     bare: list[tuple[str, float]] = []
     for selector, token in _weight_entries(text):
         if selector is None:
-            value = _finite_weight(token)
+            value = plain_number(token)
             if value is None:
                 logger.warning("Ignored invalid Anima layer weight token: %s", token)
             else:
                 bare.append((token, value))
             continue
         left = selector.lower()
-        value = _finite_weight(token)
+        value = plain_number(token)
         if value is None:
             logger.warning("Ignored invalid Anima layer weight: %s=%s", selector, token)
             continue
@@ -848,7 +847,7 @@ def parse_module_weights(text) -> dict[str, float]:
     for name, token in _weight_entries(text, spaced_names=True):
         if name is None:
             continue
-        value = _finite_weight(token)
+        value = plain_number(token)
         if value is None:
             logger.warning("Ignored invalid Anima module weight: %s=%s", name, token)
             continue

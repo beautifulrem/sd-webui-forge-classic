@@ -659,3 +659,27 @@ def test_weight_numbers_share_one_grammar(caplog):
     assert parse_layer_weights("0-9=0_5, all=0_5").values == {} and parse_layer_weights("all=0_5").default == 1.0
     assert parse_module_weights("mlp=0_5") == {}
     assert "0-9=0_5" in caplog.text and "mlp=0_5" in caplog.text
+
+
+def test_plain_number_never_raises_on_surrounding_whitespace():
+    # Every character a regex \s matches (incl. U+001C-U+001F, which float()
+    # refuses) is either stripped or refused: the answer is 1.0 or None
+    import re
+    import sys
+
+    from modules.anima_support import plain_number
+
+    for code in range(sys.maxunicode + 1):
+        char = chr(code)
+        if re.fullmatch(r"\s", char):
+            assert plain_number(f"{char}1{char}") in (1.0, None), hex(code)
+    assert plain_number("\x1c1") == plain_number(" \u30001\t") == 1.0  # stripped like str.strip
+
+
+def test_to_float_refuses_non_finite_values():
+    # JSON from the API and pasted infotext accepts NaN / Infinity; clamp(nan, ...) gives the maximum
+    from modules.anima_lora_support import clamp, to_float
+
+    for value in (float("nan"), float("inf"), "-Infinity", "NaN"):
+        assert to_float(value, 0.5) == 0.5
+    assert clamp(to_float(float("nan"), 1.0), -4.0, 4.0) == 1.0

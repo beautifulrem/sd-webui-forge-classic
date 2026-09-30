@@ -434,15 +434,17 @@ def fold_weight_text(text) -> str:
 
 # The one number grammar of weight texts: decimal digits of any script (as
 # float() reads them; not superscripts or circled digits), an optional
-# exponent, no "_" separators ("0_5" would read as 5) and no inf / nan
-_PLAIN_NUMBER_RE = re.compile(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*")
+# exponent, no "_" separators ("0_5" would read as 5) and no inf / nan.
+# Surrounding whitespace is stripped with str.strip, which agrees with float()
+# (a regex \s also matches U+001C-U+001F, which float() refuses)
+_PLAIN_NUMBER_RE = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 
 
 def plain_number(text) -> float | None:
     """The finite value of a lone number such as "0.6", "-.5", "1e-1",
-    "０．５" or "−0.5" (folded first), else None."""
+    "０．５" or "−0.5" (folded first), else None; it never raises."""
 
-    folded = fold_weight_text(text)
+    folded = fold_weight_text(text).strip()
     if not _PLAIN_NUMBER_RE.fullmatch(folded):
         return None
     value = float(folded)

@@ -644,3 +644,13 @@ def test_rows_mixing_into_no_block_take_no_slot_of_the_artist_cap(monkeypatch):
         assert p.extra_generation_params["Anima Artist Mixer"].startswith(f"{cap} artists")
     finally:
         runtime._cleanup_runtime()
+
+
+def test_non_finite_row_values_fall_back_to_the_defaults():
+    # API JSON and pasted infotext accept NaN / Infinity: they must not become
+    # the maximum weight (clamp(nan, ...) is the upper bound) or crash the row count
+    nan, inf = float("nan"), float("inf")
+    (row,) = mixer._normalize_rows([[True, "@artist", nan, "0-27", nan, inf, nan, "Smooth", "custom", False]], 1)
+    assert row[2] == 1.0 and 0.0 <= row[4] <= row[5] <= 1.0
+    assert mixer._row_count(nan) == mixer._row_count(inf) == 1
+    assert len(mixer._normalize_rows([], nan)) == 1

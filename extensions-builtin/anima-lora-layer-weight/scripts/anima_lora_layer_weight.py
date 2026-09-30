@@ -690,7 +690,7 @@ def install_patch():
         logger.info("Installed Anima LoRA layer weight patch")
 
 
-def _reset_lora_cache_if_needed(p, signature: str, text_encoder_signature: str):
+def _reset_lora_cache_if_needed(p, signature: str, text_encoder_signature: tuple | None):
     global _LAST_SIGNATURE, _LAST_TEXT_ENCODER_SIGNATURE
     if _LAST_TEXT_ENCODER_SIGNATURE != text_encoder_signature:
         # The prompt conditioning cache only sees the prompts, not these weights

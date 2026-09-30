@@ -29,7 +29,6 @@ def test_curve_factor_outside_or_without_progress():
 
 
 def test_block_field_syntax():
-    assert parse_blocks("", 4) == {0, 1, 2, 3}
     assert parse_blocks("0-1，-1", 28) == {0, 1, 27}
     assert parse_blocks("3-1, x, 9", 5) == {1, 2, 3}
     # IME input as in the weight fields: full-width forms and dash variants
@@ -63,8 +62,10 @@ def test_a_block_field_with_a_spaced_number_selects_nothing(text, caplog):
 
 
 def test_a_block_field_selecting_nothing_is_no_block(caplog):
-    assert parse_blocks(" ，", 4) == {0, 1, 2, 3}  # only separators: an empty field
     with caplog.at_level("WARNING"):
+        # Only separators select nothing too (an empty field takes the preset
+        # default before it is parsed)
+        assert parse_blocks(" ，", 4) == parse_blocks(",", 28) == set()
         assert parse_blocks("x", 28) == set()
         assert parse_blocks("30-40", 28) == set()  # past the 2B layout
     assert "selects none" in caplog.text

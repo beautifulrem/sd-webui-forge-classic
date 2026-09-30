@@ -37,20 +37,19 @@ def parse_inline_weight(text):
     return value, 1.0
 
 
-
 def parse_blocks(text, num_blocks):
-    """Per-artist block field: empty means every block, negative indices count
+    """Per-artist block field: negative indices count
     from the end, IME input is read as in the weight fields (full-width forms,
     "，", dash variants: modules.anima_support.fold_weight_text) and bad
     parts are skipped. Spaces around any "-" are dropped ("0 - 5", "- 1");
     any other whitespace inside a part makes it bad ("1 0" is not block 10;
     parse_block_list refuses it too).
-    A field that selects nothing (only bad or out-of-range parts) is the empty
-    set, with a warning: that artist mixes into no block.
+    A field that selects nothing (only bad or out-of-range parts, or only
+    commas) is the empty set, with a warning: that artist mixes into no block.
+    An empty field never gets here: the row takes its optimization preset's
+    default blocks first (_normalize_rows).
     (anima_support.parse_block_list is the strict panel-level variant.)"""
     parts = [part.strip() for part in fold_weight_text(text).split(",")]
-    if not any(parts):
-        return set(range(num_blocks))
     result = set()
     for part in parts:
         if not part:
