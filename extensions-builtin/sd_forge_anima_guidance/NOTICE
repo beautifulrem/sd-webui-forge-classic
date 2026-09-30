@@ -6,18 +6,20 @@ License: Apache License 2.0
 Modified for Forge Neo by the forge-neo-remi contributors.
 
 CNS recolorer numerics and Anima calibration artifact
-
-Modulation guidance formula and Cosmos pooled adapter format:
-quickjkee/modulation-guidance (MIT) and yresearch/cosmos-pooled (Apache-2.0).
-
-CLIP-L text encoder weights:
-comfyanonymous/flux_text_encoders (Apache-2.0), derived from the FLUX CLIP-L
-text encoder used by the official modulation-guidance Cosmos experiment.
 Copyright (c) sorryhyun contributors
 Source: https://github.com/sorryhyun/ComfyUI-Spectrum-KSampler
 License: MIT
 
 Modified for Forge Neo by the forge-neo-remi contributors.
+
+Modulation guidance formula and Cosmos pooled adapter format
+Sources: https://github.com/quickjkee/modulation-guidance (MIT) and
+https://huggingface.co/yresearch/cosmos-pooled (Apache License 2.0)
+
+CLIP-L text encoder weights (downloaded, not redistributed)
+Source: https://huggingface.co/comfyanonymous/flux_text_encoders (Apache License 2.0),
+derived from the FLUX CLIP-L text encoder used by the official
+modulation-guidance Cosmos experiment.
 
 DCW manual correction numerics
 Copyright (c) sorryhyun contributors
