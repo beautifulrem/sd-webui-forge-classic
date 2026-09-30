@@ -29,6 +29,7 @@ from modules.anima_lora_support import (
     parse_module_weights as _parse_module_weights,
     lora_file_names as _names_for_lora_file,
     name_keys,
+    network_misses,
     parse_targets as _parse_targets,
     resolve_network,
     split_weight_sections,
@@ -393,8 +394,7 @@ def _cleanup_runtime(p):
         return
 
     state.set_factor(1.0)
-    owner = getattr(state, "p", None)
-    sd_model = getattr(owner, "sd_model", None)
+    sd_model = getattr(p, "sd_model", None)
     if state.loaded_pass is not None and sd_model is not None:
         # A nested run (ADetailer) loading a LoRA set of its own since left
         # its plain-strength patches: they are not this run's to hand on.
@@ -405,8 +405,7 @@ def _cleanup_runtime(p):
             _RELEASED_PATCHES = (tag, sd_model.current_lora_hash, _loaded_patch_config(state, state.loaded_pass), list(state.wrappers))
             sd_model.current_lora_hash = tag
         state.loaded_pass = None
-    if owner is not None and getattr(owner, "_anima_lora_stage_scheduler_state", None) is state:
-        owner._anima_lora_stage_scheduler_state = None
+    p._anima_lora_stage_scheduler_state = None
     if _ACTIVE_STATE is state:
         _ACTIVE_STATE = state.outer_state
 
@@ -978,8 +977,8 @@ def _lora_block_count(filename) -> int | None:
     return anima_lora_block_count(lora_coverage(filename, adapter_kind_for_file(filename) or "lora").blocks)
 
 
-def _resolve_lora_filename(name: str):
-    return getattr(resolve_network(name), "filename", None)
+def _resolve_lora_filename(name: str, misses: set[str] | None = None):
+    return getattr(resolve_network(name, misses), "filename", None)
 
 
 def _is_unet_patch_key(key) -> bool:
@@ -1193,13 +1192,14 @@ class PassConfig:
         self._lora_template_cache[template_name] = config
         return config
 
-    def prompt_name_matches(self, lora_name: str) -> bool:
+    def prompt_name_matches(self, lora_name: str, misses: set[str] | None = None) -> bool:
+        """``misses``: see network_misses."""
         if self.target_mode == MODE_PROMPT_ALL:
             return True
         if self.target_mode == MODE_TARGETS:
             return bool(name_keys(lora_name) & self.targets)
 
-        filename = _resolve_lora_filename(lora_name)
+        filename = _resolve_lora_filename(lora_name, misses)
         return _is_anima_lora_file(filename)
 
     def file_matches(self, filename, names=None) -> bool:
@@ -1412,7 +1412,7 @@ def _collect_prompt_names(prompts) -> set[str]:
     return names
 
 
-def _rewrite_prompt_loras(prompts, config: PassConfig):
+def _rewrite_prompt_loras(prompts, config: PassConfig, misses: set[str] | None = None):
     """The prompts with the tags of the LoRAs this panel sets written at its
     multiplier. The panel's weight replaces all of the tag's: its text
     encoder / UNet arguments (``<lora:x:1:0.5>``, ``te=``, ``unet=``) are
@@ -1427,7 +1427,7 @@ def _rewrite_prompt_loras(prompts, config: PassConfig):
         name = match.group(1).strip()
         if "@" in (match.group(2) or ""):
             return match.group(0)
-        if config.panel_weight_nonzero and config.prompt_name_matches(name):
+        if config.panel_weight_nonzero and config.prompt_name_matches(name, misses):
             return f"<lora:{name}:{_format_float(config.panel_weight.prompt_multiplier())}>"
         return match.group(0)
 
@@ -1437,9 +1437,11 @@ def _rewrite_prompt_loras(prompts, config: PassConfig):
 
 
 def _rewrite_batch_prompts(p, state: RuntimeState):
+    misses = network_misses(p)
+
     def rewrite(config):
         def apply(prompts):
-            rewritten = _rewrite_prompt_loras(prompts, config)
+            rewritten = _rewrite_prompt_loras(prompts, config, misses)
             config.prompt_names.update(_collect_prompt_names(rewritten))
             return rewritten
 

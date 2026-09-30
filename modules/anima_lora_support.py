@@ -490,10 +490,31 @@ def parse_targets(text) -> set[str]:
     return targets
 
 
-def resolve_network(name):
+# Names resolve_network rescanned for without finding them, noted on ``p``
+_NETWORK_MISSES = "_anima_network_misses"
+
+
+def network_misses(p) -> set[str]:
+    """The names ``p``'s run looked up and a rescan did not find. Passed as
+    resolve_network's ``misses``, an unknown name costs one rescan per run
+    however many batches, passes and tabs look it up; the next run (a new
+    ``p``) rescans again, and finds a file added since. A nested run on a
+    shallow copy of ``p`` shares the set."""
+
+    misses = getattr(p, _NETWORK_MISSES, None)
+    if not isinstance(misses, set):
+        misses = set()
+        setattr(p, _NETWORK_MISSES, misses)
+    return misses
+
+
+def resolve_network(name, misses: set[str] | None = None):
     """The sd_forge_lora index entry ``<lora:name:...>`` loads, looked up the
     way networks.load_networks does (forbidden aliases by network name, others
-    by alias, then a rescan by file stem); None when there is none."""
+    by alias, then a rescan by file stem); None when there is none.
+
+    The rescan walks every LoRA directory: a name in ``misses`` (see
+    network_misses) is not rescanned for, and one the rescan misses is added."""
 
     import sys
 
@@ -511,9 +532,11 @@ def resolve_network(name):
             return networks.available_network_aliases.get(key)
 
         entry = lookup()
-        if entry is None:
+        if entry is None and (misses is None or key not in misses):
             networks.update_available_networks_by_names([key])
             entry = lookup()
+            if entry is None and misses is not None:
+                misses.add(key)
         return entry
     except Exception:
         return None

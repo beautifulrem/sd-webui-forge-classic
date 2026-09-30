@@ -239,6 +239,34 @@ def test_prompt_names_resolve_like_the_lora_loader(monkeypatch):
     assert resolve_network("late") is cat and refreshed == ["Cat", "late"]
 
 
+def test_an_unknown_name_is_rescanned_for_once_per_run(monkeypatch):
+    import sys
+
+    from modules.anima_lora_support import network_misses, resolve_network
+
+    late = SimpleNamespace(filename="late")
+    on_disk = {}
+    refreshed = []
+
+    def update_available_networks_by_names(names):  # walks every LoRA directory
+        refreshed.extend(names)
+        networks.available_network_aliases.update((name, on_disk[name]) for name in names if name in on_disk)
+
+    networks = SimpleNamespace(available_networks={}, available_network_aliases={}, forbidden_network_aliases={"none"}, update_available_networks_by_names=update_available_networks_by_names)
+    monkeypatch.setitem(sys.modules, "networks", networks)
+
+    run = SimpleNamespace()
+    for _ in range(3):  # batches, passes, tabs
+        assert resolve_network("late", network_misses(run)) is None
+    assert refreshed == ["late"]
+    assert network_misses(SimpleNamespace(**vars(run))) is network_misses(run)  # a nested run on a shallow copy
+
+    on_disk["late"] = late  # added to disk before the next generation
+    assert resolve_network("late", network_misses(SimpleNamespace())) is late
+    assert refreshed == ["late", "late"]
+    assert resolve_network("late") is late and refreshed == ["late", "late"]  # found without a rescan now
+
+
 def test_a_section_name_ends_at_its_first_separator():
     from modules.anima_lora_support import split_weight_sections
 

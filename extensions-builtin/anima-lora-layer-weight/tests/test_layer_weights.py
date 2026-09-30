@@ -149,6 +149,64 @@ def test_prompt_rewrite_moves_inline_weights_into_rules(module, monkeypatch):
     assert rules["cat"].block_weights.factor(9) == 0.5 and rules["cat"].module_weights["mlp"] == 0.2
 
 
+def _fake_index(module, monkeypatch, kinds, looked_up=None):
+    """The prompt names in ``kinds`` ({name: adapter kind}) resolve to Anima
+    adapters of that kind, any other to nothing."""
+
+    def resolve(name, misses=None):
+        if looked_up is not None:
+            looked_up.append(name)
+        return SimpleNamespace(filename=name) if name in kinds else None
+
+    monkeypatch.setattr(module, "resolve_network", resolve)
+    monkeypatch.setattr(module, "_adapter_kind_for_file", kinds.get)
+    monkeypatch.setattr(module, "_is_anima_adapter_file", lambda filename, kind: True)
+
+
+def test_each_prompt_tag_is_looked_up_once(module, monkeypatch):
+    looked_up = []
+    _fake_index(module, monkeypatch, {"cat": "lora", "fox": "lokr"}, looked_up)
+
+    rewritten, _ = module._rewrite_lora_prompts(["<lora:cat:0.5> <lora:fox:0.5> <lora:typo:0.5>"], "", "lora")
+
+    assert rewritten == ["<lora:cat:1.0> <lora:fox:0.5> <lora:typo:0.5>"]
+    assert looked_up == ["cat", "fox", "typo"]
+
+
+def test_a_misspelt_tag_rescans_the_lora_folders_once_per_run(module, monkeypatch):
+    monkeypatch.setattr(module, "install_patch", lambda: None)
+    monkeypatch.setattr(module, "_ACTIVE_RULE", None)
+    monkeypatch.setattr(module, "_LAST_SIGNATURE", None)
+    monkeypatch.setattr(module, "_adapter_kind_for_file", lambda filename: "lora")
+    monkeypatch.setattr(module, "_is_anima_adapter_file", lambda filename, kind: True)
+    on_disk = {}
+    refreshed = []
+
+    def update_available_networks_by_names(names):  # walks every LoRA directory
+        refreshed.extend(names)
+        networks.available_network_aliases.update((name, on_disk[name]) for name in names if name in on_disk)
+
+    networks = SimpleNamespace(available_networks={}, available_network_aliases={}, forbidden_network_aliases={"none"}, update_available_networks_by_names=update_available_networks_by_names)
+    monkeypatch.setitem(sys.modules, "networks", networks)
+    written = ["<lora:cta:0-9=0.5>", "<lora:cta:0-9=0.5>"]
+    args = [True, "", True, "all=1.0", False, "", False, "", False, "", "", ""] + [True, "", True, "all=1.0", False, "", False, "", False, "", "", ""]
+    script = module.Script()
+
+    p = SimpleNamespace(batch_size=1, all_prompts=list(written), all_hr_prompts=list(written), extra_generation_params={})
+    for iteration in range(2):  # each batch rewrites its prompts and hires prompts, for both tabs
+        p.iteration = iteration
+        p.prompts = p.all_prompts[iteration : iteration + 1]
+        script.before_process_batch(p, *args)
+    assert refreshed == ["cta"]
+    assert (p.all_prompts, p.all_hr_prompts) == (written, written)  # no such LoRA: left as written
+
+    on_disk["cta"] = SimpleNamespace(filename="cta.safetensors")  # added before the next generation
+    p = SimpleNamespace(iteration=0, batch_size=1, prompts=written[:1], all_prompts=list(written), all_hr_prompts=list(written), extra_generation_params={})
+    script.before_process_batch(p, *args)
+    assert refreshed == ["cta", "cta"]
+    assert p.prompts == ["<lora:cta:1.0>"]
+
+
 def _run_batch(module, prompts):
     p = SimpleNamespace(prompts=list(prompts), extra_generation_params={})
     lora_args = [True, "", True, "all=1.0", False, "", False, "", False, "", "", ""]
@@ -216,8 +274,7 @@ def test_apply_preset_writes_the_presets_inline_weights(module, monkeypatch):
     assert module._select_preset("missing", presets) is None
 
     kinds = {"cat": "lora", "dog": "lora", "fox": "lokr"}
-    monkeypatch.setattr(module, "_adapter_kind_for_prompt_name", lambda name: kinds.get(name))
-    monkeypatch.setattr(module, "_is_anima_prompt_lora", lambda name, kind: name in kinds)
+    _fake_index(module, monkeypatch, kinds)
     prompt = "<lora:cat:0.6:te=0.2> <lora:dog:1> <lora:fox:0.5> <lora:other:1>"
     inline = "blocks=0-9=0.6,10-27=1.0;modules=mlp=0.8"
 

@@ -19,6 +19,7 @@ from modules.anima_lora_support import (
     parse_module_weights,
     lora_file_names as _names_for_lora_file,
     name_keys,
+    network_misses,
     parse_targets as _parse_targets,
     resolve_network,
     split_weight_sections,
@@ -500,20 +501,18 @@ def _adapter_kind_for_prompt_name(name: str) -> str | None:
     return _adapter_kind_for_file(getattr(entry, "filename", ""))
 
 
-def _is_anima_prompt_lora(name: str, adapter_kind: str = "lora") -> bool:
-    entry = resolve_network(name)
+def _prompt_lora_is_controlled(name: str, targets: set[str], adapter_kind: str = "lora", misses: set[str] | None = None) -> bool:
+    """A listed target, or with no targets any Anima adapter of the kind.
+    ``misses``: see network_misses."""
+    entry = resolve_network(name, misses)
     if entry is None:
         return False
-    return _is_anima_adapter_file(getattr(entry, "filename", ""), adapter_kind)
-
-
-def _prompt_lora_is_controlled(name: str, targets: set[str], adapter_kind: str = "lora") -> bool:
-    """A listed target, or with no targets any Anima adapter of the kind."""
-    if _adapter_kind_for_prompt_name(name) != adapter_kind:
+    filename = getattr(entry, "filename", "")
+    if _adapter_kind_for_file(filename) != adapter_kind:
         return False
     if targets:
         return bool(name_keys(name) & targets)
-    return _is_anima_prompt_lora(name, adapter_kind)
+    return _is_anima_adapter_file(filename, adapter_kind)
 
 
 def _first_inline_rule(names: set[str], inline_rules: dict[str, PromptRule]) -> PromptRule | None:
@@ -547,7 +546,7 @@ def _parse_inline_prompt_rule(text: str) -> PromptRule | None:
     return PromptRule(block_weights=block_weights, module_weights=module_weights)
 
 
-def _rewrite_lora_prompts(prompts, target_loras: str, adapter_kind: str) -> tuple[list[str], dict[str, PromptRule]]:
+def _rewrite_lora_prompts(prompts, target_loras: str, adapter_kind: str, misses: set[str] | None = None) -> tuple[list[str], dict[str, PromptRule]]:
     targets = _parse_targets(target_loras)
     inline_rules: dict[str, PromptRule] = {}
 
@@ -557,7 +556,7 @@ def _rewrite_lora_prompts(prompts, target_loras: str, adapter_kind: str) -> tupl
                 return match.group(0)
             name = match.group(1).strip()
             weight_text, extra_args = _split_lora_args(match.group(2).strip())
-            controlled = _prompt_lora_is_controlled(name, targets, adapter_kind)
+            controlled = _prompt_lora_is_controlled(name, targets, adapter_kind, misses)
 
             rule = _parse_inline_prompt_rule(weight_text)
             if rule is not None and controlled:
@@ -640,9 +639,10 @@ def _reset_lora_cache_if_needed(p, signature: str, text_encoder_signature: str):
 
 def _apply_prompt_rewrite(p, target_loras: str, adapter_kind: str) -> dict[str, PromptRule]:
     inline_rules = {}
+    misses = network_misses(p)
 
     def rewrite(prompts):
-        rewritten, rules = _rewrite_lora_prompts(prompts, target_loras, adapter_kind)
+        rewritten, rules = _rewrite_lora_prompts(prompts, target_loras, adapter_kind, misses)
         merge_consistent_rules(inline_rules, rules, label="Anima adapter")
         return rewritten
 
