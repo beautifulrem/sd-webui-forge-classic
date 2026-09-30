@@ -135,15 +135,8 @@ def _hook_forward(cls: "NegPiP", module: "CrossAttention", remove: bool):
 
                 return _main_forward(cls, module, x, context, value, mask, tokens)
 
-        return sub_forward(
-            x,
-            context,
-            mask,
-            cls.conds[0] if len(cls.conds) > 0 else None,
-            cls.c_tokens[0] if len(cls.conds) > 0 else None,
-            cls.unconds[0] if len(cls.unconds) > 0 else None,
-            cls.uc_tokens[0] if len(cls.unconds) > 0 else None,
-        )
+        # Every negative target of the current step, joined into one block
+        return sub_forward(x, context, mask, cls.conds, cls.c_tokens, cls.unconds, cls.uc_tokens)
 
     module._negpip_restore = (forward, install_forward_override(module, forward), detached)
 

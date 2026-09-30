@@ -37,7 +37,7 @@ class _NegPiP:
 
 def _instance():
     # No negative conditioning: the hooked forward computes plain cross-attention
-    return SimpleNamespace(is_xl=False, batch_size=1, rev=True, active=True, c_len=1, uc_len=1, conds=[], c_tokens=[], unconds=[], uc_tokens=[])
+    return SimpleNamespace(is_xl=False, batch_size=1, rev=True, active=True, c_len=1, uc_len=1, conds=None, c_tokens=0, unconds=None, uc_tokens=0)
 
 
 @pytest.fixture

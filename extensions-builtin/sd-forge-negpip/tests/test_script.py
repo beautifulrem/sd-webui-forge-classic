@@ -16,8 +16,10 @@ _spec.loader.exec_module(harness)
 negpip = harness.load_script(ROOT / "scripts" / "negpip.py", "negpip_under_test")
 
 from backend.nn.anima import SelfCrossAttention  # noqa: E402
+from backend.nn.unet import CrossAttention  # noqa: E402
 from backend.sampling import condition, sampling_function  # noqa: E402
 from lib_negpip import anima as negpip_anima  # noqa: E402
+from lib_negpip import sd as negpip_sd  # noqa: E402
 
 
 class _Model:
@@ -163,16 +165,76 @@ def test_a_hires_checkpoint_that_is_not_anima_turns_negpip_off_visibly(anima):
     assert "NegPiP off in Hires" in str(p.extra_generation_params)
 
 
-def test_an_sd_step_takes_every_negative_target_of_its_schedule_entry():
-    # (end step, [(conditioning, tokens), ...]) per schedule entry, one prompt
-    schedule = [[(10, [("A1", 1), ("A2", 2)]), (20, [("B1", 3), ("B2", 4)])]]
+# Tokens each negative target encodes to (text tokens + end token, as _cond_dealer counts them)
+_TARGET_TOKENS = {"red fur": 2, "blue eyes": 3, "green": 1, "a dark night sky": 4, "ugly": 1, "bad hands": 2}
+
+
+def test_an_sd_step_applies_every_negative_target_of_its_schedule_entry(monkeypatch):
+    monkeypatch.setattr(negpip, "on_cfg_denoiser", lambda callback: None)
     script = negpip.NegPiP()
     script.active, script.is_anima, script.is_hr = True, False, False
-    script.conds_all, script.unconds_all = schedule, schedule
+    script.is_xl, script.batch_size, script.rev, script.c_len, script.uc_len = False, 1, True, 1, 1
+    script.has_hr_p = script.has_hr_n = False
+    # The text encoder is not loaded: each target encodes to its own random tokens
+    monkeypatch.setattr(script, "_cond_dealer", lambda p, target: (torch.randn(1, _TARGET_TOKENS[target[0]], 6), _TARGET_TOKENS[target[0]]))
+    steps = 20
+    positive = "a cat, [(red fur:-1), (blue eyes:-1):(green:-1), (a dark night sky:-1):10]"
+    script.conds_all = script._calc_conds(None, script._getScheduledNegPip([positive], steps))
+    script.unconds_all = script._calc_conds(None, script._getScheduledNegPip(["(ugly:-1), (bad hands:-1)"], steps))
 
+    torch.manual_seed(0)
+    attention = CrossAttention(8, context_dim=6, heads=2, dim_head=4)
+    attention.to_k.weight = attention.to_v.weight  # a negated value token then reads -key
+    seen = []
+
+    def recording_attention(q, k, v, heads, mask=None):
+        negated = sum(torch.allclose(v[0, t], -k[0, t]) and not torch.allclose(v[0, t], k[0, t]) for t in range(k.shape[1]))
+        seen.append((k.shape[1], negated))
+        return q
+
+    monkeypatch.setattr(negpip_sd, "optimized_attention", recording_attention)
+    negpip_sd._hook_forward(script, attention, False)
+    try:
+        # The sampler reports steps 0..steps-2 (the step count lags the model call by one)
+        for sampling_step in range(steps - 1):
+            script.denoiser_callback(SimpleNamespace(sampling_step=sampling_step))
+            seen.clear()
+            with torch.inference_mode():
+                attention(torch.randn(2, 5, 8), torch.randn(2, 77, 6))  # rev: uncond, cond
+            cond_tokens = 2 + 3 if sampling_step + 2 <= 10 else 1 + 4
+            assert seen == [(77 + cond_tokens, cond_tokens), (77 + 1 + 2, 1 + 2)], sampling_step
+    finally:
+        negpip_sd._hook_forward(script, attention, True)
+
+
+def test_an_sd_step_with_one_negative_target_negates_exactly_its_tokens(monkeypatch):
+    monkeypatch.setattr(negpip, "on_cfg_denoiser", lambda callback: None)
+    script = negpip.NegPiP()
+    script.active, script.is_anima, script.is_hr = True, False, False
+    script.is_xl, script.batch_size, script.rev, script.c_len, script.uc_len = False, 1, True, 1, 1
+    script.has_hr_p = script.has_hr_n = False
+    target = torch.randn(1, 3, 6)
+    monkeypatch.setattr(script, "_cond_dealer", lambda p, t: (target, 3))
+    script.conds_all = script._calc_conds(None, script._getScheduledNegPip(["a cat, (blue eyes:-1)"], 20))
+    script.unconds_all = script._calc_conds(None, script._getScheduledNegPip(["plain"], 20))
     script.denoiser_callback(SimpleNamespace(sampling_step=0))
-    assert script.conds == script.unconds == ["A1", "A2"]
-    assert script.c_tokens == script.uc_tokens == [1, 2]
 
-    script.denoiser_callback(SimpleNamespace(sampling_step=12))
-    assert script.conds == script.unconds == ["B1", "B2"]
+    torch.manual_seed(0)
+    attention = CrossAttention(8, context_dim=6, heads=2, dim_head=4)
+    x, context = torch.randn(2, 5, 8), torch.randn(2, 77, 6)
+    uncond, cond = context.chunk(2)
+    xn, xp = x.chunk(2)
+    # Plain attention over the prompt plus the target, its value tokens negated
+    ctx = torch.cat([cond, target], 1)
+    v = attention.to_v(ctx)
+    v[:, -3:] = -v[:, -3:]
+    expected_p = attention.to_out(negpip_sd.optimized_attention(attention.to_q(xp), attention.to_k(ctx), v, attention.heads))
+    expected_n = attention(xn, uncond)
+
+    negpip_sd._hook_forward(script, attention, False)
+    try:
+        with torch.inference_mode():
+            out = attention(x, context)
+    finally:
+        negpip_sd._hook_forward(script, attention, True)
+    assert torch.allclose(out, torch.cat([expected_n, expected_p]), atol=1e-6)

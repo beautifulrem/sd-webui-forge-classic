@@ -53,17 +53,19 @@ class NegPiP(scripts.Script):
         self.rev: bool
         self.batch_size: int
 
-        self.conds: list[torch.Tensor]
+        # The current step's negative targets joined into one block (None
+        # when it has none) and its token count; see _calc_conds
+        self.conds: torch.Tensor | None
         self.c_len: int
-        self.c_tokens: list[int]
-        self.conds_all: list[list[tuple[int, list[tuple[torch.Tensor, int]]]]]
-        self.hr_conds_all: list[list[tuple[int, list[tuple[torch.Tensor, int]]]]]
+        self.c_tokens: int
+        self.conds_all: list[list[tuple[int, torch.Tensor | None, int]]]
+        self.hr_conds_all: list[list[tuple[int, torch.Tensor | None, int]]]
 
-        self.unconds: list[torch.Tensor]
+        self.unconds: torch.Tensor | None
         self.uc_len: int
-        self.uc_tokens: list[int]
-        self.unconds_all: list[list[tuple[int, list[tuple[torch.Tensor, int]]]]]
-        self.hr_unconds_all: list[list[tuple[int, list[tuple[torch.Tensor, int]]]]]
+        self.uc_tokens: int
+        self.unconds_all: list[list[tuple[int, torch.Tensor | None, int]]]
+        self.hr_unconds_all: list[list[tuple[int, torch.Tensor | None, int]]]
 
         on_cfg_denoiser(self.denoiser_callback)
 
@@ -162,10 +164,10 @@ class NegPiP(scripts.Script):
         p.extra_generation_params["NegPiP"] = True
         self.active = True
 
-        if len(self.conds_all[0][0][1]) > 0:
-            logger.info("NegPiP Enable (Positive: %s)", self.conds_all[0][0][1][0][1])
-        if len(self.unconds_all[0][0][1]) > 0:
-            logger.info("NegPiP Enable (Negative: %s)", self.unconds_all[0][0][1][0][1])
+        if self.conds_all[0][0][2] > 0:
+            logger.info("NegPiP Enable (Positive: %s)", self.conds_all[0][0][2])
+        if self.unconds_all[0][0][2] > 0:
+            logger.info("NegPiP Enable (Negative: %s)", self.unconds_all[0][0][2])
 
     def postprocess(self, *args, **kwargs):
         # Unhook before later scripts' postprocess, which may start nested generations
@@ -200,41 +202,23 @@ class NegPiP(scripts.Script):
         if (not self.active) or self.is_anima:
             return
 
-        conds_list = []
-        tokens_list = []
+        conds_all = self.hr_conds_all if self.is_hr and self.has_hr_p else self.conds_all
+        if conds_all is not None:
+            self.conds, self.c_tokens = self._current_entry(conds_all, params.sampling_step)
 
-        if self.is_hr and self.has_hr_p:
-            conds = self.hr_conds_all
-        else:
-            conds = self.conds_all
+        unconds_all = self.hr_unconds_all if self.is_hr and self.has_hr_n else self.unconds_all
+        if unconds_all is not None:
+            self.unconds, self.uc_tokens = self._current_entry(unconds_all, params.sampling_step)
 
-        if conds is not None:
-            for step, regions in conds[0]:
-                if step >= params.sampling_step + 2:
-                    for conds, tokens in regions:
-                        conds_list.append(conds)
-                        tokens_list.append(tokens)
-                    break
-            self.conds = conds_list
-            self.c_tokens = tokens_list
-
-        unconds_list = []
-        uc_tokens_list = []
-
-        if self.is_hr and self.has_hr_n:
-            unconds = self.hr_unconds_all
-        else:
-            unconds = self.unconds_all
-
-        if unconds is not None:
-            for step, regions in unconds[0]:
-                if step >= params.sampling_step + 2:
-                    for unconds, uc_tokens in regions:
-                        unconds_list.append(unconds)
-                        uc_tokens_list.append(uc_tokens)
-                    break
-            self.unconds = unconds_list
-            self.uc_tokens = uc_tokens_list
+    @staticmethod
+    def _current_entry(
+        schedule: list[list[tuple[int, torch.Tensor | None, int]]], sampling_step: int
+    ) -> tuple[torch.Tensor | None, int]:
+        """The joined negative targets of the first prompt's entry at this step."""
+        for step, conds, tokens in schedule[0]:
+            if step >= sampling_step + 2:
+                return conds, tokens
+        return None, 0
 
     @staticmethod
     def _getScheduledNegPip(
@@ -299,15 +283,23 @@ class NegPiP(scripts.Script):
         self,
         p: "StableDiffusionProcessing",
         targetlist: list[list[tuple[int, list[tuple[str, float]]]]],
-    ) -> list[list[tuple[int, list[tuple[torch.Tensor, int]]]]]:
+    ) -> list[list[tuple[int, torch.Tensor | None, int]]]:
+        """(end step, conditioning, tokens) per schedule entry of each prompt.
+
+        Every negative target of an entry is encoded on its own, then the
+        targets are joined along the token dimension: the attention hook
+        appends that block to the context and negates its last ``tokens``
+        values, so all the targets apply (None, 0 when the entry has none)."""
+
         outconds = []
         for batch in targetlist:
             stepconds = []
-            for step, regions in batch:
-                regionconds = []
-                for targets in regions:
-                    conds, c_tokens = self._cond_dealer(p, targets)
-                    regionconds.append((conds, c_tokens))
-                stepconds.append((step, regionconds))
+            for step, targets in batch:
+                encoded = [self._cond_dealer(p, target) for target in targets]
+                if encoded:
+                    conds = torch.cat([cond for cond, _ in encoded], 1)
+                    stepconds.append((step, conds, sum(tokens for _, tokens in encoded)))
+                else:
+                    stepconds.append((step, None, 0))
             outconds.append(stepconds)
         return outconds
