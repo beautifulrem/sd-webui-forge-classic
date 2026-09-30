@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import torch
@@ -23,7 +24,7 @@ from lib_artist_mixer.contexts import (
 from lib_artist_mixer.schedule import curve_factor
 from modules import spectrum_force
 from modules.anima_lora_support import clamp as _clamp, sigma_progress
-from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY, BranchRows, call_model_wrapper, conditioning_cache_key, encode_extra_prompts, negpip_mask_for, positive_rows
+from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY, BranchRows, call_model_wrapper, conditioning_cache_key, encode_extra_prompts, negpip_mask_for, positive_rows, schedule_index
 from modules.forward_override import cached_overrides, forward_overrides
 
 
@@ -82,15 +83,28 @@ class ArtistRuntime:
     # Device copies of cond / mask for the attention context's device and
     # dtype (kept on the CPU otherwise): uploaded once, not per block
     on_device: dict = field(default_factory=dict, repr=False)
+    # Prompt editing ([a:b:N], [a|b]) in the base prompts: the end steps of
+    # the batch's schedule and ``(cond, negpip_mask)`` of each entry. Empty
+    # when the prompts have one text: cond / negpip_mask then serve every step.
+    ends: tuple[int, ...] = ()
+    entries: tuple = field(default=(), repr=False)
 
-    def cond_like(self, context):
-        return self._like("cond", self.cond, context)
+    def at(self, step):
+        """``(cond, negpip_mask)`` at sampler ``step``."""
+        if not self.ends:
+            return self.cond, self.negpip_mask
+        return self.entries[schedule_index(self.ends, step)]
 
-    def mask_like(self, context):
-        return None if self.negpip_mask is None else self._like("mask", self.negpip_mask, context)
+    def cond_like(self, context, step=0):
+        return self._like("cond", self.at(step)[0], context)
+
+    def mask_like(self, context, step=0):
+        mask = self.at(step)[1]
+        return None if mask is None else self._like("mask", mask, context)
 
     def _like(self, name, tensor, context):
-        key = (name, context.device, context.dtype)
+        # By tensor: the entries of one text (every other step of [a|b]) share it
+        key = (name, id(tensor), context.device, context.dtype)
         if key not in self.on_device:
             self.on_device[key] = _to_context(tensor, context)
         return self.on_device[key]
@@ -127,6 +141,10 @@ class MixerState:
     # Sampling of its pass is over: its model wrapper passes through, so a
     # patcher clone that outlives the pass cannot mix stale artists
     finished: bool = False
+    # The sampler step of the current model call (``anima_support.prompt_step``),
+    # read only when the artists carry prompt-editing entries
+    step_of: Callable[[], int] | None = None
+    prompt_step: int = 0
 
     def target_blocks(self):
         blocks = set()
@@ -228,6 +246,11 @@ def _install_model_wrapper(unet, dm, state):
         if state.finished or not state.enabled:
             return call_model_wrapper(previous, apply_model, args)
         state.wrapper_checks += 1
+        if state.step_of is not None and any(artist.ends for artist in state.artists):
+            step = state.step_of()
+            if step != state.prompt_step:
+                state.prompt_step = step
+                state.call_contexts.clear()  # built from the previous entry's contexts
         with forward_overrides(override(index) for index in blocks):
             return call_model_wrapper(previous, apply_model, args)
 
@@ -330,8 +353,8 @@ def _artist_kv(state, artist, plan, base_fusion):
     if key in cache:
         return cache[key]
     context = cache["context"]
-    artist_context = _to_context_like(artist.cond_like(context), context)
-    artist_mask = _artist_mask_like(artist.mask_like(artist_context), artist_context)
+    artist_context = _to_context_like(artist.cond_like(context, state.prompt_step), context)
+    artist_mask = _artist_mask_like(artist.mask_like(artist_context, state.prompt_step), artist_context)
     artist_context = plan.branch.select(artist_context)
     artist_mask = None if artist_mask is None else plan.branch.select(artist_mask)
     if base_fusion:

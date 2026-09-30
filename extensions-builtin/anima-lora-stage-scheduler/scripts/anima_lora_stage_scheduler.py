@@ -1719,7 +1719,7 @@ class Script(scripts.Script):
         </style>
         """
         with gr.Accordion(_t("title"), open=False, elem_id=self.elem_id("accordion")):
-            intro_block(self.elem_id, INTRO_EN, INTRO_ZH)
+            intro_block(self.elem_id, INTRO_EN, INTRO_ZH, LANGUAGE_OPTION)
             enabled = gr.Checkbox(label=_t("enable"), value=False, elem_id=self.elem_id("enabled"))
             gr.HTML(template_css)
 

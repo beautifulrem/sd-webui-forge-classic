@@ -619,7 +619,7 @@ def test_cfg_zero_star_zero_init_steps_skip_the_model():
 
 def _modulation_process(blocks=28):
     p = FakeProcess(FakeUnet(blocks=blocks))
-    p.steps = 10
+    p.steps = p.firstpass_steps = 10
     p.prompts = ["a (red:1.2) [cat:dog:5]"]
     p.negative_prompts = ["(bad:1.4)"]
     return p

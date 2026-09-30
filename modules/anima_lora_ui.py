@@ -48,15 +48,20 @@ def intro_text(language: str, intro_en: str, intro_zh: str) -> str:
     return intro_zh if language == "中文" else intro_en
 
 
-def intro_block(elem_id, intro_en: str, intro_zh: str) -> None:
+def intro_block(elem_id, intro_en: str, intro_zh: str, option: str) -> None:
+    """The panel description with its English / 中文 switch, opening in the
+    language of the panel's settings option (``register_language_option``).
+    The switch only swaps the text for this session."""
+
     import gradio as gr
 
+    language = "中文" if ui_language(option) == "zh" else "English"
     with gr.Row():
         intro_language = gr.Radio(
             choices=["English", "中文"],
-            value="English",
+            value=language,
             label="Description language / 说明语言",
             elem_id=elem_id("intro_language"),
         )
-    intro = gr.Markdown(value=intro_en, elem_id=elem_id("intro"))
+    intro = gr.Markdown(value=intro_text(language, intro_en, intro_zh), elem_id=elem_id("intro"))
     intro_language.change(fn=lambda language: intro_text(language, intro_en, intro_zh), inputs=[intro_language], outputs=[intro], queue=False, show_progress=False)

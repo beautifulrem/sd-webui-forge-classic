@@ -105,6 +105,50 @@ def test_region_prompts_are_encoded_once_until_the_text_encoder_changes():
     assert len(calls) == 5
 
 
+def _recording_process(steps=10):
+    import torch
+
+    calls = []
+
+    class Model:
+        current_lora_hash = "[]"
+        forge_objects = SimpleNamespace(clip=SimpleNamespace(patcher=SimpleNamespace(patches_uuid="te")))
+
+        def get_learned_conditioning(self, prompt):
+            calls.append(list(prompt))
+            return [torch.full((1, 3, 2), float(len(calls)))]
+
+    # firstpass_steps: the base pass's total steps, as setup_conds sets them
+    return SimpleNamespace(sd_model=Model(), width=64, height=64, firstpass_steps=steps), calls
+
+
+@pytest.mark.parametrize(
+    "prompt, encoded, entry_texts, switched",
+    [
+        # Forge's schedule over 10 steps: "cat" to step 5, "dog" after it
+        ("a [cat:dog:5]", ["a cat", "a dog"], ["a cat", "a dog"], 6),
+        # Alternation switches every step: each distinct text is encoded once
+        ("[red|blue] hair", ["red hair", "blue hair"], ["red hair", "blue hair"] * 5, 2),
+    ],
+)
+def test_region_prompt_editing_is_resolved_like_the_main_prompt(prompt, encoded, entry_texts, switched):
+    p, calls = _recording_process()
+    region = regional._region(p, prompt, 0.0, 0.0, 0.5, 1.0, 1.0)
+
+    assert calls == [[text] for text in encoded]
+    by_text = {text: float(index + 1) for index, text in enumerate(encoded)}
+    assert [float(cond.flatten()[0]) for cond, _mask in region.entries] == [by_text[text] for text in entry_texts]
+    assert region.at(0) is region.entries[0] and region.conditioning is region.entries[0][0]
+    assert region.at(switched) is region.entries[1]  # the first step of the second text
+
+
+def test_a_plain_region_prompt_is_encoded_as_written():
+    p, calls = _recording_process()
+    region = regional._region(p, "a red (cat:1.2)", 0.0, 0.0, 0.5, 1.0, 1.0)
+    assert calls == [["a red (cat:1.2)"]]
+    assert region.ends == () and region.entries == ()
+
+
 def test_block_field_is_read_in_the_2b_layout():
     from modules.anima_lora_support import model_block_set
 

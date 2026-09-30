@@ -269,6 +269,70 @@ def encode_extra_prompts(process, texts):
     return context.detach().cpu(), None if mask is None else mask.detach().cpu()
 
 
+def schedule_steps(process) -> tuple[int, int | None]:
+    """``(steps, hires_steps)`` Forge resolves the current pass's prompt
+    editing (``[a:b:N]``, ``[a|b]``) with, as ``processing.py`` passes them
+    to ``get_learned_conditioning_prompt_schedules``: the base pass's sampler
+    total steps (``firstpass_steps``) and, in a Hires. fix pass, the hires
+    sampler's total steps as well (hires_steps None in the base pass)."""
+
+    def total_steps(sampler_name, steps):
+        from modules import sd_samplers
+
+        config = sd_samplers.find_sampler_config(sampler_name)
+        return config.total_steps(steps) if config else steps
+
+    steps = int(getattr(process, "steps", 0) or 0)
+    base = int(getattr(process, "firstpass_steps", 0) or 0) or total_steps(getattr(process, "sampler_name", None), steps)
+    if not bool(getattr(process, "is_hr_pass", False)):
+        return base, None
+    hires = int(getattr(process, "hr_second_pass_steps", 0) or 0) or steps
+    sampler_name = getattr(process, "hr_sampler_name", None) or getattr(process, "sampler_name", None)
+    return base, total_steps(sampler_name, hires)
+
+
+def prompt_schedule(prompts, steps: int, hires_steps: int | None = None) -> list[tuple[int, tuple[str, ...]]]:
+    """Forge's prompt-editing schedule of a prompt batch: ``(end_step,
+    texts)`` entries, ``texts`` holding each prompt's resolved text up to
+    ``end_step`` (see :func:`schedule_steps` and :func:`schedule_index`).
+    The prompts' own schedules are merged over their switch steps; entries
+    with the same texts as the one before them are joined. A batch without
+    prompt editing has one entry, with its prompts' text unchanged."""
+
+    from modules import prompt_parser
+
+    prompts = [str(prompt) for prompt in prompts]
+    schedules = prompt_parser.get_learned_conditioning_prompt_schedules(prompts, max(int(steps), 1), hires_steps)
+    ends = sorted({end for schedule in schedules for end, _text in schedule})
+    merged = []
+    for end in ends:
+        texts = tuple(next((text for until, text in schedule if end <= until), schedule[-1][1]) for schedule in schedules)
+        if merged and merged[-1][1] == texts:
+            merged[-1] = (end, texts)
+        else:
+            merged.append((end, texts))
+    return merged
+
+
+def schedule_index(ends, step: int) -> int:
+    """Entry of a schedule with end steps ``ends`` a model call at sampler
+    ``step`` uses, exactly as ``prompt_parser.reconstruct_cond_batch`` picks
+    the main prompt's: the first ending at or after it, else the first."""
+
+    return next((index for index, end in enumerate(ends) if step <= end), 0)
+
+
+def prompt_step(process) -> int:
+    """The step Forge picks the main prompt's schedule entry by for the
+    current model call: the CFG denoiser's call counter of the current pass's
+    sampler (0 when there is none, or the generation has ended)."""
+
+    try:
+        return int(getattr(getattr(getattr(process, "sampler", None), "model_wrap_cfg", None), "step", 0) or 0)
+    except ReferenceError:  # a ``process_ref`` whose generation has ended
+        return 0
+
+
 def conditioning_context(conds):
     """The cross-attention context of ``get_learned_conditioning`` output
     (the plain tensor, or ``crossattn`` of NegPiP's dict form)."""

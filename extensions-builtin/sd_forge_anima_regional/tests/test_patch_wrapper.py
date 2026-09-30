@@ -30,7 +30,7 @@ class _State:
     def active(self, sigma):
         return True
 
-    def prepare_masks(self, input_x, dit):
+    def begin_call(self, input_x, dit):
         self.current_masks = []
 
     def end_call(self):

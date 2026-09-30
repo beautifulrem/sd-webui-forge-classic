@@ -8,7 +8,8 @@ Special thanks to **An1X3R/Anima-Artist-Mixer** and **汐浮尘/utowo** for the 
 
 ## Features
 
-- Per-artist rows with artist prompt, weight, block range, denoise time range, peak, curve, and stage preset.
+- Per-artist rows with artist prompt, weight, block range, denoise time range, peak, curve, and stage preset. The time range (Start/End) is a fraction of the sampling steps.
+- Prompt editing in the base prompt (`[a:b:N]`, `[a|b]`) is resolved per step in every artist branch, like the main prompt.
 - Inline row weights in the artist cell, for example `(wlop:1.2)`, `[wlop:0.8]`, or `wlop:1.2`; this multiplier is combined with the row `Weight`.
 - Separate Base and Hires. fix artist chains. Hires. fix is disabled by default and inherits Base settings.
 - Current settings are saved automatically when controls change, then restored after refreshing the UI or restarting Forge.

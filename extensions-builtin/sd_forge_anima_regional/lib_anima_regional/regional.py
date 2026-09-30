@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import math
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import torch
 
 from modules import spectrum_force
-from modules.anima_support import pad_to_sequence, positive_rows, sigma_value, windowed_override_patch
+from modules.anima_support import pad_to_sequence, positive_rows, schedule_index, sigma_value, windowed_override_patch
 from modules.forward_override import cached_overrides
 
 
@@ -64,6 +65,17 @@ class Region:
     strength: float
     # NegPiP V-mask for this region's tokens (None without negative weights).
     negpip_mask: torch.Tensor | None = None
+    # Prompt editing ([a:b:N], [a|b]) in the region prompt: the end steps of
+    # its schedule and ``(conditioning, negpip_mask)`` of each entry. Empty
+    # when the prompt has one text: the fields above then serve every step.
+    ends: tuple[int, ...] = ()
+    entries: tuple = ()
+
+    def at(self, step: int):
+        """``(conditioning, negpip_mask)`` at sampler ``step``."""
+        if not self.ends:
+            return self.conditioning, self.negpip_mask
+        return self.entries[schedule_index(self.ends, step)]
 
 
 @dataclass
@@ -82,6 +94,10 @@ class RegionalState:
     # Device copies of masks, row indices and region contexts, keyed by shape,
     # device and dtype; the state lives for one sampling pass.
     cache: dict = field(default_factory=dict)
+    # The sampler step of the current model call (``anima_support.prompt_step``),
+    # read only when a region prompt uses prompt editing
+    step_of: Callable[[], int] | None = None
+    prompt_step: int = 0
 
     def cached(self, key, build):
         if key not in self.cache:
@@ -93,6 +109,11 @@ class RegionalState:
 
     def active(self, sigma: float) -> bool:
         return spectrum_force.in_sigma_window(sigma, self.start_sigma, self.end_sigma)
+
+    def begin_call(self, input_x: torch.Tensor, dit) -> None:
+        if self.step_of is not None and any(region.ends for region in self.regions):
+            self.prompt_step = self.step_of()
+        self.prepare_masks(input_x, dit)
 
     def prepare_masks(self, input_x: torch.Tensor, dit):
         key = ("masks", tuple(input_x.shape[-3:]), input_x.device, input_x.dtype)
@@ -159,12 +180,14 @@ def _make_cross_attention_wrapper(original_forward, state: RegionalState):
             if not state.region_nonempty[number]:
                 continue
             alpha = state.region_alpha(number, base.shape[1], base)
-            key = (number, batch, rows, context.device, context.dtype)
-            regional_context = state.cached(("context", *key), lambda: fit_context_rows(region.conditioning, batch, rows, context))
+            conditioning, region_mask = region.at(state.prompt_step)
+            # By tensor: the entries of one text (every other step of [a|b]) share it
+            key = (number, id(conditioning), batch, rows, context.device, context.dtype)
+            regional_context = state.cached(("context", *key), lambda: fit_context_rows(conditioning, batch, rows, context))
             negpip_mask = (
                 None
-                if region.negpip_mask is None
-                else state.cached(("negpip", *key), lambda: fit_context_rows(region.negpip_mask, batch, rows, context))
+                if region_mask is None
+                else state.cached(("negpip", *key), lambda: fit_context_rows(region_mask, batch, rows, context))
             )
             regional_options = branch.options(transformer_options, "regional_context", negpip_mask)
             regional = original_forward(region_x, context=regional_context, rope_emb=rope_emb, transformer_options=regional_options)
@@ -192,7 +215,7 @@ def apply_regional_patch(model, state: RegionalState):
     return windowed_override_patch(
         model,
         gate=gate,
-        begin=lambda input_x: state.prepare_masks(input_x, dit),
+        begin=lambda input_x: state.begin_call(input_x, dit),
         overrides=lambda _input_x: (override(index) for index in state.blocks),
         end=lambda: state.end_call(),
         lock=_PATCH_LOCK,

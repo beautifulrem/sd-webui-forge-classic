@@ -752,7 +752,7 @@ class Script(scripts.Script):
 
     def ui(self, is_img2img):
         with gr.Accordion(_t("accordion"), open=False, elem_id=self.elem_id("accordion")):
-            intro_block(self.elem_id, INTRO_EN, INTRO_ZH)
+            intro_block(self.elem_id, INTRO_EN, INTRO_ZH, LANGUAGE_OPTION)
             with gr.Tabs(elem_id=self.elem_id("tabs")):
                 with gr.TabItem("LoRA"):
                     lora_enabled = gr.Checkbox(label=_t("enable_lora"), value=False, elem_id=self.elem_id("lora_enabled"))

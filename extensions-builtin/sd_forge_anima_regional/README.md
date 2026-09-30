@@ -8,6 +8,9 @@ resolution. Feather, base preservation, strength, block range, and sampling
 window are exposed in the txt2img/img2img GUI. The block range is written in the
 2B (28-block) layout, like FreeFuse and Artist Mixer: on 2.9B/3.8B each block
 also selects its inserted copies, so a band covers the same depth of any model.
+The sampling window (Start/End) is a fraction of model time (sigma through the
+model's shift), not of the sampling steps. Region prompts support Forge prompt
+editing (`[a:b:N]`, `[a|b]`), resolved per step like the main prompt.
 
 Only conditional CFG rows are modified. Unconditional rows retain the normal
 negative-prompt context. Overlapping regions are weight-normalized rather than

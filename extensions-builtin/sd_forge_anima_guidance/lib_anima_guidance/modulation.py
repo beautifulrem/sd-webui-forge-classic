@@ -22,10 +22,9 @@ import torch.nn.functional as F
 from safetensors.torch import load_file
 
 from backend.text_processing.parsing import parse_prompt_attention
-from modules import prompt_parser
 from modules.anima_artifacts import ensure_pinned_download, file_version
 from modules.anima_lora_support import ANIMA_BLOCK_MAPPINGS, anima_model_block
-from modules.anima_support import call_model_wrapper, inherit_wrapper_flags
+from modules.anima_support import call_model_wrapper, inherit_wrapper_flags, prompt_schedule
 
 logger = logging.getLogger("AnimaGuidance")
 
@@ -208,13 +207,14 @@ def clip_prompt_text(prompt: str, steps: int, hires_steps: int | None = None) ->
     prompt editing (``[a:b:when]``, ``[a|b]``) has no counterpart there. One
     pooled vector serves the whole pass, so the prompt of its first step is
     used, then emphasis weights are dropped (the pooled output has no
-    per-token weights) and ``BREAK`` becomes a space.
+    per-token weights) and ``BREAK`` becomes a space. ``steps`` and
+    ``hires_steps`` are the pass's :func:`modules.anima_support.schedule_steps`.
     """
 
-    schedule = prompt_parser.get_learned_conditioning_prompt_schedules([str(prompt)], max(int(steps), 1), hires_steps)
+    (_end, (first,)), *_later = prompt_schedule([prompt], steps, hires_steps)
     return "".join(
         " " if text == "BREAK" and weight == -1 else text
-        for text, weight in parse_prompt_attention(schedule[0][0][1])
+        for text, weight in parse_prompt_attention(first)
     )
 
 

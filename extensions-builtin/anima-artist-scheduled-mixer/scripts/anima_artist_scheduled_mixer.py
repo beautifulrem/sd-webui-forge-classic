@@ -36,10 +36,10 @@ from lib_artist_mixer.schedule import (
 from modules import script_callbacks, scripts, shared
 from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
 from modules.anima_lora_support import clamp as _clamp, model_block_set, stage_window_of, to_float as _to_float
-from modules.anima_lora_ui import UI_LANGUAGES, register_language_option, ui_language, ui_text
+from modules.anima_lora_ui import intro_block, register_language_option, ui_language, ui_text
 from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
-from modules.anima_support import effective_prompt_batch, register_negpip_prompts
+from modules.anima_support import effective_prompt_batch, process_ref, prompt_schedule, prompt_step, register_negpip_prompts, schedule_steps
 from modules.prompt_parser import get_multicond_prompt_list
 
 
@@ -221,9 +221,6 @@ LANG = {
         "title": "Anima 画师串调度混合",
         "accordion": "Anima 画师串调度混合",
         "settings_label": "Anima 画师串调度混合界面语言",
-        "intro_language": "界面语言",
-        "language_saved": "界面语言已保存。说明已立即切换；完整控件文字将在 Reload UI 或下次启动后生效。",
-        "language_save_failed": "界面语言保存失败，请检查控制台日志。",
         "enable": "启用画师串混合",
         "base_tab": "底图",
         "hires_tab": "高分修复",
@@ -272,9 +269,6 @@ LANG = {
         "title": "Anima Artist Scheduled Mixer",
         "accordion": "Anima Artist Scheduled Mixer",
         "settings_label": "Anima Artist Scheduled Mixer UI language",
-        "intro_language": "UI language",
-        "language_saved": "UI language saved. The guide switched immediately; all control labels update after Reload UI or the next startup.",
-        "language_save_failed": "Failed to save UI language. Check the console log.",
         "enable": "Enable artist mixing",
         "base_tab": "Base",
         "hires_tab": "Hires. fix",
@@ -344,7 +338,7 @@ HELP_EN = """
 
 `Artist`: one artist prompt per row. It may include an inline row multiplier such as `(wlop:1.2)`, `[wlop:0.8]`, or `wlop:1.2`; the final row strength is `Weight x inline multiplier`. Keep comma-separated chains for quick migration if needed, but one artist per row gives the cleanest control.
 
-`Weight` controls this artist's relative and absolute contribution. `Blocks` accepts `0-51`, `0,3,5-12`, or negative indices such as `-1`, always in the 28-block (2B) layout: on 2.9B/3.8B models each block also covers its inserted copies, and indices past 27 are ignored, so `0-51` is every block. `Start` and `End` are denoise progress values from 0 to 1. `Peak` is the point inside that window where the row reaches full strength; it matters most for Smooth and Triangle curves.
+`Weight` controls this artist's relative and absolute contribution. `Blocks` accepts `0-51`, `0,3,5-12`, or negative indices such as `-1`, always in the 28-block (2B) layout: on 2.9B/3.8B models each block also covers its inserted copies, and indices past 27 are ignored, so `0-51` is every block. `Start` and `End` are sampling progress from 0 to 1: a fraction of the sampling steps (Hires. fix and img2img start part-way), not of sigma. `Peak` is the point inside that window where the row reaches full strength; it matters most for Smooth and Triangle curves.
 
 `Curve` shapes the row strength inside the Start/End window. Hold stays at full strength for the whole window. Smooth fades in and out around the peak. Triangle rises and falls linearly. Front loaded starts strong and fades later; Back loaded does the opposite.
 
@@ -374,7 +368,7 @@ HELP_ZH = """
 
 `画师` 每行建议填一个画师提示词。可以直接写行内倍率，例如 `(wlop:1.2)`、`[wlop:0.8]` 或 `wlop:1.2`；最终强度是 `权重 x 行内倍率`。为了迁移旧画师串，逗号分隔仍可用，但每行一个画师最方便单独控制。
 
-`权重` 控制该画师的相对比例，也会在总权重低于 1 时降低实际介入。`层数` 支持 `0-51`、`0,3,5-12`，也支持 `-1` 这种倒数索引，始终按 28 层（2B）布局填写：在 2.9B/3.8B 模型上每层也覆盖它复制插入的层，大于 27 的索引会被忽略，所以 `0-51` 即全部层。`开始` 和 `结束` 是 0 到 1 的去噪进度。`峰值` 表示这一行在窗口内达到满强度的位置，对平滑和三角峰曲线最明显。
+`权重` 控制该画师的相对比例，也会在总权重低于 1 时降低实际介入。`层数` 支持 `0-51`、`0,3,5-12`，也支持 `-1` 这种倒数索引，始终按 28 层（2B）布局填写：在 2.9B/3.8B 模型上每层也覆盖它复制插入的层，大于 27 的索引会被忽略，所以 `0-51` 即全部层。`开始` 和 `结束` 是 0 到 1 的采样进度：按采样步数计的比例（高分修复和图生图从中途开始），不是按 sigma 计。`峰值` 表示这一行在窗口内达到满强度的位置，对平滑和三角峰曲线最明显。
 
 `曲线` 决定窗口内强度怎样变化。保持会在整个窗口内满强度。平滑会围绕峰值淡入淡出。三角峰会线性升到峰值再线性降下。前段强化是一开始更强、后面变弱；后段强化则相反。
 
@@ -406,34 +400,6 @@ def _language():
 
 def _t(key):
     return ui_text(LANG, LANGUAGE_OPTION, key)
-
-
-def _choice_to_language(language):
-    if language in UI_LANGUAGES:
-        return language
-    return "zh" if language == "中文" else "en"
-
-
-def _language_choice(language=None):
-    return "中文" if _choice_to_language(language or _language()) == "zh" else "English"
-
-
-def _intro_text(language=None):
-    return INTRO_ZH if _choice_to_language(language or _language()) == "zh" else INTRO_EN
-
-
-def _save_ui_language(language):
-    language_code = _choice_to_language(language)
-    try:
-        if LANGUAGE_OPTION in shared.opts.data_labels:
-            shared.opts.set(LANGUAGE_OPTION, language_code, run_callbacks=False)
-        else:
-            shared.opts.data[LANGUAGE_OPTION] = language_code
-        shared.opts.save(shared.config_filename)
-        return _intro_text(language_code), LANG[language_code]["language_saved"]
-    except Exception:
-        logger.exception("Failed to save Anima artist mixer UI language")
-        return _intro_text(language_code), LANG[language_code]["language_save_failed"]
 
 
 def _bool_label(value, language=None):
@@ -1303,13 +1269,21 @@ def _model_blocks(text, num_blocks):
 
 
 def _build_artists(p, entries, use_cache):
-    """Encode the ``_artist_entries``."""
-    prompts = effective_prompt_batch(p)[0]
+    """Encode the ``_artist_entries``. Forge's prompt editing in the prompts
+    (``[a:b:N]``, ``[a|b]``) resolves like the main prompt's: each distinct
+    batch text of the pass's schedule is encoded once per artist and a model
+    call uses the entry of its step."""
+    schedule = prompt_schedule(effective_prompt_batch(p)[0], *schedule_steps(p))
     artists = []
     for row, clean_name, inline_weight, blocks in entries:
         _enabled, _artist_text, weight, _blocks_text, start, end, peak, curve, _stage, _auto = row
-        texts = [f"{clean_name}\n{prompt}" if prompt.strip() else clean_name for prompt in prompts]
-        cond, negpip_mask = _encode_text_batch(p, texts, use_cache=use_cache)
+        encoded = {}
+        for _step, prompts in schedule:
+            if prompts not in encoded:
+                texts = [f"{clean_name}\n{prompt}" if prompt.strip() else clean_name for prompt in prompts]
+                encoded[prompts] = _encode_text_batch(p, texts, use_cache=use_cache)
+        cond, negpip_mask = encoded[schedule[0][1]]
+        edited = len(schedule) > 1
         artists.append(
             ArtistRuntime(
                 name=clean_name,
@@ -1321,6 +1295,8 @@ def _build_artists(p, entries, use_cache):
                 curve=_option_key("curve", curve, CURVE_SMOOTH),
                 cond=cond,
                 negpip_mask=negpip_mask,
+                ends=tuple(step for step, _prompts in schedule) if edited else (),
+                entries=tuple(encoded[prompts] for _step, prompts in schedule) if edited else (),
             )
         )
     return artists
@@ -1414,7 +1390,6 @@ class Script(scripts.Script):
     def ui(self, is_img2img):
         lang = _language()
         defaults = _initial_ui_defaults(self.tabname, lang)
-        intro_default_choice = _language_choice(lang)
         table_css = f"""
         <style>
         #{self.elem_id("accordion")} [data-testid="sort-button"],
@@ -1427,16 +1402,7 @@ class Script(scripts.Script):
         """
         with gr.Accordion(_t("accordion"), open=False, elem_id=self.elem_id("accordion")):
             gr.HTML(table_css)
-            with gr.Row():
-                intro_language = gr.Radio(
-                    choices=["English", "中文"],
-                    value=intro_default_choice,
-                    label=_t("intro_language"),
-                    elem_id=self.elem_id("intro_language"),
-                )
-            intro = gr.Markdown(value=_intro_text(lang), elem_id=self.elem_id("intro"))
-            intro_status = gr.Markdown(value="", elem_id=self.elem_id("intro_status"))
-            intro_language.change(fn=_save_ui_language, inputs=[intro_language], outputs=[intro, intro_status], queue=False, show_progress=False, **_internal_event_kwargs())
+            intro_block(self.elem_id, INTRO_EN, INTRO_ZH, LANGUAGE_OPTION)
 
             # The generation panel's Shift sliders drive the stage timings; the
             # hidden copies carry their values into the script args.
@@ -1830,6 +1796,7 @@ class Script(scripts.Script):
             apply_uncond=bool(mixer_args.apply_uncond),
             artists=artists,
             infotext=p.extra_generation_params,
+            step_of=partial(prompt_step, process_ref(p)),
         )
         # postprocess summarizes the latest pass only: an earlier one (the
         # base pass under hires, a previous batch) frees its device tensors now.

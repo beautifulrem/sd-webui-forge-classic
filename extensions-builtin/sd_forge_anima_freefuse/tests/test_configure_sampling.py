@@ -63,7 +63,8 @@ class _Unet:
 
 def _process(prompts=("alice and bob",), blocks=28, chunks=1):
     sd_model = SimpleNamespace(forge_objects=SimpleNamespace(unet=_Unet(blocks)), text_processing_engine_anima=_Engine(chunks))
-    return SimpleNamespace(sd_model=sd_model, prompts=list(prompts), negative_prompts=[""] * len(prompts), extra_generation_params={})
+    # firstpass_steps: the base pass's total steps, as setup_conds sets them
+    return SimpleNamespace(sd_model=sd_model, prompts=list(prompts), negative_prompts=[""] * len(prompts), extra_generation_params={}, firstpass_steps=10)
 
 
 SUBJECTS = (True, "alice_lora", "alice", True, "bob_lora", "bob", False, "", "")
@@ -157,6 +158,59 @@ def test_concepts_must_sit_at_the_same_tokens_across_the_batch(script):
         module.AnimaFreeFuseScript._configure_sampling(_process(("alice and bob", "alice with bob")), _values())
     with pytest.raises(ValueError, match="single Anima conditioning chunk"):
         module.AnimaFreeFuseScript._configure_sampling(_process(chunks=2), _values())
+
+
+class _RecordingEngine(_Engine):
+    def __init__(self):
+        super().__init__()
+        self.lines = []
+
+    def tokenize_line(self, prompt):
+        self.lines.append(prompt)
+        return super().tokenize_line(prompt)
+
+
+@pytest.mark.parametrize(
+    "prompt, texts",
+    [
+        # Forge resolves prompt editing before the text encoder sees the prompt
+        ("alice and bob [cat:dog:5]", ["alice and bob cat", "alice and bob dog"]),
+        ("alice and bob [red|tan]", ["alice and bob red", "alice and bob tan"]),
+        ("alice and bob", ["alice and bob"]),
+    ],
+)
+def test_concept_positions_come_from_each_resolved_step_text(script, prompt, texts):
+    module, applied = script
+    p = _process((prompt,))
+    p.sd_model.text_processing_engine_anima = engine = _RecordingEngine()
+    module.AnimaFreeFuseScript._configure_sampling(p, _values())
+
+    assert engine.lines == texts  # each distinct text once
+    (state,) = applied
+    assert state.token_positions == {"subject_1": [0, 1, 2, 3, 4], "subject_2": [10, 11, 12]}
+    assert state.background_positions == [len(texts[0])]  # EOS after the resolved text
+
+
+@pytest.mark.parametrize(
+    "prompt, background",
+    [
+        ("[an |]alice and bob", ""),  # the edit moves the triggers
+        ("alice and bob [cat:bird:5]", ""),  # ... or the EOS background slot
+        ("alice and bob [cat:bird:5] in a forest", "forest"),  # ... or the background phrase
+    ],
+)
+def test_prompt_editing_that_moves_token_positions_is_rejected(script, prompt, background):
+    module, applied = script
+    with pytest.raises(ValueError, match=r"prompt editing \(\[a:b:N\], \[a\|b\]\) to keep"):
+        module.AnimaFreeFuseScript._configure_sampling(_process((prompt,)), _values(background=background))
+    assert applied == []
+
+
+def test_prompt_editing_after_the_background_phrase_is_accepted(script):
+    module, applied = script
+    module.AnimaFreeFuseScript._configure_sampling(_process(("alice and bob in a forest [cat:bird:5]",)), _values(background="forest"))
+    (state,) = applied
+    assert state.background_positions == [19, 20, 21, 22, 23, 24]
 
 
 @pytest.mark.parametrize("prompts", [("alice and bob AND a forest",), ("alice and bob", "alice and bob AND rain:0.5")])

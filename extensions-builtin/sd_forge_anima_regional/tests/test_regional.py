@@ -118,6 +118,27 @@ class RegionalTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "does not match Anima sequence"):
             wrapped(torch.randn(1, 8, 4), context=context, transformer_options={})
 
+    def test_an_edited_region_prompt_uses_the_entry_of_the_current_step(self):
+        from lib_anima_regional.regional import Region, RegionalState, _make_cross_attention_wrapper
+
+        torch.manual_seed(0)
+        cat, dog = torch.randn(1, 3, 4), torch.randn(1, 3, 4)
+        # "[cat:dog:5]" over 10 steps: Forge's schedule ends at steps 5 and 10
+        region = Region(cat, 0.0, 0.0, 1.0, 1.0, 1.0, ends=(5, 10), entries=((cat, None), (dog, None)))
+        step = 0
+        state = RegionalState([region], {0}, 0.02, 0.0, 0.0, 1.0, step_of=lambda: step)
+        dit = type("Dit", (), {"patch_temporal": 1, "patch_spatial": 2})()
+
+        def attention(x, context=None, rope_emb=None, transformer_options={}):
+            return x * context.mean(dim=(1, 2)).view(-1, 1, 1)
+
+        x, context = torch.randn(1, 16, 4), torch.randn(1, 3, 4)
+        wrapped = _make_cross_attention_wrapper(attention, state)
+        # Steps 0-5 use "cat", later ones "dog", as reconstruct_cond_batch picks
+        for step, expected in ((0, cat), (5, cat), (6, dog), (9, dog)):
+            state.begin_call(torch.zeros(1, 4, 1, 8, 8), dit)
+            self.assertTrue(torch.allclose(wrapped(x, context=context, transformer_options={}), attention(x, context=expected), atol=1e-6), step)
+
     def test_strength_above_one_only_acts_on_feathered_edges_and_overlaps(self):
         # What the Strength slider's info text promises
         from lib_anima_regional.regional import Region, RegionalState, _make_cross_attention_wrapper

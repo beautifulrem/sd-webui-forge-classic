@@ -369,6 +369,7 @@ class ClipPromptTextTests(unittest.TestCase):
     def test_emphasis_and_prompt_editing_are_resolved_to_plain_text(self):
         self.assertEqual(clip_prompt_text("a (red:1.3) [cat:dog:5] BREAK ((tail)), [soft]", 10), "a red cat tail, soft")
         self.assertEqual(clip_prompt_text("[fe|]male", 10), "female")
+        self.assertEqual(clip_prompt_text("[red|blue] hair", 10), "red hair")
         self.assertEqual(clip_prompt_text(r"\(literal\)", 10), "(literal)")
 
     def test_hires_pass_uses_its_own_first_step(self):

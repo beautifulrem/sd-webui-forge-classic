@@ -1,3 +1,5 @@
+import sys
+import types
 from types import SimpleNamespace
 
 import pytest
@@ -13,7 +15,12 @@ from modules.anima_support import (
     pad_to_sequence,
     parse_block_list,
     positive_rows,
+    process_ref,
+    prompt_schedule,
+    prompt_step,
     register_negpip_prompts,
+    schedule_index,
+    schedule_steps,
     split_conditioning,
 )
 from modules_forge.packages.huggingface_guess.detection import detect_unet_config
@@ -518,3 +525,82 @@ def test_windowed_override_patch_outermost_wraps_the_others_in_either_order():
     # Without it the wrapper that runs first (applied last) installs first: innermost.
     assert run(("a", False), ("b", False)) == ["a", "b", "leaf"]
     assert run(("a", True), ("b", False)) == run(("b", False), ("a", True)) == ["a", "b", "leaf"]
+
+
+@pytest.fixture
+def samplers(monkeypatch):
+    """``modules.sd_samplers`` with Euler and a second-order Heun (the real
+    module needs the full WebUI install)."""
+
+    import modules
+
+    class Config:
+        def __init__(self, second_order):
+            self.second_order = second_order
+
+        def total_steps(self, steps):
+            return steps * 2 if self.second_order else steps
+
+    configs = {"Euler": Config(False), "Heun": Config(True)}
+    stub = types.ModuleType("modules.sd_samplers")
+    stub.find_sampler_config = lambda name: configs["Euler"] if name is None else configs.get(name)
+    monkeypatch.setitem(sys.modules, "modules.sd_samplers", stub)
+    monkeypatch.setattr(modules, "sd_samplers", stub, raising=False)
+
+
+def test_schedule_steps_are_the_ones_processing_builds_each_pass_conds_with(samplers):
+    # Base pass: setup_conds' total steps (a second-order sampler doubles them)
+    assert schedule_steps(SimpleNamespace(steps=10, firstpass_steps=20, sampler_name="Heun")) == (20, None)
+    assert schedule_steps(SimpleNamespace(steps=10, sampler_name="Heun")) == (20, None)
+    # Hires pass: calculate_hr_conds' base firstpass_steps and the hires sampler's total steps
+    hires = SimpleNamespace(steps=10, firstpass_steps=10, sampler_name="Euler", is_hr_pass=True, hr_second_pass_steps=0, hr_sampler_name="Heun")
+    assert schedule_steps(hires) == (10, 20)
+    hires.hr_second_pass_steps, hires.hr_sampler_name = 4, None
+    assert schedule_steps(hires) == (10, 4)
+
+
+def test_prompt_schedule_resolves_prompt_editing_for_the_base_and_hires_pass():
+    assert prompt_schedule(["a [cat:dog:5]"], 10) == [(5, ("a cat",)), (10, ("a dog",))]
+    assert prompt_schedule(["[red|blue]"], 4) == [(1, ("red",)), (2, ("blue",)), (3, ("red",)), (4, ("blue",))]
+    # In a hires pass whole steps count on from the base pass's, fractions span both passes
+    assert prompt_schedule(["a [cat:dog:15]"], 10, 10) == [(5, ("a cat",)), (10, ("a dog",))]
+    assert prompt_schedule(["a [cat:dog:5]"], 10, 10) == [(10, ("a dog",))]
+    assert prompt_schedule(["a [cat:dog:0.5]"], 10, 10) == [(10, ("a dog",))]
+    assert prompt_schedule(["a [cat:dog:1.5]"], 10, 10) == [(5, ("a cat",)), (10, ("a dog",))]
+    # Without prompt editing the text is kept as written, emphasis and escapes included
+    for plain in ("a (red:1.2) cat, [soft]", r"\[literal\] BREAK x", "a [unbalanced", ""):
+        assert prompt_schedule([plain], 10) == [(10, (plain,))]
+
+
+def test_a_batch_schedule_merges_the_switch_steps_of_its_prompts():
+    assert prompt_schedule(["a [cat:dog:5]", "plain", "[x:y:3]"], 10) == [
+        (3, ("a cat", "plain", "x")),
+        (5, ("a cat", "plain", "y")),
+        (10, ("a dog", "plain", "y")),
+    ]
+    assert prompt_schedule(["[a:a:5]"], 10) == [(10, ("a",))]  # no change of text: one entry
+
+
+def test_schedule_index_picks_the_entry_reconstruct_cond_batch_picks():
+    from modules import prompt_parser
+
+    ends = (3, 5, 10)
+    schedule = [[prompt_parser.ScheduledPromptConditioning(end, torch.tensor([float(index)])) for index, end in enumerate(ends)]]
+    for step in range(13):  # past the last end Forge falls back to the first entry
+        assert schedule_index(ends, step) == int(prompt_parser.reconstruct_cond_batch(schedule, step)[0])
+
+
+def test_prompt_step_is_the_cfg_denoiser_step_of_the_current_sampler():
+    import gc
+
+    class Process:
+        pass
+
+    process = Process()
+    process.sampler = SimpleNamespace(model_wrap_cfg=SimpleNamespace(step=7))
+    reference = process_ref(process)
+    assert prompt_step(process) == prompt_step(reference) == 7
+    assert prompt_step(SimpleNamespace(sampler=None)) == 0
+    del process
+    gc.collect()
+    assert prompt_step(reference) == 0  # the generation has ended

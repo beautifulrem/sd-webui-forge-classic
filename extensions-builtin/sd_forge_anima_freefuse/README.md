@@ -40,6 +40,11 @@ Forge online mode. The original online-LoRA setting is restored afterwards.
   a single prompt. FreeFuse rejects such a prompt and aborts sampling rather
   than silently skipping; the console logs `Anima FreeFuse does not support
   AND prompts`.
+- Prompt editing (`[a:b:N]`, `[a|b]`) is resolved per step like the main
+  prompt, and the token positions are taken from every step's text. A prompt
+  whose edits move the concept or background tokens between steps is
+  rejected the same way; without a background phrase the background is the
+  end-of-prompt slot, so any edit that changes the token count moves it.
 - S-churn must remain zero so the collection and generation paths are
   deterministic and identical up to the collection step.
 - Regional Conditioning and Artist Mixer are mutually exclusive because they

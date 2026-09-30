@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 
 import gradio as gr
 
@@ -12,7 +13,16 @@ from modules import scripts
 from modules.anima_feature_conflicts import FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
 from modules.anima_presets import register_preset_control
 from modules.anima_lora_support import model_block_set
-from modules.anima_support import conditioning_cache_key, encode_extra_prompts, is_anima_engine, register_negpip_prompts
+from modules.anima_support import (
+    conditioning_cache_key,
+    encode_extra_prompts,
+    is_anima_engine,
+    process_ref,
+    prompt_schedule,
+    prompt_step,
+    register_negpip_prompts,
+    schedule_steps,
+)
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -30,6 +40,10 @@ INFOTEXT_KEYS = (
     *(f"Anima region {index} {field}" for index in range(1, 4) for field in ("active", "prompt", "x", "y", "width", "height", "strength")),
 )
 _REGION_TYPES = (str, float, float, float, float, float)  # prompt .. strength
+_PROGRESS_INFO = (
+    "A fraction of model time (sigma through the model's Shift), not of the sampling steps: "
+    "the two agree only for evenly spaced schedules such as Simple."
+)
 
 
 def generation_params(blocks, start, end, feather, base_preserve, region_values) -> dict:
@@ -64,6 +78,22 @@ def _encode(p, text: str):
     return cond.float().contiguous(), mask
 
 
+def _region(p, text: str, x, y, width, height, strength) -> Region:
+    """A :class:`Region` for one region prompt. Forge's prompt editing in it
+    (``[a:b:N]``, ``[a|b]``) resolves like the main prompt's: each distinct
+    text of the pass's schedule is encoded once and a model call uses the
+    entry of its step."""
+
+    schedule = prompt_schedule([text], *schedule_steps(p))
+    encoded = {texts[0]: _encode_cached(p, texts[0]) for _end, texts in schedule}
+    entries = tuple(encoded[texts[0]] for _end, texts in schedule)
+    (cond, negpip_mask), ends = entries[0], tuple(end for end, _texts in schedule)
+    placement = (float(x), float(y), float(width), float(height), float(strength))
+    if len(schedule) == 1:
+        return Region(cond, *placement, negpip_mask)
+    return Region(cond, *placement, negpip_mask, ends=ends, entries=entries)
+
+
 def _region_rows(region_values):
     return [tuple(region_values[offset : offset + 7]) for offset in range(0, len(region_values), 7)]
 
@@ -94,8 +124,8 @@ class AnimaRegionalScript(scripts.Script):
                     label="Anima blocks",
                     info="Written in the 2B (28-block) layout: on 40/52-block models each block also selects its inserted copies, so the default covers every block of any Anima model.",
                 )
-                start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="Start progress")
-                end = gr.Slider(0.0, 1.0, value=0.65, step=0.01, label="End progress")
+                start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="Start progress", info=_PROGRESS_INFO)
+                end = gr.Slider(0.0, 1.0, value=0.65, step=0.01, label="End progress", info=_PROGRESS_INFO)
                 feather = gr.Slider(0.0, 0.25, value=0.03, step=0.005, label="Edge feather")
                 base_preserve = gr.Slider(0.0, 1.0, value=0.15, step=0.01, label="Base preserve")
             region_controls = []
@@ -192,8 +222,7 @@ class AnimaRegionalScript(scripts.Script):
         for active, text, x, y, width, height, strength in _region_rows(region_values):
             if not _region_is_used(active, text, width, height, strength):
                 continue
-            cond, negpip_mask = _encode_cached(p, str(text))
-            regions.append(Region(cond, float(x), float(y), float(width), float(height), float(strength), negpip_mask))
+            regions.append(_region(p, str(text), x, y, width, height, strength))
         if not regions:
             logger.warning("Anima Regional Conditioning was enabled but no active non-empty region exists.")
             return
@@ -205,6 +234,7 @@ class AnimaRegionalScript(scripts.Script):
             base_preserve=float(base_preserve),
             start_sigma=float(predictor.percent_to_sigma(float(start))),
             end_sigma=float(predictor.percent_to_sigma(float(end))),
+            step_of=partial(prompt_step, process_ref(p)),
         )
         p.sd_model.forge_objects.unet = apply_regional_patch(unet, state)
         # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.

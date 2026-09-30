@@ -52,6 +52,7 @@ def sampling(regional, monkeypatch):
 
     def make_process(blocks=28):
         p, unet = original(blocks)
+        p.firstpass_steps = 20  # the base pass's total steps, as setup_conds sets them
         unet.model.predictor = SimpleNamespace(percent_to_sigma=lambda percent: 1.0 - percent)
         return p, unet
 

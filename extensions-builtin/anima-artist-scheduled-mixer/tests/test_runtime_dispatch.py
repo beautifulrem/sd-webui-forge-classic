@@ -212,6 +212,8 @@ def _run_args(enable_hires_rows=False, disable_hires_mixing=False):
 def _run_p(**kwargs):
     from types import SimpleNamespace
 
+    # firstpass_steps: the base pass's total steps, as setup_conds sets them
+    kwargs.setdefault("firstpass_steps", 20)
     return SimpleNamespace(is_api=True, extra_generation_params={}, sd_model=SimpleNamespace(forge_objects=SimpleNamespace(unet=_Unet())), **kwargs)
 
 
@@ -261,6 +263,54 @@ def _model_call(unet, attention, apply_model=None):
 
     unet.model_options["model_function_wrapper"](apply_model or default_apply_model, {"input": x, "timestep": torch.zeros(1), "c": {}})
     return seen.get("patched"), seen.get("out")
+
+
+def _prompt_pass(monkeypatch, prompt, steps=10):
+    """A pass over ``prompt`` with the real ``_build_artists``: ``(p, unet,
+    cross_attn, encoded texts)``; each text encodes to its own constant."""
+    from types import SimpleNamespace
+
+    encoded = []
+
+    def encode(p, texts, use_cache=True):
+        encoded.append(list(texts))
+        return torch.full((1, 3, 4), sum(map(ord, texts[0])) % 97 / 97.0), None
+
+    monkeypatch.setattr(mixer, "effective_prompt_batch", lambda p: [[prompt]])
+    monkeypatch.setattr(mixer, "_encode_text_batch", encode)
+    p = _run_p(firstpass_steps=steps, sampler=SimpleNamespace(model_wrap_cfg=SimpleNamespace(step=0)))
+    mixer.Script().process_before_every_sampling(p, *_run_args())
+    unet = p.sd_model.forge_objects.unet
+    return p, unet, unet.model.diffusion_model.blocks[0].cross_attn, encoded
+
+
+@pytest.mark.parametrize(
+    "prompt, texts, step_texts",
+    [
+        # Forge's schedule over 10 steps: "cat" to step 5, "dog" after it
+        ("a [cat:dog:5]", ["a cat", "a dog"], {0: "a cat", 5: "a cat", 6: "a dog", 9: "a dog"}),
+        ("[red|blue] hair", ["red hair", "blue hair"], {0: "red hair", 1: "red hair", 2: "blue hair", 3: "red hair"}),
+    ],
+)
+def test_prompt_editing_resolves_per_step_in_the_artist_branch(monkeypatch, prompt, texts, step_texts):
+    try:
+        p, unet, attention, encoded = _prompt_pass(monkeypatch, prompt)
+        name = runtime._RUN_STATES[-1].artists[0].name
+        assert encoded == [[f"{name}\n{text}"] for text in texts]  # each distinct text once
+        outputs = {}
+        for step in step_texts:  # the CFG denoiser's step, as Forge picks the main prompt's entry by
+            p.sampler.model_wrap_cfg.step = step
+            outputs[step] = _model_call(unet, attention)[1]
+        switched = next(step for step, text in step_texts.items() if text != step_texts[0])
+        assert not torch.equal(outputs[0], outputs[switched])
+        runtime._cleanup_runtime()
+        for step, text in step_texts.items():  # the same as a plain prompt of that step's text
+            _p, plain_unet, plain_attention, plain_encoded = _prompt_pass(monkeypatch, text)
+            assert plain_encoded == [[f"{name}\n{text}"]]
+            assert torch.equal(outputs[step], _model_call(plain_unet, plain_attention)[1]), step
+            runtime._cleanup_runtime()
+    finally:
+        runtime._cleanup_runtime()
 
 
 def test_artist_overrides_exist_only_during_a_model_call(monkeypatch):

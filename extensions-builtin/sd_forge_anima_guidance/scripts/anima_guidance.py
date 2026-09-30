@@ -65,7 +65,7 @@ from modules.anima_feature_conflicts import (
     resolve_guidance_conflicts,
 )
 from modules.anima_presets import register_preset_control
-from modules.anima_support import effective_prompt_batch, is_anima_auxiliary_denoiser, is_anima_engine, process_ref
+from modules.anima_support import effective_prompt_batch, is_anima_auxiliary_denoiser, is_anima_engine, process_ref, schedule_steps
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -298,8 +298,7 @@ def _install_modulation(p, args: SimpleNamespace, unet):
         positive_prompts, negative_prompts = effective_prompt_batch(p)
         base_prompts = [base] * len(positive_prompts) if base.strip() else positive_prompts
         all_clip_prompts = [*base_prompts, *negative_prompts, str(args.modulation_positive), str(args.modulation_negative)]
-        steps = int(getattr(p, "firstpass_steps", None) or p.steps)
-        hires_steps = int(getattr(p, "hr_second_pass_steps", 0) or p.steps) if getattr(p, "is_hr_pass", False) else None
+        steps, hires_steps = schedule_steps(p)
         pooled = encode_clip_pooled(
             [clip_prompt_text(prompt, steps, hires_steps) for prompt in all_clip_prompts],
             clip_path=resolved_clip,

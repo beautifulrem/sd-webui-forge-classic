@@ -27,7 +27,7 @@ from modules.anima_feature_conflicts import (
     resolve_freefuse_refiner_conflicts,
     set_feature_active,
 )
-from modules.anima_support import effective_prompt_batch, is_anima_engine
+from modules.anima_support import effective_prompt_batch, is_anima_engine, prompt_schedule, schedule_steps
 from modules.anima_presets import register_preset_control
 from modules.infotext_utils import PasteField
 from modules.prompt_parser import get_multicond_prompt_list
@@ -422,19 +422,34 @@ class AnimaFreeFuseScript(scripts.Script):
         concepts = {adapter.name: adapter.concept for adapter in adapters}
         token_positions = None
         background_positions = None
+        # The model sees each prompt's text of the current step: its prompt
+        # editing ([a:b:N], [a|b]) resolved like Forge's main conditioning.
+        # One set of positions serves every step, so every text must agree.
+        steps = schedule_steps(p)
         for prompt in prompts:
-            chunks = engine.tokenize_line(str(prompt))
-            if len(chunks) != 1:
-                raise ValueError(
-                    "Anima FreeFuse requires a single Anima conditioning chunk"
+            schedule = prompt_schedule([prompt], *steps)
+            prompt_positions = None
+            for text in dict.fromkeys(texts[0] for _end, texts in schedule):
+                chunks = engine.tokenize_line(text)
+                if len(chunks) != 1:
+                    raise ValueError(
+                        "Anima FreeFuse requires a single Anima conditioning chunk"
+                    )
+                positions = concept_token_positions(
+                    engine.t5_tokenizer,
+                    text,
+                    concepts,
+                    str(background),
+                    prompt_ids=chunks[0].t5_tokens,
                 )
-            current_positions, current_background = concept_token_positions(
-                engine.t5_tokenizer,
-                str(prompt),
-                concepts,
-                str(background),
-                prompt_ids=chunks[0].t5_tokens,
-            )
+                if prompt_positions is None:
+                    prompt_positions = positions
+                elif positions != prompt_positions:
+                    raise ValueError(
+                        "Anima FreeFuse requires prompt editing ([a:b:N], [a|b]) to keep the concept "
+                        "and background token positions of every step"
+                    )
+            current_positions, current_background = prompt_positions
             if token_positions is None:
                 token_positions = current_positions
                 background_positions = current_background
