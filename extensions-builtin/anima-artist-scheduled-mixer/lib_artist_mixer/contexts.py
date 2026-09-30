@@ -85,10 +85,9 @@ def norm_limited_delta(base_out, artist_out, strength, max_ratio=0.6):
     if delta.numel() == 0:
         return base_out
     with torch.no_grad():
-        flat_delta = delta.detach().float().flatten(1)
-        flat_base = base_out.detach().float().flatten(1)
-        delta_norm = flat_delta.norm(dim=1).clamp_min(1e-6)
-        base_norm = flat_base.norm(dim=1).clamp_min(1e-6)
+        # Accumulated in float32 without float32 copies of the block output
+        delta_norm = torch.linalg.vector_norm(delta.detach().flatten(1), dim=1, dtype=torch.float32).clamp_min(1e-6)
+        base_norm = torch.linalg.vector_norm(base_out.detach().flatten(1), dim=1, dtype=torch.float32).clamp_min(1e-6)
         limit = base_norm * float(max_ratio)
         scale = torch.minimum(torch.ones_like(delta_norm), limit / delta_norm)
         shape = [scale.shape[0]] + [1] * (delta.dim() - 1)
