@@ -3,7 +3,6 @@ the WebUI's paste and through the API's infotext replay."""
 
 import importlib.util
 import sys
-import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -34,10 +33,6 @@ class _Engine:
 
 @pytest.fixture
 def freefuse(monkeypatch):
-    # Another suite of this folder may leave a PasteField stub behind
-    stub = types.ModuleType("modules.infotext_utils")
-    stub.PasteField = harness.forge_infotext().PasteField
-    monkeypatch.setitem(sys.modules, "modules.infotext_utils", stub)
     module = harness.load_script(ROOT / "scripts" / "anima_freefuse.py", "anima_freefuse_infotext_under_test")
     monkeypatch.setattr(module, "apply_freefuse_patch", lambda unet, state: unet)
     return module

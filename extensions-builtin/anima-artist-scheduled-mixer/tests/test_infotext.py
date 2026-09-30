@@ -1,17 +1,12 @@
-import importlib.util
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from test_runtime_dispatch import _run_args, _sampling_pass, mixer, runtime
+from test_runtime_dispatch import _run_args, _sampling_pass, harness, mixer, runtime
 from test_ui_wiring import _build_ui, _element
 
 # Shared with the other panels' suites, loaded by path (see its docstring)
-_spec = importlib.util.spec_from_file_location("extension_script_harness", Path(__file__).resolve().parents[3] / "tests" / "extension_script_harness.py")
-harness = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(harness)
 
 
 def _through_infotext(params):

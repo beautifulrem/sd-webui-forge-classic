@@ -12,25 +12,21 @@ sys.argv = sys.argv[:1]
 SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_artist_scheduled_mixer.py"
 
 
+_spec = importlib.util.spec_from_file_location("extension_script_harness", Path(__file__).resolve().parents[3] / "tests" / "extension_script_harness.py")
+harness = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(harness)
+
+
 def _load():
     import modules
 
-    try:
-        from modules import infotext_utils  # noqa: F401
-    except ImportError:
-        # Its image helpers need the full WebUI install; the panel only needs PasteField
-        stub = types.ModuleType("modules.infotext_utils")
-        stub.PasteField = lambda component, target: (component, target)
-        modules.infotext_utils = sys.modules["modules.infotext_utils"] = stub
     try:
         from modules import sd_models  # noqa: F401
     except ImportError:
         # The model loader needs the full WebUI install; the dispatch does not use it
         modules.sd_models = sys.modules["modules.sd_models"] = types.ModuleType("modules.sd_models")
-    spec = importlib.util.spec_from_file_location("anima_artist_mixer_under_test", SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    # Forge's real PasteField when modules.infotext_utils cannot be imported
+    return harness.load_script(SCRIPT, "anima_artist_mixer_under_test")
 
 
 mixer = _load()

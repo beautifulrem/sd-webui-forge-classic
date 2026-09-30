@@ -2,8 +2,8 @@
 auxiliary / Flow denoiser), prompt-batch and conditioning / negpip mask
 plumbing, extra-prompt encoding and caching, block-list and branch-row
 parsing, generated-frame (vs edit reference frame) token spans,
-model-wrapper helpers (windowed forward-override patches) and the block-patch
-panels' script mixin."""
+model-wrapper helpers (windowed forward-override patches), infotext paste
+keys and the block-patch panels' script mixin."""
 
 from __future__ import annotations
 
