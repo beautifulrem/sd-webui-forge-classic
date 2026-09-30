@@ -29,17 +29,29 @@ from modules.ui_components import InputAccordion
 logger = logging.getLogger("AnimaRegional")
 setup_logger(logger)
 
-# Infotext keys, in the order of the controls returned by ``ui``
-INFOTEXT_KEYS = (
-    "Anima regional enabled",
-    "Anima regional blocks",
-    "Anima regional start",
-    "Anima regional end",
-    "Anima regional feather",
-    "Anima regional base preserve",
-    *(f"Anima region {index} {field}" for index in range(1, 4) for field in ("active", "prompt", "x", "y", "width", "height", "strength")),
+REGIONS = range(1, 4)
+# One region's controls: (field, type written to infotext)
+_REGION_FIELDS = (("active", bool), ("prompt", str), ("x", float), ("y", float), ("width", float), ("height", float), ("strength", float))
+
+# One row per script argument, in the order ui() returns the components (the
+# API's positional order): (name of the control, infotext key, preset name or
+# None, type written to infotext). Region prompts are user content, which
+# presets leave alone. process() and process_before_every_sampling() name the
+# rows before the regions as parameters.
+SCRIPT_ARGS = (
+    ("enable", "Anima regional enabled", "regional.enabled", bool),
+    ("blocks", "Anima regional blocks", "regional.blocks", str),
+    ("start", "Anima regional start", "regional.start", float),
+    ("end", "Anima regional end", "regional.end", float),
+    ("feather", "Anima regional feather", "regional.feather", float),
+    ("base_preserve", "Anima regional base preserve", "regional.base_preserve", float),
+    *(
+        (f"region{index}_{field}", f"Anima region {index} {field}", None if field == "prompt" else f"regional.region{index}_{field}", kind)
+        for index in REGIONS
+        for field, kind in _REGION_FIELDS
+    ),
 )
-_REGION_TYPES = (str, float, float, float, float, float)  # prompt .. strength
+INFOTEXT_KEYS = tuple(row[1] for row in SCRIPT_ARGS)
 _PROGRESS_INFO = (
     "A fraction of model time (sigma through the model's Shift), not of the sampling steps: "
     "the two agree only for evenly spaced schedules such as Simple."
@@ -47,14 +59,15 @@ _PROGRESS_INFO = (
 
 
 def generation_params(blocks, start, end, feather, base_preserve, region_values) -> dict:
-    """Infotext for one regional pass; keys match ``INFOTEXT_KEYS``. An
+    """Infotext for one regional pass; keys come from SCRIPT_ARGS. An
     inactive region records only its switch."""
 
-    values = [True, str(blocks), float(start), float(end), float(feather), float(base_preserve)]
+    values = [True, blocks, start, end, feather, base_preserve]
     for active, *settings in _region_rows(region_values):
-        values.append(bool(active))
-        values.extend(kind(value) if active else None for kind, value in zip(_REGION_TYPES, settings))
-    return {key: value for key, value in zip(INFOTEXT_KEYS, values) if value is not None}
+        values += [active, *(settings if active else [None] * len(settings))]
+    # An API call may pass fewer regions than the panel has: only theirs are written
+    rows = SCRIPT_ARGS[: len(values)]
+    return {key: kind(value) for (_, key, _, kind), value in zip(rows, values, strict=True) if value is not None}
 
 
 def _encode_cached(p, text: str):
@@ -95,7 +108,8 @@ def _region(p, text: str, x, y, width, height, strength) -> Region:
 
 
 def _region_rows(region_values):
-    return [tuple(region_values[offset : offset + 7]) for offset in range(0, len(region_values), 7)]
+    width = len(_REGION_FIELDS)
+    return [tuple(region_values[offset : offset + width]) for offset in range(0, len(region_values), width)]
 
 
 def _region_is_used(active, text, width, height, strength) -> bool:
@@ -128,7 +142,7 @@ class AnimaRegionalScript(scripts.Script):
                 end = gr.Slider(0.0, 1.0, value=0.65, step=0.01, label="End progress", info=_PROGRESS_INFO)
                 feather = gr.Slider(0.0, 0.25, value=0.03, step=0.005, label="Edge feather")
                 base_preserve = gr.Slider(0.0, 1.0, value=0.15, step=0.01, label="Base preserve")
-            region_controls = []
+            region_controls = {}
             defaults = [
                 (True, "", 0.0, 0.0, 0.5, 1.0, 1.0),
                 (True, "", 0.5, 0.0, 0.5, 1.0, 1.0),
@@ -154,7 +168,8 @@ class AnimaRegionalScript(scripts.Script):
                         y = gr.Slider(0.0, 1.0, value=values[3], step=0.01, label="Y")
                         width = gr.Slider(0.0, 1.0, value=values[4], step=0.01, label="Width")
                         height = gr.Slider(0.0, 1.0, value=values[5], step=0.01, label="Height")
-                    region_controls.extend([active, prompt, x, y, width, height, strength])
+                    row = {"active": active, "prompt": prompt, "x": x, "y": y, "width": width, "height": height, "strength": strength}
+                    region_controls.update({f"region{index}_{field}": component for field, component in row.items()})
         register_exclusive_component(
             tab=self.tabname,
             group="anima_spatial_conditioning",
@@ -162,32 +177,15 @@ class AnimaRegionalScript(scripts.Script):
             name="regional",
             component=enable,
         )
-        controls = [enable, blocks, start, end, feather, base_preserve, *region_controls]
-        for name, component in {
-            "regional.enabled": enable,
-            "regional.blocks": blocks,
-            "regional.start": start,
-            "regional.end": end,
-            "regional.feather": feather,
-            "regional.base_preserve": base_preserve,
-        }.items():
-            register_preset_control(self.tabname, name, component)
-        for index in range(3):
-            offset = index * 7
-            number = index + 1
-            active, _prompt, x, y, width, height, strength = region_controls[offset : offset + 7]
-            for name, component in {
-                f"regional.region{number}_active": active,
-                f"regional.region{number}_x": x,
-                f"regional.region{number}_y": y,
-                f"regional.region{number}_width": width,
-                f"regional.region{number}_height": height,
-                f"regional.region{number}_strength": strength,
-            }.items():
-                register_preset_control(self.tabname, name, component)
-        self.infotext_fields = [PasteField(control, key) for control, key in zip(controls, INFOTEXT_KEYS)]
+        # Each control is the local variable or region control named in SCRIPT_ARGS.
+        controls = {**locals(), **region_controls}
+        fields = [(controls[name], key, preset_name) for name, key, preset_name, _ in SCRIPT_ARGS]
+        for component, _, preset_name in fields:
+            if preset_name is not None:
+                register_preset_control(self.tabname, preset_name, component)
+        self.infotext_fields = [PasteField(component, key) for component, key, _ in fields]
         self.paste_field_names = list(INFOTEXT_KEYS)
-        return controls
+        return [component for component, _, _ in fields]
 
     def process(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
         # Runs before NegPiP's process_batch: let a negative weight in a region

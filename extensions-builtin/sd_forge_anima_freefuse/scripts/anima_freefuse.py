@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 import gradio as gr
 
@@ -39,42 +40,71 @@ setup_logger(logger)
 # Name of FreeFuse's lease on Forge's online-LoRA switch
 ONLINE_LORA_OWNER = "anima_freefuse"
 
-# Infotext keys, in the order of the controls returned by ``ui``
-INFOTEXT_KEYS = (
-    "Anima FreeFuse enabled",
-    *(f"Anima FreeFuse subject {index} {field}" for index in range(1, 4) for field in ("active", "LoRA", "concept")),
-    "Anima FreeFuse collect step",
-    "Anima FreeFuse collect block",
-    "Anima FreeFuse top-k",
-    "Anima FreeFuse temperature",
-    "Anima FreeFuse background",
-    "Anima FreeFuse background scale",
-    "Anima FreeFuse balance iterations",
-    "Anima FreeFuse feather",
-    "Anima FreeFuse routing strength",
-    "Anima FreeFuse routing end",
-    "Anima FreeFuse bias scale",
-    "Anima FreeFuse positive bias",
-    "Anima FreeFuse bias blocks",
+SUBJECTS = range(1, 4)
+# One subject's controls: (name suffix, infotext field, type written to infotext)
+_SUBJECT_FIELDS = (("active", "active", bool), ("selector", "LoRA", str), ("concept", "concept", str))
+
+# One row per script argument, in the order ui() returns the components (the
+# API's positional order): (name of the control, infotext key, preset name or
+# None, type written to infotext). The subject LoRAs, trigger phrases and the
+# background phrase are user content, which presets leave alone.
+SCRIPT_ARGS = (
+    ("enable", "Anima FreeFuse enabled", "freefuse.enabled", bool),
+    *(
+        (f"subject{index}_{suffix}", f"Anima FreeFuse subject {index} {field}", None, kind)
+        for index in SUBJECTS
+        for suffix, field, kind in _SUBJECT_FIELDS
+    ),
+    ("collect_step", "Anima FreeFuse collect step", "freefuse.collect_step", int),
+    ("collect_block", "Anima FreeFuse collect block", "freefuse.collect_block", int),
+    ("top_k", "Anima FreeFuse top-k", "freefuse.top_k", float),
+    ("temperature", "Anima FreeFuse temperature", "freefuse.temperature", float),
+    ("background", "Anima FreeFuse background", None, str),
+    ("bg_scale", "Anima FreeFuse background scale", "freefuse.background_scale", float),
+    ("balance_iterations", "Anima FreeFuse balance iterations", "freefuse.balance_iterations", int),
+    ("feather", "Anima FreeFuse feather", "freefuse.feather", int),
+    ("routing_strength", "Anima FreeFuse routing strength", "freefuse.routing_strength", float),
+    ("routing_end", "Anima FreeFuse routing end", "freefuse.routing_end", float),
+    ("bias_scale", "Anima FreeFuse bias scale", "freefuse.bias_scale", float),
+    ("positive_bias", "Anima FreeFuse positive bias", "freefuse.positive_bias", float),
+    ("bias_blocks", "Anima FreeFuse bias blocks", "freefuse.bias_blocks", str),
 )
-# collect step .. bias blocks
-_SETTING_TYPES = (int, int, float, float, str, float, int, int, float, float, float, float, str)
+SCRIPT_ARG_NAMES = tuple(row[0] for row in SCRIPT_ARGS)
+INFOTEXT_KEYS = tuple(row[1] for row in SCRIPT_ARGS)
+
+
+def _arguments(values) -> SimpleNamespace:
+    """The script args after ``enable``, one attribute per SCRIPT_ARGS name."""
+
+    names = SCRIPT_ARG_NAMES[1:]
+    if len(values) != len(names):
+        raise ValueError(f"Anima FreeFuse takes {len(names)} script arguments after enable, got {len(values)}")
+    return SimpleNamespace(**dict(zip(names, values, strict=True)))
+
+
+def _subject(args: SimpleNamespace, index: int) -> tuple:
+    """``(active, selector, concept)`` of subject ``index``."""
+
+    return tuple(getattr(args, f"subject{index}_{suffix}") for suffix, _, _ in _SUBJECT_FIELDS)
 
 
 def generation_params(values) -> dict:
     """Infotext restoring the panel from the script args after ``enable``;
-    keys match ``INFOTEXT_KEYS``. An inactive subject records only its switch,
+    keys come from SCRIPT_ARGS. An inactive subject records only its switch,
     an empty background phrase nothing."""
 
-    written = [True]
-    for offset in range(0, 9, 3):
-        active, selector, concept = values[offset : offset + 3]
-        written += [bool(active), *((str(selector).strip(), str(concept).strip()) if active else (None, None))]
-    settings = [kind(value) for kind, value in zip(_SETTING_TYPES, values[9:])]
-    background = _SETTING_TYPES.index(str)
-    if not settings[background].strip():
-        settings[background] = None
-    return {key: value for key, value in zip(INFOTEXT_KEYS, written + settings) if value is not None}
+    args = _arguments(values)
+    written = {name: kind(getattr(args, name)) for name, _, _, kind in SCRIPT_ARGS[1:]}
+    written["enable"] = True
+    for index in SUBJECTS:
+        for name in (f"subject{index}_selector", f"subject{index}_concept"):
+            if written[f"subject{index}_active"]:
+                written[name] = written[name].strip()
+            else:
+                del written[name]
+    if not written["background"].strip():
+        del written["background"]
+    return {key: written[name] for name, key, _, _ in SCRIPT_ARGS if name in written}
 
 
 def _loaded_patches_untagged(sd_model) -> bool:
@@ -119,7 +149,7 @@ class AnimaFreeFuseScript(scripts.Script):
                 "and Artist Mixer are one-of-three; the active choice locks the others."
             )
             refiner_conflict_status = gr.Markdown("")
-            adapter_controls = []
+            subject_controls = {}
             defaults = [
                 (True, "", ""),
                 (True, "", ""),
@@ -140,7 +170,9 @@ class AnimaFreeFuseScript(scripts.Script):
                         label=f"Trigger phrase {index}",
                         placeholder="Must occur verbatim in the main prompt",
                     )
-                adapter_controls.extend([active, selector, concept])
+                subject_controls.update(
+                    {f"subject{index}_active": active, f"subject{index}_selector": selector, f"subject{index}_concept": concept}
+                )
 
             with gr.Accordion("Phase 1: automatic mask collection", open=True):
                 with gr.Row():
@@ -274,44 +306,15 @@ class AnimaFreeFuseScript(scripts.Script):
                     show_progress=False,
                 )
 
-        controls = [
-            enable,
-            *adapter_controls,
-            collect_step,
-            collect_block,
-            top_k,
-            temperature,
-            background,
-            bg_scale,
-            balance_iterations,
-            feather,
-            routing_strength,
-            routing_end,
-            bias_scale,
-            positive_bias,
-            bias_blocks,
-        ]
-        for name, component in {
-            "freefuse.enabled": enable,
-            "freefuse.collect_step": collect_step,
-            "freefuse.collect_block": collect_block,
-            "freefuse.top_k": top_k,
-            "freefuse.temperature": temperature,
-            "freefuse.background_scale": bg_scale,
-            "freefuse.balance_iterations": balance_iterations,
-            "freefuse.feather": feather,
-            "freefuse.routing_strength": routing_strength,
-            "freefuse.routing_end": routing_end,
-            "freefuse.bias_scale": bias_scale,
-            "freefuse.positive_bias": positive_bias,
-            "freefuse.bias_blocks": bias_blocks,
-        }.items():
-            register_preset_control(self.tabname, name, component)
-        self.infotext_fields = [
-            PasteField(control, key) for control, key in zip(controls, INFOTEXT_KEYS)
-        ]
+        # Each control is the local variable or subject control named in SCRIPT_ARGS.
+        controls = {**locals(), **subject_controls}
+        fields = [(controls[name], key, preset_name) for name, key, preset_name, _ in SCRIPT_ARGS]
+        for component, _, preset_name in fields:
+            if preset_name is not None:
+                register_preset_control(self.tabname, preset_name, component)
+        self.infotext_fields = [PasteField(component, key) for component, key, _ in fields]
         self.paste_field_names = list(INFOTEXT_KEYS)
-        return controls
+        return [component for component, _, _ in fields]
 
     def process(self, p, enable, *values, **kwargs):
         if not enable:
@@ -377,25 +380,10 @@ class AnimaFreeFuseScript(scripts.Script):
                 "Anima FreeFuse and Anima Artist Mixer cannot run in the same pass"
             )
 
-        adapter_values = values[:9]
-        (
-            collect_step,
-            collect_block,
-            top_k,
-            temperature,
-            background,
-            bg_scale,
-            balance_iterations,
-            feather,
-            routing_strength,
-            routing_end,
-            bias_scale,
-            positive_bias,
-            bias_blocks,
-        ) = values[9:]
+        args = _arguments(values)
         adapters = []
-        for offset in range(0, 9, 3):
-            active, selector, concept = adapter_values[offset : offset + 3]
+        for index in SUBJECTS:
+            active, selector, concept = _subject(args, index)
             if not active:
                 continue
             selector = str(selector).strip()
@@ -439,7 +427,7 @@ class AnimaFreeFuseScript(scripts.Script):
                     engine.t5_tokenizer,
                     text,
                     concepts,
-                    str(background),
+                    str(args.background),
                     prompt_ids=chunks[0].t5_tokens,
                 )
                 if prompt_positions is None:
@@ -465,38 +453,38 @@ class AnimaFreeFuseScript(scripts.Script):
         total_blocks = len(unet.model.diffusion_model.blocks)
         # The slider uses the 28-block (2B) layout; on the depth-expanded
         # 2.9B/3.8B models the same block sits deeper.
-        block = anima_model_block(int(collect_block), REFERENCE_BLOCKS, total_blocks)
+        block = anima_model_block(int(args.collect_block), REFERENCE_BLOCKS, total_blocks)
         block = min(max(0, block), total_blocks - 1)
         state = AnimaFreeFuseState(
             adapters=adapters,
             token_positions=token_positions,
             background_positions=background_positions,
-            collect_step=int(collect_step),
+            collect_step=int(args.collect_step),
             collect_block=block,
-            top_k_ratio=float(top_k),
-            temperature=float(temperature),
-            bg_scale=float(bg_scale),
-            balance_iterations=int(balance_iterations),
-            feather=int(feather),
-            routing_strength=float(routing_strength),
-            routing_end=float(routing_end),
-            bias_scale=float(bias_scale),
-            positive_bias=float(positive_bias),
+            top_k_ratio=float(args.top_k),
+            temperature=float(args.temperature),
+            bg_scale=float(args.bg_scale),
+            balance_iterations=int(args.balance_iterations),
+            feather=int(args.feather),
+            routing_strength=float(args.routing_strength),
+            routing_end=float(args.routing_end),
+            bias_scale=float(args.bias_scale),
+            positive_bias=float(args.positive_bias),
             # Written in the 2B layout: on 2.9B/3.8B a band brings the inserted copies along
-            bias_blocks=model_block_set(bias_blocks, total_blocks, feature="Anima FreeFuse attention-bias"),
+            bias_blocks=model_block_set(args.bias_blocks, total_blocks, feature="Anima FreeFuse attention-bias"),
         )
         p.sd_model.forge_objects.unet = apply_freefuse_patch(unet, state)
         p.extra_generation_params["Anima FreeFuse"] = (
             f"{len(adapters)} subjects, two-pass same-noise"
         )
         p.extra_generation_params["Anima FreeFuse collect"] = (
-            f"step {int(collect_step)}, block {block}"
+            f"step {int(args.collect_step)}, block {block}"
         )
         p.extra_generation_params["Anima FreeFuse routing"] = (
-            f"strength {float(routing_strength):.2f}, end {float(routing_end):.2f}"
+            f"strength {float(args.routing_strength):.2f}, end {float(args.routing_end):.2f}"
         )
         p.extra_generation_params["Anima FreeFuse bias"] = (
-            f"negative {float(bias_scale):.2f}, positive {float(positive_bias):.2f}, blocks {bias_blocks}"
+            f"negative {float(args.bias_scale):.2f}, positive {float(args.positive_bias):.2f}, blocks {args.bias_blocks}"
         )
         # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
         p.extra_generation_params.update(generation_params(values))

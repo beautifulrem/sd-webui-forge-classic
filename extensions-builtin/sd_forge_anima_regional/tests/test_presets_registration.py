@@ -60,6 +60,14 @@ def sampling(regional, monkeypatch):
     return regional
 
 
+def test_the_hooks_name_the_settings_in_script_arg_order(regional):
+    import inspect
+
+    settings = [name for name, *_ in regional.SCRIPT_ARGS if not name.startswith("region")]
+    for hook in (regional.AnimaRegionalScript.process, regional.AnimaRegionalScript.process_before_every_sampling):
+        assert list(inspect.signature(hook).parameters)[2 : 2 + len(settings)] == settings  # after self, p
+
+
 def test_written_infotext_restores_the_panel_controls(sampling):
     args = (*SETTINGS, *(value for region in REGIONS for value in region))
     harness.assert_infotext_restores_controls(sampling.AnimaRegionalScript(), args, dict(zip(sampling.INFOTEXT_KEYS, args)))

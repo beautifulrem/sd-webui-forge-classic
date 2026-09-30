@@ -394,6 +394,59 @@ def test_non_plain_adapters_keep_the_dense_merge():
     assert len(merges) == 1
 
 
+def _scheduled_strength(monkeypatch, base_strength):
+    """The LoRA Stage Scheduler's live per-step strength, as its add_patches hook
+    hands it to Forge (loaded by path like its own suites)."""
+
+    import importlib.util
+    import types
+
+    monkeypatch.setattr(sys, "argv", sys.argv[:1])
+    # The real module pulls in the image stack; the script only needs PasteField
+    stub = types.ModuleType("modules.infotext_utils")
+    stub.PasteField = lambda component, target: (component, target)
+    monkeypatch.setitem(sys.modules, "modules.infotext_utils", stub)
+    path = EXTENSION_PATH.parent / "anima-lora-stage-scheduler" / "scripts" / "anima_lora_stage_scheduler.py"
+    spec = importlib.util.spec_from_file_location("anima_lora_stage_scheduler_for_freefuse", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.ScheduledStrength(base_strength, "/loras/cat.safetensors", module.BOTH_PASSES)
+
+
+def test_plain_lora_follows_a_stage_scheduled_strength_between_calls(monkeypatch):
+    # The stage scheduler changes the factor of the patch's strength object
+    # between steps: every routed call reads it anew, and a zero factor adds
+    # no low-rank term at all.
+    runtime, ModelPatcher, _ = _load()
+    torch.manual_seed(0)
+    adapter = _lora_adapter()
+    strength = _scheduled_strength(monkeypatch, 0.7)
+    layer, forward = _lora_forward(runtime, ModelPatcher, adapter, strength=strength)
+    x = torch.randn(2, 3, 8)
+    merges, casts = [], []
+    original_merge, original_cast = runtime.merge_lora_to_weight, runtime.cast_to_device
+    up, down = adapter.weights[0], adapter.weights[1]
+    base = torch.nn.functional.linear(x, layer.weight, layer.bias)
+    factors = torch.tensor([1.0, 0.5, 0.75]).view(1, 3, 1)  # (1 - s) + mask * s
+
+    for factor in (0.5, 0.0, 1.0):
+        strength.factor = factor
+        merges.clear()
+        casts.clear()
+        monkeypatch.setattr(runtime, "merge_lora_to_weight", lambda *args, **kwargs: merges.append(args) or original_merge(*args, **kwargs))
+        monkeypatch.setattr(runtime, "cast_to_device", lambda *args, **kwargs: casts.append(args) or original_cast(*args, **kwargs))
+        routed = forward(x)
+        monkeypatch.setattr(runtime, "merge_lora_to_weight", original_merge)
+        dense = _dense_only(runtime, forward, x)
+
+        assert merges == []  # low rank, no dense delta
+        assert len(casts) == (0 if factor == 0.0 else 2), factor  # the down/up matmuls run only for a live strength
+        assert torch.allclose(routed, dense, rtol=1e-5, atol=1e-5), factor
+        delta = torch.nn.functional.linear(x, 0.7 * factor * (5.0 / 3.0) * up @ down)
+        assert torch.allclose(routed, base + delta * factors, rtol=1e-5, atol=1e-5), factor
+    assert len(layer.weight_function) == 1 and layer.weight_function[0].patch[0][0] is strength  # the live object stays in place
+
+
 def _bias_forward(runtime, ModelPatcher, *, weight_patch):
     model = torch.nn.Module()
     model.layer = torch.nn.Linear(2, 2, bias=True)
