@@ -67,7 +67,6 @@ class SMCCFGTests(unittest.TestCase):
 
         self.assertTrue(torch.equal(state._e_prev, previous))
 
-
     def test_forge_adapter_combines_the_denoised_predictions(self):
         torch.manual_seed(46)
         x = torch.randn(1, 4, 1, 8, 8)

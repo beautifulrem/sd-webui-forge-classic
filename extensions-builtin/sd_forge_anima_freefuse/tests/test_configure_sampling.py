@@ -289,7 +289,6 @@ def test_disabled_or_inactive_feature_does_nothing(monkeypatch):
         assert p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {}
 
 
-
 @pytest.mark.parametrize("values", [(*_values(), "extra"), _values()[:-1]], ids=["one-too-many", "one-short"])
 def test_a_wrong_argument_count_is_refused_before_anything_changes(monkeypatch, values):
     from modules import anima_online_lora

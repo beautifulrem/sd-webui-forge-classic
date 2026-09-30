@@ -276,7 +276,6 @@ class CFGZeroStarTests(unittest.TestCase):
         setattr(process, anima_support._AUXILIARY_DENOISER_ATTRIBUTE, False)
         self.assertTrue(torch.equal(cfg({**base, "sigma": torch.tensor([1.0])}), torch.zeros_like(x)))
 
-
     def test_zero_init_steps_do_not_call_the_model(self):
         from types import SimpleNamespace
 
@@ -644,7 +643,6 @@ class GuidanceRangeTests(unittest.TestCase):
         ):
             self.assertTrue(torch.equal(hook(args), x - cond))
 
-
     def test_cfg_one_has_no_jump_at_the_window_edge_with_and_prompt_weights(self):
         # Forge's own combine gives edit_strength * cond against its CFG 1
         # zero placeholder; the CFG range (with its uncond skip) and Skimmed
@@ -701,6 +699,7 @@ class GuidanceRangeTests(unittest.TestCase):
         args = {"input": x, "cond_denoised": cond, "uncond_denoised": torch.zeros_like(cond), "cond_scale": 1.0}
         for sigma in (0.5, 0.9):
             self.assertTrue(torch.allclose(cfg({**args, "sigma": torch.tensor([sigma])}), x - cond))
+
 
 class GuidanceRangeUncondSkipTests(unittest.TestCase):
     def setUp(self):

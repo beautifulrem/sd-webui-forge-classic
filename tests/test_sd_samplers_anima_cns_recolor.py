@@ -127,5 +127,6 @@ class CNSTests(unittest.TestCase):
         self.assertEqual(process.extra_generation_params["Anima CNS"], "white-noise fallback: gamma file unavailable (TimeoutError)")
         self.assertEqual(warning.call_count, 1)
 
+
 if __name__ == "__main__":
     unittest.main()

@@ -72,8 +72,6 @@ def test_anima_model_detection_uses_checkpoint_block_count():
     assert config["num_blocks"] == 40
 
 
-
-
 def test_split_conditioning_keeps_the_negpip_mask_separate():
     crossattn = torch.ones(1, 3, 2)
     mask = torch.tensor([[[1.0], [-1.0], [1.0]]])

@@ -768,7 +768,6 @@ def test_local_modulation_files_follow_the_servers_directory_policy(monkeypatch,
     assert p.extra_generation_params["Anima modulation guidance"] == "disabled: RuntimeError"
 
 
-
 def _positional(**overrides):
     assert set(overrides) <= set(SCRIPT_MODULE.SCRIPT_ARG_NAMES), overrides
     values = {**DEFAULTS, **overrides}

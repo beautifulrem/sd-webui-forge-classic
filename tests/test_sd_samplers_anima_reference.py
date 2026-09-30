@@ -20,6 +20,7 @@ MU, STD, SCHEDULES, VARIANTS = _generator.MU, _generator.STD, _generator.SCHEDUL
 _REFERENCE = torch.load(_FIXTURES / "anima_flow_upstream_reference.pt")
 _SAMPLERS = {"unipc2": anima_samplers.sample_anima_flow_unipc2, "pc3": anima_samplers.sample_anima_flow_pc3}
 
+
 def _case_params():
     for key in _REFERENCE["cases"]:
         schedule, variant = key.split("/")

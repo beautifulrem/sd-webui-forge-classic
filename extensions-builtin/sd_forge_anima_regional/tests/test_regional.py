@@ -247,7 +247,6 @@ class RegionalTests(unittest.TestCase):
         out = wrapped(x, context=base_context, transformer_options={"cond_or_uncond": [1]})
         self.assertTrue(torch.equal(out, attention(x, context=base_context)))
 
-
     def test_each_region_context_gets_its_own_negpip_mask(self):
         from lib_anima_regional.regional import Region, RegionalState, _make_cross_attention_wrapper
         from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, NEGPIP_MASK_KEY
