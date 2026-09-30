@@ -195,7 +195,12 @@ The GUI strength blends stock white noise with calibrated colored noise. CNS
 does not affect Flow Euler, Flow UniPC2, or Flow PC3 because those ODE paths do
 not contain ER-SDE's stochastic-noise seam. The pinned 6 KiB calibration file
 is downloaded on first use over HTTPS, limited to 1 MiB, and verified against a
-hard-coded SHA-256 before loading.
+hard-coded SHA-256 before loading. This extension fetches it once per job
+before any pass samples (whenever a pass uses the CNS sampler with strength
+above 0, also with the panel off); the sampler only reads the downloaded file,
+so it never waits on the network with the model on the GPU. When the download
+fails the noise stays white and `Anima CNS` records why; a failed download is
+retried after 10 minutes.
 
 ## Flow corrective sampler controls
 
@@ -239,6 +244,12 @@ the control is enabled. Adapter `.pt` files are loaded with PyTorch
 CLIP-L config/tokenizer. The large adapter projection runs once on CPU, and
 only the small projected vectors and per-block scale rows are used during
 sampling.
+
+`Local file` mode reads only files inside the models folder (an absolute path
+there, or one relative to it). UNC / `//` network paths and symlinks leading
+out of the folder are refused, and under `--hide-ui-dir-config` the path boxes
+are hidden and `Local file` mode is refused: on a shared `--listen` server the
+path is typed by the web UI user.
 
 Spectrum composition is explicit: Spectrum's model wrapper wraps the
 modulation wrapper. Actual steps call through it, so the modulated blocks run

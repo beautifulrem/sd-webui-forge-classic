@@ -59,15 +59,60 @@ _POOLED_CACHE: dict[tuple, torch.Tensor] = {}
 _POOLED_CACHE_SIZE = 8
 
 
-def resolve_artifact(mode: str, local_path: str, automatic_path: str, *, url: str, sha256: str, maximum_bytes: int) -> str:
+def _is_inside(path: str, root: str) -> bool:
+    try:
+        return os.path.commonpath([os.path.normcase(path), os.path.normcase(root)]) == os.path.normcase(root)
+    except ValueError:  # another drive (Windows), or a relative/absolute mix
+        return False
+
+
+def resolve_local_artifact(local_path: str, *, models_root: str, local_files_allowed: bool) -> str:
+    """The file ``local_path`` names inside ``models_root``, or raise.
+
+    The path comes from the web UI, so on a shared ``--listen`` server an
+    untrusted user types it: like upstream's batch img2img directory, local
+    files are refused under ``--hide-ui-dir-config``, and otherwise only a
+    file inside the models folder is read. UNC and ``//`` paths are refused
+    before any filesystem call (on Windows opening one authenticates to that
+    host over SMB); a relative path is taken relative to the models folder.
+    The containment check runs on the lexically normalized path first (no
+    filesystem access for a path outside), then on the resolved one, so a
+    symlink inside the folder cannot lead out of it.
+    """
+
+    if not local_files_allowed:
+        raise RuntimeError(
+            "Anima modulation local files are disabled because the server runs with --hide-ui-dir-config; "
+            "use Auto-download pinned"
+        )
+    local_path = str(local_path or "").strip()
+    if not local_path:
+        raise RuntimeError("Anima modulation local artifact path is empty")
+    if local_path[:2] in ("\\\\", "//", "\\/", "/\\"):
+        raise RuntimeError("Anima modulation local artifact paths must not be network (UNC) paths")
+    root = os.path.abspath(models_root)
+    path = os.path.abspath(os.path.join(root, os.path.expanduser(local_path)))
+    outside = RuntimeError(f"Anima modulation local artifacts must be inside the models folder ({root}): {local_path}")
+    if not _is_inside(path, root) or not _is_inside(os.path.realpath(path), os.path.realpath(root)):
+        raise outside
+    if not os.path.isfile(path):
+        raise RuntimeError(f"Anima modulation local artifact was not found: {path}")
+    return path
+
+
+def resolve_artifact(
+    mode: str,
+    local_path: str,
+    automatic_path: str,
+    *,
+    url: str,
+    sha256: str,
+    maximum_bytes: int,
+    models_root: str,
+    local_files_allowed: bool,
+) -> str:
     if mode == "Local file":
-        local_path = str(local_path or "").strip()
-        if not local_path:
-            raise RuntimeError("Anima modulation local artifact path is empty")
-        path = os.path.abspath(os.path.expanduser(local_path))
-        if not os.path.isfile(path):
-            raise RuntimeError(f"Anima modulation local artifact was not found: {path}")
-        return path
+        return resolve_local_artifact(local_path, models_root=models_root, local_files_allowed=local_files_allowed)
     if mode != "Auto-download pinned":
         raise RuntimeError(f"Unknown Anima modulation artifact mode: {mode}")
     return ensure_pinned_download(path=automatic_path, url=url, sha256=sha256, maximum_bytes=maximum_bytes)
@@ -286,6 +331,8 @@ def _add_delta(delta, module, args, kwargs):
     if current is None:
         raise RuntimeError("Anima modulation could not find the block AdaLN-LoRA input")
     updated = dict(kwargs)
+    # ``delta`` is built in the block input's device and dtype, which makes
+    # this ``to`` a no-op; it only guards a model computing in another dtype.
     updated["adaln_lora_B_T_3D"] = current + delta.to(device=current.device, dtype=current.dtype)
     return args, updated
 
@@ -348,19 +395,26 @@ class ModulationPatch:
         targets = [(layout[row], row) for row in range(start, end + 1)]
 
         previous = patched.model_options.get("model_function_wrapper")
-        # The per-block deltas depend only on the batch layout and the input's
-        # device/dtype, so they are built once, not on every model call.
+        # The DiT runs in the model's computation dtype (the AdaLN-LoRA input
+        # the hook adds to has it), not in the latent's (normally fp32).
+        compute_dtype = getattr(patched.model, "computation_dtype", None)
+        # The per-block deltas depend only on the batch layout and the device /
+        # compute dtype, so they are built once, not on every model call, and
+        # already in the block input's dtype: the hook is then a plain add, not
+        # a cast per modulated block per call. They are computed in fp32 and
+        # cast once, so the sum is the same as casting at every use.
         deltas: dict[tuple, tuple[torch.Tensor, ...]] = {}
 
         def deltas_for(branches: tuple[int, ...], chunk: int, reference: torch.Tensor) -> tuple[torch.Tensor, ...]:
-            key = (branches, chunk, reference.device, reference.dtype)
+            dtype = compute_dtype or reference.dtype
+            key = (branches, chunk, reference.device, dtype)
             cached = deltas.get(key)
             if cached is None:
                 if len(deltas) >= 8:
                     deltas.clear()
-                positive, negative, scales = (t.to(reference) for t in (self.positive, self.negative, self.scales))
+                positive, negative, scales = (t.to(device=reference.device, dtype=torch.float32) for t in (self.positive, self.negative, self.scales))
                 pooled = torch.cat([_expand_rows(positive if branch == 0 else negative, chunk) for branch in branches], dim=0)
-                cached = deltas[key] = tuple((pooled * scales[row]).unsqueeze(1) for _, row in targets)
+                cached = deltas[key] = tuple((pooled * scales[row]).unsqueeze(1).to(dtype) for _, row in targets)
             return cached
 
         def wrapper(model_function, args):

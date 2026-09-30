@@ -12,6 +12,7 @@ import torch
 
 from lib_anima_guidance.advanced import APGState, CFGZeroStarState
 from lib_anima_guidance.dcw import DCWState
+from lib_anima_guidance.modulation import resolve_artifact as resolve_artifact_under_test
 from lib_anima_guidance.smc import SMCCFGState
 from modules import anima_guidance_state
 from modules.anima_feature_conflicts import (
@@ -652,3 +653,58 @@ def test_guidance_warnings_are_visible():
         assert guidance.isEnabledFor(logging.WARNING) and guidance.handlers
     finally:
         root.setLevel(level)
+
+
+def test_local_modulation_files_follow_the_servers_directory_policy(monkeypatch, tmp_path):
+    seen = []
+
+    def resolve(*args, **kwargs):
+        seen.append(kwargs)
+        raise RuntimeError("stop after resolving")
+
+    monkeypatch.setattr(SCRIPT_MODULE, "resolve_artifact", resolve)
+    monkeypatch.setattr(SCRIPT_MODULE.paths, "models_path", str(tmp_path))
+    for hidden in (False, True):
+        monkeypatch.setattr(SCRIPT_MODULE.shared.cmd_opts, "hide_ui_dir_config", hidden)
+        _run(_modulation_process(), modulation_enable=True, adapter_mode="Local file", adapter_path="x.pt")
+        assert seen[-1]["models_root"] == str(tmp_path)
+        assert seen[-1]["local_files_allowed"] is not hidden
+
+    # With the real resolver, --hide-ui-dir-config refuses even a file inside the models folder.
+    (tmp_path / "x.pt").write_bytes(b"x")
+    monkeypatch.setattr(SCRIPT_MODULE, "resolve_artifact", resolve_artifact_under_test)
+    p = _modulation_process()
+    _run(p, modulation_enable=True, adapter_mode="Local file", adapter_path="x.pt")
+    assert p.extra_generation_params["Anima modulation guidance"] == "disabled: RuntimeError"
+
+
+
+def _positional(**overrides):
+    values = {**DEFAULTS, **overrides}
+    return [values.get(name, default) for name, _, _, default in SCRIPT_MODULE.SCRIPT_ARGS]
+
+
+@pytest.mark.parametrize(
+    ("sampler", "hires", "hr_sampler", "overrides", "anima", "expected"),
+    [
+        ("Euler", False, None, {}, True, False),
+        ("Anima ER SDE CNS", False, None, {}, True, True),
+        ("Anima ER SDE CNS", False, None, dict(cns_strength=0.0), True, False),
+        # Guidance off: the sampler runs at its default strength 1.
+        ("Anima ER SDE CNS", False, None, dict(enable=False, cns_strength=0.0), True, True),
+        ("Euler", True, "Anima ER SDE CNS", {}, True, True),
+        ("Anima ER SDE CNS", True, None, {}, True, True),  # hires reuses the first pass's sampler
+        ("Euler", False, "Anima ER SDE CNS", {}, True, False),  # no hires pass
+        ("Anima ER SDE CNS", False, None, {}, False, False),
+    ],
+)
+def test_process_prefetches_the_cns_gamma_table_before_sampling(monkeypatch, sampler, hires, hr_sampler, overrides, anima, expected):
+    fetched = []
+    monkeypatch.setattr(SCRIPT_MODULE.sd_samplers_anima_cns, "prefetch_gamma", fetched.append)
+    monkeypatch.setattr(SCRIPT_MODULE, "_is_anima", lambda p: anima)
+    p = FakeProcess()
+    p.sampler_name = sampler
+    p.enable_hr = hires
+    p.hr_sampler_name = hr_sampler
+    SCRIPT_MODULE.AnimaGuidanceScript().process(p, *_positional(**overrides))
+    assert fetched == ([p] if expected else [])

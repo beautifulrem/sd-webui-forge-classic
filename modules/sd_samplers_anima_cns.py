@@ -15,7 +15,7 @@ import numpy as np
 import torch
 
 from modules import paths_internal
-from modules.anima_artifacts import ensure_pinned_download
+from modules.anima_artifacts import ensure_pinned_download, sha256_file
 from modules.anima_support import require_anima_flow_denoiser
 
 
@@ -52,18 +52,59 @@ def ensure_gamma_file() -> Path:
     )
 
 
-def load_gamma_arrays() -> dict[str, np.ndarray]:
+def downloaded_gamma_file() -> Path:
+    """The verified gamma artifact already on disk; never downloads."""
+
+    target = _gamma_path()
+    if not target.is_file():
+        raise FileNotFoundError(f"CNS gamma table was not downloaded before sampling: {target}")
+    if sha256_file(str(target)) != GAMMA_SHA256:  # at most 1 MiB, read once per process
+        raise RuntimeError(f"CNS gamma table failed its SHA-256 check: {target}")
+    return target
+
+
+def load_gamma_arrays(*, download: bool = True) -> dict[str, np.ndarray]:
+    """The gamma table, loaded once per process. ``download=False`` (the
+    sampler) only reads a file ``prefetch_gamma`` fetched before sampling."""
+
     global _GAMMA_ARRAYS
     if _GAMMA_ARRAYS is None:
         with _GAMMA_LOCK:
             if _GAMMA_ARRAYS is None:
-                target = ensure_gamma_file()
+                target = ensure_gamma_file() if download else downloaded_gamma_file()
                 with np.load(target) as data:
                     _GAMMA_ARRAYS = {
                         key: np.array(data[key], copy=True)
                         for key in ("gamma", "aspects", "sigmas")
                     }
     return _GAMMA_ARRAYS
+
+
+def prefetch_gamma(process=None) -> bool:
+    """Download and load the gamma table before sampling (the Anima Guidance
+    script calls this when the CNS sampler will run with strength > 0), so the
+    sampler never blocks on the network with the model on the GPU.
+
+    A failure is logged and recorded like the sampler's white-noise fallback,
+    and not retried for ``_GAMMA_RETRY_SECONDS`` so each generation does not
+    stall on an offline host."""
+
+    global _GAMMA_FAILED_AT
+    if _GAMMA_ARRAYS is not None:
+        return True
+    if _GAMMA_FAILED_AT is not None and time.monotonic() - _GAMMA_FAILED_AT < _GAMMA_RETRY_SECONDS:
+        _record_cns_fallback(process, "gamma file unavailable (retry pending)")
+        return False
+    try:
+        load_gamma_arrays(download=True)
+    except Exception as error:
+        _GAMMA_FAILED_AT = time.monotonic()
+        reason = f"gamma file unavailable ({type(error).__name__})"
+        logger.warning("Anima CNS falls back to white noise: %s: %s", reason, error)
+        _record_cns_fallback(process, reason)
+        return False
+    _GAMMA_FAILED_AT = None
+    return True
 
 
 def radial_bins(height: int, width: int, count: int) -> np.ndarray:
@@ -107,26 +148,19 @@ class CNSRecolorer:
     @classmethod
     def try_calibrated(cls, strength: float, process=None) -> CNSRecolorer | None:
         """Return a recolorer, or ``None`` (plain ER-SDE noise) when the gamma
-        artifact is unavailable, e.g. offline. Failed downloads are not retried
-        for ``_GAMMA_RETRY_SECONDS`` so each generation does not stall."""
+        artifact is unavailable. Runs inside the sampler, so it never
+        downloads: ``prefetch_gamma`` fetched the file before sampling, and
+        when that failed (e.g. offline) or never ran the noise stays white."""
 
-        global _GAMMA_FAILED_AT
-        if _GAMMA_ARRAYS is None and _GAMMA_FAILED_AT is not None:
-            if time.monotonic() - _GAMMA_FAILED_AT < _GAMMA_RETRY_SECONDS:
-                reason = "gamma file unavailable (retry pending)"
-                _record_cns_fallback(process, reason)
-                return None
         try:
-            # Only fetching/reading the artifact falls back; errors in the
-            # recolorer itself are real bugs and must surface.
-            arrays = load_gamma_arrays()
+            # Only reading the artifact falls back; errors in the recolorer
+            # itself are real bugs and must surface.
+            arrays = load_gamma_arrays(download=False)
         except Exception as error:
-            _GAMMA_FAILED_AT = time.monotonic()
             reason = f"gamma file unavailable ({type(error).__name__})"
-            logger.warning("Anima CNS falls back to white noise: %s: %s", reason, error)
-            _record_cns_fallback(process, reason)
+            if _record_cns_fallback(process, reason):
+                logger.warning("Anima CNS falls back to white noise: %s: %s", reason, error)
             return None
-        _GAMMA_FAILED_AT = None
         return cls.calibrated(strength, arrays)
 
     def _select_aspect(self, height: int, width: int) -> None:
@@ -187,10 +221,19 @@ class CNSRecolorer:
         return colored.to(dtype=white.dtype)
 
 
-def _record_cns_fallback(process, reason: str) -> None:
+def _record_cns_fallback(process, reason: str) -> bool:
+    """Record the fallback on ``process``; False when one is recorded already.
+
+    The first reason of a generation is kept: the prefetch's download error
+    says more than the sampler's missing file that follows from it."""
+
     params = getattr(process, "extra_generation_params", None)
-    if isinstance(params, dict):
-        params["Anima CNS"] = f"white-noise fallback: {reason}"
+    if not isinstance(params, dict):
+        return True
+    if "Anima CNS" in params:
+        return False
+    params["Anima CNS"] = f"white-noise fallback: {reason}"
+    return True
 
 
 @torch.no_grad()

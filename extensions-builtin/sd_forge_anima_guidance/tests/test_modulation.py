@@ -6,6 +6,7 @@ import pathlib
 import sys
 import types
 import unittest
+import unittest.mock
 
 import torch
 
@@ -213,6 +214,28 @@ class ModulationBlockLayoutTests(unittest.TestCase):
         self.assertEqual(tuple(deltas[2].shape), (2, 1, 6))
         self.assertTrue(torch.equal(deltas[2][:, 0, 0], torch.tensor([1.0, 0.0])))  # cond row, uncond row
 
+    def test_deltas_are_built_in_the_models_compute_dtype(self):
+        # The latent is fp32 but the blocks' AdaLN-LoRA input is in the
+        # computation dtype: the cached delta already has it (no cast per
+        # block per call), and the sum is the one casting at every use gave.
+        scales = torch.arange(1.0, 29.0).unsqueeze(1).repeat(1, 6) / 3.0
+        positive = torch.linspace(-1.0, 1.0, 6).unsqueeze(0)
+        patcher = _Patcher(28)
+        patcher.model.computation_dtype = torch.bfloat16
+        patched, _, _ = ModulationPatch(positive, torch.zeros(1, 6), scales, 0, -1).apply(patcher)
+        current = torch.full((1, 1, 6), 0.3, dtype=torch.bfloat16)
+        seen = {}
+
+        def observe(blocks):
+            seen["delta"] = _delta_of(blocks[7])
+            seen["output"] = blocks[7](None, adaln_lora_B_T_3D=current)
+
+        _call(patched, [0], observe)
+        self.assertEqual(seen["delta"].dtype, torch.bfloat16)
+        cast_at_use = current + (positive * scales[7]).unsqueeze(1).to(torch.bfloat16)
+        self.assertEqual(seen["output"].dtype, torch.bfloat16)
+        self.assertTrue(torch.equal(seen["output"], cast_at_use))
+
     def test_blocks_carry_the_hook_only_during_a_model_call(self):
         # No hook outlives the call: with modulation off (or between calls)
         # the blocks run hook-free, as with the temporary forward overrides.
@@ -242,18 +265,104 @@ class ModulationBlockLayoutTests(unittest.TestCase):
 
 
 class ResolveArtifactTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+
+        self._directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self._directory.cleanup)
+        self.base = pathlib.Path(self._directory.name).resolve()
+        self.models = self.base / "models"
+        (self.models / "Anima").mkdir(parents=True)
+        self.inside = self.models / "Anima" / "adapter.pt"
+        self.inside.write_bytes(b"x")
+        self.outside = self.base / "secret.pt"
+        self.outside.write_bytes(b"x")
+
+    def _local(self, value, *, allowed=True):
+        return resolve_artifact(
+            "Local file",
+            value,
+            "unused",
+            url="unused",
+            sha256="unused",
+            maximum_bytes=1,
+            models_root=str(self.models),
+            local_files_allowed=allowed,
+        )
+
     def test_an_empty_local_path_is_reported_as_empty_not_as_the_working_directory(self):
         for value in ("", "   ", None):
             with self.assertRaises(RuntimeError) as raised:
-                resolve_artifact("Local file", value, "unused", url="unused", sha256="unused", maximum_bytes=1)
+                self._local(value)
             self.assertIn("empty", str(raised.exception))
             self.assertNotIn(os.getcwd(), str(raised.exception))
 
     def test_a_missing_local_file_names_its_path(self):
-        missing = os.path.join(os.getcwd(), "no-such-adapter.pt")
+        missing = self.models / "no-such-adapter.pt"
         with self.assertRaises(RuntimeError) as raised:
-            resolve_artifact("Local file", f" {missing} ", "unused", url="unused", sha256="unused", maximum_bytes=1)
-        self.assertIn(missing, str(raised.exception))
+            self._local(f" {missing} ")
+        self.assertIn(str(missing), str(raised.exception))
+
+    def test_a_file_inside_the_models_folder_resolves_absolute_or_relative(self):
+        self.assertEqual(self._local(str(self.inside)), str(self.inside))
+        self.assertEqual(self._local(os.path.join("Anima", "adapter.pt")), str(self.inside))
+        self.assertEqual(self._local(os.path.join("Anima", "..", "Anima", "adapter.pt")), str(self.inside))
+
+    def test_a_path_outside_the_models_folder_is_refused_without_touching_it(self):
+        from lib_anima_guidance import modulation
+
+        probes = unittest.mock.Mock(side_effect=AssertionError("filesystem probed"))
+        for value in (str(self.outside), os.path.join("..", "secret.pt"), os.path.join("Anima", "..", "..", "secret.pt"), "~"):
+            with unittest.mock.patch.object(modulation.os.path, "isfile", probes), unittest.mock.patch.object(
+                modulation.os.path, "realpath", probes
+            ), self.assertRaises(RuntimeError) as raised:
+                self._local(value)
+            self.assertIn("inside the models folder", str(raised.exception))
+        probes.assert_not_called()
+
+    def test_a_symlink_out_of_the_models_folder_is_refused(self):
+        link = self.models / "Anima" / "link.pt"
+        try:
+            link.symlink_to(self.outside)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable")
+        with self.assertRaises(RuntimeError) as raised:
+            self._local(str(link))
+        self.assertIn("inside the models folder", str(raised.exception))
+
+    def test_network_paths_are_refused_before_any_filesystem_call(self):
+        from lib_anima_guidance import modulation
+
+        probes = unittest.mock.Mock(side_effect=AssertionError("filesystem probed"))
+        for value in ("\\\\attacker\\share\\x.pt", "//attacker/share/x.pt", "\\\\?\\UNC\\attacker\\x.pt", " \\/attacker/x.pt"):
+            with unittest.mock.patch.object(modulation.os.path, "isfile", probes), unittest.mock.patch.object(
+                modulation.os.path, "realpath", probes
+            ), self.assertRaises(RuntimeError) as raised:
+                self._local(value)
+            self.assertIn("UNC", str(raised.exception))
+        probes.assert_not_called()
+
+    def test_hide_ui_dir_config_refuses_local_files(self):
+        with self.assertRaises(RuntimeError) as raised:
+            self._local(str(self.inside), allowed=False)
+        self.assertIn("--hide-ui-dir-config", str(raised.exception))
+
+    def test_auto_download_ignores_the_local_file_policy(self):
+        from lib_anima_guidance import modulation
+
+        with unittest.mock.patch.object(modulation, "ensure_pinned_download", return_value="downloaded") as download:
+            resolved = resolve_artifact(
+                "Auto-download pinned",
+                str(self.outside),
+                "automatic.pt",
+                url="https://example.invalid/a.pt",
+                sha256="0",
+                maximum_bytes=1,
+                models_root=str(self.models),
+                local_files_allowed=False,
+            )
+        self.assertEqual(resolved, "downloaded")
+        self.assertEqual(download.call_args.kwargs["path"], "automatic.pt")
 
 
 class ClipPromptTextTests(unittest.TestCase):

@@ -51,3 +51,12 @@ def test_script_args_name_the_registered_preset_fields(guidance):
         if default is not guidance._REQUIRED:
             assert default == SAFE_BASE_AESTHETIC_PRESET[preset], preset
             assert type(default) is type(SAFE_BASE_AESTHETIC_PRESET[preset]), preset
+
+
+def test_local_path_boxes_are_hidden_under_hide_ui_dir_config(guidance, monkeypatch):
+    # Server paths are privileged, like upstream's batch img2img directories.
+    for hidden in (False, True):
+        monkeypatch.setitem(guidance.shared.hide_dirs, "visible", not hidden)
+        controls = dict(zip(guidance.SCRIPT_ARG_NAMES, harness.build_ui(guidance.AnimaGuidanceScript())))
+        for name in ("adapter_path", "clip_path"):
+            assert controls[name].visible is not hidden, name

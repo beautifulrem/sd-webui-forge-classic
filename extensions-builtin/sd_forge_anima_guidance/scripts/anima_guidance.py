@@ -48,11 +48,12 @@ from lib_anima_guidance.advanced import (
 )
 from lib_anima_guidance.nag import NAGAttentionModifier
 from backend.nn.anima_attention import ANIMA_ATTENTION_MODIFIERS
-from modules import paths, script_callbacks, scripts, spectrum_force
+from modules import paths, script_callbacks, scripts, sd_samplers_anima_cns, shared, spectrum_force
 from modules.anima_guidance_state import clear_stateful_guidance, register_stateful_guidance
 from modules.anima_feature_conflicts import (
     APG_GUIDANCE,
     CFG_ZERO_STAR_GUIDANCE,
+    CNS_SAMPLER,
     DCW_INPAINT_MESSAGE,
     FDG_GUIDANCE,
     GUIDANCE_MODES,
@@ -189,11 +190,33 @@ def _stash_nag_negative(params) -> None:
 script_callbacks.on_cfg_denoiser(_stash_nag_negative, name="anima_nag_negative_context")
 
 
+def _cns_strength(args: SimpleNamespace) -> float:
+    return min(max(float(args.cns_strength), 0.0), 1.0)
+
+
+def _prefetch_cns_gamma(p, args: SimpleNamespace) -> None:
+    """Fetch the CNS gamma table before sampling when a pass will use it.
+
+    The sampler only reads the downloaded file: a first download inside it
+    would stall up to its 30 s timeout with the model on the GPU. Without
+    Guidance enabled the sampler runs at its default strength 1.
+    """
+
+    samplers = {p.sampler_name}
+    if getattr(p, "enable_hr", False):
+        samplers.add(getattr(p, "hr_sampler_name", None) or p.sampler_name)
+    if CNS_SAMPLER not in samplers or not _is_anima(p):
+        return
+    strength = _cns_strength(args) if args.enable else float(getattr(p, "cns_strength", 1.0))
+    if strength > 0.0:
+        sd_samplers_anima_cns.prefetch_gamma(p)
+
+
 def _install_sampler_tuning(p, args: SimpleNamespace, active_sampler: str) -> None:
     """Settings of one sampler, applied and recorded only while it is active."""
 
-    if active_sampler == "Anima ER SDE CNS":
-        p.cns_strength = min(max(float(args.cns_strength), 0.0), 1.0)
+    if active_sampler == CNS_SAMPLER:
+        p.cns_strength = _cns_strength(args)
         _record(p, "cns_strength", p.cns_strength)
 
     if active_sampler == "Anima Flow UniPC2":
@@ -237,6 +260,12 @@ def _install_modulation(p, args: SimpleNamespace, unet):
             block_layout(ADAPTER_BLOCKS, dit_block_count(dit))
         automatic_adapter = os.path.join(paths.models_path, "Anima", "modulation_guidance", "checkpoint_4000.pt")
         automatic_clip = os.path.join(paths.models_path, "CLIP", "Anima-Mod-Guidance", "clip_l.safetensors")
+        # The local paths are typed in the web UI: only files in the models
+        # folder, and none under --hide-ui-dir-config (see resolve_local_artifact).
+        local_file_policy = dict(
+            models_root=paths.models_path,
+            local_files_allowed=not shared.cmd_opts.hide_ui_dir_config,
+        )
         resolved_adapter = resolve_artifact(
             str(args.adapter_mode),
             str(args.adapter_path),
@@ -244,6 +273,7 @@ def _install_modulation(p, args: SimpleNamespace, unet):
             url=ADAPTER_URL,
             sha256=ADAPTER_SHA256,
             maximum_bytes=ADAPTER_MAX_BYTES,
+            **local_file_policy,
         )
         check_adapter_for_dit(resolved_adapter, dit)
         resolved_clip = resolve_artifact(
@@ -253,6 +283,7 @@ def _install_modulation(p, args: SimpleNamespace, unet):
             url=CLIP_URL,
             sha256=CLIP_SHA256,
             maximum_bytes=CLIP_MAX_BYTES,
+            **local_file_policy,
         )
         base = str(args.modulation_base)
         positive_prompts, negative_prompts = effective_prompt_batch(p)
@@ -585,7 +616,7 @@ class AnimaGuidanceScript(scripts.Script):
                     value=12.0,
                     step=0.1,
                     label="FDG detail guidance",
-                    info="Used only by FDG: the guidance scale of the high-frequency band (the low band uses CFG). Keep it above CFG; below CFG it weakens detail guidance. FDG takes priority over DCW and is disabled with the CNS sampler.",
+                    info="Used only by FDG: the guidance scale of the high-frequency band (the low band uses CFG). Keep it above CFG; below CFG it weakens detail guidance. FDG and DCW exclude each other: in this panel the one turned on last wins and locks the other; in API calls with both on, FDG wins. FDG is disabled with the CNS sampler.",
                 )
                 cfg_zero_init_steps = gr.Slider(
                     0,
@@ -782,14 +813,24 @@ class AnimaGuidanceScript(scripts.Script):
                         value="Auto-download pinned",
                         label="Modulation adapter",
                     )
-                    adapter_path = gr.Textbox("", label="Local adapter .pt path")
+                    adapter_path = gr.Textbox(
+                        "",
+                        label="Local adapter .pt path",
+                        info="Inside the models folder (absolute, or relative to it).",
+                        **shared.hide_dirs,
+                    )
                 with gr.Row():
                     clip_mode = gr.Dropdown(
                         ["Auto-download pinned", "Local file"],
                         value="Auto-download pinned",
                         label="CLIP-L encoder",
                     )
-                    clip_path = gr.Textbox("", label="Local CLIP-L .safetensors path")
+                    clip_path = gr.Textbox(
+                        "",
+                        label="Local CLIP-L .safetensors path",
+                        info="Inside the models folder (absolute, or relative to it).",
+                        **shared.hide_dirs,
+                    )
 
         if self._sampler_component is not None:
             conflict_inputs = [
@@ -859,7 +900,8 @@ class AnimaGuidanceScript(scripts.Script):
         self.paste_field_names = [key for _, key, _ in fields if key is not None]
         return [component for component, _, _ in fields]
 
-    def process_before_every_sampling(self, p, *values, **kwargs):
+    @staticmethod
+    def _arguments(values, kwargs) -> SimpleNamespace:
         # Positional script args are named by SCRIPT_ARGS, the table ui()
         # returns its components from, so their order is written only once.
         # Forge's own keywords (x, noise, c, uc) are not script args.
@@ -873,7 +915,14 @@ class AnimaGuidanceScript(scripts.Script):
         if missing:
             raise TypeError(f"Anima guidance is missing script arguments: {', '.join(missing)}")
         # One attribute per SCRIPT_ARGS name.
-        self._process_before_every_sampling(p, SimpleNamespace(**arguments))
+        return SimpleNamespace(**arguments)
+
+    def process(self, p, *values):
+        # Once per job, before any pass samples.
+        _prefetch_cns_gamma(p, self._arguments(values, {}))
+
+    def process_before_every_sampling(self, p, *values, **kwargs):
+        self._process_before_every_sampling(p, self._arguments(values, kwargs))
 
     def _process_before_every_sampling(self, p, args: SimpleNamespace):
         # The global pre-denoiser hook applies whatever DCW state p holds: a

@@ -19,7 +19,7 @@
 
 打开 txt2img 或 img2img 后，在页面下方展开 `Anima Remi Presets`，选择界面已预选的 `Official Base/Aesthetic — Safe (Recommended)`，然后点击 `Apply recommended preset`。预设不会在启动时强行改写当前界面，只有点击后才应用。
 
-它会一次设置 `ER SDE`、`36` 步、CFG `4.5`、`Automatic` scheduler，并把 Guidance、Dynamic Shift、Spectrum、Regional、Artist Mixer、FreeFuse、PiD、Hires Guard、LoRA Stage/Layer、Prompt Rescale、分辨率随机化和 Hires/Refiner 等可选栈关闭；这些模块内部的数值也会恢复为本文推荐起点。Torch Compile 回到 `Automatic`。
+它会一次设置 `ER SDE`、`36` 步、CFG `4.5`、`Automatic` scheduler，并把 Guidance、DAVE、Cross-Attention Boost、Dynamic Shift、Spectrum、Regional、Artist Mixer、FreeFuse、PiD、Hires Guard、LoRA Stage/Layer、Prompt Rescale、分辨率随机化和 Hires/Refiner 等可选栈关闭；这些模块内部的数值也会恢复为本文推荐起点。Torch Compile 回到 `Automatic`。
 
 预设不会清空正/负提示词、Regional prompt、Artist 名称与权重、LoRA 名称、FreeFuse trigger phrase、PiD 模型选择或本地 adapter/encoder 路径。这样可以安全建立采样基线，而不破坏用户正在编辑的核心创作内容。它面向 Anima Base/Aesthetic；Turbo 请在应用后再改为约 `10` 步、CFG `1.0` 和 `Euler`/`Anima Flow Euler`。
 
@@ -227,7 +227,7 @@ SMC-CFG 会占用 CFG combine，并自动禁用 Momentum。不要同时选择 FD
 
 用途：只在采样中段使用 CFG，减少早期或末期过强引导。Base/Aesthetic、CFG 4–7 才值得试；Turbo CFG 1 基本没有收益。
 
-建议从 `0.10–0.80` 做 A/B。范围外退回 conditional/CFG 1 行为。该范围是 flow-aware 的归一化采样进度，不是从其他模型照搬的 sigma 数值。
+建议从 `0.10–0.80` 做 A/B。范围外只用 conditional 预测（等同 CFG 1），只要没有其他 hook 仍读取负向预测，这些步也会跳过负向前向。start/end 是模型去噪时间的比例，经 Forge 的 `percent_to_sigma` 换算成 sigma（Anima shift 3 下 0.5 对应 sigma 0.75），不是步数比例；所以一个范围覆盖多少步取决于 scheduler：30 步 `Beta57` 时 end `0.5` 只覆盖 13 步。
 
 ### DCW latent bias correction
 
@@ -239,7 +239,7 @@ Anima 起点就是代码默认值：
 - schedule `one_minus_sigma`；
 - bands `LL`。
 
-只在确实看到低频漂移时开启。优先保持 `LL`，不要为了“更多细节”切到 `all`；DCW 不是锐化器。FDG 开启时 DCW 会被禁用。
+只在确实看到低频漂移时开启。优先保持 `LL`，不要为了“更多细节”切到 `all`；DCW 不是锐化器。DCW 与 FDG 互斥：GUI 里后开启的一方生效并锁定另一方；API 调用同时开启两者时 FDG 生效、DCW 被禁用。
 
 DCW 要求每步只有一次主模型求值：支持 Euler、Euler a、DPM++ 2M、DPM++ 2M/3M SDE、ER SDE（含 CNS）、LMS、LCM、Res Multistep、Anima Flow 系列（PC3 的端点 probe 会被跳过）、Anima SPEED 和 Anima FreeFuse Euler。Heun、DPM2、DPM++ SDE/2S、Restart、UniPC、DDIM 等含中间求值的采样器上 DCW 会被自动禁用，并记入 `Anima conflict resolution`。
 
@@ -247,7 +247,7 @@ DCW 要求每步只有一次主模型求值：支持 Euler、Euler a、DPM++ 2M�
 
 用途：保留 ER-SDE 求解器，只重着色每一步的随机噪声频谱。
 
-选择 `Anima ER SDE CNS` 后，先用 `strength 0.5` 与普通 ER SDE 对比，再试默认的 `1.0`。`0` 等于 stock ER-SDE 噪声，`1` 是完整 Anima 校准重着色。首次使用会下载并校验约 6 KiB 的校准文件。
+选择 `Anima ER SDE CNS` 后，先用 `strength 0.5` 与普通 ER SDE 对比，再试默认的 `1.0`。`0` 等于 stock ER-SDE 噪声，`1` 是完整 Anima 校准重着色。首次使用会下载并校验约 6 KiB 的校准文件：Guidance 扩展在每个任务开始采样前下载（只要某一遍用 CNS 采样器且 strength > 0，面板关闭时也会），采样器只读取已下载的文件，不会在模型占着显卡时等网络。下载失败时回退为白噪声并在 `Anima CNS` 记录原因，10 分钟后再重试。
 
 CNS 不作用于 Flow Euler/UniPC2/PC3；FDG 与 CNS 不同时运行。
 
@@ -255,7 +255,7 @@ CNS 不作用于 Flow Euler/UniPC2/PC3；FDG 与 CNS 不同时运行。
 
 用途：沿“正向语义方向 − 负向语义方向”调制 Anima block，更适合目标明确的质量、解剖或风格方向，不是通用必开项。
 
-第一次可保留：weight `3.0`、blocks `0..-1`、默认正负方向。若主体身份或画风漂移，先把 weight 降到 `1–2`。自动模式首次会下载并哈希校验约 163 MiB adapter 和 235 MiB CLIP-L encoder。
+第一次可保留：weight `3.0`、blocks `0..-1`、默认正负方向。若主体身份或画风漂移，先把 weight 降到 `1–2`。自动模式首次会下载并哈希校验约 163 MiB adapter 和 235 MiB CLIP-L encoder。`Local file` 模式只读取 models 文件夹内的文件（绝对路径，或相对 models 文件夹的路径；UNC/网络路径和经符号链接指向文件夹外的路径会被拒绝）；以 `--hide-ui-dir-config` 启动时路径框隐藏，`Local file` 模式被拒绝，只能用自动下载。
 
 ## Dynamic Shift
 
@@ -413,7 +413,7 @@ Remi 会在 GUI 中采用“最后选择的功能获胜”：冲突项会被自�
 | SMC / CFG-Zero* / APG / FDG | 同一下拉框，互斥模式 |
 | Momentum + SMC/CFG-Zero*/APG/FDG | 自动禁用 Momentum |
 | Momentum + UniPC2/PC3/Heun/DPM2 | 不支持，自动禁用 |
-| FDG + DCW | 自动禁用 DCW |
+| FDG + DCW | 互斥：GUI 中后开启的一方生效并锁定另一方；API 同时开启时禁用 DCW |
 | DCW + Heun/DPM2/DPM++ SDE/Restart 等多次求值采样器 | 自动禁用 DCW |
 | FDG + CNS | 自动禁用 FDG |
 | FreeFuse + Regional | 同一互斥组，GUI 中最后选择者获胜；headless 时 Regional 让位，infotext 记为 `Anima regional conditioning: disabled: Anima FreeFuse has priority in headless processing` |

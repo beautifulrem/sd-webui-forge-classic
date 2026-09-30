@@ -105,6 +105,33 @@ class NAGTests(unittest.TestCase):
         self.assertTrue(torch.allclose(actual[0, 0], expected_positive))
         self.assertTrue(torch.equal(actual[1, 0], z_neg))
 
+    def test_and_sub_prompt_rows_pair_with_their_images_negative_row(self):
+        # Forge batches an AND sub-prompt as a second positive group:
+        # cond_or_uncond [0, 0, 1] at batch size 2 is rows 0-1 (prompt),
+        # 2-3 (AND sub-prompt), 4-5 (negative). Each positive row of image i
+        # guides against negative row 4 + i, with that row's mask.
+        modifier = NAGAttentionModifier(scale=1.0, tau=100.0, alpha=1.0, sigma_start=0.0, sigma_end=1.0)
+        q = torch.zeros(6, 1, 1, 1)
+        k = torch.tensor([1.0, 2.0, 3.0, 4.0, 10.0, 20.0]).reshape(6, 1, 1, 1)
+        mask = torch.tensor([0.0, 0.0, 0.0, 0.0, 1.0, 2.0]).reshape(6, 1, 1, 1)
+
+        def attention(q, k, v, *, mask=None):
+            return k.flatten(2) + mask.reshape(-1, 1, 1)
+
+        options = {"cond_or_uncond": [0, 0, 1], "sigmas": torch.tensor([0.5])}
+        actual = modifier(attention, q, k, torch.zeros_like(k), mask=mask, transformer_options=options, is_self_attention=False)
+        # scale 1, alpha 1, no tau clamp: z+ + (z+ - z-) = 2 z+ - z-, where
+        # z- = k + mask of the paired negative row (row 4 for image 0, 5 for image 1).
+        expected = torch.tensor([
+            2 * 1.0 - (10.0 + 1.0),  # prompt, image 0 -> row 4
+            2 * 2.0 - (20.0 + 2.0),  # prompt, image 1 -> row 5
+            2 * 3.0 - (10.0 + 1.0),  # AND sub-prompt, image 0 -> row 4
+            2 * 4.0 - (20.0 + 2.0),  # AND sub-prompt, image 1 -> row 5
+            10.0 + 1.0,  # negative rows are left alone
+            20.0 + 2.0,
+        ]).reshape(6, 1, 1)
+        self.assertTrue(torch.equal(actual, expected), actual.flatten())
+
     def test_active_follows_the_sigma_window(self):
         modifier = NAGAttentionModifier(scale=2.0, tau=2.5, alpha=0.5, sigma_start=0.0, sigma_end=0.4)
         self.assertFalse(modifier.active({"sigmas": torch.tensor([0.5])}))
