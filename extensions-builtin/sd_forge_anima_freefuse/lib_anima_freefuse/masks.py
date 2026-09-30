@@ -140,6 +140,8 @@ def generate_masks(
         radius = max(0, int(feather))
         if radius:
             kernel = radius * 2 + 1
-            mask = F.avg_pool2d(mask, kernel, stride=1, padding=radius)
+            # Blend only between regions, not with the zero padding beyond
+            # the image frame: that would dim every mask along the edges.
+            mask = F.avg_pool2d(mask, kernel, stride=1, padding=radius, count_include_pad=False)
         result[name] = mask[:, 0].clamp(0.0, 1.0)
     return result

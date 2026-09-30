@@ -68,6 +68,28 @@ def test_generate_masks_preserves_per_image_assignments():
     assert torch.equal(masks["left"][0], masks["right"][1])
 
 
+def test_feathered_masks_still_partition_the_image_up_to_its_edges():
+    # Left/right halves of an 8x8 grid, every token foreground
+    column = torch.arange(8.0).repeat(8, 1).reshape(1, 64)
+    left, right = 8.0 - column, column
+    for feather in (1, 2):
+        masks = generate_masks(
+            {"left": left, "right": right},
+            torch.full((1, 64), -1e3),
+            height=8,
+            width=8,
+            bg_scale=1.0,
+            iterations=1,
+            feather=feather,
+        )
+        total = masks["left"] + masks["right"]
+        # Edges and corners included: feathering blends regions, not the frame
+        assert torch.allclose(total, torch.ones_like(total))
+        # Only the columns within ``feather`` of the inner boundary are blended
+        blended = (masks["left"][0] > 0) & (masks["left"][0] < 1)
+        assert blended.any(dim=0).nonzero().flatten().tolist() == list(range(4 - feather, 4 + feather))
+
+
 def test_generate_masks_rejects_inconsistent_batches():
     try:
         generate_masks(
