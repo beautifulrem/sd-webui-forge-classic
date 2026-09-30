@@ -30,14 +30,13 @@ from modules.anima_lora_support import (
     model_key as _model_key,
     merge_consistent_rules,
     compact_text as _compact_text,
-    is_plain_number as _is_plain_number,
 )
 from modules.anima_lora_ui import intro_block, register_language_option, ui_language, ui_text
 from modules.anima_lora_files import adapter_kind_for_file as _adapter_kind_for_file
 from modules.anima_lora_files import is_anima_adapter_file as _is_anima_adapter_file
 from modules.anima_lora_files import lora_coverage as _lora_coverage
 from modules.anima_presets import register_preset_control
-from modules.anima_support import PasteKey, script_arguments
+from modules.anima_support import PasteKey, is_plain_number as _is_plain_number, script_arguments
 
 
 logger = logging.getLogger("anima_lora_layer_weight")

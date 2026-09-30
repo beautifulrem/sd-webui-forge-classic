@@ -277,7 +277,7 @@ def test_a_section_name_ends_at_its_first_separator():
 
 
 def test_weight_text_folds_full_width_input_to_ascii():
-    from modules.anima_lora_support import fold_weight_text, is_plain_number
+    from modules.anima_support import fold_weight_text, is_plain_number
 
     assert fold_weight_text("ｍｏｄｕｌｅｓ：ｍｌｐ＝０．５，ｃｒｏｓｓ＝－１；　ａｌｌ＝1") == "modules=mlp=0.5,cross=-1; all=1"
     assert fold_weight_text("0-9=0.5;modules=mlp=0.8") == "0-9=0.5;modules=mlp=0.8"
@@ -289,7 +289,8 @@ def test_weight_text_folds_full_width_input_to_ascii():
 @pytest.mark.parametrize("dash", ["\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015", "\u2212", "\ufe63", "\uff0d"])
 def test_dash_variants_read_as_ascii_hyphens(dash):
     # Ranges pasted from prose ("0–9=0.7", as the generation guide once wrote them)
-    from modules.anima_lora_support import parse_layer_weights, plain_number
+    from modules.anima_lora_support import parse_layer_weights
+    from modules.anima_support import plain_number
 
     assert parse_layer_weights(f"0{dash}9=0.7, 10{dash}18=1").values == {**dict.fromkeys(range(10), 0.7), **dict.fromkeys(range(10, 19), 1.0)}
     assert plain_number(f"{dash}0.5") == -0.5
@@ -298,7 +299,8 @@ def test_dash_variants_read_as_ascii_hyphens(dash):
 def test_compatibility_digits_are_not_read_as_other_numbers(caplog):
     # Superscripts, circled digits and ligatures are not decimal digits: they are
     # rejected with a warning, never silently read as another value
-    from modules.anima_lora_support import parse_layer_weights, plain_number
+    from modules.anima_lora_support import parse_layer_weights
+    from modules.anima_support import plain_number
 
     for text in ("0.5\u00b2", "\u2460", "\u2474", "1\u2044" "2"):
         assert plain_number(text) is None, text
@@ -648,7 +650,8 @@ def test_weight_numbers_share_one_grammar(caplog):
     # A lone strength and a value inside a weight text read the same way: an
     # exponent is fine, a "_" separator is refused ("0_5" is not 5), as are
     # inf / nan and overflow
-    from modules.anima_lora_support import parse_layer_weights, parse_module_weights, plain_number
+    from modules.anima_lora_support import parse_layer_weights, parse_module_weights
+    from modules.anima_support import plain_number
 
     assert plain_number("1e-1") == 0.1 and parse_layer_weights("0=1e-1").values == {0: 0.1}
     for text in ("0_5", "1_000", "inf", "nan", "1e999"):

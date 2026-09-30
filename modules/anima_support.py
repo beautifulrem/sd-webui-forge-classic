@@ -8,6 +8,8 @@ script mixin."""
 
 from __future__ import annotations
 
+import math
+import re
 from collections.abc import Mapping
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -428,6 +430,27 @@ def fold_weight_text(text) -> str:
     ``_WEIGHT_TEXT_FOLD``)."""
 
     return str(text or "").translate(_WEIGHT_TEXT_FOLD)
+
+
+# The one number grammar of weight texts: decimal digits of any script (as
+# float() reads them; not superscripts or circled digits), an optional
+# exponent, no "_" separators ("0_5" would read as 5) and no inf / nan
+_PLAIN_NUMBER_RE = re.compile(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*")
+
+
+def plain_number(text) -> float | None:
+    """The finite value of a lone number such as "0.6", "-.5", "1e-1",
+    "０．５" or "−0.5" (folded first), else None."""
+
+    folded = fold_weight_text(text)
+    if not _PLAIN_NUMBER_RE.fullmatch(folded):
+        return None
+    value = float(folded)
+    return value if math.isfinite(value) else None
+
+
+def is_plain_number(text) -> bool:
+    return plain_number(text) is not None
 
 
 # Past every block or layer index (the deepest Anima DiT has 52 blocks, the

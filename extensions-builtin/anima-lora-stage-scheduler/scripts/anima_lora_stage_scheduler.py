@@ -38,7 +38,6 @@ from modules.anima_lora_support import (
     active_template_parts,
     anima_lora_block_count,
     current_sampling_position,
-    plain_number as _plain_number,
     lora_key_factor,
     model_key as _model_key,
     stage_window_of,
@@ -47,7 +46,7 @@ from modules.anima_lora_support import (
 )
 from modules.anima_lora_ui import intro_block, register_language_option, ui_language, ui_text
 from modules.anima_presets import register_preset_control
-from modules.anima_support import script_arguments
+from modules.anima_support import plain_number as _plain_number, script_arguments
 
 
 logger = logging.getLogger("anima_lora_stage_scheduler")

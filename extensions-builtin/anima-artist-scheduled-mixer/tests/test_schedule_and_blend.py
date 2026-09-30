@@ -86,6 +86,27 @@ def test_inline_weight_syntax():
     # Not a number: the whole text is the artist, at weight 1
     assert parse_inline_weight("(artist:foo)") == ("(artist:foo)", 1.0)
     assert parse_inline_weight("artist:0_5") == ("artist:0_5", 1.0)
+    # An empty name is empty with or without brackets (the row is then skipped)
+    assert parse_inline_weight("(:1.5)") == parse_inline_weight("( :1.5)") == parse_inline_weight(":1.5") == ("", 1.5)
+
+
+def test_a_block_field_parses_in_linear_time_on_long_whitespace_runs(caplog):
+    # Blocks comes from pasted infotext, the API and saved settings, unbounded;
+    # four times the text may take about four times as long, not sixteen
+    import time
+
+    def seconds(text):
+        best = float("inf")
+        for _ in range(3):
+            start = time.perf_counter()
+            parse_blocks(text, 28)
+            best = min(best, time.perf_counter() - start)
+        return best
+
+    for shape in (lambda spaces: f"1{spaces}2", lambda spaces: f"0{spaces}-{spaces}5"):
+        short, long = (seconds(shape(" " * n)) for n in (10000, 40000))
+        assert long < 8 * short + 1e-3, (short, long)
+    assert all(len(record.getMessage()) < 400 for record in caplog.records)  # the warning quotes a bounded excerpt
 
 
 def test_norm_limited_delta_caps_each_row_separately():

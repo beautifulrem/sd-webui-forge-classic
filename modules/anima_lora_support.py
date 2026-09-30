@@ -8,12 +8,11 @@ Forge's LoRA index and LoRA Control. Their Gradio UI helpers are in
 from __future__ import annotations
 
 import logging
-import math
 import os
 import re
 from dataclasses import dataclass, field
 
-from modules.anima_support import block_index_token, fold_weight_text, parse_block_list, sigma_value  # fold_weight_text: re-exported
+from modules.anima_support import block_index_token, fold_weight_text, is_plain_number, parse_block_list, plain_number, sigma_value
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +73,7 @@ def install_activate_hook(key: str, implementation) -> bool:
         return wrapper
 
     return _install_hook(extra_networks, "activate", key, implementation, make_wrapper)
+
 
 # Forge's LoRA Control (sd_forge_lora_schedule/scripts/control.py): its
 # ``LoRAControl.mapping`` (``{lora filename: [(weight, time), ...]}``) holds
@@ -556,28 +556,6 @@ def compact_text(text) -> str:
     return " ".join(str(text or "").replace("\r", "\n").split())
 
 
-
-# The one number grammar of weight texts: decimal digits of any script (as
-# float() reads them; not superscripts or circled digits), an optional
-# exponent, no "_" separators ("0_5" would read as 5) and no inf / nan
-_PLAIN_NUMBER_RE = re.compile(r"\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*")
-
-
-def plain_number(text) -> float | None:
-    """The finite value of a lone number such as "0.6", "-.5", "1e-1",
-    "０．５" or "−0.5" (folded first), else None."""
-
-    folded = fold_weight_text(text)
-    if not _PLAIN_NUMBER_RE.fullmatch(folded):
-        return None
-    value = float(folded)
-    return value if math.isfinite(value) else None
-
-
-def is_plain_number(text) -> bool:
-    return plain_number(text) is not None
-
-
 def module_key(name: str) -> str:
     key = str(name or "").strip().lower().replace("-", "_").replace(" ", "_")
     aliases = {
@@ -876,4 +854,3 @@ def parse_module_weights(text) -> dict[str, float]:
             continue
         weights[module_key(name)] = value
     return weights
-

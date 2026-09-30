@@ -6,8 +6,8 @@ from __future__ import annotations
 import logging
 import re
 
-from modules.anima_lora_support import fold_weight_text, plain_number, window_curve_factor
-from modules.anima_support import block_index_token
+from modules.anima_lora_support import window_curve_factor
+from modules.anima_support import block_index_token, fold_weight_text, plain_number
 
 logger = logging.getLogger("anima_artist_scheduled_mixer")
 
@@ -27,24 +27,22 @@ def parse_inline_weight(text):
     value = str(text or "").strip()
     if not value:
         return "", 1.0
-    wrapped = re.fullmatch(r"[(\[（［【](.+)[：:]([^：:]+)[)\]）］】]", value)
+    wrapped = re.fullmatch(r"[(\[（［【](.*)[：:]([^：:]+)[)\]）］】]", value)
     if wrapped and (weight := plain_number(wrapped.group(2))) is not None:
         return wrapped.group(1).strip(), weight
     if not (value.startswith("<") and value.endswith(">")):
-        trailing = re.fullmatch(r"(.+)[：:]([^：:]+)", value)
+        trailing = re.fullmatch(r"(.*)[：:]([^：:]+)", value)
         if trailing and (weight := plain_number(trailing.group(2))) is not None:
             return trailing.group(1).strip(), weight
     return value, 1.0
 
 
-_DASH_SPACING = re.compile(r"\s*-\s*")
-
 
 def parse_blocks(text, num_blocks):
     """Per-artist block field: empty means every block, negative indices count
     from the end, IME input is read as in the weight fields (full-width forms,
-    "，", dash variants: modules.anima_lora_support.fold_weight_text) and bad
-    parts are skipped. Spaces around a range's dash are dropped ("0 - 5");
+    "，", dash variants: modules.anima_support.fold_weight_text) and bad
+    parts are skipped. Spaces around any "-" are dropped ("0 - 5", "- 1");
     any other whitespace inside a part makes it bad ("1 0" is not block 10;
     parse_block_list refuses it too).
     A field that selects nothing (only bad or out-of-range parts) is the empty
@@ -57,7 +55,8 @@ def parse_blocks(text, num_blocks):
     for part in parts:
         if not part:
             continue
-        token = _DASH_SPACING.sub("-", part)
+        # Linear: a regex like \s*-\s* rescans long space runs for each space
+        token = "-".join(piece.strip() for piece in part.split("-"))
         if "-" in token[1:]:
             dash = token.index("-", 1)
             try:
@@ -83,7 +82,9 @@ def parse_blocks(text, num_blocks):
             if 0 <= idx < num_blocks:
                 result.add(idx)
     if not result:
-        logger.warning("Anima artist mixer: Blocks %r selects none of blocks 0-%d; that artist is skipped", str(text), num_blocks - 1)
+        shown = str(text)
+        shown = shown if len(shown) <= 200 else f"{shown[:200]}... ({len(shown)} characters)"
+        logger.warning("Anima artist mixer: Blocks %r selects none of blocks 0-%d; that artist is skipped", shown, num_blocks - 1)
     return result
 
 
