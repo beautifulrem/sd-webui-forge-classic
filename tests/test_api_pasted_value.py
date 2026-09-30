@@ -29,6 +29,13 @@ def test_an_update_without_a_value_sets_nothing():
     assert pasted_value(gr.update(visible=False), float) is None
 
 
+def test_infotext_text_converts_like_the_ui_paste():
+    # Infotext values arrive as text: bool("False") would be True
+    assert pasted_value("False", bool) is False
+    assert pasted_value("True", bool) is True
+    assert pasted_value("3.0", int) == 3 and pasted_value("7", int) == 7
+
+
 def test_plain_values_are_converted_to_the_target_type():
     assert pasted_value("1.25", float) == 1.25
     assert pasted_value(True, bool) is True

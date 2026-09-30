@@ -39,15 +39,20 @@ def script_name_to_index(name, scripts):
 
 
 def pasted_value(value, target_type):
-    """A paste field's result as a request / script argument value. A
-    ``gr.update`` gives its value: Gradio 3 tags it "generic_update",
-    Gradio 4 "update"."""
+    """A paste field's result as a request / script argument value, converted
+    like the UI paste (``infotext_utils._parse_info``) converts it: a
+    ``gr.update`` gives its value (Gradio 3 tags it "generic_update", Gradio 4
+    "update"), infotext "False" is False, and "3.0" fills an int field."""
 
     if isinstance(value, dict) and value.get("__type__") in ("generic_update", "update"):
         value = value.get("value")
-    if value is not None and not isinstance(value, target_type):
-        value = target_type(value)
-    return value
+    if value is None or isinstance(value, target_type):
+        return value
+    if target_type is bool and value == "False":
+        return False
+    if target_type is int and isinstance(value, str):
+        return int(float(value))
+    return target_type(value)
 
 
 def validate_sampler_name(name):
