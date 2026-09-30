@@ -154,6 +154,35 @@ def test_a_runs_infotext_restores_every_control(module, monkeypatch, run_languag
     assert _paste(module, script, params) == _args(module, labels[paste_language])
 
 
+def test_ui_and_process_name_the_script_args_in_table_order(module, monkeypatch):
+    _language(module, monkeypatch, "zh")
+    script, controls, _ = _build_ui(module)
+    panel = dict(module.PANEL_ARGS)
+
+    def elem_id(name):
+        # A panel control's elem_id is "base_*" / "hires_*" ("auto" is "auto_timing")
+        prefix, _, field = name.partition("_")
+        if field not in panel:
+            return name
+        return f"{'hires' if prefix == 'hr' else prefix}_{'auto_timing' if field == 'auto' else field}"
+
+    assert [control.elem_id for control in controls] == [script.elem_id(elem_id(name)) for name in module.SCRIPT_ARG_NAMES]
+
+    # process gives each panel's _build_pass_config the args of that panel's names
+    calls = []
+    build = module._build_pass_config
+    monkeypatch.setattr(module, "_build_pass_config", lambda *panel_args: calls.append(panel_args) or build(*panel_args))
+    args = _args(module, _zh)
+    named = dict(zip(module.SCRIPT_ARG_NAMES, args, strict=True))
+    _run(module, args)
+    for prefix, shift, call in zip(("base", "hr"), (3.0, 5.0), calls, strict=True):
+        values = [named[f"{prefix}_{name}"] for name in panel]
+        assert call == (*values[:6], None, *values[6:], shift)
+
+    with pytest.raises(TypeError, match=f"takes {len(args)} script arguments, got {len(args) - 1}"):
+        module.Script().process(SimpleNamespace(), *args[:-1])
+
+
 def test_the_infotext_records_stable_values_whatever_the_ui_language(module, monkeypatch):
     _language(module, monkeypatch, "zh")
     zh, _ = _run(module, _args(module, _zh))

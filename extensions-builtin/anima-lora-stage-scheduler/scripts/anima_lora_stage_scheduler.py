@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 
 import gradio as gr
 
@@ -355,10 +356,22 @@ DISABLE_ALIASES = {value: key for key, value in DISABLE_EN.items()}
 TARGET_MODE_CODES = {MODE_AUTO_ANIMA: "auto", MODE_PROMPT_ALL: "all", MODE_TARGETS: "targets"}
 DISABLE_CODES = {DISABLE_NONE: "none", DISABLE_ALL: "all", DISABLE_SELECTED: "selected"}
 
-# Infotext keys, one per control that changes the run, in the order of the
-# controls returned by ``ui``; ``infotext_fields`` pastes each back into its
-# control. A panel records these fields (_panel_infotext):
-PANEL_INFOTEXT_FIELDS = ("scope", "targets", "weight", "template", "per-LoRA templates", "auto timing", "start", "end", "peak", "strength", "curve")
+# The controls of a stage panel (_stage_panel) that change the run: (name
+# after the panel's prefix, the field _panel_infotext records it under)
+PANEL_ARGS = (
+    ("target_mode", "scope"),
+    ("target_loras", "targets"),
+    ("panel_weight", "weight"),
+    ("template", "template"),
+    ("lora_templates", "per-LoRA templates"),
+    ("auto", "auto timing"),
+    ("start", "start"),
+    ("end", "end"),
+    ("peak", "peak"),
+    ("stage_strength", "strength"),
+    ("curve", "curve"),
+)
+PANEL_INFOTEXT_FIELDS = tuple(field for _, field in PANEL_ARGS)
 INFOTEXT_ENABLED = "Anima LoRA stage enabled"
 INFOTEXT_HIRES_INDEPENDENT = "Anima LoRA stage hires independent"
 INFOTEXT_HIRES_DISABLE = "Anima LoRA stage hires disable"
@@ -369,14 +382,28 @@ def _panel_key(pass_name: str, field_name: str) -> str:
     return f"Anima LoRA stage {pass_name} {field_name}"
 
 
-INFOTEXT_KEYS = (
-    INFOTEXT_ENABLED,
-    *(_panel_key("base", name) for name in PANEL_INFOTEXT_FIELDS),
-    INFOTEXT_HIRES_INDEPENDENT,
-    *(_panel_key("hires", name) for name in PANEL_INFOTEXT_FIELDS),
-    INFOTEXT_HIRES_DISABLE,
-    INFOTEXT_HIRES_DISABLE_TAGS,
+# One row per script argument, in the order ui() returns the components (the
+# API's positional order): (name of the control in ui() and of the argument
+# process reads, infotext key, preset name or None). ``infotext_fields``
+# pastes each key back into its control.
+SCRIPT_ARGS = (
+    ("enabled", INFOTEXT_ENABLED, "lora_stage.enabled"),
+    *((f"base_{name}", _panel_key("base", field), None) for name, field in PANEL_ARGS),
+    ("hr_independent", INFOTEXT_HIRES_INDEPENDENT, None),
+    *((f"hr_{name}", _panel_key("hires", field), None) for name, field in PANEL_ARGS),
+    ("hr_disable_mode", INFOTEXT_HIRES_DISABLE, None),
+    ("hr_disable_tags", INFOTEXT_HIRES_DISABLE_TAGS, None),
 )
+SCRIPT_ARG_NAMES = tuple(row[0] for row in SCRIPT_ARGS)
+INFOTEXT_KEYS = tuple(row[1] for row in SCRIPT_ARGS)
+
+
+def _arguments(values) -> SimpleNamespace:
+    """The script args, one attribute per SCRIPT_ARGS name."""
+
+    if len(values) != len(SCRIPT_ARG_NAMES):
+        raise TypeError(f"Anima LoRA stage scheduler takes {len(SCRIPT_ARG_NAMES)} script arguments, got {len(values)}")
+    return SimpleNamespace(**dict(zip(SCRIPT_ARG_NAMES, values, strict=True)))
 
 STAGE_DEFAULT_CURVES = {
     STAGE_COMPOSITION: CURVE_FRONT,
@@ -2090,79 +2117,26 @@ class Script(scripts.Script):
             show_progress=False,
         )
 
-        register_preset_control(self.tabname, "lora_stage.enabled", enabled)
-
-        controls = [
-            enabled,
-            base_target_mode,
-            base_target_loras,
-            base_panel_weight,
-            base_template,
-            base_lora_templates,
-            base_auto,
-            base_start,
-            base_end,
-            base_peak,
-            base_stage_strength,
-            base_curve,
-            hr_independent,
-            hr_target_mode,
-            hr_target_loras,
-            hr_panel_weight,
-            hr_template,
-            hr_lora_templates,
-            hr_auto,
-            hr_start,
-            hr_end,
-            hr_peak,
-            hr_stage_strength,
-            hr_curve,
-            hr_disable_mode,
-            hr_disable_tags,
-        ]
+        # Each control is the local variable named in SCRIPT_ARGS.
+        named = locals()
+        fields = [(named[name], key, preset_name) for name, key, preset_name in SCRIPT_ARGS]
+        for control, _, preset_name in fields:
+            if preset_name is not None:
+                register_preset_control(self.tabname, preset_name, control)
         # Imported here: infotext_utils needs the full WebUI, and CPU tests
         # (tests/test_anima_lora_patches.py) load this module without it
         from modules.infotext_utils import PasteField
 
         # _translate_pasted_infotext turns the recorded codes into these controls' values
-        self.infotext_fields = [PasteField(control, key) for control, key in zip(controls, INFOTEXT_KEYS, strict=True)]
+        self.infotext_fields = [PasteField(control, key) for control, key, _ in fields]
         self.paste_field_names = list(INFOTEXT_KEYS)
-        return controls
+        return [control for control, _, _ in fields]
 
-    def process(
-        self,
-        p,
-        enabled,
-        base_target_mode,
-        base_target_loras,
-        base_panel_weight,
-        base_template,
-        base_lora_templates,
-        base_auto,
-        base_start,
-        base_end,
-        base_peak,
-        base_stage_strength,
-        base_curve,
-        hr_independent,
-        hr_target_mode,
-        hr_target_loras,
-        hr_panel_weight,
-        hr_template,
-        hr_lora_templates,
-        hr_auto,
-        hr_start,
-        hr_end,
-        hr_peak,
-        hr_stage_strength,
-        hr_curve,
-        hr_disable_mode,
-        hr_disable_tags,
-        *args,
-    ):
+    def process(self, p, *values):
         global _ACTIVE_STATE
 
-        if not enabled:
+        args = _arguments(values)
+        if not args.enabled:
             _cleanup_runtime(p)
             _note_text_encoder_signature(p, None)
             return
@@ -2173,8 +2147,8 @@ class Script(scripts.Script):
         # Each panel's _build_pass_config arguments except the Shift; with no
         # independent Hires panel the base one is reused at the Hires Shift.
         # The stage is None: finalize_timing resolves it from the template.
-        base_panel = (base_target_mode, base_target_loras, base_panel_weight, base_template, base_lora_templates, base_auto, None, base_start, base_end, base_peak, base_stage_strength, base_curve)
-        hires_panel = (hr_target_mode, hr_target_loras, hr_panel_weight, hr_template, hr_lora_templates, hr_auto, None, hr_start, hr_end, hr_peak, hr_stage_strength, hr_curve) if hr_independent else base_panel
+        base_panel = (args.base_target_mode, args.base_target_loras, args.base_panel_weight, args.base_template, args.base_lora_templates, args.base_auto, None, args.base_start, args.base_end, args.base_peak, args.base_stage_strength, args.base_curve)
+        hires_panel = (args.hr_target_mode, args.hr_target_loras, args.hr_panel_weight, args.hr_template, args.hr_lora_templates, args.hr_auto, None, args.hr_start, args.hr_end, args.hr_peak, args.hr_stage_strength, args.hr_curve) if args.hr_independent else base_panel
         base_config = _build_pass_config(*base_panel, base_shift)
         hires_config = _build_pass_config(*hires_panel, hires_shift)
 
@@ -2183,8 +2157,8 @@ class Script(scripts.Script):
             enabled=True,
             base=base_config,
             hires=hires_config,
-            hr_disable_mode=_normalize_disable_mode(hr_disable_mode),
-            hr_disable_tags=_parse_disable_tags(hr_disable_tags),
+            hr_disable_mode=_normalize_disable_mode(args.hr_disable_mode),
+            hr_disable_tags=_parse_disable_tags(args.hr_disable_tags),
             original_online_lora=user_online_lora(),
             outer_state=_ACTIVE_STATE,
         )
@@ -2197,7 +2171,7 @@ class Script(scripts.Script):
         _remove_hires_lora_tags(p, state)
 
         # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
-        p.extra_generation_params.update(_run_infotext(p, state, hr_independent, base_lora_templates, hr_lora_templates))
+        p.extra_generation_params.update(_run_infotext(p, state, args.hr_independent, args.base_lora_templates, args.hr_lora_templates))
 
     def before_process_batch(self, p, *args, **kwargs):
         state = getattr(p, "_anima_lora_stage_scheduler_state", None)
