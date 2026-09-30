@@ -85,7 +85,40 @@ def _config(rule):
     return [(tab.enabled, tab.targets, tab.block_enabled, tab.block_weights, tab.module_enabled, tab.module_weights, tab.text_layer_enabled, tab.text_layer_weights) for tab in tabs], rule.text_encoder_signature
 
 
-@pytest.mark.parametrize("run_language, paste_language", [("zh", "zh"), ("en", "zh"), ("zh", "en"), ("en", "en")])
+def test_the_script_args_table_is_the_ui_and_hook_order(module, monkeypatch):
+    """ui() returns its controls in SCRIPT_ARG_NAMES order (each control's
+    elem_id carries its own name), and before_process_batch reads its
+    positional args by those names."""
+
+    # The API's positional order: API callers pass these slots as they are
+    tab = ["enabled", "target_loras", "block_enabled", "block_weights", "module_enabled", "module_weights", "text_layer_enabled", "text_layer_weights", "preset_enabled", "preset_name", "preset_scope", "preset_text"]
+    assert list(module.SCRIPT_ARG_NAMES) == [f"lora_{name}" for name in tab] + [f"lokr_{name}" for name in tab]
+
+    _language(module, monkeypatch, "en")
+    script, controls = _build_ui(module)
+    assert [control.elem_id for control in controls] == [script.elem_id(name) for name in module.SCRIPT_ARG_NAMES]
+    assert [field.component.elem_id for field in harness.paste_fields(script)] == [script.elem_id(f"{kind}_{name}") for kind in module.ADAPTER_KINDS for name, field, _ in module.TAB_ARGS if field]
+
+    read = []
+
+    class Read(Exception):
+        pass
+
+    def active_rule(tabs, inline_rules, extra_generation_params=None):
+        read.extend(getattr(tabs[kind], name) for kind in module.ADAPTER_KINDS for name in module.TAB_ARG_NAMES)
+        raise Read
+
+    monkeypatch.setattr(module, "ActiveRule", active_rule)
+    args = [f"arg {index}" for index in range(len(module.SCRIPT_ARG_NAMES))]
+    args[0] = args[12] = False  # both tabs off: no prompt rewrite
+    with pytest.raises(Read):
+        module.Script().before_process_batch(SimpleNamespace(prompts=[], extra_generation_params={}), *args, "not a script arg", batch_number=0)
+    assert read == args
+    with pytest.raises(TypeError, match="lokr_preset_text"):
+        module.Script().before_process_batch(SimpleNamespace(prompts=[]), *args[:-1])
+
+
+@pytest.mark.parametrize("run_language, paste_language",[("zh", "zh"), ("en", "zh"), ("zh", "en"), ("en", "en")])
 def test_a_runs_infotext_restores_every_control(module, monkeypatch, run_language, paste_language):
     _language(module, monkeypatch, run_language)
     args = _args(module, _scope(module, run_language))

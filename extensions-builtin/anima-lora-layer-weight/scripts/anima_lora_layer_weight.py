@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from functools import partial
+from types import SimpleNamespace
 
 import gradio as gr
 
@@ -191,20 +192,55 @@ def _usage_text():
     return USAGE_TEXT_EN if _language() == "en" else USAGE_TEXT
 
 
-# Infotext keys, one per control that changes the run, in the order of the
-# controls a tab returns (_lora_tab, after its enable switch);
-# ``infotext_fields`` pastes each back into its control. The preset controls
-# only rewrite the prompt, which the infotext keeps as written.
-TAB_INFOTEXT_FIELDS = ("enabled", "targets", "blocks enabled", "blocks", "modules enabled", "modules", "qwen enabled", "qwen")
+# One row per control of a tab, in the order of its script args (the API's
+# positional order): (name of the control in _lora_tab, infotext field or
+# None, the field of the switch a text only counts under, or None). The LoRA
+# tab's args come first, then the LoKR tab's, each named "<kind>_<name>". A
+# switch row comes before the text it gates. The preset controls only rewrite
+# the prompt, which the infotext keeps as written; their slots stay for API
+# callers.
+TAB_ARGS = (
+    ("enabled", "enabled", None),
+    ("target_loras", "targets", "enabled"),
+    ("block_enabled", "blocks enabled", None),
+    ("block_weights", "blocks", "blocks enabled"),
+    ("module_enabled", "modules enabled", None),
+    ("module_weights", "modules", "modules enabled"),
+    ("text_layer_enabled", "qwen enabled", None),
+    ("text_layer_weights", "qwen", "qwen enabled"),
+    ("preset_enabled", None, None),
+    ("preset_name", None, None),
+    ("preset_scope", None, None),
+    ("preset_text", None, None),
+)
+ADAPTER_KINDS = ("lora", "lokr")
+TAB_ARG_NAMES = tuple(name for name, _, _ in TAB_ARGS)
+SCRIPT_ARG_NAMES = tuple(f"{kind}_{name}" for kind in ADAPTER_KINDS for name in TAB_ARG_NAMES)
+# Infotext fields, one per control that changes the run; ``infotext_fields``
+# pastes each back into its control
+TAB_INFOTEXT_FIELDS = tuple(field for _, field, _ in TAB_ARGS if field is not None)
 # The switch of each text field: its text only counts while the switch is on
-TAB_TEXT_SWITCHES = {"targets": "enabled", "blocks": "blocks enabled", "modules": "modules enabled", "qwen": "qwen enabled"}
+TAB_TEXT_SWITCHES = {field: switch for _, field, switch in TAB_ARGS if switch is not None}
 
 
 def _infotext_key(adapter_kind: str, field_name: str) -> str:
     return f"Anima LoRA layer {adapter_kind} {field_name}"
 
 
-INFOTEXT_KEYS = tuple(_infotext_key(kind, name) for kind in ("lora", "lokr") for name in TAB_INFOTEXT_FIELDS)
+INFOTEXT_KEYS = tuple(_infotext_key(kind, name) for kind in ADAPTER_KINDS for name in TAB_INFOTEXT_FIELDS)
+
+
+def _arguments(values, kwargs=None) -> dict[str, SimpleNamespace]:
+    """The script args ``values`` (a keyword named in SCRIPT_ARG_NAMES
+    overrides its slot), per adapter kind one attribute per TAB_ARGS name.
+    Args past the table are not this script's."""
+
+    arguments = dict(zip(SCRIPT_ARG_NAMES, values))
+    arguments.update((name, value) for name, value in (kwargs or {}).items() if name in SCRIPT_ARG_NAMES)
+    missing = [name for name in SCRIPT_ARG_NAMES if name not in arguments]
+    if missing:
+        raise TypeError(f"Anima LoRA layer weight is missing script arguments: {', '.join(missing)}")
+    return {kind: SimpleNamespace(**{name: arguments[f"{kind}_{name}"] for name in TAB_ARG_NAMES}) for kind in ADAPTER_KINDS}
 
 
 def _switch(value) -> bool:
@@ -215,17 +251,21 @@ def _switch(value) -> bool:
     return bool(value)
 
 
-def _tab_infotext(adapter_kind, enabled, target_loras, block_enabled, block_weights, module_enabled, module_weights, text_layer_enabled, text_layer_weights) -> dict:
-    """Infotext of one tab, keyed by ``_infotext_key``. A disabled tab records
-    its switch alone; an enabled one every control, but not the text of a
-    field that is empty or whose switch is off (the run ignored it)."""
+def _tab_infotext(adapter_kind: str, tab: SimpleNamespace) -> dict:
+    """Infotext of one tab (its ``_arguments``), keyed by ``_infotext_key``.
+    A disabled tab records its switch alone; an enabled one every control,
+    but not the text of a field that is empty or whose switch is off (the
+    run ignored it)."""
 
-    if not _switch(enabled):
+    if not _switch(tab.enabled):
         return {_infotext_key(adapter_kind, "enabled"): False}
-    switches = {"enabled": True, "blocks enabled": _switch(block_enabled), "modules enabled": _switch(module_enabled), "qwen enabled": _switch(text_layer_enabled)}
-    texts = {"targets": target_loras, "blocks": block_weights, "modules": module_weights, "qwen": text_layer_weights}
-    values = {**switches, **{name: str(text or "").strip() if switches[TAB_TEXT_SWITCHES[name]] else "" for name, text in texts.items()}}
-    return {_infotext_key(adapter_kind, name): values[name] for name in TAB_INFOTEXT_FIELDS if values[name] != ""}
+    values = {}
+    for name, field, switch in TAB_ARGS:
+        if field is None:
+            continue
+        value = getattr(tab, name)
+        values[field] = _switch(value) if switch is None else (str(value or "").strip() if values[switch] else "")
+    return {_infotext_key(adapter_kind, field): value for field, value in values.items() if value != ""}
 
 
 def _pasted_value(adapter_kind: str, field_name: str, params: dict):
@@ -275,23 +315,16 @@ class LoraDecision:
 
 
 class AdapterRule:
-    def __init__(
-        self,
-        adapter_kind: str,
-        enabled: bool,
-        target_loras: str,
-        block_enabled: bool,
-        block_weights: str,
-        module_enabled: bool,
-        module_weights: str,
-        text_layer_enabled: bool,
-        text_layer_weights: str,
-        inline_rules: dict[str, PromptRule],
-    ):
+    def __init__(self, adapter_kind: str, tab: SimpleNamespace, inline_rules: dict[str, PromptRule]):
+        """``tab``: the tab's script args, one attribute per TAB_ARGS name."""
+
         self.adapter_kind = adapter_kind
         # _switch: an API infotext replay may give the recorded "False"
-        self.enabled = _switch(enabled)
-        if not self.enabled:
+        self.enabled = _switch(tab.enabled)
+        if self.enabled:
+            target_loras, block_weights, module_weights, text_layer_weights = tab.target_loras, tab.block_weights, tab.module_weights, tab.text_layer_weights
+            block_enabled, module_enabled, text_layer_enabled = tab.block_enabled, tab.module_enabled, tab.text_layer_enabled
+        else:
             # A disabled tab weights nothing: its fields are not parsed, and
             # editing them must not change the signature (a LoRA reload)
             target_loras = block_weights = module_weights = text_layer_weights = ""
@@ -351,37 +384,15 @@ class AdapterRule:
 
 
 class ActiveRule:
-    def __init__(
-        self,
-        lora_enabled: bool,
-        lora_targets: str,
-        lora_block_enabled: bool,
-        lora_block_weights: str,
-        lora_module_enabled: bool,
-        lora_module_weights: str,
-        lora_text_layer_enabled: bool,
-        lora_text_layer_weights: str,
-        lora_inline_rules: dict[str, PromptRule],
-        lokr_enabled: bool,
-        lokr_targets: str,
-        lokr_block_enabled: bool,
-        lokr_block_weights: str,
-        lokr_module_enabled: bool,
-        lokr_module_weights: str,
-        lokr_text_layer_enabled: bool,
-        lokr_text_layer_weights: str,
-        lokr_inline_rules: dict[str, PromptRule],
-        extra_generation_params: dict | None = None,
-    ):
+    def __init__(self, tabs: dict[str, SimpleNamespace], inline_rules: dict[str, dict[str, PromptRule]], extra_generation_params: dict | None = None):
+        """``tabs``: the script args by adapter kind (``_arguments``);
+        ``inline_rules``: the prompt's inline rules by adapter kind."""
+
         # The run's infotext, and the files left to LoRA Control noted in it
         self.extra_generation_params = extra_generation_params
         self.yielded_to_lora_control: set = set()
-        self.lora_rule = AdapterRule("lora", lora_enabled, lora_targets, lora_block_enabled, lora_block_weights, lora_module_enabled, lora_module_weights, lora_text_layer_enabled, lora_text_layer_weights, lora_inline_rules)
-        self.lokr_rule = AdapterRule("lokr", lokr_enabled, lokr_targets, lokr_block_enabled, lokr_block_weights, lokr_module_enabled, lokr_module_weights, lokr_text_layer_enabled, lokr_text_layer_weights, lokr_inline_rules)
-        self.rules = {
-            "lora": self.lora_rule,
-            "lokr": self.lokr_rule,
-        }
+        self.rules = {kind: AdapterRule(kind, tabs[kind], inline_rules[kind]) for kind in ADAPTER_KINDS}
+        self.lora_rule, self.lokr_rule = self.rules["lora"], self.rules["lokr"]
         self.enabled = self.lora_rule.enabled or self.lokr_rule.enabled
         self.signature = f"lora[{self.lora_rule.signature}]|lokr[{self.lokr_rule.signature}]"
         text_encoder = (self.lora_rule.text_encoder_signature, self.lokr_rule.text_encoder_signature)
@@ -712,6 +723,10 @@ def _apply_prompt_rewrite(p, target_loras: str, adapter_kind: str) -> dict[str, 
 
 
 def _lora_tab(adapter_kind: str, elem_id, default_target: str = ""):
+    """The controls of one tab, by TAB_ARGS name, and its "Apply preset to
+    prompt" button."""
+
+    enabled = gr.Checkbox(label=_t(f"enable_{adapter_kind}"), value=False, elem_id=elem_id(f"{adapter_kind}_enabled"))
     target_placeholder = _t("target_lora_placeholder") if adapter_kind == "lora" else _t("target_lokr_placeholder")
     block_placeholder = _t("block_placeholder")
     module_placeholder = _t("module_placeholder")
@@ -755,7 +770,10 @@ def _lora_tab(adapter_kind: str, elem_id, default_target: str = ""):
     )
     preset_apply = gr.Button(_t("apply_preset"), variant="primary", elem_id=elem_id(f"{adapter_kind}_preset_apply"))
     preset_text.change(fn=_preset_dropdown_update, inputs=[preset_text, preset_name], outputs=[preset_name])
-    return target_loras, block_enabled, block_weights, module_enabled, module_weights, text_layer_enabled, text_layer_weights, preset_enabled, preset_name, preset_scope, preset_text, preset_apply
+    gr.Textbox(label=_t(f"{adapter_kind}_usage"), value=_usage_text(), lines=12, interactive=False, elem_id=elem_id(f"{adapter_kind}_usage"))
+    # Each control is the local variable named in TAB_ARGS
+    controls = locals()
+    return {name: controls[name] for name in TAB_ARG_NAMES}, preset_apply
 
 
 class Script(scripts.Script):
@@ -813,133 +831,43 @@ class Script(scripts.Script):
         with gr.Accordion(_t("accordion"), open=False, elem_id=self.elem_id("accordion")):
             intro_block(self.elem_id, INTRO_EN, INTRO_ZH, LANGUAGE_OPTION)
             with gr.Tabs(elem_id=self.elem_id("tabs")):
-                with gr.TabItem("LoRA"):
-                    lora_enabled = gr.Checkbox(label=_t("enable_lora"), value=False, elem_id=self.elem_id("lora_enabled"))
-                    lora_target_loras, lora_block_enabled, lora_block_weights, lora_module_enabled, lora_module_weights, lora_text_layer_enabled, lora_text_layer_weights, lora_preset_enabled, lora_preset_name, lora_preset_scope, lora_preset_text, lora_preset_apply = _lora_tab("lora", self.elem_id)
-                    gr.Textbox(label=_t("lora_usage"), value=_usage_text(), lines=12, interactive=False, elem_id=self.elem_id("lora_usage"))
+                tabs, preset_apply = {}, {}
+                for kind, label in zip(ADAPTER_KINDS, ("LoRA", "LoKR"), strict=True):
+                    with gr.TabItem(label):
+                        tabs[kind], preset_apply[kind] = _lora_tab(kind, self.elem_id)
 
-                with gr.TabItem("LoKR"):
-                    lokr_enabled = gr.Checkbox(label=_t("enable_lokr"), value=False, elem_id=self.elem_id("lokr_enabled"))
-                    lokr_target_loras, lokr_block_enabled, lokr_block_weights, lokr_module_enabled, lokr_module_weights, lokr_text_layer_enabled, lokr_text_layer_weights, lokr_preset_enabled, lokr_preset_name, lokr_preset_scope, lokr_preset_text, lokr_preset_apply = _lora_tab("lokr", self.elem_id)
-                    gr.Textbox(label=_t("lokr_usage"), value=_usage_text(), lines=12, interactive=False, elem_id=self.elem_id("lokr_usage"))
-
-        self._bind_preset_apply_button(lora_preset_apply, lora_target_loras, lora_preset_name, lora_preset_scope, lora_preset_text, "lora")
-        self._bind_preset_apply_button(lokr_preset_apply, lokr_target_loras, lokr_preset_name, lokr_preset_scope, lokr_preset_text, "lokr")
-
-        register_preset_control(self.tabname, "lora_layer.lora_enabled", lora_enabled)
-        register_preset_control(self.tabname, "lora_layer.lokr_enabled", lokr_enabled)
+        for kind, controls in tabs.items():
+            self._bind_preset_apply_button(preset_apply[kind], controls["target_loras"], controls["preset_name"], controls["preset_scope"], controls["preset_text"], kind)
+        for kind, controls in tabs.items():
+            register_preset_control(self.tabname, f"lora_layer.{kind}_enabled", controls["enabled"])
 
         # Imported here: infotext_utils needs the full WebUI, and CPU tests
         # (tests/test_anima_lora_patches.py) load this module without it
         from modules.infotext_utils import PasteField
 
-        # In the order of TAB_INFOTEXT_FIELDS
-        tab_controls = {
-            "lora": (lora_enabled, lora_target_loras, lora_block_enabled, lora_block_weights, lora_module_enabled, lora_module_weights, lora_text_layer_enabled, lora_text_layer_weights),
-            "lokr": (lokr_enabled, lokr_target_loras, lokr_block_enabled, lokr_block_weights, lokr_module_enabled, lokr_module_weights, lokr_text_layer_enabled, lokr_text_layer_weights),
-        }
-        self.infotext_fields = [PasteField(control, _paste_key(kind, name)) for kind, controls in tab_controls.items() for control, name in zip(controls, TAB_INFOTEXT_FIELDS, strict=True)]
+        self.infotext_fields = [PasteField(tabs[kind][name], _paste_key(kind, field)) for kind in ADAPTER_KINDS for name, field, _ in TAB_ARGS if field is not None]
         self.paste_field_names = list(INFOTEXT_KEYS)
+        # In the order of SCRIPT_ARG_NAMES
+        return [tabs[kind][name] for kind in ADAPTER_KINDS for name in TAB_ARG_NAMES]
 
-        return [
-            lora_enabled,
-            lora_target_loras,
-            lora_block_enabled,
-            lora_block_weights,
-            lora_module_enabled,
-            lora_module_weights,
-            lora_text_layer_enabled,
-            lora_text_layer_weights,
-            lora_preset_enabled,
-            lora_preset_name,
-            lora_preset_scope,
-            lora_preset_text,
-            lokr_enabled,
-            lokr_target_loras,
-            lokr_block_enabled,
-            lokr_block_weights,
-            lokr_module_enabled,
-            lokr_module_weights,
-            lokr_text_layer_enabled,
-            lokr_text_layer_weights,
-            lokr_preset_enabled,
-            lokr_preset_name,
-            lokr_preset_scope,
-            lokr_preset_text,
-        ]
-
-    def before_process_batch(
-        self,
-        p,
-        lora_enabled,
-        lora_target_loras,
-        lora_block_enabled,
-        lora_block_weights,
-        lora_module_enabled,
-        lora_module_weights,
-        lora_text_layer_enabled,
-        lora_text_layer_weights,
-        lora_preset_enabled,
-        lora_preset_name,
-        lora_preset_scope,
-        lora_preset_text,
-        lokr_enabled,
-        lokr_target_loras,
-        lokr_block_enabled,
-        lokr_block_weights,
-        lokr_module_enabled,
-        lokr_module_weights,
-        lokr_text_layer_enabled,
-        lokr_text_layer_weights,
-        lokr_preset_enabled,
-        lokr_preset_name,
-        lokr_preset_scope,
-        lokr_preset_text,
-        *args,
-        **kwargs,
-    ):
+    def before_process_batch(self, p, *args, **kwargs):
         global _ACTIVE_RULE
 
         install_patch()
         _ACTIVE_RULE = None
+        tabs = _arguments(args, kwargs)
         # The hidden preset switches keep their argument slots for API callers,
         # but presets are only applied to the prompt, by their button.
         try:
-            lora_inline_rules = _apply_prompt_rewrite(p, lora_target_loras, "lora") if _switch(lora_enabled) else {}
-            lokr_inline_rules = _apply_prompt_rewrite(p, lokr_target_loras, "lokr") if _switch(lokr_enabled) else {}
+            inline_rules = {kind: _apply_prompt_rewrite(p, tab.target_loras, kind) if _switch(tab.enabled) else {} for kind, tab in tabs.items()}
         except ValueError as error:
             raise scripts.ScriptAbort(str(error)) from error
-        _ACTIVE_RULE = ActiveRule(
-            lora_enabled,
-            lora_target_loras,
-            lora_block_enabled,
-            lora_block_weights,
-            lora_module_enabled,
-            lora_module_weights,
-            lora_text_layer_enabled,
-            lora_text_layer_weights,
-            lora_inline_rules,
-            lokr_enabled,
-            lokr_target_loras,
-            lokr_block_enabled,
-            lokr_block_weights,
-            lokr_module_enabled,
-            lokr_module_weights,
-            lokr_text_layer_enabled,
-            lokr_text_layer_weights,
-            lokr_inline_rules,
-            getattr(p, "extra_generation_params", None),
-        )
+        _ACTIVE_RULE = ActiveRule(tabs, inline_rules, getattr(p, "extra_generation_params", None))
         _reset_lora_cache_if_needed(p, _ACTIVE_RULE.signature, _ACTIVE_RULE.text_encoder_signature)
 
         if _ACTIVE_RULE.enabled:
             # Keys match ``self.infotext_fields`` so pasted parameters restore the panel
-            p.extra_generation_params.update(
-                {
-                    **_tab_infotext("lora", lora_enabled, lora_target_loras, lora_block_enabled, lora_block_weights, lora_module_enabled, lora_module_weights, lora_text_layer_enabled, lora_text_layer_weights),
-                    **_tab_infotext("lokr", lokr_enabled, lokr_target_loras, lokr_block_enabled, lokr_block_weights, lokr_module_enabled, lokr_module_weights, lokr_text_layer_enabled, lokr_text_layer_weights),
-                }
-            )
+            p.extra_generation_params.update({key: value for kind, tab in tabs.items() for key, value in _tab_infotext(kind, tab).items()})
 
     def postprocess_batch_list(self, p, pp, *args, **kwargs):
         # The batch's infotexts record the tags as written, <lora:x:0-9=0.5>

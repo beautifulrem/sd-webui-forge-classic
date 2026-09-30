@@ -74,11 +74,17 @@ def test_inline_prompt_rules(module):
     assert module._parse_inline_prompt_rule("mlp=0.5") is None  # modules need their section name
 
 
+def _lora_rule(module, lora):
+    """The rule of the LoRA tab controls ``lora`` (TAB_ARGS order, without
+    the preset slots) with the LoKR tab off."""
+
+    presets = [False, "", "", ""]
+    lokr = [False, "", False, "", False, "", False, ""]
+    return module.ActiveRule(module._arguments([*lora, *presets, *lokr, *presets]), {"lora": {}, "lokr": {}})
+
+
 def _decision(module, lora_blocks=28):
-    rule = module.ActiveRule(
-        True, "", True, "0-9=0.6,10-18=1.0,19-27=0.75", True, "mlp=0.5", True, "0-13=0.3", {},
-        False, "", False, "", False, "", False, "", {},
-    )  # fmt: skip
+    rule = _lora_rule(module, [True, "", True, "0-9=0.6,10-18=1.0,19-27=0.75", True, "mlp=0.5", True, "0-13=0.3"])
     lora = rule.lora_rule
     return rule, module.LoraDecision(True, lora.block_weights, lora.module_weights, lora.text_layer_weights, lora_blocks)
 
@@ -117,10 +123,7 @@ def test_all_weights_the_dit_keys_outside_the_blocks(module, monkeypatch):
     monkeypatch.setattr(module, "_lora_coverage", lambda *args: SimpleNamespace(blocks={0, 1}, modules={"mlp"}, text_layers={2}))
     monkeypatch.setattr(module, "_names_for_lora_file", lambda filename: {"cat"})
     monkeypatch.setattr(module, "_adapter_kind_for_file", lambda filename: "lora")
-    rule = module.ActiveRule(
-        True, "cat", True, "0=0.3,all=0.6", False, "", True, "2=0.5,all=0.8", {},
-        False, "", False, "", False, "", False, "", {},
-    )  # fmt: skip
+    rule = _lora_rule(module, [True, "cat", True, "0=0.3,all=0.6", False, "", True, "2=0.5,all=0.8"])
     decision = rule.decision_for_lora("cat.safetensors")
 
     for key in ("diffusion_model.final_layer.linear.weight", "diffusion_model.x_embedder.proj.1.weight", "diffusion_model.t_embedder.1.linear_1.weight"):
