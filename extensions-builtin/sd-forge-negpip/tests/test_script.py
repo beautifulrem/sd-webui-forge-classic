@@ -161,3 +161,18 @@ def test_a_hires_checkpoint_that_is_not_anima_turns_negpip_off_visibly(anima):
     assert negpip.NegPiP._patched == [False, False]
     _assert_restored(model, dit, originals)
     assert "NegPiP off in Hires" in str(p.extra_generation_params)
+
+
+def test_an_sd_step_takes_every_negative_target_of_its_schedule_entry():
+    # (end step, [(conditioning, tokens), ...]) per schedule entry, one prompt
+    schedule = [[(10, [("A1", 1), ("A2", 2)]), (20, [("B1", 3), ("B2", 4)])]]
+    script = negpip.NegPiP()
+    script.active, script.is_anima, script.is_hr = True, False, False
+    script.conds_all, script.unconds_all = schedule, schedule
+
+    script.denoiser_callback(SimpleNamespace(sampling_step=0))
+    assert script.conds == script.unconds == ["A1", "A2"]
+    assert script.c_tokens == script.uc_tokens == [1, 2]
+
+    script.denoiser_callback(SimpleNamespace(sampling_step=12))
+    assert script.conds == script.unconds == ["B1", "B2"]

@@ -232,7 +232,7 @@ class NegPiP(scripts.Script):
                     for unconds, uc_tokens in regions:
                         unconds_list.append(unconds)
                         uc_tokens_list.append(uc_tokens)
-                        break
+                    break
             self.unconds = unconds_list
             self.uc_tokens = uc_tokens_list
 
