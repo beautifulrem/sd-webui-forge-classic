@@ -7,7 +7,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from backend.text_processing.parsing import parse_prompt_attention  # noqa: E402
+from backend.text_processing.parsing import parse_prompt_attention, re_attention  # noqa: E402
 from lib_negpip.utils import has_negative, negative_weights  # noqa: E402
 
 
@@ -41,7 +41,9 @@ def _parser_negatives(prompt: str) -> list[tuple[str, float]]:
         parsed = parse_prompt_attention(prompt)
     except ValueError:  # e.g. "(x:-1..5)": float() of the parser's [.\d]+ fails
         return []
-    return [(text, weight) for text, weight in parsed if weight < 0 and (text, weight) != ("BREAK", -1)]
+    # BREAK markers carry weight -1, scaled by any bracket around them; real
+    # text is never exactly "BREAK" (the parser splits it away)
+    return [(text, weight) for text, weight in parsed if weight < 0 and text and text != "BREAK"]
 
 
 # Each form alone: the parser weights one piece below zero exactly when NegPiP
@@ -57,6 +59,8 @@ def _parser_negatives(prompt: str) -> list[tuple[str, float]]:
         # Colons and escapes in the text, as Danbooru tags and escaped brackets write them
         "(:d:-1)", "(re:zero:-1)", "(:o:-0.8)", "(a:b:c:-.5)", r"(a\[b:-1)", r"(a\]b:-1)", r"(foo\\:-1)",
         r"(\(x\):-1)", r"\\\(x:-1)", r"(x\:-1)",
+        # Groups the parser reads as no text weight nothing
+        r"(\:-1)", "([:-1)", "( BREAK [:-1.2)", "(:-1)", "(  :-1)",
     ],
 )
 def test_negative_weights_agree_with_forges_attention_parser(prompt):
@@ -111,3 +115,38 @@ def test_search_time_grows_linearly(make):
     # pattern costs sixteen times (seconds already at 20k characters).
     small, large = _search_seconds(make(5_000)), _search_seconds(make(20_000))
     assert large < max(8 * small, 0.02)
+
+
+@pytest.mark.parametrize("prompt", ["(cat, (dog):-1)", "((a):-1)", "((foo:1.2):-1)", "a, ((b) c:-0.5), d"])
+def test_a_negative_weight_around_a_nested_group_counts_but_stays_in_the_prompt(prompt):
+    # On Anima the hooks must go in whatever the other prompts hold (the mask
+    # comes from the parser); the SD path only moves innermost groups out
+    assert _parser_negatives(prompt)
+    assert has_negative(prompt) and negative_weights(prompt) == []
+
+
+def test_has_negative_agrees_with_the_parser_on_random_prompts():
+    # Seeded combinations of every token kind the parser knows. NegPiP never
+    # misses a negative weight the parser applies. It may over-report only
+    # where round groups nest, as nested weights can cancel ("((a:-1):-1)") or
+    # zero ("((a:-0.5):-0)") a sign: harmless, the Anima mask comes from the
+    # parser's own multipliers
+    import random
+
+    pieces = ["(", ")", "[", "]", "a", "dog", ":", ":d", " ", ",", "BREAK", " BREAK ", "\\(", "\\)", "\\", "\\\\", ":-1)", ":-0.5)", ":1.2)", ":-0)", ":- 1)"]
+    rng = random.Random(43)
+    checked = 0
+    for _ in range(20000):
+        prompt = "".join(rng.choice(pieces) for _ in range(rng.randint(1, 12)))
+        try:
+            parse_prompt_attention(prompt)
+        except ValueError:
+            continue
+        expected = bool(_parser_negatives(prompt))
+        found = has_negative(prompt)
+        if found and not expected:
+            assert sum(token[0] == "(" for token in re_attention.finditer(prompt)) >= 2, prompt
+        else:
+            assert found is expected, prompt
+        checked += 1
+    assert checked > 15000
