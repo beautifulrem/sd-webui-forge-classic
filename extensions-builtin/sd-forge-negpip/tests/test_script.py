@@ -367,9 +367,38 @@ def test_sd_a_negative_group_holding_prompt_editing_is_left_to_the_parser(sd):
 
 
 def test_sd_a_target_removed_at_one_step_is_still_encoded_at_the_next(sd):
-    # A plain negative group next to prompt editing elsewhere: one target per step
+    # A plain negative group next to prompt editing elsewhere: two schedule
+    # steps, the target encoded for each
     model, script, encoded = sd
     p = _sd_process(model, "a cat, (dog:-1), [red:blue:5]")
     script.process_batch(p)
     assert script.active and "(dog:-1)" not in p.prompts[0]
-    assert all(targets for _step, targets in script._getScheduledNegPip(["(dog:-1), [red:blue:5]"], 10)[0])
+    assert encoded == [("dog", -1.0)] * 2
+    assert [tokens for _step, _cond, tokens in script.conds_all[0]] == [2, 2]
+
+
+def test_sd_an_edited_group_next_to_a_plain_one_moves_only_the_plain_one(sd):
+    model, script, encoded = sd
+    prompt = "a cat, (dog [big:small:5]:-1), (tree:-1)"
+    p = _sd_process(model, prompt)
+    script.process_batch(p)
+    assert script.active and p.prompts == ["a cat, (dog [big:small:5]:-1), "]
+    assert set(encoded) == {("tree", -1.0)}
+
+
+def test_sd_a_hires_prompt_target_turns_negpip_on_when_the_base_one_has_none(sd):
+    model, script, encoded = sd
+    p = _sd_process(model, "a cat, (dog [big:small:5]:-1)")
+    p.hr_prompts = ["a cat, (tree:-1)"]
+    script.process_batch(p)
+    assert script.active
+    assert all(not tokens for _step, _cond, tokens in script.conds_all[0])
+    assert [tokens for _step, _cond, tokens in script.hr_conds_all[0]] == [2]
+
+
+@pytest.mark.parametrize("prompt", ["a cat, (AND:-1)", "a cat, (BREAK:-1), [x:y:5]"])
+def test_sd_a_weighted_keyword_alone_leaves_the_prompt_and_negpip_off(sd, prompt):
+    model, script, encoded = sd
+    p = _sd_process(model, prompt)
+    script.process_batch(p)
+    assert not script.active and encoded == [] and p.prompts == [prompt]

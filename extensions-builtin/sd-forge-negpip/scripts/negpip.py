@@ -147,7 +147,7 @@ class NegPiP(scripts.Script):
 
         schedules = [schedule for schedule in (nip, pin, hr_nip, hr_pin) if schedule is not None]
         if not any(targets for schedule in schedules for steps_out in schedule for _step, targets in steps_out):
-            return  # every negative group holds prompt editing: the parser keeps those weights
+            return  # no group can be moved out (prompt editing, a weighted keyword): the parser keeps those weights
 
         self.conds_all = self._calc_conds(p, nip)
         self.unconds_all = self._calc_conds(p, pin)
@@ -246,11 +246,10 @@ class NegPiP(scripts.Script):
                     # groups) instead of NegPiP negating it a second time.
                     # Checked against the raw prompt, so a target removed at an
                     # earlier step is still encoded at the later ones.
-                    if match not in raw:
-                        continue
+                    if match not in raw or text.strip() in ("BREAK", "AND", "ADDCOL", "ADDROW"):
+                        continue  # a weighted keyword is no target: the prompt keeps it too
                     prompts[i] = prompts[i].replace(match, "")
-                    if text.strip() not in ("BREAK", "AND", "ADDCOL", "ADDROW"):
-                        text_weights.append((text, weight))
+                    text_weights.append((text, weight))
 
                 stepout.append((step, text_weights))
 
