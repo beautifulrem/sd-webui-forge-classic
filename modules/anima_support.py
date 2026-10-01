@@ -800,13 +800,15 @@ class PasteKey(str):
 def register_table_fields(script, rows, controls) -> list:
     """Infotext paste fields and Anima preset controls of a panel whose script
     arguments are the table ``rows``, each ``(name, infotext key or None,
-    preset name or None, ...)``; ``controls[name]`` is the row's control.
-    Returns the controls in row order, which is what ``ui`` returns."""
+    preset name or None, ...)``. ``controls``: the rows' controls by name, or
+    in row order. Returns them in row order, which is what ``ui`` returns."""
 
     from modules.anima_presets import register_preset_control
     from modules.infotext_utils import PasteField
 
-    fields = [(controls[name], key, preset_name) for name, key, preset_name, *_ in rows]
+    rows = list(rows)
+    in_order = controls if not isinstance(controls, dict) else [controls[name] for name, *_ in rows]
+    fields = [(control, key, preset_name) for (_name, key, preset_name, *_), control in zip(rows, in_order, strict=True)]
     for control, _, preset_name in fields:
         if preset_name is not None:
             register_preset_control(script.tabname, preset_name, control)
@@ -833,14 +835,7 @@ class AnimaPatchPanel:
         """Infotext paste fields and Anima preset controls for ``ui``'s
         ``controls``; returns them."""
 
-        from modules.anima_presets import register_preset_control
-        from modules.infotext_utils import PasteField
-
-        self.infotext_fields = [PasteField(control, key) for control, key in zip(controls, self.INFOTEXT_KEYS, strict=True)]
-        self.paste_field_names = list(self.INFOTEXT_KEYS)
-        for name, control in zip(self.PRESET_FIELDS, controls, strict=True):
-            register_preset_control(self.tabname, name, control)
-        return controls
+        return register_table_fields(self, zip(self.PRESET_FIELDS, self.INFOTEXT_KEYS, self.PRESET_FIELDS, strict=True), controls)
 
     @staticmethod
     def patch_pass(p, patch, infotext: dict) -> None:

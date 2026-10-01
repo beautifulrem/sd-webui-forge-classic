@@ -152,7 +152,8 @@ def test_loopback_only_server_refuses_rebound_host_names(monkeypatch):
     # DNS rebinding: same-origin to the browser, but a foreign Host name
     assert refusal(app, request("evil.example:7860", "http://evil.example:7860", "POST")) == (403, "Unknown host refused")
     assert refusal(app, request("evil.example:7860")) == (403, "Unknown host refused")  # reads too
-    for host in ("127.0.0.1:7860", "localhost:7860", "[::1]:7860", "app.localhost:7860", "ui.example"):
+    # A name --cors-allow-origins allows, on any port (the origin fallback matches it only without one)
+    for host in ("127.0.0.1:7860", "localhost:7860", "[::1]:7860", "app.localhost:7860", "ui.example", "ui.example:7860"):
         assert refusal(app, request(host)) is None
     options.listen = True  # reachable under any name: nothing to tell apart
     assert refusal(app, request("evil.example:7860")) is None

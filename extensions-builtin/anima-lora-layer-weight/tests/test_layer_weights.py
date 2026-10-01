@@ -88,9 +88,10 @@ def test_inline_prompt_rules_take_full_width_input(module, text):
 def test_a_full_width_prompt_strength_is_a_plain_strength(module, monkeypatch):
     monkeypatch.setattr(module, "_prompt_lora_is_controlled", lambda name, *args: name == "cat")
 
-    rewritten, rules = module._rewrite_lora_prompts(["<lora:cat:０．５> <lora:cat:－0.5> <lora:dog:０．５>", "<lora:cat:modules＝mlp=0.2>"], "", "lora")
+    rewritten, rules = module._rewrite_lora_prompts(["<lora:cat:０．５> <lora:cat:－0.5> <lora:dog:０．５>", "<lora:cat:modules＝mlp=0.2>", "<lora:cat:0.6:0.3>"], "", "lora")
 
-    assert rewritten == ["<lora:cat:1.0> <lora:cat:1.0> <lora:dog:０．５>", "<lora:cat:1.0>"]
+    # A controlled adapter's second weight goes too (README): the blocks carry its strength
+    assert rewritten == ["<lora:cat:1.0> <lora:cat:1.0> <lora:dog:０．５>", "<lora:cat:1.0>", "<lora:cat:1.0>"]
     assert rules["cat"].module_weights["mlp"] == 0.2
 
 

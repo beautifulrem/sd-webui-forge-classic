@@ -7,9 +7,7 @@ from lib_spectrum.pass_context import resolve_pass_context
 from lib_spectrum.presets import CONTROLS, DEFAULT, ENABLE_KEY, INFOTEXT_KEYS, PresetManager
 
 from modules import paths, scripts, shared
-from modules.anima_presets import register_preset_control
-from modules.anima_support import script_arguments
-from modules.infotext_utils import PasteField
+from modules.anima_support import register_table_fields, script_arguments
 from modules.ui_components import InputAccordion
 
 PresetManager.load_presets()
@@ -179,14 +177,8 @@ class SpectrumForForge(scripts.Script):
                 )
 
         # Infotext without ENABLE_KEY (older images, Spectrum off) leaves the switch alone.
-        self.infotext_fields = [PasteField(enable, ENABLE_KEY), *(PasteField(component, key) for component, key in zip(controls, INFOTEXT_KEYS, strict=True))]
-        self.paste_field_names = [field.label for field in self.infotext_fields]
-
-        register_preset_control(self.tabname, "spectrum.enabled", enable)
-        for (_, name, _, _), component in zip(CONTROLS, controls, strict=True):
-            register_preset_control(self.tabname, name, component)
-
-        return [enable, *controls]
+        rows = [("enable", ENABLE_KEY, "spectrum.enabled"), *((key, key, name) for key, name, _, _ in CONTROLS)]
+        return register_table_fields(self, rows, [enable, *controls])
 
     def cleanup(self, p, *args, **kwargs):
         # The wrapper (and its GPU feature history) stays on forge_objects

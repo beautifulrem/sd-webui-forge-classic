@@ -11,8 +11,7 @@ import gradio as gr
 from backend.logging import setup_logger
 from lib_anima_hires import BALANCED, GuardLimits, guard_dimensions
 from modules import scripts, shared
-from modules.anima_support import is_anima_engine, require_finite
-from modules.anima_presets import register_preset_control
+from modules.anima_support import is_anima_engine, register_table_fields, require_finite
 from modules.ui_components import InputAccordion
 
 logger = logging.getLogger("AnimaHiresGuard")
@@ -118,10 +117,7 @@ class AnimaHiresGuardScript(scripts.Script):
                 )
 
         controls = [enabled, policy, preset, align, base_mp, hires_mp, max_upscale]
-        self.infotext_fields = [(component, key) for component, (_, key) in zip(controls, FIELDS)]
-        for component, (name, _) in zip(controls, FIELDS):
-            register_preset_control(self.tabname, f"hires_guard.{name}", component)
-        return controls
+        return register_table_fields(self, ((name, key, f"hires_guard.{name}") for name, key in FIELDS), controls)
 
     def after_model_load(
         self,
