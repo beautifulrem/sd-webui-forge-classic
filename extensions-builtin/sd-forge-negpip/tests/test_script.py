@@ -335,12 +335,13 @@ _NESTED_ONLY = "a cat, (red, (dog):-1)"
 
 
 def test_anima_a_nested_negative_weight_installs_the_hooks(anima):
-    # Whatever the other prompts of the job hold
     model, dit, originals = anima
     script = negpip.NegPiP()
     p = _process(model, _NESTED_ONLY)
     script.process_batch(p)
     assert script.active and p.extra_generation_params == {"NegPiP": True}
+    assert negpip.NegPiP._patched == [False, True]
+    assert SelfCrossAttention.forward is not originals[0]
     assert p.prompts == [_NESTED_ONLY]
 
 
@@ -351,3 +352,24 @@ def test_sd_a_nested_negative_weight_alone_leaves_negpip_off(sd):
     assert not script.active and p.extra_generation_params == {} and encoded == []
     assert p.prompts == [_NESTED_ONLY]
     assert negpip.NegPiP._patched == [False, False]
+
+
+def test_sd_a_negative_group_holding_prompt_editing_is_left_to_the_parser(sd):
+    # "(dog [big:small:5]:-1)" reads as "(dog big:-1)" then "(dog small:-1)"
+    # per step, neither of which is in the raw prompt to move out: NegPiP must
+    # not negate it a second time on top of the parser's own -1
+    model, script, encoded = sd
+    prompt = "a cat, (dog [big:small:5]:-1)"
+    p = _sd_process(model, prompt)
+    script.process_batch(p)
+    assert not script.active and encoded == [] and p.prompts == [prompt]
+    assert negpip.NegPiP._patched == [False, False]
+
+
+def test_sd_a_target_removed_at_one_step_is_still_encoded_at_the_next(sd):
+    # A plain negative group next to prompt editing elsewhere: one target per step
+    model, script, encoded = sd
+    p = _sd_process(model, "a cat, (dog:-1), [red:blue:5]")
+    script.process_batch(p)
+    assert script.active and "(dog:-1)" not in p.prompts[0]
+    assert all(targets for _step, targets in script._getScheduledNegPip(["(dog:-1), [red:blue:5]"], 10)[0])

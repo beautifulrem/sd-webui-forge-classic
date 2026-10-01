@@ -139,20 +139,21 @@ class NegPiP(scripts.Script):
                 else p.sd_model.cond_stage_model.tokenize_line
             )
 
+        hr_steps: int = getattr(p, "hr_second_pass_steps", 0) or p.steps
         nip = self._getScheduledNegPip(p.prompts, p.steps)
         pin = self._getScheduledNegPip(p.negative_prompts, p.steps)
+        hr_nip = self._getScheduledNegPip(p.hr_prompts, hr_steps) if self.has_hr_p else None
+        hr_pin = self._getScheduledNegPip(p.hr_negative_prompts, hr_steps) if self.has_hr_n else None
+
+        schedules = [schedule for schedule in (nip, pin, hr_nip, hr_pin) if schedule is not None]
+        if not any(targets for schedule in schedules for steps_out in schedule for _step, targets in steps_out):
+            return  # every negative group holds prompt editing: the parser keeps those weights
 
         self.conds_all = self._calc_conds(p, nip)
         self.unconds_all = self._calc_conds(p, pin)
-
-        hr_steps: int = getattr(p, "hr_second_pass_steps", 0) or p.steps
-
-        if self.has_hr_p:
-            hr_nip = self._getScheduledNegPip(p.hr_prompts, hr_steps)
+        if hr_nip is not None:
             self.hr_conds_all = self._calc_conds(p, hr_nip)
-
-        if self.has_hr_n:
-            hr_pin = self._getScheduledNegPip(p.hr_negative_prompts, hr_steps)
+        if hr_pin is not None:
             self.hr_unconds_all = self._calc_conds(p, hr_pin)
 
         def calcChunks(a: int, b: int) -> int:
@@ -233,11 +234,20 @@ class NegPiP(scripts.Script):
         scheduled = get_learned_conditioning_prompt_schedules(prompts, steps)
         for i, batch_schedule in enumerate(scheduled):
             stepout = []
+            raw = prompts[i]
 
             for step, prompt in batch_schedule:
                 text_weights: list[tuple[str, float]] = []
 
                 for match, text, weight in negative_weights(prompt):
+                    # A group holding prompt editing ("(dog [big:small:5]:-1)")
+                    # is not in the raw prompt as a step reads it: it cannot be
+                    # moved out, so the parser keeps its weight (as for nested
+                    # groups) instead of NegPiP negating it a second time.
+                    # Checked against the raw prompt, so a target removed at an
+                    # earlier step is still encoded at the later ones.
+                    if match not in raw:
+                        continue
                     prompts[i] = prompts[i].replace(match, "")
                     if text.strip() not in ("BREAK", "AND", "ADDCOL", "ADDROW"):
                         text_weights.append((text, weight))
