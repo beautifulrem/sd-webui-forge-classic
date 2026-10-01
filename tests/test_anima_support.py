@@ -603,6 +603,10 @@ def test_schedule_steps_are_the_ones_processing_builds_each_pass_conds_with(samp
     assert schedule_steps(hires) == (10, 20)
     hires.hr_second_pass_steps, hires.hr_sampler_name = 4, None
     assert schedule_steps(hires) == (10, 4)
+    # An explicit pass overrides is_hr_pass (both passes' schedules built before Hires)
+    assert schedule_steps(hires, hires=False) == (10, None)
+    base = SimpleNamespace(steps=10, sampler_name="Heun", hr_second_pass_steps=6)
+    assert schedule_steps(base, hires=True) == (20, 12)
 
 
 def test_prompt_schedule_resolves_prompt_editing_for_the_base_and_hires_pass():

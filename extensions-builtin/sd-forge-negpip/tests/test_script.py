@@ -1,5 +1,6 @@
 import importlib.util
 import sys
+import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -208,8 +209,24 @@ class _SDModel:
         return True
 
 
+class _SamplerConfig:
+    def __init__(self, second_order):
+        self.second_order = second_order
+
+    def total_steps(self, steps):
+        return steps * 2 if self.second_order else steps
+
+
 @pytest.fixture
 def sd(monkeypatch):
+    import modules
+
+    # sd_samplers needs the WebUI; schedule_steps only asks it for total steps
+    configs = {"Euler": _SamplerConfig(False), "Heun": _SamplerConfig(True)}
+    samplers = types.ModuleType("modules.sd_samplers")
+    samplers.find_sampler_config = lambda name: configs.get(name)
+    monkeypatch.setitem(sys.modules, "modules.sd_samplers", samplers)
+    monkeypatch.setattr(modules, "sd_samplers", samplers, raising=False)
     model = _SDModel(torch.nn.Module())
     monkeypatch.setattr(negpip_sd, "shared", SimpleNamespace(sd_model=model))  # the real one loads a checkpoint
     monkeypatch.setattr(negpip.NegPiP, "_patched", [False, False])
@@ -404,27 +421,38 @@ def test_sd_a_weighted_keyword_alone_leaves_the_prompt_and_negpip_off(sd, prompt
     assert not script.active and encoded == [] and p.prompts == [prompt]
 
 
-@pytest.mark.parametrize("prompt", ["a cat, [(dog:-1)::5]", "a cat, [:(dog:-1):5]", "a cat, [(dog:-1)|bird]", "a cat, [(dog:-1):(bird:-1):0.3]"])
-def test_sd_targets_follow_the_entry_forge_picks_for_the_main_prompt(monkeypatch, prompt):
-    # At every model call the negated target is the one the main prompt's
-    # entry holds, as reconstruct_cond_batch picks it (first end >= the call)
+@pytest.mark.parametrize("prompt", ["a cat, [(dog:-1)::5]", "a cat, [:(dog:-1):5]", "a cat, [(dog:-1)|bird]", "a cat, [(dog:-1):(bird:-1):0.3]", "a cat, [(dog:-1)::25]"])
+@pytest.mark.parametrize("sampler, hires", [("Euler", False), ("Heun", False), ("Euler", True), ("Heun", True)])
+def test_sd_targets_follow_the_entry_forge_picks_for_the_main_prompt(sd, prompt, sampler, hires):
+    # At every model call of the pass the negated target is the one the main
+    # prompt's entry holds, as Forge builds the schedule (the sampler's total
+    # steps; Hires counting on from the base pass) and as reconstruct_cond_batch
+    # picks the entry (first end >= the denoiser's call counter)
     from modules.prompt_parser import get_learned_conditioning_prompt_schedules
 
     from modules.anima_support import schedule_index
 
-    steps = 10
-    script = negpip.NegPiP()
-    script.reset()
-    monkeypatch.setattr(script, "_cond_dealer", lambda p, target: (torch.zeros(1, 1, 6), 1))
-    script.active, script.is_anima, script.is_hr, script.has_hr_p, script.has_hr_n = True, False, False, False, False
-    schedule, agree = script._getScheduledNegPip([prompt], steps)
-    script.conds_all = script._calc_conds(None, schedule)
-    (forge_entries,) = get_learned_conditioning_prompt_schedules([prompt], steps)
-    for step in range(steps):
-        script.denoiser_callback(SimpleNamespace(sampling_step=max(0, step - 1), denoiser=SimpleNamespace(step=step)))
+    model, script, encoded = sd
+    steps, hr_steps = 10, 6
+    p = _sd_process(model, "a cat" if hires else prompt)
+    p.steps, p.sampler_name = steps, sampler
+    total = steps * 2 if sampler == "Heun" else steps
+    reference = (total, None)
+    if hires:
+        p.hr_prompts, p.hr_second_pass_steps, p.hr_sampler_name = [prompt], hr_steps, sampler
+        reference = (total, hr_steps * 2 if sampler == "Heun" else hr_steps)
+    script.process_batch(p)
+    script.is_hr = hires
+    (forge_entries,) = get_learned_conditioning_prompt_schedules([prompt], *reference)
+    calls = reference[1] if hires else total
+    expected_any = False
+    for step in range(calls):
+        script.denoiser_callback(SimpleNamespace(sampling_step=0, denoiser=SimpleNamespace(step=step)))
         text = forge_entries[schedule_index([end for end, _ in forge_entries], step)][1]
-        assert (script.c_tokens > 0) == ("(dog:-1)" in text or "(bird:-1)" in text), (step, text)
-    assert agree
+        expected = "(dog:-1)" in text or "(bird:-1)" in text
+        expected_any |= expected
+        assert bool(script.c_tokens) == expected, (step, text)  # None: NegPiP stayed off
+    assert script.active == expected_any
 
 
 def test_sd_a_batch_of_prompts_with_different_targets_is_left_to_the_parser(sd):
@@ -445,3 +473,16 @@ def test_sd_a_target_is_encoded_once_for_every_entry_that_holds_it(sd):
     script.process_batch(p)
     assert script.active and encoded == [("dog", -1.0)]
     assert all(tokens == 2 for _step, _cond, tokens in script.conds_all[0])
+
+
+def test_sd_a_batch_with_the_same_targets_and_other_editing_still_gets_negpip(sd):
+    # Rows agree on what is negated at every step; the rest of their prompt
+    # editing does not matter
+    model, script, encoded = sd
+    p = _sd_process(model, "a cat")
+    p.prompts = ["a cat, (dog:-1), [red:blue:5]", "a cat, (dog:-1)"]
+    p.batch_size = 2
+    script.process_batch(p)
+    assert script.active and encoded == [("dog", -1.0)]
+    assert p.prompts == ["a cat, , [red:blue:5]", "a cat, "]
+    assert "NegPiP skipped" not in str(p.extra_generation_params)

@@ -275,12 +275,14 @@ def encode_extra_prompts(process, texts):
     return context.detach().cpu(), None if mask is None else mask.detach().cpu()
 
 
-def schedule_steps(process) -> tuple[int, int | None]:
+def schedule_steps(process, *, hires: bool | None = None) -> tuple[int, int | None]:
     """``(steps, hires_steps)`` Forge resolves the current pass's prompt
     editing (``[a:b:N]``, ``[a|b]``) with, as ``processing.py`` passes them
     to ``get_learned_conditioning_prompt_schedules``: the base pass's sampler
     total steps (``firstpass_steps``) and, in a Hires. fix pass, the hires
-    sampler's total steps as well (hires_steps None in the base pass)."""
+    sampler's total steps as well (hires_steps None in the base pass).
+    ``hires`` picks the pass explicitly (default: ``process.is_hr_pass``),
+    for code that builds both passes' schedules before the Hires pass."""
 
     def total_steps(sampler_name, steps):
         from modules import sd_samplers
@@ -290,11 +292,11 @@ def schedule_steps(process) -> tuple[int, int | None]:
 
     steps = int(getattr(process, "steps", 0) or 0)
     base = int(getattr(process, "firstpass_steps", 0) or 0) or total_steps(getattr(process, "sampler_name", None), steps)
-    if not bool(getattr(process, "is_hr_pass", False)):
+    if not (bool(getattr(process, "is_hr_pass", False)) if hires is None else hires):
         return base, None
-    hires = int(getattr(process, "hr_second_pass_steps", 0) or 0) or steps
+    hr_steps = int(getattr(process, "hr_second_pass_steps", 0) or 0) or steps
     sampler_name = getattr(process, "hr_sampler_name", None) or getattr(process, "sampler_name", None)
-    return base, total_steps(sampler_name, hires)
+    return base, total_steps(sampler_name, hr_steps)
 
 
 def prompt_schedule(prompts, steps: int, hires_steps: int | None = None) -> list[tuple[int, tuple[str, ...]]]:

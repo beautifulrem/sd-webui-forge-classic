@@ -13,7 +13,7 @@ from lib_negpip.utils import any_negative, any_negative_target, hr_dealer, negat
 
 from modules import devices, scripts
 from modules.anima_feature_conflicts import record_conflict_resolution
-from modules.anima_support import is_anima_engine, schedule_index
+from modules.anima_support import is_anima_engine, schedule_index, schedule_steps
 from modules.prompt_parser import (
     SdConditioning,
     get_learned_conditioning,
@@ -139,12 +139,16 @@ class NegPiP(scripts.Script):
                 else p.sd_model.cond_stage_model.tokenize_line
             )
 
-        hr_steps: int = getattr(p, "hr_second_pass_steps", 0) or p.steps
+        # The step counts Forge builds each pass's prompt schedules with (a
+        # second-order sampler's total steps; Hires counts on from the base
+        # pass), so the entries line up with the denoiser's call counter
+        base = schedule_steps(p, hires=False)
+        hires = schedule_steps(p, hires=True) if self.has_hr_p or self.has_hr_n else None
         lists = {
-            "prompts": (p.prompts, p.steps),
-            "negative prompts": (p.negative_prompts, p.steps),
-            "Hires prompts": (p.hr_prompts, hr_steps) if self.has_hr_p else None,
-            "Hires negative prompts": (p.hr_negative_prompts, hr_steps) if self.has_hr_n else None,
+            "prompts": (p.prompts, *base),
+            "negative prompts": (p.negative_prompts, *base),
+            "Hires prompts": (p.hr_prompts, *hires) if self.has_hr_p else None,
+            "Hires negative prompts": (p.hr_negative_prompts, *hires) if self.has_hr_n else None,
         }
         scheduled = {}
         for name, entry in lists.items():
@@ -243,7 +247,7 @@ class NegPiP(scripts.Script):
 
     @staticmethod
     def _getScheduledNegPip(
-        prompts: list[str], steps: list[int]
+        prompts: list[str], steps: int, hires_steps: int | None = None
     ) -> tuple[list[list[tuple[int, list[tuple[str, float]]]]], bool]:
         """The negative targets of each prompt's schedule entries, moved out of
         ``prompts``, and whether the batch rows agree on them. The SD path
@@ -254,7 +258,7 @@ class NegPiP(scripts.Script):
         originals = list(prompts)
         output = []
 
-        scheduled = get_learned_conditioning_prompt_schedules(prompts, steps)
+        scheduled = get_learned_conditioning_prompt_schedules(prompts, steps, hires_steps)
         for i, batch_schedule in enumerate(scheduled):
             stepout = []
             raw = prompts[i]
@@ -279,7 +283,15 @@ class NegPiP(scripts.Script):
 
             output.append(stepout)
 
-        if any(row != output[0] for row in output[1:]):
+        # Rows agree when they hold the same targets at every step, whatever
+        # else their prompt editing does ("(dog:-1), [red:blue:5]" next to
+        # "(dog:-1)"): compared over the union of their entries' end steps
+        ends = sorted({end for row in output for end, _targets in row})
+
+        def targets_at(row, end):
+            return row[schedule_index([row_end for row_end, _targets in row], end)][1]
+
+        if any(targets_at(row, end) != targets_at(output[0], end) for row in output[1:] for end in ends):
             prompts[:] = originals
             return [[(step, []) for step, _targets in row] for row in output], False
         return output, True
