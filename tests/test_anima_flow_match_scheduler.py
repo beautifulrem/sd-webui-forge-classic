@@ -10,16 +10,26 @@ pytest.importorskip("diffusers")
 TOGGLES = ("use_dynamic_shifting", "invert_sigmas", "use_karras_sigmas", "use_exponential_sigmas", "use_beta_sigmas", "stochastic_sampling")
 
 
-@pytest.fixture
-def sd_schedulers(monkeypatch):
-    """The module imported against stand-in options (it reads them at import)."""
-    from modules import shared
+def _import_fresh(monkeypatch):
+    """modules.sd_schedulers imported again (it reads the options at import);
+    the module and the package attribute the import sets are both put back
+    after the test, so later imports never see this copy."""
+    import modules
 
-    monkeypatch.setattr(shared, "opts", SimpleNamespace(hide_schedulers=[], **dict.fromkeys(TOGGLES, False)))
     monkeypatch.delitem(sys.modules, "modules.sd_schedulers", raising=False)
+    monkeypatch.setattr(modules, "sd_schedulers", None, raising=False)
     import modules.sd_schedulers
 
     return modules.sd_schedulers
+
+
+@pytest.fixture
+def sd_schedulers(monkeypatch):
+    """The module imported against stand-in options."""
+    from modules import shared
+
+    monkeypatch.setattr(shared, "opts", SimpleNamespace(hide_schedulers=[], **dict.fromkeys(TOGGLES, False)))
+    return _import_fresh(monkeypatch)
 
 
 def _inner_model(*, use_shift, shift=3.0):
@@ -77,10 +87,8 @@ def test_hidden_schedulers_leave_the_dropdown_map_but_not_the_full_one(monkeypat
     from modules import shared
 
     monkeypatch.setattr(shared, "opts", SimpleNamespace(hide_schedulers=["Anima FlowMatch"], **dict.fromkeys(TOGGLES, False)))
-    monkeypatch.delitem(sys.modules, "modules.sd_schedulers", raising=False)
-    import modules.sd_schedulers as sd_schedulers
+    sd_schedulers = _import_fresh(monkeypatch)
 
     assert "Anima FlowMatch" not in sd_schedulers.schedulers_map
     for key in ("anima_flow_match", "Anima FlowMatch", "Anima Diffusers FlowMatch"):
         assert sd_schedulers.all_schedulers_map[key].name == "anima_flow_match"
-    monkeypatch.delitem(sys.modules, "modules.sd_schedulers", raising=False)

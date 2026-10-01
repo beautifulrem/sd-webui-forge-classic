@@ -37,7 +37,7 @@ Built into Forge Neo Remi: open txt2img or img2img and expand **Anima LoRA Stage
 - With auto timing off, the panel's single start/end window replaces the template's stages. For a template that only blocks stages, the window blocks the LoRA; otherwise it applies it.
 - **Peak ratio** is the point where the stage curve reaches its strongest value.
 - **Stage strength multiplier** multiplies the final LoRA strength inside the active window, with auto timing too.
-- **Strength curve** controls how strength changes over time: smooth, hold, triangle, front-heavy, or back-heavy. It shapes the panel's window (manual timing, or a custom template without stages, also as a per-LoRA template that sets no curve of its own); with auto timing a template's stages bring their own curves, and the infotext then leaves the curve out.
+- **Strength curve** controls how strength changes over time: smooth, hold, triangle, front-heavy, or back-heavy. It shapes the panel's window (manual timing, or a custom template without stages, also as a per-LoRA template that sets no curve of its own), unless that window bans the LoRA; with auto timing a template's stages bring their own curves, and the infotext then leaves the curve out.
 - **Shift** is read from the Forge Shift / Distilled CFG control when available. Automatic templates use it to adjust the timing window.
 
 ## Per-LoRA Templates

@@ -92,25 +92,25 @@ def test_unclosed_weights_do_not_backtrack_for_seconds(prompt):
     # The pattern runs on every prompt of every generation; these took
     # seconds when whitespace or a digit run could be split between parts of
     # it, or when every \( of a run started a scan of its own.
-    start = time.perf_counter()
     assert not has_negative(prompt)
-    assert time.perf_counter() - start < 0.5
+    assert _search_seconds(prompt) < 0.5
 
 
-def _search_seconds(prompt: str) -> float:
+def _search_seconds(prompt: str, search=has_negative) -> float:
+    """Best of five runs of ``search(prompt)``."""
     best = float("inf")
     for _ in range(5):
         start = time.perf_counter()
-        has_negative(prompt)
+        search(prompt)
         best = min(best, time.perf_counter() - start)
     return best
 
 
-def _search_growth(make, small: int, large: int) -> tuple[float, float]:
+def _search_growth(make, small: int, large: int, search=has_negative) -> tuple[float, float]:
     """``(small, large)`` search seconds from the attempt that grew least:
     load slows single runs at random, not every attempt the way a quadratic
     pattern is slow."""
-    attempts = [(_search_seconds(make(small)), _search_seconds(make(large))) for _ in range(3)]
+    attempts = [(_search_seconds(make(small), search), _search_seconds(make(large), search)) for _ in range(3)]
     return min(attempts, key=lambda times: times[1] / max(times[0], 1e-9))
 
 
@@ -178,17 +178,17 @@ def test_deep_nesting_stays_linear_in_memory_and_time():
     # depth (gigabytes for a 200 KB prompt); only innermost groups are sliced
     import tracemalloc
 
-    def measure(depth):
-        prompt = "(" * depth + "a" + ":-1)" * depth
-        tracemalloc.start()
-        start = time.perf_counter()
-        assert has_negative(prompt) and len(negative_weights(prompt)) == 1
-        seconds = time.perf_counter() - start
-        peak = tracemalloc.get_traced_memory()[1]
-        tracemalloc.stop()
-        return seconds, peak, len(prompt)
+    def nested(depth):
+        return "(" * depth + "a" + ":-1)" * depth
 
-    small_seconds, _, _ = measure(5_000)
-    large_seconds, large_peak, length = measure(20_000)
-    assert large_peak < 64 * length, large_peak  # bytes per prompt character, not per character squared
+    def search(prompt):
+        assert has_negative(prompt) and len(negative_weights(prompt)) == 1
+
+    prompt = nested(20_000)
+    tracemalloc.start()
+    search(prompt)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak < 64 * len(prompt), peak  # bytes per prompt character, not per character squared
+    small_seconds, large_seconds = _search_growth(nested, 5_000, 20_000, search)
     assert large_seconds < max(8 * small_seconds, 0.05), (small_seconds, large_seconds)

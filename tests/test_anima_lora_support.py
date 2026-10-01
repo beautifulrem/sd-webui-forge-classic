@@ -657,10 +657,16 @@ def test_unterminated_lora_tags_are_scanned_in_linear_time():
 
     from modules.anima_lora_support import LORA_TAG_RE
 
-    start = time.perf_counter()
-    assert LORA_TAG_RE.findall("<lora:" * 4000) == []
-    assert LORA_TAG_RE.findall("<lora:a:" * 4000 + ">") == [("a", "")]
-    assert time.perf_counter() - start < 0.2  # about 1 s with the unbounded pattern
+    def scan():
+        assert LORA_TAG_RE.findall("<lora:" * 4000) == []
+        assert LORA_TAG_RE.findall("<lora:a:" * 4000 + ">") == [("a", "")]
+
+    best = float("inf")
+    for _ in range(3):  # the best of three: load slows single runs, not every one
+        start = time.perf_counter()
+        scan()
+        best = min(best, time.perf_counter() - start)
+    assert best < 0.2  # about 1 s with the unbounded pattern
 
 
 def test_weight_numbers_share_one_grammar(caplog):

@@ -70,6 +70,14 @@ class MomentumGuidanceTests(unittest.TestCase):
         self.assertTrue(torch.allclose(actual, torch.full_like(x, -(3.0 + 0.5 * (3.0 - 1.0)))))
         self.assertTrue(torch.allclose(state._ema, torch.full_like(x, 0.5 * 3.0 + 0.5 * 1.0)))
 
+    def test_the_ema_keeps_ema_decay_of_the_previous_velocity(self):
+        # At 0.5 both weightings agree; the guide's 0.6 tells them apart
+        state = MomentumGuidanceState(momentum=0.5, ema_decay=0.6)
+        x = torch.zeros(1, 1, 2, 2)
+        state.apply(-torch.ones_like(x), x, 1.0)  # v = 1
+        state.apply(-torch.full_like(x, 3.0), x, 1.0)  # v = 3
+        self.assertTrue(torch.allclose(state._ema, torch.full_like(x, 0.4 * 3.0 + 0.6 * 1.0)))
+
     def test_momentum_runs_on_velocity_not_on_denoised(self):
         # With x = 0 and sigma = 1 the velocity is just -denoised, so the case
         # above cannot tell the two spaces apart; here x and sigma change.

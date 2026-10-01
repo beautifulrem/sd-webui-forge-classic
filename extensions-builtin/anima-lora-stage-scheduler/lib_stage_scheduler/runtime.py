@@ -260,14 +260,19 @@ class PassConfig:
         return self.panel_weight.active
 
     @property
+    def shapes_window(self) -> bool:
+        """Whether this config's own curve shapes its window: no template
+        parts run, and the window applies the LoRA rather than banning it."""
+        return not self.parts and not self.ban_window
+
+    @property
     def uses_panel_curve(self) -> bool:
-        """Whether the panel's curve shapes a window of the run: its own (no
-        template parts run), or a per-LoRA template's with neither parts nor
-        a curve of its own."""
-        if not self.parts:
+        """Whether the panel's curve shapes a window of the run: its own, or a
+        per-LoRA template's that has no curve of its own."""
+        if self.shapes_window:
             return True
         names = set(self.lora_templates.values()) - {self.template_name}
-        return any(not self.config_for_template(name).parts and not _template_config(name).get("curve") for name in names)
+        return any(self.config_for_template(name).shapes_window and not _template_config(name).get("curve") for name in names)
 
     @property
     def targets(self) -> set[str]:
