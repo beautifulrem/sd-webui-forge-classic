@@ -185,6 +185,18 @@ def test_ui_and_process_name_the_script_args_in_table_order(module, monkeypatch)
         module.Script().process(SimpleNamespace(), *args, "not a script arg")
 
 
+def test_each_panels_sliders_start_on_its_default_templates_window(module, monkeypatch):
+    # Unticking auto timing keeps the sliders: they must hold the window of the
+    # template the dropdown shows, in the Hires. fix panel as in the base one
+    _language(module, monkeypatch, "zh")
+    script, controls, _ = _build_ui(module)
+    named = dict(zip(module.SCRIPT_ARG_NAMES, controls, strict=True))
+    for prefix in ("base", "hr"):
+        stage = module._template_stage_from_name(named[f"{prefix}_template"].value)
+        window = tuple(named[f"{prefix}_{field}"].value for field in ("start", "end", "peak"))
+        assert window == module.STAGE_DEFAULT_TIMINGS[stage], prefix
+
+
 def test_the_infotext_records_stable_values_whatever_the_ui_language(module, monkeypatch):
     _language(module, monkeypatch, "zh")
     zh, _ = _run(module, _args(module, _zh))

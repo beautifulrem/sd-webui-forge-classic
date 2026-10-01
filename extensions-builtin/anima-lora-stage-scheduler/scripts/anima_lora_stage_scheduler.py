@@ -1809,6 +1809,8 @@ class Script(scripts.Script):
     def _stage_panel(self, prefix: str, label: str, default_open: bool, default_target_mode=MODE_AUTO_ANIMA):
         choices = _template_names()
         default_template = choices[0] if choices else "仅人物特征阶段介入"
+        # The sliders start on the default template's window (what unticking auto timing keeps)
+        default_start, default_end, default_peak = STAGE_DEFAULT_TIMINGS[_template_stage_from_name(default_template)]
 
         with gr.Accordion(label, open=default_open, elem_id=self.elem_id(f"{prefix}_panel")):
             with gr.Row():
@@ -1837,9 +1839,9 @@ class Script(scripts.Script):
             )
 
             with gr.Row():
-                start = gr.Slider(0.0, 1.0, value=0.62 if prefix == "base" else 0.20, step=0.01, label=_t("start"), elem_id=self.elem_id(f"{prefix}_start"))
-                end = gr.Slider(0.0, 1.0, value=1.0 if prefix == "base" else 0.74, step=0.01, label=_t("end"), elem_id=self.elem_id(f"{prefix}_end"))
-                peak = gr.Slider(0.0, 1.0, value=0.86 if prefix == "base" else 0.48, step=0.01, label=_t("peak"), elem_id=self.elem_id(f"{prefix}_peak"))
+                start = gr.Slider(0.0, 1.0, value=default_start, step=0.01, label=_t("start"), elem_id=self.elem_id(f"{prefix}_start"))
+                end = gr.Slider(0.0, 1.0, value=default_end, step=0.01, label=_t("end"), elem_id=self.elem_id(f"{prefix}_end"))
+                peak = gr.Slider(0.0, 1.0, value=default_peak, step=0.01, label=_t("peak"), elem_id=self.elem_id(f"{prefix}_peak"))
 
             with gr.Row():
                 stage_strength = gr.Slider(0.0, 2.0, value=1.0, step=0.01, label=_t("strength"), elem_id=self.elem_id(f"{prefix}_stage_strength"))
