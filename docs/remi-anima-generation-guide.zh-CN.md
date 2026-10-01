@@ -1,7 +1,7 @@
 # Forge Neo Remi 功能与 Anima 生成指南
 
 > 适用分支：`remi`  
-> 代码核对基线：`54e9ab37`（2026-10-01）  
+> 代码核对基线：`0eea168b`（2026-10-01）  
 > 本文中的“推荐”是保守起步值，不是对所有模型、LoRA 和提示词都最优的固定答案。
 
 ## 先看结论
@@ -457,7 +457,7 @@ Remi 会在 GUI 中采用“最后选择的功能获胜”：冲突项会被自�
 | DAVE + Regional/FreeFuse/Artist Mixer、`Anima SPEED` | 可组合：前三者改 cross-attention，DAVE 改 block 输出；SPEED 保留半分辨率阶段 |
 | DAVE + Hires fix/img2img | 窗口按完整 schedule 计算，只有 denoise 覆盖到前 `tau` 的那一遍才生效 |
 | Cross-Attention Boost + Spectrum/torch.compile | 可运行；sigma ≥ Band 的步内 Spectrum 强制 actual，per-block compile 回退 eager |
-| Cross-Attention Boost + Regional/FreeFuse/Artist Mixer | 可组合：Regional 的区域与 FreeFuse 的概念 bias 在正向行一起被放大（两种 wrapper 顺序都有 CPU 测试）；Artist Mixer 挂钩方式相同但没有组合测试；以上都未在 GPU 上联合测试 |
+| Cross-Attention Boost + Regional/FreeFuse/Artist Mixer | 可组合：Regional 的区域、FreeFuse 的概念 bias 与 Artist Mixer 的混合输出都在正向行一起被放大（三者在两种 wrapper 顺序下都有 CPU 测试）；都未在 GPU 上联合测试 |
 | Cross-Attention Boost + NAG/NegPiP、CFG 1、`Anima SPEED` | 可组合：NAG 与 NegPiP 在 Boost 包裹的注意力内部起作用；CFG 1 时只有正向行，全部被放大；SPEED 保留半分辨率阶段。Hires/img2img 只有 denoise 达到 Band 的步才放大 |
 | Diffusion in Low Bits `Anima scaled`/`Anima ConvRot` + 已是 FP8、GGUF、混合精度（comfy-quant）或 Nunchaku 的 Anima checkpoint | 不再量化，按 checkpoint 原样加载 |
 | Diffusion in Low Bits `Anima scaled`/`Anima ConvRot` + 非 Anima 模型 | 按选项的普通存储类型加载：`Anima scaled` 为普通 float8-e4m3fn，`Anima ConvRot` 为 Automatic |
