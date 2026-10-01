@@ -159,13 +159,22 @@ def test_the_curve_is_recorded_when_the_run_uses_it(module, monkeypatch):
     # Manual timing, or auto timing on a template without parts: the panel's
     # curve shapes the window; a template's parts bring their own curves
     _language(monkeypatch, "zh")
-    templates._TEMPLATES.edit(lambda data: data.update(partless={"auto": True, "stage": options.STAGE_STYLE}))
+    templates._TEMPLATES.edit(lambda data: data.update(partless={"auto": True, "stage": options.STAGE_STYLE}, curved={"auto": True, "stage": options.STAGE_STYLE, "curve": options.CURVE_FRONT}))
     key = options._panel_key
     for template, auto, recorded in (("partless", True, True), (options.PRESET_STYLE_ALLOW, False, True), (options.PRESET_STYLE_ALLOW, True, False)):
         args = _args(_zh)
         args[4:12] = [template, "", auto, 0.3, 0.7, 0.4, 1.0, options.CURVE_HOLD]
         params, state = _run(module, args)
         assert (key("base", "curve") in params) is recorded, (template, auto)
+        if not recorded:
+            # ... unless a per-LoRA template without parts or a curve runs on it
+            args[5] = "mylora=partless"
+            params, state = _run(module, args)
+            mylora = state.base.config_for_file("mylora.safetensors", {"mylora"})
+            assert key("base", "curve") in params and mylora.curve == options.CURVE_HOLD and not mylora.parts
+            args[5] = "mylora=curved"  # its own curve: the panel's again shapes nothing
+            params, state = _run(module, args)
+            assert key("base", "curve") not in params and state.base.config_for_file("mylora.safetensors", {"mylora"}).curve == options.CURVE_FRONT
         # Inside the window the run resolved, only a hold curve is flat
         start, end = state.base.start, state.base.end
         factors = {runtime._stage_curve_factor(state.base, start + (end - start) * at) for at in (0.1, 0.5)}

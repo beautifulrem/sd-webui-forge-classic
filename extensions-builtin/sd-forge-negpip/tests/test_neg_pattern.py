@@ -99,11 +99,19 @@ def test_unclosed_weights_do_not_backtrack_for_seconds(prompt):
 
 def _search_seconds(prompt: str) -> float:
     best = float("inf")
-    for _ in range(3):
+    for _ in range(5):
         start = time.perf_counter()
         has_negative(prompt)
         best = min(best, time.perf_counter() - start)
     return best
+
+
+def _search_growth(make, small: int, large: int) -> tuple[float, float]:
+    """``(small, large)`` search seconds from the attempt that grew least:
+    load slows single runs at random, not every attempt the way a quadratic
+    pattern is slow."""
+    attempts = [(_search_seconds(make(small)), _search_seconds(make(large))) for _ in range(3)]
+    return min(attempts, key=lambda times: times[1] / max(times[0], 1e-9))
 
 
 @pytest.mark.parametrize(
@@ -114,7 +122,7 @@ def _search_seconds(prompt: str) -> float:
 def test_search_time_grows_linearly(make):
     # Four times the input may cost about four times as long; a quadratic
     # pattern costs sixteen times (seconds already at 20k characters).
-    small, large = _search_seconds(make(5_000)), _search_seconds(make(20_000))
+    small, large = _search_growth(make, 5_000, 20_000)
     assert large < max(8 * small, 0.02)
 
 

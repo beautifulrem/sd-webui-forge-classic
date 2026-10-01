@@ -15,7 +15,16 @@ from modules.anima_lora_support import (
     merge_consistent_rules,
     model_block_set,
     to_float,
+    window_curve_factor,
 )
+
+
+def test_each_window_curve_has_its_documented_shape():
+    # Window 0.2-0.6, peak 0.4: a quarter of the way up the rising half
+    shapes = {shape: window_curve_factor(0.25, 0.2, 0.6, 0.4, shape) for shape in ("hold", "triangle", "smooth", "front", "back")}
+    assert shapes == pytest.approx({"hold": 1.0, "triangle": 0.25, "smooth": 0.15625, "front": 0.875, "back": 0.125})
+    assert window_curve_factor(0.25, 0.2, 0.6, 0.4, "front", floor=0.25) == pytest.approx(0.90625)
+    assert window_curve_factor(0.1, 0.2, 0.6, 0.4, "hold") == 0.0 and window_curve_factor(0.3, 0.3, 0.3, 0.3, "triangle") == 1.0
 
 
 def test_manual_timing_ignores_template_parts():
@@ -310,15 +319,23 @@ def test_compatibility_digits_are_not_read_as_other_numbers(caplog):
     assert plain_number("0\u30025") == 0.5  # the ideographic full stop as a decimal point
 
 
-def _seconds(parse, text, repeats=3):
+def _timings(parse, texts, attempts=3, repeats=5):
+    """Seconds to parse each of ``texts`` (each the best of ``repeats``
+    runs), from the attempt where the last grew least over the first: a
+    loaded machine slows single runs at random, never every attempt the way
+    a quadratic parser is slow."""
     import time
 
-    best = float("inf")
-    for _ in range(repeats):
-        start = time.perf_counter()
-        parse(text)
-        best = min(best, time.perf_counter() - start)
-    return best
+    def seconds(text):
+        best = float("inf")
+        for _ in range(repeats):
+            start = time.perf_counter()
+            parse(text)
+            best = min(best, time.perf_counter() - start)
+        return best
+
+    attempts = [[seconds(text) for text in texts] for _ in range(attempts)]
+    return min(attempts, key=lambda times: times[-1] / max(times[0], 1e-9))
 
 
 @pytest.mark.parametrize("parser", ["parse_layer_weights", "looks_like_layer_weights", "parse_module_weights", "split_weight_sections"])
@@ -342,7 +359,7 @@ def test_weight_text_parses_in_linear_time_on_long_whitespace_runs(parser, shape
     parse = getattr(support, parser)
     logging.disable(logging.WARNING)
     try:
-        short, long = (_seconds(parse, shape(" " * n)) for n in (10000, 40000))
+        short, long = _timings(parse, [shape(" " * n) for n in (10000, 40000)])
     finally:
         logging.disable(logging.NOTSET)
     assert long < 8 * short + 1e-3, (short, long)

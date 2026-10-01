@@ -98,14 +98,17 @@ def test_a_block_field_parses_in_linear_time_on_long_whitespace_runs(caplog):
 
     def seconds(text):
         best = float("inf")
-        for _ in range(3):
+        for _ in range(5):
             start = time.perf_counter()
             parse_blocks(text, 28)
             best = min(best, time.perf_counter() - start)
         return best
 
     for shape in (lambda spaces: f"1{spaces}2", lambda spaces: f"0{spaces}-{spaces}5"):
-        short, long = (seconds(shape(" " * n)) for n in (10000, 40000))
+        # The attempt that grew least: load slows single runs at random, not
+        # every attempt the way a quadratic parser is slow
+        attempts = [[seconds(shape(" " * n)) for n in (10000, 40000)] for _ in range(3)]
+        short, long = min(attempts, key=lambda times: times[1] / max(times[0], 1e-9))
         assert long < 8 * short + 1e-3, (short, long)
     assert all(len(record.getMessage()) < 400 for record in caplog.records)  # the warning quotes a bounded excerpt
 

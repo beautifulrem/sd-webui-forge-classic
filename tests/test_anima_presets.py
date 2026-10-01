@@ -216,6 +216,9 @@ class TurboAdviceTests(unittest.TestCase):
     def test_turbo_with_base_settings_is_flagged(self):
         self.assertIn("Turbo", turbo_settings_advice("anima-turbo-v1.1.safetensors", 4.5, 36))
         self.assertIsNone(turbo_settings_advice("anima-turbo-v1.1.safetensors", 1.0, 10))
+        # Either setting alone is enough
+        self.assertIn("Turbo", turbo_settings_advice("anima-turbo-v1.1.safetensors", 1.0, 30))
+        self.assertIn("Turbo", turbo_settings_advice("anima-turbo-v1.1.safetensors", 4.5, 10))
 
     def test_base_with_turbo_settings_is_flagged(self):
         self.assertIn("Non-Turbo", turbo_settings_advice("anima-base-v1.0", 1.0, 10))

@@ -163,6 +163,16 @@ def test_split_conditioning_batches_prompts_of_different_lengths():
     assert torch.allclose(plain, tiled, atol=1e-6)
 
 
+def test_lengths_exactly_four_times_apart_still_tile():
+    # ConditionCrossAttn.can_concat allows a factor of 4 itself: padding there
+    # would add zero keys and change the softmax normalisation
+    short, long = torch.randn(2, 3), torch.randn(8, 3)
+
+    context, _ = split_conditioning({"crossattn": [short, long], "c_negpip_mask": [torch.ones(2, 1), torch.ones(8, 1)]})
+
+    assert context.shape == (2, 8, 3) and torch.equal(context[0], short.repeat(4, 1))
+
+
 def test_prompts_whose_lengths_do_not_tile_are_padded_to_the_longest():
     """512 and 600 tokens tiled to their LCM of 38400 (and 512/600/530 to
     ~2M tokens, ~12.5 GB): past ConditionCrossAttn's factor 4, rows are

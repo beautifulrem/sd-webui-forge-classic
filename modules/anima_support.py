@@ -195,8 +195,6 @@ def _stack_tiled(values, fill: float = 0.0):
     contexts, as Anima pads prompts under 512 tokens; 1 (neutral) for NegPiP
     masks, as NegPiP pads them (V of a zero context row is zero either way)."""
 
-    import math
-
     import torch
 
     lengths = [value.shape[0] for value in values]
@@ -384,8 +382,6 @@ def generated_token_frames(input_x, patch_temporal: int = 1) -> int | None:
     (``Anima.forward``), and the frame-major flattening of the blocks puts
     their tokens after the generated ones: a per-token edit covers the first
     ``frames * H * W`` tokens only (see :func:`pad_to_sequence`)."""
-
-    import math
 
     if getattr(input_x, "ndim", None) != 5:
         return None

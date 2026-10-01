@@ -260,6 +260,16 @@ class PassConfig:
         return self.panel_weight.active
 
     @property
+    def uses_panel_curve(self) -> bool:
+        """Whether the panel's curve shapes a window of the run: its own (no
+        template parts run), or a per-LoRA template's with neither parts nor
+        a curve of its own."""
+        if not self.parts:
+            return True
+        names = set(self.lora_templates.values()) - {self.template_name}
+        return any(not self.config_for_template(name).parts and not _template_config(name).get("curve") for name in names)
+
+    @property
     def targets(self) -> set[str]:
         return _parse_targets(self.target_loras)
 
@@ -311,7 +321,10 @@ class PassConfig:
 
         if not template_name or template_name == self.template_name:
             return self
+        return self.config_for_template(template_name)
 
+    def config_for_template(self, template_name):
+        """This panel run on the per-LoRA template ``template_name`` (cached)."""
         # Template names are exact: "Late" and "late" are two templates
         cached = self._lora_template_cache.get(template_name)
         if cached is not None:
@@ -555,7 +568,7 @@ def _panel_infotext(pass_name: str, config: PassConfig, lora_templates_text) -> 
         "peak": round(config.peak, 4),
         "strength": round(config.stage_strength, 4),
         # Only when the run used it: a template's parts bring their own curves
-        "curve": "" if config.parts else CURVE_CODES[config.curve],
+        "curve": CURVE_CODES[config.curve] if config.uses_panel_curve else "",
     }
     return {_panel_key(pass_name, name): value for name, value in values.items() if value != ""}
 
