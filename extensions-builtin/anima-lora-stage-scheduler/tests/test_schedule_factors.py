@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from lib_stage_scheduler import options, runtime, templates
+from lib_stage_scheduler import options, runtime, templates, ui
 
 sys.argv = sys.argv[:1]
 SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_lora_stage_scheduler.py"
@@ -12,11 +12,7 @@ _MODULE = []
 
 
 @pytest.fixture
-def module(tmp_path, monkeypatch):
-    from modules import paths_internal
-
-    # _TEMPLATES.path() seeds <data dir>/extension-data with the bundled templates
-    monkeypatch.setattr(paths_internal, "data_path", str(tmp_path))
+def module():
     if not _MODULE:
         spec = importlib.util.spec_from_file_location("anima_lora_stage_scheduler_factors", SCRIPT)
         _MODULE.append(importlib.util.module_from_spec(spec))
@@ -28,7 +24,7 @@ def _block(index, module="mlp.layer1"):
     return f"diffusion_model.blocks.{index}.{module}.weight"
 
 
-def _config(module, template, *, panel="", mode=None, targets="", shift=3.0):
+def _config(template, *, panel="", mode=None, targets="", shift=3.0):
     return runtime._build_pass_config(
         mode or options.MODE_PROMPT_ALL, targets, panel, template, "", True, None, 0.2, 0.8, 0.5, 1.0, options.CURVE_SMOOTH, shift
     )
@@ -50,13 +46,13 @@ BLOCKS = "blocks=0-9=0.2,10-18=1.0,19-27=0.5"
         (52, 51, 0.5),
     ],
 )
-def test_block_weights_follow_a_2b_lora_onto_expanded_models(module, model_blocks, index, expected):
+def test_block_weights_follow_a_2b_lora_onto_expanded_models(model_blocks, index, expected):
     spec = options._parse_panel_weight(BLOCKS)
 
     assert spec.strength_for_key(_block(index), 0.7, 28, model_blocks) == expected
 
 
-def test_block_weights_keep_model_indices_without_a_known_lora_layout(module):
+def test_block_weights_keep_model_indices_without_a_known_lora_layout():
     spec = options._parse_panel_weight(BLOCKS + ";modules=mlp=0.5")
 
     assert spec.strength_for_key(_block(27), 0.7, None, 52) == 0.5 * 0.5
@@ -66,7 +62,7 @@ def test_block_weights_keep_model_indices_without_a_known_lora_layout(module):
 
 
 @pytest.mark.parametrize("text, numeric", [("０．５", 0.5), ("－0.5", -0.5), ("＋．５", 0.5)])
-def test_a_full_width_panel_strength_is_a_number(module, text, numeric, caplog):
+def test_a_full_width_panel_strength_is_a_number(text, numeric, caplog):
     spec = options._parse_panel_weight(text)
 
     assert (spec.numeric, spec.raw) == (numeric, text)
@@ -74,7 +70,7 @@ def test_a_full_width_panel_strength_is_a_number(module, text, numeric, caplog):
 
 
 @pytest.mark.parametrize("text", ["ｍｏｄｕｌｅｓ＝ｍｌｐ＝０．５", "modules＝mlp=0.5", "modules：mlp=0.5", "ＢＬＯＣＫＳ＝０－９＝０．２；ｍｏｄｕｌｅｓ＝ｍｌｐ＝０．５"])
-def test_full_width_panel_sections_are_recognised(module, text, caplog):
+def test_full_width_panel_sections_are_recognised(text, caplog):
     spec = options._parse_panel_weight(text)
 
     assert spec.has_module and spec.module_weights == {"mlp": 0.5} and spec.raw == text
@@ -83,8 +79,8 @@ def test_full_width_panel_sections_are_recognised(module, text, caplog):
     assert "Ignored" not in caplog.text
 
 
-def test_added_patches_get_scheduled_per_key_strengths(module):
-    config = _config(module, options.PRESET_CHARACTER_ALLOW, panel=BLOCKS)
+def test_added_patches_get_scheduled_per_key_strengths():
+    config = _config(options.PRESET_CHARACTER_ALLOW, panel=BLOCKS)
     state = runtime.RuntimeState(SimpleNamespace(), True, config, config, options.DISABLE_NONE, [], False)
     qwen = "text_encoders.qwen3_06b.model.layers.2.mlp.up_proj.weight"
     keys = [_block(10), _block(51), qwen]
@@ -101,66 +97,66 @@ def test_added_patches_get_scheduled_per_key_strengths(module):
     assert float(strengths[_block(51)]) == 0.25
 
 
-def _factors(module, config, steps):
+def _factors(config, steps):
     return [runtime._stage_curve_factor(config, step / 100) for step in steps]
 
 
-def test_character_window_fades_in_and_out(module):
-    config = _config(module, options.PRESET_CHARACTER_ALLOW)  # window 0.20-0.74, peak 0.47 at shift 3
-    before, start, rising, peak, end, after = _factors(module, config, (10, 20, 30, 47, 74, 90))
+def test_character_window_fades_in_and_out():
+    config = _config(options.PRESET_CHARACTER_ALLOW)  # window 0.20-0.74, peak 0.47 at shift 3
+    before, start, rising, peak, end, after = _factors(config, (10, 20, 30, 47, 74, 90))
 
     assert before == start == end == after == 0.0
     assert 0.0 < rising < 0.5
     assert peak == pytest.approx(1.0)
 
 
-def test_composition_window_is_strongest_at_the_start(module):
-    config = _config(module, options.PRESET_COMPOSITION_ALLOW)  # window 0.00-0.32, front-loaded
+def test_composition_window_is_strongest_at_the_start():
+    config = _config(options.PRESET_COMPOSITION_ALLOW)  # window 0.00-0.32, front-loaded
 
-    assert _factors(module, config, (0, 16, 32, 50)) == pytest.approx([1.0, 0.5, 0.0, 0.0])
-
-
-def test_style_ban_zeroes_only_its_window_and_moves_with_shift(module):
-    config = _config(module, options.PRESET_STYLE_BAN)  # style window from 0.62
-    assert _factors(module, config, (0, 50, 61, 62, 70, 100)) == [1.0, 1.0, 1.0, 0.0, 0.0, 0.0]
-
-    late = _config(module, options.PRESET_STYLE_BAN, shift=24.0)  # style window from 0.74
-    assert _factors(module, late, (70, 74)) == [1.0, 0.0]
+    assert _factors(config, (0, 16, 32, 50)) == pytest.approx([1.0, 0.5, 0.0, 0.0])
 
 
-def test_bundled_multi_part_template(module):
-    config = _config(module, "防画风过拟合")  # composition + character allowed, style banned
+def test_style_ban_zeroes_only_its_window_and_moves_with_shift():
+    config = _config(options.PRESET_STYLE_BAN)  # style window from 0.62
+    assert _factors(config, (0, 50, 61, 62, 70, 100)) == [1.0, 1.0, 1.0, 0.0, 0.0, 0.0]
 
-    start, middle, late, end = _factors(module, config, (0, 47, 70, 100))
+    late = _config(options.PRESET_STYLE_BAN, shift=24.0)  # style window from 0.74
+    assert _factors(late, (70, 74)) == [1.0, 0.0]
+
+
+def test_bundled_multi_part_template():
+    config = _config("防画风过拟合")  # composition + character allowed, style banned
+
+    start, middle, late, end = _factors(config, (0, 47, 70, 100))
     assert start == pytest.approx(1.0) and middle == pytest.approx(1.0)
     assert late == end == 0.0  # still inside the character window, but style is banned
 
 
-def test_prompt_lora_tags_get_the_panel_multiplier(module):
-    config = _config(module, options.PRESET_CHARACTER_ALLOW, panel="0.6", mode=options.MODE_TARGETS, targets="cat")
+def test_prompt_lora_tags_get_the_panel_multiplier():
+    config = _config(options.PRESET_CHARACTER_ALLOW, panel="0.6", mode=options.MODE_TARGETS, targets="cat")
     prompts = ["a <lora:cat:1.2> b <lora:dog:0.9>", "<lora:sub/cat:0.3>"]
 
     assert runtime._rewrite_prompt_loras(prompts, config) == ["a <lora:cat:0.6> b <lora:dog:0.9>", "<lora:sub/cat:0.6>"]
 
-    layered = _config(module, options.PRESET_CHARACTER_ALLOW, panel=BLOCKS, mode=options.MODE_TARGETS, targets="cat")
+    layered = _config(options.PRESET_CHARACTER_ALLOW, panel=BLOCKS, mode=options.MODE_TARGETS, targets="cat")
     assert runtime._rewrite_prompt_loras(["<lora:cat:1.2>"], layered) == ["<lora:cat:1>"]  # weights applied per key
-    unset = _config(module, options.PRESET_CHARACTER_ALLOW, panel="0", mode=options.MODE_TARGETS, targets="cat")
+    unset = _config(options.PRESET_CHARACTER_ALLOW, panel="0", mode=options.MODE_TARGETS, targets="cat")
     assert runtime._rewrite_prompt_loras(["<lora:cat:1.2>"], unset) == ["<lora:cat:1.2>"]
     # The panel's weight replaces the tag's text-encoder / UNet arguments too
     assert runtime._rewrite_prompt_loras(["<lora:cat:1:0.5>", "<lora:cat:1:te=0>"], config) == ["<lora:cat:0.6>", "<lora:cat:0.6>"]
 
 
-def test_lora_control_tags_keep_their_schedule_and_text_encoder_off(module):
+def test_lora_control_tags_keep_their_schedule_and_text_encoder_off():
     # LoRA Control schedules <lora:x:[w@t,...]>, and Forge loads its text
     # encoder side at 0 only while the "@" is in the tag
-    config = _config(module, options.PRESET_CHARACTER_ALLOW, panel="0.8", mode=options.MODE_PROMPT_ALL)
+    config = _config(options.PRESET_CHARACTER_ALLOW, panel="0.8", mode=options.MODE_PROMPT_ALL)
     prompts = ["a <lora:cat:[0.5@0,1@0.5]> b <lora:dog:1>", "<lora:cat:[0@0,1@1]:unet=1>"]
 
     assert runtime._rewrite_prompt_loras(prompts, config) == ["a <lora:cat:[0.5@0,1@0.5]> b <lora:dog:0.8>", "<lora:cat:[0@0,1@1]:unet=1>"]
 
 
-def test_batch_rewrite_touches_the_current_batch_and_hires_tags_can_be_dropped(module):
-    config = _config(module, options.PRESET_CHARACTER_ALLOW, panel="0.5")
+def test_batch_rewrite_touches_the_current_batch_and_hires_tags_can_be_dropped():
+    config = _config(options.PRESET_CHARACTER_ALLOW, panel="0.5")
     state = runtime.RuntimeState(None, True, config, config, options.DISABLE_SELECTED, ["<lora:dog:1>"], False)
     p = SimpleNamespace(
         iteration=1, batch_size=1, enable_hr=True,
@@ -189,7 +185,7 @@ def test_batch_rewrite_touches_the_current_batch_and_hires_tags_can_be_dropped(m
         ("0.5", [4, 4]),  # other panel: the patches differ, so each pass change rebuilds them
     ],
 )
-def test_hires_fix_reloads_loras_only_when_the_passes_differ(module, monkeypatch, hires_panel, loads_per_batch):
+def test_hires_fix_reloads_loras_only_when_the_passes_differ(monkeypatch, hires_panel, loads_per_batch):
     from backend.patcher.base import ModelPatcher
     from modules import extra_networks
 
@@ -206,8 +202,8 @@ def test_hires_fix_reloads_loras_only_when_the_passes_differ(module, monkeypatch
     runtime.install_patch()
     base_data, hires_data = object(), object()
     p = SimpleNamespace(sd_model=sd_model, enable_hr=True, extra_network_data=base_data, hr_extra_network_data=hires_data)
-    base = _config(module, options.PRESET_CHARACTER_ALLOW, panel=BLOCKS)
-    hires = _config(module, options.PRESET_STYLE_ALLOW, panel=hires_panel, shift=5.0)
+    base = _config(options.PRESET_CHARACTER_ALLOW, panel=BLOCKS)
+    hires = _config(options.PRESET_STYLE_ALLOW, panel=hires_panel, shift=5.0)
     p._anima_lora_stage_scheduler_state = runtime.RuntimeState(p, True, base, hires, options.DISABLE_NONE, [], False)
 
     for _batch in range(2):
@@ -219,10 +215,10 @@ def test_hires_fix_reloads_loras_only_when_the_passes_differ(module, monkeypatch
     assert loads == loads_per_batch
 
 
-def test_shared_patches_follow_the_timing_of_the_current_pass(module, monkeypatch):
+def test_shared_patches_follow_the_timing_of_the_current_pass(monkeypatch):
     p = SimpleNamespace(is_hr_pass=False)
-    base = _config(module, options.PRESET_CHARACTER_ALLOW, panel=BLOCKS)  # window 0.20-0.74
-    hires = _config(module, options.PRESET_STYLE_ALLOW, panel=BLOCKS)  # window 0.62-1.00
+    base = _config(options.PRESET_CHARACTER_ALLOW, panel=BLOCKS)  # window 0.20-0.74
+    hires = _config(options.PRESET_STYLE_ALLOW, panel=BLOCKS)  # window 0.62-1.00
     state = runtime.RuntimeState(p, True, base, hires, options.DISABLE_NONE, [], False)
     strength = runtime.ScheduledStrength(1.0, "x.safetensors", state.patch_pass("base"))
     state.register(strength)
@@ -239,30 +235,30 @@ def test_shared_patches_follow_the_timing_of_the_current_pass(module, monkeypatc
     assert factor_at(47) == 0.0 and factor_at(90) > 0.0
 
 
-def _manual(module, template, start, end, peak, strength=1.0):
+def _manual(template, start, end, peak, strength=1.0):
     return runtime._build_pass_config(options.MODE_PROMPT_ALL, "", "", template, "", False, None, start, end, peak, strength, options.CURVE_HOLD, 3.0)
 
 
-def test_a_ban_template_keeps_blocking_under_manual_timing(module):
-    ban = _manual(module, options.PRESET_STYLE_BAN, 0.62, 1.0, 0.86)  # its window, as the template loads it
-    assert _factors(module, ban, (30, 61, 62, 90)) == [1.0, 1.0, 0.0, 0.0]
+def test_a_ban_template_keeps_blocking_under_manual_timing():
+    ban = _manual(options.PRESET_STYLE_BAN, 0.62, 1.0, 0.86)  # its window, as the template loads it
+    assert _factors(ban, (30, 61, 62, 90)) == [1.0, 1.0, 0.0, 0.0]
 
-    allow = _manual(module, options.PRESET_STYLE_ALLOW, 0.62, 1.0, 0.86)
-    assert _factors(module, allow, (30, 61, 62, 90)) == [0.0, 0.0, 1.0, 1.0]
+    allow = _manual(options.PRESET_STYLE_ALLOW, 0.62, 1.0, 0.86)
+    assert _factors(allow, (30, 61, 62, 90)) == [0.0, 0.0, 1.0, 1.0]
 
 
-def test_stage_strength_scales_auto_timed_templates(module):
+def test_stage_strength_scales_auto_timed_templates():
     half = runtime._build_pass_config(options.MODE_PROMPT_ALL, "", "", options.PRESET_CHARACTER_ALLOW, "", True, None, 0.2, 0.8, 0.5, 0.5, options.CURVE_SMOOTH, 3.0)
-    assert max(_factors(module, half, range(101))) == pytest.approx(0.5)
+    assert max(_factors(half, range(101))) == pytest.approx(0.5)
     ban = runtime._build_pass_config(options.MODE_PROMPT_ALL, "", "", options.PRESET_STYLE_BAN, "", True, None, 0.2, 0.8, 0.5, 0.5, options.CURVE_SMOOTH, 3.0)
-    assert _factors(module, ban, (0, 90)) == [0.5, 0.0]
+    assert _factors(ban, (0, 90)) == [0.5, 0.0]
 
     # Moving the timing with Shift keeps the slider's multiplier
-    *_, strength = templates._auto_timing_ui(options.PRESET_CHARACTER_ALLOW, 5.0, True, 0.2, 0.74, 0.47, 0.5)
+    *_, strength = ui._auto_timing_ui(options.PRESET_CHARACTER_ALLOW, 5.0, True, 0.2, 0.74, 0.47, 0.5)
     assert strength["value"] == 0.5
 
 
-def test_progress_is_the_position_in_the_full_sigma_schedule(module):
+def test_progress_is_the_position_in_the_full_sigma_schedule():
     import torch
 
     sigmas = torch.linspace(1.0, 0.0, 11)
@@ -277,7 +273,7 @@ def test_progress_is_the_position_in_the_full_sigma_schedule(module):
     assert runtime._sampling_progress(params) == 0.5  # by steps without a schedule
 
 
-def test_scheduled_strengths_work_in_boft_arithmetic(module):
+def test_scheduled_strengths_work_in_boft_arithmetic():
     import torch
 
     from modules_forge.packages.comfy.weight_adapter.boft import BOFTAdapter
@@ -336,14 +332,14 @@ def test_process_resolves_each_panels_stage_in_finalize_timing_only(module, monk
     assert state.base.stage == options.STAGE_STYLE and state.hires.stage == options.STAGE_COMPOSITION
 
 
-def test_a_manual_template_without_a_stage_keeps_its_first_applying_part(module, monkeypatch):
+def test_a_manual_template_without_a_stage_keeps_its_first_applying_part(monkeypatch):
     template = {"auto": False, "parts": [{"stage": options.STAGE_STYLE, "mode": options.PART_BAN}, {"stage": options.STAGE_COMPOSITION, "mode": options.PART_ALLOW}]}
     monkeypatch.setattr(runtime, "_template_config", lambda name: dict(template))
 
-    assert _manual(module, "hand-written", 0.0, 0.3, 0.1).stage == options.STAGE_COMPOSITION
+    assert _manual("hand-written", 0.0, 0.3, 0.1).stage == options.STAGE_COMPOSITION
 
 
-def test_auto_detect_schedules_anima_lokrs_too(module, tmp_path):
+def test_auto_detect_schedules_anima_lokrs_too(tmp_path):
     import torch
     from safetensors.torch import save_file
 
@@ -351,60 +347,60 @@ def test_auto_detect_schedules_anima_lokrs_too(module, tmp_path):
     save_file({"lycoris_blocks_3_mlp_layer1.lokr_w1": torch.zeros(1)}, str(lokr))
     sdxl = tmp_path / "sdxl.safetensors"
     save_file({"lora_unet_mid_block_attentions_0_proj_in.lora_down.weight": torch.zeros(1)}, str(sdxl))
-    config = _config(module, options.PRESET_CHARACTER_ALLOW, mode=options.MODE_AUTO_ANIMA)
+    config = _config(options.PRESET_CHARACTER_ALLOW, mode=options.MODE_AUTO_ANIMA)
 
     assert config.file_matches(str(lokr), frozenset())
     assert not config.file_matches(str(sdxl), frozenset())
 
 
-def test_template_dropdowns_show_the_templates_as_saved(module):
+def test_template_dropdowns_show_the_templates_as_saved():
     builtins = list(options.BUILTIN_TEMPLATES)
 
-    *dropdowns, status = templates._save_template_ui("mine", True, builtins[0], 0.0, 1.0, 0.5, 1.0, options.CURVE_SMOOTH)
+    *dropdowns, status = ui._save_template_ui("mine", True, builtins[0], 0.0, 1.0, 0.5, 1.0, options.CURVE_SMOOTH)
     assert status == "已保存模板：mine" and len(dropdowns) == 3
     assert all("mine" in dropdown["choices"] for dropdown in dropdowns) and dropdowns[2]["value"] == "mine"
 
-    *dropdowns, status = templates._rename_template_ui("mine", "renamed")
+    *dropdowns, status = ui._rename_template_ui("mine", "renamed")
     assert all("renamed" in dropdown["choices"] and "mine" not in dropdown["choices"] for dropdown in dropdowns)
     assert dropdowns[2]["value"] == "renamed"
 
-    *dropdowns, status = templates._delete_template_ui("renamed")
+    *dropdowns, status = ui._delete_template_ui("renamed")
     assert status == "已删除模板：renamed"
     assert all("renamed" not in dropdown["choices"] for dropdown in dropdowns)
     assert "renamed" not in templates._load_custom_templates()
 
 
-def test_template_management_leaves_the_panels_selections_alone(module):
+def test_template_management_leaves_the_panels_selections_alone():
     # Selecting a panel template re-applies its timing and strength to that
     # panel: only the manager's dropdown follows the managed template.
     builtin = list(options.BUILTIN_TEMPLATES)[1]
 
-    base, hires, manager, _ = templates._save_template_ui("mine", True, builtin, 0.0, 1.0, 0.5, 1.0, options.CURVE_SMOOTH, builtin, builtin)
+    base, hires, manager, _ = ui._save_template_ui("mine", True, builtin, 0.0, 1.0, 0.5, 1.0, options.CURVE_SMOOTH, builtin, builtin)
     assert "value" not in base and "value" not in hires and "mine" in base["choices"] and "mine" in hires["choices"]
     assert manager["value"] == "mine"
-    base, hires, manager, _ = templates._save_preset_combo_template_ui("combo", [options.PRESET_STYLE_ALLOW], 3.0, "mine", builtin)
+    base, hires, manager, _ = ui._save_preset_combo_template_ui("combo", [options.PRESET_STYLE_ALLOW], 3.0, "mine", builtin)
     assert "value" not in base and "value" not in hires and manager["value"] == "combo"
 
     # A panel on the renamed template follows it; the other keeps its own
-    base, hires, manager, _ = templates._rename_template_ui("mine", "renamed", "mine", builtin)
+    base, hires, manager, _ = ui._rename_template_ui("mine", "renamed", "mine", builtin)
     assert base["value"] == "renamed" and "value" not in hires and manager["value"] == "renamed"
 
     # A panel on the deleted template falls back; the other keeps its own
-    base, hires, manager, _ = templates._delete_template_ui("renamed", builtin, "renamed")
+    base, hires, manager, _ = ui._delete_template_ui("renamed", builtin, "renamed")
     assert "value" not in base and hires["value"] == base["choices"][0]
     assert "renamed" not in hires["choices"]
 
 
-def test_combo_templates_take_their_window_from_shift_when_applied(module):
+def test_combo_templates_take_their_window_from_shift_when_applied():
     # Auto timing recomputes the window from Shift: a combo stores none
-    templates._save_preset_combo_template_ui("combo", [options.PRESET_STYLE_ALLOW], 5.0)
+    ui._save_preset_combo_template_ui("combo", [options.PRESET_STYLE_ALLOW], 5.0)
     saved = templates._load_custom_templates()["combo"]
     assert saved["auto"] is True and not {"start", "end", "peak"} & set(saved)
 
     # Templates saved with a window (older versions) still apply from Shift
     templates._TEMPLATES.edit(lambda data: (data.update(old={**saved, "start": 0.9, "end": 0.95, "peak": 0.9}), ("old", "")))
     for name in ("combo", "old"):
-        _, start, end, peak, strength, _ = templates._apply_template_ui(name, 5.0)
+        _, start, end, peak, strength, _ = ui._apply_template_ui(name, 5.0)
         window = templates._auto_stage_values(options.STAGE_STYLE, 5.0)[:3]
         assert (start["value"], end["value"], peak["value"]) == tuple(round(value, 4) for value in window), name
         assert strength["value"] == 1.0
@@ -412,28 +408,28 @@ def test_combo_templates_take_their_window_from_shift_when_applied(module):
         assert (config.start, config.end, config.peak) == window, name
 
 
-def test_template_messages_follow_the_ui_language(module, monkeypatch):
+def test_template_messages_follow_the_ui_language(monkeypatch):
     from modules import shared
 
     builtin = next(iter(options.BUILTIN_TEMPLATES))
     assert set(options.LANG["zh"]) == set(options.LANG["en"])
 
     monkeypatch.setattr(shared, "opts", SimpleNamespace(**{options.LANGUAGE_OPTION: "zh"}), raising=False)
-    assert templates._save_template_ui("", True, builtin, 0.0, 1.0, 0.5, 1.0, options.CURVE_SMOOTH)[-1] == "模板名称不能为空。"
+    assert ui._save_template_ui("", True, builtin, 0.0, 1.0, 0.5, 1.0, options.CURVE_SMOOTH)[-1] == "模板名称不能为空。"
     assert templates._parts_from_presets(["x"])[1] == "未知基础预设：x"
-    assert templates._rename_template_ui("a", "a")[-1] == "新旧名称相同，无需重命名。"
+    assert ui._rename_template_ui("a", "a")[-1] == "新旧名称相同，无需重命名。"
 
     monkeypatch.setattr(shared, "opts", SimpleNamespace(**{options.LANGUAGE_OPTION: "en"}), raising=False)
-    assert templates._save_template_ui("", True, builtin, 0.0, 1.0, 0.5, 1.0, options.CURVE_SMOOTH)[-1] == "The template name cannot be empty."
+    assert ui._save_template_ui("", True, builtin, 0.0, 1.0, 0.5, 1.0, options.CURVE_SMOOTH)[-1] == "The template name cannot be empty."
     assert templates._parts_from_presets(["x"])[1] == "Unknown base preset: x"
-    assert templates._delete_template_ui(builtin)[-1] == "Built-in templates cannot be deleted."
+    assert ui._delete_template_ui(builtin)[-1] == "Built-in templates cannot be deleted."
     conflict = [options.PRESET_STYLE_ALLOW, options.PRESET_STYLE_BAN]
     assert templates._parts_from_presets(conflict)[1] == f"Conflicting combo: {options.STAGE_STYLE} is selected as both Apply and Block; not saved."
-    help_text = templates._template_help_ui(builtin, 3.0)["value"]
+    help_text = ui._template_help_ui(builtin, 3.0)["value"]
     assert "Templates are built from base presets" in help_text and "auto window" in help_text
 
 
-def test_template_help_shows_each_parts_own_strength(module, monkeypatch):
+def test_template_help_shows_each_parts_own_strength(monkeypatch):
     from modules import shared
 
     monkeypatch.setattr(shared, "opts", SimpleNamespace(**{options.LANGUAGE_OPTION: "en"}), raising=False)
@@ -443,11 +439,11 @@ def test_template_help_shows_each_parts_own_strength(module, monkeypatch):
     ]
     templates._TEMPLATES.edit(lambda data: (data.update(halved={"auto": True, "parts": parts}), ("halved", "")))
 
-    help_text = templates._template_help_ui("halved", 3.0)["value"]
+    help_text = ui._template_help_ui("halved", 3.0)["value"]
     assert "strength 0.5" in help_text and "strength 0 in window" in help_text and "strength 1" not in help_text
 
 
-def test_per_lora_templates_resolve_their_stage_and_curve_like_the_panel(module):
+def test_per_lora_templates_resolve_their_stage_and_curve_like_the_panel():
     manual = {"auto": False, "stage": options.STAGE_STYLE, "start": 0.1, "end": 0.4, "peak": 0.2, "strength": 2.0, "curve": options.CURVE_HOLD}
     unknown_curve = {"auto": True, "stage": options.STAGE_COMPOSITION, "curve": "no such curve"}
     templates._TEMPLATES.edit(lambda data: (data.update(manual=manual, unknown_curve=unknown_curve), ("manual", "")))
@@ -466,7 +462,7 @@ def test_per_lora_templates_resolve_their_stage_and_curve_like_the_panel(module)
     assert base.config_for_file("other.safetensors", {"other"}) is base
 
 
-def test_per_lora_templates_named_apart_by_case_stay_apart(module):
+def test_per_lora_templates_named_apart_by_case_stay_apart():
     late = {"auto": False, "stage": options.STAGE_STYLE, "start": 0.6, "end": 0.9, "peak": 0.7}
     lower = {"auto": False, "stage": options.STAGE_STYLE, "start": 0.1, "end": 0.3, "peak": 0.2}
     templates._TEMPLATES.edit(lambda data: (data.update(Late=late, late=lower), ("Late", "")))
@@ -484,7 +480,7 @@ def test_the_infotext_keeps_the_lora_weights_as_written(module):
     """The batch loads its LoRAs at the panel's multiplier; the infotext, built
     from p.prompts and all_hr_prompts after postprocess_batch_list, keeps the
     tags as written."""
-    config = _config(module, options.PRESET_CHARACTER_ALLOW, panel="0.5")
+    config = _config(options.PRESET_CHARACTER_ALLOW, panel="0.5")
     state = runtime.RuntimeState(None, True, config, config, options.DISABLE_NONE, [], False)
     written = ["a <lora:cat:1.2:te=0>", "b <lora:cat:0.8>"]
     p = SimpleNamespace(iteration=1, batch_size=1, enable_hr=True, all_prompts=list(written), all_hr_prompts=list(written), hr_prompts=[])

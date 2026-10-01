@@ -40,8 +40,8 @@ def prepare_webui_imports():
     pytest's own arguments are dropped. ``modules.infotext_utils`` needs the
     full WebUI install (its image helpers): where it cannot be imported, a
     module holding Forge's own ``PasteField`` (read from its source) stands in
-    for it for the whole session, since the scripts import it lazily inside
-    ``ui()``. Gradio's analytics / online version check is switched off, as
+    for it for the whole session: the scripts import it when loaded (or, like
+    Layer Weight, inside ``ui()``). Gradio's analytics / online version check is switched off, as
     the WebUI does at startup (modules/launch_utils.py)."""
 
     os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")

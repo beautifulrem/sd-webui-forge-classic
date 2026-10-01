@@ -37,6 +37,10 @@ from lib_stage_scheduler.runtime import (
     start_run,
 )
 from lib_stage_scheduler.templates import (
+    _template_names,
+    _template_stage_from_name,
+)
+from lib_stage_scheduler.ui import (
     _apply_template_ui,
     _auto_timing_ui,
     _close_template_modal_ui,
@@ -48,8 +52,6 @@ from lib_stage_scheduler.templates import (
     _rename_template_ui,
     _save_preset_combo_template_ui,
     _save_template_ui,
-    _template_names,
-    _template_stage_from_name,
 )
 
 

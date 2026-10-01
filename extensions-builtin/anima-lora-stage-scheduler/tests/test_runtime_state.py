@@ -4,7 +4,7 @@ import importlib.util
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from lib_stage_scheduler import options, runtime, templates
+from lib_stage_scheduler import options, runtime, templates, ui
 
 sys.argv = sys.argv[:1]
 SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_lora_stage_scheduler.py"
@@ -179,7 +179,7 @@ def test_an_unreadable_template_file_is_never_overwritten(tmp_path, monkeypatch)
     user_file.parent.mkdir(parents=True, exist_ok=True)
     user_file.write_text('{"mine": ', encoding="utf-8")  # e.g. an interrupted older write
 
-    *_, message = templates._save_template_ui("new", True, "", 0.0, 1.0, 0.5, 1.0, "")
+    *_, message = ui._save_template_ui("new", True, "", 0.0, 1.0, 0.5, 1.0, "")
 
     assert "未做修改" in message
     assert user_file.read_text(encoding="utf-8") == '{"mine": '
@@ -205,6 +205,27 @@ def test_a_reloaded_script_keeps_driving_the_installed_wrappers(monkeypatch):
     ModelPatcher.add_patches(patcher, {key: object()}, filename="x.safetensors", online_mode=False)
 
     assert patcher.patches[key][0][0] == 0.25  # the panel of the run the live module holds
+
+
+def test_a_reload_ui_registers_each_callback_again_exactly_once(monkeypatch):
+    # Reload UI clears the callbacks and re-runs the script, but the lib stays
+    # imported: a registration (or its once-flag) living in the lib would be
+    # lost, one living in the script must not be doubled
+    from modules import script_callbacks
+
+    for key, callbacks in script_callbacks.callback_map.items():
+        monkeypatch.setitem(script_callbacks.callback_map, key, list(callbacks))
+    monkeypatch.setattr(script_callbacks, "ordered_callbacks_map", {})
+
+    def registered(key):
+        return [entry.callback for entry in script_callbacks.callback_map[key] if "/anima_lora_stage_scheduler" in entry.name]  # "<extension>/<file>/<category>/<name>[-n]"
+
+    for _ in range(2):  # startup, then Reload UI
+        script_callbacks.clear_callbacks()
+        script = _load()
+        script.Script(), script.Script()  # txt2img and img2img each build one
+        assert registered("callbacks_cfg_denoiser") == [runtime._denoiser_callback]
+        assert registered("callbacks_infotext_pasted") == [runtime._translate_pasted_infotext]
 
 
 def test_only_scheduled_loras_are_patched_online(monkeypatch):
