@@ -308,10 +308,6 @@ class FreeFuseRefinerConflictTests(unittest.TestCase):
         self.assertFalse(state.refiner)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def test_sampler_names_match_the_registered_samplers():
     # The resolver stays dependency-free, so its sampler sets are constants;
     # keep them in step with the sampler table (a literal list; the module

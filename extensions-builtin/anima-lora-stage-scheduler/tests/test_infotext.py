@@ -77,7 +77,7 @@ def _schedule(state):
             pass_config.parts,
             pass_config.ban_window,
             *(round(value, 4) for value in (pass_config.start, pass_config.end, pass_config.peak, pass_config.stage_strength, pass_config.shift)),
-            pass_config.curve,
+            None if pass_config.parts else pass_config.curve,  # the parts' own curves run instead
         )
 
     files = (("mylora.safetensors", {"mylora"}), ("other.safetensors", {"other"}))
@@ -123,6 +123,9 @@ def _args(labels):
     ]
 
 
+HIRES_CURVE = 23  # _args' index of the Hires panel's curve
+
+
 def _zh(choice):
     """The zh UI's label of a target scope or disable mode: the choice itself."""
     return choice
@@ -144,8 +147,29 @@ def test_a_runs_infotext_restores_every_control(module, monkeypatch, run_languag
     assert [component for component, _ in script.infotext_fields] == controls
     assert script.paste_field_names == list(options.INFOTEXT_KEYS) == [key for _, key in script.infotext_fields]
     assert set(params) <= set(options.INFOTEXT_KEYS)
-    # Every control is back where the run had it, labelled in the pasting UI's language
-    assert _paste(script, params) == _args(labels[paste_language])
+    # Every control is back where the run had it, labelled in the pasting UI's
+    # language; the Hires curve the run did not use (its template's parts
+    # bring their own) is left alone
+    expected = _args(labels[paste_language])
+    expected[HIRES_CURVE] = None
+    assert _paste(script, params) == expected
+
+
+def test_the_curve_is_recorded_when_the_run_uses_it(module, monkeypatch):
+    # Manual timing, or auto timing on a template without parts: the panel's
+    # curve shapes the window; a template's parts bring their own curves
+    _language(monkeypatch, "zh")
+    templates._TEMPLATES.edit(lambda data: data.update(partless={"auto": True, "stage": options.STAGE_STYLE}))
+    key = options._panel_key
+    for template, auto, recorded in (("partless", True, True), (options.PRESET_STYLE_ALLOW, False, True), (options.PRESET_STYLE_ALLOW, True, False)):
+        args = _args(_zh)
+        args[4:12] = [template, "", auto, 0.3, 0.7, 0.4, 1.0, options.CURVE_HOLD]
+        params, state = _run(module, args)
+        assert (key("base", "curve") in params) is recorded, (template, auto)
+        # Inside the window the run resolved, only a hold curve is flat
+        start, end = state.base.start, state.base.end
+        factors = {runtime._stage_curve_factor(state.base, start + (end - start) * at) for at in (0.1, 0.5)}
+        assert (len(factors) == 1) is recorded, (template, auto, factors)
 
 
 def test_ui_and_process_name_the_script_args_in_table_order(module, monkeypatch):
@@ -200,7 +224,7 @@ def test_the_infotext_records_stable_values_whatever_the_ui_language(module, mon
     assert zh == en
     key = options._panel_key
     assert (zh[key("base", "scope")], zh[key("hires", "scope")], zh[options.INFOTEXT_HIRES_DISABLE]) == ("targets", "all", "selected")
-    assert (zh[key("base", "curve")], zh[key("hires", "curve")]) == ("triangle", "back")
+    assert zh[key("base", "curve")] == "triangle" and key("hires", "curve") not in zh
     assert (zh[key("base", "weight")], zh[key("base", "strength")], zh[key("base", "per-LoRA templates")]) == ("0.8", 1.7, "mylora=" + options.PRESET_COMPOSITION_ALLOW)
 
 
@@ -316,6 +340,7 @@ def test_a_template_missing_here_leaves_its_dropdown_alone(module, monkeypatch, 
     script, _, _ = _build_ui(module)
 
     pasted = _paste(script, params)
+    args[HIRES_CURVE] = None  # left alone: see test_a_runs_infotext_restores_every_control
     assert pasted[4] is None and "mine" in caplog.text
     assert pasted[:4] == args[:4] and pasted[5:] == args[5:]
 

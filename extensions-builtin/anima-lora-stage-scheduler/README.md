@@ -37,7 +37,7 @@ Built into Forge Neo Remi: open txt2img or img2img and expand **Anima LoRA Stage
 - With auto timing off, the panel's single start/end window replaces the template's stages. For a template that only blocks stages, the window blocks the LoRA; otherwise it applies it.
 - **Peak ratio** is the point where the stage curve reaches its strongest value.
 - **Stage strength multiplier** multiplies the final LoRA strength inside the active window, with auto timing too.
-- **Strength curve** controls how strength changes over time: smooth, hold, triangle, front-heavy, or back-heavy.
+- **Strength curve** controls how strength changes over time: smooth, hold, triangle, front-heavy, or back-heavy. It shapes the panel's window (manual timing, or a custom template without stages); with auto timing a template's stages bring their own curves, and the infotext then leaves the curve out.
 - **Shift** is read from the Forge Shift / Distilled CFG control when available. Automatic templates use it to adjust the timing window.
 
 ## Per-LoRA Templates
@@ -57,7 +57,7 @@ The template manager can save the current base panel as a template, rename custo
 
 ## Saved Settings
 
-A scheduled image's infotext (PNG parameters) records every panel setting the run used, as `Anima LoRA stage ...` keys: target scope and list, panel weight, template, per-LoRA templates, auto timing, the start/end/peak the run used (computed from Shift under auto timing), stage strength and curve; with Hires. fix, whether its panel was independent (and then its settings too) and the Hires. fix LoRA disabling. Pasting the infotext (the paste button next to the prompt, or PNG Info's send buttons) restores the panels, so the same prompt and seed reproduce the image.
+A scheduled image's infotext (PNG parameters) records every panel setting the run used, as `Anima LoRA stage ...` keys: target scope and list, panel weight, template, per-LoRA templates, auto timing, the start/end/peak the run used (computed from Shift under auto timing), stage strength and curve (when the run used it); with Hires. fix, whether its panel was independent (and then its settings too) and the Hires. fix LoRA disabling. Pasting the infotext (the paste button next to the prompt, or PNG Info's send buttons) restores the panels, so the same prompt and seed reproduce the image.
 
 - The prompt keeps its LoRA tags as written (`<lora:x:0.6>`); a non-zero panel weight, which replaced that weight in the run, is recorded as its own key and restored with the panel.
 - Choices are recorded as fixed codes (`auto`/`all`/`targets`, `smooth`/`triangle`/..., `none`/`all`/`selected`), so zh and en UIs paste each other's images.

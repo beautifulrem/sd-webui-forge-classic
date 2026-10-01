@@ -554,7 +554,8 @@ def _panel_infotext(pass_name: str, config: PassConfig, lora_templates_text) -> 
         "end": round(config.end, 4),
         "peak": round(config.peak, 4),
         "strength": round(config.stage_strength, 4),
-        "curve": CURVE_CODES[config.curve],
+        # Only when the run used it: a template's parts bring their own curves
+        "curve": "" if config.parts else CURVE_CODES[config.curve],
     }
     return {_panel_key(pass_name, name): value for name, value in values.items() if value != ""}
 

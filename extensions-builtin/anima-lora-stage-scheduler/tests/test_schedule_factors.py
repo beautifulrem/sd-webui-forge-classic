@@ -496,3 +496,8 @@ def test_the_infotext_keeps_the_lora_weights_as_written(module):
     assert p.all_prompts[1] == "b <lora:cat:0.5>"  # what a nested run (ADetailer) reads
     script.postprocess(p, SimpleNamespace())
     assert p.all_prompts == written
+
+
+def test_a_manual_window_entered_back_to_front_is_put_in_order():
+    config = runtime._build_pass_config(options.MODE_PROMPT_ALL, "", "", options.PRESET_STYLE_ALLOW, "", False, None, 0.8, 0.2, 0.5, 1.0, options.CURVE_SMOOTH, 3.0)
+    assert (config.start, config.end, config.peak) == (0.2, 0.8, 0.5)
