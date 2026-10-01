@@ -12,7 +12,6 @@ from lib_stage_scheduler.options import (
     CURVE_SMOOTH,
     PART_ALLOW,
     PART_BAN,
-    PRESET_CHARACTER_ALLOW,
     STAGE_CHARACTER,
     STAGE_CHOICES,
     STAGE_DEFAULT_CURVES,
@@ -258,11 +257,8 @@ def _preset_combo_preview_text(selected_presets, shift_value=3.0):
 
 def _template_help_ui(template_name, shift_value):
     config = _template_config(template_name)
-    if not config:
-        config = _template_config(PRESET_CHARACTER_ALLOW)
-    parts = _template_parts(config)
-    if not parts:
-        parts = [_primary_template_part(config)]
+    # An unknown template reads as {}: one applying part of the character stage
+    parts = _template_parts(config) or [_primary_template_part(config)]
 
     shift = _to_float(shift_value, 3.0)
     lines = [

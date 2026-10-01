@@ -174,6 +174,21 @@ def test_block_output_mean_is_attenuated():
     torch.testing.assert_close(out, attenuate_dc(h + 1.0, 0.25))
 
 
+def test_an_edit_models_reference_frame_passes_the_wrapper_untouched():
+    # The call's input holds the generated frame only; Anima.forward appends
+    # the reference latent's frame after it, so the blocks see two
+    dit = _dit(1)
+    wrapper = apply_dave_patch(_Patcher(dit), DaveState(blocks=(0,), strength=1.0, tau=0.1)).model_options["model_function_wrapper"]
+    h = torch.randn(1, 2, 2, 2, 4) + 5.0
+
+    def model_function(x, t, **c):
+        return dit.blocks[0](h)
+
+    out = wrapper(model_function, _args(1.0))
+    torch.testing.assert_close(out[:, 1:], h[:, 1:] + 1.0)
+    torch.testing.assert_close(out[:, :1], attenuate_dc(h[:, :1] + 1.0, 1.0))
+
+
 def test_chains_previous_wrapper_and_propagates_its_flags():
     dit = _dit()
     calls = []

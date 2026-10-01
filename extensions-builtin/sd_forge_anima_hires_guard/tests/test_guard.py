@@ -170,7 +170,7 @@ def test_fixed_base_keeps_the_image_and_guards_only_the_target():
     assert (result.hires_width, result.hires_height) == (1408, 1408)
 
 
-def _guard_script(monkeypatch):
+def _guard_script(monkeypatch, anima=True):
     import importlib.util
     import sys
     from pathlib import Path
@@ -181,7 +181,8 @@ def _guard_script(monkeypatch):
     spec = importlib.util.spec_from_file_location("anima_hires_guard_under_test", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    module._is_anima = lambda process: True
+    if anima:
+        module._is_anima = lambda process: True
     return module.AnimaHiresGuardScript()
 
 
@@ -204,6 +205,30 @@ def test_upscale_button_does_not_shrink_the_image(monkeypatch):
     generation = _process()  # a normal run still gets a safe base pass
     script.after_model_load(generation, *args)
     assert generation.width * generation.height <= 1_200_000
+
+
+def test_a_non_anima_generation_is_never_changed(monkeypatch):
+    from types import SimpleNamespace
+
+    script = _guard_script(monkeypatch, anima=False)
+    process = _process(sd_model=SimpleNamespace(is_anima_engine=False))
+    script.after_model_load(process, True, "Clamp unsafe values", "Balanced", True, 1.2, 2.1, 1.75)
+    assert (process.width, process.height, process.hr_resize_x, process.hr_resize_y) == (1536, 1536, 0, 0)
+    assert process.extra_generation_params == {}
+
+    anima = _process(sd_model=SimpleNamespace(is_anima_engine=True))  # the same job on Anima is guarded
+    script.after_model_load(anima, True, "Clamp unsafe values", "Balanced", True, 1.2, 2.1, 1.75)
+    assert anima.width * anima.height <= 1_200_000
+
+
+def test_custom_guards_with_its_three_sliders(monkeypatch):
+    script = _guard_script(monkeypatch)
+    process = _process()
+    script.after_model_load(process, True, "Clamp unsafe values", "Custom", True, 1.0, 3.0, 2.5)
+    # Balanced would allow a 1.2 MP base pass
+    assert process.width * process.height <= 1_000_000
+    hires = process.hr_resize_x * process.hr_resize_y
+    assert hires <= 3_000_000 and process.hr_resize_x <= 2.5 * process.width
 
 
 def test_report_only_keeps_the_dimensions_and_says_so(monkeypatch):
