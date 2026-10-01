@@ -153,7 +153,9 @@ def test_switch_sigma_override_moves_the_switch_step():
 
 @pytest.mark.parametrize(
     "value, expected",
-    [(None, None), (0, None), (0.0, None), (-0.3, None), ("", None), ("0.6", 0.6), (0.2, 0.5), (0.5, 0.5), (0.9, 0.9), (0.99, 0.9), (5, 0.9)],
+    [(None, None), (0, None), (0.0, None), (-0.3, None), ("", None), ("0.6", 0.6), (0.2, 0.5), (0.5, 0.5), (0.9, 0.9), (0.99, 0.9), (5, 0.9),
+     # Non-finite values are the automatic default, not a bound
+     (float("inf"), None), ("inf", None), (float("-inf"), None), (float("nan"), None), ("NaN", None)],
 )
 def test_switch_sigma_override_is_bounded(value, expected):
     assert speed.resolve_switch_sigma(value) == expected

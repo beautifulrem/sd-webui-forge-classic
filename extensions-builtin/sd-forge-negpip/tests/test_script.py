@@ -167,8 +167,13 @@ def test_a_hires_checkpoint_that_is_not_anima_turns_negpip_off_visibly(anima):
 
 # Forge's attention parser reads "(foo:- 1)" as the literal text "foo:- 1" at
 # weight 1.1 (no space may follow the minus); "(foo:-1.)" is weight -1.
-_NOT_NEGATIVE = ["a cat, (foo:- 1)", "a cat, (foo:-0)", "a cat, (foo:- .5)"]
-_NEGATIVE = {"a cat, (foo:-1)": -1.0, "a cat, (foo:-0.5)": -0.5, "a cat, (foo:-.5)": -0.5, "a cat, (foo:-1.)": -1.0, "a cat, (foo : -2 )": -2.0}
+# A colon may sit in the text (Danbooru tags such as ":d", "re:zero"); a
+# bracket after an escaped backslash and an escape ("\\\\\\(") is literal.
+_NOT_NEGATIVE = ["a cat, (foo:- 1)", "a cat, (foo:-0)", "a cat, (foo:- .5)", r"a cat, \\\(x:-1)"]
+_NEGATIVE = {
+    "a cat, (foo:-1)": -1.0, "a cat, (foo:-0.5)": -0.5, "a cat, (foo:-.5)": -0.5, "a cat, (foo:-1.)": -1.0, "a cat, (foo : -2 )": -2.0,
+    "a cat, (:d:-1)": -1.0, "a cat, (re:zero:-0.5)": -0.5,
+}
 
 
 @pytest.mark.parametrize("prompt", _NOT_NEGATIVE)
@@ -244,7 +249,7 @@ def test_sd_negative_weights_are_moved_out_of_the_prompt_and_encoded(sd, prompt,
     script.process_batch(p)
     assert script.active and p.extra_generation_params == {"NegPiP": True}
     assert p.prompts == ["a cat, "]
-    text = prompt[prompt.index("(") + 1 : prompt.index(":")]
+    text = prompt[prompt.index("(") + 1 : prompt.rindex(":")]
     assert encoded == [(text, weight)] and script.conds_all[0][0][2] == 2
 
 

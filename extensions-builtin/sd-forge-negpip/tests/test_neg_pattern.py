@@ -54,12 +54,17 @@ def _parser_negatives(prompt: str) -> list[tuple[str, float]]:
         "(foo:- 1)", "(foo:-\t1)", "(foo:- .5)", "(foo:-0)", "(foo:-0.0)", "(foo:-.0)", "(foo:-0.)",
         "(foo:+-1)", "(foo:--1)", "(foo:-+1)", "(foo:1)", "(foo:+1)", "(foo:-1e2)", "(foo:-1.5.)",
         "(foo:-1..5)", "(foo:-.)", "(foo:-)", "(foo:-1", "foo:-1)", r"\(foo:-1)", r"\\(foo:-1)",
+        # Colons and escapes in the text, as Danbooru tags and escaped brackets write them
+        "(:d:-1)", "(re:zero:-1)", "(:o:-0.8)", "(a:b:c:-.5)", r"(a\[b:-1)", r"(a\]b:-1)", r"(foo\\:-1)",
+        r"(\(x\):-1)", r"\\\(x:-1)", r"(x\:-1)",
     ],
 )
 def test_negative_weights_agree_with_forges_attention_parser(prompt):
     expected = _parser_negatives(prompt)
     assert len(expected) <= 1
-    assert [(text, weight) for _, text, weight in negative_weights(prompt)] == expected
+    # NegPiP keeps the text as written (it is encoded again); the parser unescapes it
+    found = [("".join(part for part, _ in parse_prompt_attention(text)), weight) for _, text, weight in negative_weights(prompt)]
+    assert found == expected
     assert has_negative(prompt) is bool(expected)
 
 

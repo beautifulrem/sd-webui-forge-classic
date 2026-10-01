@@ -53,7 +53,7 @@ from modules.anima_feature_conflicts import (
     record_conflict_resolution,
 )
 from modules.anima_guidance_state import reset_stateful_guidance
-from modules.anima_support import require_anima_flow_denoiser
+from modules.anima_support import clamp, require_anima_flow_denoiser, to_float
 from modules.sd_samplers_anima import denoise_step, euler_step, sample_anima_flow_euler
 
 
@@ -96,16 +96,10 @@ def transition_sigma(height: int, width: int) -> float:
 
 def resolve_switch_sigma(value) -> float | None:
     """The override clamped to :data:`SWITCH_SIGMA_RANGE`, or ``None`` (use the
-    delta-optimal sigma) for 0, negative or missing values."""
+    delta-optimal sigma) for 0, negative, missing or non-finite values."""
 
-    try:
-        value = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not value > 0.0:
-        return None
-    low, high = SWITCH_SIGMA_RANGE
-    return min(max(value, low), high)
+    value = to_float(value, 0.0)
+    return clamp(value, *SWITCH_SIGMA_RANGE) if value > 0.0 else None
 
 
 def align(sigma: float, ratio: float) -> tuple[float, float]:

@@ -1,34 +1,11 @@
-import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from modules.processing import StableDiffusionProcessing
 
+from backend.text_processing.parsing import re_attention
 from lib_negpip import IS_NEO
 from modules.anima_support import negpip_extra_prompts
-
-# This runs on every prompt of every generation, so each part may match its
-# input only one way; the search stays linear in the prompt length:
-# - whitespace before the colon is part of the weighted text (separate ``\s*``
-#   around the text backtracked cubically on unclosed weights);
-# - the weight is ``1``, ``1.``, ``1.5`` or ``.5`` spelled as alternatives
-#   (``\d*\.?\d+`` could split a digit run between ``\d*`` and ``\d+`` in
-#   quadratically many ways);
-# - a ``(`` escaped by one backslash starts no weight (the attention parser reads
-#   ``\(`` as a literal); otherwise every ``\(`` of a long run started a scan
-#   over the rest of it. ``\\(`` (escaped backslash, real bracket) still does.
-#
-# The weight is what Forge's attention parser (``re_attention`` in
-# backend/text_processing/parsing.py, used by the SD and the Anima text
-# engines) reads: ``:\s*([+-]?[.\d]+)\s*\)`` whose number ``float()`` accepts.
-# So whitespace may sit around the colon and before the ``)``, but not between
-# the minus and the number: ``(foo:- 1)`` is the text "foo:- 1" at weight 1.1.
-# ``[.\d]+`` that float() accepts is exactly ``\d+(?:\.\d*)?|\.\d+``. A zero
-# (``-0``, ``-0.0``) matches but is not negative; ``negative_weights`` drops it.
-NEG_PATTERN = re.compile(
-    r"(?<!(?<!\\)\\)\((?P<text>(?:[^\\(:)]|\\[()])+?):\s*"
-    r"(?P<weight>-(?:\d+(?:\.\d*)?|\.\d+))\s*\)"
-)
 
 
 def reset_prompt_cache(p: "StableDiffusionProcessing"):
@@ -49,16 +26,47 @@ def hr_dealer(p: "StableDiffusionProcessing") -> tuple[bool, bool]:
 
 
 def negative_weights(prompt: str) -> list[tuple[str, str, float]]:
-    """(matched text, weighted text, weight) of each weight below zero."""
-    return [
-        (match[0], match["text"], weight)
-        for match in NEG_PATTERN.finditer(prompt)
-        if (weight := float(match["weight"])) < 0.0
-    ]
+    """``(span, weighted text as written, weight)`` of each innermost
+    ``(...:w)`` whose weight is below zero.
+
+    The prompt is read with Forge's own attention tokens (``re_attention`` in
+    backend/text_processing/parsing.py, used by the SD and the Anima text
+    engines), so NegPiP takes exactly what the parser weights negatively: the
+    text may hold ":" ("(:d:-1)", "(re:zero:-1)") and any "\\x" escape, a
+    bracket a backslash escapes starts nothing ("\\(", but "\\\\(" is an
+    escaped backslash and a real bracket), whitespace may sit around the
+    colon and before ")" but not after the minus ("(foo:- 1)" is text at 1.1),
+    and a zero ("-0") is not negative. A weight around a nested "(" is left
+    to the parser, as before. One pass over the tokens, with a stack of the
+    open round brackets: linear in the prompt length (it runs on every prompt
+    of every generation)."""
+
+    found = []
+    opened = []  # [start offset, holds a nested "("] per open round bracket
+    for token in re_attention.finditer(prompt):
+        text, weight = token.group(0), token.group(1)
+        if text == "(":
+            if opened:
+                opened[-1][1] = True
+            opened.append([token.start(), False])
+        elif weight is not None:
+            if not opened:
+                continue  # a weight with no "(": literal text to the parser
+            start, nested = opened.pop()
+            try:
+                value = float(weight)
+            except ValueError:  # "[.\d]+" float() refuses: the parser fails on it too
+                continue
+            inner = prompt[start + 1 : token.start()]
+            if value < 0.0 and inner and not nested:  # "(:-1)" weights no text
+                found.append((prompt[start : token.end()], inner, value))
+        elif text == ")" and opened:
+            opened.pop()
+    return found
 
 
 def has_negative(prompt: str) -> bool:
-    return any(float(match["weight"]) < 0.0 for match in NEG_PATTERN.finditer(prompt))
+    return bool(negative_weights(prompt))
 
 
 def have_negative(prompts: list[str]) -> bool:
