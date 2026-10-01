@@ -164,8 +164,8 @@ class PresetConsistencyTests(unittest.TestCase):
         registering = [
             source
             for source in sources
-            # Direct calls, or an AnimaPatchPanel's PRESET_FIELDS
-            if "register_preset_control(" in source or "PRESET_FIELDS = (" in source
+            # Direct calls, a SCRIPT_ARGS table's, or an AnimaPatchPanel's PRESET_FIELDS
+            if any(call in source for call in ("register_preset_control(", "register_table_fields(", "PRESET_FIELDS = ("))
         ]
         for feature in sorted({name.split(".", 1)[0] for name in SAFE_BASE_AESTHETIC_PRESET}):
             with self.subTest(feature):

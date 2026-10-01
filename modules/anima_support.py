@@ -797,6 +797,24 @@ class PasteKey(str):
         return self.function(params)
 
 
+def register_table_fields(script, rows, controls) -> list:
+    """Infotext paste fields and Anima preset controls of a panel whose script
+    arguments are the table ``rows``, each ``(name, infotext key or None,
+    preset name or None, ...)``; ``controls[name]`` is the row's control.
+    Returns the controls in row order, which is what ``ui`` returns."""
+
+    from modules.anima_presets import register_preset_control
+    from modules.infotext_utils import PasteField
+
+    fields = [(controls[name], key, preset_name) for name, key, preset_name, *_ in rows]
+    for control, _, preset_name in fields:
+        if preset_name is not None:
+            register_preset_control(script.tabname, preset_name, control)
+    script.infotext_fields = [PasteField(control, key) for control, key, _ in fields if key is not None]
+    script.paste_field_names = [key for _, key, _ in fields if key is not None]
+    return [control for control, _, _ in fields]
+
+
 class AnimaPatchPanel:
     """Mixin for an always-visible Anima panel that patches the UNet of each
     pass (DAVE, cross-attention boost). Its ``ui`` returns the enable switch

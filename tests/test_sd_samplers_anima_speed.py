@@ -303,6 +303,14 @@ def test_reference_latents_fall_back(monkeypatch):
     assert speed.fallback_reason(_RecordingModel(), _anima_sigmas(10).tolist()) == "reference latents"
 
 
+def test_controlnet_lllite_falls_back(monkeypatch):
+    # LLLite patches the DiT outside transformer_options: only its own flag tells
+    from backend.args import dynamic_args
+
+    monkeypatch.setattr(dynamic_args, "ACTIVE_LLLITE_DIT", object(), raising=False)
+    assert speed.fallback_reason(_RecordingModel(), _anima_sigmas(10).tolist()) == "ControlNet-LLLite"
+
+
 def test_small_or_single_step_passes_fall_back():
     assert speed.plan_speed(_anima_sigmas(10).tolist(), 96, 96)[0] is None  # 48 x 48 coarse < 512 x 384 px
     assert speed.plan_speed(_anima_sigmas(1).tolist(), 128, 128)[0] is None

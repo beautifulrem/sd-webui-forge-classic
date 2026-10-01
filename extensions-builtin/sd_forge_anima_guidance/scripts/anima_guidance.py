@@ -64,9 +64,7 @@ from modules.anima_feature_conflicts import (
     record_conflict_resolution,
     resolve_guidance_conflicts,
 )
-from modules.anima_presets import register_preset_control
-from modules.anima_support import clamp, effective_prompt_batch, is_anima_auxiliary_denoiser, is_anima_engine, process_ref, schedule_steps, script_arguments, to_float
-from modules.infotext_utils import PasteField
+from modules.anima_support import clamp, effective_prompt_batch, is_anima_auxiliary_denoiser, is_anima_engine, process_ref, register_table_fields, schedule_steps, script_arguments, to_float
 from modules.ui_components import InputAccordion
 
 logger = logging.getLogger("AnimaGuidance")
@@ -931,14 +929,7 @@ class AnimaGuidanceScript(scripts.Script):
                 )
 
         # Each control is the local variable named in SCRIPT_ARGS.
-        controls = locals()
-        fields = [(controls[name], key, preset_name) for name, key, preset_name, _ in SCRIPT_ARGS]
-        for component, _, preset_name in fields:
-            if preset_name is not None:
-                register_preset_control(self.tabname, preset_name, component)
-        self.infotext_fields = [PasteField(component, key) for component, key, _ in fields if key is not None]
-        self.paste_field_names = [key for _, key, _ in fields if key is not None]
-        return [component for component, _, _ in fields]
+        return register_table_fields(self, SCRIPT_ARGS, locals())
 
     @staticmethod
     def _arguments(values) -> SimpleNamespace:

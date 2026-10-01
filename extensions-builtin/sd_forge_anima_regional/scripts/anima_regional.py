@@ -12,7 +12,6 @@ from backend.logging import setup_logger
 from lib_anima_regional.regional import Region, RegionalState, apply_regional_patch
 from modules import scripts
 from modules.anima_feature_conflicts import FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
-from modules.anima_presets import register_preset_control
 from modules.anima_lora_support import model_block_set
 from modules.anima_support import (
     conditioning_cache_key,
@@ -22,10 +21,10 @@ from modules.anima_support import (
     prompt_schedule,
     prompt_step,
     register_negpip_prompts,
+    register_table_fields,
     schedule_steps,
     script_arguments,
 )
-from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
 logger = logging.getLogger("AnimaRegional")
@@ -197,14 +196,7 @@ class AnimaRegionalScript(scripts.Script):
             component=enable,
         )
         # Each control is the local variable or region control named in SCRIPT_ARGS.
-        controls = {**locals(), **region_controls}
-        fields = [(controls[name], key, preset_name) for name, key, preset_name, _ in SCRIPT_ARGS]
-        for component, _, preset_name in fields:
-            if preset_name is not None:
-                register_preset_control(self.tabname, preset_name, component)
-        self.infotext_fields = [PasteField(component, key) for component, key, _ in fields]
-        self.paste_field_names = list(INFOTEXT_KEYS)
-        return [component for component, _, _ in fields]
+        return register_table_fields(self, SCRIPT_ARGS, {**locals(), **region_controls})
 
     def process(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
         args = _arguments((enable, blocks, start, end, feather, base_preserve, *region_values))

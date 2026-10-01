@@ -16,7 +16,10 @@ def _import_fresh(monkeypatch):
     after the test, so later imports never see this copy."""
     import modules
 
-    monkeypatch.delitem(sys.modules, "modules.sd_schedulers", raising=False)
+    # setitem records the entry (or its absence) for monkeypatch to restore;
+    # delitem records nothing when the module was never imported
+    monkeypatch.setitem(sys.modules, "modules.sd_schedulers", None)
+    del sys.modules["modules.sd_schedulers"]
     monkeypatch.setattr(modules, "sd_schedulers", None, raising=False)
     import modules.sd_schedulers
 

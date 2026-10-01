@@ -3,8 +3,7 @@ import gradio as gr
 from modules import script_callbacks, scripts
 from modules.anima_lora_support import restore_batch_prompts, restore_run_prompts
 from modules.anima_lora_ui import intro_block, register_language_option
-from modules.anima_presets import register_preset_control
-from modules.infotext_utils import PasteField
+from modules.anima_support import register_table_fields
 from lib_stage_scheduler.options import (
     BUILDER_PRESET_CHOICES,
     BUILDER_PRESET_LABELS,
@@ -12,7 +11,6 @@ from lib_stage_scheduler.options import (
     CURVE_CHOICES,
     CURVE_SMOOTH,
     DISABLE_NONE,
-    INFOTEXT_KEYS,
     INTRO_EN,
     INTRO_ZH,
     LANGUAGE_OPTION,
@@ -415,16 +413,9 @@ class Script(scripts.Script):
             show_progress=False,
         )
 
-        # Each control is the local variable named in SCRIPT_ARGS.
-        named = locals()
-        fields = [(named[name], key, preset_name) for name, key, preset_name in SCRIPT_ARGS]
-        for control, _, preset_name in fields:
-            if preset_name is not None:
-                register_preset_control(self.tabname, preset_name, control)
-        # _translate_pasted_infotext turns the recorded codes into these controls' values
-        self.infotext_fields = [PasteField(control, key) for control, key, _ in fields]
-        self.paste_field_names = list(INFOTEXT_KEYS)
-        return [control for control, _, _ in fields]
+        # Each control is the local variable named in SCRIPT_ARGS;
+        # _translate_pasted_infotext turns the recorded codes into their values
+        return register_table_fields(self, SCRIPT_ARGS, locals())
 
     def process(self, p, *values):
         args = _arguments(values)

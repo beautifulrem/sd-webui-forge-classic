@@ -28,9 +28,7 @@ from modules.anima_feature_conflicts import (
     resolve_freefuse_refiner_conflicts,
     set_feature_active,
 )
-from modules.anima_support import effective_prompt_batch, is_anima_engine, prompt_schedule, schedule_steps, script_arguments
-from modules.anima_presets import register_preset_control
-from modules.infotext_utils import PasteField
+from modules.anima_support import effective_prompt_batch, is_anima_engine, prompt_schedule, register_table_fields, schedule_steps, script_arguments
 from modules.prompt_parser import get_multicond_prompt_list
 from modules.ui_components import InputAccordion
 
@@ -303,14 +301,7 @@ class AnimaFreeFuseScript(scripts.Script):
                 )
 
         # Each control is the local variable or subject control named in SCRIPT_ARGS.
-        controls = {**locals(), **subject_controls}
-        fields = [(controls[name], key, preset_name) for name, key, preset_name, _ in SCRIPT_ARGS]
-        for component, _, preset_name in fields:
-            if preset_name is not None:
-                register_preset_control(self.tabname, preset_name, component)
-        self.infotext_fields = [PasteField(component, key) for component, key, _ in fields]
-        self.paste_field_names = list(INFOTEXT_KEYS)
-        return [component for component, _, _ in fields]
+        return register_table_fields(self, SCRIPT_ARGS, {**locals(), **subject_controls})
 
     def process(self, p, enable, *values, **kwargs):
         # A wrong argument count is refused before the sampler or the online-LoRA lease changes.
