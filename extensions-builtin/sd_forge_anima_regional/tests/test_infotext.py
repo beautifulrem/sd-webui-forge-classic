@@ -75,3 +75,24 @@ def test_an_off_panel_records_nothing_and_replays_its_defaults(regional):
     controls = harness.build_ui(script)
     args = [False, *SETTINGS[1:]] + [value for region in REGION_ONE_OFF for value in region]
     harness.assert_infotext_round_trip(script, controls, args, _recorder(regional), [control.value for control in controls])
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")], ids=repr)
+@pytest.mark.parametrize("field", ["start", "feather", "base_preserve", "region2_x", "region1_strength"])
+def test_a_non_finite_setting_is_refused_before_anything_is_installed(regional, field, value):
+    # The API reads JSON NaN / Infinity as floats: min(max(nan, 0), 1) is nan,
+    # a NaN blend; a panel that records it writes "nan", which replays as NaN
+    from modules.anima_feature_conflicts import REGIONAL, is_feature_active
+    from modules.anima_support import negpip_extra_prompts
+
+    names = regional.SCRIPT_ARG_NAMES
+    args = SETTINGS + [value for region in REGION_ONE_OFF for value in region]
+    args[names.index(field)] = value
+    p, unet = harness.make_process()
+    unet.model.predictor = SimpleNamespace(percent_to_sigma=lambda percent: 1.0 - percent)
+    script = regional.AnimaRegionalScript()
+    for hook in (script.process, script.process_before_every_sampling):
+        with pytest.raises(ValueError, match=rf"^Anima Regional Conditioning refuses non-finite script arguments: {field}={value!r}$"):
+            hook(p, *args)
+    assert p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {}
+    assert not is_feature_active(p, REGIONAL) and negpip_extra_prompts(p) == []

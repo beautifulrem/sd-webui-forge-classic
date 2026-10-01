@@ -65,7 +65,7 @@ from modules.anima_feature_conflicts import (
     resolve_guidance_conflicts,
 )
 from modules.anima_presets import register_preset_control
-from modules.anima_support import effective_prompt_batch, is_anima_auxiliary_denoiser, is_anima_engine, process_ref, schedule_steps, script_arguments
+from modules.anima_support import clamp, effective_prompt_batch, is_anima_auxiliary_denoiser, is_anima_engine, process_ref, schedule_steps, script_arguments, to_float
 from modules.infotext_utils import PasteField
 from modules.ui_components import InputAccordion
 
@@ -233,7 +233,7 @@ script_callbacks.on_cfg_denoiser(_stash_nag_negative, name="anima_nag_negative_c
 
 
 def _cns_strength(args: SimpleNamespace) -> float:
-    return min(max(float(args.cns_strength), 0.0), 1.0)
+    return clamp(to_float(args.cns_strength, 1.0), 0.0, 1.0)
 
 
 def _prefetch_cns_gamma(p, args: SimpleNamespace) -> None:
@@ -267,12 +267,8 @@ def _install_sampler_tuning(p, args: SimpleNamespace, active_sampler: str) -> No
             0, int(args.flow_unipc_disable_corrector_first)
         )
         p.flow_unipc_thresholding = bool(args.flow_unipc_thresholding)
-        p.flow_unipc_dynamic_thresholding_ratio = min(
-            max(float(args.flow_unipc_dynamic_thresholding_ratio), 0.5), 1.0
-        )
-        p.flow_unipc_sample_max_value = max(
-            1.0, float(args.flow_unipc_sample_max_value)
-        )
+        p.flow_unipc_dynamic_thresholding_ratio = clamp(to_float(args.flow_unipc_dynamic_thresholding_ratio, 0.995), 0.5, 1.0)
+        p.flow_unipc_sample_max_value = clamp(to_float(args.flow_unipc_sample_max_value, 1.0), 1.0)
         _record(p, "flow_unipc_solver_type", p.flow_unipc_solver_type)
         _record(p, "flow_unipc_disable_corrector_first", p.flow_unipc_disable_corrector_first)
         _record(p, "flow_unipc_thresholding", p.flow_unipc_thresholding)
@@ -281,10 +277,8 @@ def _install_sampler_tuning(p, args: SimpleNamespace, active_sampler: str) -> No
             _record(p, "flow_unipc_sample_max_value", p.flow_unipc_sample_max_value)
 
     if active_sampler == "Anima Flow PC3":
-        p.flow_pc3_gamma = min(max(float(args.flow_pc3_gamma), 0.0), 1.0)
-        p.flow_pc3_tolerance = min(
-            max(float(args.flow_pc3_tolerance), 0.0001), 0.05
-        )
+        p.flow_pc3_gamma = clamp(to_float(args.flow_pc3_gamma, 1.0), 0.0, 1.0)
+        p.flow_pc3_tolerance = clamp(to_float(args.flow_pc3_tolerance, 0.005), 0.0001, 0.05)
         _record(p, "flow_pc3_gamma", p.flow_pc3_gamma)
         _record(p, "flow_pc3_tolerance", p.flow_pc3_tolerance)
 

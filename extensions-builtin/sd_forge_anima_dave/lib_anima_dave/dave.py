@@ -20,7 +20,7 @@ from dataclasses import dataclass
 import torch
 
 from modules.anima_lora_support import REFERENCE_BLOCKS, anima_model_block, sigma_progress
-from modules.anima_support import generated_token_frames, parse_block_list, windowed_override_patch
+from modules.anima_support import clamp, generated_token_frames, parse_block_list, to_float, windowed_override_patch
 from modules.forward_override import cached_overrides
 
 # The reference band and defaults are written for the REFERENCE_BLOCKS (2B) layout.
@@ -50,9 +50,10 @@ def attenuate_dc(x: torch.Tensor, strength: float, frames: int | None = None) ->
 def window_steps(total_steps: int, tau: float) -> int:
     """Number of leading schedule steps DAVE runs on (at least one)."""
 
+    tau = clamp(to_float(tau, DEFAULT_TAU), 0.0, 1.0)
     if tau >= 1.0:
         return total_steps
-    return max(1, min(total_steps, round(float(tau) * total_steps)))
+    return max(1, min(total_steps, round(tau * total_steps)))
 
 
 def in_window(sigma, sigmas, tau: float) -> bool:

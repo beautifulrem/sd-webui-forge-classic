@@ -678,7 +678,7 @@ def test_plain_number_never_raises_on_surrounding_whitespace():
 
 def test_to_float_refuses_non_finite_values():
     # JSON from the API and pasted infotext accepts NaN / Infinity; clamp(nan, ...) gives the maximum
-    from modules.anima_lora_support import clamp, to_float
+    from modules.anima_support import clamp, to_float
 
     for value in (float("nan"), float("inf"), "-Infinity", "NaN"):
         assert to_float(value, 0.5) == 0.5

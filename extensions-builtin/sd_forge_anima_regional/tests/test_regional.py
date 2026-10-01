@@ -227,6 +227,14 @@ class RegionalTests(unittest.TestCase):
                 )
                 self.assertEqual(mask.sum().item(), 0.0, (feather, x, width))
 
+    def test_placement_and_feather_that_are_not_finite_numbers_read_as_zero(self):
+        nan = float("nan")
+        kwargs = dict(latent_t=1, latent_h=8, latent_w=8, patch_t=1, patch_h=2, y=0.0, height=1.0, device="cpu", dtype=torch.float32)
+        hard = rectangle_token_mask(x=0.0, width=0.5, feather=0.0, **kwargs)
+        self.assertTrue(torch.equal(rectangle_token_mask(x=nan, width=0.5, feather=nan, **kwargs), hard))
+        self.assertTrue(torch.equal(rectangle_token_mask(x=0.0, width=0.5, feather=float("-inf"), **kwargs), hard))
+        self.assertFalse(rectangle_token_mask(x=0.0, width=nan, feather=0.0, **kwargs).any())
+
     def test_rows_outside_the_markers_are_all_blended(self):
         from lib_anima_regional.regional import Region, RegionalState, _make_cross_attention_wrapper
 

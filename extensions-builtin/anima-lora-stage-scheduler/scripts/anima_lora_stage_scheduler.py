@@ -41,12 +41,10 @@ from modules.anima_lora_support import (
     lora_key_factor,
     model_key as _model_key,
     stage_window_of,
-    clamp as _clamp,
-    to_float as _to_float,
 )
 from modules.anima_lora_ui import intro_block, register_language_option, ui_language, ui_text
 from modules.anima_presets import register_preset_control
-from modules.anima_support import plain_number as _plain_number, script_arguments
+from modules.anima_support import clamp as _clamp, plain_number as _plain_number, script_arguments, to_float as _to_float
 
 
 logger = logging.getLogger("anima_lora_stage_scheduler")

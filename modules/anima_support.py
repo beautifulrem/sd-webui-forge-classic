@@ -1,14 +1,15 @@
 """Shared helpers for Anima-only integrations: capability checks (engine,
 auxiliary / Flow denoiser), prompt-batch and conditioning / negpip mask
 plumbing, extra-prompt encoding and caching, block-list and branch-row
-parsing, generated-frame (vs edit reference frame) token spans,
-model-wrapper helpers (windowed forward-override patches), the panels'
-script-argument check, infotext paste keys and the block-patch panels'
-script mixin."""
+parsing, setting bounds (``clamp`` / ``to_float``), generated-frame (vs
+edit reference frame) token spans, model-wrapper helpers (windowed
+forward-override patches), the panels' script-argument check, infotext
+paste keys and the block-patch panels' script mixin."""
 
 from __future__ import annotations
 
 import math
+import numbers
 import re
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -435,8 +436,10 @@ def fold_weight_text(text) -> str:
 # The one number grammar of weight texts: decimal digits of any script (as
 # float() reads them; not superscripts or circled digits), an optional
 # exponent, no "_" separators ("0_5" would read as 5) and no inf / nan.
-# Surrounding whitespace is stripped with str.strip, which agrees with float()
-# (a regex \s also matches U+001C-U+001F, which float() refuses)
+# Surrounding whitespace is stripped with str.strip first and float() only
+# sees the stripped text, which is why plain_number never raises: str.strip
+# removes every str.isspace() character, U+001C-U+001F included, which float()
+# itself refuses ("0.5\x1c" reads as 0.5 here, float() raises on it)
 _PLAIN_NUMBER_RE = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 
 
@@ -453,6 +456,42 @@ def plain_number(text) -> float | None:
 
 def is_plain_number(text) -> bool:
     return plain_number(text) is not None
+
+
+def to_float(value, fallback=0.0):
+    """``float(value)``, or ``fallback`` when it is not a finite number (None,
+    "", text, and the NaN / Infinity JSON from the API or pasted infotext
+    accepts: clamp(nan, low, high) would give ``high``)."""
+
+    try:
+        value = float(value)
+    except Exception:
+        return fallback
+    return value if math.isfinite(value) else fallback
+
+
+def clamp(value, low, high=math.inf):
+    """``value`` bounded to ``[low, high]`` (no upper bound by default). The
+    one bounding idiom of the Anima panels is ``clamp(to_float(value,
+    default), low, high)``: ``max`` / ``min`` do not bound NaN, which
+    ``to_float`` turns into ``default`` first."""
+
+    return max(low, min(high, value))
+
+
+def require_finite(owner: str, **values) -> None:
+    """Refuse non-finite float script args of the panel ``owner``: raises
+    ``ValueError`` naming it and each such argument, so a hook that calls it
+    first changes nothing. Forge's script runner reports the exception and
+    runs the other scripts; the panel is skipped for the pass.
+
+    The API reads JSON ``NaN`` / ``Infinity`` as floats, and a run that
+    recorded "nan" in its infotext replays it as one. Only float values are
+    checked: a text field may hold "nan" (a prompt, a block list)."""
+
+    bad = [f"{name}={value!r}" for name, value in values.items() if isinstance(value, numbers.Real) and not math.isfinite(value)]
+    if bad:
+        raise ValueError(f"{owner} refuses non-finite script arguments: {', '.join(bad)}")
 
 
 # Past every block or layer index (the deepest Anima DiT has 52 blocks, the
@@ -703,7 +742,11 @@ def script_arguments(owner: str, names, values, *, defaults=None) -> SimpleNames
     from name to default) when the panel gives them: an argument list stored
     before a control was added, e.g. a UI task Agent Scheduler queued earlier,
     is replayed as it was saved, with nothing filled in. A missing name
-    without a default is refused."""
+    without a default is refused.
+
+    A float value that is not finite (NaN, Infinity) is refused with a
+    ``ValueError`` naming ``owner`` and the argument (:func:`require_finite`):
+    a range limit such as ``min(max(value, low), high)`` lets NaN through."""
 
     names = tuple(names)
     values = tuple(values)
@@ -725,6 +768,7 @@ def script_arguments(owner: str, names, values, *, defaults=None) -> SimpleNames
             shown = ", ".join(missing[:_MISSING_SHOWN]) + (f" and {len(missing) - _MISSING_SHOWN} more" if len(missing) > _MISSING_SHOWN else "")
             raise TypeError(f"{owner} takes {len(names)} script arguments, got {len(values)}; missing: {shown}")
         arguments.update((name, fill[name]) for name in names[len(values) :])
+    require_finite(owner, **arguments)
     return SimpleNamespace(**arguments)
 
 

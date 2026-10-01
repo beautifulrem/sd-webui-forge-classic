@@ -662,6 +662,34 @@ def test_positional_script_args_follow_the_table():
     assert p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {}
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")], ids=repr)
+@pytest.mark.parametrize(
+    ("field", "sampler"),
+    [
+        ("cns_strength", "Anima ER SDE CNS"),
+        ("flow_pc3_gamma", "Anima Flow PC3"),
+        ("flow_unipc_dynamic_thresholding_ratio", "Anima Flow UniPC2"),
+        ("nag_alpha", "Euler"),
+        ("apg_momentum", "Euler"),
+    ],
+)
+def test_a_non_finite_setting_is_refused_before_anything_is_installed(monkeypatch, field, sampler, value):
+    # The API reads JSON NaN / Infinity as floats: min(max(nan, 0), 1) is nan,
+    # so a NaN CNS strength switched CNS off silently and a NaN PC3 gamma was
+    # only stopped by the sampler's own check
+    fetched = []
+    monkeypatch.setattr(SCRIPT_MODULE.sd_samplers_anima_cns, "prefetch_gamma", fetched.append)
+    p = FakeProcess()
+    p.sampler_name = sampler
+    unet = p.sd_model.forge_objects.unet
+    values = _positional(nag_enable=True, guidance_mode=APG_GUIDANCE, flow_unipc_thresholding=True, **{field: value})
+    for hook in (SCRIPT_MODULE.AnimaGuidanceScript().process, SCRIPT_MODULE.AnimaGuidanceScript().process_before_every_sampling):
+        with pytest.raises(ValueError, match=rf"^Anima guidance refuses non-finite script arguments: {field}={value!r}$"):
+            hook(p, *values)
+    assert p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {} and fetched == []
+    assert not any(hasattr(p, name) for name in ("cns_strength", "flow_pc3_gamma", "flow_unipc_dynamic_thresholding_ratio"))
+
+
 def test_cfg_zero_star_zero_init_steps_skip_the_model():
     p = FakeProcess()
     unet = _run(p, guidance_mode=CFG_ZERO_STAR_GUIDANCE, cfg_zero_init_steps=1)

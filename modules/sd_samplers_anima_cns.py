@@ -39,7 +39,7 @@ import torch
 
 from modules import paths_internal
 from modules.anima_artifacts import ensure_pinned_download, sha256_file
-from modules.anima_support import require_anima_flow_denoiser
+from modules.anima_support import clamp, require_anima_flow_denoiser, to_float
 
 
 GAMMA_URL = (
@@ -153,7 +153,7 @@ class CNSRecolorer:
             raise ValueError(f"CNS gamma must have shape (A,T,F), got {gamma.shape}")
         self.gamma = np.asarray(gamma, dtype=np.float64)
         self.aspects = np.asarray(aspects, dtype=np.float64).reshape(-1, 2)
-        self.strength = min(max(float(strength), 0.0), 1.0)
+        self.strength = clamp(to_float(strength, 0.0), 0.0, 1.0)  # NaN / inf read as off
         self.frequency_bins = self.gamma.shape[-1]
         sigma_mid = np.asarray(sigmas, dtype=np.float64)[:-1]
         self.sigma_order = np.argsort(sigma_mid)

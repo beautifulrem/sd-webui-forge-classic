@@ -55,6 +55,9 @@ def test_window_covers_only_the_leading_fraction():
     # Always at least one step; tau 1 covers the whole pass
     assert window_steps(8, 0.01) == 1
     assert all(in_window(float(sigmas[i]), sigmas, 1.0) for i in range(30))
+    # A tau that is not a finite number reads as the default: round(nan) raised mid-sampling
+    for tau in (float("nan"), float("inf"), "nan"):
+        assert window_steps(30, tau) == window_steps(30, 0.1)
 
 
 def test_window_is_off_without_a_schedule_and_on_img2img_tails():

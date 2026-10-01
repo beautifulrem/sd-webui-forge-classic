@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 import torch
 
 from modules import spectrum_force
-from modules.anima_support import pad_to_sequence, positive_rows, schedule_index, sigma_value, windowed_override_patch
+from modules.anima_support import clamp, pad_to_sequence, positive_rows, schedule_index, sigma_value, to_float, windowed_override_patch
 from modules.forward_override import cached_overrides
 
 
@@ -27,8 +27,9 @@ def _edge_ramp(coord: torch.Tensor, low: float, high: float, feather: float) -> 
     edge."""
     if high <= low:
         return torch.zeros_like(coord)
-    half = float(feather) / 2.0
-    edge = max(float(feather), 1e-6)
+    feather = clamp(to_float(feather), 0.0)
+    half = feather / 2.0
+    edge = max(feather, 1e-6)
     ramp = torch.ones_like(coord)
     if low > 0.0:
         ramp = torch.minimum(ramp, (coord - low + half) / edge)
@@ -43,10 +44,10 @@ def rectangle_token_mask(*, latent_t, latent_h, latent_w, patch_t, patch_h, x, y
     token_w = math.ceil(latent_w / patch_h)
     yy = (torch.arange(token_h, device=device, dtype=torch.float32) + 0.5) / token_h
     xx = (torch.arange(token_w, device=device, dtype=torch.float32) + 0.5) / token_w
-    left = min(max(float(x), 0.0), 1.0)
-    top = min(max(float(y), 0.0), 1.0)
-    right = min(max(left + float(width), 0.0), 1.0)
-    bottom = min(max(top + float(height), 0.0), 1.0)
+    left = clamp(to_float(x), 0.0, 1.0)
+    top = clamp(to_float(y), 0.0, 1.0)
+    right = clamp(left + to_float(width), 0.0, 1.0)
+    bottom = clamp(top + to_float(height), 0.0, 1.0)
     horizontal = _edge_ramp(xx, left, right, feather)
     vertical = _edge_ramp(yy, top, bottom, feather)
     mask = torch.minimum(vertical.view(-1, 1), horizontal.view(1, -1))
@@ -211,7 +212,7 @@ def _make_cross_attention_wrapper(original_forward, state: RegionalState):
             regional = original_forward(region_x, context=regional_context, rope_emb=rope_emb, transformer_options=regional_options)
             numerator = numerator + regional * alpha
             denominator = denominator + alpha
-        blend = denominator.clamp(0.0, 1.0) * (1.0 - min(max(float(state.base_preserve), 0.0), 1.0))
+        blend = denominator.clamp(0.0, 1.0) * (1.0 - clamp(to_float(state.base_preserve), 0.0, 1.0))
         regional_average = numerator / denominator.clamp_min(1e-6)
         mixed = region_base * (1.0 - blend) + regional_average * blend
         return branch.merge(base, mixed)

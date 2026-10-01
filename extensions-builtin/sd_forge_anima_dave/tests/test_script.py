@@ -61,3 +61,23 @@ def test_the_infotext_replays_into_the_same_script_args(enable):
     expected = args if enable else [control.value for control in controls]
     params = harness.assert_infotext_round_trip(script, controls, args, _record, expected)
     assert (params == {}) is not enable
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")], ids=repr)
+@pytest.mark.parametrize("field", ["strength", "tau"])
+def test_a_non_finite_setting_is_refused_before_the_pass_is_patched(field, value):
+    # The API reads JSON NaN / Infinity as floats: a NaN tau with strength > 0
+    # raised "cannot convert float NaN to integer" inside the model wrapper,
+    # aborting the job mid-sampling
+    args = {"enable": True, "strength": 0.3, "tau": 0.1, "blocks": "8-18", field: value}
+    p, unet = harness.make_process(40)
+    with pytest.raises(ValueError, match=rf"^Anima DAVE refuses non-finite script arguments: {field}={value!r}$"):
+        dave.AnimaDaveScript().process_before_every_sampling(p, *args.values())
+    assert p.sd_model.forge_objects.unet is unet
+    assert p.extra_generation_params == {}
+
+
+def test_settings_outside_the_sliders_are_applied_and_recorded_bounded():
+    assert _record((True, 1.5, 3.0, "8-18")) == dave.generation_params(1.0, 1.0, "8-18")
+    assert _record((True, 0.3, 0.0, "8-18")) == dave.generation_params(0.3, 0.01, "8-18")
+    assert _record((True, -0.5, 0.1, "8-18")) == {}

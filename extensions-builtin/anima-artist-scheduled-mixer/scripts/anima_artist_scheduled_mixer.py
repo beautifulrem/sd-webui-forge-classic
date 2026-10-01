@@ -36,11 +36,11 @@ from lib_artist_mixer.schedule import (
 )
 from modules import script_callbacks, scripts, shared
 from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
-from modules.anima_lora_support import clamp as _clamp, model_block_set, stage_window_of, to_float as _to_float
+from modules.anima_lora_support import model_block_set, stage_window_of
 from modules.anima_lora_ui import intro_block, register_language_option, ui_language, ui_text
 from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
 from modules.anima_presets import register_preset_control
-from modules.anima_support import PasteKey, effective_prompt_batch, process_ref, prompt_schedule, prompt_step, register_negpip_prompts, schedule_steps, script_arguments
+from modules.anima_support import PasteKey, clamp as _clamp, effective_prompt_batch, process_ref, prompt_schedule, prompt_step, register_negpip_prompts, schedule_steps, script_arguments, to_float as _to_float
 from modules.infotext_utils import PasteField
 from modules.prompt_parser import get_multicond_prompt_list
 

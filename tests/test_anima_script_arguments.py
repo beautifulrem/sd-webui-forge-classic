@@ -1,5 +1,6 @@
 """The panels' one script-argument policy: extras refused, missing values
-filled from the panel's defaults when it gives them, otherwise refused."""
+filled from the panel's defaults when it gives them, otherwise refused;
+non-finite float values refused by name."""
 
 import pytest
 
@@ -48,3 +49,35 @@ def test_a_long_missing_tail_names_its_first_arguments_only():
     names = [f"slot{index}" for index in range(12)]
     with pytest.raises(TypeError, match=r"^Panel takes 12 script arguments, got 2; missing: slot2, slot3, slot4, slot5, slot6 and 5 more$"):
         script_arguments("Panel", names, [1, 2])
+
+
+NON_FINITE = [float("nan"), float("inf"), float("-inf")]
+
+
+@pytest.mark.parametrize("value", NON_FINITE, ids=repr)
+def test_a_non_finite_float_is_refused_by_name(value):
+    # The API reads JSON NaN / Infinity as floats; min(max(nan, 0), 1) is nan
+    with pytest.raises(ValueError, match=rf"^Panel refuses non-finite script arguments: strength={value!r}$"):
+        script_arguments("Panel", NAMES, [True, value, "fast"])
+
+
+def test_every_non_finite_argument_is_named_filled_defaults_included():
+    import numpy as np
+
+    with pytest.raises(ValueError, match=r"^Panel refuses non-finite script arguments: enable=nan, mode=np\.float32\(inf\)$"):
+        script_arguments("Panel", NAMES, [float("nan"), 0.5], defaults={"mode": np.float32("inf")})
+
+
+def test_finite_numbers_and_text_that_reads_as_nan_are_kept():
+    # A text field may hold "nan" (a prompt, a block list); only float values are checked
+    args = script_arguments("Panel", NAMES, [True, 1e308, "nan"])
+    assert (args.enable, args.strength, args.mode) == (True, 1e308, "nan")
+    assert script_arguments("Panel", NAMES, [False, 3, "inf"]).strength == 3
+
+
+def test_require_finite_checks_the_values_it_is_given():
+    from modules.anima_support import require_finite
+
+    require_finite("Panel", strength=0.5, blocks="nan", enable=True, missing=None)
+    with pytest.raises(ValueError, match=r"^Panel refuses non-finite script arguments: tau=nan, gain=-inf$"):
+        require_finite("Panel", strength=0.5, tau=float("nan"), gain=float("-inf"))

@@ -9,7 +9,7 @@ import gradio as gr
 from backend.logging import setup_logger
 from lib_anima_xattn_boost.boost import DEFAULT_BAND, DEFAULT_GAIN, DEFAULT_RENORM, BoostState, apply_xattn_boost_patch
 from modules import scripts
-from modules.anima_support import AnimaPatchPanel, is_anima_engine
+from modules.anima_support import AnimaPatchPanel, clamp, is_anima_engine, require_finite, to_float
 from modules.ui_components import InputAccordion
 
 logger = logging.getLogger("AnimaXattnBoost")
@@ -51,9 +51,15 @@ class AnimaXattnBoostScript(AnimaPatchPanel, scripts.Script):
         return controls
 
     def process_before_every_sampling(self, p, enable, strength, band, renorm, **kwargs):
-        if not enable or float(strength) == 1.0 or not is_anima_engine(getattr(p, "sd_model", None)):
+        # Before anything is installed: a NaN gain would blacken the image
+        require_finite(self.title(), strength=strength, band=band, renorm=renorm)
+        # The sliders' ranges; what is applied is what the infotext records
+        strength = clamp(to_float(strength, DEFAULT_GAIN), 1.0, 3.0)
+        band = clamp(to_float(band, DEFAULT_BAND), 0.5, 1.0)
+        renorm = clamp(to_float(renorm, DEFAULT_RENORM), 0.0, 1.0)
+        if not enable or strength == 1.0 or not is_anima_engine(getattr(p, "sd_model", None)):
             return
-        state = BoostState(gain=float(strength), band=float(band), renorm=float(renorm))
+        state = BoostState(gain=strength, band=band, renorm=renorm)
         # Forwards are only overridden inside a boosted model call.
         self.patch_pass(p, lambda unet: apply_xattn_boost_patch(unet, state), generation_params(strength, band, renorm))
-        logger.debug("Anima xattn boost: gain %.3f, band %.3f, renorm %.3f", float(strength), float(band), float(renorm))
+        logger.debug("Anima xattn boost: gain %.3f, band %.3f, renorm %.3f", strength, band, renorm)

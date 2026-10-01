@@ -1,9 +1,11 @@
-"""Deterministic, dependency-free dimension guards for Anima generation."""
+"""Deterministic, model-free dimension guards for Anima generation."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from math import floor, sqrt
+
+from modules.anima_support import clamp, to_float
 
 
 @dataclass(frozen=True)
@@ -15,16 +17,21 @@ class GuardLimits:
     minimum_side: int = 64
 
     def validated(self) -> "GuardLimits":
-        base_megapixels = max(0.1, float(self.base_megapixels))
+        # A limit that is not a finite number reads as the Balanced preset's
+        base_megapixels = clamp(to_float(self.base_megapixels, BALANCED.base_megapixels), 0.1)
         return GuardLimits(
             base_megapixels=base_megapixels,
             # A Hires pass cannot honor a ceiling below its base image without
             # becoming a downscale, so treat the base ceiling as the floor.
-            hires_megapixels=max(base_megapixels, float(self.hires_megapixels)),
-            max_upscale=max(1.0, float(self.max_upscale)),
+            hires_megapixels=clamp(to_float(self.hires_megapixels, BALANCED.hires_megapixels), base_megapixels),
+            max_upscale=clamp(to_float(self.max_upscale, BALANCED.max_upscale), 1.0),
             alignment=max(1, int(self.alignment)),
             minimum_side=max(1, int(self.minimum_side)),
         )
+
+
+# The panel's default preset
+BALANCED = GuardLimits(1.20, 2.10, 1.75)
 
 
 @dataclass(frozen=True)
@@ -146,7 +153,8 @@ def guard_dimensions(
     resize_x = max(0, int(hr_resize_x or 0))
     resize_y = max(0, int(hr_resize_y or 0))
     if resize_x == 0 and resize_y == 0:
-        requested = (base[0] * max(1.0, float(hr_scale)), base[1] * max(1.0, float(hr_scale)))
+        scale = clamp(to_float(hr_scale, 1.0), 1.0)
+        requested = (base[0] * scale, base[1] * scale)
     elif resize_y == 0:
         requested = (resize_x, resize_x * (base[1] / base[0]))
     elif resize_x == 0:

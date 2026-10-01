@@ -9,7 +9,7 @@ import gradio as gr
 from backend.logging import setup_logger
 from lib_anima_dave.dave import DEFAULT_BLOCKS, DEFAULT_STRENGTH, DEFAULT_TAU, DaveState, apply_dave_patch, model_blocks
 from modules import scripts
-from modules.anima_support import AnimaPatchPanel, is_anima_engine
+from modules.anima_support import AnimaPatchPanel, clamp, is_anima_engine, require_finite, to_float
 from modules.ui_components import InputAccordion
 
 logger = logging.getLogger("AnimaDAVE")
@@ -54,11 +54,16 @@ class AnimaDaveScript(AnimaPatchPanel, scripts.Script):
         return controls
 
     def process_before_every_sampling(self, p, enable, strength, tau, blocks, **kwargs):
-        if not enable or float(strength) <= 0.0 or not is_anima_engine(getattr(p, "sd_model", None)):
+        # Before anything is installed: a NaN tau aborts the job mid-sampling
+        require_finite("Anima DAVE", strength=strength, tau=tau)
+        # The sliders' ranges; what is applied is what the infotext records
+        strength = clamp(to_float(strength, DEFAULT_STRENGTH), 0.0, 1.0)
+        tau = clamp(to_float(tau, DEFAULT_TAU), 0.01, 1.0)
+        if not enable or strength <= 0.0 or not is_anima_engine(getattr(p, "sd_model", None)):
             return
         total_blocks = len(p.sd_model.forge_objects.unet.model.diffusion_model.blocks)
         selected = model_blocks(str(blocks), total_blocks)
-        state = DaveState(blocks=selected, strength=float(strength), tau=float(tau))
+        state = DaveState(blocks=selected, strength=strength, tau=tau)
         # Block forwards are only overridden inside a windowed model call.
         self.patch_pass(p, lambda unet: apply_dave_patch(unet, state), generation_params(strength, tau, blocks))
-        logger.debug("Anima DAVE: strength %.3f, tau %.3f, model blocks %s", float(strength), float(tau), selected)
+        logger.debug("Anima DAVE: strength %.3f, tau %.3f, model blocks %s", strength, tau, selected)

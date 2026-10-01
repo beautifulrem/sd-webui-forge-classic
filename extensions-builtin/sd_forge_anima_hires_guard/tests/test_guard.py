@@ -354,3 +354,32 @@ def test_off_grid_base_fallback_lands_on_the_hires_grid():
     )
     # Nearest 1152^2 = 1.33 MP would cross the ceiling: floor to 1024
     assert (result.hires_width, result.hires_height) == (1024, 1024)
+
+
+NON_FINITE = [float("nan"), float("inf"), float("-inf")]
+
+
+@pytest.mark.parametrize("value", NON_FINITE, ids=repr)
+@pytest.mark.parametrize("field", ["base_mp", "hires_mp", "max_upscale"])
+def test_a_non_finite_limit_is_refused_before_anything_is_guarded(monkeypatch, field, value):
+    # The API reads JSON NaN / Infinity as floats: max(0.1, nan) shrank a
+    # 1024x1024 Custom job to 304x304 and recorded it as an ordinary clamp,
+    # inf lifted the ceiling, a NaN upscale cap turned the Hires upscale off
+    script = _guard_script(monkeypatch)
+    _with_resolution_step(monkeypatch, 64)
+    limits = {"base_mp": 1.2, "hires_mp": 2.1, "max_upscale": 1.75, field: value}
+    process = _process(width=1024, height=1024, hr_scale=1.4)
+    with pytest.raises(ValueError, match=rf"^Anima Hires Guard refuses non-finite script arguments: {field}={value!r}$"):
+        script.after_model_load(process, True, "Clamp unsafe values", "Custom", True, *limits.values())
+    assert (process.width, process.height, process.hr_resize_x, process.hr_resize_y) == (1024, 1024, 0, 0)
+    assert process.extra_generation_params == {}
+
+
+def test_limits_and_scale_that_are_not_finite_numbers_read_as_the_defaults():
+    from lib_anima_hires import BALANCED
+
+    nan = float("nan")
+    for value in (nan, float("inf"), "nan", None):
+        assert GuardLimits(value, value, value).validated() == BALANCED.validated()
+    result = guard_dimensions(1024, 1024, enable_hr=True, hr_scale=nan, hr_resize_x=0, hr_resize_y=0, limits=BALANCED)
+    assert (result.base_width, result.base_height, result.hires_width, result.hires_height) == (1024, 1024, 1024, 1024)

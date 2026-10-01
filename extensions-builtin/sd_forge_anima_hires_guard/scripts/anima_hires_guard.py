@@ -9,9 +9,9 @@ import sys
 import gradio as gr
 
 from backend.logging import setup_logger
-from lib_anima_hires import GuardLimits, guard_dimensions
+from lib_anima_hires import BALANCED, GuardLimits, guard_dimensions
 from modules import scripts, shared
-from modules.anima_support import is_anima_engine
+from modules.anima_support import is_anima_engine, require_finite
 from modules.anima_presets import register_preset_control
 from modules.ui_components import InputAccordion
 
@@ -20,7 +20,7 @@ setup_logger(logger)
 
 PRESETS = {
     "Low VRAM": GuardLimits(0.90, 1.50, 1.50),
-    "Balanced": GuardLimits(1.20, 2.10, 1.75),
+    "Balanced": BALANCED,
     "Detail": GuardLimits(1.40, 2.36, 2.00),
 }
 
@@ -135,6 +135,9 @@ class AnimaHiresGuardScript(scripts.Script):
         max_upscale,
         **kwargs,
     ):
+        # Before anything is guarded or recorded: max(0.1, nan) would shrink
+        # the job to the 0.1 MP floor and record it as an ordinary clamp
+        require_finite(self.title(), base_mp=base_mp, hires_mp=hires_mp, max_upscale=max_upscale)
         if not enabled or not _is_anima(process):
             return
         if getattr(process, "enable_hr", False) and getattr(shared.opts, "use_old_hires_fix_width_height", False):

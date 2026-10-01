@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import logging
 import os
-import math
 import re
 from dataclasses import dataclass, field
 
-from modules.anima_support import block_index_token, fold_weight_text, is_plain_number, parse_block_list, plain_number, sigma_value
+from modules.anima_support import block_index_token, clamp, fold_weight_text, is_plain_number, parse_block_list, plain_number, sigma_value, to_float
 
 logger = logging.getLogger(__name__)
 
@@ -122,22 +121,6 @@ def note_lora_control_yield(noted: set | None, extra_generation_params, filename
 # next "<" instead of rescanning the rest of the prompt (quadratic on
 # "<lora:" * 4000).
 LORA_TAG_RE = re.compile(r"<lora:([^:<>]+)(?::([^<>]*))?>")
-
-
-def clamp(value, low, high):
-    return max(low, min(high, value))
-
-
-def to_float(value, fallback=0.0):
-    """``float(value)``, or ``fallback`` when it is not a finite number (None,
-    "", text, and the NaN / Infinity JSON from the API or pasted infotext
-    accepts: clamp(nan, low, high) would give ``high``)."""
-
-    try:
-        value = float(value)
-    except Exception:
-        return fallback
-    return value if math.isfinite(value) else fallback
 
 
 def active_template_parts(auto_timing: bool, parts):

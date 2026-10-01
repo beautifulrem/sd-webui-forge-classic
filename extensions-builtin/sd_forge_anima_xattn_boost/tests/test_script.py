@@ -1,6 +1,7 @@
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -61,3 +62,35 @@ def test_the_infotext_replays_into_the_same_script_args(enable):
     expected = args if enable else [control.value for control in controls]
     params = harness.assert_infotext_round_trip(script, controls, args, _record, expected)
     assert (params == {}) is not enable
+
+
+def _bare_process():
+    unet = SimpleNamespace(model_options={})
+    sd_model = SimpleNamespace(is_anima_engine=True, forge_objects=SimpleNamespace(unet=unet))
+    return SimpleNamespace(sd_model=sd_model, extra_generation_params={}), unet
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")], ids=repr)
+@pytest.mark.parametrize("field", ["strength", "band", "renorm"])
+def test_a_non_finite_setting_is_refused_before_the_pass_is_patched(field, value):
+    # The API reads JSON NaN / Infinity as floats: nan == 1.0 is False, so a
+    # NaN gain was installed and row_gains [nan, 1] blackened the image
+    args = {"enable": True, "strength": 2.0, "band": 0.85, "renorm": 0.5, field: value}
+    p, unet = _bare_process()
+    with pytest.raises(ValueError, match=rf"^Anima Cross-Attention Boost refuses non-finite script arguments: {field}={value!r}$"):
+        boost.AnimaXattnBoostScript().process_before_every_sampling(p, *args.values())
+    assert p.sd_model.forge_objects.unet is unet
+    assert p.extra_generation_params == {}
+
+
+def test_settings_outside_the_sliders_are_applied_and_recorded_bounded(monkeypatch):
+    states = []
+    monkeypatch.setattr(boost, "apply_xattn_boost_patch", lambda unet, state: states.append(state) or unet)
+    p, _ = _bare_process()
+    boost.AnimaXattnBoostScript().process_before_every_sampling(p, True, 5.0, 0.2, 1.5)
+    assert (states[0].gain, states[0].band, states[0].renorm) == (3.0, 0.5, 1.0)
+    assert p.extra_generation_params == boost.generation_params(3.0, 0.5, 1.0)
+    # Below the slider a gain is the off position
+    p, unet = _bare_process()
+    boost.AnimaXattnBoostScript().process_before_every_sampling(p, True, 0.5, 0.85, 0.5)
+    assert p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {}

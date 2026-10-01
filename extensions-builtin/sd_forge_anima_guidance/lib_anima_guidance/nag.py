@@ -5,7 +5,7 @@ from __future__ import annotations
 import torch
 
 from backend.nn.anima_attention import ANIMA_PROJECT_KV
-from modules.anima_support import branch_rows, conditioning_context, sigma_value, split_conditioning
+from modules.anima_support import branch_rows, clamp, conditioning_context, sigma_value, split_conditioning, to_float
 from modules.spectrum_force import in_sigma_window
 
 
@@ -40,8 +40,8 @@ class NAGAttentionModifier:
         on_unbatched=None,
     ):
         self.scale = float(scale)
-        self.tau = max(float(tau), 1e-6)
-        self.alpha = min(max(float(alpha), 0.0), 1.0)
+        self.tau = clamp(to_float(tau, 2.5), 1e-6)
+        self.alpha = clamp(to_float(alpha, 0.5), 0.0, 1.0)
         self.sigma_low, self.sigma_high = sorted(
             (float(sigma_start), float(sigma_end))
         )

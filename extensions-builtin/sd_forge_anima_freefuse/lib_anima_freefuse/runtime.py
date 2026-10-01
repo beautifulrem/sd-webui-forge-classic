@@ -20,7 +20,7 @@ from backend.patcher.lora import merge_lora_to_weight
 from modules_forge.packages.comfy.weight_adapter import LoRAAdapter
 from modules import spectrum_force
 from modules.anima_lora_support import install_add_patches_hook
-from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows, call_model_wrapper, generated_token_frames, pad_to_sequence
+from modules.anima_support import NEGPIP_CONTEXT_MASK_KEY, branch_rows, call_model_wrapper, clamp, generated_token_frames, pad_to_sequence, to_float
 from modules.forward_override import cached_overrides, forward_overrides
 from .masks import fit_mask_batch, generate_masks
 
@@ -310,7 +310,7 @@ class AnimaFreeFuseState:
         if self.phase != "generate" or not self.masks:
             return False
         progress = self.current_step / max(1, self.total_steps - 1)
-        return progress <= min(max(float(self.routing_end), 0.0), 1.0) + 1e-8
+        return progress <= clamp(to_float(self.routing_end, 1.0), 0.0, 1.0) + 1e-8
 
     def adapter_for_patch(self, patch) -> str | None:
         cached = self._adapter_by_patch.get(id(patch))
@@ -418,8 +418,8 @@ class AnimaFreeFuseState:
         concept_scores = {name: scores[name] for name in positions}
         count = len(concept_scores)
         hidden = hidden.float()
-        selected = max(1, int(spatial_tokens * min(max(self.top_k_ratio, 0.01), 0.5)))
-        temperature = max(float(self.temperature), 1e-3)
+        selected = max(1, int(spatial_tokens * clamp(to_float(self.top_k_ratio, 0.10), 0.01, 0.5)))
+        temperature = clamp(to_float(self.temperature, 300.0), 1e-3)
 
         def similarity_to_top_tokens(score: torch.Tensor) -> torch.Tensor:
             """Softmax similarity of every image token to the mean hidden
@@ -677,7 +677,7 @@ def _make_linear_forward(
             )
             if not generating:
                 return output
-            strength = min(max(float(state.routing_strength), 0.0), 1.0)
+            strength = clamp(to_float(state.routing_strength, 1.0), 0.0, 1.0)
             for name in dict.fromkeys([*deltas, *factors, *bias_deltas]):
                 contribution = None
                 if name in deltas:
