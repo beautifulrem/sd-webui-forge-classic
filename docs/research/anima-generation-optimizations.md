@@ -1,14 +1,14 @@
 # Anima 生成期优化技术与 Forge Neo 移植调研
 
-> 调研日期：2026-08-09
-> 对照分支：`remi`，基线提交 `d940ce41`
+> 首次调研：2026-08-09（基线提交 `d940ce41`）；此后各轮评估的结论按日期写在对应条目中，最近一次为 2026-10-01
+> 对照分支：`remi`
 > 范围：只评估生成期质量、提示词/空间控制、采样、加速和高分辨率后处理；训练技术不作为本报告的主要对象。
 
 ## 结论
 
-### Forge Neo 落地状态（2026-08-09）
+### Forge Neo 落地状态（2026-08-09 首次调研，2026-10-01 更新）
 
-本报告中进入移植队列的项目已按默认关闭、生成级隔离和明确互斥的原则集成到 `remi` 工作区：
+本报告中进入移植队列的项目已按默认关闭、生成级隔离和明确互斥的原则集成到 `remi` 工作区（2026-08-09 之后加入的项目见本节末尾与下文对应条目）：
 
 - NAG 通过 Anima 原生 attention modifier chain 接入，不覆盖 Regional、Artist Mixer 或 FreeFuse 的 wrapper；合成的 Regional/Artist context 与 NAG 隔离；低显存导致正负分支被拆分时，正向调用用该层 K/V 投影负向 prompt context 继续生效，只有无法取得负向 context 时才记录 inactive；
 - Momentum Guidance 在 flow velocity 空间维护每次生成独立的 EMA，按固定参考实现先对上一步 EMA 外推 `v + α·(v − m_prev)` 再更新 EMA（此前先更新 EMA 再外推，等效强度只有 α·β），限于单次评估的 Euler/Anima Flow Euler/FreeFuse Euler，FreeFuse probe 后会重置状态；
@@ -20,6 +20,7 @@
 - SMC-CFG 的 switching gain 按样本计算（参考实现对整个 batch 求均值，batch 1 时等价），同 batch 图片不再互相影响；
 - Guidance Active Range 的起止值是模型去噪时间的比例，经 Forge 的 `percent_to_sigma` 换算为 sigma（Anima shift 3：0.5 对应 sigma 0.75），与 scheduler 无关，也不是步数比例（Beta57/30 步时 end 0.5 只覆盖 13 步）；NAG 的 start/end 同此约定；
 - 现有 PiD 后处理器修复了类级结果泄漏和多批次 prompt/seed 错位，并在 GUI 中明示 Hires 互斥与权重许可限制。
+- 2026-08-09 之后加入：SPEED 前段半分辨率采样（可选切换 sigma 覆盖）、DAVE 同 prompt 多样性、前段 Cross-Attention Boost，以及 “Diffusion in Low Bits” 的加载时 scaled FP8 / INT8 ConvRot 量化，详见下文各自条目与 `backend/nn/anima_quant.py`。
 
 目前已完成 CPU 单元/组合回归、Ruff、`compileall` 和 `git diff --check`；仍需在含 Anima 权重的 NVIDIA 环境执行报告末尾的 GPU 固定 seed 矩阵，才能对画质收益和编译加速比例作实证结论。
 
