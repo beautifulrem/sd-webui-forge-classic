@@ -106,6 +106,25 @@ class AnimaBlockCompileTests(unittest.TestCase):
         self.assertEqual(len(current_task), 1)
         self.assertEqual(AnimaBlockCompileManager.fallback_reason(model), "BackendCompilerFailed")
 
+    def test_a_runtime_error_in_the_compiled_blocks_is_not_a_compile_failure(self):
+        # e.g. out of memory while the compiled blocks run: the error reaches
+        # the caller every time, the compiled blocks are kept, and compile is
+        # never handed to the eager fallback
+        class OutOfMemory(torch.nn.Module):
+            def forward(self, value):
+                raise RuntimeError("CUDA out of memory")
+
+        model = _KModel(run_blocks=True)
+        failures = []
+        with patch("anima_block_compile.torch.compile", side_effect=lambda block, **kwargs: OutOfMemory()) as compile_mock:
+            AnimaBlockCompileManager.install(model, {}, on_fallback=failures.append)
+            for _ in range(2):
+                with self.assertRaisesRegex(RuntimeError, "out of memory"):
+                    model.apply_model(torch.tensor(3))
+        self.assertEqual(failures, [])
+        self.assertIsNone(AnimaBlockCompileManager.fallback_reason(model))
+        self.assertEqual(compile_mock.call_count, 2)  # compiled once, kept for the next call
+
 
 class NeedsEagerTests(unittest.TestCase):
     def test_each_per_generation_option_forces_eager_by_kwarg_and_position(self):

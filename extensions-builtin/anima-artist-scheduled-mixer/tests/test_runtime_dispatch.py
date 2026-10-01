@@ -646,6 +646,24 @@ def test_rows_mixing_into_no_block_take_no_slot_of_the_artist_cap(monkeypatch):
         runtime._cleanup_runtime()
 
 
+def test_a_rows_strength_is_its_weight_times_the_inline_multiplier(monkeypatch):
+    # The help text: "the final row strength is `Weight x inline multiplier`"
+    width = len(mixer.TABLE_HEADERS)
+    row = lambda artist, weight: [True, artist, weight, "0-51", 0.0, 1.0, 0.5, mixer.CURVE_HOLD, mixer.PRESET_CUSTOM, False]
+    base = row("(alpha:1.5)", 0.8) + row("beta", 0.5) + row("gamma:0.5", 1.0) + [None] * (width * (mixer.MAX_ARTIST_ROWS - 3))
+    head = [True, 3, 1, False, False, 3.0, 3.0, 0.7, mixer.OPT_BALANCE, runtime.COMBINE_OUTPUT_AVG, runtime.FUSION_INTERPOLATE, False, False]
+    args = head + base + [None] * (width * mixer.MAX_ARTIST_ROWS)
+
+    monkeypatch.setattr(mixer, "effective_prompt_batch", lambda p: [[""]])
+    monkeypatch.setattr(mixer, "_encode_text_batch", lambda p, texts, use_cache=True: (torch.zeros(1, 3, 4), None))
+    try:
+        mixer.Script().process_before_every_sampling(_run_p(), *args)
+        artists = runtime._RUN_STATES[-1].artists
+        assert [(artist.name, artist.weight) for artist in artists] == [("alpha", pytest.approx(1.2)), ("beta", 0.5), ("gamma", 0.5)]
+    finally:
+        runtime._cleanup_runtime()
+
+
 def test_non_finite_row_values_fall_back_to_the_defaults():
     # API JSON and pasted infotext accept NaN / Infinity: they must not become
     # the maximum weight (clamp(nan, ...) is the upper bound) or crash the row count

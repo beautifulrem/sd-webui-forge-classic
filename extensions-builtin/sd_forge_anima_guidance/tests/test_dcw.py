@@ -61,6 +61,25 @@ class DCWTests(unittest.TestCase):
         for band in change[1:]:  # LH, HL, HH
             self.assertTrue(torch.allclose(band, torch.zeros_like(band), rtol=0.0, atol=1e-6))
 
+    def test_an_odd_latent_size_falls_back_to_broadband_and_warns_once(self):
+        # The Haar band split needs even sides (a 125-row latent would fail
+        # mid-sampling on 63 vs 62 rows): the whole diff corrects instead.
+        torch.manual_seed(5)
+        state = DCWState(lam=-0.015, bands=parse_band_mask("LL"))
+        scalar = -0.015 * (1 - 0.9)
+        with self.assertLogs("AnimaGuidance", level="WARNING") as logs:
+            for height, width in ((125, 8), (8, 125), (125, 125)):
+                x = torch.randn(1, 4, height, width)
+                denoised = torch.randn_like(x)
+                state.reset()
+                state.capture_denoised(denoised)
+                state.before_denoiser(x, 0.9)
+                before = x.clone()
+                state.before_denoiser(x, 0.8)
+                self.assertTrue(torch.allclose(x, before + scalar * (before - denoised), rtol=0.0, atol=1e-6), (height, width))
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn("125x8", logs.output[0])
+
     def test_real_euler_sampling_corrects_the_samplers_latent(self):
         # DCW works only because Forge's cfg_denoiser callback gets the very
         # latent tensor the sampler steps from. The child runs k-diffusion's

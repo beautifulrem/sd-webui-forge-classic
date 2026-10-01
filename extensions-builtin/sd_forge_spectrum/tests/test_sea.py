@@ -46,7 +46,10 @@ class SeaTests(unittest.TestCase):
         distances = [0.1, 0.2, 0.05, 0.4, 0.1, 0.15]
         delta = solve_delta_for_refresh_ratio(distances, 0.5)
         self.assertTrue(math.isfinite(delta) and delta > 0)
-        self.assertLessEqual(count_refreshes(distances, delta), round(len(distances) * 0.5))
+        # Exactly the requested 3 refreshes, at the smallest delta giving no more:
+        # a larger delta would cache more steps than asked for
+        self.assertEqual(count_refreshes(distances, delta), round(len(distances) * 0.5))
+        self.assertGreater(count_refreshes(distances, delta * 0.99), round(len(distances) * 0.5))
 
     def test_variance_exploding_sigmas_map_into_the_flow_range(self):
         self.assertEqual(flow_time(0.25, flow=True), 0.25)

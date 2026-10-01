@@ -90,6 +90,28 @@ def test_feathered_masks_still_partition_the_image_up_to_its_edges():
         assert blended.any(dim=0).nonzero().flatten().tolist() == list(range(4 - feather, 4 + feather))
 
 
+def test_generate_masks_cleans_the_foreground_before_assigning_it():
+    # A speck of foreground outside the subject is dropped and a pinhole
+    # inside it filled, as morphological_clean does on its own
+    square = torch.zeros(16, 16)
+    square[4:12, 4:12] = 1.0
+    noisy = square.clone()
+    noisy[1, 14] = 1.0
+    noisy[7, 7] = 0.0
+    concept = noisy.reshape(1, -1) * 2.0
+    masks = generate_masks(
+        {"a": concept, "b": concept * 0.9},
+        torch.full((1, 256), 1.0),
+        height=16,
+        width=16,
+        bg_scale=1.0,
+        iterations=1,
+        feather=0,
+    )
+
+    assert torch.equal((masks["a"] + masks["b"])[0], square)
+
+
 def test_generate_masks_rejects_inconsistent_batches():
     try:
         generate_masks(

@@ -96,3 +96,22 @@ def test_a_non_finite_setting_is_refused_before_anything_is_installed(regional, 
             hook(p, *args)
     assert p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {}
     assert not is_feature_active(p, REGIONAL) and negpip_extra_prompts(p) == []
+
+
+def test_freefuse_has_priority_in_headless_processing(regional, monkeypatch):
+    # Both panels on (API / headless): FreeFuse runs, Regional installs nothing and says so
+    from modules.anima_feature_conflicts import FREEFUSE, set_feature_active
+
+    patched = []
+    monkeypatch.setattr(regional, "apply_regional_patch", lambda unet, state: patched.append(unet) or unet)
+    args = SETTINGS + [value for region in REGION_ONE_OFF for value in region]
+    for freefuse in (True, False):
+        p, unet = harness.make_process()
+        unet.model.predictor = SimpleNamespace(percent_to_sigma=lambda percent: 1.0 - percent)
+        set_feature_active(p, FREEFUSE, freefuse)
+        regional.AnimaRegionalScript().process_before_every_sampling(p, *args)
+        message = p.extra_generation_params.get("Anima regional conditioning")
+        if freefuse:
+            assert patched == [] and message == "disabled: Anima FreeFuse has priority in headless processing"
+        else:
+            assert patched == [unet] and message != "disabled: Anima FreeFuse has priority in headless processing"

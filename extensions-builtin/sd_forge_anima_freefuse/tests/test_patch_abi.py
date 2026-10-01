@@ -74,6 +74,37 @@ def test_online_lora_wrappers_are_validated_and_routed():
     assert [state.adapter_for_patch(patch) for patch in patches] == ["A"]
 
 
+def test_routing_stops_after_the_routing_end_progress():
+    runtime, _, _ = _load()
+    state = _state(runtime)
+    state.configure_steps(11)
+    state.masks = {"A": torch.ones(1, 4)}
+    state.begin_generate()
+
+    def active_steps():
+        active = []
+        for step in range(11):
+            state.current_step = step
+            active.append(state.routing_active())
+        return active
+
+    state.routing_end = 0.5
+    assert active_steps() == [True] * 6 + [False] * 5  # progress 0.0-0.5 of the 10 step intervals
+    state.routing_end = 1.0
+    assert active_steps() == [True] * 11
+
+
+def test_overlapping_adapter_selectors_are_refused():
+    # Two adapters naming the same loaded file would route it twice
+    runtime, ModelPatcher, _ = _load()
+    patcher = _patcher(ModelPatcher, online=True)
+    state = _state(runtime)
+    state.adapters = [runtime.AdapterSpec("A", "cat", "cat"), runtime.AdapterSpec("B", "/elsewhere/cat.safetensors", "dog")]
+
+    with pytest.raises(ValueError, match="^FreeFuse adapter selectors overlap: A/B$"):
+        state.validate_patches(patcher)
+
+
 def test_offline_lora_patches_are_rejected():
     runtime, ModelPatcher, _ = _load()
     patcher = _patcher(ModelPatcher, online=False)
