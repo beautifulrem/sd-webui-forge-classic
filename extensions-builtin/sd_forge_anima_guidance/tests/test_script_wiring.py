@@ -717,6 +717,32 @@ def test_cfg_zero_star_zero_init_steps_skip_the_model():
     assert not spectrum_force.is_forced(reasons, 0.5)
 
 
+def test_nag_and_momentum_force_spectrum_where_they_change_the_output():
+    # A Spectrum forecast skips the model: NAG must run inside its sigma
+    # window, and Momentum on every step (a forecast must never advance its EMA)
+    from modules import spectrum_force
+
+    def reasons(**overrides):
+        unet = _run(FakeProcess(), **overrides)
+        return unet.model_options.get("transformer_options", {}).get(spectrum_force.KEY)
+
+    nag = reasons(nag_enable=True, nag_start=0.2, nag_end=0.6)  # sigma 0.8 down to 0.4
+    assert [spectrum_force.is_forced(nag, sigma) for sigma in (0.9, 0.8, 0.6, 0.4, 0.2)] == [False, True, True, True, False]
+    momentum = reasons(momentum_enable=True)
+    assert all(spectrum_force.is_forced(momentum, sigma) for sigma in (1.0, 0.5, 0.01))
+    assert not spectrum_force.is_forced(reasons(), 0.5)  # neither on: Spectrum may forecast
+
+
+def test_unipc_thresholding_settings_are_recorded_only_with_thresholding():
+    keys = [SCRIPT_MODULE.INFOTEXT_KEYS[name] for name in ("flow_unipc_dynamic_thresholding_ratio", "flow_unipc_sample_max_value")]
+    for thresholding in (False, True):
+        p = FakeProcess()
+        p.sampler_name = "Anima Flow UniPC2"
+        _run(p, flow_unipc_thresholding=thresholding, flow_unipc_dynamic_thresholding_ratio=0.9, flow_unipc_sample_max_value=2.0)
+        recorded = [p.extra_generation_params.get(key) for key in keys]
+        assert recorded == ([0.9, 2.0] if thresholding else [None, None]), thresholding
+
+
 def _modulation_process(blocks=28):
     p = FakeProcess(FakeUnet(blocks=blocks))
     p.steps = p.firstpass_steps = 10

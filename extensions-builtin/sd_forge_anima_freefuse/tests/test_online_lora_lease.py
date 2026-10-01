@@ -79,3 +79,36 @@ def test_loras_reload_when_the_patches_predate_the_filename_tags(monkeypatch):
     module = _load(monkeypatch)
     assert _run_process(monkeypatch, module, hook_installed=True, tagged=True) != "loaded"
     assert _run_process(monkeypatch, module, hook_installed=False, tagged=False) != "loaded"
+
+
+def test_a_hires_run_drops_the_refiner_and_samples_both_passes_with_freefuse(monkeypatch):
+    # README: the resolver clears Refiner checkpoint switching (FreeFuse needs
+    # one checkpoint) and the Hires. fix pass routes LoRAs too
+    from backend.args import dynamic_args
+    from modules import anima_online_lora
+    from modules.anima_feature_conflicts import CONFLICT_METADATA_KEY
+
+    module = _load(monkeypatch)
+    monkeypatch.setattr(anima_online_lora, "_leases", set())
+    monkeypatch.setattr(anima_online_lora, "_user_setting", None)
+    monkeypatch.setattr(dynamic_args, "online_lora", True)
+    monkeypatch.setattr(module, "install_patch_metadata_hook", lambda: False)
+    p = SimpleNamespace(
+        sd_model=None,
+        sampler_name="Euler",
+        enable_hr=True,
+        hr_sampler_name="DPM++ 2M",
+        refiner_checkpoint="refiner.safetensors",
+        refiner_checkpoint_info=object(),
+        refiner_switch_at=0.8,
+        extra_generation_params={},
+    )
+    script = module.AnimaFreeFuseScript()
+    script.process(p, *_enabled(module))
+    try:
+        assert (p.refiner_checkpoint, p.refiner_checkpoint_info, p.refiner_switch_at) == (None, None, None)
+        assert p.extra_generation_params[CONFLICT_METADATA_KEY] == "Refiner cleared: FreeFuse requires a single checkpoint"
+        assert p.sampler_name == p.hr_sampler_name == "Anima FreeFuse Euler"
+    finally:
+        script.postprocess(p, None)
+        script.cleanup(p)
