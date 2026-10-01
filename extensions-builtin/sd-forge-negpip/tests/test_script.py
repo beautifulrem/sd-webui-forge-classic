@@ -467,6 +467,18 @@ def test_sd_a_batch_of_prompts_with_different_targets_is_left_to_the_parser(sd):
     assert "NegPiP skipped the batch's prompts" in str(p.extra_generation_params)
 
 
+def test_sd_rows_are_compared_at_every_rows_switch_steps(sd):
+    # Same targets, switched at different steps: between steps 6 and 8 the
+    # rows negate different words, which only the second row's ends reveal
+    model, script, encoded = sd
+    prompts = ["a, [(dog:-1):(cat:-1):5]", "a, [(dog:-1):(cat:-1):8]"]
+    p = _sd_process(model, "a cat")
+    p.prompts, p.batch_size = list(prompts), 2
+    script.process_batch(p)
+    assert not script.active and encoded == [] and p.prompts == prompts
+    assert "NegPiP skipped the batch's prompts" in str(p.extra_generation_params)
+
+
 def test_sd_a_target_is_encoded_once_for_every_entry_that_holds_it(sd):
     model, script, encoded = sd
     p = _sd_process(model, "a cat, (dog:-1), [red|blue]")
