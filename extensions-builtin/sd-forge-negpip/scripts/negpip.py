@@ -9,7 +9,7 @@ from backend.logging import setup_logger
 from lib_negpip import IS_NEO, INCOMPATIBLE_EXTENSIONS
 from lib_negpip.anima import patch_anima_negpip, patched_engine
 from lib_negpip.sd import patch_sd_negpip
-from lib_negpip.utils import any_negative, hr_dealer, negative_weights, reset_prompt_cache
+from lib_negpip.utils import any_negative, any_negative_target, hr_dealer, negative_weights, reset_prompt_cache
 
 from modules import devices, scripts
 from modules.anima_feature_conflicts import record_conflict_resolution
@@ -117,6 +117,9 @@ class NegPiP(scripts.Script):
                 p.extra_generation_params["NegPiP"] = True
                 self.active = True
             return
+
+        if not any_negative_target(p):
+            return  # only a weight around a nested group: the SD path leaves those to the parser
 
         self.is_xl = p.sd_model.is_sdxl
         self.batch_size = p.batch_size

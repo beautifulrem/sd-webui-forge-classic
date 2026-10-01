@@ -59,8 +59,9 @@ def _parser_negatives(prompt: str) -> list[tuple[str, float]]:
         # Colons and escapes in the text, as Danbooru tags and escaped brackets write them
         "(:d:-1)", "(re:zero:-1)", "(:o:-0.8)", "(a:b:c:-.5)", r"(a\[b:-1)", r"(a\]b:-1)", r"(foo\\:-1)",
         r"(\(x\):-1)", r"\\\(x:-1)", r"(x\:-1)",
-        # Groups the parser reads as no text weight nothing
-        r"(\:-1)", "([:-1)", "( BREAK [:-1.2)", "(:-1)", "(  :-1)",
+        # Groups the parser reads as no text weight nothing; whitespace is text
+        r"(\:-1)", "([:-1)", "( BREAK [:-1.2)", "(:-1)",
+        "(  :-1)",
     ],
 )
 def test_negative_weights_agree_with_forges_attention_parser(prompt):
@@ -125,6 +126,18 @@ def test_a_negative_weight_around_a_nested_group_counts_but_stays_in_the_prompt(
     assert has_negative(prompt) and negative_weights(prompt) == []
 
 
+def _round_depth(prompt: str) -> int:
+    """The deepest nesting of round brackets as the parser reads them."""
+    depth = deepest = 0
+    for token in re_attention.finditer(prompt):
+        if token[0] == "(":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif depth and (token[0] == ")" or token[1] is not None):
+            depth -= 1
+    return deepest
+
+
 def test_has_negative_agrees_with_the_parser_on_random_prompts():
     # Seeded combinations of every token kind the parser knows. NegPiP never
     # misses a negative weight the parser applies. It may over-report only
@@ -145,8 +158,29 @@ def test_has_negative_agrees_with_the_parser_on_random_prompts():
         expected = bool(_parser_negatives(prompt))
         found = has_negative(prompt)
         if found and not expected:
-            assert sum(token[0] == "(" for token in re_attention.finditer(prompt)) >= 2, prompt
+            assert _round_depth(prompt) >= 2, prompt
         else:
             assert found is expected, prompt
         checked += 1
     assert checked > 15000
+
+
+def test_deep_nesting_stays_linear_in_memory_and_time():
+    # Nested spans overlap: slicing each would take memory quadratic in the
+    # depth (gigabytes for a 200 KB prompt); only innermost groups are sliced
+    import tracemalloc
+
+    def measure(depth):
+        prompt = "(" * depth + "a" + ":-1)" * depth
+        tracemalloc.start()
+        start = time.perf_counter()
+        assert has_negative(prompt) and len(negative_weights(prompt)) == 1
+        seconds = time.perf_counter() - start
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        return seconds, peak, len(prompt)
+
+    small_seconds, _, _ = measure(5_000)
+    large_seconds, large_peak, length = measure(20_000)
+    assert large_peak < 64 * length, large_peak  # bytes per prompt character, not per character squared
+    assert large_seconds < max(8 * small_seconds, 0.05), (small_seconds, large_seconds)

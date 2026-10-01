@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -25,10 +26,12 @@ def hr_dealer(p: "StableDiffusionProcessing") -> tuple[bool, bool]:
     )
 
 
-def _negative_groups(prompt: str) -> list[tuple[str, str, float, bool]]:
-    """``(span, weighted text as written, weight, innermost)`` of each
-    ``(...:w)`` whose weight is below zero and whose text the parser reads as
-    something.
+def _negative_groups(prompt: str) -> Iterator[tuple[int, int, int, float, bool]]:
+    """``(start, text end, end, weight, innermost)`` offsets of each ``(...:w)``
+    whose weight is below zero and whose text the parser reads as something:
+    the span is ``prompt[start:end]``, the text ``prompt[start + 1:text end]``.
+    Offsets, not slices: nested spans overlap, so slicing every one would cost
+    memory quadratic in the nesting depth.
 
     The prompt is read with Forge's own attention tokens (``re_attention`` in
     backend/text_processing/parsing.py, used by the SD and the Anima text
@@ -44,7 +47,6 @@ def _negative_groups(prompt: str) -> list[tuple[str, str, float, bool]]:
     read inside it, handed to its parent when it closes): linear in the prompt
     length (it runs on every prompt of every generation)."""
 
-    found = []
     opened = []  # [start offset, holds a nested "(", holds text] per open round bracket
     squares = 0  # open "[", so a "]" closes one or is literal text, as in the parser
 
@@ -73,7 +75,7 @@ def _negative_groups(prompt: str) -> list[tuple[str, str, float, bool]]:
             except ValueError:  # "[.\\d]+" float() refuses: the parser fails on it too
                 continue
             if value < 0.0 and has_text:
-                found.append((prompt[start : token.end()], prompt[start + 1 : token.start()], value, not nested))
+                yield start, token.start(), token.end(), value, not nested
             continue
         elif text == ")" and opened:
             close()
@@ -90,7 +92,6 @@ def _negative_groups(prompt: str) -> list[tuple[str, str, float, bool]]:
             reads_text = not words or any(word != "BREAK" for word in words)
         if reads_text and opened:
             opened[-1][2] = True
-    return found
 
 
 def negative_weights(prompt: str) -> list[tuple[str, str, float]]:
@@ -98,7 +99,8 @@ def negative_weights(prompt: str) -> list[tuple[str, str, float]]:
     group (see ``_negative_groups``): the targets the SD path moves out of the
     prompt and encodes. A weight around a nested "(" stays in the prompt."""
 
-    return [(span, text, weight) for span, text, weight, innermost in _negative_groups(prompt) if innermost]
+    # Innermost groups never overlap: their slices stay linear in the prompt
+    return [(prompt[start:end], prompt[start + 1 : text_end], weight) for start, text_end, end, weight, innermost in _negative_groups(prompt) if innermost]
 
 
 def has_negative(prompt: str) -> bool:
@@ -108,22 +110,29 @@ def has_negative(prompt: str) -> bool:
     nest it may also say yes when nested weights cancel ("((a:-1):-1)") or zero
     ("((a:-0.5):-0)") the sign, harmlessly: the mask is then all ones."""
 
-    return bool(_negative_groups(prompt))
+    return next(_negative_groups(prompt), None) is not None  # stops at the first
 
 
-def have_negative(prompts: list[str]) -> bool:
-    return any(has_negative(p) for p in prompts)
+def _prompts(p: "StableDiffusionProcessing") -> list[str]:
+    return [
+        *p.prompts,
+        *p.negative_prompts,
+        *(getattr(p, "hr_prompts", None) or ()),
+        *(getattr(p, "hr_negative_prompts", None) or ()),
+        # Prompts other scripts encode themselves (Regional regions, Artist
+        # Mixer artists) need NegPiP's conditioning too.
+        *negpip_extra_prompts(p),
+    ]
 
 
 def any_negative(p: "StableDiffusionProcessing") -> bool:
-    return any(
-        [
-            have_negative(p.prompts),
-            have_negative(p.negative_prompts),
-            have_negative(getattr(p, "hr_prompts", None) or ""),
-            have_negative(getattr(p, "hr_negative_prompts", None) or ""),
-            # Prompts other scripts encode themselves (Regional regions,
-            # Artist Mixer artists) need NegPiP's conditioning too.
-            have_negative(negpip_extra_prompts(p)),
-        ]
-    )
+    """Whether any prompt of the job weights text below zero (the Anima path:
+    its mask comes from the parser, nested groups included)."""
+    return any(has_negative(prompt) for prompt in _prompts(p))
+
+
+def any_negative_target(p: "StableDiffusionProcessing") -> bool:
+    """Whether any prompt has an innermost negative group, the only kind the
+    SD path moves out of the prompt and encodes: with none it has nothing to
+    do, and must not hook every cross-attention layer for the run."""
+    return any(negative_weights(prompt) for prompt in _prompts(p))

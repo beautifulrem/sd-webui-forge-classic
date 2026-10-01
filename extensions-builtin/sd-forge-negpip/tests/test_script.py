@@ -326,3 +326,28 @@ def test_an_sd_step_with_one_negative_target_negates_exactly_its_tokens(monkeypa
     finally:
         negpip_sd._hook_forward(script, attention, True)
     assert torch.allclose(out, torch.cat([expected_n, expected_p]), atol=1e-6)
+
+
+# A negative weight around a nested group: the parser weights the text (the
+# Anima mask comes from the parser), but the SD path only moves innermost
+# groups out of the prompt, so it has nothing to do there.
+_NESTED_ONLY = "a cat, (red, (dog):-1)"
+
+
+def test_anima_a_nested_negative_weight_installs_the_hooks(anima):
+    # Whatever the other prompts of the job hold
+    model, dit, originals = anima
+    script = negpip.NegPiP()
+    p = _process(model, _NESTED_ONLY)
+    script.process_batch(p)
+    assert script.active and p.extra_generation_params == {"NegPiP": True}
+    assert p.prompts == [_NESTED_ONLY]
+
+
+def test_sd_a_nested_negative_weight_alone_leaves_negpip_off(sd):
+    model, script, encoded = sd
+    p = _sd_process(model, _NESTED_ONLY)
+    script.process_batch(p)
+    assert not script.active and p.extra_generation_params == {} and encoded == []
+    assert p.prompts == [_NESTED_ONLY]
+    assert negpip.NegPiP._patched == [False, False]
