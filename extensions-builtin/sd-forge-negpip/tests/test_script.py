@@ -267,8 +267,8 @@ def test_an_sd_step_applies_every_negative_target_of_its_schedule_entry(monkeypa
     monkeypatch.setattr(script, "_cond_dealer", lambda p, target: (torch.randn(1, _TARGET_TOKENS[target[0]], 6), _TARGET_TOKENS[target[0]]))
     steps = 20
     positive = "a cat, [(red fur:-1), (blue eyes:-1):(green:-1), (a dark night sky:-1):10]"
-    script.conds_all = script._calc_conds(None, script._getScheduledNegPip([positive], steps))
-    script.unconds_all = script._calc_conds(None, script._getScheduledNegPip(["(ugly:-1), (bad hands:-1)"], steps))
+    script.conds_all = script._calc_conds(None, script._getScheduledNegPip([positive], steps)[0])
+    script.unconds_all = script._calc_conds(None, script._getScheduledNegPip(["(ugly:-1), (bad hands:-1)"], steps)[0])
 
     torch.manual_seed(0)
     attention = CrossAttention(8, context_dim=6, heads=2, dim_head=4)
@@ -283,14 +283,14 @@ def test_an_sd_step_applies_every_negative_target_of_its_schedule_entry(monkeypa
     monkeypatch.setattr(negpip_sd, "optimized_attention", recording_attention)
     negpip_sd._hook_forward(script, attention, False)
     try:
-        # The sampler reports steps 0..steps-2 (the step count lags the model call by one)
-        for sampling_step in range(steps - 1):
-            script.denoiser_callback(SimpleNamespace(sampling_step=sampling_step))
+        # The CFG denoiser's call counter, which Forge picks the prompt entry by
+        for step in range(steps):
+            script.denoiser_callback(SimpleNamespace(sampling_step=max(0, step - 1), denoiser=SimpleNamespace(step=step)))
             seen.clear()
             with torch.inference_mode():
                 attention(torch.randn(2, 5, 8), torch.randn(2, 77, 6))  # rev: uncond, cond
-            cond_tokens = 2 + 3 if sampling_step + 2 <= 10 else 1 + 4
-            assert seen == [(77 + cond_tokens, cond_tokens), (77 + 1 + 2, 1 + 2)], sampling_step
+            cond_tokens = 2 + 3 if step <= 10 else 1 + 4
+            assert seen == [(77 + cond_tokens, cond_tokens), (77 + 1 + 2, 1 + 2)], step
     finally:
         negpip_sd._hook_forward(script, attention, True)
 
@@ -303,8 +303,8 @@ def test_an_sd_step_with_one_negative_target_negates_exactly_its_tokens(monkeypa
     script.has_hr_p = script.has_hr_n = False
     target = torch.randn(1, 3, 6)
     monkeypatch.setattr(script, "_cond_dealer", lambda p, t: (target, 3))
-    script.conds_all = script._calc_conds(None, script._getScheduledNegPip(["a cat, (blue eyes:-1)"], 20))
-    script.unconds_all = script._calc_conds(None, script._getScheduledNegPip(["plain"], 20))
+    script.conds_all = script._calc_conds(None, script._getScheduledNegPip(["a cat, (blue eyes:-1)"], 20)[0])
+    script.unconds_all = script._calc_conds(None, script._getScheduledNegPip(["plain"], 20)[0])
     script.denoiser_callback(SimpleNamespace(sampling_step=0))
 
     torch.manual_seed(0)
@@ -373,7 +373,7 @@ def test_sd_a_target_removed_at_one_step_is_still_encoded_at_the_next(sd):
     p = _sd_process(model, "a cat, (dog:-1), [red:blue:5]")
     script.process_batch(p)
     assert script.active and "(dog:-1)" not in p.prompts[0]
-    assert encoded == [("dog", -1.0)] * 2
+    assert encoded == [("dog", -1.0)]  # encoded once, used by both entries
     assert [tokens for _step, _cond, tokens in script.conds_all[0]] == [2, 2]
 
 
@@ -396,9 +396,52 @@ def test_sd_a_hires_prompt_target_turns_negpip_on_when_the_base_one_has_none(sd)
     assert [tokens for _step, _cond, tokens in script.hr_conds_all[0]] == [2]
 
 
-@pytest.mark.parametrize("prompt", ["a cat, (AND:-1)", "a cat, (BREAK:-1), [x:y:5]"])
+@pytest.mark.parametrize("prompt", ["a cat, (AND:-1)", "a cat, (ADDCOL:-1), [x:y:5]"])
 def test_sd_a_weighted_keyword_alone_leaves_the_prompt_and_negpip_off(sd, prompt):
     model, script, encoded = sd
     p = _sd_process(model, prompt)
     script.process_batch(p)
     assert not script.active and encoded == [] and p.prompts == [prompt]
+
+
+@pytest.mark.parametrize("prompt", ["a cat, [(dog:-1)::5]", "a cat, [:(dog:-1):5]", "a cat, [(dog:-1)|bird]", "a cat, [(dog:-1):(bird:-1):0.3]"])
+def test_sd_targets_follow_the_entry_forge_picks_for_the_main_prompt(monkeypatch, prompt):
+    # At every model call the negated target is the one the main prompt's
+    # entry holds, as reconstruct_cond_batch picks it (first end >= the call)
+    from modules.prompt_parser import get_learned_conditioning_prompt_schedules
+
+    from modules.anima_support import schedule_index
+
+    steps = 10
+    script = negpip.NegPiP()
+    script.reset()
+    monkeypatch.setattr(script, "_cond_dealer", lambda p, target: (torch.zeros(1, 1, 6), 1))
+    script.active, script.is_anima, script.is_hr, script.has_hr_p, script.has_hr_n = True, False, False, False, False
+    schedule, agree = script._getScheduledNegPip([prompt], steps)
+    script.conds_all = script._calc_conds(None, schedule)
+    (forge_entries,) = get_learned_conditioning_prompt_schedules([prompt], steps)
+    for step in range(steps):
+        script.denoiser_callback(SimpleNamespace(sampling_step=max(0, step - 1), denoiser=SimpleNamespace(step=step)))
+        text = forge_entries[schedule_index([end for end, _ in forge_entries], step)][1]
+        assert (script.c_tokens > 0) == ("(dog:-1)" in text or "(bird:-1)" in text), (step, text)
+    assert agree
+
+
+def test_sd_a_batch_of_prompts_with_different_targets_is_left_to_the_parser(sd):
+    # The hook applies one block to the whole batch: rows that disagree keep
+    # their text (nothing lost, nothing borrowed) and the reason is recorded
+    model, script, encoded = sd
+    p = _sd_process(model, "a cat")
+    p.prompts = ["a cat", "a cat, (dog:-1)"]
+    p.batch_size = 2
+    script.process_batch(p)
+    assert not script.active and encoded == [] and p.prompts == ["a cat", "a cat, (dog:-1)"]
+    assert "NegPiP skipped the batch's prompts" in str(p.extra_generation_params)
+
+
+def test_sd_a_target_is_encoded_once_for_every_entry_that_holds_it(sd):
+    model, script, encoded = sd
+    p = _sd_process(model, "a cat, (dog:-1), [red|blue]")
+    script.process_batch(p)
+    assert script.active and encoded == [("dog", -1.0)]
+    assert all(tokens == 2 for _step, _cond, tokens in script.conds_all[0])

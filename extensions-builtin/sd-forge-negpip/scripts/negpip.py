@@ -13,7 +13,7 @@ from lib_negpip.utils import any_negative, any_negative_target, hr_dealer, negat
 
 from modules import devices, scripts
 from modules.anima_feature_conflicts import record_conflict_resolution
-from modules.anima_support import is_anima_engine
+from modules.anima_support import is_anima_engine, schedule_index
 from modules.prompt_parser import (
     SdConditioning,
     get_learned_conditioning,
@@ -140,21 +140,33 @@ class NegPiP(scripts.Script):
             )
 
         hr_steps: int = getattr(p, "hr_second_pass_steps", 0) or p.steps
-        nip = self._getScheduledNegPip(p.prompts, p.steps)
-        pin = self._getScheduledNegPip(p.negative_prompts, p.steps)
-        hr_nip = self._getScheduledNegPip(p.hr_prompts, hr_steps) if self.has_hr_p else None
-        hr_pin = self._getScheduledNegPip(p.hr_negative_prompts, hr_steps) if self.has_hr_n else None
+        lists = {
+            "prompts": (p.prompts, p.steps),
+            "negative prompts": (p.negative_prompts, p.steps),
+            "Hires prompts": (p.hr_prompts, hr_steps) if self.has_hr_p else None,
+            "Hires negative prompts": (p.hr_negative_prompts, hr_steps) if self.has_hr_n else None,
+        }
+        scheduled = {}
+        for name, entry in lists.items():
+            if entry is None:
+                scheduled[name] = None
+                continue
+            scheduled[name], agree = self._getScheduledNegPip(*entry)
+            if not agree:
+                record_conflict_resolution(p, f"NegPiP skipped the batch's {name}: they weight different negative targets")
+        nip, pin, hr_nip, hr_pin = scheduled.values()
 
-        schedules = [schedule for schedule in (nip, pin, hr_nip, hr_pin) if schedule is not None]
+        schedules = [schedule for schedule in scheduled.values() if schedule is not None]
         if not any(targets for schedule in schedules for steps_out in schedule for _step, targets in steps_out):
             return  # no group can be moved out (prompt editing, a weighted keyword): the parser keeps those weights
 
-        self.conds_all = self._calc_conds(p, nip)
-        self.unconds_all = self._calc_conds(p, pin)
+        encoded = {}  # one encode per distinct target, shared by every entry and list
+        self.conds_all = self._calc_conds(p, nip, encoded)
+        self.unconds_all = self._calc_conds(p, pin, encoded)
         if hr_nip is not None:
-            self.hr_conds_all = self._calc_conds(p, hr_nip)
+            self.hr_conds_all = self._calc_conds(p, hr_nip, encoded)
         if hr_pin is not None:
-            self.hr_unconds_all = self._calc_conds(p, hr_pin)
+            self.hr_unconds_all = self._calc_conds(p, hr_pin, encoded)
 
         def calcChunks(a: int, b: int) -> int:
             return a // b if a % b == 0 else a // b + 1
@@ -205,30 +217,41 @@ class NegPiP(scripts.Script):
         if (not self.active) or self.is_anima:
             return
 
+        # The step Forge picks the main prompt's entry by (the CFG denoiser's call
+        # counter, as reconstruct_cond_batch reads it); state.sampling_step lags
+        # it by one call, which made "[(dog:-1)::5]" or "[(dog:-1)|bird]" switch early
+        step = getattr(getattr(params, "denoiser", None), "step", None)
+        step = params.sampling_step if step is None else step
+
         conds_all = self.hr_conds_all if self.is_hr and self.has_hr_p else self.conds_all
         if conds_all is not None:
-            self.conds, self.c_tokens = self._current_entry(conds_all, params.sampling_step)
+            self.conds, self.c_tokens = self._current_entry(conds_all, step)
 
         unconds_all = self.hr_unconds_all if self.is_hr and self.has_hr_n else self.unconds_all
         if unconds_all is not None:
-            self.unconds, self.uc_tokens = self._current_entry(unconds_all, params.sampling_step)
+            self.unconds, self.uc_tokens = self._current_entry(unconds_all, step)
 
     @staticmethod
     def _current_entry(
-        schedule: list[list[tuple[int, torch.Tensor | None, int]]], sampling_step: int
+        schedule: list[list[tuple[int, torch.Tensor | None, int]]], step: int
     ) -> tuple[torch.Tensor | None, int]:
-        """The joined negative targets of the first prompt's entry at this step."""
-        for step, conds, tokens in schedule[0]:
-            if step >= sampling_step + 2:
-                return conds, tokens
-        return None, 0
+        """The joined negative targets of the batch's entry at ``step``, picked
+        like Forge picks the main prompt's (schedule_index)."""
+        entries = schedule[0]
+        _end, conds, tokens = entries[schedule_index([end for end, _conds, _tokens in entries], step)]
+        return conds, tokens
 
     @staticmethod
     def _getScheduledNegPip(
         prompts: list[str], steps: list[int]
-    ) -> list[list[tuple[int, list[tuple[str, float]]]]]:
-        """extract the prompts with negative weights"""
+    ) -> tuple[list[list[tuple[int, list[tuple[str, float]]]]], bool]:
+        """The negative targets of each prompt's schedule entries, moved out of
+        ``prompts``, and whether the batch rows agree on them. The SD path
+        applies one block of targets to the whole batch (the hook repeats it),
+        so rows weighting different targets ("a cat" next to "a cat, (dog:-1)")
+        are left untouched with no targets instead of losing or borrowing them."""
 
+        originals = list(prompts)
         output = []
 
         scheduled = get_learned_conditioning_prompt_schedules(prompts, steps)
@@ -246,7 +269,8 @@ class NegPiP(scripts.Script):
                     # groups) instead of NegPiP negating it a second time.
                     # Checked against the raw prompt, so a target removed at an
                     # earlier step is still encoded at the later ones.
-                    if match not in raw or text.strip() in ("BREAK", "AND", "ADDCOL", "ADDROW"):
+                    # (a group of only BREAK weights no text, so it never gets here)
+                    if match not in raw or text.strip() in ("AND", "ADDCOL", "ADDROW"):
                         continue  # a weighted keyword is no target: the prompt keeps it too
                     prompts[i] = prompts[i].replace(match, "")
                     text_weights.append((text, weight))
@@ -255,7 +279,10 @@ class NegPiP(scripts.Script):
 
             output.append(stepout)
 
-        return output
+        if any(row != output[0] for row in output[1:]):
+            prompts[:] = originals
+            return [[(step, []) for step, _targets in row] for row in output], False
+        return output, True
 
     def _cond_dealer(
         self, p: "StableDiffusionProcessing", target: tuple[str, float]
@@ -285,22 +312,29 @@ class NegPiP(scripts.Script):
         self,
         p: "StableDiffusionProcessing",
         targetlist: list[list[tuple[int, list[tuple[str, float]]]]],
+        encoded: dict | None = None,
     ) -> list[list[tuple[int, torch.Tensor | None, int]]]:
         """(end step, conditioning, tokens) per schedule entry of each prompt.
 
         Every negative target of an entry is encoded on its own, then the
         targets are joined along the token dimension: the attention hook
         appends that block to the context and negates its last ``tokens``
-        values, so all the targets apply (None, 0 when the entry has none)."""
+        values, so all the targets apply (None, 0 when the entry has none).
+        ``encoded`` caches each distinct target's encoding (a text-encoder pass
+        each) across entries; the tensors are only joined or expanded later."""
 
+        encoded = {} if encoded is None else encoded
         outconds = []
         for batch in targetlist:
             stepconds = []
             for step, targets in batch:
-                encoded = [self._cond_dealer(p, target) for target in targets]
-                if encoded:
-                    conds = torch.cat([cond for cond, _ in encoded], 1)
-                    stepconds.append((step, conds, sum(tokens for _, tokens in encoded)))
+                for target in targets:
+                    if target not in encoded:
+                        encoded[target] = self._cond_dealer(p, target)
+                parts = [encoded[target] for target in targets]
+                if parts:
+                    conds = torch.cat([cond for cond, _ in parts], 1)
+                    stepconds.append((step, conds, sum(tokens for _, tokens in parts)))
                 else:
                     stepconds.append((step, None, 0))
             outconds.append(stepconds)

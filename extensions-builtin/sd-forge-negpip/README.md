@@ -9,6 +9,7 @@ This is an Extension for Forge [Classic](https://github.com/Haoming02/sd-webui-f
 - add `(foo:-1.0)` in the `positive prompt` to **remove** a concept
 - add `(bar:-1.0)` in the `negative prompt` to **enforce** a concept
 - on **SD1** / **SDXL**, a negative weight around a nested group (`(red, (dog):-1)`) or around prompt editing (`(dog [big:small:5]:-1)`) cannot be moved out of the prompt, so it stays with Forge's own weighting; **Anima** handles both
+- on **SD1** / **SDXL**, one block of negative targets applies to the whole batch, so a batch whose prompts weight different targets is left to Forge's own weighting too (the infotext records it); **Anima** reads each prompt's weights itself
 
 ## Examples
 
