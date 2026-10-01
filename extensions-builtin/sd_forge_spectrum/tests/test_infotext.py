@@ -114,6 +114,10 @@ def _settings_args():
     return [SETTINGS[key] for key in INFOTEXT_KEYS]
 
 
+def test_apply_preset_turns_the_panel_off_at_its_defaults():
+    harness.assert_registers_preset(spectrum.SpectrumForForge(), "spectrum")
+
+
 def test_a_run_records_the_enable_switch_with_its_settings():
     params = _record(True, *_settings_args())
     assert params[ENABLE_KEY] is True

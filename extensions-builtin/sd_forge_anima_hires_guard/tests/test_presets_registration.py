@@ -35,3 +35,11 @@ def test_img2img_registers_nothing():
 
     assert harness.build_ui(hires_guard.AnimaHiresGuardScript(), "img2img") == []
     assert preset_controls("img2img") == ((), (), ())
+
+
+def test_send_to_carries_none_of_its_txt2img_only_fields():
+    # "Send to" pairs the source and target tabs' paste field names by
+    # position: names the other tabs lack would shift a later panel's values
+    script = hires_guard.AnimaHiresGuardScript()
+    controls = harness.build_ui(script, "txt2img")
+    assert script.paste_field_names == [] and [field.component for field in script.infotext_fields] == controls

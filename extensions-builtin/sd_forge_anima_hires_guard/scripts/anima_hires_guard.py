@@ -117,7 +117,11 @@ class AnimaHiresGuardScript(scripts.Script):
                 )
 
         controls = [enabled, policy, preset, align, base_mp, hires_mp, max_upscale]
-        return register_table_fields(self, ((name, key, f"hires_guard.{name}") for name, key in FIELDS), controls)
+        register_table_fields(self, ((name, key, f"hires_guard.{name}") for name, key in FIELDS), controls)
+        # txt2img only: "Send to" pairs the tabs' paste field names by position,
+        # so names img2img lacks would shift every later panel's values
+        self.paste_field_names = []
+        return controls
 
     def after_model_load(
         self,
