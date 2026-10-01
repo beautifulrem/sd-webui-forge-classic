@@ -65,14 +65,15 @@ def test_layer_weight_and_stage_scheduler_compose_in_either_order(tmp_path, monk
     monkeypatch.setattr(base.ModelPatcher, "add_patches", forge_add_patches)
     monkeypatch.setattr(extra_networks, "activate", extra_networks.activate)
     layer = _load("anima_lora_layer_weight_composed", "anima-lora-layer-weight/scripts/anima_lora_layer_weight.py")
-    stage = _load("anima_lora_stage_scheduler_composed", "anima-lora-stage-scheduler/scripts/anima_lora_stage_scheduler.py")
+    monkeypatch.syspath_prepend(str(EXTENSIONS / "anima-lora-stage-scheduler"))  # as Forge's sys.path has it
+    from lib_stage_scheduler import options, runtime as stage
     for module in (layer, stage) if stage_scheduler_outermost else (stage, layer):
         module.install_patch()
 
     monkeypatch.setattr(layer, "_ACTIVE_RULE", SimpleNamespace(decision_for_lora=lambda filename: SimpleNamespace(apply=True), factor_for_key=lambda key, decision, blocks: LAYER_FACTORS[key]))
-    config = stage._build_pass_config(stage.MODE_PROMPT_ALL, "", "modules=mlp=0.5", stage.PRESET_CHARACTER_ALLOW, "", True, None, 0.2, 0.8, 0.5, 1.0, stage.CURVE_SMOOTH, 3.0)
+    config = stage._build_pass_config(options.MODE_PROMPT_ALL, "", "modules=mlp=0.5", options.PRESET_CHARACTER_ALLOW, "", True, None, 0.2, 0.8, 0.5, 1.0, options.CURVE_SMOOTH, 3.0)
     # Loaded by the scheduled run's own activation (see _activate)
-    state = stage.RuntimeState(SimpleNamespace(), True, config, config, stage.DISABLE_NONE, [], False, current_activation_pass="base")
+    state = stage.RuntimeState(SimpleNamespace(), True, config, config, options.DISABLE_NONE, [], False, current_activation_pass="base")
     monkeypatch.setattr(stage, "_ACTIVE_STATE", state)
     patcher = SimpleNamespace(model=SimpleNamespace(diffusion_model=None), weight_wrapper_patches={}, patches={})
 

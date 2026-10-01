@@ -60,6 +60,10 @@ def load_script(path, name):
     """Import one extension script the way Forge does, without the full WebUI."""
 
     prepare_webui_imports()
+    # Forge puts every extension's folder on sys.path (modules/scripts.py), for its lib_* packages
+    basedir = str(Path(path).resolve().parents[1])
+    if basedir not in sys.path:
+        sys.path.insert(0, basedir)
     spec = importlib.util.spec_from_file_location(name, Path(path))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

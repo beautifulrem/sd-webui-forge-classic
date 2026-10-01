@@ -159,9 +159,11 @@ class PresetConsistencyTests(unittest.TestCase):
         # as the user set it by "Apply preset". Per-control registration is
         # checked behaviourally by the extension suites (e.g. DAVE's
         # test_script.py); this catches a whole panel that registers nothing.
+        # Each extension's scripts and lib_* packages (where its field names may live)
+        sources = ["\n".join(path.read_text(encoding="utf-8") for path in sorted(extension.glob("*/*.py")) if path.parent.name == "scripts" or path.parent.name.startswith("lib_")) for extension in BUILTIN.iterdir()]
         registering = [
             source
-            for source in (path.read_text(encoding="utf-8") for path in BUILTIN.glob("*/scripts/*.py"))
+            for source in sources
             # Direct calls, or an AnimaPatchPanel's PRESET_FIELDS
             if "register_preset_control(" in source or "PRESET_FIELDS = (" in source
         ]

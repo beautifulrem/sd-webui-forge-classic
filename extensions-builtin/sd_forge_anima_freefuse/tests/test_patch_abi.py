@@ -396,16 +396,12 @@ def test_non_plain_adapters_keep_the_dense_merge():
 
 def _scheduled_strength(monkeypatch, base_strength):
     """The LoRA Stage Scheduler's live per-step strength, as its add_patches hook
-    hands it to Forge (loaded by path like its own suites)."""
+    hands it to Forge (its lib_stage_scheduler, on sys.path as Forge has it)."""
 
-    import importlib.util
+    monkeypatch.syspath_prepend(str(EXTENSION_PATH.parent / "anima-lora-stage-scheduler"))
+    from lib_stage_scheduler.runtime import BOTH_PASSES, ScheduledStrength
 
-    # sys.argv and modules.infotext_utils: set up by conftest.py for the whole session
-    path = EXTENSION_PATH.parent / "anima-lora-stage-scheduler" / "scripts" / "anima_lora_stage_scheduler.py"
-    spec = importlib.util.spec_from_file_location("anima_lora_stage_scheduler_for_freefuse", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.ScheduledStrength(base_strength, "/loras/cat.safetensors", module.BOTH_PASSES)
+    return ScheduledStrength(base_strength, "/loras/cat.safetensors", BOTH_PASSES)
 
 
 def test_plain_lora_follows_a_stage_scheduled_strength_between_calls(monkeypatch):
