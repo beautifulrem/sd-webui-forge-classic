@@ -2,39 +2,45 @@
 
 set -e
 
+WEBUI_DIR=$(cd "$(dirname "$0")" && pwd)
+cd "$WEBUI_DIR"
+
 # Load optional settings
 if [ -f "webui.settings.sh" ]; then
     source webui.settings.sh
 fi
 
 # Defaults
-PYTHON="${PYTHON:-python3}"
-VENV_DIR="${VENV_DIR:-$(cd "$(dirname "$0")" && pwd)/venv}"
+VENV_DIR="${VENV_DIR:-$WEBUI_DIR/venv}"
 SD_WEBUI_RESTART="tmp/restart"
 ERROR_REPORTING="FALSE"
 
 mkdir -p tmp
 
-# Check python
-if uv help python >tmp/stdout.txt 2>tmp/stderr.txt; then
-    :
-elif "$PYTHON" -c "" >tmp/stdout.txt 2>tmp/stderr.txt; then
-    :
-else
-    echo "Couldn't launch python"
-    goto_show_logs=1
+# Keep existing environments and explicit interpreter overrides. On a fresh
+# install, prefer 3.13 instead of macOS's system python3 (often 3.9).
+if [ -z "${PYTHON:-}" ]; then
+    if [ "$VENV_DIR" != "-" ] && [ "${SKIP_VENV:-}" != "1" ] && [ -x "$VENV_DIR/bin/python" ]; then
+        PYTHON="$VENV_DIR/bin/python"
+    elif command -v python3.13 >/dev/null 2>&1; then
+        PYTHON=$(command -v python3.13)
+    elif command -v uv >/dev/null 2>&1; then
+        PYTHON=$(uv python find --offline 3.13 2>tmp/stderr.txt) || PYTHON=""
+        if [ -z "$PYTHON" ] && [ "$VENV_DIR" != "-" ] && [ "${SKIP_VENV:-}" != "1" ]; then
+            uv venv "$VENV_DIR" --python 3.13 --seed >tmp/stdout.txt 2>tmp/stderr.txt || goto_show_logs=1
+            PYTHON="$VENV_DIR/bin/python"
+        fi
+    elif python3 -c 'import sys; assert sys.version_info[:2] == (3, 13)' >tmp/stdout.txt 2>tmp/stderr.txt; then
+        PYTHON=python3
+    fi
 fi
 
-# Check pip
-if [ -z "$goto_show_logs" ]; then
-    if uv help pip >tmp/stdout.txt 2>tmp/stderr.txt; then
-        :
-    elif "$PYTHON" -m pip --help >tmp/stdout.txt 2>tmp/stderr.txt; then
-        :
-    else
-        echo "Couldn't launch pip"
-        goto_show_logs=1
-    fi
+if [ -z "${PYTHON:-}" ]; then
+    echo "Python 3.13 was not found. Install Python 3.13 or uv, or set PYTHON explicitly in webui.settings.sh."
+    goto_show_logs=1
+elif ! "$PYTHON" -c "" >tmp/stdout.txt 2>tmp/stderr.txt; then
+    echo "Couldn't launch python: $PYTHON"
+    goto_show_logs=1
 fi
 
 # Venv handling
@@ -64,6 +70,16 @@ if [ -z "$goto_show_logs" ]; then
             PYTHON="$VENV_DIR/bin/python"
             echo "venv $PYTHON"
         fi
+    fi
+fi
+
+# Check the selected environment, not an unrelated system Python.
+if [ -z "$goto_show_logs" ]; then
+    if command -v uv >/dev/null 2>&1; then
+        :
+    elif ! "$PYTHON" -m pip --help >tmp/stdout.txt 2>tmp/stderr.txt; then
+        echo "Couldn't launch pip"
+        goto_show_logs=1
     fi
 fi
 

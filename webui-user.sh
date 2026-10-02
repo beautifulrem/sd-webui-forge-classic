@@ -4,10 +4,10 @@
 # export GIT=
 # export VENV_DIR=
 
-# export TORCH_COMMAND="pip install torch==2.12.0 torchvision==0.27.0"
+# export TORCH_COMMAND="pip install torch torchvision"
 
-export COMMANDLINE_ARGS="--uv"
+export COMMANDLINE_ARGS="${COMMANDLINE_ARGS:---uv}"
 
 # --skip-python-version-check --skip-torch-cuda-test --skip-version-check --skip-prepare-environment --skip-install
 
-exec "$(dirname "$0")/webui.sh"
+exec "$(dirname "$0")/webui.sh" "$@"

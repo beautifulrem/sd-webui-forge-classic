@@ -94,6 +94,17 @@ uv venv venv --python 3.13 --seed
 ./webui.sh
 ```
 
+首次安装会优先使用 `python3.13`；若未找到，则通过 `uv` 查找或安装 Python 3.13 并创建虚拟环境。已有虚拟环境会继续使用，不会自动删除或重建。macOS 默认从 PyPI 安装原生 `torch` 和 `torchvision`，不使用 CUDA wheel。
+
+自定义配置请写入仓库根目录的 `webui.settings.sh`（不会提交到 Git），例如：
+
+```bash
+export PYTHON="/path/to/python3.13"
+export COMMANDLINE_ARGS="--uv"
+# 可选：覆盖自动选择的 PyTorch 安装命令
+# export TORCH_COMMAND="pip install torch torchvision"
+```
+
 平台依赖与启动配置请参考上游 [Unix 安装指南](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Unix)。Apple Silicon 可使用 PyTorch MPS，但无法使用仅支持 CUDA 的 attention 和编译后端，生成速度通常慢于独立 GPU。
 
 首次启动会自动安装 Python 依赖。将 checkpoint 及配套模块放入对应的 `models/` 子目录，然后重启 WebUI 或刷新模型列表。

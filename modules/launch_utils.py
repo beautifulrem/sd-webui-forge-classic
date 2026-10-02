@@ -91,7 +91,7 @@ def _torch_version() -> tuple[str, str]:
     import importlib.metadata
 
     ver = importlib.metadata.version("torch")
-    m = re.search(r"(\d+\.\d+\.\d+)(?:[^+]+)?\+(.+)", ver)
+    m = re.fullmatch(r"(\d+\.\d+\.\d+)(?:[^+]+)?(?:\+(.+))?", ver)
 
     if m is None:
         print("\n\nFailed to parse PyTorch version...")
@@ -100,7 +100,9 @@ def _torch_version() -> tuple[str, str]:
         print('(you can change this with `export PYTORCH_VERSION="..."`)\n\n')
         m = re.search(r"(\d+\.\d+\.\d+)(?:[^+]+)?\+(.+)", ver)
 
-    return m.group(1), m.group(2)
+    if m is None:
+        raise ValueError(f"Invalid PyTorch version: {ver}")
+    return m.group(1), m.group(2) or "cpu"
 
 
 def is_installed(package):
@@ -283,9 +285,20 @@ def requirements_met(requirements_file):
     return True
 
 
+def default_torch_command(*, platform: str = None, nunchaku: bool = False) -> str:
+    """Select native macOS wheels or the upstream CUDA build on other platforms."""
+    platform = sys.platform if platform is None else platform
+    if platform == "darwin":
+        return "pip install torch torchvision"
+
+    torch_index_url = os.environ.get("TORCH_INDEX_URL", "https://download.pytorch.org/whl/cu130")
+    versions = "torch==2.11.0+cu130 torchvision==0.26.0+cu130" if nunchaku else "torch==2.13.0+cu130 torchvision==0.28.0+cu130"
+    return f"pip install {versions} --extra-index-url {torch_index_url}"
+
+
 def prepare_environment():
     torch_index_url = os.environ.get("TORCH_INDEX_URL", "https://download.pytorch.org/whl/cu130")
-    torch_command = os.environ.get("TORCH_COMMAND", f"pip install torch==2.13.0+cu130 torchvision==0.28.0+cu130 --extra-index-url {torch_index_url}")
+    torch_command = os.environ.get("TORCH_COMMAND", default_torch_command(nunchaku=args.nunchaku))
     xformers_package = os.environ.get("XFORMERS_PACKAGE", f"xformers==0.0.35 --extra-index-url {torch_index_url}")
     pynvml_package = os.environ.get("PYNVML_PACKAGE", "nvidia-ml-py==13.610.43")
 
@@ -312,8 +325,7 @@ def prepare_environment():
 
     if args.reinstall_torch or not is_installed("torch") or not is_installed("torchvision"):
         # TODO: Yeet Nunchaku...
-        if args.nunchaku:
-            torch_command = os.environ.get("TORCH_COMMAND", f"pip install torch==2.11.0+cu130 torchvision==0.26.0+cu130 --extra-index-url {torch_index_url}")
+        if args.nunchaku and sys.platform != "darwin":
             print("(using an older version of PyTorch due to Nunchaku dependency...)")
 
         run(f'"{python}" -m {torch_command}', "Installing PyTorch", "Couldn't install PyTorch", live=True)
