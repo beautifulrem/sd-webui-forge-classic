@@ -649,6 +649,19 @@ class TiledOperations(ForgeOperations):
 # region Pick OPs
 
 
+def _get_disabled_quants(device):
+    disabled = set()
+    if not memory_management.supports_nvfp4_compute(device):
+        disabled.add("nvfp4")
+    if not memory_management.supports_mxfp8_compute(device):
+        disabled.add("mxfp8")
+    if not memory_management.supports_fp8_compute(device):
+        disabled.update(("float8_e4m3fn", "float8_e5m2"))
+    if not memory_management.supports_int8_compute(device):
+        disabled.update(("int8_tensorwise", "convrot_w4a4", "asym_w4a8_int8", "w6a8_int8"))
+    return disabled
+
+
 @contextlib.contextmanager
 def using_forge_operations(
     *,
@@ -672,18 +685,7 @@ def using_forge_operations(
 
         _device = memory_management.get_torch_device()
         _dtype = torch.bfloat16 if memory_management.should_use_bf16(_device) else torch.float32
-        fp8_compute = memory_management.supports_fp8_compute(_device)
-        nvfp4_compute = memory_management.supports_nvfp4_compute(_device)
-        mxfp8_compute = memory_management.supports_mxfp8_compute(_device)
-
-        disabled = set()
-        if not nvfp4_compute:
-            disabled.add("nvfp4")
-        if not mxfp8_compute:
-            disabled.add("mxfp8")
-        if not fp8_compute:
-            disabled.add("float8_e4m3fn")
-            disabled.add("float8_e5m2")
+        disabled = _get_disabled_quants(_device)
 
         _full: bool = extra_dtype.pop("TE", False)  # https://github.com/Comfy-Org/ComfyUI/blob/v0.16.4/comfy/sd1_clip.py#L114
         operations = mixed_precision_ops(quant_config=extra_dtype, compute_dtype=_dtype, full_precision_mm=_full, disabled=disabled)

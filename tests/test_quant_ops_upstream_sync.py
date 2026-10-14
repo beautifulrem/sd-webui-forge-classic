@@ -31,3 +31,4 @@ def test_quantization_registry_contains_atomic_upstream_parameters():
         "quantize_input": False,
     }
     assert "pre_quant_scale" in QUANT_ALGOS["nvfp4"]["parameters"]
+    assert QUANT_ALGOS["w6a8_int8"] == QUANT_ALGOS["asym_w4a8_int8"]

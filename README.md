@@ -100,6 +100,17 @@ Run:
 ./webui.sh
 ```
 
+Fresh installations prefer `python3.13`; otherwise `uv` finds or installs Python 3.13 and creates the virtual environment. Existing environments are reused without being deleted or rebuilt. On macOS, the launcher installs native `torch` and `torchvision` from PyPI instead of CUDA wheels.
+
+Put custom settings in `webui.settings.sh` at the repository root (ignored by Git), for example:
+
+```bash
+export PYTHON="/path/to/python3.13"
+export COMMANDLINE_ARGS="--uv"
+# Optional: override the automatically selected PyTorch installation command
+# export TORCH_COMMAND="pip install torch torchvision"
+```
+
 See the upstream [Unix installation guide](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Unix) for platform packages and launch configuration. Apple Silicon can use PyTorch MPS, but CUDA-only attention and compilation backends are unavailable and generation is generally slower than on a dedicated GPU.
 
 The first launch installs the required Python packages. Place checkpoints and companion modules in the appropriate `models/` subdirectories, then restart or refresh the model list.

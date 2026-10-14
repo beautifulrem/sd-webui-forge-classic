@@ -8,6 +8,7 @@ import torch
 from backend import memory_management
 from backend.args import dynamic_args
 from backend.text_processing import emphasis, parsing
+from backend.text_processing._comfy import INF, SDClipModel
 from modules.shared import opts
 
 
@@ -19,16 +20,29 @@ class PromptChunk:
         self.t5_multipliers = []
 
 
-class AnimaTextProcessingEngine:
+class Qwen06Engine:
     def __init__(self, text_encoder, qwen_tokenizer, t5_tokenizer):
-        self.emphasis = emphasis.get_current_option(opts.emphasis)()
-
         self.text_encoder: "Qwen3_06B" = text_encoder
+        self.clip_model = SDClipModel(
+            text_encoder,
+            max_length=INF,
+            layer="last",
+            special_tokens={"pad": 151643},
+            layer_norm_hidden_state=False,
+            enable_attention_masks=True,
+            return_attention_masks=True,
+        )
+        # Bundled NegPiP and FreeFuse use these raw tokenizers and PromptChunk
+        # fields to align masks and concept positions with the T5 embeddings.
         self.qwen_tokenizer = qwen_tokenizer
         self.t5_tokenizer = t5_tokenizer
 
         self.id_pad = 151643
         self.id_end = 1
+
+    @property
+    def emphasis(self):
+        return emphasis.get_current_option(opts.emphasis)()
 
     def tokenize(self, texts):
         return (
@@ -65,6 +79,8 @@ class AnimaTextProcessingEngine:
                 position += 1
 
         for tokens, (text, weight) in zip(t5_tokenized, parsed):
+            if self.emphasis.name == "Ignore":
+                weight = 1.0
             position = 0
             while position < len(tokens):
                 token = tokens[position]
@@ -78,16 +94,15 @@ class AnimaTextProcessingEngine:
         return chunks
 
     def __call__(self, texts):
-        self.emphasis = emphasis.get_current_option(opts.emphasis)()
         if any(emphasis.uses_emphasis(x) for x in texts):
             dynamic_args.last_extra_generation_params["Emphasis"] = self.emphasis.name
 
         zs = []
-        cache: dict[str, tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = {}
+        cache: dict[str, torch.Tensor] = {}
 
         for line in texts:
             if line in cache:
-                z, tok, mul = cache[line]
+                cond = cache[line]
             else:
                 chunks: list[PromptChunk] = self.tokenize_line(line)
                 assert len(chunks) == 1
@@ -100,9 +115,10 @@ class AnimaTextProcessingEngine:
                     tok = torch.tensor(chunk.t5_tokens, dtype=torch.int)
                     mul = torch.tensor(chunk.t5_multipliers)
 
-                cache[line] = (z, tok, mul)
+                cond = self.anima_preprocess(z, tok, mul)
+                cache[line] = cond
 
-            zs.append(self.anima_preprocess(z, tok, mul))
+            zs.append(cond)
 
         del cache
         return zs
@@ -123,43 +139,13 @@ class AnimaTextProcessingEngine:
         return cross_attn
 
     def process_embeds(self, batch_tokens):
-        device = memory_management.text_encoder_device()
-
-        embeds_out = []
-        attention_masks = []
-        num_tokens = []
-
-        for tokens in batch_tokens:
-            attention_mask = []
-            tokens_temp = []
-            other_embeds = []
-            eos = False
-            index = 0
-
-            for t in tokens:
-                try:
-                    token = int(t)
-                    attention_mask.append(0 if eos else 1)
-                    tokens_temp += [token]
-                    if not eos and token == self.id_pad:
-                        eos = True
-                except TypeError:
-                    other_embeds.append((index, t))
-                index += 1
-
-            tokens_embed = torch.tensor([tokens_temp], device=device, dtype=torch.long)
-            tokens_embed = self.text_encoder.get_input_embeddings()(tokens_embed)
-
-            index = 0
-            embeds_info = []
-
-            embeds_out.append(tokens_embed)
-            attention_masks.append(attention_mask)
-            num_tokens.append(sum(attention_mask))
-
-        return torch.cat(embeds_out), torch.tensor(attention_masks, device=device, dtype=torch.long), num_tokens, embeds_info
+        return self.clip_model.process_tokens(batch_tokens, memory_management.text_encoder_device())
 
     def process_tokens(self, batch_tokens, batch_multipliers):
-        embeds, mask, count, info = self.process_embeds(batch_tokens)
-        z, _ = self.text_encoder(input_ids=None, embeds=embeds, attention_mask=mask, num_tokens=count, embeds_info=info)
-        return z
+        # Qwen weights are always one; emphasis applies after the T5 adapter.
+        # Keep its output on the encoder device to avoid a CPU round trip.
+        return self.clip_model(batch_tokens)[0]
+
+
+# Retain imports used by extensions written against the original Remi engine.
+AnimaTextProcessingEngine = Qwen06Engine
