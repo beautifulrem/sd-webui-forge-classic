@@ -173,5 +173,12 @@ class Shared(sys.modules[__name__].__class__):
 
         modules.sd_models.model_data.set_sd_model(value)
 
+    @property
+    def batch_cond_uncond(self):
+        from modules import shared
+
+        # Before shared_init (tests, early imports) opts is None: batch as Forge did before the option
+        return getattr(shared.opts, "batch_cond_uncond", True)
+
 
 sys.modules["modules.shared"].__class__ = Shared

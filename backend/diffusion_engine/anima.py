@@ -60,8 +60,18 @@ class Anima(ForgeDiffusionEngine):
 
         return self.text_processing_engine_anima(prompt)
 
+    # Upstream Neo renamed the attribute; NegPiP, FreeFuse and the 3.8B
+    # extension read text_processing_engine_anima, so both names share one engine
+    @property
+    def text_processing_engine_qwen(self) -> Qwen06Engine:
+        return self.text_processing_engine_anima
+
+    @text_processing_engine_qwen.setter
+    def text_processing_engine_qwen(self, engine: Qwen06Engine):
+        self.text_processing_engine_anima = engine
+
     @torch.inference_mode()
-    def get_prompt_lengths_on_ui(self, prompt):
+    def get_prompt_lengths_on_ui(self, prompt: str) -> tuple[int, int]:
         token_count = len(self.text_processing_engine_anima.tokenize([prompt])[0][0])
         return token_count, max(512, token_count)
 

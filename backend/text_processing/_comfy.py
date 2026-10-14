@@ -1,6 +1,4 @@
 # https://github.com/Comfy-Org/ComfyUI/blob/v0.36.0/comfy/sd1_clip.py
-# Shared encoder core adapted from Forge Neo's TextProcessingEngine rewrite.
-# Tokenization stays in the Remi engines to preserve extension interfaces.
 
 import numbers
 from typing import Final, TypeAlias
@@ -14,6 +12,7 @@ TOKEN_WEIGHTS: TypeAlias = list[list[tuple[int, float]]]
 
 INF: Final[int] = 99999999
 
+
 def gen_empty_tokens(special_tokens: dict[str, int], length: int) -> list[int]:
     start_token = special_tokens.get("start", None)
     end_token = special_tokens.get("end", None)
@@ -26,6 +25,7 @@ def gen_empty_tokens(special_tokens: dict[str, int], length: int) -> list[int]:
     output += [pad_token] * (length - len(output))
     return output
 
+
 class ClipTokenWeightEncoder:
     def encode_token_weights(self: "SDClipModel", token_weight_pairs: TOKEN_WEIGHTS):
         to_encode = []
@@ -36,6 +36,7 @@ class ClipTokenWeightEncoder:
             max_token_len = max(len(tokens), max_token_len)
             has_weights = has_weights or not all(map(lambda a: a[1] == 1.0, x))
             to_encode.append(tokens)
+
         sections = len(to_encode)
         if has_weights or sections == 0:
             if hasattr(self, "gen_empty_tokens"):
@@ -45,10 +46,12 @@ class ClipTokenWeightEncoder:
 
         o = self.forward(to_encode)
         out, pooled = o[:2]
+
         if pooled is not None:
             first_pooled = pooled[0:1].to(device=memory_management.intermediate_device())
         else:
             first_pooled = pooled
+
         output = []
         for k in range(0, sections):
             z = out[k : k + 1]
@@ -60,10 +63,12 @@ class ClipTokenWeightEncoder:
                         if weight != 1.0:
                             z[i][j] = (z[i][j] - z_empty[j]) * weight + z_empty[j]
             output.append(z)
+
         if len(output) == 0:
             r = (out[-1:].to(device=memory_management.intermediate_device()), first_pooled)
         else:
             r = (torch.cat(output, dim=-2).to(device=memory_management.intermediate_device()), first_pooled)
+
         if len(o) > 2:
             extra = {}
             for k in o[2]:
@@ -77,11 +82,13 @@ class ClipTokenWeightEncoder:
 
 
 class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
+
     def __init__(self, model: torch.nn.Module, max_length=77, layer="last", layer_idx=None, special_tokens={"start": 49406, "end": 49407, "pad": 49407}, layer_norm_hidden_state=True, enable_attention_masks=False, zero_out_masked=False, return_projected_pooled=True, return_attention_masks=False):
         super().__init__()
 
         self.transformer = model
         self.freeze()
+
         self.num_layers = self.transformer.num_layers
         self.max_length = max_length
         self.layer = layer
@@ -91,6 +98,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
         self.logit_scale = torch.nn.Parameter(torch.tensor(4.6055))
         self.enable_attention_masks = enable_attention_masks
         self.zero_out_masked = zero_out_masked
+
         self.layer_norm_hidden_state = layer_norm_hidden_state
         self.return_projected_pooled = return_projected_pooled
         self.return_attention_masks = return_attention_masks
@@ -98,6 +106,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
         if layer == "hidden":
             assert layer_idx is not None
             assert abs(layer_idx) < self.num_layers
+
             if isinstance(self.layer, list) or self.layer == "all":
                 pass
             elif isinstance(layer_idx, list):
@@ -107,6 +116,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
             else:
                 self.layer = "hidden"
                 self.layer_idx = layer_idx
+
     def freeze(self):
         self.transformer = self.transformer.eval()
         for param in self.parameters():
@@ -123,6 +133,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
         embeds_out = []
         attention_masks = []
         num_tokens = []
+
         for x in tokens:
             attention_mask = []
             tokens_temp = []
@@ -135,11 +146,13 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
                     token = int(y)
                     if index == 0 and token == pad_token:
                         left_pad = True
+
                     if eos or (left_pad and token == pad_token):
                         attention_mask.append(0)
                     else:
                         attention_mask.append(1)
                         left_pad = False
+
                     tokens_temp += [token]
                     if not eos and token == cmp_token and not left_pad:
                         if end_token is None:
@@ -148,6 +161,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
                 else:
                     other_embeds.append((index, y))
                 index += 1
+
             tokens_embed = torch.tensor([tokens_temp], device=device, dtype=torch.long)
             tokens_embed = self.transformer.get_input_embeddings()(tokens_embed).to(dtype=torch.float32)
             index = 0
@@ -157,6 +171,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
                 emb = o[1]
                 if torch.is_tensor(emb):
                     emb = {"type": "embedding", "data": emb}
+
                 extra = None
                 emb_type = emb.get("type", None)
                 if emb_type == "embedding":
@@ -170,6 +185,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
                 if emb is None:
                     index += -1
                     continue
+
                 ind = index + o[0]
                 emb = emb.view(1, -1, emb.shape[-1]).to(device=device, dtype=torch.float32)
                 emb_shape = emb.shape[1]
@@ -182,6 +198,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
                     index += -1
                     pad_extra += emb_shape
                     memory_management.logger.warning("Shape mismatch when applying embedding, embedding will be ignored ({} != {})".format(emb.shape[-1], tokens_embed.shape[-1]))
+
             if pad_extra > 0:
                 padd_embed = self.transformer.get_input_embeddings()(torch.tensor([[self.special_tokens["pad"]] * pad_extra], device=device, dtype=torch.long)).to(dtype=torch.float32)
                 tokens_embed = torch.cat([tokens_embed, padd_embed], dim=1)
@@ -190,6 +207,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
             embeds_out.append(tokens_embed)
             attention_masks.append(attention_mask)
             num_tokens.append(sum(attention_mask))
+
         return torch.cat(embeds_out), torch.tensor(attention_masks, device=device, dtype=torch.long), num_tokens, embeds_info
 
     def forward(self, tokens):
@@ -202,6 +220,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
         attention_mask_model = None
         if self.enable_attention_masks:
             attention_mask_model = attention_mask
+
         if isinstance(self.layer, list):
             intermediate_output = self.layer
         elif self.layer == "all":
@@ -210,6 +229,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
             intermediate_output = self.layer_idx
 
         outputs = self.transformer(None, attention_mask_model, embeds=embeds, num_tokens=num_tokens, intermediate_output=intermediate_output, final_layer_norm_intermediate=self.layer_norm_hidden_state, dtype=torch.float32, embeds_info=embeds_info)
+
         if self.layer == "last":
             z = outputs[0].float()
         else:
@@ -224,6 +244,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
                 pooled_output = outputs[3].float()
             elif outputs[2] is not None:
                 pooled_output = outputs[2].float()
+
         extra = {}
         if self.return_attention_masks:
             extra["attention_mask"] = attention_mask
@@ -232,3 +253,186 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
             return z, pooled_output, extra
 
         return z, pooled_output
+
+
+def parse_parentheses(string: str) -> list[str]:
+    result = []
+    current_item = ""
+    nesting_level = 0
+    for char in string:
+        if char == "(":
+            if nesting_level == 0:
+                if current_item:
+                    result.append(current_item)
+                    current_item = "("
+                else:
+                    current_item = "("
+            else:
+                current_item += char
+            nesting_level += 1
+        elif char == ")":
+            nesting_level -= 1
+            if nesting_level == 0:
+                result.append(current_item + ")")
+                current_item = ""
+            else:
+                current_item += char
+        else:
+            current_item += char
+    if current_item:
+        result.append(current_item)
+    return result
+
+
+def token_weights(string: str, current_weight: float) -> list[tuple[str, float]]:
+    a = parse_parentheses(string)
+    out = []
+    for x in a:
+        weight = current_weight
+        if len(x) >= 2 and x[-1] == ")" and x[0] == "(":
+            x = x[1:-1]
+            xx = x.rfind(":")
+            weight *= 1.1
+            if xx > 0:
+                try:
+                    weight = float(x[xx + 1 :])
+                    x = x[:xx]
+                except:
+                    pass
+            out += token_weights(x, weight)
+        else:
+            out += [(x, current_weight)]
+    return out
+
+
+def escape_important(text: str) -> str:
+    text = text.replace("\\)", "\0\1")
+    text = text.replace("\\(", "\0\2")
+    return text
+
+
+def unescape_important(text: str) -> str:
+    text = text.replace("\0\1", ")")
+    text = text.replace("\0\2", "(")
+    return text
+
+
+class SDTokenizer:
+    def __init__(self, model: torch.nn.Module, max_length=77, pad_with_end=True, has_start_token=True, has_end_token=True, pad_to_max_length=True, min_length=None, pad_token=None, end_token=None, start_token=None, min_padding=None, pad_left=False, disable_weights=False):
+
+        self.tokenizer = model
+
+        self.max_length = max_length
+        self.min_length = min_length
+        self.end_token = None
+        self.min_padding = min_padding
+        self.pad_left = pad_left
+
+        empty = self.tokenizer("")["input_ids"]
+        self.tokenizer_adds_end_token = has_end_token
+        if has_start_token:
+            assert len(empty) > 0
+            self.tokens_start = 1
+            self.start_token = empty[0]
+
+            if end_token is not None:
+                self.end_token = end_token
+            else:
+                if has_end_token:
+                    self.end_token = empty[1]
+        else:
+            self.tokens_start = 0
+            self.start_token = start_token
+            if end_token is not None:
+                self.end_token = end_token
+            else:
+                if has_end_token:
+                    self.end_token = empty[0]
+
+        if pad_token is not None:
+            self.pad_token = pad_token
+        elif pad_with_end:
+            self.pad_token = self.end_token
+        else:
+            self.pad_token = 0
+
+        self.pad_with_end = pad_with_end
+        self.pad_to_max_length = pad_to_max_length
+        self.max_word_length = 8
+
+        self.disable_weights = disable_weights
+
+    def pad_tokens(self, tokens, amount):
+        if self.pad_left:
+            for i in range(amount):
+                tokens.insert(0, (self.pad_token, 1.0, 0))
+        else:
+            tokens.extend([(self.pad_token, 1.0, 0)] * amount)
+
+    def tokenize_with_weights(self, text: str, **kwargs) -> TOKEN_WEIGHTS:
+        min_length = kwargs.get("min_length", self.min_length)
+        min_padding = kwargs.get("min_padding", self.min_padding)
+
+        text = escape_important(text)
+        if kwargs.get("disable_weights", self.disable_weights):
+            parsed_weights = [(text, 1.0)]
+        else:
+            parsed_weights = token_weights(text, 1.0)
+
+        tokens = []
+        for weighted_segment, weight in parsed_weights:
+            if (word := unescape_important(weighted_segment)) == "":
+                continue
+
+            end = -1 if self.tokenizer_adds_end_token else INF
+            tokens.append([(t, weight) for t in self.tokenizer(word)["input_ids"][self.tokens_start : end]])
+
+        batched_tokens = []
+        batch = []
+        if self.start_token is not None:
+            batch.append((self.start_token, 1.0, 0))
+        batched_tokens.append(batch)
+
+        for i, t_group in enumerate(tokens):
+            is_large = len(t_group) >= self.max_word_length
+            if self.end_token is not None:
+                has_end_token = 1
+            else:
+                has_end_token = 0
+
+            while len(t_group) > 0:
+                if len(t_group) + len(batch) > self.max_length - has_end_token:
+                    remaining_length = self.max_length - len(batch) - has_end_token
+
+                    if is_large:
+                        batch.extend([(t, w, i + 1) for t, w in t_group[:remaining_length]])
+                        if self.end_token is not None:
+                            batch.append((self.end_token, 1.0, 0))
+                        t_group = t_group[remaining_length:]
+                    else:
+                        if self.end_token is not None:
+                            batch.append((self.end_token, 1.0, 0))
+                        if self.pad_to_max_length:
+                            self.pad_tokens(batch, remaining_length)
+
+                    batch = []
+                    if self.start_token is not None:
+                        batch.append((self.start_token, 1.0, 0))
+                    batched_tokens.append(batch)
+                else:
+                    batch.extend([(t, w, i + 1) for t, w in t_group])
+                    t_group = []
+
+        if self.end_token is not None:
+            batch.append((self.end_token, 1.0, 0))
+        if min_padding is not None:
+            self.pad_tokens(batch, min_padding)
+        if self.pad_to_max_length and len(batch) < self.max_length:
+            self.pad_tokens(batch, self.max_length - len(batch))
+        if min_length is not None and len(batch) < min_length:
+            self.pad_tokens(batch, min_length - len(batch))
+
+        if not kwargs.get("return_word_ids", False):
+            batched_tokens = [[(t, w) for t, w, _ in x] for x in batched_tokens]
+
+        return batched_tokens

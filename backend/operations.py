@@ -49,11 +49,22 @@ try:
                 SDPBackend.MATH,
             ]
 
+            SDPA_CONTIGUOUS_THRESHOLD = None
+
+            if memory_management.is_amd():
+                props = torch.cuda.get_device_properties(memory_management.get_torch_device())
+                if props.gcnArchName.split(":")[0] == "gfx1151":
+                    SDPA_CONTIGUOUS_THRESHOLD = props.L2_cache_size
+
             def scaled_dot_product_attention(q, k, v, *args, **kwargs):
+                if q.nelement() < 1024 * 128:
+                    return torch.nn.functional.scaled_dot_product_attention(q, k, v, *args, **kwargs)
                 attn_mask = args[0] if len(args) > 0 else kwargs.get("attn_mask")
                 if kwargs.get("enable_gqa", False) and attn_mask is not None and not memory_management.is_nvidia():
                     k, v = repeat_kv_for_gqa(k, v, q.shape[-3], -3)
                     kwargs["enable_gqa"] = False
+                if SDPA_CONTIGUOUS_THRESHOLD and sum(t.shape[-2] * t.shape[-1] for t in (k, v)) * k.element_size() > SDPA_CONTIGUOUS_THRESHOLD:
+                    k, v = k.contiguous(), v.contiguous()
                 with sdpa_kernel(SDPA_BACKEND_PRIORITY, set_priority=True):
                     if kwargs.get("enable_gqa", False) and attn_mask is not None and q.shape[-3] != k.shape[-3]:
                         dropout_p = args[1] if len(args) > 1 else kwargs.get("dropout_p", 0.0)
@@ -651,14 +662,20 @@ class TiledOperations(ForgeOperations):
 
 def _get_disabled_quants(device):
     disabled = set()
+
     if not memory_management.supports_nvfp4_compute(device):
         disabled.add("nvfp4")
     if not memory_management.supports_mxfp8_compute(device):
         disabled.add("mxfp8")
     if not memory_management.supports_fp8_compute(device):
-        disabled.update(("float8_e4m3fn", "float8_e5m2"))
+        disabled.add("float8_e4m3fn")
+        disabled.add("float8_e5m2")
     if not memory_management.supports_int8_compute(device):
-        disabled.update(("int8_tensorwise", "convrot_w4a4", "asym_w4a8_int8", "w6a8_int8"))
+        disabled.add("int8_tensorwise")
+        disabled.add("convrot_w4a4")
+        disabled.add("asym_w4a8_int8")
+        disabled.add("w6a8_int8")
+
     return disabled
 
 

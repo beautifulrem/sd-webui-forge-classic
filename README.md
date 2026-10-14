@@ -23,7 +23,7 @@ Forge Neo Remi is a downstream distribution of [Forge Neo](https://github.com/Ha
 ## Why Remi?
 
 - **Anima-first inference:** native samplers, guidance methods, spatial conditioning, LoRA controls, Hires safeguards, and acceleration paths.
-- **28/40/52-block support:** detects original, 2.9B and 3.8B Anima DiT layouts; 28-block LoRAs are remapped onto the expanded models, and Layer Weight, stage-scheduler block weights and FreeFuse's collect block keep following the 28-block layout there. 3.8B needs an external conditioning extension (see [Supported Model Families](#supported-model-families)).
+- **28/40/52-block support:** detects original, 2.9B and 3.8B Anima DiT layouts; 28-block LoRAs and Anima ControlLLLite models are remapped onto the expanded models, and Layer Weight, stage-scheduler block weights and FreeFuse's collect block keep following the 28-block layout there. 3.8B needs an external conditioning extension (see [Supported Model Families](#supported-model-families)).
 - **Conflict-aware UI and runtime:** mutually exclusive features are locked or resolved before they can form undefined sampling stacks.
 - **One-click safe baseline:** **Anima Remi Presets** provides a conservative starting profile without replacing prompts, LoRA names, or model paths.
 - **Batteries included:** frequently used Neo-compatible extensions are shipped as built-ins.
@@ -56,7 +56,7 @@ Remi retains Forge Neo's modern-model focus and adds deeper Anima integration.
 - SD 1.x and advanced SDXL variants
 - Krea 2 and Krea 2 Identity Edit
 - FLUX Kontext and FLUX.2 Klein
-- Qwen-Image and Qwen-Image-Edit
+- Qwen-Image, Qwen-Image-Edit and Qwen-Image-2.1
 - Ernie-Image, PiD 1.5, Z-Image, Mugen, Lumina Image 2, and Chroma
 - Wan 2.2 image/video workflows
 

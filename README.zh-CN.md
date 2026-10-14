@@ -23,7 +23,7 @@ Forge Neo Remi 是 [Forge Neo](https://github.com/Haoming02/sd-webui-forge-class
 ## 为什么选择 Remi？
 
 - **Anima 优先推理：** 内置采样器、引导方法、空间控制、LoRA 管理、高分辨率保护和加速路径。
-- **28/40/52 层架构兼容：** 自动识别原始 Anima、2.9B 和 3.8B 的 DiT 结构；28 层 LoRA 会重映射到扩展模型上，分层权重、阶段调度器的 block 权重和 FreeFuse 的采集层在扩展模型上仍按 28 层布局解释。3.8B 还需要外部条件编码扩展（见[支持的模型家族](#支持的模型家族)）。
+- **28/40/52 层架构兼容：** 自动识别原始 Anima、2.9B 和 3.8B 的 DiT 结构；28 层 LoRA 和 Anima ControlLLLite 模型会重映射到扩展模型上，分层权重、阶段调度器的 block 权重和 FreeFuse 的采集层在扩展模型上仍按 28 层布局解释。3.8B 还需要外部条件编码扩展（见[支持的模型家族](#支持的模型家族)）。
 - **GUI 与运行时冲突管理：** 互斥功能会在组成未定义采样链之前被锁定或自动解决。
 - **一键安全基线：** **Anima Remi Presets** 提供保守的推荐起点，不会覆盖提示词、LoRA 名称或模型路径。
 - **常用功能内置：** 常用的 Neo 适配扩展随 Remi 一起版本化。
@@ -56,7 +56,7 @@ Remi 保留 Forge Neo 对现代模型的支持重点，并对 Anima 提供更深
 - SD 1.x 和高级 SDXL 变体
 - Krea 2 和 Krea 2 Identity Edit
 - FLUX Kontext 和 FLUX.2 Klein
-- Qwen-Image 和 Qwen-Image-Edit
+- Qwen-Image、Qwen-Image-Edit 和 Qwen-Image-2.1
 - Ernie-Image、PiD 1.5、Z-Image、Mugen、Lumina Image 2 和 Chroma
 - Wan 2.2 图像/视频工作流
 

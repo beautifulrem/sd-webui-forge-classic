@@ -5,13 +5,15 @@ from types import SimpleNamespace
 
 import torch
 
+from modules.anima_lora_support import ANIMA_BLOCK_MAPPINGS
 from modules_forge.packages.comfy.lora import model_lora_keys_unet
 
 # networks.py can only be imported inside the running WebUI (circular module
 # initialisation), so its process_anima is compiled from the source here.
+# ANIMA_BLOCK_MAPPINGS equals backend.nn.anima.BLOCK_MAPPINGS (test_anima_lora_support).
 _SOURCE = Path(__file__).parents[1] / "extensions-builtin" / "sd_forge_lora" / "networks.py"
 _tree = ast.parse(_SOURCE.read_text(encoding="utf-8"))
-_ns = {"torch": torch, "logger": logging.getLogger("test")}
+_ns = {"torch": torch, "logger": logging.getLogger("test"), "BLOCK_MAPPINGS": ANIMA_BLOCK_MAPPINGS}
 exec(compile(ast.Module([n for n in _tree.body if isinstance(n, ast.FunctionDef) and n.name == "process_anima"], []), str(_SOURCE), "exec"), _ns)  # noqa: S102 - our own source file
 process_anima = _ns["process_anima"]
 

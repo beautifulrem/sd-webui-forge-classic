@@ -81,17 +81,10 @@ def test_block_mappings_match_the_lora_loader():
     import ast
     import pathlib
 
-    source = (pathlib.Path(__file__).parents[1] / "extensions-builtin" / "sd_forge_lora" / "networks.py").read_text(encoding="utf-8")
-    tables = {
-        node.targets[0].id: tuple(ast.literal_eval(node.value))
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "").startswith("MAPPING_")
-    }
-    assert tables == {
-        "MAPPING_2_TO_29": ANIMA_BLOCK_MAPPINGS[(28, 40)],
-        "MAPPING_2_TO_38": ANIMA_BLOCK_MAPPINGS[(28, 52)],
-        "MAPPING_29_TO_38": ANIMA_BLOCK_MAPPINGS[(40, 52)],
-    }
+    # The LoRA loader (and the Anima ControlLLLite loader) read backend.nn.anima.BLOCK_MAPPINGS
+    source = (pathlib.Path(__file__).parents[1] / "backend" / "nn" / "anima.py").read_text(encoding="utf-8")
+    (table,) = (node.value for node in ast.walk(ast.parse(source)) if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") == "BLOCK_MAPPINGS")
+    assert {pair: tuple(mapping) for pair, mapping in ast.literal_eval(table).items()} == ANIMA_BLOCK_MAPPINGS
     for (src, dst), mapping in ANIMA_BLOCK_MAPPINGS.items():
         assert len(mapping) == dst and set(mapping) == set(range(src))
 

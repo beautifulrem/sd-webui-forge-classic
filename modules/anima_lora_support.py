@@ -306,8 +306,9 @@ def merge_consistent_rules(target: dict, incoming: dict, *, label: str) -> None:
 
 # Block layouts of the depth-expanded Anima models (2B = 28 blocks, 2.9B = 40,
 # 3.8B = 52): each entry is the source block a target block was copied from.
-# Kept identical to sd_forge_lora.networks.process_anima (upstream code, which
-# re-maps the LoRA weights themselves); tests/test_anima_lora_support.py checks it.
+# Kept identical to backend.nn.anima.BLOCK_MAPPINGS (upstream code: the LoRA and
+# ControlLLLite loaders re-map weights with it), which this module does not import
+# to stay free of the backend; tests/test_anima_lora_support.py checks it.
 ANIMA_BLOCK_MAPPINGS = {
     (28, 40): (0, 1, 1, 2, 3, 3, 4, 5, 5, 6, 7, 7, 8, 9, 9, 10, 11, 11, 12, 13, 14, 14, 15, 16, 16, 17, 18, 18, 19, 20, 20, 21, 22, 22, 23, 24, 24, 25, 26, 27),
     (28, 52): (0, 1, 1, 1, 2, 3, 3, 3, 4, 5, 5, 5, 6, 7, 7, 7, 8, 9, 9, 9, 10, 11, 11, 11, 12, 13, 14, 14, 14, 15, 16, 16, 16, 17, 18, 18, 18, 19, 20, 20, 20, 21, 22, 22, 22, 23, 24, 24, 24, 25, 26, 27),
