@@ -213,7 +213,9 @@ def test_install_clones_runs_the_installer_and_refuses_duplicates(env, monkeypat
     _git("commit", "-q", "-m", "init", cwd=source)
     url = source.as_uri()
     installed = []
-    monkeypatch.setattr(admin, "GIT_URL_RE", __import__("re").compile(r"^file://.+$"))
+    # a local repository stands in for the remote (file:// is not allowed for real installs)
+    monkeypatch.setattr(admin, "valid_git_url", lambda value: value.startswith("file://"))
+    monkeypatch.setattr(admin, "INSTALL_PROTOCOLS", admin.INSTALL_PROTOCOLS + ":file")
     monkeypatch.setattr(launch_utils, "run_extension_installer", lambda path: installed.append(path))
     monkeypatch.setattr(extensions, "list_extensions", lambda: extensions.extensions.append(fake_ext("sd-demo", path=env.ext_dir / "sd-demo", remote=url)))
     monkeypatch.setattr("modules.paths.data_path", str(env.tmp), raising=False)

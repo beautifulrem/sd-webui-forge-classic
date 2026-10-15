@@ -63,15 +63,22 @@ without `--gradio-auth`). With logins configured:
 - Log in with `POST /api/v2/auth/login` `{"username", "password"}` → 204 and
   a `remi_session` cookie (signed, 30 days, `HttpOnly`; `Secure` with
   `--tls-*` or when the request came over HTTPS). Wrong credentials → 401;
-  ten failures from one client within a minute → 429. `POST
+  ten failures from one client within a minute (login form or Basic) → 429
+  for a minute. `POST
   /api/v2/auth/logout` revokes the cookie server-side. `GET
   /api/v2/auth/status` → `{"required": bool, "user": str | null}`.
 - Scripts and tools may skip the cookie and send `Authorization: Basic …`
   on every request (also on the WebSocket handshake).
-- `/sdapi/v1` keeps its own login: `--api-auth user:pass[,…]` (HTTP Basic),
-  exactly as in A1111.
+- `/sdapi/v1` (and extension routes under `/sdapi`) uses `--api-auth
+  user:pass[,…]` (HTTP Basic, throttled the same way) when it is set; without
+  it, the `--auth` login when the server is reachable from other machines
+  (`--listen`, a non-loopback `--server-name`, `--ngrok`); on a loopback-only
+  server it stays open to local tools, as in A1111.
+- The API docs need the `--auth` login, or `--api-auth` credentials when only
+  that is set.
 
-Independently of logins, two checks protect against browsers being abused:
+Independently of logins, these checks protect against browsers being abused
+(details and the threat model: [security.md](security.md)):
 
 - **Cross-site requests are refused (403).** A state-changing request
   (`POST`/`PUT`/`PATCH`/`DELETE`) or WebSocket handshake whose `Origin` is
@@ -82,6 +89,10 @@ Independently of logins, two checks protect against browsers being abused:
   only listens on loopback (no `--listen`, `--server-name`, `--share`,
   `--ngrok`), requests must use a loopback `Host` (`localhost`,
   `127.0.0.1`, `[::1]`) or a host allowed through `--cors-allow-origins`.
+- **Cross-site subresource reads are refused (403).** A `GET` that the
+  browser's fetch metadata marks as sent by another site's page (an
+  `<img>`, a `fetch`, a frame) is refused unless its origin is allowed;
+  links and bookmarks (top-level navigations) and API clients pass.
 
 These checks cover `/api/v2`, `/internal`, the API docs and `/sdapi`, and the
 routes extensions add (`modules/extension_route_guard.py`).

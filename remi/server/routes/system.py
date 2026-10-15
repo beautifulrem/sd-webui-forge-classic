@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, WebSocket
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from remi.server import models as m
-from remi.server.auth import LOGIN_FAILURE_DELAY
+from remi.server.auth import LOGIN_FAILURE_DELAY, client_key
 from remi.server.deps import UserDep
 
 router = APIRouter()
@@ -32,7 +32,7 @@ def auth_status(request: Request, user: UserDep) -> dict[str, Any]:
 @router.post("/auth/login", status_code=204, responses={401: {"model": m.Detail}, 429: {"model": m.Detail}}, summary="Log in (sets the session cookie)")
 async def login(body: m.LoginRequest, request: Request) -> Response:
     auth = request.app.state.auth
-    client = request.client.host if request.client else "?"
+    client = client_key(request)
     if not auth.required:
         return Response(status_code=204)
     if auth.throttled(client):

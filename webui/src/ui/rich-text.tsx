@@ -10,13 +10,20 @@
  */
 import { createElement, Fragment, type ReactNode } from "react"
 
-const SAFE_URL = /^(https?:|mailto:|\/|#|\.{0,2}\/)/i
+const SAFE_PROTOCOLS = new Set(["http:", "https:", "mailto:"])
 
+/**
+ * `url` when it is http(s), mailto, or relative; null otherwise. The scheme
+ * is read the way the browser will read it (the URL parser drops tabs and
+ * newlines and decodes nothing else), so `java\tscript:` is caught too.
+ */
 export function safeUrl(url: string): string | null {
   const trimmed = url.trim()
-  // Relative paths without a scheme are fine; anything with a scheme must be allow-listed.
-  if (SAFE_URL.test(trimmed)) return trimmed
-  return /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? null : trimmed
+  try {
+    return SAFE_PROTOCOLS.has(new URL(trimmed, "http://relative.invalid/").protocol) ? trimmed : null
+  } catch {
+    return null
+  }
 }
 
 // ---------------------------------------------------------------- inline

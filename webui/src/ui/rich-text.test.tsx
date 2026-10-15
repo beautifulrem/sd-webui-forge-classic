@@ -17,6 +17,12 @@ describe("safeUrl", () => {
     expect(safeUrl("data:text/html,<script>")).toBeNull()
     expect(safeUrl("vbscript:x")).toBeNull()
   })
+  it("reads the scheme as the browser does (tabs, newlines, control characters)", () => {
+    expect(safeUrl("java\tscript:alert(1)")).toBeNull()
+    expect(safeUrl("java\nscript:alert(1)")).toBeNull()
+    expect(safeUrl("\u0001javascript:alert(1)")).toBeNull()
+    expect(safeUrl("JAVASCRIPT:alert(1)")).toBeNull()
+  })
 })
 
 describe("Markdown", () => {
@@ -76,5 +82,13 @@ describe("SafeHtml boolean attributes", () => {
   it("keeps <details open>", () => {
     const { container } = render(<SafeHtml html="<details open><summary>More</summary>Body</details>" />)
     expect(container.querySelector("details")).toHaveAttribute("open")
+  })
+})
+
+describe("SafeHtml URL attributes", () => {
+  it("drops script URLs hidden with entities or whitespace", () => {
+    const { container } = render(<SafeHtml html={'<a href="java&#9;script:alert(1)">a</a><a href="&#x6A;avascript:alert(1)">b</a><img src="java&#10;script:alert(1)">'} />)
+    for (const link of container.querySelectorAll("a")) expect(link.getAttribute("href")).toBeNull()
+    expect(container.querySelector("img")).toBeNull()
   })
 })

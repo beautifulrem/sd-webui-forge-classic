@@ -128,9 +128,9 @@ def test_failed_login_bookkeeping_is_bounded(monkeypatch):
     monkeypatch.setattr(module, "MAX_THROTTLED_CLIENTS", 10)
     auth = Auth({"ann": "1"})
     for index in range(50):
-        auth._failures[f"10.0.0.{index}"] = [time.time() - 120]
+        auth.throttle._failures[f"10.0.0.{index}"] = [time.time() - 120]
     auth.record_failure("10.1.1.1")
-    assert set(auth._failures) == {"10.1.1.1"}
+    assert set(auth.throttle._failures) == {"10.1.1.1"}
 
 
 def test_the_api_docs_need_a_login(locked):

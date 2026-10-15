@@ -5,13 +5,13 @@ from __future__ import annotations
 import threading
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 
 from remi.networks import NetworkError, NetworkReadOnly
 from remi.server import models as m
 from remi.server import network_models as nm
-from remi.server.deps import ServicesDep, not_found
+from remi.server.deps import ServicesDep, not_found, require_local_folders
 
 router = APIRouter()
 
@@ -119,13 +119,11 @@ def set_preview(kind: str, name: str, body: nm.PreviewRequest, services: Service
 
 
 @router.post("/networks/{kind}/{name:path}/open-folder", response_model=m.Ok, responses={**WRITE_ERRORS, 403: {"model": m.Detail}}, summary="Open the item's folder in the file manager of the WebUI machine")
-def open_folder(kind: str, name: str, services: ServicesDep) -> dict[str, Any]:
-    from modules import shared
+def open_folder(kind: str, name: str, services: ServicesDep, request: Request) -> dict[str, Any]:
     from remi.server.gallery import GalleryError
     from remi.server.gallery import open_folder as open_path
 
-    if shared.cmd_opts.hide_ui_dir_config:
-        raise HTTPException(status_code=403, detail="folders are hidden (--hide-ui-dir-config)")
+    require_local_folders(request)
     folder = _guard(lambda: services.networks.folder_of(kind, name))
     try:
         open_path(folder)

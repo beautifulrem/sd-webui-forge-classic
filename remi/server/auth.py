@@ -1,13 +1,19 @@
-"""Login and request checks of the Remi server.
+"""Login and request checks of the Remi server (threat model:
+``docs/remi-webui/security.md``).
 
 Credentials come from ``--auth user:pass[,user2:pass2]`` and ``--auth-file``. With
 credentials, every request to the app (REST, WebSocket, files, the SPA
-shell) needs a session cookie from ``POST /api/v2/auth/login`` or HTTP Basic
-credentials; without them the server is open, as before. Independently of
-login, :class:`SecurityMiddleware` refuses requests under a rebound ``Host``
-(DNS rebinding) and cross-site state-changing requests and WebSocket
-handshakes (``modules.extension_route_guard`` semantics), also for
-``/sdapi`` (which keeps ``--api-auth`` as its login).
+shell, the API docs) needs a session cookie from ``POST /api/v2/auth/login``
+or HTTP Basic credentials; without them the server is open, as before.
+Failed logins (form or Basic) are throttled per client.
+
+Independently of login, :class:`SecurityMiddleware` refuses requests under a
+rebound ``Host`` (DNS rebinding), cross-site state-changing requests and
+WebSocket handshakes, and cross-site subresource reads (fetch metadata;
+``modules.extension_route_guard`` semantics). ``/sdapi`` gets the same
+checks; its login is ``--api-auth`` when set, else the WebUI login on a
+server reachable from other machines. Every response carries ``nosniff``
+and a same-origin referrer policy; HTML pages get a strict CSP.
 
 Session cookies are ``user.expiry.signature`` signed with a per-installation
 secret and the user's password, so they survive restarts and die with a
@@ -23,6 +29,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -48,12 +55,16 @@ GUARDED_PREFIXES = ("/api/v2", "/internal")
 """Host, cross-site and login checks apply here."""
 
 DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
-"""The API description: needs a login like the API itself."""
+"""The API description (and ``/docs/*``): needs a login like the API itself."""
 
 SDAPI_PREFIX = "/sdapi"
-"""Host and cross-site checks only (``--api-auth`` is its login)."""
+"""Host and cross-site checks; login: ``--api-auth``, or the WebUI login when exposed."""
 
 MAX_THROTTLED_CLIENTS = 4096
+MAX_FAILURES_PER_MINUTE = 10
+
+MAX_CREDENTIAL_LENGTH = 1024
+"""longer user names / passwords are refused unchecked (login body, Basic)"""
 
 
 def parse_credentials(lines: Iterable[str]) -> dict[str, str]:
@@ -107,6 +118,60 @@ def _unb64(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
+def client_key(conn: Any) -> str:
+    """Who failed logins are counted for: the peer address (behind a reverse
+    proxy every client shares the proxy's, which errs on the safe side)."""
+
+    client = getattr(conn, "client", None)
+    return client.host if client else "?"
+
+
+@dataclass
+class Throttle:
+    """Failed logins per client in the last minute (bounded memory)."""
+
+    _failures: dict[str, list[float]] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def throttled(self, client: str) -> bool:
+        """Too many failed logins from ``client`` in the last minute."""
+
+        now = time.time()
+        with self._lock:
+            recent = [moment for moment in self._failures.get(client, []) if now - moment < 60]
+            if recent:
+                self._failures[client] = recent
+            else:
+                self._failures.pop(client, None)
+            return len(recent) >= MAX_FAILURES_PER_MINUTE
+
+    def record_failure(self, client: str) -> None:
+        now = time.time()
+        with self._lock:
+            if len(self._failures) >= MAX_THROTTLED_CLIENTS:  # forget clients idle for a minute
+                for key in [key for key, moments in self._failures.items() if not moments or now - moments[-1] >= 60]:
+                    del self._failures[key]
+            self._failures.setdefault(client, []).append(now)
+
+
+API_AUTH_THROTTLE = Throttle()
+"""failed ``--api-auth`` Basic logins (``/sdapi``, extension routes)"""
+
+
+def basic_credentials(headers: Any) -> tuple[str, str] | None:
+    """``(user, password)`` of an ``Authorization: Basic`` header; None
+    when there is none or it is malformed."""
+
+    scheme, _, encoded = (headers.get("authorization") or "").partition(" ")
+    if scheme.lower() != "basic" or len(encoded) > 4 * MAX_CREDENTIAL_LENGTH:
+        return None
+    try:
+        user, sep, password = base64.b64decode(encoded.strip(), validate=True).decode().partition(":")
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+    return (user, password) if sep else None
+
+
 @dataclass
 class Auth:
     credentials: dict[str, str] = field(default_factory=dict)
@@ -116,7 +181,7 @@ class Auth:
     cookie_path: str = "/"
     revoked_path: Path | None = None
     """where revoked sessions persist (None: in memory)"""
-    _failures: dict[str, list[float]] = field(default_factory=dict)
+    throttle: Throttle = field(default_factory=Throttle)
     _revoked: dict[str, int] | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -125,6 +190,8 @@ class Auth:
         return bool(self.credentials)
 
     def check_password(self, user: str, password: str) -> bool:
+        if len(user) > MAX_CREDENTIAL_LENGTH or len(password) > MAX_CREDENTIAL_LENGTH:
+            return False
         known = self.credentials.get(user)
         # compare even for unknown users, so timing does not reveal them
         ok = hmac.compare_digest((known if known is not None else secrets.token_hex(8)).encode(), password.encode())
@@ -194,41 +261,37 @@ class Auth:
 
     # endregion
 
-    def basic_user(self, headers: Headers) -> str | None:
-        scheme, _, encoded = (headers.get("authorization") or "").partition(" ")
-        if scheme.lower() != "basic":
-            return None
-        try:
-            user, sep, password = base64.b64decode(encoded.strip(), validate=True).decode().partition(":")
-        except (binascii.Error, UnicodeDecodeError):
-            return None
-        return user if sep and self.check_password(user, password) else None
+    def basic_user(self, headers: Any, client: str | None = None) -> str | None:
+        """The user of valid Basic credentials. With ``client``, failures
+        count towards its throttle and a throttled client is refused even
+        with the right password (so guessing gains nothing)."""
 
-    def user_for(self, conn: HTTPConnection) -> str | None:
+        if not (headers.get("authorization") or "").lower().startswith("basic"):
+            return None
+        if client is not None and self.throttle.throttled(client):
+            return None
+        pair = basic_credentials(headers)
+        if pair is not None and self.check_password(*pair):
+            return pair[0]
+        if client is not None:
+            self.throttle.record_failure(client)
+        return None
+
+    def user_for(self, conn: Any, *, count_failures: bool = True) -> str | None:
         """The logged-in user of a request (session cookie or Basic), None
-        when it has no valid login."""
+        when it has no valid login. ``count_failures``: wrong Basic
+        credentials count towards the client's throttle (only where a login
+        is required: credentials meant for ``--api-auth`` must not lock the
+        WebUI login)."""
 
-        return self.verify(conn.cookies.get(COOKIE_NAME)) or self.basic_user(conn.headers)
+        cookies = getattr(conn, "cookies", None) or {}
+        return self.verify(cookies.get(COOKIE_NAME)) or self.basic_user(conn.headers, client_key(conn) if count_failures else None)
 
     def throttled(self, client: str) -> bool:
-        """Too many failed logins from ``client`` in the last minute."""
-
-        now = time.time()
-        with self._lock:
-            recent = [moment for moment in self._failures.get(client, []) if now - moment < 60]
-            if recent:
-                self._failures[client] = recent
-            else:
-                self._failures.pop(client, None)
-            return len(recent) >= 10
+        return self.throttle.throttled(client)
 
     def record_failure(self, client: str) -> None:
-        now = time.time()
-        with self._lock:
-            if len(self._failures) >= MAX_THROTTLED_CLIENTS:  # forget clients idle for a minute
-                for key in [key for key, moments in self._failures.items() if not moments or now - moments[-1] >= 60]:
-                    del self._failures[key]
-            self._failures.setdefault(client, []).append(now)
+        self.throttle.record_failure(client)
 
     def set_cookie(self, response: Response, user: str, *, https: bool = False) -> None:
         """``https``: the request came over HTTPS (also behind a TLS proxy
@@ -254,15 +317,125 @@ def refusal(auth: Auth, scope: Scope, *, cross_site_check: bool = True, require_
 
     conn = HTTPConnection(scope)
     path = route_path(scope)
-    user = auth.user_for(conn) if auth.required else None
+    login = require_login and auth.required and not path.startswith(PUBLIC_PATHS)
+    # (before user_for, which counts this request's failure)
+    throttled = login and basic_credentials(conn.headers) is not None and auth.throttle.throttled(client_key(conn))
+    user = auth.user_for(conn, count_failures=login) if auth.required else None
     scope.setdefault("state", {})["remi_user"] = user
     if guard.is_rebound_host(conn):
         return 403, "Unknown host refused"
     if cross_site_check and _cross_site(scope, conn):
         return 403, "Cross-site request refused"
-    if require_login and auth.required and user is None and not path.startswith(PUBLIC_PATHS):
+    if login and user is None:
+        if throttled:
+            return 429, "Too many failed logins; wait a minute"
         return 401, "Not authenticated"
     return None
+
+
+def _api_auth() -> str | None:
+    from modules import extension_route_guard as guard
+
+    return getattr(guard._cmd_opts(), "api_auth", None) or None
+
+
+def _exposed() -> bool:
+    """Reachable from other machines (non-loopback bind, ``--ngrok``)."""
+
+    from modules import extension_route_guard as guard
+
+    cmd_opts = guard._cmd_opts()
+    return cmd_opts is not None and not guard._is_loopback_only(cmd_opts)
+
+
+def api_auth_refusal(conn: HTTPConnection) -> tuple[int, str] | None:
+    """``--api-auth`` Basic login (``/sdapi``; the docs without ``--auth``),
+    throttled per client like the WebUI login."""
+
+    from modules import extension_route_guard as guard
+
+    client = client_key(conn)
+    if API_AUTH_THROTTLE.throttled(client):
+        return 429, "Too many failed logins; wait a minute"
+    if guard._has_api_credentials(conn):
+        return None
+    if basic_credentials(conn.headers) is not None:
+        API_AUTH_THROTTLE.record_failure(client)
+    return 401, "Not authenticated"
+
+
+def sdapi_refusal(auth: Auth, scope: Scope) -> tuple[int, str] | None:
+    """``/sdapi`` (core and extension routes): host and cross-site checks;
+    the login is ``--api-auth`` when set, else the WebUI login on a server
+    reachable from other machines (on a loopback-only server local API
+    clients stay as free as with the old WebUI)."""
+
+    api_auth = _api_auth()
+    refused = refusal(auth, scope, require_login=not api_auth and _exposed())
+    if refused is not None or not api_auth:
+        return refused
+    return api_auth_refusal(HTTPConnection(scope))
+
+
+def docs_refusal(auth: Auth, scope: Scope) -> tuple[int, str] | None:
+    """The API docs need the WebUI login, or ``--api-auth`` without one."""
+
+    if auth.required or not _api_auth():
+        return refusal(auth, scope)
+    return refusal(auth, scope, require_login=False) or api_auth_refusal(HTTPConnection(scope))
+
+
+def is_docs_path(path: str) -> bool:
+    return path in DOCS_PATHS or path.startswith("/docs/")
+
+
+# region Response headers
+
+BASE_HEADERS = ((b"x-content-type-options", b"nosniff"), (b"referrer-policy", b"same-origin"))
+"""on every response (unless the route set its own)"""
+
+_INLINE_SCRIPT_RE = re.compile(rb"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", re.S | re.I)
+
+
+def frame_ancestors() -> str:
+    """``'self'`` plus the literal ``--cors-allow-origins`` (they may embed the UI)."""
+
+    from modules import extension_route_guard as guard
+
+    origins = [origin for origin in guard._cors_origins(guard._cmd_opts()) if re.fullmatch(r"https?://[A-Za-z0-9.\-\[\]:]+", origin)] if guard._cmd_opts() is not None else []
+    return " ".join(["'self'", *origins])
+
+
+def html_headers(body: bytes) -> dict[str, str]:
+    """Headers of a page the server renders (SPA shell, login page): a CSP
+    that allows the page's own inline scripts by hash and nothing else
+    inline, no plugins, no framing by other sites."""
+
+    hashes = " ".join(f"'sha256-{base64.b64encode(hashlib.sha256(script).digest()).decode()}'" for script in _INLINE_SCRIPT_RE.findall(body))
+    policy = "; ".join(
+        (
+            "default-src 'self'",
+            f"script-src 'self' {hashes}".strip(),
+            "style-src 'self' 'unsafe-inline'",  # React style props, CodeMirror / toast style tags
+            "img-src * data: blob:",  # extension help and outputs may show remote images
+            "media-src 'self' data: blob:",
+            "font-src 'self' data:",
+            "connect-src 'self' ws: wss: https:",  # license texts are fetched from their repositories
+            "worker-src 'self' blob:",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+            f"frame-ancestors {frame_ancestors()}",
+        )
+    )
+    return {"Content-Security-Policy": policy, "Cache-Control": "no-cache"}
+
+
+# endregion
+
+
+def login_page(root: str) -> bytes:
+    return LOGIN_PAGE.replace("{{root}}", json.dumps(root)[1:-1].replace("<", "\\u003c")).encode()
 
 
 async def refuse(scope: Scope, receive: Receive, send: Send, status: int, reason: str) -> None:
@@ -274,10 +447,11 @@ async def refuse(scope: Scope, receive: Receive, send: Send, status: int, reason
         return
     path = route_path(scope)
     accept = Headers(scope=scope).get("accept") or ""
-    if status == 401 and scope.get("method") == "GET" and not path.startswith(GUARDED_PREFIXES) and "text/html" in accept:
-        response: Response = HTMLResponse(LOGIN_PAGE.replace("{{root}}", scope.get("root_path", "")), status_code=401, headers={"Cache-Control": "no-store"})
+    if status == 401 and scope.get("method") == "GET" and not path.startswith((*GUARDED_PREFIXES, SDAPI_PREFIX)) and "text/html" in accept:
+        body = login_page(scope.get("root_path", ""))
+        response: Response = HTMLResponse(body, status_code=401, headers={**html_headers(body), "Cache-Control": "no-store"})
     else:
-        headers = {"WWW-Authenticate": 'Basic realm="Remi"'} if status == 401 and path.startswith("/internal") else None
+        headers = {"WWW-Authenticate": 'Basic realm="Remi"'} if status == 401 and path.startswith(("/internal", SDAPI_PREFIX, *DOCS_PATHS)) else None
         response = JSONResponse({"detail": reason}, status_code=status, headers=headers)
     await response(scope, receive, send)
 
@@ -285,27 +459,40 @@ async def refuse(scope: Scope, receive: Receive, send: Send, status: int, reason
 class SecurityMiddleware:
     """Host / cross-site / login checks for ``/api/v2``, ``/internal`` and
     the API docs, HTTP and WebSocket alike (pure ASGI, so it sees WebSocket
-    handshakes); host and cross-site checks for ``/sdapi``, whose login stays
-    ``--api-auth`` (API clients send no ``Origin``). Extension routes keep
+    handshakes); host and cross-site checks plus their own login for
+    ``/sdapi`` (:func:`sdapi_refusal`). Extension routes elsewhere keep
     ``extension_route_guard``; the SPA shell checks the login itself
-    (:mod:`remi.server.spa`)."""
+    (:mod:`remi.server.spa`). Adds :data:`BASE_HEADERS` to every response."""
 
     def __init__(self, app: ASGIApp, auth: Auth) -> None:
         self.app = app
         self.auth = auth
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] in ("http", "websocket"):
-            path = route_path(scope)
-            refused = None
-            if path.startswith(GUARDED_PREFIXES) or path in DOCS_PATHS:
-                refused = refusal(self.auth, scope)
-            elif path.startswith(SDAPI_PREFIX):
-                refused = refusal(self.auth, scope, require_login=False)
-            if refused is not None:
-                await refuse(scope, receive, send, *refused)
-                return
-        await self.app(scope, receive, send)
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        path = route_path(scope)
+        refused = None
+        if path.startswith(GUARDED_PREFIXES):
+            refused = refusal(self.auth, scope)
+        elif is_docs_path(path):
+            refused = docs_refusal(self.auth, scope)
+        elif path.startswith(SDAPI_PREFIX):
+            refused = sdapi_refusal(self.auth, scope)
+
+        async def send_with_headers(message: Any) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                present = {name.lower() for name, _ in headers}
+                headers += [(name, value) for name, value in BASE_HEADERS if name not in present]
+                message = {**message, "headers": headers}
+            await send(message)
+
+        if refused is not None:
+            await refuse(scope, receive, send_with_headers, *refused)
+            return
+        await self.app(scope, receive, send_with_headers if scope["type"] == "http" else send)
 
 
 def _cross_site(scope: Scope, conn: HTTPConnection) -> bool:

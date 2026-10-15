@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from modules import paths_internal, timer, shared_cmd_options, errors, launch_utils
+from modules import paths_internal, timer, shared_cmd_options, errors, launch_utils, redact
 
 checksum_token = "DontStealMyGamePlz__WINNERS_DONT_USE_DRUGS__DONT_COPY_THAT_FLOPPY"
 environment_whitelist = {
@@ -110,7 +110,7 @@ def get_dict():
         "Extensions": get_extensions(enabled=True, fallback_disabled_extensions=config.get('disabled_extensions', [])),
         "Inactive extensions": get_extensions(enabled=False, fallback_disabled_extensions=config.get('disabled_extensions', [])),
         "Environment": get_environment(),
-        "Config": config,
+        "Config": redact.mapping(config) if isinstance(config, dict) else config,
         "Startup": timer.startup_record,
         "Packages": get_packages(),
     }
@@ -119,24 +119,15 @@ def get_dict():
 
 
 def get_environment():
-    return {k: os.environ[k] for k in sorted(os.environ) if k in environment_whitelist}
+    environment = {k: os.environ[k] for k in sorted(os.environ) if k in environment_whitelist}
+    return {k: redact.command_line(v) if k == "COMMANDLINE_ARGS" else redact.url(v) for k, v in environment.items()}
 
 
 def get_argv():
-    res = []
-
-    for v in sys.argv:
-        if shared_cmd_options.cmd_opts.auth and shared_cmd_options.cmd_opts.auth == v:
-            res.append("<hidden>")
-            continue
-
-        if shared_cmd_options.cmd_opts.api_auth and shared_cmd_options.cmd_opts.api_auth == v:
-            res.append("<hidden>")
-            continue
-
-        res.append(v)
-
-    return res
+    res = redact.argv(sys.argv)
+    # values given some other way (e.g. a launcher) are still hidden where they appear
+    secrets = [value for value in (shared_cmd_options.cmd_opts.auth, shared_cmd_options.cmd_opts.api_auth, shared_cmd_options.cmd_opts.ngrok) if value]
+    return [redact.HIDDEN if any(secret in v for secret in secrets) else v for v in res]
 
 
 re_newline = re.compile(r"\r*\n")
@@ -171,7 +162,7 @@ def get_info_from_repo_path(path: Path):
         'path': str(path),
         'commit': run_git(path, 'rev-parse', 'HEAD') if is_repo else None,
         'branch': run_git(path, 'branch', '--show-current') if is_repo else None,
-        'remote': run_git(path, 'remote', 'get-url', 'origin') if is_repo else None,
+        'remote': redact.url(run_git(path, 'remote', 'get-url', 'origin')) if is_repo else None,
     }
 
 
@@ -185,7 +176,7 @@ def get_extensions(*, enabled, fallback_disabled_extensions=None):
                     "path": x.path,
                     "commit": x.commit_hash,
                     "branch": x.branch,
-                    "remote": x.remote,
+                    "remote": redact.url(x.remote) if x.remote else x.remote,
                 }
             return [to_json(x) for x in extensions.extensions if not x.is_builtin and x.enabled == enabled]
         else:

@@ -34,6 +34,29 @@ def bind_host(cmd_opts: Any) -> str:
     return "0.0.0.0" if getattr(cmd_opts, "listen", False) else "127.0.0.1"
 
 
+def exposure_warnings(cmd_opts: Any) -> list[str]:
+    """Risky combinations of launch flags, printed at startup
+    (``docs/remi-webui/security.md``, "Running exposed")."""
+
+    from modules import extension_route_guard as guard
+
+    warnings: list[str] = []
+    exposed = not guard._is_loopback_only(cmd_opts)
+    has_login = bool(getattr(cmd_opts, "auth", None) or getattr(cmd_opts, "auth_file", None))
+    if exposed and not has_login and not getattr(cmd_opts, "nowebui", False):
+        warnings.append("the WebUI is reachable from other machines without a login: anyone who can reach it (or make a browser on your network reach it) controls it; add --auth or --auth-file")
+    if exposed and getattr(cmd_opts, "nowebui", False) and not getattr(cmd_opts, "api_auth", None):
+        warnings.append("the API is reachable from other machines without a login; add --api-auth")
+    if exposed and getattr(cmd_opts, "enable_insecure_extension_access", False):
+        warnings.append("--enable-insecure-extension-access: logged-in users (everyone, without --auth) can install and run arbitrary code")
+    if "*" in guard._cors_origins(cmd_opts):
+        warnings.append("--cors-allow-origins=*: every web site may send requests with your login and read the answers")
+    tls = getattr(cmd_opts, "tls_keyfile", None) and getattr(cmd_opts, "tls_certfile", None)
+    if exposed and has_login and not tls and not getattr(cmd_opts, "ngrok", None):  # ngrok serves HTTPS
+        warnings.append("logins travel unencrypted: use --tls-keyfile/--tls-certfile or an HTTPS reverse proxy")
+    return warnings
+
+
 def port_free(host: str, port: int) -> bool:
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
     with socket.socket(family, socket.SOCK_STREAM) as probe:
@@ -160,6 +183,8 @@ def serve(*, webui: bool, startup_timer: Any = None) -> None:
     port = pick_port(host, cmd_opts.port, DEFAULT_PORT if webui else DEFAULT_API_PORT)
     if cmd_opts.share:
         log.warning("--share is not supported by the Remi server; use --listen, a reverse proxy or --ngrok")
+    for warning in exposure_warnings(cmd_opts):
+        print(f"Security warning: {warning}")
     if cmd_opts.ngrok is not None:
         from modules import ngrok
 

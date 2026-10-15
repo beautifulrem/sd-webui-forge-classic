@@ -11,6 +11,7 @@ keyboard shortcuts, migration from the Gradio UI and troubleshooting.
 | [README](../../README.md) / [README.zh-CN](../../README.zh-CN.md) | users: the interface, install, launch flags, where data lives, shortcuts, migration, troubleshooting |
 | [Remi Anima generation and parameter guide](../remi-anima-generation-guide.zh-CN.md) (zh-CN) | choosing and combining the Anima samplers, guidance, spatial and LoRA features |
 | [api.md](api.md) | script and tool authors: REST `/api/v2`, the WebSocket protocol and binary previews, `/sdapi/v1` compatibility, auth, curl and Python examples |
+| [security.md](security.md) | administrators: the threat model, every security control, how to run the server exposed (`--listen`, TLS, proxies), residual risks |
 | Built-in extension READMEs (`extensions-builtin/*/README.md`) | what each bundled extension does, e.g. [Agent Scheduler (superseded by the Queue)](../../extensions-builtin/agent-scheduler/README.md) and [Prompt Tools](../../extensions-builtin/sd-webui-prompt-all-in-one-neo/README.md) |
 
 ## Developing for Remi

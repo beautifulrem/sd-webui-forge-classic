@@ -85,24 +85,74 @@ def setUpscalers(req: dict):
     return reqDict
 
 
+MAX_URL_IMAGE_BYTES = 64 * 1024 * 1024
+MAX_URL_REDIRECTS = 5
+
+
 def verify_url(url):
-    """Returns True if the url refers to a global resource."""
+    """Returns True if the url refers to a global resource: every address
+    its host resolves to (IPv4 and IPv6) is public."""
 
     import socket
     from urllib.parse import urlparse
 
     try:
-        parsed_url = urlparse(url)
-        domain_name = parsed_url.netloc
-        host = socket.gethostbyname_ex(domain_name)
-        for ip in host[2]:
+        host = urlparse(url).hostname
+        if not host:
+            return False
+        addresses = {info[4][0].split("%", 1)[0] for info in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)}
+        for ip in addresses:
             ip_addr = ipaddress.ip_address(ip)
-            if not ip_addr.is_global:
+            mapped = getattr(ip_addr, "ipv4_mapped", None)
+            if not (mapped or ip_addr).is_global:
                 return False
+        return bool(addresses)
     except Exception:
         return False
 
-    return True
+
+def fetch_url_image_bytes(url: str) -> bytes:
+    """GET an image URL for the API (``api_enable_requests``): http(s) only,
+    redirects followed by hand and each hop checked against
+    ``api_forbid_local_requests``, the body capped at ``MAX_URL_IMAGE_BYTES``.
+    (A DNS answer that changes between the check and the connection is not
+    caught; turn ``api_enable_requests`` off on servers that must not reach
+    their network.)"""
+
+    from urllib.parse import urljoin, urlparse
+
+    headers = {"user-agent": opts.api_useragent} if opts.api_useragent else {}
+    current = url
+    for _hop in range(MAX_URL_REDIRECTS + 1):
+        if urlparse(current).scheme not in ("http", "https"):
+            raise HTTPException(status_code=500, detail="Invalid image url")
+        if opts.api_forbid_local_requests and not verify_url(current):
+            raise HTTPException(status_code=500, detail="Request to local resource not allowed")
+        with requests.get(current, timeout=30, headers=headers, stream=True, allow_redirects=False) as response:
+            if response.is_redirect:
+                current = urljoin(current, response.headers.get("location", ""))
+                continue
+            data = bytearray()
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                data.extend(chunk)
+                if len(data) > MAX_URL_IMAGE_BYTES:
+                    raise HTTPException(status_code=413, detail="The image at the url is too large")
+            return bytes(data)
+    raise HTTPException(status_code=500, detail="Too many redirects")
+
+
+def _checked_image(data: bytes):
+    """Decode-ready image, refusing decompression bombs whatever
+    ``Image.MAX_IMAGE_PIXELS`` currently is."""
+
+    from PIL import Image
+
+    from remi.files import MAX_UPLOAD_PIXELS
+
+    image = Image.open(BytesIO(data))  # reads the header only
+    if image.width * image.height > MAX_UPLOAD_PIXELS:
+        raise HTTPException(status_code=413, detail="The image has too many pixels")
+    return images.fix_image(image)  # as images.read
 
 
 def decode_base64_to_image(encoding):
@@ -110,22 +160,20 @@ def decode_base64_to_image(encoding):
         if not opts.api_enable_requests:
             raise HTTPException(status_code=500, detail="Requests not allowed")
 
-        if opts.api_forbid_local_requests and not verify_url(encoding):
-            raise HTTPException(status_code=500, detail="Request to local resource not allowed")
-
-        headers = {"user-agent": opts.api_useragent} if opts.api_useragent else {}
-        response = requests.get(encoding, timeout=30, headers=headers)
+        data = fetch_url_image_bytes(encoding)
         try:
-            image = images.read(BytesIO(response.content))
-            return image
+            return _checked_image(data)
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail="Invalid image url") from e
 
     if encoding.startswith("data:image/"):
         encoding = encoding.split(";")[1].split(",")[1]
     try:
-        image = images.read(BytesIO(base64.b64decode(encoding)))
-        return image
+        return _checked_image(base64.b64decode(encoding))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail="Invalid encoded image") from e
 
@@ -664,10 +712,16 @@ class Api:
     def set_config(self, req: dict[str, Any]):
         from modules.sysinfo import set_config
 
-        set_config(req)
+        set_config(req, is_api=True)  # restrict_api settings (URL fetching) stay out of the API's reach
 
     def get_cmd_flags(self):
-        return vars(shared.cmd_opts)
+        from modules import redact
+
+        flags = dict(vars(shared.cmd_opts))
+        for name in ("auth", "api_auth", "ngrok", "ngrok_options", "gradio_auth"):
+            if flags.get(name):
+                flags[name] = {redact.HIDDEN: redact.HIDDEN} if isinstance(flags[name], dict) else redact.HIDDEN
+        return flags
 
     def get_samplers(self):
         return [{"name": sampler[0], "aliases": sampler[2], "options": sampler[3]} for sampler in sd_samplers.all_samplers]

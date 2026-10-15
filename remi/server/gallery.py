@@ -189,7 +189,8 @@ def open_folder(path: str) -> None:
     if system == "Windows":
         os.startfile(path)  # type: ignore[attr-defined]
     elif system == "Darwin":
-        subprocess.Popen(["open", path])
+        # `open` launches a folder that is a bundle (Some.app): only reveal those
+        subprocess.Popen(["open", "-R", path] if os.path.splitext(path.rstrip("/"))[1] else ["open", path])
     elif "microsoft-standard-WSL2" in platform.uname().release:
         subprocess.Popen(["explorer.exe", subprocess.check_output(["wslpath", "-w", path], text=True).strip()])
     else:

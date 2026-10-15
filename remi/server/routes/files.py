@@ -14,7 +14,7 @@ from starlette.responses import FileResponse
 
 from remi.files import FileError, FileRecord
 from remi.server import models as m
-from remi.server.deps import ServicesDep, iso, not_found
+from remi.server.deps import ServicesDep, iso, not_found, require_local_folders
 
 router = APIRouter()
 
@@ -168,12 +168,10 @@ def save_outputs(body: m.SaveRequest, services: ServicesDep) -> dict[str, Any]:
 
 
 @router.post("/outputs/open-folder", response_model=m.Ok, responses={403: {"model": m.Detail}, 404: {"model": m.Detail}}, summary="Open an output folder in the file manager of the WebUI machine")
-def open_output_folder(body: m.OpenFolderRequest) -> dict[str, Any]:
-    from modules import shared
+def open_output_folder(body: m.OpenFolderRequest, request: Request) -> dict[str, Any]:
     from remi.server.gallery import GalleryError, open_folder, output_folder
 
-    if shared.cmd_opts.hide_ui_dir_config:
-        raise HTTPException(status_code=403, detail="folders are hidden (--hide-ui-dir-config)")
+    require_local_folders(request)
     try:
         open_folder(output_folder(body.folder))
     except GalleryError as error:

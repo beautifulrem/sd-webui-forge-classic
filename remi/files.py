@@ -29,6 +29,10 @@ from PIL import Image, PngImagePlugin
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 THUMB_WIDTHS = (64, 128, 192, 256, 320, 384, 512, 768, 1024)
 DEFAULT_MAX_UPLOAD = 64 * 1024 * 1024
+MAX_UPLOAD_PIXELS = 2 * 89_478_485
+"""Pillow's own decompression-bomb limit, enforced here even when something
+else lifted ``Image.MAX_IMAGE_PIXELS`` for the process (X/Y/Z plot does)"""
+MAX_UPLOAD_FRAMES = 2_000
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif", ".jxl", ".tif", ".tiff")
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".mkv", ".avi", ".gif")
 TEXT_EXTENSIONS = (".txt", ".csv", ".json", ".yaml", ".yml", ".cube")  # .cube: 3D LUTs (Post Processing Suite)
@@ -286,7 +290,7 @@ class FileStore:
                 raise FileError("unsupported file type", 415)
             width = height = None
             if sniffed.kind == "image":
-                width, height = _image_size(temp)
+                width, height = _image_size(temp, max_pixels=MAX_UPLOAD_PIXELS)
             sha = digest.hexdigest()
             target = self.uploads_dir / sha[:2] / f"{sha}{sniffed.ext}"
             with self._lock:  # one record per content, even for concurrent uploads
@@ -549,10 +553,17 @@ def _read_head(path: str, size: int = 64) -> bytes:
         return b""
 
 
-def _image_size(path: str | os.PathLike) -> tuple[int, int]:
+def _image_size(path: str | os.PathLike, *, max_pixels: int | None = None) -> tuple[int, int]:
+    """Width and height from the header (nothing is decoded). ``max_pixels``:
+    refuse larger images (and animations of more frames than
+    :data:`MAX_UPLOAD_FRAMES`) whatever ``Image.MAX_IMAGE_PIXELS`` is."""
+
     try:
         with Image.open(path) as image:  # raises DecompressionBombError past Pillow's pixel limit
-            return image.size
+            width, height = image.size
+            if max_pixels is not None and (width * height > max_pixels or getattr(image, "n_frames", 1) > MAX_UPLOAD_FRAMES):
+                raise Image.DecompressionBombError(f"{width}x{height}")
+            return width, height
     except Image.DecompressionBombError as error:
         raise FileError("the image is too large", 413) from error
     except Exception as error:

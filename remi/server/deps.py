@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -43,3 +44,39 @@ def opts() -> Any:
 def publish_options_changed(services: Services, keys: list[str]) -> None:
     if keys:
         services.bus.publish("options.changed", keys=sorted(set(keys)))
+
+
+PROXY_HEADERS = ("x-forwarded-for", "x-forwarded-host", "x-real-ip", "forwarded")
+LOCAL_ONLY = "only a browser on the WebUI machine can open its folders"
+
+
+def is_local_client(request: Request) -> bool:
+    """A browser on the WebUI machine: a loopback peer that came through no
+    proxy (folder actions open a window on this machine's desktop). A reverse
+    proxy or tunnel on the same machine also connects from loopback; it is
+    told apart only by the forwarding headers it adds, so one that adds none
+    (``ssh -L``, a plain TCP tunnel) passes as local — hide folders with
+    ``--hide-ui-dir-config`` when sharing the WebUI that way."""
+
+    headers = getattr(request, "headers", None) or {}
+    if any(name in headers for name in PROXY_HEADERS):
+        return False
+    host = request.client.host if request.client else ""
+    if host in ("testclient", "localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def require_local_folders(request: Request) -> None:
+    """Folder actions: refused with ``--hide-ui-dir-config`` and for browsers
+    on other machines."""
+
+    from modules import shared
+
+    if getattr(shared.cmd_opts, "hide_ui_dir_config", False):
+        raise HTTPException(status_code=403, detail="folders are hidden (--hide-ui-dir-config)")
+    if not is_local_client(request):
+        raise HTTPException(status_code=403, detail=LOCAL_ONLY)

@@ -21,7 +21,7 @@ from starlette.datastructures import Headers
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.types import Receive, Scope, Send
 
-from remi.server.auth import Auth, refusal, refuse, route_path
+from remi.server.auth import Auth, html_headers, refusal, refuse, route_path
 
 DIST = Path(__file__).resolve().parents[2] / "webui" / "dist"
 API_PREFIXES = ("/api/", "/sdapi/", "/internal/")
@@ -128,5 +128,5 @@ class Spa:
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         index = self.index(root)
         if index is None:
-            return HTMLResponse(NOT_BUILT, status_code=503, headers={"Cache-Control": "no-store"})
-        return HTMLResponse(index, headers={"Cache-Control": "no-cache"})
+            return HTMLResponse(NOT_BUILT, status_code=503, headers={**html_headers(NOT_BUILT.encode()), "Cache-Control": "no-store"})
+        return HTMLResponse(index, headers=html_headers(index))

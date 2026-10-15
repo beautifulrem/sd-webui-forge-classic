@@ -36,6 +36,7 @@ import {
   SORTS,
 } from "./extensions-model"
 import { extensionKeys, installedQuery } from "./queries"
+import { safeUrl } from "@/ui/rich-text"
 
 function EntryRow({ entry, tags, access, installing, onInstall }: { entry: IndexEntry; tags: Record<string, string>; access: boolean; installing: boolean; onInstall: () => void }) {
   const { t, i18n } = useTranslation()
@@ -43,7 +44,7 @@ function EntryRow({ entry, tags, access, installing, onInstall }: { entry: Index
   return (
     <div className="flex gap-3 border-b px-1 py-3">
       <div className="min-w-0 flex-1">
-        <a href={entry.url} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-sm font-medium underline-offset-2 hover:underline">
+        <a href={safeUrl(entry.url) ?? undefined} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 text-sm font-medium underline-offset-2 hover:underline">
           {entry.name}
           <ExternalLink className="size-3 text-muted-foreground" aria-hidden />
         </a>

@@ -19,6 +19,7 @@ import { runAction } from "@/ui/actions"
 import { jsonEqual } from "@/ui/conditions"
 import { RenderNode } from "@/ui/Renderer"
 import { SafeHtml } from "@/ui/RichText"
+import { safeUrl } from "@/ui/rich-text"
 import type { SettingNode } from "@/ui/schema"
 import { serverStatusQuery } from "./queries"
 import { setSettingsMode } from "./settings-filters"
@@ -108,7 +109,7 @@ function SettingHelp({ node }: { node: SettingNode }) {
           {node.links?.map((link) => (
             <a
               key={link.url}
-              href={link.url}
+              href={safeUrl(link.url) ?? undefined}
               target="_blank"
               rel="noreferrer noopener"
               className="inline-flex items-center gap-0.5 text-primary underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"

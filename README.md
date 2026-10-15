@@ -285,12 +285,13 @@ Agent Scheduler, Prompt Queue and Repeat Generate became the core Queue. Built-i
 
 By default the server listens on `127.0.0.1` only.
 
-- **Logins.** `--auth` / `--auth-file` protect everything: the interface, `/api/v2`, files, the WebSocket, `/internal` and the API docs. The browser gets a login page; sessions last 30 days and survive restarts, and logging out revokes them. Scripts can send HTTP Basic credentials instead. `/sdapi/v1` keeps its own `--api-auth`.
+- **Logins.** `--auth` / `--auth-file` protect everything: the interface, `/api/v2`, files, the WebSocket, `/internal` and the API docs. The browser gets a login page; sessions last 30 days and survive restarts, and logging out revokes them. Scripts can send HTTP Basic credentials instead. Ten failed logins from one client within a minute lock it out for a minute. `/sdapi/v1` uses `--api-auth` when set; without it, the `--auth` login once the server is reachable from other machines.
 - **Exposing the server.** Use `--listen` (or `--server-name`) together with `--auth`, ideally behind a TLS reverse proxy or with `--tls-keyfile` / `--tls-certfile`. `--share` is not supported. Installing and updating extensions from the UI is disabled while listening on the network unless `--enable-insecure-extension-access` is given; "Show in folder" in the Gallery only works for a browser on the same machine, and `--hide-ui-dir-config` removes every action that opens or reveals folders on the server.
 - **Cross-site requests are refused.** State-changing requests and WebSocket connections from pages on another site are rejected, so a malicious page cannot drive your WebUI. Scripts and API tools send no `Origin` header and are unaffected; browser front-ends on another origin must be allowed with `--cors-allow-origins`.
 - **DNS rebinding is refused.** A loopback-only server answers only to `localhost` / loopback host names (or hosts allowed with `--cors-allow-origins`). A local reverse proxy must pass one of those as `Host`, or allow its public origin.
 - **Files** are served by opaque id only, uploads are type- and size-checked (`remi_upload_max_mb`), and extension HTML, infotext and metadata are rendered as text or sanitized.
 - **Extension routes** (added by extensions to the server) get the same cross-site and host checks; on an exposed server with `--auth` they also require the login or `--api-auth` credentials.
+- **Startup warnings** name risky combinations: reachable without a login, `--cors-allow-origins=*`, insecure extension access, logins without TLS. See [docs/remi-webui/security.md](docs/remi-webui/security.md) for the threat model and a checklist for running exposed.
 - **Outbound requests** happen only for what you use or configure: the extension index on the Extensions page, a translation provider you set up, and model downloads of features that need them on first use (CLIP Modulation, JoyCaption, ControlNet preprocessors, ADetailer).
 
 ## Troubleshooting

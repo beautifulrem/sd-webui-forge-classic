@@ -142,11 +142,31 @@ def _same_origin(origin: str, request) -> bool:
     return False
 
 
+def _cross_site_read(request) -> bool:
+    """A GET/HEAD a page of another site (or another port of this one) made
+    the browser send as a subresource (``<img>``, ``fetch``...): fetch
+    metadata says so. Their responses are hidden by CORS, but the request
+    itself still runs (blind SSRF/CSRF through GETs that fetch or compute).
+    Top-level navigations (links, bookmarks) and allowed CORS origins pass;
+    clients without fetch metadata (API clients, old browsers) too."""
+    headers = request.headers
+    if headers.get("sec-fetch-site") not in ("cross-site", "same-site"):
+        return False
+    if headers.get("sec-fetch-mode") == "navigate" and headers.get("sec-fetch-dest") in (None, "document"):
+        return False
+    origin = headers.get("origin")
+    return not (origin and origin != "null" and (_allowed_by_cors(origin) or _same_origin(origin, request)))
+
+
 def is_cross_site(request) -> bool:
     """A state-changing request, or a WebSocket handshake (browsers send those
-    with cookies and no CORS check), that a browser sent from another site."""
-    if getattr(request, "method", None) in ("GET", "HEAD", "OPTIONS"):
+    with cookies and no CORS check), that a browser sent from another site;
+    or a cross-site subresource read (:func:`_cross_site_read`)."""
+    method = getattr(request, "method", None)
+    if method == "OPTIONS":
         return False
+    if method in ("GET", "HEAD"):
+        return _cross_site_read(request)
     origin = request.headers.get("origin")
     if origin and origin != "null" and _allowed_by_cors(origin):
         return False
@@ -184,16 +204,32 @@ def refusal(app, request, require_login: bool = True, accept_api_auth: bool = Fa
     if not require_login:
         return None
     auth_dependency = getattr(app, "auth_dependency", None)
+    api_auth = accept_api_auth and getattr(_cmd_opts(), "api_auth", None)
+    if api_auth and _valid_api_credentials(request):
+        return None  # (checked first: they are not WebUI logins, which would count as failed ones)
     if auth_dependency is not None:
         user = auth_dependency(request)
-    elif accept_api_auth and getattr(_cmd_opts(), "api_auth", None):
+    elif api_auth:
         # No WebUI login on this app (--nowebui): --api-auth is the login, as for /sdapi
-        return None if _has_api_credentials(request) else (401, "Not authenticated")
+        return _api_auth_refusal(request)
     else:
         return None
-    if user is None and accept_api_auth and _has_api_credentials(request):
-        return None
+    if user is None and api_auth:
+        return _api_auth_refusal(request)
     return None if user is not None else (401, "Not authenticated")
+
+
+def _valid_api_credentials(request) -> bool:
+    from remi.server.auth import API_AUTH_THROTTLE, client_key
+
+    return not API_AUTH_THROTTLE.throttled(client_key(request)) and _has_api_credentials(request)
+
+
+def _api_auth_refusal(request) -> tuple[int, str] | None:
+    """--api-auth Basic credentials, failures throttled per client."""
+    from remi.server.auth import api_auth_refusal
+
+    return api_auth_refusal(request)
 
 
 def _wrap(app, routes, require_login: bool, accept_api_auth: bool = False) -> int:

@@ -60,6 +60,9 @@ DIRNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 GIT_URL_RE = re.compile(r"^(https?|ssh|git)://[^\s]+$|^git@[^\s:]+:[^\s]+$")
 BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]{1,200}$")
 STATE_ID_RE = re.compile(r"^[^/\\]{1,200}\.json$")
+WINDOWS_RESERVED = {"con", "prn", "aux", "nul", *(f"com{n}" for n in range(1, 10)), *(f"lpt{n}" for n in range(1, 10))}
+INSTALL_PROTOCOLS = "https:http:ssh:git"
+"""transports a clone (and its submodules) may use: no ``file``/``ext::`` helpers"""
 RESTORE_TARGETS = ("extensions",)
 
 log = logging.getLogger(__name__)
@@ -144,6 +147,37 @@ def normalize_git_url(url: str | None) -> str:
 
 def dirname_from_url(url: str) -> str:
     return normalize_git_url(url).rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+
+
+def valid_git_url(url: str) -> bool:
+    """An https/http/ssh/git URL or ``user@host:path``, whose host cannot be
+    read as a command-line option (``ssh://-oProxyCommand=...``)."""
+
+    if not GIT_URL_RE.match(url) or any(ord(char) < 32 or ord(char) == 127 for char in url):
+        return False
+    if "://" in url:
+        try:
+            parsed = urllib.parse.urlsplit(url)
+            _ = parsed.port
+        except ValueError:
+            return False
+        host = parsed.hostname or ""
+        username = parsed.username or ""
+    else:  # scp-like user@host:path
+        username, _, rest = url.partition("@")
+        host = rest.partition(":")[0]
+    return bool(host) and not host.startswith("-") and not username.startswith("-")
+
+
+def valid_dirname(name: str) -> bool:
+    stem = name.split(".", 1)[0].lower()
+    return bool(DIRNAME_RE.match(name)) and stem not in WINDOWS_RESERVED and not name.endswith(".")
+
+
+def valid_branch(branch: str) -> bool:
+    """A plausible ref name (git still checks it): no option, no ``..``."""
+
+    return bool(BRANCH_RE.match(branch)) and not branch.startswith(("-", "/")) and ".." not in branch and not branch.endswith(("/", ".lock", ".")) and "//" not in branch
 
 
 def _host(parsed: urllib.parse.SplitResult) -> str:
@@ -269,7 +303,7 @@ def _reason(output: str) -> str:
     return " ".join(lines[-3:])[:500] or "no output"
 
 
-def run_git(args: list[str], *, cwd: str | os.PathLike | None = None, timeout: float = GIT_TIMEOUT) -> str:
+def run_git(args: list[str], *, cwd: str | os.PathLike | None = None, timeout: float = GIT_TIMEOUT, extra_env: dict[str, str] | None = None) -> str:
     """Run ``git <args>`` without a terminal; its stdout, or :class:`GitError`
     (502) when it fails, cannot start or runs longer than ``timeout``."""
 
@@ -283,7 +317,7 @@ def run_git(args: list[str], *, cwd: str | os.PathLike | None = None, timeout: f
         process = subprocess.Popen(
             [git_executable(), *args],
             cwd=cwd,
-            env=git_environment(),
+            env={**git_environment(), **(extra_env or {})},
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -532,12 +566,12 @@ def install(url: str, branch: str | None = None, dirname: str | None = None) -> 
     check_access()
     url = (url or "").strip()
     branch = (branch or "").strip() or None
-    if not GIT_URL_RE.match(url):
+    if not valid_git_url(url):
         raise AdminError("expected a git URL (https://, ssh://, git:// or git@host:path)")
     dirname = (dirname or "").strip() or dirname_from_url(url)
-    if not DIRNAME_RE.match(dirname):
+    if not valid_dirname(dirname):
         raise AdminError("not a valid folder name: {{name}}", name=dirname)
-    if branch is not None and (not BRANCH_RE.match(branch) or branch.startswith("-")):
+    if branch is not None and not valid_branch(branch):
         raise AdminError("not a valid branch name: {{name}}", name=branch)
     with lock:
         target = os.path.join(extensions.extensions_dir, dirname)
@@ -552,7 +586,7 @@ def install(url: str, branch: str | None = None, dirname: str | None = None) -> 
             args = ["clone", "--filter=blob:none", "--recurse-submodules"]
             if branch:
                 args += ["--branch", branch]
-            run_git([*args, "--", url, temp], timeout=GIT_CLONE_TIMEOUT)
+            run_git([*args, "--", url, temp], timeout=GIT_CLONE_TIMEOUT, extra_env={"GIT_ALLOW_PROTOCOL": INSTALL_PROTOCOLS})
             try:
                 os.rename(temp, target)
             except OSError as error:
@@ -651,7 +685,7 @@ def index_entries(data: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(entry, dict):
             continue
         url = _text(entry.get("url")).strip()
-        if not url or not GIT_URL_RE.match(url):
+        if not url or not valid_git_url(url):
             continue
         entry_tags = [str(tag) for tag in entry.get("tags") or [] if isinstance(tag, (str, int))]
         for tag in entry_tags:

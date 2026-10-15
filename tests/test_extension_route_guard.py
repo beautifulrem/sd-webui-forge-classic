@@ -304,10 +304,13 @@ def _api_only_app(monkeypatch, **overrides):
 
 
 def test_api_only_servers_require_api_auth_for_extension_routes(monkeypatch):
+    from remi.server.auth import API_AUTH_THROTTLE
+
     # --nowebui: /sdapi needs --api-auth whenever it is set, on any bind (every
     # interface by default, --listen, or a loopback --server-name), so do extension routes
     loopback = (dict(server_name="127.0.0.1"), dict(server_name="localhost"), dict(server_name="[::1]"))
     for options in (dict(), dict(listen=True, auth="u:p"), *loopback):
+        API_AUTH_THROTTLE._failures.clear()  # this test is about which credentials count
         client = _api_only_app(monkeypatch, api_auth="api:secret", **options)
         assert client.post("/ext/api").status_code == 401, options
         assert client.post("/ext/api", headers=_basic("api", "wrong")).status_code == 401
@@ -391,7 +394,14 @@ def test_fetch_metadata_refuses_cross_site_writes_without_an_origin():
     assert client.post("/ext/write", headers={"sec-fetch-site": "cross-site"}).status_code == 403
     for site in ("same-origin", "same-site", "none"):
         assert client.post("/ext/write", headers={"sec-fetch-site": site}).json() == "written", site
-    assert client.get("/ext/read", headers={"sec-fetch-site": "cross-site"}).json() == "ok"  # reads stay open
+    # cross-site subresource reads (<img src>, no-cors fetch) are refused; navigations pass
+    assert client.get("/ext/read", headers={"sec-fetch-site": "cross-site", "sec-fetch-mode": "no-cors", "sec-fetch-dest": "image"}).status_code == 403
+    assert client.get("/ext/read", headers={"sec-fetch-site": "same-site", "sec-fetch-mode": "cors"}).status_code == 403
+    navigate = {"sec-fetch-site": "cross-site", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document"}
+    assert client.get("/ext/read", headers=navigate).json() == "ok"
+    assert client.get("/ext/read", headers={**navigate, "sec-fetch-dest": "iframe"}).status_code == 403
+    assert client.get("/ext/read", headers={"sec-fetch-site": "same-origin"}).json() == "ok"
+    assert client.get("/ext/read").json() == "ok"  # API clients send no fetch metadata
     # An Origin, when present, decides
     assert client.post("/ext/write", headers={"sec-fetch-site": "cross-site", "origin": "http://127.0.0.1:7860"}).json() == "written"
 
@@ -432,3 +442,35 @@ def test_malformed_basic_credentials_are_refused(monkeypatch):
     ):
         assert client.post("/ext/api", headers=headers).status_code == 401, headers
     assert client.post("/ext/api", headers={"authorization": "basic " + base64.b64encode(b"bot:secret").decode()}).json() == "ext"
+
+
+def test_failed_api_auth_logins_are_throttled(monkeypatch):
+    from remi.server.auth import API_AUTH_THROTTLE, MAX_FAILURES_PER_MINUTE
+
+    client = _api_only_app(monkeypatch, api_auth="api:secret")
+    for _ in range(MAX_FAILURES_PER_MINUTE):
+        assert client.post("/ext/api", headers=_basic("api", "guess")).status_code == 401
+    # throttled: even the right password is refused for a minute
+    assert client.post("/ext/api", headers=_basic("api", "secret")).status_code == 429
+    API_AUTH_THROTTLE._failures.clear()
+    assert client.post("/ext/api", headers=_basic("api", "secret")).json() == "ext"
+
+
+def test_api_auth_credentials_on_extension_routes_are_not_failed_webui_logins(monkeypatch):
+    from remi.server.auth import Auth
+
+    _guard_options(monkeypatch, listen=True, auth="ann:1", api_auth="api:secret")
+    from modules.extension_route_guard import guard_new_routes, snapshot_routes
+
+    auth = Auth({"ann": "1"}, b"k" * 32)
+    app = FastAPI()
+    app.auth_dependency = auth.user_for
+    before = snapshot_routes(app)
+    app.post("/ext/write")(lambda: "written")
+    assert guard_new_routes(app, before) == 1
+    client = TestClient(app, base_url="http://127.0.0.1:7860")
+    for _ in range(12):
+        assert client.post("/ext/write", headers=_basic("api", "secret")).json() == "written"
+    assert not auth.throttle.throttled("testclient")
+    assert client.post("/ext/write", headers=_basic("ann", "1")).json() == "written"
+    assert client.post("/ext/write").status_code == 401

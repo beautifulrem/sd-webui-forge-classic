@@ -3,7 +3,6 @@ deleted, shown in its folder) and PNG Info (all metadata of an image)."""
 
 from __future__ import annotations
 
-import ipaddress
 from datetime import datetime
 from typing import Any, Literal
 
@@ -14,7 +13,7 @@ from pydantic import Field
 
 from remi.library import CATEGORIES, SORTS, GalleryQuery, gallery_for, item_json
 from remi.server import models as m
-from remi.server.deps import ServicesDep, iso, not_found
+from remi.server.deps import LOCAL_ONLY, ServicesDep, is_local_client, iso, not_found
 
 router = APIRouter()
 
@@ -175,26 +174,7 @@ async def zip_outputs(body: IdsRequest, services: ServicesDep) -> dict[str, Any]
     return {"id": record.id, "name": record.name, "count": count}
 
 
-PROXY_HEADERS = ("x-forwarded-for", "x-forwarded-host", "x-real-ip", "forwarded")
-
-
-def _local(request: Request) -> bool:
-    """A browser on the WebUI machine: a loopback peer that came through no
-    proxy. A reverse proxy or tunnel on the same machine also connects from
-    loopback; it is told apart only by the forwarding headers it adds, so
-    one that adds none (``ssh -L``, a plain TCP tunnel) passes as local —
-    hide folders with ``--hide-ui-dir-config`` when sharing the WebUI that way."""
-
-    headers = getattr(request, "headers", None) or {}
-    if any(name in headers for name in PROXY_HEADERS):
-        return False
-    host = request.client.host if request.client else ""
-    if host in ("testclient", "localhost"):
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
+_local = is_local_client
 
 
 @router.post("/gallery/{file_id}/reveal", response_model=m.Ok, responses={403: {"model": m.Detail}, 404: {"model": m.Detail}}, summary="Show an output in the file manager of the WebUI machine (local clients only)")
@@ -205,7 +185,7 @@ def reveal_output(file_id: str, request: Request, services: ServicesDep) -> dict
     if getattr(shared.cmd_opts, "hide_ui_dir_config", False):
         raise HTTPException(status_code=403, detail="folders are hidden (--hide-ui-dir-config)")
     if not _local(request):
-        raise HTTPException(status_code=403, detail="only a browser on the WebUI machine can open its folders")
+        raise HTTPException(status_code=403, detail=LOCAL_ONLY)
     record = services.files.get(file_id)
     if record is None or record.kind != "output":
         raise not_found("no such output")

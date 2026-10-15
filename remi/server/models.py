@@ -610,8 +610,8 @@ class ImageInfo(Model):
 
 
 class LoginRequest(Model):
-    username: str
-    password: str
+    username: str = Field(max_length=1024)
+    password: str = Field(max_length=1024)
 
 
 # endregion
