@@ -9,7 +9,7 @@
   "Controlnet input directory": "Controlnet 输入目录",
   "Batch: the control image of each input image is the file of the same name in this directory (else the next file).": "批量处理：每张输入图像的控制图像是此目录中同名的文件（找不到时依次使用下一个文件）。",
   "Enable": "启用",
-  "Pixel Perfect": "Pixel Perfect",
+  "Pixel Perfect": "完美像素",
   "Use Mask": "使用蒙版",
   "Preview as Input": "预览作为输入",
   "Upload independent control image": "上传独立的控制图像",

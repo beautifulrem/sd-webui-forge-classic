@@ -5,11 +5,12 @@
  */
 import { useQuery } from "@tanstack/react-query"
 import { Archive, Download, Link2, Package, ShieldAlert } from "lucide-react"
-import { lazy, Suspense } from "react"
+import { lazy, Suspense, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { navigate, type Route } from "@/app/router"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useScrollFade } from "@/lib/use-scroll-fade"
 import { InstalledView } from "./InstalledView"
 import { installedQuery } from "./queries"
 
@@ -35,6 +36,8 @@ export default function ExtensionsPage({ route }: { route: Route }) {
   const tab = parseTab(route.query?.get("tab"))
   const list = useQuery(installedQuery)
   const access = list.data?.access ?? true
+  const tabsRef = useRef<HTMLDivElement>(null)
+  const tabsFade = useScrollFade(tabsRef, tab)
 
   return (
     <div data-scroll-root className="h-full overflow-y-auto">
@@ -43,7 +46,7 @@ export default function ExtensionsPage({ route }: { route: Route }) {
           value={tab}
           onValueChange={(value) => navigate({ name: "extensions", query: value === "installed" ? undefined : new URLSearchParams({ tab: String(value) }) }, { replace: true })}
         >
-          <TabsList variant="line" className="w-full justify-start overflow-x-auto border-b pb-px">
+          <TabsList ref={tabsRef} style={tabsFade} variant="line" className="w-full justify-start overflow-x-auto border-b pb-px [scrollbar-width:none]">
             {TABS.map(({ id, label, icon: Icon }) => (
               <TabsTrigger key={id} value={id} className="flex-none px-2.5">
                 <Icon aria-hidden />

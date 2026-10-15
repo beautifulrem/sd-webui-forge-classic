@@ -94,12 +94,19 @@ export function durationOf(job: Pick<Job, "started_at" | "finished_at">): number
   return Number.isFinite(ms) && ms >= 0 ? ms / 1000 : null
 }
 
-/** "42 s", "3 min 05 s", "1 h 02 min". */
+/** "42 s", "3 min 05 s", "1 h 02 min" (localized units). */
 export function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`
+  if (seconds < 60) return t("{{seconds}} s", { seconds: seconds < 10 ? seconds.toFixed(1) : Math.round(seconds) })
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes} min ${String(Math.round(seconds % 60)).padStart(2, "0")} s`
-  return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min`
+  if (minutes < 60) return t("{{minutes}} min {{seconds}} s", { minutes, seconds: String(Math.round(seconds % 60)).padStart(2, "0") })
+  return t("{{hours}} h {{minutes}} min", { hours: Math.floor(minutes / 60), minutes: String(minutes % 60).padStart(2, "0") })
+}
+
+/** A job's title: its name, its prompt, else its form (an Extras job has no prompt). */
+export function jobTitle(job: Pick<Job, "name" | "summary" | "tab">): string {
+  if (job.name) return job.name
+  if (job.summary && job.summary !== job.tab) return job.summary
+  return job.summary ? formLabel(job.tab) : t("Untitled job")
 }
 
 /** The form a job belongs to, named as in the navigation. */

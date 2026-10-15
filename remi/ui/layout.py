@@ -17,11 +17,13 @@ UNKNOWN_POLICIES = ("error", "ignore")
 class ScriptLayout:
     """One owner's (a script's, or the core form's) parameters.
 
-    ``inputs`` are in positional order: the depth-first declaration order of
-    the tree, unless ``order`` (every param name exactly once) overrides it
-    for a script whose argument order differs from its visual order. Named
-    values become positional arguments with :meth:`values_to_args`; missing
-    names take their defaults."""
+    ``inputs`` are the processing arguments in positional order: the
+    depth-first declaration order of the tree, unless ``order`` (every
+    argument param exactly once) overrides it for a script whose argument
+    order differs from its visual order. Named values become positional
+    arguments with :meth:`values_to_args`; missing names take their defaults.
+    ``tools`` are the tool inputs (``arg=False``): validated and defaulted
+    like the others, never an argument."""
 
     def __init__(self, root: Node | None, *, owner: str = "script", order: Sequence[str] | None = None):
         self.root = root
@@ -33,14 +35,16 @@ class ScriptLayout:
                 if node.name in declared:
                     raise SchemaError(f"{owner}: duplicate param name {node.name!r}")
                 declared[node.name] = node
+        arguments = {name: node for name, node in declared.items() if node.arg}
         if order is not None:
             order = list(order)
-            if len(order) != len(set(order)) or set(order) != set(declared):
-                raise SchemaError(f"{owner}: order must list every param exactly once (params: {list(declared)})")
-            self.inputs: list[Input] = [declared[name] for name in order]
+            if len(order) != len(set(order)) or set(order) != set(arguments):
+                raise SchemaError(f"{owner}: order must list every argument param exactly once (params: {list(arguments)})")
+            self.inputs: list[Input] = [arguments[name] for name in order]
         else:
-            self.inputs = list(declared.values())
-        self.by_name: dict[str, Input] = {node.name: node for node in self.inputs}
+            self.inputs = list(arguments.values())
+        self.tools: list[Input] = [node for node in declared.values() if not node.arg]
+        self.by_name: dict[str, Input] = {node.name: node for node in (*self.inputs, *self.tools)}
 
         self.infotext: dict[str, str] = {}
         """infotext key -> param name"""
@@ -99,7 +103,7 @@ class ScriptLayout:
 
     def defaults(self, ctx: Context | None = None) -> dict[str, Any]:
         ctx = ensure_context(ctx)
-        return {node.name: node.resolve_default(ctx) for node in self.inputs}
+        return {node.name: node.resolve_default(ctx) for node in (*self.inputs, *self.tools)}
 
     def schema(self, ctx: Context | None = None) -> NodeSchema | None:
         """The exported layout tree (``None`` for a script without params)."""
@@ -126,7 +130,7 @@ class ScriptLayout:
             errors.extend(ParamError("unknown parameter", param=name, owner=self.owner) for name in values if name not in self.by_name)
 
         result: dict[str, Any] = {}
-        for node in self.inputs:
+        for node in (*self.inputs, *self.tools):
             if node.name not in values:
                 result[node.name] = node.resolve_default(ctx)
                 continue

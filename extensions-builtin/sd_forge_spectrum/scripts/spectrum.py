@@ -106,11 +106,11 @@ class SpectrumForForge(scripts.Script):
         try:
             settings = PresetManager.get_preset(name)
             if settings is None:
-                return ui.toast(f'Preset "{name}" was not found', "error")
+                return ui.toast(ui.message('Preset "{{name}}" was not found', name=name), "error")
             # A hand-edited presets.json must not put values the form rejects
             coerced = self._settings(dict(zip(PARAM_NAMES, settings)))
         except ValueError as error:  # ValidationError included
-            return ui.toast(f'Preset "{name}" is invalid: {error}', "error")
+            return ui.toast(ui.message('Preset "{{name}}" is invalid: {{error}}', name=name, error=str(error)), "error")
         return {param: {"value": coerced[param]} for param in PARAM_NAMES}
 
     @ui.action("save_preset")
@@ -120,15 +120,15 @@ class SpectrumForForge(scripts.Script):
         names = PresetManager.save_preset(name, *(current[param] for param in PARAM_NAMES))
         if names is None:
             return ui.toast("Enter a preset name", "error")
-        return {"preset_name": {"choices": names, "value": name}, **ui.toast(f'Preset "{name}" saved', "success")}
+        return {"preset_name": {"choices": names, "value": name}, **ui.toast(ui.message('Preset "{{name}}" saved', name=name), "success")}
 
     @ui.action("delete_preset")
     def delete_preset(self, ctx: ui.ActionContext, values: dict) -> dict:
         name = self._preset_name(values)
         names = PresetManager.delete_preset(name)
         if names is None:
-            return ui.toast(f'Preset "{name}" was not found', "error")
-        return {"preset_name": {"choices": names, "value": ""}, **ui.toast(f'Preset "{name}" deleted', "success")}
+            return ui.toast(ui.message('Preset "{{name}}" was not found', name=name), "error")
+        return {"preset_name": {"choices": names, "value": ""}, **ui.toast(ui.message('Preset "{{name}}" deleted', name=name), "success")}
 
     def cleanup(self, p, *args, **kwargs):
         # The wrapper (and its GPU feature history) stays on forge_objects

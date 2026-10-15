@@ -328,3 +328,16 @@ export function planImport(text: string, current: Record<string, unknown>, edita
   }
   return plan
 }
+
+const INFO_HTML = /^<span class='info'>\((.*)\)<\/span>$/s
+
+/** A setting's HTML comment from the catalog: whole, or (as the language packs key them) the text inside the legacy `(…)` info span. */
+export function translateHtml(html: string, t: (key: string) => string): string {
+  const info = INFO_HTML.exec(html)
+  const text = info?.[1]
+  if (text) {
+    const inner = t(text)
+    if (inner !== text) return `<span class='info'>(${inner})</span>`
+  }
+  return t(html)
+}

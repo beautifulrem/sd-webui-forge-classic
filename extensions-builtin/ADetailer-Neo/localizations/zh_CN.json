@@ -92,7 +92,7 @@
  "only affects when \"Use separate Width/Height\" is off": "仅在关闭“使用独立的宽度/高度”时生效",
  "Off": "关闭",
  "Strict": "严格",
- "Free": "Free",
+ "Free": "自由",
  "ADetailer Prompt": "ADetailer 正向提示词",
  "ADetailer Negative Prompt": "ADetailer 反向提示词",
  "If blank, the original prompt is used": "留空则使用原提示词",

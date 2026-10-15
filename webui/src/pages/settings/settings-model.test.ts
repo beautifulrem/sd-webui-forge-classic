@@ -8,6 +8,7 @@ import {
   htmlText,
   isChanged,
   planImport,
+  translateHtml,
   searchTerms,
   sectionOfRow,
   sectionRowIndex,
@@ -182,5 +183,16 @@ describe("import and export", () => {
     expect(planImport('{"samples_save": false}', schema.values, editable).changes).toEqual({ samples_save: false })
     expect(() => planImport("nope", schema.values, editable)).toThrow("The file is not JSON.")
     expect(() => planImport("[1]", schema.values, editable)).toThrow("The file does not contain settings.")
+  })
+})
+
+describe("translateHtml", () => {
+  const catalog: Record<string, string> = { "<b>e.g.</b> for <b>X/Y/Z Plot</b>": "<b>例如</b> 用于 <b>X/Y/Z Plot</b>", "<i>whole</i>": "<i>整体</i>" }
+  const t = (key: string) => catalog[key] ?? key
+
+  it("translates the text inside a legacy info span, or the whole comment", () => {
+    expect(translateHtml("<span class='info'>(<b>e.g.</b> for <b>X/Y/Z Plot</b>)</span>", t)).toBe("<span class='info'>(<b>例如</b> 用于 <b>X/Y/Z Plot</b>)</span>")
+    expect(translateHtml("<i>whole</i>", t)).toBe("<i>整体</i>")
+    expect(translateHtml("<span class='info'>(untranslated)</span>", t)).toBe("<span class='info'>(untranslated)</span>")
   })
 })

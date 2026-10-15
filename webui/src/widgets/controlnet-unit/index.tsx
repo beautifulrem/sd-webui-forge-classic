@@ -194,7 +194,8 @@ export default function ControlNetUnitWidget({ value, onChange, props, disabled,
   const layer: Layer = layerChoice ?? (isRegion ? "sketch" : "image_fg")
   const doc = `${formId}:${owner}:${node.name}`
   const frame = { width, height, resizeMode: unit.resize_mode }
-  const option = (name: string) => ({ value: name, label: name })
+  // preprocessor and model names are technical; "None" is a word
+  const option = (name: string) => ({ value: name, label: name === "None" ? t("None") : name })
   const choices = (key: string) => (controls[key]?.choices ?? []).map((choice) => ({ value: choice, label: t(choice) }))
 
   const slider = (key: "processor_res" | "threshold_a" | "threshold_b", spec: SliderSpec | undefined, fallback: string) =>

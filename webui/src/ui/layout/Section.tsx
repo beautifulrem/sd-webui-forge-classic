@@ -75,7 +75,7 @@ export function Section({ node }: { node: SectionNode }) {
             aria-hidden
             className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[panel-open]/trigger:rotate-90"
           />
-          <span id={`${id}-title`} className={cn("truncate", enabled && "text-foreground")}>
+          <span id={`${id}-title`} title={title} className={cn("truncate", enabled && "text-foreground")}>
             {title}
           </span>
           {summary ? (

@@ -2634,6 +2634,12 @@ export interface components {
              * @default []
              */
             notes: components["schemas"]["Note"][];
+            /**
+             * Warnings
+             * @description script errors during the run (the job went on without that script's step)
+             * @default []
+             */
+            warnings: components["schemas"]["Note"][];
         };
         /** JobCount */
         JobCount: {
@@ -2724,6 +2730,12 @@ export interface components {
              * @default []
              */
             notes: components["schemas"]["Note"][];
+            /**
+             * Warnings
+             * @description script errors during the run (the job went on without that script's step)
+             * @default []
+             */
+            warnings: components["schemas"]["Note"][];
             /** Core */
             core: Record<string, unknown>;
             /** Scripts */

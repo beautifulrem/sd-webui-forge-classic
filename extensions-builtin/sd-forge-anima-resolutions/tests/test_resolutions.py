@@ -102,7 +102,13 @@ def test_the_processing_arguments_come_first():
 def test_every_string_has_a_zh_cn_translation():
     layouts = [harness.script_layout(res.AnimaRandomizeResolutionScript(), tab) for tab in ("txt2img", "img2img")]
     # The history's choices are the user's prompts
-    harness.assert_localized(layouts, ROOT / "localizations" / "zh_CN.json", skip_choices=("history",), extra=("Anima random resolution",))
+    # and the size fit's toasts
+    toasts = (
+        "Add a source image first.",
+        "Size set to {{width}} x {{height}} (source {{source_width}} x {{source_height}}).",
+        "No size with W+H in {{low}}\u2013{{high}} fits a {{source_width}} x {{source_height}} source; the size is unchanged.",
+    )
+    harness.assert_localized(layouts, ROOT / "localizations" / "zh_CN.json", skip_choices=("history",), extra=("Anima random resolution", *toasts))
 
 
 def test_the_extension_is_ported():
@@ -169,7 +175,7 @@ def test_the_automatic_fit_is_quiet_and_the_button_explains():
     assert script.fit_to_source_now(_ctx(), {})["__toast__"]["level"] == "warning"
     too_big = {"width": 4096, "height": 4096}
     assert script.fit_to_source(_ctx(source=too_big), {}) == {}
-    assert "unchanged" in script.fit_to_source_now(_ctx(source=too_big), {})["__toast__"]["message"]
+    assert "unchanged" in script.fit_to_source_now(_ctx(source=too_big), {})["__toast__"]["message"]["text"]
 
 
 def test_actions_are_declared_and_return_valid_patches():

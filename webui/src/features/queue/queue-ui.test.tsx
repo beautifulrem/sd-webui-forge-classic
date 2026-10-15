@@ -198,7 +198,7 @@ describe("import dialog", { timeout: 20_000 }, () => {
       return Response.json({})
     })
     const view = renderWithClient(<ImportDialog open onOpenChange={() => {}} />)
-    expect(await screen.findByText("3 records")).toBeInTheDocument() // no path under --hide-ui-dir-config
+    expect(await screen.findByText("Records: 3")).toBeInTheDocument() // no path under --hide-ui-dir-config
     fireEvent.click(screen.getByRole("button", { name: "Import" }))
     await screen.findByText(/You can close this dialog/)
     view.rerender(
@@ -283,5 +283,18 @@ describe("editing a queued job in its form", () => {
     expect(await enqueueForm("txt2img")).toBe("new")
     const queued = calls.find((call) => call.path === "/jobs")
     expect(queued?.body).toMatchObject({ tab: "txt2img" })
+  })
+})
+
+describe("queued count", () => {
+  it("is 0 where it is disabled, even with the queue status cached", async () => {
+    const { renderHook } = await import("@testing-library/react")
+    const { useQueuedCount } = await import("./status")
+    const { queueKeys } = await import("./queries")
+    queryClient.setQueryData(queueKeys.status, { size: 7, paused: false, running: null })
+    const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    expect(renderHook(() => useQueuedCount(false), { wrapper }).result.current).toBe(0)
+    expect(renderHook(() => useQueuedCount(true), { wrapper }).result.current).toBe(7)
+    queryClient.removeQueries({ queryKey: queueKeys.status })
   })
 })

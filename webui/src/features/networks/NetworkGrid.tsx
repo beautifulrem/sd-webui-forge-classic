@@ -214,7 +214,7 @@ export function NetworkGrid({ items, total, kind, view, size, isActive, currentA
       {/* outside the listbox: a listbox may only contain options */}
       {count === 0 ? null : (
         <p className="sr-only" aria-live="polite">
-          {t("{{count}} items", { count })}
+          {t("Items: {{count}}", { count })}
         </p>
       )}
     </>

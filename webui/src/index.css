@@ -39,9 +39,9 @@
   --muted-foreground: oklch(0.5 0.01 270);
   --accent: oklch(0.945 0.004 270);
   --accent-foreground: var(--foreground);
-  --destructive: oklch(0.58 0.22 25);
-  --success: oklch(0.6 0.15 155);
-  --warning: oklch(0.72 0.16 70);
+  --destructive: oklch(0.52 0.21 25); /* ≥ 4.5:1 as text on its own 10 % tint */
+  --success: oklch(0.52 0.14 155); /* ≥ 4.5:1 as text on white */
+  --warning: oklch(0.54 0.14 62); /* ≥ 4.5:1 as text on white */
   --border: oklch(0.2 0.01 270 / 11%);
   --input: oklch(0.2 0.01 270 / 16%);
   --ring: oklch(var(--brand-l) var(--brand-c) var(--brand-h));
@@ -78,7 +78,7 @@
   --muted-foreground: oklch(0.7 0.01 270);
   --accent: oklch(0.27 0.007 270);
   --accent-foreground: var(--foreground);
-  --destructive: oklch(0.68 0.19 22);
+  --destructive: oklch(0.72 0.17 22); /* ≥ 4.5:1 as text on its own 20 % tint */
   --success: oklch(0.72 0.15 155);
   --warning: oklch(0.8 0.15 75);
   --border: oklch(1 0 0 / 8.5%);
@@ -221,6 +221,17 @@
     background: oklch(var(--brand-l) var(--brand-c) var(--brand-h) / 30%);
   }
 
+  /* The native clear button of search fields, in the theme (Chrome draws a bright blue one). */
+  input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 0.875rem;
+    height: 0.875rem;
+    cursor: pointer;
+    background-color: var(--muted-foreground);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M18 6 6 18M6 6l12 12'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+
   :focus-visible {
     outline-offset: 2px;
   }
@@ -271,6 +282,10 @@
 
   .remi-cell-content {
     flex: 0 0 auto;
+  }
+
+  .remi-cell-top {
+    align-self: flex-start;
   }
 
   @container (max-width: 30rem) {

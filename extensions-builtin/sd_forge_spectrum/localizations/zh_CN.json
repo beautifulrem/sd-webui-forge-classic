@@ -10,7 +10,7 @@
   "higher = skip more steps ; lower = slower but more accurate": "越高 = 跳过更多 step ;越低 = 更慢但更准确",
   "Window Growth": "窗口增长",
   "higher = more speed & less accurate ; lower = more consistent accuracy but less speed gain": "越高 = 更快但不太准确 ;越低 = 更一致的准确性,但速度提升较少",
-  "Warmup Steps": "Warmup steps",
+  "Warmup Steps": "预热步数",
   "Run the full model before caching starts": "在缓存开始前运行完整模型",
   "Stop Caching Step": "停止缓存 step",
   "Run the full model for the last few steps": "在最后几个 step 运行完整模型",
@@ -38,5 +38,9 @@
   "Apply Preset": "应用预设",
   "Save Preset": "保存预设",
   "Delete Preset": "删除预设",
-  "Enter a preset name": "请输入预设名称"
+  "Enter a preset name": "请输入预设名称",
+  "Preset \"{{name}}\" was not found": "未找到预设“{{name}}”",
+  "Preset \"{{name}}\" is invalid: {{error}}": "预设“{{name}}”无效：{{error}}",
+  "Preset \"{{name}}\" saved": "预设“{{name}}”已保存",
+  "Preset \"{{name}}\" deleted": "预设“{{name}}”已删除"
 }

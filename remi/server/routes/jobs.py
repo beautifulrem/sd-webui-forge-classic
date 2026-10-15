@@ -40,6 +40,7 @@ def job_json(job: Job, *, detail: bool = False, running: bool = False) -> dict[s
         "name": job.meta.get("name"),
         "source": job.meta.get("source"),
         "notes": [entry if isinstance(entry, dict) else {"message": str(entry), "values": {}} for entry in job.meta.get("notes") or []],
+        "warnings": job.meta.get("warnings") or [],
     }
     if running and job.status == RUNNING:
         from modules import shared

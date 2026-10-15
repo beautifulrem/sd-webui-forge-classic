@@ -9,8 +9,8 @@ import { useWs } from "@/api/ws"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
-import { formatEta } from "@/features/progress/effects"
-import { act, formLabel } from "./queries"
+import { formatEta, stepText } from "@/features/progress/effects"
+import { act, formLabel, jobTitle } from "./queries"
 
 export function RunningCard({ paused, queued }: { paused: boolean; queued: number }) {
   const { t } = useTranslation()
@@ -67,11 +67,11 @@ export function RunningCard({ paused, queued }: { paused: boolean; queued: numbe
               </span>
             ) : null}
           </div>
-          <p className="line-clamp-2 text-sm break-words">{job?.name || job?.summary || t("Untitled job")}</p>
+          <p className="line-clamp-2 text-sm break-words">{job ? jobTitle(job) : t("Untitled job")}</p>
           <div className="mt-auto flex flex-col gap-1">
             <Progress value={fraction * 100} aria-label={t("Generation progress")} className="h-1.5" />
             <p className="flex flex-wrap gap-x-2 text-xs text-muted-foreground tabular-nums">
-              <span>{running.text ? t(running.text) : t("Step {{step}} of {{steps}}", { step: running.step, steps: running.steps })}</span>
+              <span>{stepText(running)}</span>
               {running.jobCount && running.jobCount > 1 ? <span>{t("Batch {{index}} of {{count}}", { index: (running.jobNo ?? 0) + 1, count: running.jobCount })}</span> : null}
               <span>{Math.round(fraction * 100)}%</span>
               {eta ? <span>{t("ETA {{eta}}", { eta })}</span> : null}

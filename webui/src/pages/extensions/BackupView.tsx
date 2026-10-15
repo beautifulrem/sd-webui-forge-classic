@@ -199,7 +199,7 @@ export function BackupView({ access }: { access: boolean }) {
               >
                 <p className="truncate text-sm font-medium">{state.name}</p>
                 <p className="text-xs text-muted-foreground tabular-nums">
-                  {state.created_at ? new Date(state.created_at).toLocaleString(i18n.language) : ""} · {t("{{count}} extensions", { count: state.extensions })}
+                  {state.created_at ? new Date(state.created_at).toLocaleString(i18n.language) : ""} · {t("Extensions: {{count}}", { count: state.extensions })}
                 </p>
               </li>
             ))}

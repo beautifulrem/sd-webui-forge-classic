@@ -300,7 +300,7 @@ class Page:
             return coerced
         result = {}
         errors = []
-        for node in layout.inputs:
+        for node in (*layout.inputs, *layout.tools):
             try:
                 result[node.name] = node.to_arg(coerced[node.name], resolve) if isinstance(node, (ui.Image, ui.ImageList, ui.File)) else coerced[node.name]
             except ui.ParamError as error:

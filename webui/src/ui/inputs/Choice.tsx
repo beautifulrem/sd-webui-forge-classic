@@ -53,8 +53,9 @@ export function Choice({ node }: { node: ChoiceNode }) {
         {...aria}
         className="flex flex-wrap gap-x-4 gap-y-2"
       >
-        {options.map((option) => {
-          const optionId = `${id}-${String(option.value)}`
+        {options.map((option, index) => {
+          // index-based: values may contain spaces, which break id references (aria-labelledby)
+          const optionId = `${id}-option-${index}`
           return (
             <div key={String(option.value)} className="flex items-center gap-2">
               <RadioGroupItem id={optionId} value={option.value} />

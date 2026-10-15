@@ -73,6 +73,8 @@ def test_progress_monitor_publishes_changes_only():
     assert [(event["type"], event["step"], event["seq"]) for event in seen] == [("job.progress", 1, 4), ("job.progress", 2, 4)]
     assert len(ticks) == 3
     assert ProgressMonitor(bus, lambda: None, state=lambda: state).tick("x") is None
+    # a job not begun yet: the state still shows the previous job's steps
+    assert ProgressMonitor(bus, lambda: JobRef("j2", 5, "txt2img", begun=False), state=lambda: state).tick("x") == "x" and len(seen) == 2
 
 
 def test_preview_encoder_sends_only_the_newest_frame_in_the_configured_format():
@@ -97,6 +99,26 @@ def test_preview_encoder_sends_only_the_newest_frame_in_the_configured_format():
     assert encoder.tick(None) is None and len([item for item in seen if isinstance(item, PreviewFrame)]) == 3
     opts.live_preview_fps = 1000
     assert encoder.interval() == pytest.approx(1 / 30)
+
+
+def test_a_new_job_never_streams_the_previous_jobs_last_preview():
+    """Between a job becoming current and its ``begin()``, the state still holds the
+    previous job's last preview: nothing goes out tagged with the new job until it begun."""
+
+    bus, state = EventBus(), FakeState()
+    seen = recorder(bus)
+    opts = SimpleNamespace(live_previews_enable=True, live_previews_image_format="png", live_preview_fps=6)
+    current = {"ref": JobRef("a", 1, "txt2img")}
+    encoder = PreviewEncoder(bus, lambda: current["ref"], state=lambda: state, opts=lambda: opts)
+    state.current_image, state.id_live_preview = Image.new("RGB", (8, 8)), 4
+    last = encoder.tick(None)
+    current["ref"] = JobRef("b", 2, "img2img", begun=False)  # the next job, before its begin()
+    last = encoder.tick(last)
+    assert [frame.job_seq for frame in seen if isinstance(frame, PreviewFrame)] == [1]
+    current["ref"] = JobRef("b", 2, "img2img")  # begun: the state is its own
+    state.current_image, state.id_live_preview = Image.new("RGB", (8, 8)), 1
+    encoder.tick(last)
+    assert [frame.job_seq for frame in seen if isinstance(frame, PreviewFrame)] == [1, 2]
 
 
 def _frame_times(bus):

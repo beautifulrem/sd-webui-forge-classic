@@ -1,5 +1,5 @@
 {
-  "Soft Inpainting": "Soft Inpainting",
+  "Soft Inpainting": "柔和局部重绘",
   "Soft inpainting": "柔和重绘",
   "Soft inpainting allows you to **seamlessly blend original content with inpainted content** according to the mask opacity.\nHigh **Mask blur** values are recommended!": "柔和重绘可以根据遮罩的不透明度**将原始内容与重绘内容无缝融合**。\n建议使用较高的**蒙版模糊**值！",
   "Schedule bias": "调度偏置",

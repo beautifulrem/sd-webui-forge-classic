@@ -70,14 +70,14 @@ def manual_tool() -> ui.Group:
 
     return ui.Group(
         "Manual rescale tool",
-        ui.Text("manual_prompt", "", label="Prompt with schedule", placeholder="[@guweiz:@wlop:15], masterpiece, (detailed:1.2)", lines=3),
+        ui.Text("manual_prompt", "", label="Prompt with schedule", placeholder="[@guweiz:@wlop:15], masterpiece, (detailed:1.2)", lines=3, arg=False),
         ui.Row(
-            ui.Slider("manual_source", 1, 150, 35, 1, label="Source steps (authored for)"),
-            ui.Slider("manual_target", 1, 150, 35, 1, label="Target steps (this pass)"),
+            ui.Slider("manual_source", 1, 150, 35, 1, label="Source steps (authored for)", arg=False),
+            ui.Slider("manual_target", 1, 150, 35, 1, label="Target steps (this pass)", arg=False),
         ),
         ui.Row(
-            ui.Slider("manual_denoise", 0.05, 1.0, 0.5, 0.01, label="Denoise (this pass)"),
-            ui.Toggle("manual_fraction", False, label="Output as fractions (portable across step counts)"),
+            ui.Slider("manual_denoise", 0.05, 1.0, 0.5, 0.01, label="Denoise (this pass)", arg=False),
+            ui.Toggle("manual_fraction", False, label="Output as fractions (portable across step counts)", arg=False),
         ),
         ui.Row(
             ui.Button("Rescale schedule", "rescale", "primary"),
@@ -88,8 +88,8 @@ def manual_tool() -> ui.Group:
     )
 
 
-# The auto-apply settings (the processing arguments), then the manual tool's
-# inputs: the tool runs as an action and process() ignores them.
+# The auto-apply settings are the processing arguments (the legacy three); the
+# manual tool's inputs are tool inputs (arg=False): its actions read them.
 AUTO_PARAMS = ("auto_enable", "auto_source", "auto_fraction")
 MANUAL_PARAMS = ("manual_prompt", "manual_source", "manual_target", "manual_denoise", "manual_fraction")
 
@@ -97,7 +97,7 @@ MANUAL_PARAMS = ("manual_prompt", "manual_source", "manual_target", "manual_deno
 class AnimaPromptRescaleScript(scripts.Script):
     section = "accordions"
     sorting_priority = 17
-    param_order = AUTO_PARAMS + MANUAL_PARAMS
+    param_order = AUTO_PARAMS
 
     def __init__(self):
         super().__init__()
@@ -155,7 +155,8 @@ class AnimaPromptRescaleScript(scripts.Script):
     def before_process(self, p, *args):
         prompt_rewrites.restore(p)
 
-    def process(self, p, auto_enable=False, auto_source=35, auto_fraction=False, *_manual_tool):
+    def process(self, p, auto_enable=False, auto_source=35, auto_fraction=False, *_older_tool_args):
+        # (``_older_tool_args``: jobs queued by Remi builds that passed the manual tool's values too)
         # Never touch txt2img, and never act unless explicitly enabled.
         if not self.is_img2img or not auto_enable:
             return

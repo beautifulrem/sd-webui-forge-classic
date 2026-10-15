@@ -111,7 +111,7 @@ export function SettingsList({ rows, terms, onSectionInView, onClearFilters, fil
   }
 
   return (
-    <div ref={scroller} className="h-full overflow-y-auto overscroll-contain [scrollbar-gutter:stable]" tabIndex={-1}>
+    <div ref={scroller} className="relative h-full overflow-y-auto overscroll-contain [scrollbar-gutter:stable]" tabIndex={-1}>
       <FormProvider formId={SETTINGS_FORM} store={settingsForm}>
         <OwnerProvider owner={SETTINGS_OWNER}>
           <div ref={content} className="mx-auto w-full max-w-4xl px-4 pb-24 sm:px-6">

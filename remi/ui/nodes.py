@@ -165,8 +165,11 @@ class Input(Node):
     Gradio's ``.input``: not after pastes, presets or action patches),
     ``width``, ``hidden`` (submitted but not rendered), ``persist``
     (``False``: kept out of browser drafts, so every page load starts from the
-    current default) and ``submit`` (``False``: the form holds the value for
-    actions but never sends it with a job; processing gets the default)."""
+    current default), ``submit`` (``False``: the form holds the value for
+    actions but never sends it with a job; processing gets the default) and
+    ``arg`` (``False``: a tool input, e.g. a calculator's fields: rendered
+    and handed to actions, but not a processing argument at all — not
+    positional, never submitted, no infotext, paste or preset)."""
 
     nullable: ClassVar[bool] = False
     """Whether ``None`` is a regular value (images, files, JSON)."""
@@ -190,8 +193,11 @@ class Input(Node):
         hidden: bool = False,
         persist: bool = True,
         submit: bool = True,
+        arg: bool = True,
     ):
         super().__init__(visible_if=visible_if, enabled_if=enabled_if)
+        if not arg and (infotext is not None or paste is not None or preset is not None):
+            raise SchemaError(f"{name}: a tool input (arg=False) has no infotext, paste or preset")
         if not isinstance(name, str) or not NAME_RE.fullmatch(name):
             raise SchemaError(f"bad param name {name!r} (use letters, digits and _)")
         if paste is not None and not callable(paste):
@@ -213,7 +219,8 @@ class Input(Node):
         self.width = self._width(width)
         self.hidden = bool(hidden)
         self.persist = bool(persist)
-        self.submit = bool(submit)
+        self.arg = bool(arg)
+        self.submit = bool(submit) and self.arg
 
     def _preset(self, preset: str | tuple[str, Any] | None) -> tuple[str | None, Any]:
         if preset is None:

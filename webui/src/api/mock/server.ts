@@ -325,6 +325,7 @@ function enqueue(request: JobRequest) {
     starred: false,
     replayable: true,
     notes: [],
+    warnings: [],
   }
   jobs.unshift(job)
   requests.set(job.id, request)

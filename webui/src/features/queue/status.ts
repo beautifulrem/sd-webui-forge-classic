@@ -18,7 +18,8 @@ export function useQueueStatus(enabled = true): QueueStatus | undefined {
       queryClient.setQueryData<QueueStatus>(queueKeys.status, (prev) => ({ size: e.size ?? prev?.size ?? 0, paused: e.paused ?? prev?.paused ?? false, running: e.running ?? null })),
     )
   }, [enabled])
-  return status.data
+  // A disabled query still returns what another observer cached (e.g. the Queue item's count).
+  return enabled ? status.data : undefined
 }
 
 /** Jobs waiting in the queue (0 while `enabled` is false). */

@@ -185,7 +185,7 @@ export function ServerView({ onImport, onExport }: { onImport: () => void; onExp
   })
   const template = useMutation({
     mutationFn: () => downloadLocalizationTemplate(useSettingsEditor.getState().schema),
-    onSuccess: (count) => toast.success(t("Downloaded {{count}} strings", { count })),
+    onSuccess: (count) => toast.success(t("Strings downloaded: {{count}}", { count })),
     onError: (error) => toast.error(t("Could not build the template"), { description: adminErrorMessage(error, t) }),
   })
   const restartable = status.data?.restartable ?? false

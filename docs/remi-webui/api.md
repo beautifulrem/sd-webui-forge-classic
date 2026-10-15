@@ -245,7 +245,7 @@ server sends `hello`, then a snapshot: `queue.changed`, and `job.started` +
 | `job.queued` | `job_id`, `seq`, `tab`, `position` | a job was added |
 | `job.started` | `job_id`, `seq`, `tab` | the worker holds the generation lock and starts it |
 | `job.progress` | `job_id`, `seq`, `tab`, `step`, `steps`, `eta` (s), `job_no` (0-based), `job_count`, `progress` (0–1), `text` | while running |
-| `job.completed` | `job_id`, `seq`, `tab`, `status` (`completed`, `interrupted`, `cancelled`), `outputs`, `infotext` | finished with results (possibly none) |
+| `job.completed` | `job_id`, `seq`, `tab`, `status` (`completed`, `interrupted`, `cancelled`), `outputs`, `infotext`, `warnings` (only when a script step raised and was skipped; also the job's `warnings`) | finished with results (possibly none) |
 | `job.failed` | `job_id`, `seq`, `tab`, `status` (`failed`, `cancelled`), `error`, `errors`? | failed, or cancelled before it ran |
 | `options.changed` | `keys` | settings changed (by anyone) |
 | `networks.changed` | `kind`? | a network list was rescanned |

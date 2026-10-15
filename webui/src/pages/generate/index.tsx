@@ -182,7 +182,7 @@ function DesktopLayout({ tab, openViewer, wide }: { tab: GenerateTab; openViewer
         collapsedSize={0}
         onResize={(size) => setParamsCollapsed(size.inPixels < 1)}
       >
-        <div className="h-full overflow-y-auto overscroll-contain">
+        <div className="relative h-full overflow-y-auto overscroll-contain">
           <Suspense fallback={<ParamsFallback />}>
             <ParamsColumn tab={tab} sticky="top" />
           </Suspense>
@@ -247,7 +247,7 @@ export default function GeneratePage({ route }: { route: Extract<Route, { name: 
       {desktop ? (
         <DesktopLayout key={wide ? "wide" : "medium"} tab={tab} openViewer={openViewer} wide={wide} />
       ) : (
-        <div className="h-full overflow-y-auto overscroll-contain">
+        <div className="relative h-full overflow-y-auto overscroll-contain">
           <div className="flex flex-col gap-3 p-3 pb-0">
             <Stage tab={tab} onOpenViewer={() => openViewer()} className="h-[min(70vh,36rem)]" />
             <HistoryPane onOpen={openViewer} orientation="strip" />

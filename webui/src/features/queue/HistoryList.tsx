@@ -15,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils"
 import { openJob } from "./edit-session"
 import { noteText } from "./notes"
-import { durationOf, formatDuration, formLabel, removeJob, requeue, starJob } from "./queries"
+import { durationOf, formatDuration, formLabel, jobTitle, removeJob, requeue, starJob } from "./queries"
 
 const STATUS: Record<JobStatus, { label: string; icon: typeof CheckCircle2; tone: string }> = {
   completed: { label: "Completed", icon: CheckCircle2, tone: "text-success" },
@@ -89,7 +89,7 @@ function HistoryRow({ job, onView }: { job: Job; onView: (job: Job, index: numbe
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex items-start gap-2">
           <p className="min-w-0 flex-1 truncate text-sm" title={job.summary ?? undefined}>
-            {job.name || job.summary || t("Untitled job")}
+            {jobTitle(job)}
           </p>
           <span className={cn("inline-flex shrink-0 items-center gap-1 text-xs font-medium", status.tone)}>
             <Icon className="size-3.5" aria-hidden />
@@ -101,7 +101,7 @@ function HistoryRow({ job, onView }: { job: Job; onView: (job: Job, index: numbe
           <span>{formLabel(job.tab)}</span>
           <span>{Number.isNaN(created.getTime()) ? job.created_at : created.toLocaleString(i18n.language, { dateStyle: "short", timeStyle: "short" })}</span>
           {duration !== null ? <span>· {formatDuration(duration)}</span> : null}
-          {images.length > 1 ? <span>· {t("{{count}} images", { count: images.length })}</span> : null}
+          {images.length > 1 ? <span>· {t("Images: {{count}}", { count: images.length })}</span> : null}
           {job.source ? (
             <Badge variant="outline" className="h-4 px-1 text-[0.65rem]">
               {t("Imported")}
@@ -109,6 +109,16 @@ function HistoryRow({ job, onView }: { job: Job; onView: (job: Job, index: numbe
           ) : null}
         </p>
         {job.error ? <p className="line-clamp-2 text-xs break-words text-destructive">{job.error}</p> : null}
+        {job.warnings.length > 0 ? (
+          <ul className="flex flex-col gap-0.5 text-xs break-words text-warning" aria-label={t("Warnings")}>
+            {job.warnings.map((warning, index) => (
+              <li key={index} className="flex items-start gap-1">
+                <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
+                <span className="min-w-0">{noteText(warning)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {!job.replayable || job.notes.length > 0 ? (
           <div className="text-xs">
             <button type="button" className="inline-flex items-center gap-1 text-warning hover:underline" aria-expanded={notesOpen} onClick={() => setNotesOpen((open) => !open)}>

@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { openJob } from "./edit-session"
-import { act, duplicate, formLabel, removeJob, setPriority } from "./queries"
+import { act, duplicate, formLabel, jobTitle, removeJob, setPriority } from "./queries"
 import { dropTarget, moveIndex, planMove, PRIORITIES, priorityLabel } from "./reorder"
 
 type Grab = { id: string; order: readonly Job[]; via: "pointer" | "keyboard" }
@@ -289,7 +289,7 @@ export function PendingList({ jobs }: { jobs: readonly Job[] }) {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm" title={job.summary ?? undefined}>
-                    {job.name || job.summary || t("Untitled job")}
+                    {jobTitle(job)}
                   </p>
                   <p className="flex items-center gap-x-1.5 truncate text-xs text-muted-foreground tabular-nums">
                     <span>#{job.seq}</span>

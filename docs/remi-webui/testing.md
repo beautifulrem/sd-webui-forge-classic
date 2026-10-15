@@ -91,6 +91,25 @@ table (exit 1 on a failed check, 2 when the server did not start). It
 refuses to run while another `launch.py` holds the model. Not part of
 `tools/check.sh` or CI (it needs the model and a GPU / MPS).
 
+## Browser audit of the real server
+
+`docs/remi-webui/integration-checklist.md` records the full walk-through
+(every page and built-in extension panel, light / dark, en / zh-CN, three
+window sizes). Its automated part runs against a running server (not part of
+`tools/check.sh`: it needs the server and about 20 minutes):
+
+```sh
+cd webui
+node tools/audit/real-server.mjs --base http://127.0.0.1:7860 --out /tmp/audit --expand 1 --axe all
+```
+
+It fails on console errors / warnings, failed requests, axe serious /
+critical violations, page overflow, wrapped tab strips, clipped text, stray
+scrollbars and scrolled layout boxes, and lists Latin-only text in zh-CN for
+review. `tall-shot.mjs` (full-height screenshots with every section open),
+`axe-one.mjs` (one page's violations in detail) and `find-text.mjs` (where a
+text is rendered) help with what it finds.
+
 ## Performance measurements
 
 `docs/research/ui-performance.md` records the scorecard's performance budgets

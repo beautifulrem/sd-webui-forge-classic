@@ -150,7 +150,8 @@ def test_schema_export():
 
 def test_zh_cn_covers_the_panel():
     schemas = [harness.script_layout(spectrum.SpectrumForForge(), tab).schema() for tab in harness.TABS]
-    harness.assert_localized(ROOT, schemas, extra=["Enter a preset name"])
+    toasts = ["Enter a preset name", 'Preset "{{name}}" was not found', 'Preset "{{name}}" is invalid: {{error}}', 'Preset "{{name}}" saved', 'Preset "{{name}}" deleted']
+    harness.assert_localized(ROOT, schemas, extra=toasts)
 
 
 def test_imports_standalone():

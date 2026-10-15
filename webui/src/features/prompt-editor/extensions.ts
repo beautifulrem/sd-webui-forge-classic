@@ -3,7 +3,7 @@
  * build an `EditorView` from them): key commands, highlighting, bracket lint
  * and registered completion sources.
  */
-import { acceptCompletion, autocompletion } from "@codemirror/autocomplete"
+import { acceptCompletion, autocompletion, closeCompletion, completionStatus } from "@codemirror/autocomplete"
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
 import { linter, type Diagnostic } from "@codemirror/lint"
 import { Compartment, type Extension, Prec, RangeSet } from "@codemirror/state"
@@ -138,8 +138,40 @@ export function completionExtension(): Extension {
         { key: "Enter", run: (view) => withAcceptKey("Enter", () => acceptCompletion(view)) },
       ]),
     ),
+    closeWhenUnfocused,
   ]
 }
+
+/**
+ * `closeOnBlur` only closes a list open at the blur: an async source (tags
+ * from the server) may answer after the focus left, which would leave the list
+ * open over another field. Close it then.
+ */
+const closeWhenUnfocused = ViewPlugin.fromClass(
+  class {
+    blurred = false
+    view: EditorView
+    constructor(view: EditorView) {
+      this.view = view
+    }
+    update(update: ViewUpdate) {
+      if (!this.blurred || update.view.hasFocus || completionStatus(update.state) !== "active") return
+      queueMicrotask(() => {
+        if (!this.view.hasFocus && completionStatus(this.view.state) === "active") closeCompletion(this.view)
+      })
+    }
+  },
+  {
+    eventHandlers: {
+      blur() {
+        this.blurred = true
+      },
+      focus() {
+        this.blurred = false
+      },
+    },
+  },
+)
 
 /** A compartment holding `completionExtension()`; reconfigure it when the registry changes. */
 export const completionSlot = new Compartment()

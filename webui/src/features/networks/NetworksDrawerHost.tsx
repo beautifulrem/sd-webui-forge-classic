@@ -33,6 +33,9 @@ export function NetworksDrawerHost({ tab }: { tab: GenerateTab }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!isNetworksShortcut(event) || event.repeat || event.isComposing) return
+      // Not over another dialog (the image viewer, a menu's popover): the drawer would open beneath it and take the focus.
+      const dialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"]')
+      if ([...dialogs].some((dialog) => !dialog.closest(`#${DRAWER_ID}`))) return
       event.preventDefault()
       const next = !useNetworksUi.getState().drawerOpen
       setUserOpened(next)

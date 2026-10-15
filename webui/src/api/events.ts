@@ -1,5 +1,5 @@
 /** JSON events on /api/v2/ws (see docs/remi-webui/architecture.md). */
-import type { FormTab, JobOutput, ToastLevel } from "./types"
+import type { FormTab, JobNote, JobOutput, ToastLevel } from "./types"
 
 export type { ToastLevel }
 
@@ -17,7 +17,8 @@ export type WsEventMap = {
   "job.started": JobRef & { steps?: number; job_count?: number }
   "job.progress": JobRef & { step: number; steps: number; eta?: number | null; job_no?: number; job_count?: number; text?: string }
   /** `status`: "completed", or "interrupted" / "cancelled" (an interrupted job keeps its results). */
-  "job.completed": JobRef & { outputs: JobOutput[]; infotext?: string | null; status?: string }
+  /** `warnings`: script steps that failed (the job went on without them). */
+  "job.completed": JobRef & { outputs: JobOutput[]; infotext?: string | null; status?: string; warnings?: JobNote[] }
   "job.failed": JobRef & { error: string; status?: string }
   /** `running`: the job the worker runs now (also sent right after `hello`). */
   "queue.changed": { size?: number; paused?: boolean; running?: string | null }

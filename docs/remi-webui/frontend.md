@@ -78,6 +78,11 @@ imperatively).
   open). Register commands with
   `useRegisterCommands(source, commands)`; labels and groups are English and
   translated at render.
+- **Keyboard shortcuts** (`app/ShortcutsDialog.tsx`, lazy): every app-wide
+  shortcut in one dialog, opened with `?` outside text fields and dialogs
+  (`app/shortcuts-help.ts`; a handler that uses `?` itself — the image
+  editor's list — prevents its default), the palette's "Keyboard shortcuts"
+  and the appearance menu. Add a shortcut there when you add one.
 - **Toasts**: `sonner`; use `showToast(level, message)` from `lib/toast.ts`
   for server-provided levels, or `toast` directly.
 - **Appearance** (`lib/theme.ts`, persisted as `remi-appearance`): theme
@@ -110,7 +115,8 @@ imperatively).
 - shadcn components import `cn` from the `cn` package (what the base-nova
   registry ships); app code imports it from `@/lib/utils`. Local fixes to
   vendored components: scalar sliders render one thumb and forward
-  `getAriaLabel`; `number-field.tsx` is ours.
+  `getAriaLabel`; a select's value ellipsizes (line-clamp does nothing on
+  the flex value); `number-field.tsx` is ours.
 
 ## API layer (`src/api`)
 
@@ -873,7 +879,8 @@ older server) nothing is shown.
   string concatenation, no plural suffixes; write sentences that work
   without plural forms.
 - Schema strings are passed to `t()` as-is (`t(node.label)`); `html` node text
-  is never translated.
+  is never translated, except a setting's HTML comment, which is looked up
+  whole (the language packs translate them) and sanitized like the original.
 - `src/locales/zh-CN.json` must contain every chrome key:
   `locales/locales.test.ts` scans the sources and fails on a missing key or a
   mismatched `{{placeholder}}`.

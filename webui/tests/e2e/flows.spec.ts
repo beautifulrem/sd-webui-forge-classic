@@ -42,7 +42,7 @@ test.describe("settings", () => {
     await toggle.click()
     await expect(toggle).not.toBeChecked()
     const pending = page.getByRole("region", { name: "Unsaved changes" })
-    await expect(pending).toContainText("1 unsaved changes")
+    await expect(pending).toContainText("Unsaved changes: 1")
     await page.keyboard.press(`${mod}+S`)
     await expect(pending).toBeHidden()
     await expect(page.getByRole("radio", { name: /^Unsaved/ })).toHaveAccessibleName("Unsaved")

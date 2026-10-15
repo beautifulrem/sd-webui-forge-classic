@@ -7,5 +7,8 @@
   "Refresh": "刷新",
   "Randomize resolution each generation (standard preset list)": "每次生成随机选择分辨率（标准预设列表）",
   "Randomize high-res resolution each generation (high-res preset list; both on = combined pool)": "每次生成随机选择高分辨率（高分辨率预设列表；两者都开启 = 合并列表）",
-  "Sets Width and Height (the Resize to tab) to a multiple-of-64 size whose W+H is as close to 3072 as the aspect ratio allows (2560–3072, at most 1856 per side). The source size is the size its parameters record, else the image size.": "把宽度和高度（“缩放到”标签页）设为 64 的倍数，并在保持宽高比的前提下让宽+高尽量接近 3072（2560–3072，单边最大 1856）。源尺寸取图像参数中记录的尺寸，没有记录时取图像本身的尺寸。"
+  "Sets Width and Height (the Resize to tab) to a multiple-of-64 size whose W+H is as close to 3072 as the aspect ratio allows (2560–3072, at most 1856 per side). The source size is the size its parameters record, else the image size.": "把宽度和高度（“缩放到”标签页）设为 64 的倍数，并在保持宽高比的前提下让宽+高尽量接近 3072（2560–3072，单边最大 1856）。源尺寸取图像参数中记录的尺寸，没有记录时取图像本身的尺寸。",
+  "Add a source image first.": "请先添加源图像。",
+  "Size set to {{width}} x {{height}} (source {{source_width}} x {{source_height}}).": "尺寸已设为 {{width}} x {{height}}（源图 {{source_width}} x {{source_height}}）。",
+  "No size with W+H in {{low}}–{{high}} fits a {{source_width}} x {{source_height}} source; the size is unchanged.": "没有 W+H 在 {{low}}–{{high}} 之间的尺寸适合 {{source_width}} x {{source_height}} 的源图；尺寸未改变。"
 }

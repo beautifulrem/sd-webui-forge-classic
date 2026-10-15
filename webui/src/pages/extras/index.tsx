@@ -83,7 +83,7 @@ function RunBar() {
         <Button size="lg" className="h-10 min-w-0 flex-1 gap-2 text-sm font-semibold shadow-sm" onClick={() => void runExtras()} disabled={submitting} aria-keyshortcuts="Control+Enter Meta+Enter">
           {submitting ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
           <span className="truncate">{busy ? t("Queue another") : t("Process")}</span>
-          <Kbd className="ml-1 hidden bg-primary-foreground/15 text-primary-foreground sm:inline-flex">{formatShortcut("Mod+Enter")}</Kbd>
+          <Kbd className="ml-1 hidden border border-primary-foreground/45 bg-transparent text-primary-foreground sm:inline-flex">{formatShortcut("Mod+Enter")}</Kbd>
         </Button>
         <EnqueueButton tab="extras" />
         {busy ? (
@@ -240,7 +240,7 @@ function RecentRuns() {
               type="button"
               role="option"
               aria-selected={result.jobId === selected}
-              aria-label={first ? t("Run with {{count}} images", { count: result.outputs.length }) : t("Run without images")}
+              aria-label={first ? t("Images of this run: {{count}}", { count: result.outputs.length }) : t("Run without images")}
               onClick={() => useExtrasRuns.setState({ selected: result.jobId })}
               className={cn("grid size-12 shrink-0 place-items-center overflow-hidden rounded-md bg-muted outline-none focus-visible:ring-3 focus-visible:ring-ring", result.jobId === selected && "ring-2 ring-primary")}
             >

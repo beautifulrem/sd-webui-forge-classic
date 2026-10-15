@@ -113,6 +113,41 @@ def test_a_failing_job_reports_its_error(webui, tmp_path):
         assert failed and failed[0]["error"] == "RuntimeError: boom"
 
 
+def test_script_errors_during_a_job_become_its_warnings(webui, tmp_path):
+    """A script hook that raises is reported by the script runner and skipped; the job
+    completes and says so (history and the job.completed event) instead of failing silently."""
+
+    from modules import errors
+
+    state = FakeState()
+    stub = StubExecutor(state)
+
+    def executor(job, ctx):
+        if stub.calls:  # only the first job hits the error
+            return stub(job, ctx)
+        try:
+            raise ModuleNotFoundError("No module named 'ultralytics'")
+        except ModuleNotFoundError:
+            errors.report("Error running postprocess_image: /x/extensions/ADetailer/scripts/adetailer.py", exc_info=True)
+            errors.report("Error running postprocess_image: /x/extensions/ADetailer/scripts/adetailer.py", exc_info=True)  # once per note
+        return stub(job, ctx)
+
+    with server_app(tmp_path, state=state, executor=executor) as server:
+        events = events_of(server.services)
+        created = submit(server)
+        assert server.services.queue.wait_idle()
+        job = server.client.get(f"/api/v2/jobs/{created['job_id']}").json()
+        note = {"message": "{{script}} failed ({{hook}}): {{error}}", "values": {"script": "adetailer.py", "hook": "postprocess_image", "error": "ModuleNotFoundError: No module named 'ultralytics'"}}
+        assert job["status"] == COMPLETED and job["outputs"] and job["warnings"] == [note]
+        completed = [event for event in events if isinstance(event, dict) and event["type"] == "job.completed"]
+        assert completed[0]["warnings"] == [note]
+        assert errors.report.__name__ == "report" and errors.report.__module__ == "modules.errors"  # restored
+        # a clean job has none
+        clean = submit(server)
+        assert server.services.queue.wait_idle()
+        assert server.client.get(f"/api/v2/jobs/{clean['job_id']}").json()["warnings"] == []
+
+
 def test_repeat_queues_copies(server):
     server.services.queue.set_paused(True)
     created = submit(server, repeat=3)

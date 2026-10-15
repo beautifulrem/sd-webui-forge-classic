@@ -29,7 +29,8 @@ export function Segmented<V extends string | number>(props: SegmentedProps<V>) {
       aria-describedby={props["aria-describedby"]}
       aria-invalid={props["aria-invalid"] || undefined}
       className={cn(
-        "inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-lg bg-muted p-0.5 data-disabled:opacity-60",
+        // equal columns as wide as the longest label (stretched when the group is full width), one row
+        "inline-grid max-w-full auto-cols-fr grid-flow-col items-center gap-0.5 rounded-lg bg-muted p-0.5 data-disabled:opacity-60",
         props.className,
       )}
     >
@@ -40,7 +41,7 @@ export function Segmented<V extends string | number>(props: SegmentedProps<V>) {
           nativeButton
           render={<button type="button" />}
           className={cn(
-            "min-w-0 flex-1 truncate rounded-md px-2.5 text-[0.8rem] font-medium text-muted-foreground transition-colors outline-none select-none",
+            "min-w-0 truncate rounded-md px-2.5 text-[0.8rem] font-medium text-muted-foreground transition-colors outline-none select-none",
             "hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 data-disabled:pointer-events-none",
             "data-checked:bg-background data-checked:text-foreground data-checked:shadow-sm dark:data-checked:bg-accent",
             props.size === "sm" ? "h-6" : "h-7",

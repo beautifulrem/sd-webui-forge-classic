@@ -48,7 +48,7 @@ const INLINE: InlineRule[] = [
       const href = safeUrl(group(m, 2))
       if (!href) return group(m, 1)
       return (
-        <a key={key} href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">
+        <a key={key} href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2 hover:decoration-2">
           {inline(group(m, 1), key)}
         </a>
       )
@@ -57,7 +57,7 @@ const INLINE: InlineRule[] = [
   {
     re: /<(https?:\/\/[^>\s]+)>/,
     render: (m, key) => (
-      <a key={key} href={group(m, 1)} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">
+      <a key={key} href={group(m, 1)} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2 hover:decoration-2">
         {group(m, 1)}
       </a>
     ),

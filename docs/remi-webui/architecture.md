@@ -64,8 +64,10 @@ paste), `preset` (Anima preset key), `exclusive=(group, member)` (Toggle only),
 `.input`: for derived updates a pasted infotext already records), `width` (`"auto"`, `"fill"`, or a 1–12 column span),
 `hidden=True` (submitted, never rendered: e.g. the choice a `Tabs` is bound to),
 `persist=False` (kept out of browser drafts: every page load starts from the
-current default, e.g. a copy of a setting) and `submit=False` (the form holds
-it for actions only; jobs never carry it, processing gets the default).
+current default, e.g. a copy of a setting), `submit=False` (the form holds
+it for actions only; jobs never carry it, processing gets the default) and
+`arg=False` (a tool input: rendered and handed to actions, not a processing
+argument at all — `ScriptLayout.tools`, outside the positional order).
 `Toggle(locks="owner.param")` protects that param from programmatic writes
 (paste, Send to, reused jobs, presets, action patches) while it is on.
 Action status texts are translated by the client: return `ui.message(text,
@@ -332,7 +334,9 @@ version}` then the current `queue.changed` (and `job.started`/`job.progress`
 of a running job); `job.queued{job_id, seq, tab, position}`,
 `job.started{job_id, seq, tab}`, `job.progress{job_id, seq, tab, step, steps,
 eta, job_no (0-based), job_count, progress, text}`, `job.completed{job_id, seq,
-tab, status ("completed"|"interrupted"|"cancelled"), outputs, infotext}`,
+tab, status ("completed"|"interrupted"|"cancelled"), outputs, infotext,
+warnings?}` (`warnings`: notes on script hooks that raised during the run and
+were skipped — also kept on the job),
 `job.failed{job_id, seq, tab, status, error, errors?}`, `queue.changed{size,
 paused, running}`, `options.changed{keys}`, `networks.changed{kind}`,
 `outputs.changed{ids}` (gallery stars / removals), `toast`,

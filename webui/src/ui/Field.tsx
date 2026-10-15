@@ -79,7 +79,9 @@ export function Field(props: FieldProps) {
             <label
               id={labelId}
               htmlFor={props.labelFor === false ? undefined : props.id}
-              className="truncate text-[0.8rem] leading-5 font-medium text-foreground/85 select-none"
+              title={props.label}
+              // wraps (two lines at most) rather than hiding the end of long or translated labels
+              className="line-clamp-2 min-w-0 text-[0.8rem] leading-5 font-medium break-words hyphens-auto text-foreground/85 select-none"
             >
               {props.label}
             </label>

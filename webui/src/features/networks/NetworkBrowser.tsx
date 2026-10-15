@@ -50,6 +50,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { presetLabel } from "@/features/model-bar/model-options"
 import { useDebouncedValue } from "@/features/prompt-editor/use-debounced-value"
 import { useMediaQuery } from "@/lib/use-media-query"
+import { useScrollFade } from "@/lib/use-scroll-fade"
 import { cn } from "@/lib/utils"
 import { applyItem, copyPath, openFolder, useActiveTest, useNetworkSettings } from "./actions"
 import { EditMetadataDialog } from "./EditMetadataDialog"
@@ -265,6 +266,8 @@ export function NetworkBrowser({ surface, form, toolbarEnd, toastOnApply, classN
   const kindList = kinds.data ?? []
   const kind = kindList.find((candidate) => candidate.id === state.kind) ?? kindList[0]
   const kindId = kind?.id ?? state.kind
+  const kindsRef = useRef<HTMLDivElement>(null)
+  const kindsFade = useScrollFade(kindsRef, kindId)
 
   // The store keeps the search; typing reaches it debounced. Only a new
   // debounced value is written, so "Clear filters" (which clears the store
@@ -419,7 +422,7 @@ export function NetworkBrowser({ surface, form, toolbarEnd, toastOnApply, classN
       <div className="flex flex-col gap-2 border-b px-3 pt-2 pb-2">
         {kindList.length > 0 ? (
           <Tabs value={kindId} onValueChange={(value) => update(surface, { kind: String(value) })}>
-            <TabsList variant="line" className="h-8 w-full justify-start overflow-x-auto [scrollbar-width:none]" aria-label={t("Network kinds")}>
+            <TabsList ref={kindsRef} style={kindsFade} variant="line" className="h-8 w-full justify-start overflow-x-auto [scrollbar-width:none]" aria-label={t("Network kinds")}>
               {kindList.map((candidate) => (
                 <TabsTrigger key={candidate.id} value={candidate.id} className="flex-none px-2 text-[0.8rem]">
                   {kindTitle(candidate)}

@@ -24,6 +24,27 @@ def test_unsubmitted_params_take_their_defaults():
     assert layout.values_to_args({"notes": "x"}) == [True, "x"]
 
 
+def test_tool_inputs_are_not_arguments():
+    """``arg=False``: rendered and read by actions (a calculator's fields), never a processing argument."""
+
+    layout = ui.ScriptLayout(
+        ui.Group(ui.Toggle("on", True), ui.Text("tool_prompt", "", arg=False), ui.Slider("steps", 1, 50, 20, 1)),
+        order=["steps", "on"],
+    )
+    assert layout.names == ["steps", "on"] and [node.name for node in layout.tools] == ["tool_prompt"]
+    # Validated and defaulted like the others; accepted when sent, but never an argument
+    assert layout.defaults() == {"steps": 20, "on": True, "tool_prompt": ""}
+    assert layout.coerce({"tool_prompt": "x"})["tool_prompt"] == "x"
+    assert layout.values_to_args({"tool_prompt": "x", "on": False}) == [20, False]
+    assert layout.args_to_values([5, False]) == {"steps": 5, "on": False}
+    assert "tool_prompt" in layout and schema(ui.Text("t", "", arg=False))["submit"] is False
+    with pytest.raises(SchemaError):  # the order lists the arguments only
+        ui.ScriptLayout(ui.Group(ui.Toggle("on", True), ui.Text("tool", "", arg=False)), order=["on", "tool"])
+    for flags in ({"infotext": "Tool"}, {"preset": "x"}, {"paste": lambda params: None}):
+        with pytest.raises(SchemaError):
+            ui.Text("tool", "", arg=False, **flags)
+
+
 def test_toggle_locks():
     assert schema(ui.Toggle("lock", False, locks="sampler.steps"))["locks"] == "sampler.steps"
     assert schema(ui.Toggle("lock", False, locks="steps"))["locks"] == "steps"

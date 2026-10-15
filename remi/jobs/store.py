@@ -57,7 +57,8 @@ class Job:
     starred: bool = False
     replayable: bool = True
     meta: dict[str, Any] = field(default_factory=dict)
-    """``source`` (an importer), ``source_id``, ``name``, ``notes`` (list of
+    """``source`` (an importer), ``source_id``, ``name``, ``warnings`` (notes
+    on script errors during the run), ``notes`` (list of
     strings) and ``opaque`` (arguments kept as they were, not replayable)"""
 
     @property
@@ -228,7 +229,9 @@ class JobStore:
             self._db.execute("UPDATE jobs SET status = ?, started = ? WHERE id = ?", (RUNNING, time.time(), row[0]))
             return self.get(row[0])
 
-    def finish(self, job_id: str, status: str, *, outputs: list[dict] | None = None, infotext: str | None = None, error: str | None = None, errors: list[dict] | None = None) -> Job | None:
+    def finish(self, job_id: str, status: str, *, outputs: list[dict] | None = None, infotext: str | None = None, error: str | None = None, errors: list[dict] | None = None, warnings: list[dict] | None = None) -> Job | None:
+        """``warnings``: what went wrong without failing the job (``meta["warnings"]``)."""
+
         if status not in FINISHED:
             raise ValueError(f"not a final status: {status}")
         with self._lock:
@@ -236,6 +239,10 @@ class JobStore:
                 "UPDATE jobs SET status = ?, finished = ?, outputs = ?, infotext = ?, error = ?, errors = ? WHERE id = ?",
                 (status, time.time(), json.dumps(outputs or []), infotext, error, json.dumps(errors) if errors else None, job_id),
             )
+            if warnings:
+                row = self._db.execute("SELECT meta FROM jobs WHERE id = ?", (job_id,)).fetchone()
+                meta = json.loads(row[0]) if row and row[0] else {}
+                self._db.execute("UPDATE jobs SET meta = ? WHERE id = ?", (json.dumps({**meta, "warnings": warnings}), job_id))
         return self.get(job_id)
 
     def cancel_queued(self, job_id: str) -> bool:

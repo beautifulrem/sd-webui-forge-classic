@@ -59,7 +59,7 @@ function SearchBox() {
     return () => clearTimeout(timer)
   }, [text, q, set])
   return (
-    <div className="relative min-w-40 flex-1 sm:max-w-80">
+    <div className="relative min-w-60 flex-1 sm:max-w-80">
       <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
       <Input
         type="search"
@@ -197,7 +197,7 @@ export function GalleryToolbar({ count, total }: { count: number; total: number 
       </div>
       <p className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums" aria-live="polite">
         {view.layout === "justified" ? <Rows3 className="size-3.5" aria-hidden /> : <LayoutGrid className="size-3.5" aria-hidden />}
-        {total === null ? t("Loading…") : filtered > 0 ? t("{{count}} of {{total}} images match", { count: total, total: facets.data?.total ?? total }) : t("{{count}} images", { count: total })}
+        {total === null ? t("Loading…") : filtered > 0 ? t("{{count}} of {{total}} images match", { count: total, total: facets.data?.total ?? total }) : t("Images: {{count}}", { count: total })}
         {count < (total ?? 0) ? <span>· {t("{{count}} loaded", { count })}</span> : null}
         {view.q ? (
           <button type="button" className="inline-flex items-center gap-0.5 rounded px-1 hover:bg-muted" onClick={() => view.set({ q: "" })}>

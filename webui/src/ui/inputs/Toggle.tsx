@@ -31,7 +31,7 @@ export function Toggle({ node }: { node: ToggleNode }) {
           aria-label={label ? undefined : node.name}
         />
         {label ? (
-          <label htmlFor={id} className="min-w-0 truncate text-sm leading-5 select-none">
+          <label htmlFor={id} title={label} className="line-clamp-2 min-w-0 text-sm leading-5 break-words hyphens-auto select-none">
             {label}
           </label>
         ) : null}

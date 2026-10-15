@@ -28,6 +28,19 @@ describe("ws-bridge", () => {
     vi.unstubAllGlobals()
   })
 
+  it("warns about failed script steps of this client's jobs only", async () => {
+    vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue()
+    const warning = vi.spyOn(toast, "warning").mockReturnValue(1)
+    const { hook, send } = await connected()
+    const warnings = [{ message: "{{script}} failed ({{hook}}): {{error}}", values: { script: "adetailer.py", hook: "postprocess_image", error: "boom" } }]
+    send({ type: "job.completed", job_id: "theirs", seq: 1, status: "completed", outputs: [], warnings })
+    expect(warning).not.toHaveBeenCalled()
+    useProgress.setState({ owned: { mine: "txt2img" } })
+    send({ type: "job.completed", job_id: "mine", seq: 2, status: "completed", outputs: [], warnings })
+    expect(warning).toHaveBeenCalledWith(expect.any(String), { description: "adetailer.py failed (postprocess_image): boom" })
+    hook.unmount()
+  })
+
   it("refreshes schemas and pages when the options change", async () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue()
     const { hook, send } = await connected()

@@ -37,7 +37,7 @@ export function TagChips({
                 type="button"
                 aria-pressed={isOn ? on : undefined}
                 onClick={() => onPick(tag)}
-                title={t("{{count}} images", { count })}
+                title={t("Images: {{count}}", { count })}
                 className={cn(
                   "inline-flex h-6 max-w-64 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors outline-none",
                   "focus-visible:ring-2 focus-visible:ring-ring/60",

@@ -34,10 +34,10 @@ from lib_artist_mixer.schedule import (
     parse_inline_weight as _parse_inline_weight,
     parse_blocks as _parse_blocks,
 )
-from modules import scripts, shared
+from modules import scripts
 from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, SPATIAL_GROUP, is_feature_active, set_feature_active
 from modules.anima_lora_support import model_block_set, stage_window_of
-from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
+from modules.anima_user_data import TemplateStore, UnreadableDataFile
 from modules.anima_support import PasteKey, clamp as _clamp, effective_prompt_batch, process_ref, prompt_schedule, prompt_step, register_negpip_prompts, schedule_steps, script_arguments, to_float as _to_float
 from modules.prompt_parser import get_multicond_prompt_list
 from remi import ui
@@ -51,23 +51,6 @@ _DATA_NAME = "anima-artist-scheduled-mixer"
 
 # Templates earlier versions kept in the extension folder seed the user copy
 _TEMPLATES = TemplateStore(_DATA_NAME, "artist_mixer_templates.json", seed=EXTENSION_DIR / "artist_mixer_templates.json")
-
-
-_SHARED_SETTINGS_NAME = "artist_mixer_current_settings.json"
-SETTINGS_TABS = ("txt2img", "img2img")
-
-
-def _settings_tab(tab):
-    """The tab whose remembered panel ``tab`` (a Script's tabname) reads and writes."""
-    return tab if tab in SETTINGS_TABS else SETTINGS_TABS[0]
-
-
-def _current_settings_file(tab):
-    """Each tab remembers its own panel. Earlier versions kept one file for
-    both: a tab without its own file yet starts from that one. A reset
-    empties the tab's file instead of deleting it, so this happens once."""
-    shared = data_file(_DATA_NAME, _SHARED_SETTINGS_NAME, seed=EXTENSION_DIR / _SHARED_SETTINGS_NAME)
-    return data_file(_DATA_NAME, f"artist_mixer_current_settings_{_settings_tab(tab)}.json", seed=shared)
 
 
 REFERENCE_URL = "https://github.com/An1X3R/Anima-Artist-Mixer"
@@ -701,7 +684,7 @@ def _applied_template(name, target, values, base_shift, hires_shift):
 
 # endregion
 
-# region Remembered panel (per tab, in the extension's data folder)
+# region Panel defaults
 
 
 def _builtin_defaults():
@@ -726,47 +709,6 @@ def _builtin_defaults():
     }
 
 
-def _current_settings_data(tab):
-    try:
-        return read_json_object(_current_settings_file(tab)) or None
-    except UnreadableDataFile:
-        logger.exception("Failed to load Anima artist mixer current settings")
-        return None
-
-
-def _remembered_defaults(data):
-    """The panel's values from a remembered panel ``data`` (None: the built-in defaults)."""
-    if not isinstance(data, dict):
-        return _builtin_defaults()
-    optimization_key = _option_key("optimization", data.get("optimization"), OPT_BALANCE)
-    base_shift = _to_float(data.get("base_shift"), 3.0)
-    hires_shift = _to_float(data.get("hires_shift"), 3.0)
-    template_name = str(data.get("template_name") or "").strip()
-    return {
-        "enable": bool(data.get("enable", False)),
-        "hires_independent": bool(data.get("hires_independent", False)),
-        "disable_hires_mixing": bool(data.get("disable_hires_mixing", False)),
-        "global_strength": _clamp(_to_float(data.get("global_strength"), 0.7), 0.0, 2.0),
-        "optimization": optimization_key,
-        "combine_mode": _option_key("combine", data.get("combine_mode"), COMBINE_OUTPUT_AVG),
-        "fusion_mode": _option_key("fusion", data.get("fusion_mode"), FUSION_INTERPOLATE),
-        "apply_uncond": bool(data.get("apply_uncond", False)),
-        "enable_cache": bool(data.get("enable_cache", True)),
-        "base_rows": _normalized_table(data.get("base_rows"), _row_count(data.get("base_count"), DEFAULT_ARTIST_ROWS), base_shift, optimization_key),
-        "hires_rows": _normalized_table(data.get("hires_rows"), _row_count(data.get("hires_count"), DEFAULT_ARTIST_ROWS), hires_shift, optimization_key),
-        "template": _resolve_template_name(template_name),
-        "template_target": _option_key("apply_target", data.get("template_target"), APPLY_BASE),
-        "template_name": "",
-        "rename_to": "",
-    }
-
-
-def _initial_defaults(tab):
-    """The panel a tab starts with: what it last generated with (remembered
-    by every generation from the UI), else the built-in defaults."""
-    return _remembered_defaults(_current_settings_data(tab))
-
-
 def _file_stamp(path):
     """What changes when ``path`` is written (atomic writes replace it)."""
     try:
@@ -776,146 +718,20 @@ def _file_stamp(path):
     return str(path), stat.st_mtime_ns, stat.st_size, stat.st_ino
 
 
-# Per tab: (stamps of its settings file and the templates file, its _initial_defaults)
+# (stamp of the templates file, _builtin_defaults()): a schema build resolves
+# every param's default from one computation
 _DEFAULTS_CACHE = {}
 
 
-def _panel_defaults(tab):
-    """:func:`_initial_defaults` of ``tab``, read once per version of the
-    files it comes from: a schema build resolves every param's default from
-    one read, and a generation, a reset or a template edit is seen by the next build."""
-    tab = _settings_tab(tab)
-    stamp = (_file_stamp(_current_settings_file(tab)), _file_stamp(_TEMPLATES.path()))
-    cached = _DEFAULTS_CACHE.get(tab)
-    if cached is None or cached[0] != stamp:
-        cached = _DEFAULTS_CACHE[tab] = (stamp, _initial_defaults(tab))
-    return cached[1]
-
-
-# Per tab, the payload last written to its current-settings file (missing:
-# unknown / reset), so generations with an unchanged panel skip the write and its fsync.
-_LAST_REMEMBERED_SETTINGS = {}
-
-
-def _save_current_settings_data(tab, data):
-    tab = _settings_tab(tab)
-    try:
-        # An interrupted or concurrent write must not leave truncated JSON
-        # that silently resets the panel.
-        write_json_atomic(_current_settings_file(tab), data)
-        _LAST_REMEMBERED_SETTINGS[tab] = data
-    except Exception:
-        logger.exception("Failed to save Anima artist mixer current settings")
-
-
-def _delete_current_settings_data(tab):
-    tab = _settings_tab(tab)
-    _LAST_REMEMBERED_SETTINGS.pop(tab, None)
-    try:
-        # Emptied rather than deleted: a missing file would be seeded again
-        # from the settings earlier versions shared between the tabs.
-        write_json_atomic(_current_settings_file(tab), {})
-    except Exception:
-        logger.exception("Failed to delete Anima artist mixer current settings")
-
-
-def _current_settings_payload(
-    enable,
-    template_name,
-    template_target,
-    base_row_count,
-    hires_row_count,
-    hires_independent,
-    disable_hires_mixing,
-    base_shift,
-    hires_shift,
-    global_strength,
-    optimization,
-    combine_mode,
-    fusion_mode,
-    apply_uncond,
-    enable_cache,
-    *component_values,
-):
-    optimization_key = _option_key("optimization", optimization, OPT_BALANCE)
-    base_values = component_values[: MAX_ARTIST_ROWS * ROW_WIDTH]
-    hires_values = component_values[MAX_ARTIST_ROWS * ROW_WIDTH : MAX_ARTIST_ROWS * ROW_WIDTH * 2]
-    base_shift = _to_float(base_shift, 3.0)
-    hires_shift = _to_float(hires_shift, 3.0)
-    base_count = _row_count(base_row_count, DEFAULT_ARTIST_ROWS)
-    hires_count = _row_count(hires_row_count, DEFAULT_ARTIST_ROWS)
-    return {
-        "version": 1,
-        "enable": bool(enable),
-        "template_name": str(template_name or "").strip(),
-        "template_target": _option_key("apply_target", template_target, APPLY_BASE),
-        "base_count": base_count,
-        "hires_count": hires_count,
-        "base_shift": base_shift,
-        "hires_shift": hires_shift,
-        "base_rows": _normalize_rows(_rows_from_components(*base_values), base_count, base_shift, optimization_key, display=False),
-        "hires_rows": _normalize_rows(_rows_from_components(*hires_values), hires_count, hires_shift, optimization_key, display=False),
-        "hires_independent": bool(hires_independent),
-        "disable_hires_mixing": bool(disable_hires_mixing),
-        "global_strength": _to_float(global_strength, 0.7),
-        "optimization": optimization_key,
-        "combine_mode": _option_key("combine", combine_mode, COMBINE_OUTPUT_AVG),
-        "fusion_mode": _option_key("fusion", fusion_mode, FUSION_INTERPOLATE),
-        "apply_uncond": bool(apply_uncond),
-        "enable_cache": bool(enable_cache),
-    }
-
-
-def _should_remember_settings(p) -> bool:
-    """Remember the panel as the user last generated with: once per
-    processing run from the UI, not for API calls, hires passes or later
-    X/Y/Z cells (each would overwrite the saved panel with that run's args)."""
-    if getattr(p, "is_api", False) or getattr(p, "is_hr_pass", False):
-        return False
-    if getattr(p, "_anima_artist_settings_remembered", False):
-        return False
-    p._anima_artist_settings_remembered = True
-    state = shared.state
-    if int(getattr(state, "job_count", 0) or 0) > 1 and int(getattr(state, "job_no", 0) or 0) > 0:
-        return False  # a later job of a multi-job run (X/Y/Z grid cells)
-    return True
-
-
-def _save_runtime_current_settings(tab, args):
-    """Remember ``args`` (a generation's _MixerArgs) as ``tab``'s panel."""
-    tab = _settings_tab(tab)
-    try:
-        payload = _current_settings_payload(
-            args.enable,
-            "",
-            APPLY_BASE,
-            args.base_row_count,
-            args.hires_row_count,
-            args.hires_independent,
-            args.disable_hires_mixing,
-            args.runtime_base_shift,
-            args.runtime_hires_shift,
-            args.global_strength,
-            args.optimization,
-            args.combine_mode,
-            args.fusion_mode,
-            args.apply_uncond,
-            args.enable_cache,
-            *args.component_values,
-        )
-        # A generation does not know the template dropdown: keep the one saved last
-        last = _LAST_REMEMBERED_SETTINGS.get(tab)
-        saved = last or _current_settings_data(tab)
-        if isinstance(saved, dict):
-            for field_name in ("template_name", "template_target"):
-                if field_name in saved:
-                    payload[field_name] = saved[field_name]
-        # Unchanged since the last successful save: skip the write.
-        if payload == last:
-            return
-        _save_current_settings_data(tab, payload)
-    except Exception:
-        logger.exception("Failed to save Anima artist mixer runtime settings")
+def _panel_defaults():
+    """The panel's defaults (static but for the first template's name).
+    Not what the last generation used: a job that leaves the mixer out must
+    not inherit someone's artists. The browser keeps the user's panel as a
+    draft instead."""
+    stamp = _file_stamp(_TEMPLATES.path())
+    if _DEFAULTS_CACHE.get("stamp") != stamp:
+        _DEFAULTS_CACHE.update(stamp=stamp, values=_builtin_defaults())
+    return _DEFAULTS_CACHE["values"]
 
 
 # endregion
@@ -1182,10 +998,10 @@ def _table_props(chain):
 
 
 def _params(tab):
-    """The panel of ``tab``; each input starts on the tab's remembered panel."""
+    """The panel of ``tab``."""
 
     def default(name):
-        return lambda: copy.deepcopy(_panel_defaults(tab)[name])
+        return lambda: copy.deepcopy(_panel_defaults()[name])
 
     hires = ui.param("hires_independent")
     return ui.Section(
@@ -1230,9 +1046,9 @@ def _params(tab):
                 ui.Row(
                     ui.Text("rename_to", "", label="Rename to"),
                     ui.Button("Rename template", "template_rename"),
-                    ui.Button("Delete template", "template_delete"),
+                    ui.Button("Delete template", "template_delete", "danger"),
                 ),
-                ui.Button("Reset all to defaults", "reset_defaults", "ghost"),
+                ui.Button("Reset all to defaults", "reset_defaults", "danger"),
             ),
             ui.Tab("Guide", ui.Markdown(HELP_EN)),
         ),
@@ -1323,8 +1139,7 @@ class Script(scripts.Script):
 
     @ui.action("reset_defaults")
     def reset_defaults(self, ctx, values):
-        """Forget the tab's remembered panel and restore the built-in defaults."""
-        _delete_current_settings_data(self.tabname)
+        """Restore the built-in defaults."""
         defaults = _builtin_defaults()
         return {**{name: ui.update(value=value) for name, value in defaults.items()}, **ui.toast(_t("defaults_restored"), "success")}
 
@@ -1349,8 +1164,6 @@ class Script(scripts.Script):
 
     def process_before_every_sampling(self, p, *args, **kwargs):
         mixer_args = _MixerArgs.from_args(args, p)  # a wrong count raises before anything changes
-        if _should_remember_settings(p):
-            _save_runtime_current_settings(self.tabname, mixer_args)
 
         _finish_run_states()
         set_feature_active(p, ARTIST_MIXER, False)

@@ -122,6 +122,8 @@ class JobRef:
     job_id: str
     seq: int
     tab: str
+    begun: bool = True
+    """``shared.state.begin()`` ran for it (before that the state is the previous job's)"""
 
     def fields(self) -> dict[str, Any]:
         return {"job_id": self.job_id, "seq": self.seq, "tab": self.tab}
@@ -204,6 +206,8 @@ class ProgressMonitor(_Loop):
         ref = self.current_job()
         if ref is None:
             return None
+        if not ref.begun:  # the state is still the previous job's
+            return last
         snapshot = progress_snapshot(self.state())
         key = (ref.job_id, snapshot["step"], snapshot["steps"], snapshot["job_no"], snapshot["job_count"], snapshot["text"])
         if key != last:
@@ -307,6 +311,8 @@ class PreviewEncoder(_Loop):
         if ref is None or not getattr(opts, "live_previews_enable", True):
             return None
         if not self.bus.wants_frames():  # nobody watching: do not encode
+            return last
+        if not ref.begun:  # the state still holds the previous job's last preview
             return last
         state = self.state()
         key = (ref.job_id, state.id_live_preview)

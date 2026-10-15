@@ -19,12 +19,13 @@ def _layout(tab):
 
 @pytest.mark.parametrize("tab", ["txt2img", "img2img"])
 def test_params_match_the_legacy_ui(tab):
-    # The three auto-apply args are the legacy ones, unchanged. Intentional:
-    # the manual tool's inputs (not script args in Gradio, a click handler
-    # read them) are params now, after them; process() ignores them.
-    harness.assert_matches_legacy(_layout(tab), ROOT, tab, extra=SCRIPT.MANUAL_PARAMS)
+    # The three auto-apply args are the legacy ones, unchanged; the manual
+    # tool's inputs (not script args in Gradio either: a click handler read
+    # them) are tool inputs (arg=False), rendered and read by its actions only.
+    harness.assert_matches_legacy(_layout(tab), ROOT, tab)
     legacy_tool = [(control["legacy_control"], control["label"], control["value"]) for control in harness.legacy_snapshot(ROOT, tab)["non_arg_controls"] if control["legacy_control"] in ("Textbox", "Slider", "Checkbox")]
     layout = _layout(tab)
+    assert [node.name for node in layout.tools] == list(SCRIPT.MANUAL_PARAMS) and layout.names == list(SCRIPT.AUTO_PARAMS)
     tool = [(node.type, node.label, node.resolve_default(ui.Context())) for node in (layout.by_name[name] for name in SCRIPT.MANUAL_PARAMS)]
     kinds = {"Textbox": "text", "Slider": "slider", "Checkbox": "toggle"}
     # The tool's prompt box and its result line (an output now), then the same inputs
@@ -97,8 +98,9 @@ def test_process_reads_the_auto_args_and_ignores_the_tool(monkeypatch, tab):
     monkeypatch.setattr(SCRIPT.shared, "opts", SimpleNamespace(img2img_fix_steps=False))
     script = SCRIPT.AnimaPromptRescaleScript()
     layout = harness.script_layout(script, tab)
+    # A tool input sent along (by an API caller) is accepted and is not an argument
     args = layout.values_to_args({"auto_enable": True, "manual_prompt": "[c:d:3]"})
-    assert len(args) == len(SCRIPT.AUTO_PARAMS) + len(SCRIPT.MANUAL_PARAMS)
+    assert len(args) == len(SCRIPT.AUTO_PARAMS)
     p = _img2img_process()
     script.process(p, *args)
     if tab == "img2img":
@@ -106,9 +108,9 @@ def test_process_reads_the_auto_args_and_ignores_the_tool(monkeypatch, tab):
         assert p.extra_generation_params == {"Anima schedule rescale": "src35->tgt35@d0.5"}
     else:
         assert p.all_prompts == ["[a:b:15]"] and p.extra_generation_params == {}
-    # The legacy three positional args still work (API callers)
+    # Jobs queued by older Remi builds also passed the tool's five values
     p = _img2img_process()
-    script.process(p, *args[: len(SCRIPT.AUTO_PARAMS)])
+    script.process(p, *args, "[c:d:3]", 35, 35, 0.5, False)
     assert p.all_prompts == (["[a:b:7]"] if tab == "img2img" else ["[a:b:15]"])
 
 

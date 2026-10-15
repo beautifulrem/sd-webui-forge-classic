@@ -1,7 +1,9 @@
 /** The options of the current tool (brush size, opacity, …) and the layer actions. */
 import { Blend, CircleDot, Contrast, Feather, SlidersHorizontal, Trash2 } from "lucide-react"
+import { useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { Segmented } from "@/components/Segmented"
+import { useScrollFade } from "@/lib/use-scroll-fade"
 import { cn } from "@/lib/utils"
 import type { LayerKind } from "../core/modes"
 import { sizeToSlider, sliderToSize, type Tool, useTools } from "../state/tools"
@@ -29,6 +31,8 @@ const percent = (value: number) => `${Math.round(value * 100)}%`
 export function OptionsBar({ tool, kind, fixedColor, fixedSize, fixedOpacity, fixedSoftness, canClear, mod, onInvert, onClear, className }: OptionsBarProps) {
   const { t } = useTranslation()
   const tools = useTools()
+  const barRef = useRef<HTMLDivElement>(null)
+  const fade = useScrollFade(barRef, tool) // a narrow editor scrolls the bar: fade the cut edge
   const brush = tool === "eraser" ? tools.eraser : tools.brush
   const setBrush = tool === "eraser" ? tools.setEraser : tools.setBrush
   const sketch = kind === "sketch"
@@ -41,7 +45,7 @@ export function OptionsBar({ tool, kind, fixedColor, fixedSize, fixedOpacity, fi
   else if (tool === "hand") hint = t("Drag to pan; scroll to zoom")
 
   return (
-    <div role="toolbar" aria-label={t("Tool options")} className={cn(PANEL, "flex h-10 max-w-full items-center gap-1.5 overflow-x-auto px-1.5 [scrollbar-width:none] @md:gap-2", className)}>
+    <div ref={barRef} style={fade} role="toolbar" aria-label={t("Tool options")} className={cn(PANEL, "flex h-10 max-w-full items-center gap-1.5 overflow-x-auto px-1.5 [scrollbar-width:none] @md:gap-2", className)}>
       {showColor ? (
         <ColorControl color={tools.color} recent={tools.recent} onChange={tools.setColor} onEyedropper={() => tools.setTool("eyedropper")} />
       ) : null}

@@ -127,7 +127,7 @@ function info(item: CompletionItem, config: PromptToolsConfig): (() => Node) | u
   if (item.meta && item.type !== "wildcard") rows.push([item.type === "lora" ? t("Base model") : item.type === "wildcard-value" ? t("Wildcard") : t("Note"), item.meta])
   if (item.weight !== null && item.weight !== undefined) rows.push([t("Weight"), String(item.weight)])
   if (item.keywords) rows.push([t("Activation text"), item.keywords])
-  if (item.uses) rows.push([t("Used"), t("{{count}} times", { count: item.uses })])
+  if (item.uses) rows.push([t("Uses"), String(item.uses)])
   const chant = item.type === "chant" ? item.text : null
   if (!rows.length && !item.preview && !item.description && !chant) return undefined
   return () => {

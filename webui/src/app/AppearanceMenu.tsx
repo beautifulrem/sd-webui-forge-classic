@@ -1,5 +1,5 @@
 /** Header menu: theme, density, accent colour and language. */
-import { Check, Languages, Monitor, Moon, Palette, Rows3, Rows4, Sun } from "lucide-react"
+import { Check, Keyboard, Languages, Monitor, Moon, Palette, Rows3, Rows4, Sun } from "lucide-react"
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { useTranslation } from "react-i18next"
 import type { LocaleInfo } from "@/api/types"
@@ -8,10 +8,12 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { usePopupTooltip } from "@/components/popup-tooltip"
@@ -19,6 +21,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useLocale } from "@/i18n"
 import { ACCENTS, type Accent, type Density, type Theme, useAppearance } from "@/lib/theme"
 import { cn } from "@/lib/utils"
+import { useShortcutsHelp } from "./shortcuts-help"
 
 const THEME_OPTIONS = [
   { value: "light", label: "Light", icon: Sun },
@@ -117,6 +120,12 @@ export default function AppearanceMenu({ locales }: { locales: LocaleInfo[] }) {
             </DropdownMenuGroup>
           </>
         ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => useShortcutsHelp.getState().setOpen(true)}>
+          <Keyboard aria-hidden />
+          {t("Keyboard shortcuts")}
+          <DropdownMenuShortcut>?</DropdownMenuShortcut>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )

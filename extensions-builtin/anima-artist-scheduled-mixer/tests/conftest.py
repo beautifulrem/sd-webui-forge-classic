@@ -18,8 +18,8 @@ _harness.prepare_imports(Path(__file__).resolve().parents[1])
 
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path, monkeypatch):
-    """Each test has its own data folder: the remembered panels and the
-    templates the panel's defaults and template controls read."""
+    """Each test has its own data folder: the templates the panel's
+    defaults and template controls read."""
     from modules import paths_internal
 
     monkeypatch.setattr(paths_internal, "data_path", str(tmp_path))

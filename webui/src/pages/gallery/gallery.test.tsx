@@ -76,7 +76,7 @@ describe("gallery page", { timeout: 20_000 }, () => {
     expect(heights[0]).toBeCloseTo(heights[1]!)
     expect(widths[0]! / heights[0]!).toBeCloseTo(832 / 1216, 2)
     expect(screen.getByRole("button", { name: "prompt number 1" })).toBeInTheDocument()
-    expect(screen.getByText("4 images")).toBeInTheDocument()
+    expect(screen.getByText("Images: 4")).toBeInTheDocument()
   })
 
   it("selects with the check boxes and acts on the selection", async () => {

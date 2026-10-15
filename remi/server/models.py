@@ -298,6 +298,7 @@ class Job(Model):
     name: str | None = Field(None, description="a name the job was given (imported tasks)")
     source: str | None = Field(None, description='the importer that brought the job in ("agent-scheduler", "prompt-queue")')
     notes: list[Note] = Field([], description="what an importer could not map exactly")
+    warnings: list[Note] = Field([], description="script errors during the run (the job went on without that script's step)")
 
 
 class OpaqueArgs(Model):

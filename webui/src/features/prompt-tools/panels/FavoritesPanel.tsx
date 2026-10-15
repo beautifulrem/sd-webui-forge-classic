@@ -154,7 +154,7 @@ export default function FavoritesPanel({ value, setValue, kind, disabled, close 
       const data = JSON.parse(await file.text()) as FavoritesExport
       const { added } = await promptToolsApi.favorites.import(data)
       await refresh()
-      toast.success(t("Imported {{count}} favorites", { count: added }))
+      toast.success(t("Favorites imported: {{count}}", { count: added }))
     } catch (error) {
       toast.error(t("Not a favorites file"), { description: error instanceof Error ? error.message : String(error) })
     }

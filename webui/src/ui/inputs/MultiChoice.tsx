@@ -40,8 +40,8 @@ export function MultiChoice({ node }: { node: MultiChoiceNode }) {
         aria-describedby={ariaDescribedBy}
         className="flex flex-wrap gap-x-4 gap-y-2"
       >
-        {options.map((option) => {
-          const optionId = `${id}-${String(option.value)}`
+        {options.map((option, index) => {
+          const optionId = `${id}-option-${index}` // values may contain spaces (id references split on them)
           const checked = selected.includes(option.value)
           return (
             <div key={String(option.value)} className="flex items-center gap-2">

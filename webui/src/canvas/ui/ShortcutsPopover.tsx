@@ -9,13 +9,11 @@ import { Hint } from "./controls"
 
 const GROUPS = ["Tools", "Brush", "Edit", "View"] as const
 
-/** Key names that are words get translated; symbols and letters stay. */
+/** Key names that are words get translated; key caps (Shift, Ctrl), symbols and letters stay. */
 function useKeyName() {
   const { t } = useTranslation()
   return (key: string) => {
     switch (key) {
-      case "Shift":
-        return t("Shift")
       case "Space":
         return t("Space")
       case "Wheel":

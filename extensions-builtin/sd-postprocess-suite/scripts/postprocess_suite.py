@@ -271,7 +271,7 @@ class PostProcessSuite(scripts.Script):
                 ),
                 ui.Button("Load", "preset_load", "secondary"),
                 ui.Button("Save", "preset_save", "primary"),
-                ui.Button("Delete", "preset_delete", "ghost"),
+                ui.Button("Delete", "preset_delete", "danger"),
                 ui.Button("Refresh", "preset_refresh", "tool"),
             ),
             open=False,

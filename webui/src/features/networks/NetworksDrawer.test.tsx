@@ -97,5 +97,12 @@ describe("networks drawer", { timeout: 60_000 }, () => {
     // other modifiers are someone else's shortcut
     fireEvent.keyDown(window, { key: "n", code: "KeyN", altKey: true, ctrlKey: true })
     expect(useNetworksUi.getState().drawerOpen).toBe(false)
+    // not over another dialog (e.g. the image viewer): it would open beneath it and take the focus
+    const viewer = document.createElement("div")
+    viewer.setAttribute("role", "dialog")
+    document.body.append(viewer)
+    fireEvent.keyDown(window, { key: "n", code: "KeyN", altKey: true })
+    expect(useNetworksUi.getState().drawerOpen).toBe(false)
+    viewer.remove()
   })
 })

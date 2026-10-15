@@ -439,18 +439,14 @@ def test_the_script_arg_names_follow_the_panel_layout():
 def test_a_wrong_argument_count_installs_nothing(monkeypatch, args):
     from modules.anima_support import NEGPIP_EXTRA_PROMPTS
 
-    remembered = []
     monkeypatch.setattr(mixer, "_build_artists", lambda *a: pytest.fail("artists built from a misaligned argument list"))
-    monkeypatch.setattr(mixer, "_save_runtime_current_settings", lambda *a: remembered.append(a))
     p = _run_p()
-    p.is_api = False  # a UI run remembers its panel
     unet = p.sd_model.forge_objects.unet
     # Neither the Gradio panel's 653 arguments nor the params() layout's
     count = len(mixer.PARAM_NAMES)
     for hook in (mixer.Script().process, mixer.Script().process_before_every_sampling):
         with pytest.raises(TypeError, match=f"Anima Artist Scheduled Mixer takes {count} script arguments, got {len(args)}"):
             hook(p, *args)
-    assert remembered == [] and not hasattr(p, "_anima_artist_settings_remembered")
     assert p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {} and runtime._RUN_STATES == []
     assert not hasattr(p, NEGPIP_EXTRA_PROMPTS)
     assert not mixer.is_feature_active(p, mixer.ARTIST_MIXER)

@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 import threading
 from collections.abc import Callable, Iterator
@@ -37,6 +38,40 @@ MAX_REPEAT = 100
 
 Dispatch = Callable[..., Any]
 Validator = Callable[[str, Any, Any], None]
+
+MAX_WARNINGS = 5
+_SCRIPT_ERROR = re.compile(r"^Error running (\w+): (.+)$")
+
+
+@contextlib.contextmanager
+def script_errors(sink: list[dict[str, Any]]) -> Iterator[None]:
+    """Collects what ``modules.errors.report`` reports meanwhile (a script
+    hook that raised; the run goes on without it) as job warnings: notes
+    ``{"message", "values"}`` with an English catalog key."""
+
+    errors = sys.modules.get("modules.errors")
+    if errors is None:
+        yield
+        return
+    original = errors.report
+
+    def report(message: str, *, exc_info: bool = False) -> None:
+        original(message, exc_info=exc_info)
+        error = sys.exc_info()[1] if exc_info else None
+        detail = f"{type(error).__name__}: {error}" if error is not None else ""
+        match = _SCRIPT_ERROR.match(message.splitlines()[0] if message else "")
+        if match:
+            note = {"message": "{{script}} failed ({{hook}}): {{error}}", "values": {"script": os.path.basename(match[2]), "hook": match[1], "error": detail or "?"}}
+        else:
+            note = {"message": "{{error}}", "values": {"error": f"{message.splitlines()[0] if message else ''} {detail}".strip()}}
+        if note not in sink and len(sink) < MAX_WARNINGS:
+            sink.append(note)
+
+    errors.report = report
+    try:
+        yield
+    finally:
+        errors.report = original
 
 
 class JobError(ValueError):
@@ -223,7 +258,7 @@ class JobQueue:
 
     def current_ref(self) -> JobRef | None:
         job = self._current
-        return JobRef(job.id, job.seq, job.tab) if job is not None else None
+        return JobRef(job.id, job.seq, job.tab, self._begun) if job is not None else None
 
     def status(self) -> dict[str, Any]:
         job = self._current
@@ -505,8 +540,10 @@ class JobQueue:
         self._changed()
         ctx = JobContext(id_task=job.id_task, user=job.user, resolve_upload=self.files.resolve_upload, on_begin=lambda: self._on_begin(job.id))
         self._note_model_loading()
+        warnings: list[dict[str, Any]] = []
         try:
-            result = self.dispatch(self.executor, job, ctx)
+            with script_errors(warnings):
+                result = self.dispatch(self.executor, job, ctx)
         except ValidationError as error:
             self._fail(job, str(error), errors=error.to_json()["errors"])
             return
@@ -520,8 +557,8 @@ class JobQueue:
         status = CANCELLED if job.id in self._cancelled else INTERRUPTED if job.id in self._interrupted else COMPLETED
         outputs = self._register(job, result or JobResult())
         info = (result.info if result else None) or next((output.get("infotext") for output in outputs if output.get("infotext")), None)
-        self.store.finish(job.id, status, outputs=outputs, infotext=info)
-        self.bus.publish("job.completed", **ref.fields(), status=status, outputs=outputs, infotext=info)
+        self.store.finish(job.id, status, outputs=outputs, infotext=info, warnings=warnings)
+        self.bus.publish("job.completed", **ref.fields(), status=status, outputs=outputs, infotext=info, **({"warnings": warnings} if warnings else {}))
         if job.forever and status == COMPLETED:  # paused: queued for the resume
             again = self.store.requeue_forever(job.id)
             if again is not None:

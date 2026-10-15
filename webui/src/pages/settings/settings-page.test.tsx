@@ -76,12 +76,12 @@ describe("settings page", { timeout: 20_000 }, () => {
     const toggle = await screen.findByRole("switch", { name: "Automatically save every generated image" }, { timeout: 8000 })
     const before = toggle.getAttribute("aria-checked") === "true"
     fireEvent.click(toggle)
-    expect(await screen.findByText("1 unsaved changes")).toBeInTheDocument()
+    expect(await screen.findByText("Unsaved changes: 1")).toBeInTheDocument()
     await act(async () => {
       fireEvent.keyDown(window, { key: "s", ctrlKey: true })
     })
     await waitFor(() => expect(patch).toHaveBeenCalledWith({ samples_save: !before }))
-    await waitFor(() => expect(screen.queryByText("1 unsaved changes")).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText("Unsaved changes: 1")).not.toBeInTheDocument())
   })
 
   it("shows nothing-found with a way out, and filters to unsaved edits", async () => {

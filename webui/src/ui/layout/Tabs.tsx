@@ -1,5 +1,7 @@
+import { useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useScrollFade } from "@/lib/use-scroll-fade"
 import { evaluate } from "../conditions"
 import { EnabledProvider } from "../context"
 import { tabsKey } from "../form-index"
@@ -25,7 +27,7 @@ function TabTrigger({ tab, value }: { tab: TabNode; value: string | number }) {
   const { t } = useTranslation()
   const enabled = useCondition(tab.enabled_if)
   return (
-    <TabsTrigger value={value} disabled={!enabled} className="px-2.5">
+    <TabsTrigger value={value} disabled={!enabled} className="flex-none px-2.5">
       {t(tab.title)}
     </TabsTrigger>
   )
@@ -52,11 +54,14 @@ function TabStrip(props: {
 }) {
   const { node, bound } = props
   const visible = useVisibleTabs(node)
+  const listRef = useRef<HTMLDivElement>(null)
+  // a strip wider than its pane scrolls sideways (never wraps)
+  const fade = useScrollFade(listRef, props.value)
   const shown = node.children.map((tab, i) => ({ tab, id: tabId(tab, i, bound) })).filter((_, i) => visible[i])
   if (shown.length === 0) return null
   return (
     <Tabs value={props.value} onValueChange={(v) => props.onValueChange(v as string | number)} className="gap-3">
-      <TabsList className="h-auto max-w-full flex-wrap justify-start">
+      <TabsList ref={listRef} style={fade} className="max-w-full justify-start overflow-x-auto overscroll-x-contain [scrollbar-width:none]">
         {shown.map(({ tab, id }) => (
           <TabTrigger key={String(id)} tab={tab} value={id} />
         ))}

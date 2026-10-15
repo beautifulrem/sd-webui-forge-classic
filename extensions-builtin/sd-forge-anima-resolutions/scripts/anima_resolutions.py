@@ -683,13 +683,19 @@ class AnimaRandomizeResolutionScript(scripts.Script):
             return ui.toast("Add a source image first.", "warning") if manual else {}
         target = upscale_target(*size)
         if target is None:
-            message = f"No size with W+H in {TARGET_TOTAL_LOW}\u2013{TARGET_TOTAL_HIGH} fits a {size[0]} x {size[1]} source; the size is unchanged."
+            message = ui.message(
+                "No size with W+H in {{low}}\u2013{{high}} fits a {{source_width}} x {{source_height}} source; the size is unchanged.",
+                low=TARGET_TOTAL_LOW,
+                high=TARGET_TOTAL_HIGH,
+                source_width=size[0],
+                source_height=size[1],
+            )
             return ui.toast(message, "info") if manual else {}
         width, height = target
         return {
             "core.width": {"value": width},
             "core.height": {"value": height},
-            **ui.toast(f"Size set to {width} x {height} (source {size[0]} x {size[1]})."),
+            **ui.toast(ui.message("Size set to {{width}} x {{height}} (source {{source_width}} x {{source_height}}).", width=width, height=height, source_width=size[0], source_height=size[1])),
         }
 
     def before_process(self, p, randomize_enabled=False, randomize_highres_enabled=False, *_helpers, **kwargs):

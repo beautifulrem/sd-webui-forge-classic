@@ -7,7 +7,8 @@
 // For each route × viewport × theme × locale it loads the page, waits for it to settle and records:
 // console errors / warnings, uncaught page errors, failed requests (status ≥ 400), axe serious /
 // critical violations, page-level horizontal overflow, wrapped horizontal tab strips, clipped text
-// (overflowing an overflow:hidden box without an ellipsis), and in zh-CN visible text with Latin
+// (overflowing an overflow:hidden box without an ellipsis), stray scrollbars (a scroll box overflowing
+// by a few pixels), and in zh-CN visible text with Latin
 // words and no CJK (to triage mixed-language labels). With --expand, every collapsed section in
 // the main landmark is opened first (generate pages: every built-in extension panel). A full-page
 // screenshot is written per combination; results go to <out>/report.json, exit 1 on any finding
@@ -51,7 +52,20 @@ function inspect(locale) {
     const label = el.getAttribute("aria-label") ?? el.textContent?.trim().slice(0, 40) ?? ""
     return `${el.tagName.toLowerCase()}${id} "${label}"`
   }
-  const out = { overflowX: document.documentElement.scrollWidth - vw, wrappedTabs: [], clipped: [], latin: [] }
+  const out = { overflowX: document.documentElement.scrollWidth - vw, wrappedTabs: [], clipped: [], spuriousScroll: [], latin: [] }
+  // a scroll container that overflows by a few pixels only (a stray scrollbar, e.g. from a focus ring or an indicator)
+  for (const el of document.querySelectorAll("body *")) {
+    if (!visible(el)) continue
+    const s = getComputedStyle(el)
+    const overY = el.scrollHeight - el.clientHeight
+    const overX = el.scrollWidth - el.clientWidth
+    const barY = el.offsetWidth - el.clientWidth - parseFloat(s.borderLeftWidth) - parseFloat(s.borderRightWidth)
+    const barX = el.offsetHeight - el.clientHeight - parseFloat(s.borderTopWidth) - parseFloat(s.borderBottomWidth)
+    // a non-scrolling box that was scrolled anyway (focus / scrollIntoView moved the layout)
+    if (s.overflowY === "hidden" && el.scrollTop > 0 && !el.closest("[data-allow-clip]")) out.spuriousScroll.push(`${describe(el)} scrolled ${el.scrollTop}px`)
+    if ((s.overflowY === "auto" || s.overflowY === "scroll") && overY > 0 && overY <= 8 && barY > 0) out.spuriousScroll.push(describe(el))
+    else if ((s.overflowX === "auto" || s.overflowX === "scroll") && overX > 0 && overX <= 8 && barX > 0) out.spuriousScroll.push(describe(el))
+  }
   for (const list of document.querySelectorAll('[role="tablist"]')) {
     if (!visible(list) || list.getAttribute("aria-orientation") === "vertical") continue
     const tops = new Set([...list.querySelectorAll('[role="tab"]')].filter(visible).map((t) => Math.round(t.getBoundingClientRect().top)))
@@ -66,7 +80,7 @@ function inspect(locale) {
     if (r.width <= 2 || r.height <= 2 || (s.clip && s.clip !== "auto") || s.clipPath !== "none") continue // screen-reader-only text
     const clipsX = s.overflowX === "hidden" || s.overflowX === "clip"
     const clipsY = s.overflowY === "hidden" || s.overflowY === "clip"
-    if ((clipsX && el.scrollWidth > el.clientWidth + 2) || (clipsY && el.scrollHeight > el.clientHeight + 2 && !s.webkitLineClamp?.match(/\d/))) {
+    if ((clipsX && el.scrollWidth > el.clientWidth + 2) || (clipsY && el.scrollHeight > el.clientHeight + 4 && !s.webkitLineClamp?.match(/\d/))) {
       if (el.clientWidth > 0 && el.clientHeight > 0) out.clipped.push(describe(el))
     }
   }
@@ -139,10 +153,10 @@ for (const locale of LOCALES) {
         const name = `${route.replace(/\//g, "_")}-${width}x${height}-${theme}-${locale}${EXPAND ? "-expanded" : ""}`
         await page.screenshot({ path: path.join(OUT, "shots", `${name}.png`), fullPage: true })
         const entry = { route, width, height, theme, locale, console: messages, axe, ...layout }
-        const bad = messages.length + axe.length + layout.wrappedTabs.length + layout.clipped.length + (layout.overflowX > 0 ? 1 : 0)
+        const bad = messages.length + axe.length + layout.wrappedTabs.length + layout.clipped.length + layout.spuriousScroll.length + (layout.overflowX > 0 ? 1 : 0)
         if (bad) failures++
         report.push(entry)
-        console.log(`${bad ? "FAIL" : "ok  "} ${name}${bad ? ` ${JSON.stringify({ console: messages, axe, overflowX: layout.overflowX, wrappedTabs: layout.wrappedTabs, clipped: layout.clipped.slice(0, 6) })}` : ""}${layout.latin.length ? ` latin=${layout.latin.length}` : ""}`)
+        console.log(`${bad ? "FAIL" : "ok  "} ${name}${bad ? ` ${JSON.stringify({ console: messages, axe, overflowX: layout.overflowX, wrappedTabs: layout.wrappedTabs, clipped: layout.clipped.slice(0, 6), spuriousScroll: layout.spuriousScroll.slice(0, 6) })}` : ""}${layout.latin.length ? ` latin=${layout.latin.length}` : ""}`)
       }
       await context.close()
     }

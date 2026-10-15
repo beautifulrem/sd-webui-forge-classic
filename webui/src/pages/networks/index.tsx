@@ -19,10 +19,10 @@ export default function NetworksPage() {
   return (
     <>
       <HeaderSlot>
-        <div className="hidden items-center gap-2 sm:flex">
-          <span className="text-xs text-muted-foreground">{t("Insert into")}</span>
-          <FormTargetSwitch />
-          <PromptTargetSwitch />
+        <div className="hidden items-center gap-2 2xl:flex">
+          <span className="shrink-0 text-xs text-muted-foreground">{t("Insert into")}</span>
+          <FormTargetSwitch className="shrink-0" />
+          <PromptTargetSwitch className="shrink-0" />
           <Button variant="ghost" size="sm" render={<a href={routeHref({ name: "generate", tab: form })} />} nativeButton={false} className="text-muted-foreground">
             {t("Open {{form}}", { form: t(form) })}
             <ArrowRight aria-hidden />
@@ -30,11 +30,15 @@ export default function NetworksPage() {
         </div>
       </HeaderSlot>
       <div className="flex h-full min-h-0 flex-col">
-        {/* phones: the header has no room, the targets get their own row */}
-        <div className="flex items-center gap-2 overflow-x-auto border-b px-3 py-1.5 sm:hidden" role="group" aria-label={t("Insert into")}>
+        {/* below 2xl the header (model bar, quick settings) has no room: the targets get their own row */}
+        <div className="flex items-center gap-2 overflow-x-auto border-b px-3 py-1.5 2xl:hidden" role="group" aria-label={t("Insert into")}>
           <span className="shrink-0 text-xs text-muted-foreground">{t("Insert into")}</span>
-          <FormTargetSwitch />
-          <PromptTargetSwitch />
+          <FormTargetSwitch className="shrink-0" />
+          <PromptTargetSwitch className="shrink-0" />
+          <Button variant="ghost" size="sm" render={<a href={routeHref({ name: "generate", tab: form })} />} nativeButton={false} className="hidden shrink-0 text-muted-foreground sm:inline-flex">
+            {t("Open {{form}}", { form: t(form) })}
+            <ArrowRight aria-hidden />
+          </Button>
         </div>
         <NetworkBrowser surface="page" form={form} toastOnApply className="min-h-0 flex-1" />
       </div>

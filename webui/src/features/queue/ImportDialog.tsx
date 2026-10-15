@@ -144,7 +144,7 @@ export function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                       ? t("Nothing found on this machine")
                       : source.path
                         ? t("{{count}} records · {{path}}", { count: source.count, path: source.path })
-                        : t("{{count}} records", { count: source.count })}
+                        : t("Records: {{count}}", { count: source.count })}
                   </p>
                 </div>
                 <Button size="sm" disabled={!source.available || run.isPending} onClick={() => run.mutate(source.id)}>

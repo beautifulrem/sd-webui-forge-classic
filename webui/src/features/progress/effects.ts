@@ -49,6 +49,12 @@ export function formatEta(seconds: number | null | undefined): string | null {
   return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${s}s`
 }
 
+/** The status of a running job: the server's text, else the step (before the first step, while the model loads: "Starting…"). */
+export function stepText(job: Pick<RunningJob, "text" | "step" | "steps">): string {
+  if (job.text) return t(job.text)
+  return job.steps ? t("Step {{step}} of {{steps}}", { step: job.step, steps: job.steps }) : t("Starting…")
+}
+
 /** "[42%] ETA 12s" while `job` runs; the title the app set is restored afterwards. */
 export function useProgressTitle(job: RunningJob | null, enabled: boolean) {
   const fraction = progressFraction(job)

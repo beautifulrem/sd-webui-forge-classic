@@ -43,7 +43,7 @@ holds a value) or a **layout/display** node.
 | `width` | `"auto"` \| `"fill"` \| 1–12? | sizing hint inside a `row` (12-column grid); absent = `"auto"` |
 | `hidden` | `true`? | keep the value (it is submitted) but do not render the control |
 | `persist` | `false`? | never kept in drafts: every page load starts from `default` (e.g. a copy of a setting); a schema reload in the same session keeps the value like any other |
-| `submit` | `false`? | held by the form for actions only: never sent with a job (so neither reused jobs nor drafts bring it back); processing gets `default` |
+| `submit` | `false`? | held by the form for actions only: never sent with a job (so neither reused jobs nor drafts bring it back); processing gets `default` (also what a tool input, `arg=False` on the server, exports) |
 | `infotext` | string? | infotext key this param is written to / read from (informational; parsing is server-side) |
 | `preset` | string? | Anima preset field this param belongs to (informational) |
 | `exclusive` | `{"group": str, "member": str}`? | `toggle` only: one-of-N group membership; server action `__conflicts__` resolves locks |

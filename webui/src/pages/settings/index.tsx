@@ -274,6 +274,7 @@ export default function SettingsPage({ route }: { route: Route }) {
                 <InputGroupInput
                   ref={searchRef}
                   type="search"
+                  className="[&::-webkit-search-cancel-button]:hidden"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   onKeyDown={(event) => {
@@ -297,7 +298,7 @@ export default function SettingsPage({ route }: { route: Route }) {
                   )}
                 </InputGroupAddon>
               </InputGroup>
-              <Segmented options={filterOptions} value={mode} onValueChange={setMode} aria-label={t("Show")} size="sm" className="w-auto" />
+              <Segmented options={filterOptions} value={mode} onValueChange={setMode} aria-label={t("Show")} size="sm" className="w-auto shrink-0" />
               <span className="sr-only" role="status" aria-live="polite">
                 {filtering ? t("{{count}} settings found", { count: sections.reduce((n, s) => n + s.count, 0) }) : ""}
               </span>

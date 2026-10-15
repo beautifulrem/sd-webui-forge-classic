@@ -8096,6 +8096,15 @@
             "title": "Notes",
             "description": "what an importer could not map exactly",
             "default": []
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Note"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "script errors during the run (the job went on without that script's step)",
+            "default": []
           }
         },
         "type": "object",
@@ -8332,6 +8341,15 @@
             "type": "array",
             "title": "Notes",
             "description": "what an importer could not map exactly",
+            "default": []
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Note"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "script errors during the run (the job went on without that script's step)",
             "default": []
           },
           "core": {

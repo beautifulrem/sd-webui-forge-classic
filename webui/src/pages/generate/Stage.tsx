@@ -16,7 +16,7 @@ import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 import { selectedItem, useSession } from "@/features/gallery/session-store"
 import { InfotextPanel } from "@/features/infotext/InfotextPanel"
-import { formatEta } from "@/features/progress/effects"
+import { formatEta, stepText } from "@/features/progress/effects"
 import type { GenerateTab } from "@/features/progress/run-controller"
 import { ResultActions } from "@/features/send-to/ResultActions"
 import { Img2imgStage } from "@/canvas"
@@ -30,7 +30,7 @@ function ProgressOverlay({ job }: { job: RunningJob }) {
     <div className="absolute inset-x-3 bottom-3 rounded-lg bg-background/80 p-2.5 shadow-sm backdrop-blur">
       <div className="mb-1.5 flex items-center justify-between gap-2 text-xs tabular-nums">
         <span className="truncate">
-          {job.text ? t(job.text) : t("Step {{step}} of {{steps}}", { step: job.step, steps: job.steps })}
+          {stepText(job)}
           {job.jobCount && job.jobCount > 1 ? ` · ${t("Batch {{index}} of {{count}}", { index: (job.jobNo ?? 0) + 1, count: job.jobCount })}` : ""}
         </span>
         <span className="shrink-0 text-muted-foreground">

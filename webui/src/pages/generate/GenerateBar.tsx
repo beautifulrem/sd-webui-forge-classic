@@ -26,7 +26,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
-import { formatEta, notificationsAvailable } from "@/features/progress/effects"
+import { formatEta, stepText, notificationsAvailable } from "@/features/progress/effects"
 import { dispatchRun, type GenerateTab, useRuns } from "@/features/progress/run-controller"
 import { phaseOf } from "@/features/progress/run-machine"
 import { EnqueueButton, QueueEditBanner } from "@/features/queue/FormQueueControls"
@@ -98,7 +98,7 @@ function StatusLine({ tab }: { tab: GenerateTab }) {
   else if (phase === "queued") text = ahead !== null ? t("Queued · {{count}} ahead", { count: ahead }) : t("Queued")
   else if (job) {
     const parts = [
-      job.text ? t(job.text) : t("Step {{step}} of {{steps}}", { step: job.step, steps: job.steps }),
+      stepText(job),
       job.jobCount && job.jobCount > 1 ? t("Batch {{index}} of {{count}}", { index: (job.jobNo ?? 0) + 1, count: job.jobCount }) : null,
       eta ? t("ETA {{eta}}", { eta }) : null,
     ]
@@ -169,7 +169,7 @@ export function GenerateBar({ tab, className }: { tab: GenerateTab; className?: 
           >
             {phase === "submitting" ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
             <span className="truncate">{busy ? t("Queue another") : t("Generate")}</span>
-            <Kbd className="ml-1 hidden bg-primary-foreground/15 text-primary-foreground sm:inline-flex">{formatShortcut("Mod+Enter")}</Kbd>
+            <Kbd className="ml-1 hidden border border-primary-foreground/45 bg-transparent text-primary-foreground sm:inline-flex">{formatShortcut("Mod+Enter")}</Kbd>
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger

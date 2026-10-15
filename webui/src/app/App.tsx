@@ -1,6 +1,6 @@
 /** The application shell: rail + header + lazily loaded page, plus global services. */
 import { useQuery } from "@tanstack/react-query"
-import { Languages, Monitor, Moon, Rows3, Rows4, Sun } from "lucide-react"
+import { Keyboard, Languages, Monitor, Moon, Rows3, Rows4, Sun } from "lucide-react"
 import { lazy, Suspense, useEffect, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { bootstrapQuery } from "@/api/queries"
@@ -16,10 +16,12 @@ import { Header } from "./Header"
 import { availableLocales } from "./locales"
 import { BottomBar, NavRail } from "./NavRail"
 import { buildNav, pageFor, type NavItem } from "./routes"
+import { onShortcutsKey, useShortcutsHelp } from "./shortcuts-help"
 import { navigate, type Route, routeKey, useRoute } from "./router"
 import { useWsBridge } from "./ws-bridge"
 
 const CommandPalette = lazy(() => import("./CommandPalette"))
+const ShortcutsDialog = lazy(() => import("./ShortcutsDialog"))
 
 function useGlobalShortcuts() {
   useEffect(() => {
@@ -28,7 +30,7 @@ function useGlobalShortcuts() {
         event.preventDefault()
         const { palette, setPalette } = useCommands.getState()
         setPalette(!palette)
-      }
+      } else onShortcutsKey(event)
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
@@ -47,6 +49,7 @@ function useShellCommands(nav: NavItem[], locales: ReturnType<typeof availableLo
         icon: item.icon,
         run: () => navigate(item.route),
       })),
+      { id: "help:shortcuts", label: "Keyboard shortcuts", group: "Help", icon: Keyboard, shortcut: "?", keywords: ["keys", "hotkeys"], run: () => useShortcutsHelp.getState().setOpen(true) },
       { id: "theme:light", label: "Light theme", group: "Appearance", icon: Sun, run: () => setTheme("light") },
       { id: "theme:dark", label: "Dark theme", group: "Appearance", icon: Moon, run: () => setTheme("dark") },
       { id: "theme:system", label: "System theme", group: "Appearance", icon: Monitor, run: () => setTheme("system") },
@@ -77,6 +80,7 @@ export function App() {
   const bootstrap = useQuery(bootstrapQuery)
   const chosen = useLocale((s) => s.chosen)
   const paletteLoaded = useCommands((s) => s.paletteLoaded)
+  const shortcutsLoaded = useShortcutsHelp((s) => s.loaded)
 
   useApplyAppearance()
   useWsBridge()
@@ -114,7 +118,7 @@ export function App() {
         <NavRail items={nav} route={route} />
         <div className="flex min-w-0 flex-1 flex-col">
           <Header title={title} locales={locales} />
-          <main id="main" tabIndex={-1} className="relative min-h-0 flex-1 overflow-hidden outline-none">
+          <main id="main" tabIndex={-1} className="relative min-h-0 flex-1 overflow-clip outline-none">
             <ErrorBoundary resetKey={routeKey(route)}>
               <Suspense fallback={<PageSkeleton />}>
                 {/* oxlint-disable-next-line react/static-components -- a stable lazy component from the route table */}
@@ -128,6 +132,11 @@ export function App() {
       {paletteLoaded ? (
         <Suspense fallback={null}>
           <CommandPalette />
+        </Suspense>
+      ) : null}
+      {shortcutsLoaded ? (
+        <Suspense fallback={null}>
+          <ShortcutsDialog />
         </Suspense>
       ) : null}
       <Toaster position="bottom-right" closeButton richColors={false} />

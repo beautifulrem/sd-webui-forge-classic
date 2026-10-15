@@ -156,8 +156,8 @@ function ModulesPicker({ className }: { className?: string }) {
         <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("Search…")} aria-label={t("Search modules")} className="h-8" />
         <ul role="group" aria-labelledby={`${id}-title`} className="flex max-h-72 flex-col gap-0.5 overflow-y-auto overscroll-contain">
           {[...missing.map((value) => ({ value, label: value, size: null, missing: true })), ...visible.map((m) => ({ ...m, missing: false }))].map(
-            (m) => {
-              const checkId = `${id}-${m.value}`
+            (m, index) => {
+              const checkId = `${id}-module-${index}` // paths contain spaces and slashes
               return (
                 <li key={m.value} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent">
                   <Checkbox id={checkId} checked={selected.includes(m.value)} onCheckedChange={(on) => toggle(m.value, on)} />
@@ -183,7 +183,8 @@ function DtypeSelect({ className }: { className?: string }) {
   const current = useClientOption("forge_unet_storage_dtype")
   const write = useOptionWrite<string>(MODEL_OPTION_KEYS.dtype)
   const dtypes = models.data?.unet_dtypes ?? DEFAULT_DTYPES
-  const items = dtypes.map((d) => ({ value: d, label: d }))
+  // "Automatic" is the one word among the dtype names
+  const items = dtypes.map((d) => ({ value: d, label: d === "Automatic" ? t("Automatic") : d }))
   const value = write.isPending ? (write.variables ?? current) : current
   return (
     <Select<string> items={items} value={value} onValueChange={(next) => next && next !== current && write.mutate(next)} disabled={write.isPending}>
