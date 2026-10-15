@@ -8,11 +8,9 @@ import time
 from collections import OrderedDict
 from typing import List
 
-import gradio as gr
 from pydantic import BaseModel, Field
 
 import modules.shared as shared
-from modules.shared import opts
 
 current_task = None
 pending_tasks = OrderedDict()
@@ -120,13 +118,13 @@ def progressapi(req: ProgressRequest):
     live_preview = None
     id_live_preview = req.id_live_preview
 
-    if opts.live_previews_enable and req.live_preview:
+    if shared.opts.live_previews_enable and req.live_preview:
 
         if shared.state.id_live_preview != req.id_live_preview:
             image = shared.state.current_image
             if image is not None:
                 _video: bool = getattr(image, "is_animated", False)
-                _format = "gif" if _video else opts.live_previews_image_format
+                _format = "gif" if _video else shared.opts.live_previews_image_format
                 buffered = io.BytesIO()
 
                 if _format == "png":
@@ -150,6 +148,10 @@ def progressapi(req: ProgressRequest):
 
 
 def restore_progress(id_task):
+    """The legacy Gradio UI's "restore progress" (waits for the task)."""
+
+    import gradio as gr
+
     while id_task == current_task or id_task in pending_tasks:
         time.sleep(0.1)
 

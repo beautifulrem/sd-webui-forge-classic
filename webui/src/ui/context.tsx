@@ -1,7 +1,7 @@
 /** Providers for the renderer: form, owner, inherited enablement (hooks live in hooks.ts). */
 import { type ReactNode, use } from "react"
 import type { FormStore } from "./form-store"
-import { EnabledContext, FormContext, OwnerContext } from "./hooks"
+import { EnabledContext, FormContext, OwnerContext, SeedSourceContext } from "./hooks"
 
 export function FormProvider({ formId, store, children }: { formId: string; store: FormStore; children: ReactNode }) {
   return <FormContext value={{ formId, store }}>{children}</FormContext>
@@ -15,4 +15,12 @@ export function OwnerProvider({ owner, children }: { owner: string; children: Re
 export function EnabledProvider({ enabled, children }: { enabled: boolean; children: ReactNode }) {
   const parent = use(EnabledContext)
   return <EnabledContext value={parent && enabled}>{children}</EnabledContext>
+}
+
+/**
+ * The infotext the seed inputs' "reuse seed" button reads (the generate page
+ * passes its selected result). Without it they use the form's last result.
+ */
+export function SeedSourceProvider({ infotext, children }: { infotext: string | null; children: ReactNode }) {
+  return <SeedSourceContext value={infotext}>{children}</SeedSourceContext>
 }

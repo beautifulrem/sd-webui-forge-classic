@@ -3,7 +3,6 @@ import os
 import re
 from enum import Enum
 
-import gradio as gr
 import torch
 import tqdm
 from huggingface_guess.detection import unet_prefix_from_state_dict
@@ -12,7 +11,7 @@ from safetensors.torch import save_file
 from backend.state_dict import state_dict_prefix_replace
 from backend.utils import load_torch_file
 from modules import images, sd_models, shared
-from modules.ui_common import plaintext_to_html
+from modules.util import plaintext_to_html
 
 
 def run_pnginfo(image):
@@ -63,10 +62,14 @@ def read_metadata(primary_model_name: str, secondary_model_name: str, tertiary_m
         if (checkpoint_info := sd_models.checkpoints_list.get(checkpoint_name, None)) is not None:
             metadata.update({checkpoint_name: checkpoint_info.metadata})
 
+    import gradio as gr  # the legacy merger UI
+
     return gr.update(value=json.dumps(metadata, indent=4, ensure_ascii=False), visible=True)
 
 
 def run_modelmerger(id_task, primary_model_name: str, secondary_model_name: str, tertiary_model_name: str, interp_method: str, multiplier: float, custom_name: str, discard_weights: str, save_metadata: bool, config_source: list[str], add_merge_recipe: bool):
+    import gradio as gr  # the legacy merger UI
+
     shared.state.begin(job="model-merge")
 
     def fail(message: str):

@@ -25,7 +25,10 @@ export function useWsBridge() {
     ws.connect()
 
     const offs = [
-      onWsEvent("job.queued", () => void queryClient.invalidateQueries({ queryKey: keys.jobs })),
+      onWsEvent("job.queued", () => {
+        void queryClient.invalidateQueries({ queryKey: keys.jobs })
+        void queryClient.invalidateQueries({ queryKey: keys.queueItems })
+      }),
       onWsEvent("job.started", (e) => {
         // A new job: the previous job's last frame must not show.
         useWs.getState().clearPreview()
@@ -44,12 +47,22 @@ export function useWsBridge() {
         progress.failed(e)
         useWs.getState().clearPreview()
         void queryClient.invalidateQueries({ queryKey: keys.jobs })
-        if (mine) toast.error(t("Generation failed"), { description: e.error })
+        // Cancelled / interrupted jobs (e.g. the queue was cleared) are not failures.
+        const stopped = e.status === "cancelled" || e.status === "interrupted"
+        if (mine && !stopped) toast.error(t("Generation failed"), { description: e.error })
       }),
-      onWsEvent("queue.changed", () => void queryClient.invalidateQueries({ queryKey: keys.jobs })),
+      onWsEvent("queue.changed", (e) => {
+        // Also sent right after a (re)connect: drops the progress of a job that ended while the socket was down.
+        if (e.running !== undefined) progress.syncRunning(e.running)
+        void queryClient.invalidateQueries({ queryKey: keys.jobs })
+        void queryClient.invalidateQueries({ queryKey: keys.queueItems })
+      }),
       onWsEvent("options.changed", () => {
         void queryClient.invalidateQueries({ queryKey: keys.options })
         void queryClient.invalidateQueries({ queryKey: keys.app })
+        // The checkpoint / module lists and the styles follow some options (e.g. a model switch).
+        void queryClient.invalidateQueries({ queryKey: keys.models })
+        void queryClient.invalidateQueries({ queryKey: keys.styles })
         // Core forms follow the options (category order, choice lists); the
         // form stores keep every value that still fits the new schema.
         void queryClient.invalidateQueries({ queryKey: ["schema"] })
@@ -65,6 +78,12 @@ export function useWsBridge() {
         modelIdle()
         if (e.error) toast.error(t("Could not load the model"), { description: e.error })
       }),
+      onWsEvent("networks.changed", () => {
+        void queryClient.invalidateQueries({ queryKey: ["networks"] })
+        void queryClient.invalidateQueries({ queryKey: keys.models })
+      }),
+      // Events were lost: the server follows with a snapshot; refetch everything shown.
+      onWsEvent("resync", () => void queryClient.invalidateQueries()),
       onWsEvent("toast", (e) => showToast(e.level, e.message)),
       // A reconnect may follow a server restart: refresh everything the server owns.
       onWsEvent("hello", () => {

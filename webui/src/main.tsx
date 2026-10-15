@@ -8,6 +8,17 @@ import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { activateLocale, i18n, initialLocale } from "@/i18n"
 import "./index.css"
 
+// A tab opened before the WebUI was updated asks for chunk names the new
+// build no longer has: load the new build (at most once a minute, so a
+// server that really lacks a chunk shows the error instead of looping).
+window.addEventListener("vite:preloadError", (event) => {
+  const last = Number(sessionStorage.getItem("remi-chunk-reload") ?? 0)
+  if (Date.now() - last < 60_000) return
+  sessionStorage.setItem("remi-chunk-reload", String(Date.now()))
+  event.preventDefault()
+  location.reload()
+})
+
 const root = createRoot(document.getElementById("root")!)
 
 // Load the stored/browser locale first so the shell never flashes English;

@@ -1,121 +1,94 @@
 /**
- * Hand-written API models for /api/v2. They mirror the server's Pydantic
- * models; when `webui/src/api/gen` is generated from /openapi.json these become
- * re-exports of the generated types.
+ * API models for /api/v2. Server models are the types generated from the
+ * server's /openapi.json (`gen/schema.d.ts`, regenerate with `pnpm gen:api`
+ * after `tools/export_openapi.py`); only the free-form JSON the server types
+ * as `dict` (schemas, param values, action patches) is refined here.
  */
 import type { ChoiceOption, PageSchema, SettingsSchema, TabSchema } from "@/ui/schema"
+import type { components } from "./gen/schema"
 
 export type { PageSchema, SettingsSchema, TabSchema }
 
-/** An extension page (former `on_ui_tabs`). */
-export type PageInfo = {
-  id: string
-  title: string
-  /** lucide icon name in kebab-case, e.g. "calendar-clock". */
-  icon?: string | null
-  /** A dedicated frontend view in src/pages; otherwise the page is schema-rendered. */
-  widget?: string | null
-}
+type Schemas = components["schemas"]
 
-export type LocaleInfo = { id: string; name: string }
+/** A request model: the fields the server defaults may be left out. */
+type Defaulted<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>
 
-export type ModelRef = { name: string; title?: string; hash?: string | null }
+/** An extension page (former `on_ui_tabs`); `icon` is a kebab-case lucide name, `widget` a dedicated view. */
+export type PageInfo = Schemas["PageInfo"]
+export type LocaleInfo = Schemas["LocaleInfo"]
+export type ModelRef = Schemas["ModelRef"]
+export type ModelsSummary = Schemas["ModelsSummary"]
+/** A script, Extras operation or extension tab still on Gradio (bootstrap `not_ported`). */
+export type NotPorted = Schemas["NotPorted"]
+export type QueueStatus = Schemas["QueueStatus"]
+export type AuthStatus = Schemas["AuthStatus"]
 
-export type ModelsSummary = {
-  checkpoint?: string | null
-  vae?: string | null
-  text_encoders?: string[]
-  preset?: string | null
-}
+/** `GET /app`: what the shell needs at startup (`options` is the subset it reads). */
+export type Bootstrap = Schemas["Bootstrap"]
 
-export type Bootstrap = {
-  version: string
-  features: string[]
-  /** Built-in tab ids in display order; hidden tabs are omitted. */
-  tabs: string[]
-  /** Extension pages, in display order. */
-  pages: PageInfo[]
-  locales: LocaleInfo[]
-  /** Server default locale (e.g. "zh_CN"); the user's choice wins. */
-  locale?: string | null
-  /** The subset of options the shell needs at startup. */
-  options: Record<string, unknown>
-  models: ModelsSummary
-}
+export type Models = Schemas["Models"]
 
-export type Models = {
-  checkpoints: ModelRef[]
-  vae: ModelRef[]
-  text_encoders: ModelRef[]
-  samplers: { name: string; aliases?: string[] }[]
-  schedulers: { name: string; label?: string }[]
-  upscalers: { name: string }[]
-}
+/** A prompt style (styles.csv row). */
+export type PromptStyle = Schemas["PromptStyle"]
+
+/** `POST /prompt/tokens`: count the tokens of one prompt the way the loaded model would. */
+export type TokenCountRequest = Defaulted<Schemas["TokenCountRequest"], "steps" | "styles" | "negative">
+
+/** Token count and the chunked limit ("12/75"); `null` while no model is loaded. */
+export type TokenCount = Schemas["TokenCount"]
+
+/** `POST /styles/apply`: the prompts with the styles written into them. */
+export type StylesApplied = Schemas["StylesApplied"]
+export type StylesApplyRequest = Schemas["StylesApplyRequest"]
+
+/** `POST /jobs` answer: the first job, every job (`repeat` > 1) and the first job's preview sequence. */
+export type JobCreated = Schemas["JobCreated"]
 
 /** A form submitted as a job (the generation tabs and extras). */
-export type FormTab = "txt2img" | "img2img" | "extras"
+export type FormTab = Schemas["Job"]["tab"]
 
 /** Param values for one owner: `{param: value}`. */
 export type ParamValues = Record<string, unknown>
 
-export type JobRequest = {
-  tab: FormTab
+export type JobRequest = Defaulted<Omit<Schemas["JobRequest"], "core" | "scripts">, "priority" | "repeat" | "forever"> & {
   core: ParamValues
   scripts: Record<string, ParamValues>
-  priority?: number
-  repeat?: number
 }
 
-export type JobStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted"
+export type JobStatus = Schemas["Job"]["status"]
 
-export type JobOutput = {
-  /** File id for /files/{id} and /thumbs/{id}. */
-  id: string
-  kind?: "image" | "text" | "json"
-  width?: number
-  height?: number
-  infotext?: string | null
-}
+/** A job output: file id for /files/{id} and /thumbs/{id}. */
+export type JobOutput = Schemas["JobOutput"]
 
-export type Job = {
-  id: string
-  seq?: number
-  tab: FormTab
-  status: JobStatus
-  created_at: string
-  started_at?: string | null
-  finished_at?: string | null
-  progress?: { step: number; steps: number; eta?: number | null } | null
-  outputs: JobOutput[]
-  error?: string | null
-  /** Short description for lists (usually the prompt). */
-  summary?: string | null
-}
+/** A running job's progress snapshot (`progress` is 0..1 when the server knows it). */
+export type JobProgress = Schemas["JobProgress"]
+
+export type Job = Schemas["Job"]
+export type JobDetail = Schemas["JobDetail"]
 
 export type Page<T> = { items: T[]; next_cursor?: string | null; total?: number | null }
 
-export type Upload = { id: string; width?: number | null; height?: number | null; name?: string; mime?: string }
+export type Upload = Schemas["Upload"]
 
-export type OutputItem = JobOutput & { created_at?: string; job_id?: string | null }
+/** `POST /outputs/save`: file names written to the Save folder, and the zip's file id when asked for. */
+export type SaveResult = Schemas["SaveResult"]
 
-export type NetworkItem = {
-  name: string
-  title?: string
-  kind: string
-  path?: string
-  preview?: string | null
-  description?: string | null
-  prompt?: string | null
-  negative_prompt?: string | null
-  search_terms?: string[]
-}
+export type OutputItem = Schemas["OutputItem"]
+
+export type NetworkItem = Schemas["NetworkItem"]
+export type NetworkMeta = Schemas["NetworkMeta"]
 
 /** GET/PATCH /options: settings values and layout (schema-format.md §6). */
 export type OptionsResponse = SettingsSchema
 
-export type InfotextParsed = {
-  tab: FormTab
-  core: ParamValues
+/** A parsed value that did not fit its param (schema-format.md §7). */
+export type InfotextProblem = Schemas["ErrorItem"]
+
+/** `POST /infotext/image`: what PNG Info shows for an uploaded or generated image. */
+export type ImageInfo = Schemas["ImageInfo"]
+
+export type InfotextParsed = Defaulted<Omit<Schemas["InfotextParsed"], "scripts">, "params" | "problems"> & {
   scripts: Record<string, ParamValues>
 }
 
@@ -141,8 +114,8 @@ export type ActionReserved = {
   __toast__?: ActionToast
   /** Values for the owner's `output` / `gallery` nodes, by name. */
   __outputs__?: Record<string, unknown>
-  /** Settings to change; the client applies them with `PATCH /options`. */
-  __options__?: Record<string, unknown>
+  /** Settings the action already stored on the server; the client only updates its cache. */
+  __settings__?: Record<string, unknown>
 }
 
 /**

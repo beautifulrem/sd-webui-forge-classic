@@ -1,5 +1,6 @@
 /** In-browser stand-in for /api/v2/ws in mock mode. */
 import type { SocketLike } from "../ws"
+import { queueStatus } from "./server"
 
 const sockets = new Set<MockSocket>()
 
@@ -21,7 +22,10 @@ export class MockSocket implements SocketLike {
 
   send(data: string) {
     const message = JSON.parse(data) as { type?: string }
-    if (message.type === "hello") this.deliver(JSON.stringify({ type: "hello", features: ["events.v1", "preview.binary"], version: "remi-mock" }))
+    if (message.type !== "hello") return
+    this.deliver(JSON.stringify({ type: "hello", features: ["events.v1", "preview.binary"], version: "remi-mock" }))
+    // Like the server: a snapshot of the queue follows the hello.
+    this.deliver(JSON.stringify({ type: "queue.changed", ...queueStatus() }))
   }
 
   close() {

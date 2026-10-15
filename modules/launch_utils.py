@@ -29,6 +29,7 @@ dir_repos = "repositories"
 
 default_command_live = os.environ.get("WEBUI_LAUNCH_LIVE_OUTPUT") == "1"
 
+# Extensions not ported to the Remi UI yet may still import Gradio
 os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
 
@@ -303,7 +304,6 @@ def prepare_environment():
     pynvml_package = os.environ.get("PYNVML_PACKAGE", "nvidia-ml-py==13.610.43")
 
     packaging_package = os.environ.get("PACKAGING_PACKAGE", "packaging==26.2")
-    gradio_package = os.environ.get("GRADIO_PACKAGE", "gradio==4.40.0 gradio_rangeslider==0.0.8")
     requirements_file = os.environ.get("REQS_FILE", "requirements.txt")
 
     try:
@@ -419,9 +419,6 @@ assert cuda or xpu or mps
         run_pip("install ngrok", "ngrok")
         startup_timer.record("install ngrok")
 
-    if not is_installed("gradio"):
-        run_pip(f"install {gradio_package}", "gradio")
-
     if not os.path.isfile(requirements_file):
         requirements_file = os.path.join(script_path, requirements_file)
 
@@ -448,9 +445,88 @@ assert cuda or xpu or mps
         run_pip(f'install -r "{requirements_file}"', "requirements")
         startup_timer.record("enforce requirements")
 
+    if not args.skip_install:
+        build_webui()
+        startup_timer.record("build web interface")
+
     if "--exit" in sys.argv:
         print("Exiting because of --exit argument")
         exit(0)
+
+
+WEBUI_DIR = Path(script_path) / "webui"
+WEBUI_SOURCES = ("package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "index.html", "vite.config.ts", "tsconfig.json", "tsconfig.app.json", "tsconfig.node.json", "src", "public")
+"""What the SPA build depends on (hashed into the build stamp)."""
+WEBUI_STAMP = ".remi-build-stamp"
+PNPM_FALLBACK = "pnpm@12"
+"""pnpm run through npx when neither pnpm nor corepack is installed"""
+
+
+def webui_build_commands(*, which=None) -> list[list[str]] | None:
+    """The commands that build the SPA, or None without Node.js. Always
+    pnpm with the lockfile: installed, through corepack, or through npx."""
+
+    import shutil
+
+    which = which or shutil.which
+    if which("node") is None:
+        return None
+    if pnpm := which("pnpm"):
+        return [[pnpm, "install", "--frozen-lockfile"], [pnpm, "run", "build"]]
+    if corepack := which("corepack"):
+        return [[corepack, "pnpm", "install", "--frozen-lockfile"], [corepack, "pnpm", "run", "build"]]
+    if npx := which("npx"):
+        return [[npx, "--yes", PNPM_FALLBACK, "install", "--frozen-lockfile"], [npx, "--yes", PNPM_FALLBACK, "run", "build"]]
+    return None
+
+
+def webui_source_stamp(webui_dir: Path = WEBUI_DIR) -> str:
+    """A hash of the SPA sources and lockfile: a build is current when its
+    stamp matches."""
+
+    import hashlib
+
+    digest = hashlib.sha256()
+    for name in WEBUI_SOURCES:
+        root = webui_dir / name
+        files = sorted(path for path in root.rglob("*") if path.is_file()) if root.is_dir() else [root] if root.is_file() else []
+        for path in files:
+            digest.update(path.relative_to(webui_dir).as_posix().encode() + b"\0")
+            digest.update(hashlib.sha256(path.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def build_webui(webui_dir: Path = WEBUI_DIR) -> bool:
+    """Build the web interface (``webui/dist``) when it is missing or older
+    than its sources (an update); returns whether a build is there. Without
+    Node.js, says how to build it: the server still runs (the APIs work, the
+    page explains the missing build)."""
+
+    dist = webui_dir / "dist"
+    built = (dist / "index.html").is_file()
+    if os.environ.get("REMI_SKIP_WEBUI_BUILD") or not (webui_dir / "package.json").is_file():
+        return built
+    stamp = webui_source_stamp(webui_dir)
+    stamp_file = dist / WEBUI_STAMP
+    if built and stamp_file.is_file() and stamp_file.read_text().strip() == stamp:
+        return True
+    commands = webui_build_commands()
+    if commands is None:
+        if built:
+            print(f"The web interface may be out of date and Node.js was not found; run `pnpm install && pnpm build` in {webui_dir}.")
+            return True
+        print(f"The web interface is not built and Node.js was not found. Install Node.js 20+ and pnpm, then run `pnpm install && pnpm build` in {webui_dir}.")
+        return False
+    print("Building the web interface (first start or update)...")
+    for command in commands:
+        result = subprocess.run(command, cwd=webui_dir, shell=False)
+        if result.returncode != 0:
+            print(f"Building the web interface failed ({shlex.join(command)} exited with {result.returncode}); the API still works.")
+            return (dist / "index.html").is_file()
+    if not (dist / "index.html").is_file():
+        return False
+    stamp_file.write_text(stamp)
+    return True
 
 
 class ModelRef(NamedTuple):

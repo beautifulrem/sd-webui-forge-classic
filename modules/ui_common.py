@@ -1,6 +1,5 @@
 import csv
 import dataclasses
-import html
 import json
 import os
 from contextlib import nullcontext
@@ -11,6 +10,7 @@ import modules.images
 import modules.infotext_utils as parameters_copypaste
 from modules import call_queue, shared, ui_tempdir, util
 from modules.ui_components import ToolButton
+from modules.util import plaintext_to_html  # noqa: F401 - kept here for extensions
 
 folder_symbol = "\U0001f4c2"  # 📂
 refresh_symbol = "\U0001f504"  # 🔄
@@ -26,12 +26,6 @@ def update_generation_info(generation_info, html_info, img_index):
         pass
     # if the json parse or anything else fails, just return the old html_info
     return html_info, gr.skip()
-
-
-def plaintext_to_html(text, classname=None):
-    content = "<br>\n".join(html.escape(x) for x in text.split("\n"))
-
-    return f"<p class='{classname}'>{content}</p>" if classname else f"<p>{content}</p>"
 
 
 def update_logfile(logfile_path, fields):

@@ -93,6 +93,28 @@ def test_tab_schema_is_strict_json(webui, tab):
     assert "NaN" not in text
 
 
+@pytest.mark.parametrize("tab", ["txt2img", "img2img"])
+def test_size_and_accordion_blocks_stack(webui, tab):
+    """Width/height (and the swap button) share a row, the batch sliders get
+    their own, and the accordions (Hires. fix, script panels) stack."""
+    from remi.core.tabs import tab_schema
+
+    blocks = tab_schema(tab)["core"]["layout"]["children"]
+
+    def holding(names):
+        return next(block for block in blocks if names <= {node.get("name") for node in _walk(block)})
+
+    def row_of(block, name):
+        return next(node for node in _walk(block) if node["type"] == "row" and name in {child.get("name") for child in node["children"]})
+
+    size = holding({"width", "batch_count"})
+    assert size["type"] == "column"
+    assert row_of(size, "width") is row_of(size, "height") is not row_of(size, "batch_count")
+    assert row_of(size, "batch_count") is row_of(size, "batch_size")
+    accordions = next(block for block in blocks if any(node.get("section") == "accordions" for node in _walk(block) if node["type"] == "slot"))
+    assert accordions["type"] == "column"
+
+
 def test_categories_follow_the_user_order(webui):
     from remi.core.forms import txt2img_form
 

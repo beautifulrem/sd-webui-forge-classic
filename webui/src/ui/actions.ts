@@ -4,7 +4,7 @@
  */
 import { api } from "@/api/endpoints"
 import { keys, queryClient } from "@/api/queries"
-import type { ActionExtra, ActionRequest, ActionResponse, ActionToast, ParamPatch, ParamValues } from "@/api/types"
+import type { ActionExtra, ActionRequest, ActionResponse, ActionToast, Bootstrap, ParamPatch, ParamValues } from "@/api/types"
 import { t } from "@/i18n"
 import { showToast } from "@/lib/toast"
 import { splitRef } from "./conditions"
@@ -17,7 +17,8 @@ export type SplitResponse = {
   params: [owner: string, name: string, patch: ParamPatch][]
   toast?: ActionToast
   outputs?: Record<string, unknown>
-  options?: Record<string, unknown>
+  /** Settings the action already stored on the server (`__settings__`). */
+  settings?: Record<string, unknown>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,8 +37,8 @@ export function splitResponse(owner: string, response: ActionResponse | unknown)
       }
     } else if (key === "__outputs__") {
       if (isRecord(entry)) out.outputs = entry
-    } else if (key === "__options__") {
-      if (isRecord(entry)) out.options = entry
+    } else if (key === "__settings__") {
+      if (isRecord(entry)) out.settings = entry
     } else if (key.startsWith("__")) {
       // Unknown reserved key: ignore (forward compatible).
     } else if (isRecord(entry)) {
@@ -114,16 +115,19 @@ export function applyResponse(store: FormStore, owner: string, split: SplitRespo
   if (split.params.length > 0) state.applyPatches(split.params)
   if (split.outputs) state.setOutputs(owner, split.outputs)
   if (split.toast) showToast(split.toast.level, split.toast.message)
-  if (split.options) {
-    void api
-      .patchOptions(split.options)
-      .then(() => queryClient.invalidateQueries({ queryKey: keys.app }))
-      .catch((error: unknown) => showToast("error", `${t("Could not apply settings")}: ${String(error)}`))
+  if (split.settings) {
+    // Stored by the server already: update the cached values, never write them back.
+    const settings = split.settings
+    queryClient.setQueryData<Bootstrap>(keys.app, (app) => (app ? { ...app, options: { ...app.options, ...settings } } : app))
+    void queryClient.invalidateQueries({ queryKey: keys.options })
   }
 }
 
 /** The core action resolving Anima conflict locks (schema-format.md §4, §5). */
 export const CONFLICTS_ACTION = "__conflicts__"
+
+/** Params of one owner a user edit or a reset changed. */
+export type ParamChange = { owner: string; names: readonly string[] }
 
 /**
  * Runs what follows a user edit of `names` of `owner` (one field, or a bulk
@@ -133,26 +137,43 @@ export const CONFLICTS_ACTION = "__conflicts__"
  * bulk reset of several sends none.
  */
 export function runChangeEffects(ctx: ActionContext, owner: string, names: readonly string[]) {
+  runBulkChangeEffects(ctx, [{ owner, names }])
+}
+
+/** `runChangeEffects` over several owners at once: one call per distinct action, one conflicts call. */
+export function runBulkChangeEffects(ctx: ActionContext, changes: readonly ParamChange[]) {
   const state = ctx.store.getState()
-  const nodes = state.index.inputs.get(owner)
-  const actions = new Set<string>()
+  const actions = new Map<string, [owner: string, action: string]>()
   const conflicts: string[] = []
-  for (const name of names) {
-    const action = nodes?.get(name)?.on_change
-    if (action) actions.add(action)
-    if (state.conflictParams.has(`${owner}.${name}`)) conflicts.push(`${owner}.${name}`)
+  for (const { owner, names } of changes) {
+    const nodes = state.index.inputs.get(owner)
+    for (const name of names) {
+      const action = nodes?.get(name)?.on_change
+      if (action) actions.set(`${owner}\0${action}`, [owner, action])
+      if (state.conflictParams.has(`${owner}.${name}`)) conflicts.push(`${owner}.${name}`)
+    }
   }
-  for (const action of actions) void runAction(ctx, owner, action)
+  for (const [owner, action] of actions.values()) void runAction(ctx, owner, action)
   if (conflicts.length > 0) {
     void runAction(ctx, "core", CONFLICTS_ACTION, conflicts.length === 1 ? { selected: conflicts[0] } : {})
   }
 }
 
-/** Resets `names` of `owner` (all when omitted) to their defaults and runs the change effects. */
-export function resetParams(ctx: ActionContext, owner: string, names?: readonly string[]) {
+/** Resets `names` of `owner` (all when omitted); returns the names whose value changed. */
+function resetOwner(ctx: ActionContext, owner: string, names?: readonly string[]): string[] {
   const before = ctx.store.getState().values[owner] ?? {}
   ctx.store.getState().reset(owner, names)
   const after = ctx.store.getState().values[owner] ?? {}
-  const changed = Object.keys(after).filter((name) => (names ? names.includes(name) : true) && after[name] !== before[name])
-  if (changed.length > 0) runChangeEffects(ctx, owner, changed)
+  return Object.keys(after).filter((name) => (names ? names.includes(name) : true) && after[name] !== before[name])
+}
+
+/** Resets `names` of `owner` (all when omitted) to their defaults and runs the change effects. */
+export function resetParams(ctx: ActionContext, owner: string, names?: readonly string[]) {
+  resetOwners(ctx, [owner], names)
+}
+
+/** Resets every param of `owners` (or `names` of each) and runs the change effects once for all of them. */
+export function resetOwners(ctx: ActionContext, owners: readonly string[], names?: readonly string[]) {
+  const changes = owners.map((owner) => ({ owner, names: resetOwner(ctx, owner, names) })).filter((change) => change.names.length > 0)
+  if (changes.length > 0) runBulkChangeEffects(ctx, changes)
 }

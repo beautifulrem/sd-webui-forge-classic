@@ -456,8 +456,10 @@ def remove_callbacks_for_function(callback_func):
 
 
 def on_app_started(callback, *, name=None):
-    """register a function to be called when the webui started, the gradio `Block` component and
-    fastapi `FastAPI` object are passed as the arguments"""
+    """register a function to be called when the webui started, with `(demo, app)`: `demo` is
+    None (the Gradio UI was removed; it was its `Blocks`), `app` is the FastAPI app. Routes
+    added here get the cross-site (and, on exposed servers, login) checks of
+    `modules.extension_route_guard`."""
     add_callback(callback_map['callbacks_app_started'], callback, name=name, category='app_started')
 
 

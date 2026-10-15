@@ -16,10 +16,17 @@ export type WsEventMap = {
   "job.queued": JobRef & { position?: number }
   "job.started": JobRef & { steps?: number; job_count?: number }
   "job.progress": JobRef & { step: number; steps: number; eta?: number | null; job_no?: number; job_count?: number; text?: string }
-  "job.completed": JobRef & { outputs: JobOutput[]; infotext?: string | null }
-  "job.failed": JobRef & { error: string }
-  "queue.changed": { size?: number }
+  /** `status`: "completed", or "interrupted" / "cancelled" (an interrupted job keeps its results). */
+  "job.completed": JobRef & { outputs: JobOutput[]; infotext?: string | null; status?: string }
+  "job.failed": JobRef & { error: string; status?: string }
+  /** `running`: the job the worker runs now (also sent right after `hello`). */
+  "queue.changed": { size?: number; paused?: boolean; running?: string | null }
   "options.changed": { keys?: string[] }
+  /** A network folder was re-scanned (`kind`: lora, checkpoints, …). */
+  "networks.changed": { kind?: string }
+  /** This client fell behind and lost `dropped` events; a fresh snapshot follows. */
+  resync: { dropped?: number }
+  pong: Record<string, never>
   toast: { level?: ToastLevel; message: string }
   /** A model load in progress; `stage` is free text. `done`, `error` and `failed` end it. */
   "model.loading": { stage: string; model?: string; progress?: number | null }
@@ -51,6 +58,9 @@ const SHAPES: { [K in WsEventType]: Record<string, (v: unknown) => boolean> } = 
   "job.failed": { ...JOB, error: optional(isString) },
   "queue.changed": {},
   "options.changed": { keys: optional(isStringArray) },
+  "networks.changed": { kind: optional(isString) },
+  resync: { dropped: optional(isNumber) },
+  pong: {},
   toast: { message: isString },
   "model.loading": { stage: isString },
   "model.loaded": {},

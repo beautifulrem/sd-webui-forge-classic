@@ -15,7 +15,7 @@ import { t } from "@/i18n"
 import { showToast } from "@/lib/toast"
 import { allFormStores } from "./form-store"
 
-export type UploadInfo = Upload & { url?: string; name?: string; /** ms timestamp of the upload */ at?: number }
+export type UploadInfo = Pick<Upload, "id"> & Partial<Omit<Upload, "id">> & { url?: string; /** ms timestamp of the upload */ at?: number }
 
 type UploadState = { byId: Record<string, UploadInfo> }
 

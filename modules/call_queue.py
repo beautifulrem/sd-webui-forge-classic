@@ -4,10 +4,11 @@ import time
 import traceback
 from functools import wraps
 
-from modules import devices, fifo_lock, profiling, progress, shared
+from modules import devices, fifo_lock, progress, shared
 from modules_forge import main_thread
 
 queue_lock = fifo_lock.FIFOLock()
+"""Serializes GPU work: the jobs worker, ``/sdapi`` generation and GPU actions."""
 
 
 def wrap_queued_call(func):
@@ -119,6 +120,8 @@ def wrap_gradio_call_no_job(func, extra_outputs=None, add_stats=False):
             vram_html = ""
 
         if shared.opts.profiling_enable and os.path.exists(shared.opts.profiling_filename):
+            from modules import profiling  # the legacy UI's profile link (imports Gradio)
+
             profiling_html = f"<p class='profile'> [ <a href='{profiling.webpath()}' download>Profile</a> ] </p>"
         else:
             profiling_html = ""

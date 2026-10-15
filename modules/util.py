@@ -1,3 +1,4 @@
+import html as html_lib
 import os
 import re
 
@@ -12,6 +13,12 @@ def natural_sort_key(s: str, regex=re.compile(r"([0-9]+)")):
 def listfiles(dirname):
     filenames = [os.path.join(dirname, x) for x in sorted(os.listdir(dirname), key=natural_sort_key) if not x.startswith(".")]
     return [file for file in filenames if os.path.isfile(file)]
+
+
+def plaintext_to_html(text, classname=None):
+    content = "<br>\n".join(html_lib.escape(x) for x in text.split("\n"))
+
+    return f"<p class='{classname}'>{content}</p>" if classname else f"<p>{content}</p>"
 
 
 def html_path(filename):

@@ -5,7 +5,8 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
-from modules import devices, images, infotext_utils, scripts, scripts_postprocessing, shared, ui_common
+from modules import devices, images, infotext_utils, scripts, scripts_postprocessing, shared
+from modules.util import plaintext_to_html
 from modules.shared import opts
 
 
@@ -108,7 +109,7 @@ def run_postprocessing(extras_mode, image, image_folder, input_dir, output_dir, 
 
     devices.torch_gc()
     shared.state.end()
-    return outputs, ui_common.plaintext_to_html(infotext), ""
+    return outputs, plaintext_to_html(infotext), ""
 
 
 def run_postprocessing_video(_mode, _img, _folder, _in_dir, _out_dir, _show, video_input, *args, save_output: bool = True):
@@ -167,7 +168,7 @@ def run_postprocessing_video(_mode, _img, _folder, _in_dir, _out_dir, _show, vid
     container.close()
     devices.torch_gc()
     shared.state.end()
-    return outputs[-1:], ui_common.plaintext_to_html(infotext), ""
+    return outputs[-1:], plaintext_to_html(infotext), ""
 
 
 def run_postprocessing_webui(id_task, *args, **kwargs):

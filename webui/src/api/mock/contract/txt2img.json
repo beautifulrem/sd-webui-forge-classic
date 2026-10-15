@@ -50,7 +50,7 @@
      "section": "sampler"
     },
     {
-     "type": "row",
+     "type": "column",
      "children": [
       {
        "type": "section",
@@ -117,7 +117,7 @@
            "type": "slider",
            "name": "hr_second_pass_steps",
            "label": "Hires steps",
-           "default": 0,
+           "default": 32,
            "minimum": 0,
            "maximum": 150,
            "step": 1,
@@ -190,7 +190,8 @@
            "maximum": 24.0,
            "step": 0.5,
            "integer": false,
-           "infotext": "Hires Distilled CFG Scale"
+           "infotext": "Hires Distilled CFG Scale",
+           "visible_if": false
           },
           {
            "type": "slider",
@@ -533,58 +534,68 @@
      "section": "checkboxes"
     },
     {
-     "type": "row",
+     "type": "column",
      "children": [
       {
-       "type": "slider",
-       "name": "width",
-       "label": "Width",
-       "default": 1024,
-       "minimum": 64,
-       "maximum": 2048,
-       "step": 64,
-       "integer": true,
-       "on_change": "hr_resolution",
-       "infotext": "Size-1"
+       "type": "row",
+       "children": [
+        {
+         "type": "slider",
+         "name": "width",
+         "label": "Width",
+         "default": 1024,
+         "minimum": 64,
+         "maximum": 2048,
+         "step": 64,
+         "integer": true,
+         "on_change": "hr_resolution",
+         "infotext": "Size-1"
+        },
+        {
+         "type": "slider",
+         "name": "height",
+         "label": "Height",
+         "default": 1024,
+         "minimum": 64,
+         "maximum": 2048,
+         "step": 64,
+         "integer": true,
+         "on_change": "hr_resolution",
+         "infotext": "Size-2"
+        },
+        {
+         "type": "button",
+         "label": "Switch width/height",
+         "action": "swap_dimensions",
+         "variant": "tool"
+        }
+       ]
       },
       {
-       "type": "slider",
-       "name": "height",
-       "label": "Height",
-       "default": 1024,
-       "minimum": 64,
-       "maximum": 2048,
-       "step": 64,
-       "integer": true,
-       "on_change": "hr_resolution",
-       "infotext": "Size-2"
-      },
-      {
-       "type": "button",
-       "label": "Switch width/height",
-       "action": "swap_dimensions",
-       "variant": "tool"
-      },
-      {
-       "type": "slider",
-       "name": "batch_count",
-       "label": "Batch Count",
-       "default": 1,
-       "minimum": 1,
-       "maximum": 128,
-       "step": 1,
-       "integer": true
-      },
-      {
-       "type": "slider",
-       "name": "batch_size",
-       "label": "Batch Size",
-       "default": 1,
-       "minimum": 1,
-       "maximum": 8,
-       "step": 1,
-       "integer": true,
-       "infotext": "Batch size"
+       "type": "row",
+       "children": [
+        {
+         "type": "slider",
+         "name": "batch_count",
+         "label": "Batch Count",
+         "default": 1,
+         "minimum": 1,
+         "maximum": 128,
+         "step": 1,
+         "integer": true
+        },
+        {
+         "type": "slider",
+         "name": "batch_size",
+         "label": "Batch Size",
+         "default": 1,
+         "minimum": 1,
+         "maximum": 8,
+         "step": 1,
+         "integer": true,
+         "infotext": "Batch size"
+        }
+       ]
       },
       {
        "type": "slot",
@@ -605,7 +616,8 @@
        "step": 0.5,
        "integer": false,
        "infotext": "Distilled CFG Scale",
-       "preset": "native.distilled_cfg"
+       "preset": "native.distilled_cfg",
+       "visible_if": false
       },
       {
        "type": "slider",
@@ -691,7 +703,7 @@
    "styles": [],
    "enable_hr": false,
    "hr_upscaler": "Latent",
-   "hr_second_pass_steps": 0,
+   "hr_second_pass_steps": 32,
    "denoising_strength": 0.6,
    "hr_scale": 2.0,
    "hr_resize_x": 0,
@@ -839,7 +851,7 @@
       "type": "choice",
       "name": "sampler_name",
       "label": "Sampling Method",
-      "default": "DPM++ 2M",
+      "default": "Euler a",
       "choices": [
        {
         "value": "DPM++ 2M",
@@ -1045,7 +1057,7 @@
       "type": "slider",
       "name": "steps",
       "label": "Sampling Steps",
-      "default": 20,
+      "default": 32,
       "minimum": 1,
       "maximum": 150,
       "step": 1,
@@ -1056,8 +1068,8 @@
     ]
    },
    "defaults": {
-    "steps": 20,
-    "sampler_name": "DPM++ 2M",
+    "steps": 32,
+    "sampler_name": "Euler a",
     "scheduler": "Automatic"
    },
    "args": [

@@ -107,8 +107,8 @@ def validate_tls_options():
 
 def get_gradio_auth_creds():
     """
-    Convert the gradio_auth and gradio_auth_path commandline arguments into
-    an iterable of (username, password) tuples.
+    Convert the --auth (--gradio-auth) and --auth-file (--gradio-auth-path)
+    commandline arguments into an iterable of (username, password) tuples.
     """
     from modules.shared_cmd_options import cmd_opts
 
@@ -182,10 +182,8 @@ def clear_references():
 
 
 def configure_opts_onchange():
-    from modules import shared, ui_tempdir
+    from modules import shared
 
-    shared.opts.onchange("temp_dir", ui_tempdir.on_tmpdir_changed)
-    shared.opts.onchange("gradio_theme", shared.reload_gradio_theme)
     shared.opts.onchange("setting_allocated_vram", reserve_memory)
     shared.opts.onchange("klein_do_reference", clear_references)
     shared.opts.onchange("anima_do_reference", clear_references)
@@ -193,10 +191,30 @@ def configure_opts_onchange():
     startup_timer.record("opts onchange")
 
 
-def setup_middleware(app):
-    from starlette.middleware.gzip import GZipMiddleware
+UNCOMPRESSED_PATHS = ("/api/v2/files/", "/api/v2/thumbs/")
+"""Already compressed media (images, videos): not worth gzipping."""
 
-    app.user_middleware.insert(0, starlette.middleware.Middleware(GZipMiddleware, minimum_size=1000))
+
+class GZipExceptMedia:
+    """``GZipMiddleware``, except for :data:`UNCOMPRESSED_PATHS`."""
+
+    def __init__(self, app, minimum_size: int = 1000):
+        from starlette.middleware.gzip import GZipMiddleware
+
+        self.app = app
+        self.gzip = GZipMiddleware(app, minimum_size=minimum_size)
+
+    async def __call__(self, scope, receive, send):
+        from starlette._utils import get_route_path
+
+        if scope["type"] == "http" and get_route_path(scope).startswith(UNCOMPRESSED_PATHS):
+            await self.app(scope, receive, send)
+        else:
+            await self.gzip(scope, receive, send)
+
+
+def setup_middleware(app):
+    app.user_middleware.insert(0, starlette.middleware.Middleware(GZipExceptMedia, minimum_size=1000))
     configure_cors_middleware(app)
     app.build_middleware_stack()  # rebuild middleware stack on-the-fly
 

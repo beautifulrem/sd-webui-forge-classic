@@ -8,7 +8,7 @@ describe("splitResponse", () => {
       "core.steps": { value: 40, maximum: 80 },
       __toast__: { level: "success", message: "ok" },
       __outputs__: { status: "done" },
-      __options__: { sd_vae: "Automatic" },
+      __settings__: { sd_vae: "Automatic" },
       __future__: { anything: true },
       broken: "not an object",
     })
@@ -18,7 +18,7 @@ describe("splitResponse", () => {
     ])
     expect(split.toast).toEqual({ level: "success", message: "ok" })
     expect(split.outputs).toEqual({ status: "done" })
-    expect(split.options).toEqual({ sd_vae: "Automatic" })
+    expect(split.settings).toEqual({ sd_vae: "Automatic" })
   })
 
   it("tolerates empty and malformed responses", () => {

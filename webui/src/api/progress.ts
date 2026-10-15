@@ -46,6 +46,8 @@ type ProgressState = {
   completed: (e: WsEventMap["job.completed"]) => void
   failed: (e: WsEventMap["job.failed"]) => void
   setModelLoading: (e: WsEventMap["model.loading"] | null) => void
+  /** The server runs `jobId` (null: nothing): forgets a running job it no longer runs (missed events). */
+  syncRunning: (jobId: string | null) => void
 }
 
 function capped<T>(record: Record<string, T>): Record<string, T> {
@@ -94,6 +96,7 @@ export const useProgress = create<ProgressState>()((set) => {
     completed: (e) => finish({ jobId: e.job_id, outputs: e.outputs ?? [], infotext: e.infotext }),
     failed: (e) => finish({ jobId: e.job_id, outputs: [], error: e.error }),
     setModelLoading: (modelLoading) => set({ modelLoading }),
+    syncRunning: (jobId) => set((s) => (s.running && s.running.jobId !== jobId ? { running: null } : s)),
   }
 })
 

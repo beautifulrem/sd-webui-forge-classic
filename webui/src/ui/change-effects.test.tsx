@@ -1,8 +1,10 @@
-/** Actions wired to edits: on_change (debounced), conflict locks, scripts context, bulk resets, __options__, stale drops. */
+/** Actions wired to edits: on_change (debounced), conflict locks, scripts context, bulk resets, __settings__, stale drops. */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { actionRequest, resetParams, runAction } from "./actions"
+import { keys, queryClient } from "@/api/queries"
+import type { Bootstrap } from "@/api/types"
+import { actionRequest, resetOwners, runAction } from "./actions"
 import { createFormStore, type FormStore } from "./form-store"
 import { TabForm } from "./SchemaForm"
 import type { TabSchema } from "./schema"
@@ -171,21 +173,21 @@ describe("on_change", () => {
       store.getState().setValue("core", "enable_hr", true)
       store.getState().setValue("sampler", "sampler_name", "LCM")
     })
-    act(() => {
-      for (const owner of ["core", "sampler"]) resetParams({ store, tab: "txt2img" }, owner)
-    })
-    await waitFor(() => expect(calls.filter((c) => c.path.endsWith("__conflicts__"))).toHaveLength(2))
+    act(() => resetOwners({ store, tab: "txt2img" }, ["core", "sampler"]))
+    await waitFor(() => expect(calls.filter((c) => c.path.endsWith("__conflicts__"))).toHaveLength(1))
+    expect(calls.find((c) => c.path.endsWith("__conflicts__"))!.body.selected).toBeUndefined()
   })
 })
 
 describe("action responses", () => {
-  it("apply __options__ with PATCH /options", async () => {
-    const calls = mockServer({ "/actions/core/__forge_preset__": { __options__: { forge_preset: "xl" } }, "/options": { values: {} } })
+  it("take __settings__ into the cached options without writing them back", async () => {
+    const calls = mockServer({ "/actions/core/__forge_preset__": { __settings__: { forge_preset: "xl" } } })
+    queryClient.setQueryData(keys.app, { options: { forge_preset: "sd" } } as unknown as Bootstrap)
     const store = createFormStore("opt", { persistDrafts: false })
     await runAction({ store, tab: "txt2img" }, "core", "__forge_preset__", { preset: "xl" })
-    await waitFor(() => expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /actions/core/__forge_preset__", "PATCH /options"]))
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /actions/core/__forge_preset__"])
     expect(calls[0]!.body.preset).toBe("xl")
-    expect(calls[1]!.body).toEqual({ forge_preset: "xl" })
+    expect(queryClient.getQueryData<Bootstrap>(keys.app)?.options.forge_preset).toBe("xl")
   })
 
   it("drop a response overtaken by a newer call of the same action", async () => {

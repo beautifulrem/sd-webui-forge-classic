@@ -21,7 +21,6 @@ from __future__ import annotations
 import base64
 import binascii
 import ipaddress
-import os
 import re
 import sys
 from hmac import compare_digest
@@ -66,17 +65,12 @@ def _is_loopback_name(hostname: str) -> bool:
         return False
 
 
-def _bind_host(cmd_opts) -> str | None:
-    """The address the server listens on; None for all interfaces."""
-    from modules.initialize_util import gradio_server_name
+def _bind_host(cmd_opts) -> str:
+    """The address the server listens on (the server's own choice, with or
+    without --nowebui)."""
+    from remi.server.launch import bind_host
 
-    host = gradio_server_name()  # what webui.py passes to Gradio / uvicorn
-    if host:
-        return host
-    if getattr(cmd_opts, "nowebui", False):
-        return None  # uvicorn binds every interface for host=None
-    # Gradio's own fallback (gradio/http_server.py)
-    return os.environ.get("GRADIO_SERVER_NAME", "127.0.0.1")
+    return bind_host(cmd_opts)
 
 
 def _is_loopback_only(cmd_opts) -> bool:

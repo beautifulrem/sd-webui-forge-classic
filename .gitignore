@@ -32,3 +32,5 @@ __pycache__
 /webui-user.sh
 /webui.settings.sh
 notification.mp3
+/.remi-workflows
+/remi-data

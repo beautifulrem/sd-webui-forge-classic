@@ -1,4 +1,5 @@
 import { renderHook } from "@testing-library/react"
+import { toast } from "sonner"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useProgress } from "@/api/progress"
 import { queryClient } from "@/api/queries"
@@ -32,7 +33,20 @@ describe("ws-bridge", () => {
     const { hook, send } = await connected()
     send({ type: "options.changed", keys: ["ui_reorder_list"] })
     const keys = invalidate.mock.calls.map(([filters]) => filters?.queryKey)
-    expect(keys).toEqual(expect.arrayContaining([["schema"], ["page"], ["options"], ["app"]]))
+    expect(keys).toEqual(expect.arrayContaining([["schema"], ["page"], ["options"], ["app"], ["models"], ["styles"]]))
+    hook.unmount()
+  })
+
+  it("refetches networks on a rescan and everything after a resync", async () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue()
+    const { hook, send } = await connected()
+    send({ type: "networks.changed", kind: "lora" })
+    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual(expect.arrayContaining([["networks"], ["models"]]))
+    invalidate.mockClear()
+    send({ type: "pong" })
+    expect(invalidate).not.toHaveBeenCalled()
+    send({ type: "resync", dropped: 300 })
+    expect(invalidate).toHaveBeenCalledWith()
     hook.unmount()
   })
 
@@ -73,6 +87,32 @@ describe("ws-bridge", () => {
     send({ type: "model.loading", stage: "Loading weights" })
     vi.advanceTimersByTime(MODEL_LOADING_TIMEOUT_MS + 1)
     expect(loading()).toBeNull()
+    hook.unmount()
+  })
+
+  it("drops the progress of a job the server no longer runs (missed events)", async () => {
+    vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue()
+    const { hook, send } = await connected()
+    send({ type: "job.progress", job_id: "j1", seq: 1, step: 3, steps: 8 })
+    send({ type: "queue.changed", size: 0, running: "j1" })
+    expect(useProgress.getState().running?.jobId).toBe("j1")
+    // After a reconnect the snapshot says nothing runs any more.
+    send({ type: "hello", features: [] })
+    send({ type: "queue.changed", size: 0, paused: false, running: null })
+    expect(useProgress.getState().running).toBeNull()
+    hook.unmount()
+  })
+
+  it("does not report a cancelled or interrupted job as failed", async () => {
+    vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue()
+    const error = vi.spyOn(toast, "error").mockReturnValue(0)
+    const { hook, send } = await connected()
+    useProgress.getState().track("c1", "txt2img")
+    useProgress.getState().track("f1", "txt2img")
+    send({ type: "job.failed", job_id: "c1", status: "cancelled", error: "Cancelled" })
+    expect(error).not.toHaveBeenCalled()
+    send({ type: "job.failed", job_id: "f1", status: "failed", error: "CUDA out of memory" })
+    expect(error).toHaveBeenCalledTimes(1)
     hook.unmount()
   })
 })

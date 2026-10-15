@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -17,12 +17,15 @@ class JobContext:
     ``resolve_upload`` turns upload ids into PIL images / file paths (the
     jobs layer's upload store; batch inputs should carry their original file
     name as ``image.filename``); ``extra`` carries anything the caller wants
-    the processing object to see (set as attributes on ``p``)."""
+    the processing object to see (set as attributes on ``p``); ``on_begin``
+    runs right after ``shared.state.begin()`` (the queue re-applies an
+    interrupt or skip that arrived before the job started)."""
 
     id_task: str = ""
     user: str | None = None
     resolve_upload: UploadResolver | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    on_begin: Callable[[], None] | None = None
 
     def context(self) -> Context:
         return Context(resolve_upload=self.resolve_upload)
@@ -42,6 +45,8 @@ def job_state(job: JobContext) -> Iterator[None]:
     shared.state.begin(job=job.id_task or "(remi)")
     progress.start_task(id_task)
     try:
+        if job.on_begin is not None:
+            job.on_begin()
         yield
     finally:
         progress.finish_task(id_task)

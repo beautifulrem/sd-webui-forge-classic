@@ -304,13 +304,20 @@
          "default": null,
          "kind": "mask",
          "source": "init_img",
-         "mode": "RGBA",
          "visible_if": {
           "param": "mode",
-          "in": [
-           "Inpaint",
-           "Inpaint upload"
-          ]
+          "eq": "Inpaint"
+         }
+        },
+        {
+         "type": "image",
+         "name": "mask_upload",
+         "label": "Mask",
+         "default": null,
+         "kind": "mask",
+         "visible_if": {
+          "param": "mode",
+          "eq": "Inpaint upload"
          }
         },
         {
@@ -472,7 +479,7 @@
      "section": "sampler"
     },
     {
-     "type": "row",
+     "type": "column",
      "children": [
       {
        "type": "slot",
@@ -485,7 +492,7 @@
      "section": "checkboxes"
     },
     {
-     "type": "row",
+     "type": "column",
      "children": [
       {
        "type": "choice",
@@ -516,32 +523,37 @@
          "value": "Resize to",
          "children": [
           {
-           "type": "slider",
-           "name": "width",
-           "label": "Width",
-           "default": 1024,
-           "minimum": 64,
-           "maximum": 2048,
-           "step": 64,
-           "integer": true,
-           "infotext": "Size-1"
-          },
-          {
-           "type": "slider",
-           "name": "height",
-           "label": "Height",
-           "default": 1024,
-           "minimum": 64,
-           "maximum": 2048,
-           "step": 64,
-           "integer": true,
-           "infotext": "Size-2"
-          },
-          {
-           "type": "button",
-           "label": "Switch width/height",
-           "action": "swap_dimensions",
-           "variant": "tool"
+           "type": "row",
+           "children": [
+            {
+             "type": "slider",
+             "name": "width",
+             "label": "Width",
+             "default": 1024,
+             "minimum": 64,
+             "maximum": 2048,
+             "step": 64,
+             "integer": true,
+             "infotext": "Size-1"
+            },
+            {
+             "type": "slider",
+             "name": "height",
+             "label": "Height",
+             "default": 1024,
+             "minimum": 64,
+             "maximum": 2048,
+             "step": 64,
+             "integer": true,
+             "infotext": "Size-2"
+            },
+            {
+             "type": "button",
+             "label": "Switch width/height",
+             "action": "swap_dimensions",
+             "variant": "tool"
+            }
+           ]
           }
          ]
         },
@@ -570,25 +582,30 @@
        ]
       },
       {
-       "type": "slider",
-       "name": "batch_count",
-       "label": "Batch Count",
-       "default": 1,
-       "minimum": 1,
-       "maximum": 128,
-       "step": 1,
-       "integer": true
-      },
-      {
-       "type": "slider",
-       "name": "batch_size",
-       "label": "Batch Size",
-       "default": 1,
-       "minimum": 1,
-       "maximum": 8,
-       "step": 1,
-       "integer": true,
-       "infotext": "Batch size"
+       "type": "row",
+       "children": [
+        {
+         "type": "slider",
+         "name": "batch_count",
+         "label": "Batch Count",
+         "default": 1,
+         "minimum": 1,
+         "maximum": 128,
+         "step": 1,
+         "integer": true
+        },
+        {
+         "type": "slider",
+         "name": "batch_size",
+         "label": "Batch Size",
+         "default": 1,
+         "minimum": 1,
+         "maximum": 8,
+         "step": 1,
+         "integer": true,
+         "infotext": "Batch size"
+        }
+       ]
       },
       {
        "type": "slot",
@@ -609,7 +626,8 @@
        "step": 0.5,
        "integer": false,
        "infotext": "Distilled CFG Scale",
-       "preset": "native.distilled_cfg"
+       "preset": "native.distilled_cfg",
+       "visible_if": false
       },
       {
        "type": "slider",
@@ -738,6 +756,7 @@
    "init_img": null,
    "sketch": null,
    "mask": null,
+   "mask_upload": null,
    "resize_mode": "Crop and Resize",
    "mask_blur": 4,
    "inpainting_mask_invert": "Inpaint masked",
@@ -881,7 +900,7 @@
       "type": "choice",
       "name": "sampler_name",
       "label": "Sampling Method",
-      "default": "DPM++ 2M",
+      "default": "Euler a",
       "choices": [
        {
         "value": "DPM++ 2M",
@@ -1087,7 +1106,7 @@
       "type": "slider",
       "name": "steps",
       "label": "Sampling Steps",
-      "default": 20,
+      "default": 32,
       "minimum": 1,
       "maximum": 150,
       "step": 1,
@@ -1098,8 +1117,8 @@
     ]
    },
    "defaults": {
-    "steps": 20,
-    "sampler_name": "DPM++ 2M",
+    "steps": 32,
+    "sampler_name": "Euler a",
     "scheduler": "Automatic"
    },
    "args": [

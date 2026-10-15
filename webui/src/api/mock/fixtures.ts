@@ -6,7 +6,7 @@
  * the backend by `tools/dump_schemas.py`): sampler and seed are scripts placed
  * by slots, Hires. fix is a core section whose toggle is a conflict param.
  */
-import type { Bootstrap, Models, PageSchema } from "@/api/types"
+import type { Bootstrap, Models, PageSchema, PromptStyle } from "@/api/types"
 import type { ChoiceOption, Node, ScriptSchema, TabSchema } from "@/ui/schema"
 
 const options = (values: string[]): ChoiceOption[] => values.map((value) => ({ value, label: value }))
@@ -38,23 +38,18 @@ function coreLayout(tab: "txt2img" | "img2img"): Node {
   const img2img: Node[] =
     tab === "img2img"
       ? [
+          // Like the real form: the mode strip selects which layers the canvas edits over `init_img`.
+          { type: "choice", name: "mode", label: "Mode", choices: options(["img2img", "Inpaint"]), style: "radio", hidden: true },
           {
             type: "tabs",
             bind: "mode",
             children: [
-              {
-                type: "tab",
-                title: "img2img",
-                value: "img2img",
-                children: [{ type: "image", name: "init_image", label: "Source image", kind: "image" }],
-              },
+              { type: "tab", title: "img2img", value: "img2img", children: [] },
               {
                 type: "tab",
                 title: "Inpaint",
-                value: "inpaint",
+                value: "Inpaint",
                 children: [
-                  { type: "image", name: "inpaint_image", label: "Image", kind: "image" },
-                  { type: "image", name: "mask", label: "Mask", kind: "mask", source: "inpaint_image", mode: "L" },
                   {
                     type: "slider",
                     name: "mask_blur",
@@ -68,7 +63,8 @@ function coreLayout(tab: "txt2img" | "img2img"): Node {
               },
             ],
           },
-          { type: "choice", name: "mode", label: "Mode", choices: options(["img2img", "inpaint"]), style: "radio", hidden: true },
+          { type: "image", name: "init_img", label: "Image for img2img", kind: "image" },
+          { type: "image", name: "mask", label: "Mask", kind: "mask", source: "init_img", visible_if: { param: "mode", eq: "Inpaint" } },
           {
             type: "slider",
             name: "denoising_strength",
@@ -86,6 +82,7 @@ function coreLayout(tab: "txt2img" | "img2img"): Node {
     children: [
       { type: "text", name: "prompt", label: "Prompt", lines: 3, max_lines: 12, prompt: true, placeholder: "Prompt (Ctrl+Enter to generate)" },
       { type: "text", name: "negative_prompt", label: "Negative prompt", lines: 2, max_lines: 8, prompt: true, placeholder: "Negative prompt" },
+      { type: "multichoice", name: "styles", label: "Styles", choices: styles.map((style) => ({ value: style.name, label: style.name })) },
       ...img2img,
       { type: "slot", section: "sampler" },
       {
@@ -200,10 +197,11 @@ function coreDefaults(tab: "txt2img" | "img2img") {
     batch_count: 1,
     batch_size: 1,
     cfg_scale: 5,
+    styles: [],
     script: "None",
     ...(tab === "txt2img"
       ? { enable_hr: false, hr_upscaler: "Latent", hr_second_pass_steps: 0, denoising_strength: 0.7, hr_scale: 2, hr_prompt: "", hr_negative_prompt: "" }
-      : { mode: "img2img", init_image: null, inpaint_image: null, mask: null, mask_blur: 4, denoising_strength: 0.75 }),
+      : { mode: "img2img", init_img: null, mask: null, mask_blur: 4, denoising_strength: 0.75 }),
   }
 }
 
@@ -623,27 +621,74 @@ export const bootstrap: Bootstrap = {
   locale: null,
   options: {
     sd_model_checkpoint: "animagine-xl-4.0.safetensors [a1b2c3]",
+    forge_preset: "xl",
+    forge_additional_modules: [],
+    forge_unet_storage_dtype: "Automatic",
     keyedit_precision_attention: 0.1,
     keyedit_precision_extra: 0.05,
     keyedit_move: true,
+    ctrl_enter_interrupt: false,
+    show_progress_in_title: true,
+    prevent_screen_sleep_during_generation: true,
+    notification_volume: 60,
+    js_modal_lightbox: true,
+    js_modal_lightbox_initially_zoomed: false,
+    js_live_preview_in_modal_lightbox: true,
+    send_seed: true,
+    send_size: true,
   },
-  models: { checkpoint: "animagine-xl-4.0.safetensors [a1b2c3]", vae: "Automatic" },
+  models: { checkpoint: "animagine-xl-4.0.safetensors [a1b2c3]", vae: "Automatic", text_encoders: [], modules: [] },
+  not_ported: [],
+  auth: { required: false },
+  queue: { size: 0, paused: false, running: null },
+  user_assets: [],
 }
 
+const GB = 1024 ** 3
+
 export const models: Models = {
-  checkpoints: [
-    "animagine-xl-4.0.safetensors [a1b2c3]",
-    "noobai-xl-vpred-1.0.safetensors [d4e5f6]",
-    "illustrious-xl-v2.safetensors [0718aa]",
-    "anima-preview.safetensors [99c0de]",
-    "flux1-dev-fp8.safetensors [5e1f00]",
-  ].map((title) => ({ name: title.replace(/ \[.*\]$/, ""), title })),
+  checkpoints: (
+    [
+      ["animagine-xl-4.0.safetensors [a1b2c3]", "xl", 6.46],
+      ["noobai-xl-vpred-1.0.safetensors [d4e5f6]", "xl", 6.62],
+      ["illustrious-xl-v2.safetensors [0718aa]", "xl", 6.46],
+      ["anima-preview.safetensors [99c0de]", "anima", 3.9],
+      ["flux1-dev-fp8.safetensors [5e1f00]", "flux", 11.1],
+    ] as const
+  ).map(([title, arch, size]) => ({ name: title.replace(/ \[.*\]$/, ""), title, arch, size: Math.round(size * GB) })),
   vae: [{ name: "Automatic" }, { name: "sdxl_vae.safetensors" }],
   text_encoders: [{ name: "clip_l.safetensors" }, { name: "t5xxl_fp8.safetensors" }],
-  samplers: SAMPLERS.map((s) => ({ name: String(s.value) })),
+  modules: [
+    { name: "sdxl_vae.safetensors", size: Math.round(0.31 * GB) },
+    { name: "ae.safetensors", size: Math.round(0.31 * GB) },
+    { name: "qwen_image_vae.safetensors", size: Math.round(0.24 * GB) },
+    { name: "clip_l.safetensors", size: Math.round(0.23 * GB) },
+    { name: "t5xxl_fp8_e4m3fn.safetensors", size: Math.round(4.6 * GB) },
+    { name: "qwen_3_06b_base.safetensors", size: Math.round(1.1 * GB) },
+  ],
+  unet_dtypes: [
+    "Automatic",
+    "Automatic (fp16 LoRA)",
+    "float8-e4m3fn",
+    "float8-e4m3fn (fp16 LoRA)",
+    "float8-e5m2",
+    "float8-e5m2 (fp16 LoRA)",
+    "float8-e4m3fn (Anima scaled)",
+    "int8 (Anima ConvRot)",
+  ],
+  presets: ["sd", "xl", "flux", "klein", "qwen", "lumina", "zit", "wan", "anima", "ernie", "pid", "krea", "qwen21"],
+  samplers: SAMPLERS.map((s) => ({ name: String(s.value), aliases: [] })),
   schedulers: SCHEDULERS.map((s) => ({ name: String(s.value) })),
   upscalers: [{ name: "Latent" }, { name: "R-ESRGAN 4x+" }],
+  styles: [],
 }
+
+/** styles.csv in mock mode. */
+export const styles: PromptStyle[] = [
+  { name: "Anime quality", prompt: "masterpiece, best quality, {prompt}, very aesthetic", negative_prompt: "lowres, worst quality, bad anatomy" },
+  { name: "Watercolor", prompt: "watercolor (medium), soft colors", negative_prompt: "photorealistic" },
+  { name: "Cinematic", prompt: "cinematic lighting, depth of field, film grain", negative_prompt: "" },
+]
 
 /** A sample of the server catalog for zh_CN (schema labels). */
 export const serverCatalogZh: Record<string, string> = {

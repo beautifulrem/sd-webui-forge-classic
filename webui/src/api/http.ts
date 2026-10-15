@@ -1,12 +1,24 @@
 /**
- * Low-level HTTP transport for /api/v2. Everything above this file deals in
- * typed functions (see `endpoints.ts`), so an OpenAPI-generated client can
- * replace those functions without touching callers.
+ * HTTP transport for /api/v2: the typed client generated from the server's
+ * /openapi.json (`gen/schema.d.ts`, `pnpm gen:api`) and the error mapping.
+ * Callers use the functions in `endpoints.ts`, never URLs.
  */
-
+import createClient from "openapi-fetch"
 import type { ValidationError } from "@/ui/schema"
+import type { paths } from "./gen/schema"
 
-export const API_BASE = "/api/v2"
+declare global {
+  interface Window {
+    /** The server's root path under `--subpath` (index.html sets it; absent at the root). */
+    __REMI_ROOT__?: string
+  }
+}
+
+/** The app's mount path ("" at the server root, "/sd" under `--subpath /sd`). */
+export const ROOT = (typeof window === "undefined" ? "" : (window.__REMI_ROOT__ ?? "")).replace(/\/+$/, "")
+
+/** Path prefix of every API request (also the WebSocket's). */
+export const API_BASE = `${ROOT}/api/v2`
 
 /** Set at build time: `VITE_MOCK=1 pnpm dev` serves fixtures instead of the server. */
 export const MOCK = import.meta.env.VITE_MOCK === "1"
@@ -26,24 +38,21 @@ export class ApiError extends Error {
 
 export type Query = Record<string, string | number | boolean | null | undefined>
 
-export type RequestOptions = {
-  query?: Query
-  /** JSON body (serialised) or FormData (sent as multipart). */
-  body?: unknown
-  signal?: AbortSignal
-}
-
+/** An API URL for `<img>`, `<a>` and `<audio>` (`path` is relative to /api/v2). */
 export function apiUrl(path: string, query?: Query): string {
   let url = `${API_BASE}${path}`
-  if (query) {
-    const params = new URLSearchParams()
-    for (const [key, value] of Object.entries(query)) {
-      if (value !== undefined && value !== null && value !== "") params.set(key, String(value))
-    }
-    const qs = params.toString()
-    if (qs) url += `?${qs}`
-  }
+  const qs = query ? new URLSearchParams(compactQuery(query)).toString() : ""
+  if (qs) url += `?${qs}`
   return url
+}
+
+/** Drops unset query values (`undefined`, `null`, `""`) and stringifies the rest. */
+function compactQuery(query: Query): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null && value !== "") out[key] = String(value)
+  }
+  return out
 }
 
 async function transport(request: Request): Promise<Response> {
@@ -51,7 +60,34 @@ async function transport(request: Request): Promise<Response> {
     const { handleMockRequest } = await import("./mock/server")
     return handleMockRequest(request)
   }
-  return fetch(request)
+  const response = await fetch(request)
+  // The session expired or the server now requires a login: the shell serves the login page.
+  if (response.status === 401 && !request.url.includes("/auth/")) onUnauthorized()
+  return response
+}
+
+let reloading = false
+function onUnauthorized() {
+  if (reloading || typeof location === "undefined") return
+  reloading = true
+  location.reload()
+}
+
+/** The generated, path-typed client. Paths are the server's (`/api/v2/...`); `ROOT` is the base URL. */
+export const client = createClient<paths>({
+  baseUrl: typeof location === "undefined" ? ROOT : `${location.origin}${ROOT}`,
+  headers: { Accept: "application/json" },
+  fetch: transport,
+  querySerializer: (query) => new URLSearchParams(compactQuery((query ?? {}) as Query)).toString(),
+})
+
+type Result<T> = { data?: T; error?: unknown; response: Response }
+
+/** The data of a generated-client call, or an `ApiError` for any non-2xx answer. */
+export async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
+  const { data, error, response } = await call
+  if (!response.ok) throw new ApiError(response.status, errorMessage(response.status, error), error)
+  return data as T
 }
 
 function isValidationError(value: unknown): value is ValidationError {
@@ -88,32 +124,4 @@ function errorMessage(status: number, payload: unknown): string {
   }
   if (typeof payload === "string" && payload) return payload
   return `HTTP ${status}`
-}
-
-export async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
-  const { query, body, signal } = options
-  const headers = new Headers({ Accept: "application/json" })
-  let payload: BodyInit | undefined
-  if (body instanceof FormData) {
-    payload = body
-  } else if (body !== undefined) {
-    headers.set("Content-Type", "application/json")
-    payload = JSON.stringify(body)
-  }
-
-  const url = new URL(apiUrl(path, query), location.href)
-  const response = await transport(new Request(url, { method, headers, body: payload, signal }))
-  const isJson = response.headers.get("Content-Type")?.includes("application/json")
-  const data: unknown = response.status === 204 ? undefined : isJson ? await response.json() : await response.text()
-  if (!response.ok) throw new ApiError(response.status, errorMessage(response.status, data), data)
-  return data as T
-}
-
-export const http = {
-  get: <T>(path: string, options?: Omit<RequestOptions, "body">) => request<T>("GET", path, options),
-  post: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, "body">) =>
-    request<T>("POST", path, { ...options, body }),
-  patch: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, "body">) =>
-    request<T>("PATCH", path, { ...options, body }),
-  delete: <T>(path: string, options?: Omit<RequestOptions, "body">) => request<T>("DELETE", path, options),
 }

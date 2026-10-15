@@ -201,8 +201,10 @@ def test_bind_address_follows_what_gradio_and_uvicorn_do(monkeypatch):
     monkeypatch.setenv("GRADIO_SERVER_NAME", "127.0.0.1")
     assert is_rebound_host(_get("192.168.1.5:7860"))
 
-    # --nowebui: uvicorn gets host=None and listens on every interface
+    # --nowebui binds loopback too (remi.server.launch.bind_host): rebinding is refused
     _guard_options(monkeypatch, nowebui=True)
+    assert is_rebound_host(_get("evil.example:7861"))
+    _guard_options(monkeypatch, nowebui=True, listen=True)
     assert not is_rebound_host(_get("192.168.1.5:7861"))
     _guard_options(monkeypatch, share=True)
     assert not is_rebound_host(_get("abc.gradio.live"))

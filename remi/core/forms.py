@@ -271,11 +271,12 @@ def txt2img_form(runner: ScriptRunner | None = None) -> ui.Node:
         if category == "prompt":
             sections.append(_prompts("txt2img"))
         elif category == "dimensions":
-            sections.append(ui.Row(*_size("txt2img"), *(_batch() if together else ()), ui.Slot(category)))
+            sections.append(ui.Column(ui.Row(*_size("txt2img")), ui.Row(*_batch()) if together else None, ui.Slot(category)))
         elif category == "cfg":
             sections.append(ui.Row(*_cfg("txt2img"), ui.Slot(category)))
         elif category == "accordions":
-            sections.append(ui.Row(_hires_fix(), ui.Slot(category)))
+            # stacked, like the Gradio accordions row (each panel spans the form)
+            sections.append(ui.Column(_hires_fix(), ui.Slot(category)))
         elif category == "batch":
             sections.append(ui.Row(*(() if together else _batch()), ui.Slot(category)))
         elif category == "override_settings":
@@ -365,14 +366,14 @@ def img2img_form(runner: ScriptRunner | None = None) -> ui.Node:
             sections.append(ui.Group(_img2img_inpaint(), ui.Slot(category)))
         elif category == "dimensions":
             sections.append(
-                ui.Row(
+                ui.Column(
                     ui.Choice("resize_tab", RESIZE_TABS, "Resize to", type="index", label="Resize", hidden=True),
                     ui.Tabs(
-                        ui.Tab("Resize to", *_size("img2img"), value="Resize to"),
+                        ui.Tab("Resize to", ui.Row(*_size("img2img")), value="Resize to"),
                         ui.Tab("Resize by", ui.Slider("scale_by", 0.5, 4.0, 1.0, 0.05, label="Scale"), ui.Output("scale_by_resolution", "html"), value="Resize by"),
                         bind="resize_tab",
                     ),
-                    *(_batch() if together else ()),
+                    ui.Row(*_batch()) if together else None,
                     ui.Slot(category),
                 )
             )
@@ -381,7 +382,7 @@ def img2img_form(runner: ScriptRunner | None = None) -> ui.Node:
         elif category == "denoising":
             sections.append(ui.Group(ui.Slider("denoising_strength", 0.0, 1.0, 0.6, 0.01, label="Denoising Strength", infotext="Denoising strength"), ui.Slot(category)))
         elif category == "accordions":
-            sections.append(ui.Row(ui.Slot(category)))
+            sections.append(ui.Column(ui.Slot(category)))
         elif category == "batch":
             sections.append(ui.Row(*(() if together else _batch()), ui.Slot(category)))
         elif category == "override_settings":

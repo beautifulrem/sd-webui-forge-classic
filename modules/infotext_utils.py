@@ -254,7 +254,7 @@ def send_image_and_dimensions(x) -> tuple[Image.Image, int, int]:
     if img.mode != "RGB":
         img = img.convert("RGB")
 
-    from modules.ui import sRound
+    from modules.processing import sRound
 
     if shared.opts.send_size and isinstance(img, Image.Image):
         w = sRound(img.width)

@@ -12,7 +12,7 @@ import i18next from "i18next"
 import { initReactI18next } from "react-i18next"
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
-import { http } from "@/api/http"
+import { api } from "@/api/endpoints"
 
 export const DEFAULT_LOCALE = "en"
 
@@ -82,7 +82,7 @@ async function loadChrome(locale: string): Promise<Record<string, string>> {
 
 async function loadServer(locale: string): Promise<Record<string, string>> {
   try {
-    return await http.get<Record<string, string>>(`/i18n/${encodeURIComponent(toServerLocale(locale))}`)
+    return await api.i18n(toServerLocale(locale))
   } catch (error) {
     console.warn(`[i18n] server catalog for ${locale} unavailable`, error)
     return {}

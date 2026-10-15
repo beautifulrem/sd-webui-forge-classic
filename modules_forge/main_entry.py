@@ -1,11 +1,10 @@
+from __future__ import annotations
+
 import logging
 import os.path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
-import gradio as gr
 import torch
-from gradio.context import Context
-from gradio.events import Dependency
 from rich import print_json
 
 from backend.logging import setup_logger
@@ -18,9 +17,12 @@ from modules import (
     sd_models,
     shared,
     shared_items,
-    ui_common,
 )
 from modules_forge.presets import PresetArch, is_video, use_distill, use_shift
+
+if TYPE_CHECKING:  # Gradio is only needed by the legacy model bar below
+    import gradio as gr
+    from gradio.events import Dependency
 
 logger = logging.getLogger("ui_models")
 setup_logger(logger)
@@ -58,6 +60,11 @@ module_map: dict[str, str] = {}
 
 
 def make_checkpoint_manager_ui():
+    import gradio as gr
+    from gradio.context import Context
+
+    from modules import ui_common
+
     global ui_forge_preset, ui_checkpoint, ui_vae, ui_forge_unet_dtype, _event_refresh
 
     if shared.opts.sd_model_checkpoint in [None, "None", "none", ""]:
@@ -234,6 +241,8 @@ def get_a1111_ui_component(tab: str, label: str) -> gr.components.Component:
 
 
 def forge_main_entry():
+    from gradio.context import Context
+
     ui_txt2img_steps = get_a1111_ui_component("txt2img", "Steps")
     ui_txt2img_hr_steps = get_a1111_ui_component("txt2img", "Hires steps")
     ui_img2img_steps = get_a1111_ui_component("img2img", "Steps")
@@ -303,6 +312,8 @@ def _load_presets(ui_checkpoint: str, ui_vae: list[str], ui_forge_unet_dtype: st
 
 
 def on_preset_change(preset: str):
+    import gradio as gr
+
     assert preset is not None
     shared.opts.set("forge_preset", preset)
     shared.opts.save(shared.config_filename)

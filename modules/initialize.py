@@ -18,11 +18,8 @@ def shush():
 
 
 def imports():
+    # Extensions not ported yet may still import Gradio; keep it offline then
     os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
-
-    import gradio  # noqa: F401
-
-    startup_timer.record("import gradio")
 
     from modules import errors, paths, timer  # noqa: F401
 
@@ -33,7 +30,7 @@ def imports():
     shared_init.initialize()
     startup_timer.record("shared init")
 
-    from modules import gradio_extensions, processing, ui  # noqa: F401
+    from modules import processing  # noqa: F401
 
     startup_timer.record("misc. imports")
 
@@ -44,9 +41,18 @@ def check_versions():
     if cmd_opts.skip_version_check:
         return
 
+    import torch
+    from packaging import version
+
     from modules import errors
 
-    errors.check_versions()
+    expected_torch = "2.10.0" if torch.cuda.is_available() and torch.cuda.get_device_properties().major < 8 else "2.13.0"
+    if version.parse(torch.__version__) < version.parse(expected_torch):
+        errors.print_error_explanation(
+            f"You are running PyTorch {torch.__version__}, which is outdated.\n\n"
+            "Delete the venv folder to do a reinstall is recommended.\n"
+            "Use --skip-version-check commandline argument to disable the version checks."
+        )
 
     startup_timer.record("version check")
 
@@ -137,11 +143,6 @@ def initialize_rest(*, reload_script_modules=False):
 
     sd_unet.list_unets()
     startup_timer.record("scripts list_unets")
-
-    from modules import ui_extra_networks
-
-    ui_extra_networks.initialize()
-    ui_extra_networks.register_default_pages()
 
     from modules import extra_networks
 

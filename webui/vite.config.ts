@@ -52,6 +52,12 @@ export default defineConfig(({ mode }) => {
             "/files": backend,
           },
     },
+    experimental: {
+      // Chunks and preloads resolve relative to the importing module, so the app also
+      // works under `--subpath`; index.html keeps absolute URLs (the server prefixes them).
+      renderBuiltUrl: (_filename: string, { hostType }: { hostType: "js" | "css" | "html" }) =>
+        hostType === "html" ? undefined : { relative: true },
+    },
     build: {
       outDir: "dist",
       sourcemap: false,

@@ -1,6 +1,6 @@
 import torch
 
-from modules import shared, ui_gradio_extensions
+from modules import shared
 
 
 class Profiler:
@@ -42,4 +42,6 @@ class Profiler:
 
 
 def webpath():
+    from modules import ui_gradio_extensions  # the legacy Gradio UI's file links
+
     return ui_gradio_extensions.webpath(shared.opts.profiling_filename)

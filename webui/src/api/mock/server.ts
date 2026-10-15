@@ -4,12 +4,13 @@
  * frames as the real server. Generated "images" are served by the dev
  * server's mock plugin (vite.config.ts) as SVG under /api/v2/files/mock-*.
  */
+import { materializeStyles } from "@/features/prompt-editor/styles/apply-styles"
 import { encodeFrame, FrameFormat } from "../frames"
 import { buildIndex } from "@/ui/form-index"
 import type { InputNode, ValidationError } from "@/ui/schema"
 import { tabOwners } from "@/ui/tab"
-import type { ActionRequest, Job, JobOutput, JobRequest } from "../types"
-import { bootstrap, extrasSchema, models, serverCatalogZh, tabSchema, toolboxPage } from "./fixtures"
+import type { ActionRequest, FormTab, InfotextParsed, Job, JobOutput, JobRequest, PromptStyle, TokenCountRequest } from "../types"
+import { bootstrap, extrasSchema, models, serverCatalogZh, styles, tabSchema, toolboxPage } from "./fixtures"
 import { broadcast, broadcastBinary } from "./socket"
 
 type Handler = (match: RegExpExecArray, body: unknown, url: URL) => unknown | Promise<unknown>
@@ -49,6 +50,23 @@ const PRESETS: Record<string, [sampler: string, steps: number, cfg: number]> = {
   balanced: ["Euler a", 28, 5],
   detail: ["DPM++ 2M", 40, 4],
   speed: ["Euler a", 16, 4.5],
+}
+
+/** UI preset → [size, cfg, sampler, steps] (a stand-in for `forge_preset_patch`). */
+const FORGE_PRESETS: Record<string, [number, number, string, number]> = {
+  sd: [512, 7, "Euler a", 20],
+  xl: [1024, 5, "Euler a", 28],
+  flux: [1024, 1, "Euler", 20],
+  anima: [1024, 4, "ER SDE", 30],
+}
+
+/** Emits the `model.loading` stages a real model switch produces. */
+function simulateModelLoad(model: string) {
+  const stages = ["Unloading previous model", "Loading state dict", "Moving model to device"]
+  stages.forEach((stage, index) => {
+    setTimeout(() => broadcast({ type: "model.loading", stage, model, progress: (index + 1) / (stages.length + 1) }), 150 + index * 450)
+  })
+  setTimeout(() => broadcast({ type: "model.loaded", model }), 150 + stages.length * 450)
 }
 
 /** The Hires. fix output line (`remi.core.actions.hires_resolution_html`). */
@@ -95,6 +113,21 @@ function actionPatch(owner: string, action: string, body: ActionRequest & { sele
       return { width: { value: values.height }, height: { value: values.width } }
     case "core/hr_resolution":
       return { __outputs__: { hr_final_resolution: hiresLine(values) } }
+    case "core/__forge_preset__": {
+      const preset = String((body as { preset?: unknown }).preset ?? "sd")
+      const [size, cfg, sampler, steps] = FORGE_PRESETS[preset] ?? FORGE_PRESETS.sd!
+      bootstrap.options.forge_preset = preset
+      simulateModelLoad(`${preset} preset`)
+      broadcast({ type: "options.changed", keys: ["forge_preset"] })
+      return {
+        width: { value: size },
+        height: { value: size },
+        cfg_scale: { value: cfg },
+        "sampler.sampler_name": { value: sampler },
+        "sampler.steps": { value: steps },
+        __settings__: { forge_preset: preset },
+      }
+    }
     case "core/__conflicts__":
       return conflictPatch(values, scripts, body.selected)
     case "anima/apply_preset": {
@@ -154,8 +187,8 @@ export function validateJob(request: JobRequest): ValidationError[] {
       if (message) errors.push({ owner, param: name, message })
     }
   }
-  if (request.tab === "img2img" && (request.core.mode ?? "img2img") === "img2img" && !request.core.init_image) {
-    errors.push({ owner: "core", param: "init_image", message: "an image is required" })
+  if (request.tab === "img2img" && !request.core.init_img) {
+    errors.push({ owner: "core", param: "init_img", message: "an image is required" })
   }
   if (String(request.core.prompt ?? "").includes("#invalid")) {
     errors.push({ owner: "core", param: "prompt", message: "the prompt contains #invalid (mock validation demo)" })
@@ -213,6 +246,11 @@ function infotext(request: JobRequest, seed: number): string {
   return `${String(c.prompt ?? "")}\nNegative prompt: ${String(c.negative_prompt ?? "")}\nSteps: ${String(sampler.steps ?? 20)}, Sampler: ${String(sampler.sampler_name ?? "Euler a")}, Schedule type: ${String(sampler.scheduler ?? "Automatic")}, CFG scale: ${String(c.cfg_scale ?? 5)}, Seed: ${seed}, Size: ${size}, Model: mock`
 }
 
+/** Like `GET /queue`; also sent to every socket right after its hello. */
+export function queueStatus() {
+  return { size: queue.length, paused: false, running: running?.id ?? null }
+}
+
 async function runJob(job: Job, request: JobRequest) {
   let cancelled = false
   running = { id: job.id, cancel: () => (cancelled = true) }
@@ -222,12 +260,12 @@ async function runJob(job: Job, request: JobRequest) {
   const count = Math.max(1, Number(request.core.batch_size ?? 1))
   const hue = Math.floor(Math.random() * 360)
   broadcast({ type: "job.started", job_id: job.id, seq: job.seq, steps, job_count: 1 })
-  broadcast({ type: "queue.changed" })
+  broadcast({ type: "queue.changed", ...queueStatus() })
 
   for (let step = 1; step <= steps && !cancelled; step++) {
     await delay(90)
     const eta = ((steps - step) * 90) / 1000
-    job.progress = { step, steps, eta }
+    job.progress = { step, steps, eta, job_no: 0, job_count: 1 }
     broadcast({ type: "job.progress", job_id: job.id, seq: job.seq, step, steps, eta, job_no: 0, job_count: 1 })
     if (step % 3 === 0 || step === steps) {
       const frame = await previewFrame(job.seq ?? 0, step, steps, hue)
@@ -238,8 +276,9 @@ async function runJob(job: Job, request: JobRequest) {
   running = null
   job.finished_at = new Date().toISOString()
   if (cancelled) {
+    // Like the server: an interrupted job ends as completed with status "interrupted".
     job.status = "interrupted"
-    broadcast({ type: "job.failed", job_id: job.id, seq: job.seq, error: "Interrupted" })
+    broadcast({ type: "job.completed", job_id: job.id, seq: job.seq, tab: job.tab, status: "interrupted", outputs: [] })
   } else {
     const seedValue = Number(request.scripts.seed?.seed ?? -1)
     const seed = seedValue === -1 ? Math.floor(Math.random() * 2 ** 32) : seedValue
@@ -249,11 +288,14 @@ async function runJob(job: Job, request: JobRequest) {
       width: Number(request.core.width ?? 1024),
       height: Number(request.core.height ?? 1024),
     }))
+    const text = infotext(request, seed)
+    for (const output of outputs) output.infotext = text
+    lastInfotext = text
     job.status = "completed"
     job.outputs = outputs
-    broadcast({ type: "job.completed", job_id: job.id, seq: job.seq, outputs, infotext: infotext(request, seed) })
+    broadcast({ type: "job.completed", job_id: job.id, seq: job.seq, tab: job.tab, status: "completed", outputs, infotext: text })
   }
-  broadcast({ type: "queue.changed" })
+  broadcast({ type: "queue.changed", ...queueStatus() })
   const next = queue.shift()
   if (next) void runJob(next.job, next.request)
 }
@@ -266,6 +308,8 @@ function enqueue(request: JobRequest) {
     status: "queued",
     created_at: new Date().toISOString(),
     outputs: [],
+    priority: request.priority ?? 0,
+    forever: request.forever ?? false,
     summary: String(request.core.prompt ?? "").slice(0, 120),
   }
   jobs.unshift(job)
@@ -273,7 +317,66 @@ function enqueue(request: JobRequest) {
   broadcast({ type: "job.queued", job_id: job.id, seq: job.seq, tab: job.tab, position: queue.length })
   if (running) queue.push({ job, request })
   else void runJob(job, request)
-  return { job_id: job.id }
+  return job
+}
+
+function enqueueAll(request: JobRequest) {
+  const created = Array.from({ length: Math.max(1, Math.min(100, Number(request.repeat ?? 1))) }, () => enqueue(request))
+  return { job_id: created[0]!.id, job_ids: created.map((job) => job.id), seq: created[0]!.seq }
+}
+
+// ---------------------------------------------------------------- prompt tools
+
+/** A rough CLIP-like count: words and punctuation, extra networks and BREAK excluded. */
+function countTokens({ text }: TokenCountRequest) {
+  const clean = text.replace(/<[^<>\n]*>/g, " ").replace(/\bBREAK\b/g, " ")
+  const tokens = clean.match(/[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu)?.length ?? 0
+  return { tokens, max_length: Math.max(75, Math.ceil(tokens / 75) * 75) }
+}
+
+let lastInfotext = ""
+
+const PARAM_LINE = /\s*(\w[\w \-/]+):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)/g
+
+/** A stand-in for `remi.core.infotext.parse_infotext` over the mock schema's names. */
+function parseInfotextMock(text: string, tab: FormTab | null | undefined): InfotextParsed {
+  const source = text.trim() || lastInfotext
+  const lines = source.split("\n")
+  const params: Record<string, string> = {}
+  const last = lines.at(-1) ?? ""
+  const pairs = [...last.matchAll(PARAM_LINE)]
+  if (pairs.length >= 3) {
+    lines.pop()
+    for (const m of pairs) params[m[1]!.trim()] = m[2]!.trim().replace(/^"(.*)"$/, "$1")
+  }
+  const negativeAt = lines.findIndex((line) => line.startsWith("Negative prompt:"))
+  const prompt = (negativeAt === -1 ? lines : lines.slice(0, negativeAt)).join("\n").trim()
+  const negative = negativeAt === -1 ? "" : lines.slice(negativeAt).join("\n").replace(/^Negative prompt:\s*/, "").trim()
+  params.Prompt = prompt
+  if (negativeAt !== -1) params["Negative prompt"] = negative
+
+  const detected: FormTab = tab ?? ("Denoising strength" in params && !("Hires upscale" in params) ? "img2img" : "txt2img")
+  const core: Record<string, unknown> = {}
+  const scripts: Record<string, Record<string, unknown>> = {}
+  const problems: InfotextParsed["problems"] = []
+  const num = (key: string) => (key in params ? Number(params[key]) : undefined)
+  if (prompt) core.prompt = prompt
+  if (negativeAt !== -1) core.negative_prompt = negative
+  if (num("CFG scale") !== undefined) core.cfg_scale = num("CFG scale")
+  const size = /^(\d+)x(\d+)$/.exec(params.Size ?? "")
+  if (size) Object.assign(core, { width: Number(size[1]), height: Number(size[2]) })
+  if (num("Denoising strength") !== undefined) core.denoising_strength = num("Denoising strength")
+  if (detected === "txt2img" && num("Hires upscale") !== undefined) Object.assign(core, { enable_hr: true, hr_scale: num("Hires upscale") })
+  const sampler: Record<string, unknown> = {}
+  if (num("Steps") !== undefined) sampler.steps = num("Steps")
+  if (params.Sampler) {
+    if (models.samplers.some((s) => s.name === params.Sampler)) sampler.sampler_name = params.Sampler
+    else problems.push({ owner: "sampler", param: "sampler_name", message: `unknown sampler ${params.Sampler}` })
+  }
+  if (params["Schedule type"]) sampler.scheduler = params["Schedule type"]
+  if (Object.keys(sampler).length > 0) scripts.sampler = sampler
+  if (num("Seed") !== undefined) scripts.seed = { seed: num("Seed") }
+  return { tab: detected, core, scripts, params, problems }
 }
 
 // ---------------------------------------------------------------- routes
@@ -284,6 +387,58 @@ const routes: [method: string, pattern: RegExp, handler: Handler][] = [
   ["GET", /^\/pages\/toolbox$/, () => toolboxPage],
   ["GET", /^\/models$/, () => models],
   ["GET", /^\/i18n\/([\w-]+)$/, (m) => (m[1] === "zh_CN" ? serverCatalogZh : {})],
+  [
+    "POST",
+    /^\/prompt\/tokens$/,
+    async (_m, body) => {
+      await delay(60)
+      return countTokens(body as TokenCountRequest)
+    },
+  ],
+  ["POST", /^\/infotext\/parse$/, (_m, body) => parseInfotextMock(String((body as { text?: unknown }).text ?? ""), (body as { tab?: FormTab }).tab)],
+  ["GET", /^\/styles$/, () => styles],
+  [
+    "POST",
+    /^\/styles\/apply$/,
+    (_m, body) => {
+      const b = body as { prompt?: string; negative_prompt?: string; styles?: string[] }
+      const applied = materializeStyles({ prompt: b.prompt ?? "", negative: b.negative_prompt ?? "" }, b.styles ?? [], styles)
+      return { prompt: applied.prompt, negative_prompt: applied.negative }
+    },
+  ],
+  [
+    "POST",
+    /^\/infotext\/image$/,
+    (_m, body) => {
+      // Mock outputs carry their infotext; uploads have none.
+      const id = String((body as { file_id?: unknown }).file_id ?? "")
+      const text = jobs.flatMap((job) => job.outputs).find((output) => output.id === id)?.infotext
+      return text ? { infotext: text, items: {}, parsed: parseInfotextMock(text, (body as { tab?: FormTab }).tab) } : { infotext: null, items: {}, parsed: null }
+    },
+  ],
+  [
+    "PUT",
+    /^\/styles\/([^/]+)$/,
+    (m, body) => {
+      const name = decodeURIComponent(m[1] ?? "")
+      if (!name.trim()) throw new MockHttpError(422, { detail: "A style needs a name" })
+      const style: PromptStyle = { name, prompt: String((body as PromptStyle).prompt ?? ""), negative_prompt: String((body as PromptStyle).negative_prompt ?? "") }
+      const index = styles.findIndex((s) => s.name === name)
+      if (index === -1) styles.push(style)
+      else styles[index] = style
+      return style
+    },
+  ],
+  [
+    "DELETE",
+    /^\/styles\/([^/]+)$/,
+    (m) => {
+      const index = styles.findIndex((s) => s.name === decodeURIComponent(m[1] ?? ""))
+      if (index === -1) throw new MockHttpError(404, { detail: "Mock: unknown style" })
+      styles.splice(index, 1)
+      return undefined
+    },
+  ],
   ["GET", /^\/options$/, () => ({ version: 1, categories: [], quicksettings: ["sd_model_checkpoint"], values: bootstrap.options })],
   [
     "PATCH",
@@ -291,8 +446,10 @@ const routes: [method: string, pattern: RegExp, handler: Handler][] = [
     async (_m, body) => {
       await delay(400)
       Object.assign(bootstrap.options, body)
-      if (typeof (body as Record<string, unknown>).sd_model_checkpoint === "string") {
-        bootstrap.models.checkpoint = (body as Record<string, string>).sd_model_checkpoint
+      const changed = body as Record<string, unknown>
+      if (typeof changed.sd_model_checkpoint === "string") bootstrap.models.checkpoint = changed.sd_model_checkpoint
+      if (["sd_model_checkpoint", "forge_additional_modules", "forge_unet_storage_dtype"].some((key) => key in changed)) {
+        simulateModelLoad(String(bootstrap.options.sd_model_checkpoint))
       }
       broadcast({ type: "options.changed", keys: Object.keys(body as object) })
       return { version: 1, categories: [], quicksettings: [], values: bootstrap.options }
@@ -309,7 +466,7 @@ const routes: [method: string, pattern: RegExp, handler: Handler][] = [
       const request = body as JobRequest
       const errors = validateJob(request)
       if (errors.length > 0) throw new MockHttpError(422, { errors })
-      return enqueue(request)
+      return enqueueAll(request)
     },
   ],
   [
@@ -324,12 +481,31 @@ const routes: [method: string, pattern: RegExp, handler: Handler][] = [
     },
   ],
   [
+    "GET",
+    /^\/jobs\/([^/]+)$/,
+    (m) => {
+      const job = jobs.find((j) => j.id === m[1])
+      if (!job) throw new MockHttpError(404, { detail: "Mock: unknown job" })
+      return job
+    },
+  ],
+  ["GET", /^\/queue\/items$/, () => queue.map((q) => q.job)],
+  [
+    "POST",
+    /^\/outputs\/save$/,
+    (_m, body) => {
+      const { ids } = body as { ids: string[] }
+      // No archive in mock mode: the zip download is skipped.
+      return { saved: ids.map((id) => `${id}.png`), zip: null }
+    },
+  ],
+  [
     "POST",
     /^\/jobs\/([^/]+)\/retry$/,
     (m) => {
       const request = requests.get(m[1] ?? "")
       if (!request) throw new MockHttpError(404, { detail: "Mock: unknown job" })
-      return enqueue(request)
+      return enqueueAll({ ...request, repeat: 1 })
     },
   ],
   [
@@ -348,7 +524,7 @@ const routes: [method: string, pattern: RegExp, handler: Handler][] = [
       if (index >= 0 && jobs[index]?.status !== "running") jobs.splice(index, 1)
       const queued = queue.findIndex((q) => q.job.id === m[1])
       if (queued >= 0) queue.splice(queued, 1)
-      broadcast({ type: "queue.changed" })
+      broadcast({ type: "queue.changed", ...queueStatus() })
       return undefined
     },
   ],

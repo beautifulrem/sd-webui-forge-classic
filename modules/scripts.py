@@ -432,6 +432,8 @@ ScriptFile = namedtuple("ScriptFile", ["basedir", "filename", "path"])
 
 scripts_data = []
 postprocessing_scripts_data = []
+scripts_needing_gradio: list[ScriptFile] = []
+"""Script files not loaded: not yet ported, they import Gradio, which is not installed."""
 ScriptClassData = namedtuple("ScriptClassData", ["script_class", "path", "basedir", "module"])
 
 
@@ -542,6 +544,7 @@ def load_scripts():
     global current_basedir
     scripts_data.clear()
     postprocessing_scripts_data.clear()
+    scripts_needing_gradio.clear()
     script_callbacks.clear_callbacks()
 
     scripts_list = list_scripts("scripts", ".py") + list_scripts("modules/processing_scripts", ".py", include_extensions=False)
@@ -574,6 +577,13 @@ def load_scripts():
 
             script_module = script_loading.load_module(scriptfile.path)
             register_scripts_from_module(script_module)
+
+        except ModuleNotFoundError as error:
+            if (error.name or "").partition(".")[0] != "gradio":
+                errors.report(f"Error loading script: {scriptfile.filename}", exc_info=True)
+            else:
+                scripts_needing_gradio.append(scriptfile)
+                print(f"Script {scriptfile.path} is disabled: not yet ported, and it needs Gradio, which is not installed")
 
         except Exception:
             errors.report(f"Error loading script: {scriptfile.filename}", exc_info=True)

@@ -24,10 +24,15 @@ function ScriptView({ script }: { script: ScriptSchema }) {
   const panel = layout.type === "section" || (layout.type === "group" && Boolean(layout.title))
   // The frame replaces an untitled group's box (keeping its conditions).
   const body: Node = layout.type === "group" && !panel ? { ...layout, type: "column" } : layout
+  // A legacy script's flat input list (often hundreds of inputs) is a closed
+  // section, as its Gradio accordion was; closed sections render nothing.
+  const legacy: Node | null = script.legacy && !panel ? { type: "section", title: script.title, open: false, children: [body] } : null
   return (
     <OwnerProvider owner={script.id}>
       <div data-script={script.id} className="min-w-0">
-        {panel ? (
+        {legacy ? (
+          <RenderLayout layout={legacy} />
+        ) : panel ? (
           <RenderLayout layout={layout} />
         ) : (
           // A bare layout gets a light frame so scripts stay distinguishable.

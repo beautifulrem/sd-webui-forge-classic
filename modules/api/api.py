@@ -8,6 +8,7 @@ from contextlib import closing
 from io import BytesIO
 from secrets import compare_digest
 from threading import Lock
+from types import UnionType
 from typing import Any, Union, get_args, get_origin
 
 import piexif
@@ -22,12 +23,11 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from PIL import PngImagePlugin
 
 import modules.shared as shared
-import modules.textual_inversion.textual_inversion
-from modules import errors, images, infotext_utils, postprocessing, restart, script_callbacks, scripts, sd_models, sd_samplers, sd_schedulers, shared_items, ui
+from modules import errors, images, infotext_utils, postprocessing, restart, script_callbacks, scripts, sd_models, sd_samplers, sd_schedulers, shared_items
 from modules.api import models
 from modules.processing import StableDiffusionProcessingImg2Img, StableDiffusionProcessingTxt2Img, process_extra_images, process_images
 from modules.progress import add_task_to_queue, create_task_id, current_task, finish_task, start_task
-from modules.shared import cmd_opts, opts
+from modules.shared import opts
 
 
 def script_name_to_index(name, scripts):
@@ -52,6 +52,49 @@ def pasted_value(value, target_type):
     if target_type is int and isinstance(value, str):
         return int(float(value))
     return target_type(value)
+
+
+INFOTEXT_API_FIELDS = {"batch_count": "n_iter"}
+"""Core form params (remi/core/forms.py) whose request field has another name."""
+
+INFOTEXT_SCRIPT_FIELDS = {
+    "sampler": ("steps", "sampler_name", "scheduler"),
+    "seed": ("seed", "subseed", "subseed_strength", "seed_resize_from_h", "seed_resize_from_w"),
+}
+"""Built-in scripts whose params the API takes as request fields."""
+
+
+def get_base_type(annotation):
+    """``X`` of ``Optional[X]`` / ``X | None``."""
+
+    if get_origin(annotation) in (Union, UnionType):
+        non_none_args = [arg for arg in get_args(annotation) if arg is not type(None)]
+        if len(non_none_args) == 1:
+            return non_none_args[0]
+    return annotation
+
+
+def legacy_script_info(runner, script):
+    """``ScriptInfo`` of a script still on ``ui()``, from its positional layout."""
+
+    from remi.ui import Context, nodes
+
+    try:
+        layout = runner.layout_for(script)
+        ctx = Context()
+        args = []
+        for node in layout.inputs:
+            arg = models.ScriptArg(label=node.label or node.name, value=node.resolve_default(ctx))
+            for field in ("minimum", "maximum", "step"):
+                if getattr(node, field, None) is not None:
+                    setattr(arg, field, getattr(node, field))
+            if isinstance(node, (nodes.Choice, nodes.MultiChoice)):
+                arg.choices = [str(value) for _label, value in node.resolve_choices(ctx)]
+            args.append(arg)
+        return models.ScriptInfo(name=script.name, is_img2img=script.is_img2img, is_alwayson=script.alwayson, args=args)
+    except Exception:
+        errors.report(f"Error building API info for {script.filename}", exc_info=True)
+        return None
 
 
 def validate_sampler_name(name):
@@ -264,9 +307,6 @@ class Api:
         txt2img_script_runner = scripts.scripts_txt2img
         img2img_script_runner = scripts.scripts_img2img
 
-        if not txt2img_script_runner.scripts or not img2img_script_runner.scripts:
-            ui.create_ui()
-
         if not txt2img_script_runner.scripts:
             txt2img_script_runner.initialize_scripts(False)
         if not self.default_script_arg_txt2img:
@@ -277,9 +317,9 @@ class Api:
         if not self.default_script_arg_img2img:
             self.default_script_arg_img2img = self.init_default_script_args(img2img_script_runner)
 
-        self.embedding_db = modules.textual_inversion.textual_inversion.EmbeddingDatabase()
-        self.embedding_db.add_embedding_dir(cmd_opts.embeddings_dir)
-        self.embedding_db.load_textual_inversion_embeddings(force_reload=True, sync_with_sd_model=False)
+        from remi.networks import embedding_database
+
+        self.embedding_db = embedding_database()  # shared with /api/v2/networks/embeddings
 
     def add_api_route(self, path: str, endpoint, **kwargs):
         if shared.cmd_opts.api_auth:
@@ -310,8 +350,11 @@ class Api:
     def get_script_info(self):
         res = []
 
-        for script_list in [scripts.scripts_txt2img.scripts, scripts.scripts_img2img.scripts]:
-            res += [script.api_info for script in script_list if script.api_info is not None]
+        for runner in [scripts.scripts_txt2img, scripts.scripts_img2img]:
+            for script in runner.scripts:
+                info = script.api_info if script.api_info is not None else legacy_script_info(runner, script)
+                if info is not None:
+                    res.append(info)
 
         return res
 
@@ -323,20 +366,16 @@ class Api:
         return script_runner.scripts[script_idx]
 
     def init_default_script_args(self, script_runner):
-        # find max idx from the scripts in runner and generate a none array to init script_args
-        last_arg_index = 1
-        for script in script_runner.scripts:
-            if last_arg_index < script.args_to:
-                last_arg_index = script.args_to
-        # None everywhere except position 0 to initialize script args
-        script_args = [None] * last_arg_index
-        script_args[0] = 0
+        """Every script's default arguments, from its parameter layout (slot
+        0, the selected script, is 0: none)."""
 
-        # get default values recorded when the UI was built, instead of calling ui() again
-        for script in script_runner.scripts:
-            if script.api_info is not None:
-                script_args[script.args_from : script.args_to] = [arg.value for arg in script.api_info.args]
-        return script_args
+        try:
+            return list(script_runner.script_args_from_values(None, {}))
+        except Exception:
+            errors.report("Error reading the default script arguments", exc_info=True)
+            script_args = [None] * max([1, *(script.args_to or 0 for script in script_runner.scripts)])
+            script_args[0] = 0
+            return script_args
 
     def init_script_args(self, request, default_script_args, selectable_scripts, selectable_idx, script_runner, *, input_script_args=None):
         script_args = default_script_args.copy()
@@ -377,46 +416,32 @@ class Api:
         if not request.infotext:
             return {}
 
-        possible_fields = infotext_utils.paste_fields[tabname]["fields"]
-        set_fields = request.model_dump(exclude_unset=True) if hasattr(request, "request") else request.dict(exclude_unset=True)  # pydantic v1/v2 have different names for this
-        params = infotext_utils.parse_generation_parameters(request.infotext)
+        from remi.core.infotext import parse_infotext
+        from remi.ui import Context
 
-        def get_base_type(annotation):
-            origin = get_origin(annotation)
+        parsed = parse_infotext(request.infotext, tabname)
+        params = parsed["params"]
+        fields = type(request).model_fields
+        set_fields = request.model_fields_set
 
-            if origin is Union:  # represents Optional
-                args = get_args(annotation)  # filter out NoneType
-                non_none_args = [arg for arg in args if arg is not type(None)]
-                if len(non_none_args) == 1:  # annotation was Optional[X]
-                    return non_none_args[0]
+        def put(field, value):
+            if value is None or field not in fields or field in set_fields:
+                return
+            target_type = get_base_type(fields[field].annotation)
+            if target_type is type(None):
+                return
+            try:
+                setattr(request, field, pasted_value(value, target_type) if isinstance(target_type, type) else value)
+            except (TypeError, ValueError):
+                pass
 
-            return annotation
-
-        def get_field_value(field, params):
-            value = field.function(params) if field.function else params.get(field.label)
-            if value is None:
-                return None
-
-            if field.api in request.__fields__:
-                target_type = get_base_type(request.__fields__[field.api].annotation)  # extract type from Optional[X]
-            else:
-                target_type = type(field.component.value)
-
-            if target_type == type(None):
-                return None
-
-            return pasted_value(value, target_type)
-
-        for field in possible_fields:
-            if not field.api:
-                continue
-
-            if field.api in set_fields:
-                continue
-
-            value = get_field_value(field, params)
-            if value is not None:
-                setattr(request, field.api, value)
+        for name, value in parsed["core"].items():
+            if name != "override_settings":
+                put(INFOTEXT_API_FIELDS.get(name, name), value)
+        for owner, names in INFOTEXT_SCRIPT_FIELDS.items():
+            for name in names:
+                if name in parsed["scripts"].get(owner, {}):
+                    put(name, parsed["scripts"][owner][name])
 
         if request.override_settings is None:
             request.override_settings = {}
@@ -427,16 +452,20 @@ class Api:
                 request.override_settings[setting_name] = value
 
         if script_runner is not None and mentioned_script_args is not None:
-            indexes = {v: i for i, v in enumerate(script_runner.inputs)}
-            script_fields = ((field, indexes[field.component]) for field in possible_fields if field.component in indexes)
-
-            for field, index in script_fields:
-                value = get_field_value(field, params)
-
-                if value is None:
+            ctx = Context()
+            for script in script_runner.scripts:
+                values = parsed["scripts"].get(script.script_id)
+                if not values or script.script_id in INFOTEXT_SCRIPT_FIELDS or script.args_from is None:
                     continue
-
-                mentioned_script_args[index] = value
+                layout = script_runner.layout_for(script)
+                try:
+                    args = layout.values_to_args(values, ctx, unknown="ignore")
+                except Exception:
+                    errors.report(f"Error pasting infotext values of {script.filename}", exc_info=True)
+                    continue
+                for index, name in enumerate(layout.names):
+                    if name in values:
+                        mentioned_script_args[script.args_from + index] = args[index]
 
         return params
 
@@ -842,6 +871,6 @@ class Api:
             restart.restart_program()
         return Response(status_code=501)
 
-    def stop_webui(request):
+    def stop_webui(self):
         shared.state.server_command = "stop"
         return Response("Stopping.")

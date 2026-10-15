@@ -1,11 +1,11 @@
 import { Dices, Recycle } from "lucide-react"
-import { useId } from "react"
+import { use, useId } from "react"
 import { useTranslation } from "react-i18next"
 import { lastResult, useProgress } from "@/api/progress"
 import { Button } from "@/components/ui/button"
 import { NumberField } from "@/components/ui/number-field"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useForm, useParam } from "../hooks"
+import { SeedSourceContext, useForm, useParam } from "../hooks"
 import { describedBy } from "../a11y"
 import { Field } from "../Field"
 import { infotextValue } from "../infotext"
@@ -33,7 +33,11 @@ function IconButton(props: { label: string; onClick: () => void; disabled?: bool
   )
 }
 
-/** Integer seed with "random" (dice → -1) and "reuse last" (recycle) buttons. */
+/**
+ * Integer seed with "random" (dice → -1) and "reuse" (recycle) buttons; reuse
+ * takes the seed of the result the page selected (`SeedSourceProvider`), or
+ * of the form's last result.
+ */
 export function Seed({ node }: { node: SeedNode }) {
   const { t } = useTranslation()
   const id = useId()
@@ -41,7 +45,9 @@ export function Seed({ node }: { node: SeedNode }) {
   const { formId } = useForm()
   const label = t(param.label)
   const info = param.info
-  const lastSeed = useProgress((s) => infotextValue(lastResult(s, formId)?.infotext, node.infotext || "Seed"))
+  const selected = use(SeedSourceContext)
+  const key = node.infotext || "Seed"
+  const lastSeed = useProgress((s) => infotextValue(selected === undefined ? lastResult(s, formId)?.infotext : selected, key))
   const disabled = !param.enabled
 
   return (

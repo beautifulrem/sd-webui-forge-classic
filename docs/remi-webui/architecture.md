@@ -234,35 +234,127 @@ already loaded it, except `apply_forge_preset`.
 
 ## HTTP API v2 (`/api/v2`)
 
+All bodies and responses are Pydantic models (`remi/server/models.py`), so
+`/openapi.json` describes the API; `tools/export_openapi.py` writes it to
+`webui/src/api/openapi.json` for the generated TS client (`--check` fails when
+it is stale; a test runs it). Rejected values answer 422 with the
+schema-format.md §3 body; other errors `{"detail": str}`.
+
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/app` | bootstrap: version, features, tabs, locale list, current options subset, models summary |
+| GET | `/app` | bootstrap: version, features, tabs, pages, locales, default locale, options subset, models summary, `not_ported` (scripts / Extras operations / extension tabs still on Gradio), `auth`, `queue` |
 | GET | `/schema/{tab}` | `tab` ∈ `txt2img`, `img2img`, `extras`: core form + scripts (layout trees, defaults) |
-| POST | `/actions/{owner}/{action}` | run an action, `owner` = script id or `page:<id>` or `core` |
-| POST | `/jobs` | `{tab, core: {...}, scripts: {id: {param: value}}, priority?, repeat?}` → `{job_id}` |
-| GET | `/jobs` | queue + history (paged) |
-| DELETE / POST | `/jobs/{id}`, `/jobs/{id}/interrupt`, `/jobs/{id}/skip`, `/jobs/{id}/retry` | |
-| POST | `/uploads` | multipart image or file → `{id, width, height}` |
-| GET | `/files/{id}`, `/thumbs/{id}?w=` | output files and thumbnails, by id only |
-| GET | `/outputs?cursor=&q=` | gallery |
-| GET | `/networks/{kind}?q=&cursor=` | LoRA, embeddings, checkpoints, … (+ `/networks/{kind}/{name}/meta`) |
-| GET/PATCH | `/options` | settings values and schema |
-| GET | `/pages`, `/pages/{id}` | extension pages and one page's schema (schema-format.md §8) |
-| POST | `/infotext/parse` | infotext → `{tab, core, scripts, params, problems}` named values (schema-format.md §7) |
-| GET | `/i18n/{locale}` | merged locale catalog |
-| GET | `/models` | checkpoints, VAE/TE modules, samplers, schedulers, upscalers |
+| GET | `/pages`, `/pages/{id}` | extension pages and one page's schema (schema-format.md §8; read from `remi.pages` when present: `registered()`, `get(id)`, `page_schema(id)`) |
+| POST | `/actions/{owner}/{action}` | run an action, `owner` = script id, `page:<id>`, `core`, or `settings` (`refresh:<key>`); `gpu=True` actions run behind generation on the main thread |
+| POST | `/rules/derive` | `{tab, core, scripts, selected?}` → the core `__conflicts__` patch (Anima conflict locks) |
+| GET | `/presets`, `/presets/{name}?tab=` | Anima and UI preset names; an Anima preset's form patch |
+| POST | `/jobs` | `{tab, core, scripts, priority?, repeat? (1–100 copies), forever?}` → `{job_id, job_ids, seq}` (201); validated first |
+| GET | `/jobs?cursor=&limit=&status=` | history and queue, newest first: `{items, next_cursor, total}` |
+| GET / PATCH / DELETE | `/jobs/{id}` | detail (incl. `core`, `scripts`, `layout_hash`); `{priority?, forever?}`; cancel a running job or remove a queued/finished one |
+| POST | `/jobs/{id}/interrupt`, `/skip`, `/retry` | interrupt keeps the results (`interrupted`) or cancels a queued job; retry queues a copy |
+| GET / POST | `/queue`, `/queue/items`, `/queue/reorder`, `/queue/pause`, `/queue/resume`, `/queue/stop-forever` | queue state (`{size, paused, running}`), queued jobs in run order, ordering (within each priority; at most 500 ids), pause (persisted), generate-forever off |
+| POST | `/interrupt` | interrupt whatever generates (also `/sdapi`); `{clear_queue?}` |
+| POST | `/uploads` | multipart `file` → `{id, width, height, name, mime, size}` (201); content-sniffed, size-limited while the body streams in (also chunked bodies; setting `remi_upload_max_mb`, live), deduplicated |
+| GET | `/files/{id}?download=`, `/thumbs/{id}?w=` | files and WebP thumbnails by opaque id only (ETag; uploads and outputs immutable for a year, network previews revalidated: their id changes with the file) |
+| GET / DELETE / POST | `/outputs?cursor=&q=&tab=`, `/outputs/{id}`, `/outputs/refresh` | gallery (search: every term in the infotext or name), remove (`delete_file`; without it the file stays and the folder scan skips it from then on), index the output folders |
+| GET | `/networks`, `/networks/{kind}?q=&cursor=&sort=&order=` | kinds (`lora`, `embeddings`, `checkpoints`, `vae`, `text_encoders`) and items (paths relative to their folder, preview file id) |
+| GET / PATCH | `/networks/{kind}/{name}/meta` | file + user metadata; edit the user metadata (`<name>.json`) |
+| PUT / POST | `/networks/{kind}/{name}/preview`, `/networks/{kind}/refresh` | preview from a file id; re-scan |
+| GET / PATCH | `/options` | settings schema and values; PATCH validates every value first (any invalid: 422 lists them all, nothing applied), then applies them, running `onchange`; an `onchange` that fails leaves its key unchanged while the others stay applied (saved, broadcast) and the answer is 422 listing the failures; model keys go through the model manager |
+| POST | `/infotext/parse`, `/infotext/image` | infotext (or an uploaded/generated image's PNG info) → named values (schema-format.md §7) |
+| GET | `/i18n/{locale}` | merged locale catalog (`zh-CN` or `zh_CN`; ETag) |
+| GET / POST | `/models`, `/models/refresh`, `/models/unload` | checkpoints, VAE/TE modules, samplers, schedulers, upscalers, styles, low-bits dtypes, UI presets |
+| GET / PUT / DELETE / POST | `/styles`, `/styles/{name}`, `/styles/apply` | prompt styles CRUD; write styles into prompts |
+| POST | `/outputs/save`, `/outputs/open-folder` | gallery "Save" / "Save zip" (`{ids, zip}` → copies in `outdir_save` through the save path, `log.csv`, zip as a file id); open an output folder on the WebUI machine (403 with `--hide-ui-dir-config`) |
+| GET / PATCH / POST | `/extensions`, `/extensions/check-updates`, `/extensions/update`, `/extensions/install` | installed extensions; enable/disable (`{disabled?, disable_all?}`), check for / apply updates (config-state backup first), install from a git URL; writes refused (403) when extension access is disabled; changes apply after `/server/restart` |
+| GET | `/user-assets/{name}` | `user.css` (data folder) and `notification.mp3` (WebUI folder) when present; bootstrap `user_assets` lists them |
+| POST | `/prompt/tokens` | token count of one prompt (`null` without a model; not queued) |
+| GET / POST | `/auth/status`, `/auth/login`, `/auth/logout` | login (session cookie) |
+| POST | `/server/reload`, `/server/restart` | rebuild the app in-process ("Reload UI"); restart the process (when the launcher can; answers first, then the serve loop stops the server, interrupts the running job and exits) |
+| GET | `/sysinfo` | system information |
 
-Bodies are Pydantic models, so `/openapi.json` drives the generated TS client
-(`webui/src/api/gen`).
+`/internal/{ping,progress,pending-tasks,quicksettings-hint,profile-startup,sysinfo,sysinfo-download}`
+stay for API clients; queued jobs appear in `/internal/progress` as
+`task(remi-<job id>)`. `/sdapi/v1` (`modules/api/api.py`, with `--api` or
+`--nowebui`) is mounted on the same app; it reads default script arguments
+and infotext through the `remi.ui` layouts.
 
 ## WebSocket `/api/v2/ws`
 
-JSON text frames: `hello{features}`, `job.queued|started|progress{step, steps,
-eta, job_no, job_count}|completed{outputs, infotext}|failed{error}`,
-`queue.changed`, `options.changed`, `toast`, `model.loading{stage}`. Binary
-frames carry previews: header `u8 type=1, u8 fmt (1=jpeg, 2=webp), u32
-job_seq, u32 step`, then the image bytes. An encoder thread keeps only the
-newest frame (default 6 fps, setting `live_preview_fps`).
+JSON text frames, flat envelope `{"type", ...fields}`: on connect `hello{features,
+version}` then the current `queue.changed` (and `job.started`/`job.progress`
+of a running job); `job.queued{job_id, seq, tab, position}`,
+`job.started{job_id, seq, tab}`, `job.progress{job_id, seq, tab, step, steps,
+eta, job_no (0-based), job_count, progress, text}`, `job.completed{job_id, seq,
+tab, status ("completed"|"interrupted"|"cancelled"), outputs, infotext}`,
+`job.failed{job_id, seq, tab, status, error, errors?}`, `queue.changed{size,
+paused, running}`, `options.changed{keys}`, `networks.changed{kind}`, `toast`,
+`model.loading{stage, model}`, `model.loaded{model, error?}`, `pong`,
+`resync{dropped}` (the client's queue overflowed: the backlog is replaced by a
+fresh snapshot, `queue.changed` and the running job; the client refetches
+what it shows, e.g. job history). A failed send closes the socket. The
+client may send `hello{features}` (previews are then only sent in the formats it
+lists) and `ping`. Binary frames carry previews: little-endian header `u8 type=1,
+u8 fmt (1=jpeg, 2=webp), u32 job_seq, u32 step`, then the image bytes. A
+dedicated encoder thread keeps only the newest frame (setting
+`live_preview_fps`, default 6; JPEG when `live_previews_image_format` is
+JPEG, else WebP; nothing is encoded while no client is connected). Each
+client has a bounded event queue and one preview slot.
+
+## Server (`remi/server`, `remi/jobs`)
+
+- `create_app(services=, auth=, webui=, sdapi=)`; `webui.py` runs it with
+  uvicorn on a background thread (`remi/server/launch.py`): before each build
+  it runs `before_ui` callbacks and `remi.server.runtime.prepare()` (extension
+  settings, script runners, model selection), then `app_started(None, app)`
+  under `extension_route_guard`. `--nowebui` serves the APIs without the SPA
+  (port 7861, loopback unless `--listen`/`--server-name`). "Reload UI" holds
+  the queue first (waiting for the running job while the old app still
+  serves, so it can be watched and interrupted), stops the server (open
+  requests get 10 s), re-runs `initialize_rest`, rebuilds and serves, then
+  releases the queue.
+- Startup and every module a job runs import no Gradio (a test starts the
+  WebUI with Gradio blocked). Scripts still on `ui()`: with Gradio importable
+  their `ui()` runs once in a throwaway `gr.Blocks` for positional defaults;
+  without it they are disabled with a log line, as are script files that
+  import Gradio at load time. All are listed in bootstrap `not_ported`.
+- Jobs: the worker claims the next job, then waits for the generation lock;
+  only with the lock is the job current (`job.started`, progress, previews,
+  `model.loading`). Interrupt/skip/cancel of a job that has not begun are
+  recorded and applied right after its `shared.state.begin()` (an interrupt
+  while waiting for the lock finishes it as `interrupted`, nothing run); they
+  never touch another caller's generation. A generate-forever job finishing
+  while the queue is paused is queued again for the resume.
+- Services (process-wide, survive reloads; data in `<data path>/remi-data`):
+  event bus, file index (`files.db`, `uploads/`, `outputs/` for images the
+  save path did not write — temporary, `thumbs/`), job store (`jobs.db`,
+  WAL), the single worker (generation lock `call_queue.queue_lock`, then
+  `modules_forge.main_thread`), progress monitor and preview encoder.
+  Housekeeping (at start, then hourly) prunes uploads and unsaved outputs
+  older than `remi_upload_retention_days` and indexes the output folders.
+- Auth: `--auth user:pass[,…]` / `--auth-file` (aliases `--gradio-auth`,
+  `--gradio-auth-path`). With logins, `/api/v2`, `/internal`, the WebSocket,
+  files and the SPA need the signed session cookie (`POST /auth/login`;
+  the shell shows a built-in login page) or HTTP Basic. `/api/v2` and
+  `/internal` refuse rebound `Host`s and cross-site writes/WebSocket
+  handshakes (`extension_route_guard`, whose bind address is
+  `remi.server.launch.bind_host`, also under `--nowebui`); `/docs`, `/redoc`
+  and `/openapi.json` need the login too; `/sdapi` gets the host and
+  cross-site checks and keeps `--api-auth` as its login. Logging out revokes
+  the session cookie (a denylist next to the secret); cookies are `Secure`
+  with `--tls-*` or when the request is HTTPS (a TLS proxy);
+  extension routes keep the route guard (`app.auth_dependency` resolves the
+  login). `--listen`, `--port`, `--server-name`, `--subpath` (root path,
+  with or without a prefix-stripping proxy), `--tls-keyfile/--tls-certfile`,
+  `--cors-allow-origins(-regex)`.
+- SPA: `webui/dist` is the router fallback (extension routes win): hashed
+  `/assets` cached for a year, `index.html` no-cache and served for client
+  routes, with `window.__REMI_ROOT__` and prefixed asset URLs under
+  `--subpath`. `launch.py` builds it when missing or when its sources or
+  lockfile changed since the build (a stamp in `dist/`), with pnpm and the
+  lockfile (installed pnpm, corepack, or `npx pnpm@12`; without Node a
+  stale build is used with a warning; `REMI_SKIP_WEBUI_BUILD=1` skips), and
+  no longer installs Gradio.
 
 ## Frontend
 
@@ -270,8 +362,21 @@ newest frame (default 6 fps, setting `live_preview_fps`).
 - `webui/src/ui` — the param renderer: one component per input kind, layout nodes,
   condition evaluator, and per-tab form stores (Zustand, persisted drafts).
 - `webui/src/widgets` — custom widgets by name.
+- `webui/src/features` — generate-view features: prompt editor (with
+  `registerCompletionSource()` for tag completion), session results and
+  history, lightbox, run controller (Generate / Interrupt / Skip, forever,
+  repeat), model bar, send-to, infotext (paste, image metadata).
 - `webui/src/pages` — generate (txt2img/img2img share one view), extras,
   png-info, gallery, networks, queue, settings, extension pages.
+- What the generate view relies on (frontend.md "Generate page"): bootstrap
+  `options` also carries `ctrl_enter_interrupt`,
+  `prevent_screen_sleep_during_generation`, `send_seed` and `send_size`
+  (missing keys read as the A1111 defaults); "generate forever" and "generate
+  N times" are client-driven, one `POST /jobs` per run, so every run takes the
+  form as it is then (the server's `repeat` / `forever` stay for API
+  clients); "Send to" puts output file ids straight into image inputs; image
+  drops read PNG/JPEG/WebP parameters in the browser and fall back to
+  `/infotext/image`.
 - `webui/src/canvas` — Konva editor for img2img sketch/inpaint/masks; the only
   module that imports Konva.
 - i18n: i18next with the server catalogs; language switch without reload.

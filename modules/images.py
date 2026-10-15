@@ -336,7 +336,7 @@ def resize_image(resize_mode, im, width, height, upscaler_name=None, force_RGBA=
         raise ValueError
 
     elif resize_mode == 4:
-        from modules.ui import sRound
+        from modules.processing import sRound
 
         ratio = min(width / im.width, height / im.height)
         new_w = sRound(im.width * ratio)

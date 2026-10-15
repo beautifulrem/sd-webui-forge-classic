@@ -32,12 +32,18 @@ from modules.sd_models import apply_token_merging, forge_model_reload
 from modules.sd_samplers_common import approximation_indexes, decode_first_stage, images_tensor_to_samples
 from modules.shared import cmd_opts, opts, state
 from modules.sysinfo import set_config
-from modules.ui import sRound
 from modules_forge import main_entry
 from modules_forge.utils import apply_circular_forge
 
 logger = logging.getLogger("processing")
 setup_logger(logger)
+
+
+def sRound(val: int | float) -> int:
+    """The nearest multiple of the resolution step (``res_step``)."""
+
+    step = int(getattr(opts, "res_step", 64) or 64)
+    return math.floor(val / step + 0.5) * step
 
 opt_C = 4
 opt_f = 8

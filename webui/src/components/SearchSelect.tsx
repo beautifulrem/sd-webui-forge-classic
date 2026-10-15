@@ -36,10 +36,13 @@ export function SearchSelect(props: SearchSelectProps) {
   const selected = options.find((o) => o.value === value) ?? (value ? { value, label: value } : null)
   const trimmed = query.trim()
   const offerCustom = allowCustom && trimmed !== "" && !options.some((o) => o.label === trimmed || o.value === trimmed)
+  // An exact match goes first, so Enter after typing "Euler" picks Euler, not "Euler a".
+  const exact = trimmed ? options.find((o) => o.label.toLowerCase() === trimmed.toLowerCase()) : undefined
+  const items = exact ? [exact, ...options.filter((o) => o !== exact)] : options
 
   return (
     <Combobox.Root<SelectOption>
-      items={options}
+      items={items}
       value={selected}
       onValueChange={(next) => {
         if (next) onValueChange(next.value)
@@ -50,6 +53,8 @@ export function SearchSelect(props: SearchSelectProps) {
       itemToStringValue={(o) => o.value}
       isItemEqualToValue={(a, b) => a.value === b.value}
       disabled={props.disabled}
+      // Enter picks the first match (with custom values, Enter commits the typed text instead).
+      autoHighlight={!allowCustom}
       onOpenChange={(open) => {
         if (!open) setQuery("")
       }}

@@ -21,10 +21,12 @@ export const keys = {
   schema: (tab: FormTab) => ["schema", tab] as const,
   page: (id: string) => ["page", id] as const,
   jobs: ["jobs"] as const,
+  queueItems: ["queue", "items"] as const,
   outputs: (q = "") => ["outputs", q] as const,
   networks: (kind: string, q = "") => ["networks", kind, q] as const,
   options: ["options"] as const,
   models: ["models"] as const,
+  styles: ["styles"] as const,
 }
 
 export const bootstrapQuery = queryOptions({
@@ -48,9 +50,14 @@ export const jobsQuery = infiniteQueryOptions({
   staleTime: 5_000,
 })
 
+/** Queued jobs in run order (priorities and the user's reordering applied). */
+export const queueItemsQuery = queryOptions({ queryKey: keys.queueItems, queryFn: ({ signal }) => api.queue.items(signal), staleTime: 5_000 })
+
 export const modelsQuery = queryOptions({ queryKey: keys.models, queryFn: ({ signal }) => api.models(signal) })
 
 export const optionsQuery = queryOptions({ queryKey: keys.options, queryFn: ({ signal }) => api.options(signal) })
+
+export const stylesQuery = queryOptions({ queryKey: keys.styles, queryFn: ({ signal }) => api.styles.list(signal) })
 
 export const useBootstrap = () => useQuery(bootstrapQuery)
 export const useSchema = (tab: FormTab) => useSuspenseQuery(schemaQuery(tab))
