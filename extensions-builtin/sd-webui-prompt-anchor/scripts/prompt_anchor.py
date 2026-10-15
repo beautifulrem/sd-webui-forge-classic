@@ -146,7 +146,6 @@ class PromptAnchorScript(scripts.Script):
     webui's Script framework; each tab's form keeps its own anchor."""
 
     section = "prompt"
-    create_group = False
 
     def title(self):
         return "Prompt Anchor"

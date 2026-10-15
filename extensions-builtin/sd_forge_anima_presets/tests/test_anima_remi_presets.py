@@ -127,7 +127,7 @@ def test_the_ported_panels_in_a_tab(webui, tab):
     schema = json.loads(json.dumps(tab_schema(tab), allow_nan=False))
     entries = {entry["id"]: entry for entry in schema["scripts"]}
     expected = {"anima_guidance_corrections", "anima_remi_presets", "anima_prompt_schedule_rescaler"} | ({"anima_hires_guard"} if tab == "txt2img" else set())
-    assert expected <= set(entries) and not any(entries[owner]["legacy"] for owner in expected)
+    assert expected <= set(entries)
     assert ("anima_hires_guard" in entries) is (tab == "txt2img")
     assert entries["anima_guidance_corrections"]["args"] == list(GUIDANCE.SCRIPT_ARG_NAMES)
     assert {"anima_guidance_corrections.guidance_mode", "anima_guidance_corrections.momentum_enable", "anima_guidance_corrections.dcw_enable"} <= set(schema["conflict_params"])
@@ -183,8 +183,8 @@ def test_apply_resolves_the_conflict_locks_again(webui):
     assert [choice["value"] for choice in core_patch[f"{guidance}.guidance_mode"]["choices"]] == full
 
 
-def test_gradio_free():
-    harness.assert_gradio_free(ROOT, ("scripts/anima_remi_presets.py",))
+def test_standalone():
+    harness.assert_standalone(ROOT, ("scripts/anima_remi_presets.py",))
 
 
 def test_zh_cn_catalog_covers_the_panel():

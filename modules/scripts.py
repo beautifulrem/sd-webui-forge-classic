@@ -5,7 +5,7 @@ import sys
 from collections import namedtuple
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from modules import errors, extensions, paths, script_callbacks, script_loading, scripts_postprocessing, shared, timer, util
 
@@ -62,12 +62,6 @@ class PostprocessBatchListArgs:
         self.images = images
 
 
-@dataclass
-class OnComponent:
-    component: Any
-    """The Gradio block just created (legacy UI only)."""
-
-
 class Script:
     name = None
     """script's internal name derived from title"""
@@ -84,36 +78,11 @@ class Script:
     is_img2img = False
     tabname = None
 
-    group = None
-    """A gr.Group component that has all script's UI inside it."""
-
-    create_group = True
-    """If False, for alwayson scripts, a group component will not be created."""
-
-    infotext_fields = None
-    """if set in ui(), this is a list of pairs of gradio component + text; the text will be used when
-    parsing infotext to set the value for the component; see ui.py's txt2img_paste_fields for an example
-    """
-
-    paste_field_names = None
-    """if set in ui(), this is a list of names of infotext fields; the fields will be sent through the
-    various "Send to <X>" buttons when clicked
-    """
-
     api_info = None
     """Generated value of type modules.api.models.ScriptInfo with information about the script for API"""
 
-    on_before_component_elem_id = None
-    """list of callbacks to be called before a component with an elem_id is created"""
-
-    on_after_component_elem_id = None
-    """list of callbacks to be called after a component with an elem_id is created"""
-
     setup_for_ui_only = False
-    """If true, the script setup will only be run in Gradio UI, not in API"""
-
-    controls = None
-    """A list of controls returned by the ui()."""
+    """If true, setup() runs for WebUI jobs only, not for /sdapi requests"""
 
     sorting_priority = 0
     """Larger number will appear downwards in the UI."""
@@ -126,25 +95,19 @@ class Script:
     """The script's owner id in the Remi API (``seed``, ``sampler``, ...), set by the runner."""
 
     layout = None
-    """The ``remi.ui.ScriptLayout`` built from ``params()``; None for a script
-    still on the legacy ``ui()`` path."""
+    """The ``remi.ui.ScriptLayout`` built from ``params()``."""
 
     def title(self):
         """this function should return the title of the script. This is what will be displayed in the dropdown menu."""
 
         raise NotImplementedError()
 
-    def ui(self, is_img2img):
-        """Legacy: create Gradio UI elements and return the ones whose values
-        are passed to run()/process(). Superseded by :meth:`params`."""
-
-        pass
-
     def params(self, is_img2img):
         """Return the script's parameters as one ``remi.ui`` layout node (or
         None for none). The inputs' depth-first declaration order (or
         ``param_order``) is the order of the positional arguments that run(),
-        process() and the other hooks receive. Replaces :meth:`ui`."""
+        process() and the other hooks receive (A1111's ``ui()``, which
+        built Gradio controls, is not supported)."""
 
         return None
 
@@ -168,14 +131,14 @@ class Script:
 
         Usually the processing is done by calling the processing.process_images function.
 
-        args contains all values returned by components from ui()
+        args are the script's params() values, in argument order
         """
 
         pass
 
     def setup(self, p, *args):
         """For AlwaysVisible scripts, this function is called when the processing object is set up, before any processing starts.
-        args contains all values returned by components from ui().
+        args are the script's params() values, in argument order.
         """
         pass
 
@@ -183,7 +146,7 @@ class Script:
         """
         This function is called very early during processing begins for AlwaysVisible scripts.
         You can modify the processing object (p) here, inject hooks, etc.
-        args contains all values returned by components from ui()
+        args are the script's params() values, in argument order
         """
 
         pass
@@ -197,7 +160,7 @@ class Script:
         """
         This function is called before processing begins for AlwaysVisible scripts.
         You can modify the processing object (p) here, inject hooks, etc.
-        args contains all values returned by components from ui()
+        args are the script's params() values, in argument order
         """
 
         pass
@@ -326,7 +289,7 @@ class Script:
     def postprocess(self, p, processed, *args):
         """
         This function is called after processing ends for AlwaysVisible scripts.
-        args contains all values returned by components from ui()
+        args are the script's params() values, in argument order
         """
 
         pass
@@ -341,60 +304,6 @@ class Script:
 
         pass
 
-    def before_component(self, component, **kwargs):
-        """
-        Called before a component is created.
-        Use elem_id/label fields of kwargs to figure out which component it is.
-        This can be useful to inject your own components somewhere in the middle of vanilla UI.
-        You can return created components in the ui() function to add them to the list of arguments for your processing functions
-        """
-
-        pass
-
-    def after_component(self, component, **kwargs):
-        """
-        Called after a component is created. Same as above.
-        """
-
-        pass
-
-    def on_before_component(self, callback, *, elem_id):
-        """
-        Calls callback before a component is created. The callback function is called with a single argument of type OnComponent.
-
-        May be called in show() or ui() - but it may be too late in latter as some components may already be created.
-
-        This function is an alternative to before_component in that it also cllows to run before a component is created, but
-        it doesn't require to be called for every created component - just for the one you need.
-        """
-        if self.on_before_component_elem_id is None:
-            self.on_before_component_elem_id = []
-
-        self.on_before_component_elem_id.append((elem_id, callback))
-
-    def on_after_component(self, callback, *, elem_id):
-        """
-        Calls callback after a component is created. The callback function is called with a single argument of type OnComponent.
-        """
-        if self.on_after_component_elem_id is None:
-            self.on_after_component_elem_id = []
-
-        self.on_after_component_elem_id.append((elem_id, callback))
-
-    def describe(self):
-        """unused"""
-        return ""
-
-    def elem_id(self, item_id):
-        """helper function to generate id for a HTML element, constructs final id out of script name, tab and user-supplied item_id"""
-
-        need_tabname = self.show(True) == self.show(False)
-        tabkind = "img2img" if self.is_img2img else "txt2img"
-        tabname = f"{tabkind}_" if need_tabname else ""
-        title = re.sub(r"[^a-z_0-9]", "", re.sub(r"\s", "_", self.title().lower()))
-
-        return f"script_{tabname}{title}_{item_id}"
-
     def before_hr(self, p, *args):
         """
         This function is called before hires fix start.
@@ -404,14 +313,6 @@ class Script:
 
 class ScriptBuiltinUI(Script):
     setup_for_ui_only = True
-
-    def elem_id(self, item_id):
-        """helper function to generate id for a HTML element, constructs final id out of tab and user-supplied item_id"""
-
-        need_tabname = self.show(True) == self.show(False)
-        tabname = ("img2img" if self.is_img2img else "txt2img") + "_" if need_tabname else ""
-
-        return f"{tabname}{item_id}"
 
     def show(self, is_img2img):
         return AlwaysVisible
@@ -432,8 +333,9 @@ ScriptFile = namedtuple("ScriptFile", ["basedir", "filename", "path"])
 
 scripts_data = []
 postprocessing_scripts_data = []
-scripts_needing_gradio: list[ScriptFile] = []
-"""Script files not loaded: not yet ported, they import Gradio, which is not installed."""
+scripts_not_loaded: list[tuple[ScriptFile, str]] = []
+"""Script files that failed to import, with the reason (e.g. A1111 UI code
+that imports a module the WebUI no longer ships); listed in bootstrap ``not_ported``."""
 ScriptClassData = namedtuple("ScriptClassData", ["script_class", "path", "basedir", "module"])
 
 
@@ -544,7 +446,7 @@ def load_scripts():
     global current_basedir
     scripts_data.clear()
     postprocessing_scripts_data.clear()
-    scripts_needing_gradio.clear()
+    scripts_not_loaded.clear()
     script_callbacks.clear_callbacks()
 
     scripts_list = list_scripts("scripts", ".py") + list_scripts("modules/processing_scripts", ".py", include_extensions=False)
@@ -579,13 +481,11 @@ def load_scripts():
             register_scripts_from_module(script_module)
 
         except ModuleNotFoundError as error:
-            if (error.name or "").partition(".")[0] != "gradio":
-                errors.report(f"Error loading script: {scriptfile.filename}", exc_info=True)
-            else:
-                scripts_needing_gradio.append(scriptfile)
-                print(f"Script {scriptfile.path} is disabled: not yet ported, and it needs Gradio, which is not installed")
+            scripts_not_loaded.append((scriptfile, f"needs the module {error.name!r}, which is not installed"))
+            print(f"Script {scriptfile.path} is disabled: it needs the module {error.name!r}, which is not installed")
 
-        except Exception:
+        except Exception as error:
+            scripts_not_loaded.append((scriptfile, f"failed to load: {error}"))
             errors.report(f"Error loading script: {scriptfile.filename}", exc_info=True)
 
         finally:
@@ -615,10 +515,12 @@ def has_params(script) -> bool:
     return getattr(type(script), "params", Script.params) is not Script.params
 
 
-def overrides_ui(script) -> bool:
-    """Whether the script still builds a legacy Gradio ``ui()``."""
+def legacy_ui_only(script) -> bool:
+    """Whether the script only has A1111's ``ui()`` (Gradio controls, not
+    supported) and no ``params()``: it cannot take arguments, so the runner
+    leaves it out."""
 
-    return getattr(type(script), "ui", Script.ui) is not Script.ui
+    return callable(getattr(type(script), "ui", None)) and not has_params(script)
 
 
 RESERVED_OWNERS = frozenset({"core", "settings"})
@@ -641,7 +543,7 @@ def unique_id(base: str, taken) -> str:
 
 def ordered_ui_categories():
     """The txt2img/img2img parameter categories in the user's order
-    (``opts.ui_reorder_list``), as ``modules.ui`` lays them out."""
+    (``opts.ui_reorder_list``), as the generation form lays them out."""
 
     from modules import shared_items
 
@@ -657,9 +559,6 @@ class ScriptRunner:
         self.alwayson_scripts = []
         self.titles = []
         self.title_map = {}
-        self.infotext_fields = []
-        self.paste_field_names = []
-        self.inputs = [None]
 
         self.callback_map = {}
         self.callback_names = [
@@ -682,30 +581,19 @@ class ScriptRunner:
             "postprocess_maskoverlay",
             "postprocess_image_after_composite",
             "cleanup",
-            "before_component",
-            "after_component",
         ]
-
-        self.on_before_component_elem_id = {}
-        """dict of callbacks to be called before an element is created; key=elem_id, value=list of callbacks"""
-
-        self.on_after_component_elem_id = {}
-        """dict of callbacks to be called after an element is created; key=elem_id, value=list of callbacks"""
 
         self.is_img2img = False
         self.by_id: dict[str, Script] = {}
         """scripts by ``script_id`` (the Remi API owner ids)"""
-        self.legacy_ui_built = False
-        """True once the Gradio UI has created the script inputs: it then owns the argument slots"""
         self._slots_total = None
         self.disabled_scripts: list[tuple[Script, str]] = []
-        """scripts left out because their params()/ui() failed, with the reason"""
+        """scripts left out (params() failed, or an A1111 ``ui()`` without params()), with the reason"""
 
     def initialize_scripts(self, is_img2img):
         from modules import scripts_auto_postprocessing
 
         self.is_img2img = is_img2img
-        self.legacy_ui_built = False
         self._slots_total = None
         self.disabled_scripts = []
         self.scripts.clear()
@@ -740,180 +628,13 @@ class ScriptRunner:
         self.callback_map.clear()
 
         self.build_layouts()
-        self.apply_on_before_component_callbacks()
-
-    def apply_on_before_component_callbacks(self):
-        for script in self.scripts:
-            on_before = script.on_before_component_elem_id or []
-            on_after = script.on_after_component_elem_id or []
-
-            for elem_id, callback in on_before:
-                if elem_id not in self.on_before_component_elem_id:
-                    self.on_before_component_elem_id[elem_id] = []
-
-                self.on_before_component_elem_id[elem_id].append((callback, script))
-
-            for elem_id, callback in on_after:
-                if elem_id not in self.on_after_component_elem_id:
-                    self.on_after_component_elem_id[elem_id] = []
-
-                self.on_after_component_elem_id[elem_id].append((callback, script))
-
-            on_before.clear()
-            on_after.clear()
-
-    def create_script_ui(self, script):
-
-        script.args_from = len(self.inputs)
-        script.args_to = len(self.inputs)
-
-        try:
-            self.create_script_ui_inner(script)
-        except Exception:
-            errors.report(f"Error creating UI for {script.name}: ", exc_info=True)
-
-    def create_script_ui_inner(self, script):
-        import modules.api.models as api_models
-
-        if script.layout is not None and not overrides_ui(script):
-            # Ported to params(): an approximate Gradio rendering keeps its argument slots
-            from remi.ui import legacy_gradio
-
-            controls, paste_fields = legacy_gradio.render(script.layout)
-            script.infotext_fields = paste_fields or None
-            script.paste_field_names = [field.label for field in paste_fields if field.label] or None
-        else:
-            controls = wrap_call(script.ui, script.filename, "ui", script.is_img2img)
-        script.controls = controls
-
-        if controls is None:
-            return
-
-        script.name = wrap_call(script.title, script.filename, "title", default=script.filename).lower()
-
-        api_args = []
-
-        for control in controls:
-            control.custom_script_source = os.path.basename(script.filename)
-
-            arg_info = api_models.ScriptArg(label=control.label or "")
-
-            for field in ("value", "minimum", "maximum", "step"):
-                v = getattr(control, field, None)
-                if v is not None:
-                    setattr(arg_info, field, v)
-
-            choices = getattr(control, "choices", None)  # as of gradio 3.41, some items in choices are strings, and some are tuples where the first elem is the string
-            if choices is not None:
-                arg_info.choices = [x[0] if isinstance(x, tuple) else x for x in choices]
-
-            api_args.append(arg_info)
-
-        script.api_info = api_models.ScriptInfo(
-            name=script.name,
-            is_img2img=script.is_img2img,
-            is_alwayson=script.alwayson,
-            args=api_args,
-        )
-
-        if script.infotext_fields is not None:
-            self.infotext_fields += script.infotext_fields
-
-        if script.paste_field_names is not None:
-            self.paste_field_names += script.paste_field_names
-
-        self.inputs += controls
-        script.args_to = len(self.inputs)
-
-    def setup_ui_for_section(self, section, scriptlist=None):
-        if scriptlist is None:
-            scriptlist = self.alwayson_scripts
-
-        scriptlist = sorted(scriptlist, key=lambda x: x.sorting_priority)
-
-        for script in scriptlist:
-            if script.alwayson and script.section != section:
-                continue
-
-            if script.create_group:
-                import gradio as gr
-
-                with gr.Group(visible=script.alwayson) as group:
-                    self.create_script_ui(script)
-
-                script.group = group
-            else:
-                self.create_script_ui(script)
-
-    def prepare_ui(self):
-        self.inputs = [None]
-        self.legacy_ui_built = False
-
-    def setup_ui(self):
-        import gradio as gr
-
-        all_titles = [wrap_call(script.title, script.filename, "title") or script.filename for script in self.scripts]
-        self.title_map = {title.lower(): script for title, script in zip(all_titles, self.scripts)}
-        self.titles = [wrap_call(script.title, script.filename, "title") or f"{script.filename} [error]" for script in self.selectable_scripts]
-
-        self.setup_ui_for_section(None)
-
-        dropdown = gr.Dropdown(label="Script", elem_id="script_list", choices=["None"] + self.titles, value="None", type="index")
-        self.inputs[0] = dropdown
-
-        self.setup_ui_for_section(None, self.selectable_scripts)
-
-        def select_script(script_index):
-            if script_index is None:
-                script_index = 0
-            selected_script = self.selectable_scripts[script_index - 1] if script_index > 0 else None
-
-            return [gr.update(visible=selected_script == s) for s in self.selectable_scripts]
-
-        def init_field(title):
-            """called when an initial value is set from ui-config.json to show script's UI components"""
-
-            if title == "None":
-                return
-
-            script_index = self.titles.index(title)
-            self.selectable_scripts[script_index].group.visible = True
-
-        dropdown.init_field = init_field
-
-        dropdown.change(fn=select_script, inputs=[dropdown], outputs=[script.group for script in self.selectable_scripts])
-
-        self.script_load_ctr = 0
-
-        def onload_script_visibility(params):
-            title = params.get("Script", None)
-            if title:
-                try:
-                    title_index = self.titles.index(title)
-                    visibility = title_index == self.script_load_ctr
-                    self.script_load_ctr = (self.script_load_ctr + 1) % len(self.titles)
-                    return gr.update(visible=visibility)
-                except ValueError:
-                    params["Script"] = None
-                    massage = f'Cannot find Script: "{title}"'
-                    print(massage)
-                    gr.Warning(massage)
-            return gr.update(visible=False)
-
-        self.infotext_fields.append((dropdown, lambda x: gr.update(value=x.get("Script", "None"))))
-        self.infotext_fields.extend([(script.group, onload_script_visibility) for script in self.selectable_scripts])
-
-        self.apply_on_before_component_callbacks()
-        self.legacy_ui_built = True
-
-        return self.inputs
 
     # region Remi parameter model (params() layouts, named values)
 
     def build_layouts(self):
-        """Give every script its ``script_id`` and, unless it is still on the
-        legacy ``ui()`` path, its ``ScriptLayout`` from ``params()``. No UI is
-        built."""
+        """Give every script its ``script_id`` and its ``ScriptLayout`` from
+        ``params()`` (none: no arguments). A script that only has A1111's
+        ``ui()`` is disabled."""
 
         from remi.ui import ScriptLayout
 
@@ -925,16 +646,17 @@ class ScriptRunner:
             self.by_id[script.script_id] = script
             script.layout = None
 
-            if has_params(script):
-                try:
-                    script.layout = ScriptLayout(script.params(script.is_img2img), owner=script.script_id, order=script.param_order)
-                except Exception as error:
-                    errors.report(f"Error in params() of {script.filename}; the script is disabled", exc_info=True)
-                    self.disable_script(script, f"params() failed: {error}")
-                    continue
-                script.api_info = self._layout_api_info(script)
-            elif not overrides_ui(script):
-                script.layout = ScriptLayout(None, owner=script.script_id)
+            if legacy_ui_only(script):
+                print(f"Script {script.filename} is disabled: it declares ui() (Gradio controls) instead of params()")
+                self.disable_script(script, "declares ui() instead of params()")
+                continue
+            try:
+                script.layout = ScriptLayout(script.params(script.is_img2img), owner=script.script_id, order=script.param_order)
+            except Exception as error:
+                errors.report(f"Error in params() of {script.filename}; the script is disabled", exc_info=True)
+                self.disable_script(script, f"params() failed: {error}")
+                continue
+            script.api_info = self._layout_api_info(script)
 
         self._index_titles()
 
@@ -977,59 +699,14 @@ class ScriptRunner:
             return None
 
     def layout_for(self, script) -> "ScriptLayout":
-        """The script's layout; for a legacy ``ui()`` script, a positional
-        ``#i`` layout of its Gradio controls (built detached when the Gradio
-        UI has not created them)."""
+        """The script's layout (``params()``)."""
 
-        if script.layout is not None:
-            return script.layout
-
-        from remi.ui import ScriptLayout
-        from remi.ui.legacy import legacy_layout
-
-        if script.controls is None and not getattr(script, "_remi_legacy_built", False):
-            script._remi_legacy_built = True  # once, even when ui() returns nothing
-            if not self._build_legacy_controls(script):
-                self.disable_script(script, "ui() failed")
-                return ScriptLayout(None, owner=script.script_id)
-        cached = getattr(script, "_remi_legacy_layout", None)
-        if cached is None or cached[0] is not script.controls:
-            cached = (script.controls, legacy_layout(script.script_id, script.controls or [], script.infotext_fields))
-            script._remi_legacy_layout = cached
-        return cached[1]
-
-    def _build_legacy_controls(self, script):
-        """Run a legacy script's ``ui()`` inside a throwaway Gradio Blocks, for
-        its argument count and defaults when no Gradio UI is built."""
-
-        global scripts_current
-
-        import gradio as gr
-
-        from modules import gradio_extensions  # noqa: F401 - the Gradio patches ui() code expects
-
-        previous, scripts_current = scripts_current, self
-        try:
-            with gr.Blocks(analytics_enabled=False):
-                script.controls = script.ui(script.is_img2img)
-        except Exception:
-            errors.report(f"Error calling: {script.filename}/ui; the script is disabled", exc_info=True)
-            script.controls = None
-            return False
-        finally:
-            scripts_current = previous
-        return True
-
-    def prepare_layouts(self):
-        """Read every legacy script's controls now (disabling those whose
-        ``ui()`` fails), so the loops over the scripts see a stable list."""
-
-        for script in list(self.scripts):
-            self.layout_for(script)
+        return script.layout
 
     def slot_order(self) -> list:
-        """The order in which scripts get their argument slots: the order the
-        Gradio UI creates them in (by UI category, then sorting priority)."""
+        """The order in which scripts get their argument slots (by UI
+        category, then sorting priority; the A1111 order, which positional
+        ``/sdapi`` clients and saved jobs rely on)."""
 
         alwayson = sorted(self.alwayson_scripts, key=lambda x: x.sorting_priority)
         selectable = sorted(self.selectable_scripts, key=lambda x: x.sorting_priority)
@@ -1041,12 +718,9 @@ class ScriptRunner:
         return order + [script for script in self.scripts if script not in order]
 
     def ensure_arg_slots(self) -> int:
-        """Assign ``args_from``/``args_to`` from the layouts unless the Gradio
-        UI has done so; returns the length of the full script_args list."""
+        """Assign ``args_from``/``args_to`` from the layouts; returns the
+        length of the full script_args list."""
 
-        self.prepare_layouts()
-        if self.legacy_ui_built:
-            return len(self.inputs)
         if self._slots_total is None:
             position = 1  # slot 0 is the selected script's index
             for script in self.slot_order():
@@ -1074,7 +748,7 @@ class ScriptRunner:
 
     def script_args_from_values(self, selected, values: dict | None, ctx: "Context | None" = None, *, unknown: str = "error") -> list:
         """The full ``p.script_args`` for named values ``{script_id: {param:
-        value}}`` (legacy scripts: ``{"#0": v, ...}`` or a list) and the
+        value}}`` (or a list of a script's values in argument order) and the
         selected script's title. Missing params take their defaults; the
         unselected selectable scripts get their defaults."""
 
@@ -1099,14 +773,17 @@ class ScriptRunner:
             layout = self.layout_for(script)
             owner_values = None if (not script.alwayson and script is not chosen) else values.get(script.script_id)
             if isinstance(owner_values, (list, tuple)):
-                owner_values = {f"#{i}": value for i, value in enumerate(owner_values)}
+                if len(owner_values) > len(layout.names):
+                    problems.append(ParamError(f"{len(owner_values)} values for {len(layout.names)} params", owner=script.script_id))
+                    continue
+                owner_values = dict(zip(layout.names, owner_values))
             try:
                 positional = layout.values_to_args(owner_values, ctx, unknown=unknown)
             except ValidationError as error:
                 problems.append(error)
                 continue
             if len(positional) != script.args_to - script.args_from:
-                raise RuntimeError(f"{script.filename}: params() declares {len(positional)} arguments, the UI built {script.args_to - script.args_from}")
+                raise RuntimeError(f"{script.filename}: params() declares {len(positional)} arguments, {script.args_to - script.args_from} slots were assigned")
             args[script.args_from : script.args_to] = positional
         if problems:
             raise ValidationError.merge(problems)
@@ -1152,7 +829,7 @@ class ScriptRunner:
             }
             if not script.alwayson:
                 entry["visible_if"] = {"param": "core.script", "eq": title}
-            entry.update(legacy=layout.legacy, layout=layout.schema(ctx), defaults=jsonable(layout.defaults(ctx)), args=layout.names)
+            entry.update(layout=layout.schema(ctx), defaults=jsonable(layout.defaults(ctx)), args=layout.names)
             result.append(entry)
         return result
 
@@ -1163,7 +840,6 @@ class ScriptRunner:
         from remi.ui import Context
 
         ctx = ctx or Context()
-        self.prepare_layouts()
         values, problems = {}, []
         for script in self.scripts:
             try:
@@ -1219,10 +895,7 @@ class ScriptRunner:
         return processed
 
     def list_scripts_for_method(self, method_name):
-        if method_name in ("before_component", "after_component"):
-            return self.scripts
-        else:
-            return self.alwayson_scripts
+        return self.alwayson_scripts
 
     def create_ordered_callbacks_list(self, method_name, *, enable_user_sort=True):
         script_list = self.list_scripts_for_method(method_name)
@@ -1390,32 +1063,6 @@ class ScriptRunner:
             except Exception:
                 errors.report(f"Error running postprocess_image_after_composite: {script.filename}", exc_info=True)
 
-    def before_component(self, component, **kwargs):
-        for callback, script in self.on_before_component_elem_id.get(kwargs.get("elem_id"), []):
-            try:
-                callback(OnComponent(component=component))
-            except Exception:
-                errors.report(f"Error running on_before_component: {script.filename}", exc_info=True)
-
-        for script in self.ordered_scripts("before_component"):
-            try:
-                script.before_component(component, **kwargs)
-            except Exception:
-                errors.report(f"Error running before_component: {script.filename}", exc_info=True)
-
-    def after_component(self, component, **kwargs):
-        for callback, script in self.on_after_component_elem_id.get(component.elem_id, []):
-            try:
-                callback(OnComponent(component=component))
-            except Exception:
-                errors.report(f"Error running on_after_component: {script.filename}", exc_info=True)
-
-        for script in self.ordered_scripts("after_component"):
-            try:
-                script.after_component(component, **kwargs)
-            except Exception:
-                errors.report(f"Error running after_component: {script.filename}", exc_info=True)
-
     def script(self, title):
         return self.title_map.get(title.lower())
 
@@ -1460,23 +1107,18 @@ class ScriptRunner:
                 errors.report(f"Error running setup: {script.filename}", exc_info=True)
 
     def set_named_arg(self, args, script_name, arg_elem_id, value, fuzzy=False):
-        """Locate an arg of a specific script in script_args and set its value
-        Args:
-            args: all script args of process p, p.script_args
-            script_name: the name target script name to
-            arg_elem_id: the elem_id of the target arg
-            value: the value to set
-            fuzzy: if True, arg_elem_id can be a substring of the control.elem_id else exact match
-        Returns:
-            Updated script args
-        when script_name in not found or arg_elem_id is not found in script controls, raise RuntimeError
-        """
+        """Set one argument of script ``script_name`` (its lowercased title)
+        in ``args`` (``p.script_args``): ``arg_elem_id`` is the param name
+        (``fuzzy``: a substring of it). Returns the updated args; raises
+        RuntimeError for an unknown script or param."""
+
         script = next((x for x in self.scripts if x.name == script_name), None)
         if script is None:
             raise RuntimeError(f"script {script_name} not found")
 
-        for i, control in enumerate(script.controls):
-            if arg_elem_id in control.elem_id if fuzzy else arg_elem_id == control.elem_id:
+        self.ensure_arg_slots()
+        for i, name in enumerate(self.layout_for(script).names):
+            if arg_elem_id in name if fuzzy else arg_elem_id == name:
                 index = script.args_from + i
 
                 if isinstance(args, tuple):
@@ -1486,13 +1128,12 @@ class ScriptRunner:
                     return args
                 else:
                     raise RuntimeError(f"args is not a list or tuple, but {type(args)}")
-        raise RuntimeError(f"arg_elem_id {arg_elem_id} not found in script {script_name}")
+        raise RuntimeError(f"param {arg_elem_id} not found in script {script_name}")
 
 
 scripts_txt2img: ScriptRunner = None
 scripts_img2img: ScriptRunner = None
 scripts_postproc: scripts_postprocessing.ScriptPostprocessingRunner = None
-scripts_current: ScriptRunner = None
 
 
 def reload_script_body_only():

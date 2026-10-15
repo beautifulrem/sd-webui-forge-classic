@@ -21,5 +21,5 @@ def test_zh_cn_agrees_with_the_shared_catalogs(extension):
     assert harness.catalog_conflicts(REPO / "extensions-builtin" / extension) == []
 
 
-def test_comments_script_imports_without_gradio():
-    harness.assert_gradio_free([], modules=["modules.processing_scripts.comments"])
+def test_comments_script_imports_standalone():
+    harness.assert_imports_standalone([], modules=["modules.processing_scripts.comments"])

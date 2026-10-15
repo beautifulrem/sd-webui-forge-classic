@@ -735,7 +735,6 @@
    "kind": "alwayson",
    "section": "seed",
    "order": 0,
-   "legacy": false,
    "layout": {
     "type": "group",
     "open": true,
@@ -843,7 +842,6 @@
    "kind": "alwayson",
    "section": "sampler",
    "order": 0,
-   "legacy": false,
    "layout": {
     "type": "row",
     "children": [
@@ -1084,7 +1082,6 @@
    "kind": "alwayson",
    "section": "accordions",
    "order": 0,
-   "legacy": false,
    "layout": {
     "type": "section",
     "title": "Refiner",
@@ -1185,7 +1182,6 @@
    "kind": "alwayson",
    "section": null,
    "order": 0,
-   "legacy": false,
    "layout": null,
    "defaults": {},
    "args": []

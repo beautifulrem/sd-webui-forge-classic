@@ -1,5 +1,5 @@
 {
- "_about": "Recorded from the Gradio ui() before the port (gradio 4.40, preprocessors: modules_forge.supported_preprocessor only, no ControlNet models).",
+ "_about": "Recorded from the Gradio ui() before the port (Gradio 4.40, preprocessors: modules_forge.supported_preprocessor only, no ControlNet models).",
  "args": [
   {
    "kind": "state",

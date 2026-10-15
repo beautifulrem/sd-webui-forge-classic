@@ -11,7 +11,7 @@
    "infotext": null,
    "preset": "prompt_rescale.enabled",
    "info": null,
-   "gradio": "Checkbox",
+   "legacy_control": "Checkbox",
    "visible": true
   },
   {
@@ -25,7 +25,7 @@
    "infotext": null,
    "preset": "prompt_rescale.source_steps",
    "info": null,
-   "gradio": "Slider",
+   "legacy_control": "Slider",
    "visible": true
   },
   {
@@ -35,53 +35,53 @@
    "infotext": null,
    "preset": "prompt_rescale.fractions",
    "info": null,
-   "gradio": "Checkbox",
+   "legacy_control": "Checkbox",
    "visible": true
   }
  ],
  "non_arg_controls": [
   {
-   "gradio": "Markdown",
+   "legacy_control": "Markdown",
    "label": null,
    "value": "Rewrites prompt-editing schedules (`[from:to:when]`) so a switch authored for one pass lands at the **same relative point within the executed img2img window**. img2img with denoise `d` only runs the last ~`d` of the schedule, so a `when` set during a txt2img pass otherwise fires too early (or never). Alternation `[a|b]` and attention weights `(x:1.3)` are left untouched."
   },
   {
-   "gradio": "Textbox",
+   "legacy_control": "Textbox",
    "label": "Prompt with schedule",
    "value": null
   },
   {
-   "gradio": "Slider",
+   "legacy_control": "Slider",
    "label": "Source steps (authored for)",
    "value": 35
   },
   {
-   "gradio": "Slider",
+   "legacy_control": "Slider",
    "label": "Target steps (this pass)",
    "value": 35
   },
   {
-   "gradio": "Slider",
+   "legacy_control": "Slider",
    "label": "Denoise (this pass)",
    "value": 0.5
   },
   {
-   "gradio": "Checkbox",
+   "legacy_control": "Checkbox",
    "label": "Output as fractions (portable across step counts)",
    "value": false
   },
   {
-   "gradio": "Button",
+   "legacy_control": "Button",
    "label": null,
    "value": "Rescale schedule"
   },
   {
-   "gradio": "Textbox",
+   "legacy_control": "Textbox",
    "label": "Rescaled prompt",
    "value": null
   },
   {
-   "gradio": "Markdown",
+   "legacy_control": "Markdown",
    "label": null,
    "value": "When on, the schedules in this img2img generation's prompt **and** negative prompt are rescaled for this run only, using the live **Steps** slider as the target and **Denoising strength** as the window. Set **Source steps** to the step count the schedule was originally written for (your txt2img steps). Safe: any parse problem falls back to the original prompt."
   }

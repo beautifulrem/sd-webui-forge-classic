@@ -259,7 +259,7 @@ re_network_name = re.compile(r"(.*)\s*\([0-9a-fA-F]+\)")
 
 
 def infotext_pasted(infotext, params: dict):
-    if "AddNet Module 1" in [x[1] for x in scripts.scripts_txt2img.infotext_fields]:
+    if any("AddNet Module 1" in script.layout.infotext for script in scripts.scripts_txt2img.scripts if script.layout is not None):
         return  # if the other extension is active, it will handle those fields, no need to do anything
 
     added = []

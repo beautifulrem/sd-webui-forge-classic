@@ -13,13 +13,11 @@ the change (``expected``) or adds params after the legacy ones (``extra``).
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
-GRADIO_MODULES = ("modules.ui", "modules.ui_components", "modules.ui_common", "modules.gradio_extensions", "modules.ui_gradio_extensions")
 FIELDS = ("kind", "label", "info", "default", "minimum", "maximum", "step", "precision", "integer", "lines", "style", "allow_custom", "choices", "returns", "infotext", "paste", "preset")
 
 
@@ -30,7 +28,6 @@ def prepare_imports() -> None:
     for path in (REPO / "modules_forge" / "packages", REPO):
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
-    os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
 
 def describe(layout, ctx=None) -> list[dict[str, Any]]:
@@ -120,17 +117,13 @@ def missing_translations(strings, catalog_path, *, ignore=lambda text: False) ->
     return sorted(text for text in strings if not catalog.get(text) and not ignore(text))
 
 
-def assert_gradio_free(path) -> None:
-    """``path`` imports no Gradio and names no ``gr``."""
+def assert_ported(path) -> None:
+    """No class in ``path`` keeps an A1111 UI hook (``ui()``, component
+    callbacks): its arguments come from ``params()``."""
 
     import ast
 
+    hooks = {"ui", "on_before_component", "on_after_component", "before_component", "after_component"}
     tree = ast.parse(Path(path).read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            assert not any(alias.name.split(".")[0] == "gradio" for alias in node.names), f"{path}: imports gradio"
-        elif isinstance(node, ast.ImportFrom):
-            assert (node.module or "").split(".")[0] != "gradio", f"{path}: imports from gradio"
-            assert (node.module or "") not in GRADIO_MODULES, f"{path}: imports a Gradio UI module"
-        elif isinstance(node, ast.Name):
-            assert node.id != "gr", f"{path}: names gr (line {node.lineno})"
+    left = [f"{cls.name}.{item.name}" for cls in ast.walk(tree) if isinstance(cls, ast.ClassDef) for item in cls.body if isinstance(item, ast.FunctionDef) and item.name in hooks]
+    assert left == [], f"{path}: {left}"

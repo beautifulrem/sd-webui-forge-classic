@@ -158,7 +158,7 @@ def test_overwriting_a_preset_replaces_its_lut_copy(pp, files, presets):
 
 def test_a_preset_whose_lut_is_gone_loads_without_it(pp, files, presets):
     presets.mkdir(parents=True)
-    (presets / "Old.json").write_text(json.dumps({"v": 1, "master": True, "stages": {"lut": {"enabled": True, "params": {"lut_file": "/tmp/gradio/missing.cube"}}}}), encoding="utf-8")
+    (presets / "Old.json").write_text(json.dumps({"v": 1, "master": True, "stages": {"lut": {"enabled": True, "params": {"lut_file": "/tmp/uploads/missing.cube"}}}}), encoding="utf-8")
     patch = call(make(pp), "preset_load", {"preset": "Old"}, files)
     assert patch["lut_enabled"] == {"value": True} and patch["lut_lut_file"] == {"value": None}
 
@@ -180,8 +180,8 @@ def test_apply_and_send_post_processes_the_selected_result(pp, files):
         call(script, "apply_send", {"sepia_strength": "strong"}, files, file_id=source.id)
 
 
-def test_no_gradio_and_no_javascript():
-    contract.assert_gradio_free(SCRIPT)
+def test_ported_without_javascript():
+    contract.assert_ported(SCRIPT)
     assert not (EXT / "javascript").exists()
 
 

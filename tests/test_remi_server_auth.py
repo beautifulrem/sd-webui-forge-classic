@@ -32,18 +32,17 @@ def locked(webui, tmp_path):
 # region Credentials and sessions
 
 
-def test_credentials_parse_like_the_old_gradio_auth():
+def test_credentials_parse_like_a1111_auth():
     assert parse_credentials(["ann:1, bob:2", "", "carol:x:y", "broken"]) == {"ann": "1", "bob": "2", "carol": "x:y"}
 
 
-def test_auth_and_auth_file_and_their_gradio_aliases(tmp_path):
+def test_auth_and_auth_file(tmp_path):
     from modules import cmd_args
 
     file = tmp_path / "logins.txt"
     file.write_text("ann:1\nbob:2,carol:3\n")
-    for argv in (["--auth", "x:y", "--auth-file", str(file)], ["--gradio-auth", "x:y", "--gradio-auth-path", str(file)]):
-        options, _ = cmd_args.parser.parse_known_args(argv)
-        assert credentials_from_cmd_opts(options) == {"x": "y", "ann": "1", "bob": "2", "carol": "3"}
+    options, _ = cmd_args.parser.parse_known_args(["--auth", "x:y", "--auth-file", str(file)])
+    assert credentials_from_cmd_opts(options) == {"x": "y", "ann": "1", "bob": "2", "carol": "3"}
 
 
 def test_session_tokens_are_signed_expire_and_die_with_the_password(tmp_path):
@@ -229,13 +228,11 @@ def test_extension_routes_keep_the_route_guard(webui, tmp_path):
 
 
 def test_websocket_needs_a_login_and_a_same_site_origin(locked):
-    with pytest.raises(WebSocketDisconnect) as refused:
-        with locked.client.websocket_connect(WS_URL) as socket:
-            socket.receive_json()
+    with pytest.raises(WebSocketDisconnect) as refused, locked.client.websocket_connect(WS_URL) as socket:
+        socket.receive_json()
     assert refused.value.code == 1008
-    with pytest.raises(WebSocketDisconnect):
-        with locked.client.websocket_connect(WS_URL, headers={**basic("ann", "s3cret"), "Origin": "https://evil.example"}) as socket:
-            socket.receive_json()
+    with pytest.raises(WebSocketDisconnect), locked.client.websocket_connect(WS_URL, headers={**basic("ann", "s3cret"), "Origin": "https://evil.example"}) as socket:
+        socket.receive_json()
     with locked.client.websocket_connect(WS_URL, headers={**basic("ann", "s3cret"), "Origin": "http://127.0.0.1:7860"}) as socket:
         assert socket.receive_json()["type"] == "hello"
 

@@ -24,14 +24,14 @@ function NumberField({
   "aria-invalid"?: boolean
 }) {
   return (
-    <NumberFieldPrimitive.Root data-slot="number-field" className={cn("min-w-0", className)} {...props}>
+    // The id goes on the root: Base UI puts it on the input and points the steppers' aria-controls at it.
+    <NumberFieldPrimitive.Root id={id} data-slot="number-field" className={cn("min-w-0", className)} {...props}>
       <NumberFieldPrimitive.Group
         data-size={size}
         data-invalid={ariaInvalid || undefined}
         className="flex w-full items-stretch overflow-hidden rounded-lg border border-input bg-transparent transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 data-disabled:cursor-not-allowed data-disabled:opacity-50 data-invalid:border-destructive data-invalid:ring-3 data-invalid:ring-destructive/20 data-[size=default]:h-8 data-[size=sm]:h-7 dark:bg-input/30"
       >
         <NumberFieldPrimitive.Input
-          id={id}
           aria-label={ariaLabel}
           aria-labelledby={ariaLabelledBy}
           aria-describedby={ariaDescribedBy}

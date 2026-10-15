@@ -3234,14 +3234,15 @@ export interface components {
         };
         /**
          * NotPorted
-         * @description A script, Extras operation or extension tab not on ``params()`` yet.
+         * @description A script file, script or Extras operation that could not be loaded
+         *     (it failed to import, or declares A1111's ``ui()`` instead of ``params()``).
          */
         NotPorted: {
             /**
              * Kind
              * @enum {string}
              */
-            kind: "script" | "extras" | "page";
+            kind: "script" | "extras";
             /** Id */
             id: string;
             /** Title */
@@ -3252,10 +3253,10 @@ export interface components {
             extension?: string | null;
             /**
              * Status
-             * @default legacy
-             * @enum {string}
+             * @default disabled
+             * @constant
              */
-            status: "legacy" | "disabled";
+            status: "disabled";
             /** Reason */
             reason?: string | null;
         };

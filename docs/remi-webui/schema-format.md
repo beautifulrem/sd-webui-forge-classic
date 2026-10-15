@@ -34,7 +34,7 @@ holds a value) or a **layout/display** node.
 
 | key | type | meaning |
 |---|---|---|
-| `name` | string | param id, unique within its owner (`[A-Za-z_][A-Za-z0-9_]*`, legacy scripts use `#0`, `#1`, …) |
+| `name` | string | param id, unique within its owner (`[A-Za-z_][A-Za-z0-9_]*`) |
 | `label` | string | always present; `""` means "render without a label" |
 | `info` | string? | help text under the control |
 | `default` | JSON | the value a fresh form starts with (already resolved; never a function) |
@@ -195,8 +195,8 @@ body itself has the wrong shape (e.g. `"scripts"` is not an object); `param`
 is `null` for errors about a whole owner (an unknown script id, an owner's
 values that are not an object).
 
-Legacy (not yet ported) scripts take positional values: either a JSON array
-or an object keyed `"#0"`, `"#1"`, …
+A script's values may also be a JSON array: its params in argument order
+(`args`); more values than params is an error.
 
 ## 4. Tab schema (`GET /api/v2/schema/{tab}`)
 
@@ -215,7 +215,6 @@ Script = {
   "section": "seed" | null,                // slot to render in; null/unknown -> slot "scripts"
   "order": 0,                              // sort key inside a slot (ascending)
   "visible_if": Condition?,                // selectable scripts: {"param": "core.script", "eq": title}
-  "legacy": false,                         // true: not ported to params(), see below
   "layout": Node | null,                   // null: the script has no params
   "defaults": {name: value},
   "args": [name, ...]                      // positional order of the processing arguments
@@ -226,7 +225,7 @@ The core form contains a `choice` param `script` (values `"None"` and every
 selectable script's title) inside the `slot` `"scripts"` area; its
 selectable scripts are rendered there, each shown only when selected.
 `extras` scripts are the postprocessing operations (owner id = slug of the
-operation name; their params are named, legacy ones by their control keys).
+operation name; their params are named by their `params()`).
 
 `conflict_params` lists the `"owner.param"` references (core params as
 `"core.<name>"`) bound to an Anima conflict role or an exclusive group: after
@@ -234,18 +233,9 @@ the user changes one of them the client calls the core `__conflicts__`
 action (§5) with `"selected"` set to that reference and applies the returned
 patch.
 
-**Legacy scripts** (`"legacy": true`, still on Gradio's `ui()`) have a flat
-`group` of inputs named `#0`, `#1`, … (Extras: the control keys), typed from
-their Gradio controls (checkbox → `toggle`, slider, number, textbox → `text`,
-radio/dropdown → `choice`/`multichoice`, checkbox group → `multichoice`,
-color picker, `gr.State` → `state`, PIL/numpy `gr.Image` → `image`; anything
-else → `json`). Their `default` is the control's initial value (it may lie
-outside `choices`, or be `null`, and still validates). A param left out, or
-sent equal to its exported default, gives the script exactly what Gradio gave
-it for the untouched control.
-
-A script whose `params()` or `ui()` fails is left out of the tab (and its
-processing hooks do not run); the server logs why.
+A script whose `params()` fails, or that only has A1111's Gradio `ui()`, is
+left out of the tab (and its processing hooks do not run); the server logs
+why and bootstrap `not_ported` lists it.
 
 Core forms are built per request and follow the options: the categories
 (`prompt`, `image`, `inpaint`, `sampler`, `accordions`, `checkboxes`,

@@ -14,8 +14,8 @@ describe("jobRequest", () => {
     expect(body.core).toMatchObject({ width: 1024, enable_hr: false, script: "None" })
     expect(Object.keys(body.scripts)).toEqual(schema.scripts.map((s) => s.id))
     expect(body.scripts.sampler).toEqual({ steps: 12, sampler_name: "Euler a", scheduler: "Automatic" })
-    // Hidden state and legacy positional values are submitted as they are.
+    // Hidden state and JSON values are submitted as they are.
     expect(body.scripts.anima?.internal_state).toEqual({ version: 2 })
-    expect(body.scripts["legacy-ext"]).toEqual({ "#0": true, "#1": [0.5, "auto"] })
+    expect(body.scripts["misc-ext"]).toEqual({ flag: true, pair: [0.5, "auto"] })
   })
 })

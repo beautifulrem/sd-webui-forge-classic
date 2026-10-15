@@ -92,7 +92,6 @@ def processing_args(tab: str, core: Any, scripts_values: Any, ctx: Context | Non
     included)."""
 
     from modules import scripts
-
     from remi.core import extras
 
     ctx = ctx or Context()

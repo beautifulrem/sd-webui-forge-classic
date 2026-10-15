@@ -96,7 +96,6 @@ MANUAL_PARAMS = ("manual_prompt", "manual_source", "manual_target", "manual_deno
 
 class AnimaPromptRescaleScript(scripts.Script):
     section = "accordions"
-    create_group = False
     sorting_priority = 17
     param_order = AUTO_PARAMS + MANUAL_PARAMS
 

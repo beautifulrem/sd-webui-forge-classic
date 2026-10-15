@@ -1,0 +1,97 @@
+# The non-GPU quality gates of tools/check.sh: lint, the Python suites (CPU torch, no models),
+# the API / settings contracts, i18n coverage, the SPA build, lint, unit and end-to-end tests
+# (mock mode, with axe scans). The real-model smoke test (tools/smoke_real.py) runs locally.
+name: check
+
+on:
+  push:
+    branches: [remi-webui, main, neo]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  FORCE_COLOR: "1"
+
+jobs:
+  python:
+    name: Python (ruff, pytest, contracts, i18n)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: requirements.txt
+
+      - name: Install the WebUI requirements (CPU torch) and the test tools
+        run: |
+          uv venv .venv
+          uv pip install --python .venv/bin/python torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          uv pip install --python .venv/bin/python -r requirements.txt pytest ruff==0.17.0
+
+      - name: Checks
+        env:
+          PYTHON: .venv/bin/python
+          REMI_CHECK_LOGS: ${{ runner.temp }}/remi-check
+        run: tools/check.sh --only ruff,pytest,contract,i18n:server
+
+      - name: Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-check-logs
+          path: ${{ runner.temp }}/remi-check
+
+  webui:
+    name: SPA (build, oxlint, vitest, Playwright + axe)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: webui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Checks
+        working-directory: .
+        env:
+          CI: "1"
+          REMI_CHECK_LOGS: ${{ runner.temp }}/remi-check
+        run: tools/check.sh --only pnpm,i18n:spa,e2e
+
+      - name: Logs and Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webui-check-logs
+          path: |
+            ${{ runner.temp }}/remi-check
+            webui/node_modules/.e2e-results
+            webui/node_modules/.e2e-report

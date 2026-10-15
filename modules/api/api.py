@@ -38,13 +38,9 @@ def script_name_to_index(name, scripts):
 
 
 def pasted_value(value, target_type):
-    """A paste field's result as a request / script argument value, converted
-    like the UI paste (``infotext_utils._parse_info``) converts it: a
-    ``gr.update`` gives its value (Gradio 3 tags it "generic_update", Gradio 4
-    "update"), infotext "False" is False, and "3.0" fills an int field."""
+    """An infotext value as a request field value of ``target_type``:
+    infotext "False" is False, and "3.0" fills an int field."""
 
-    if isinstance(value, dict) and value.get("__type__") in ("generic_update", "update"):
-        value = value.get("value")
     if value is None or isinstance(value, target_type):
         return value
     if target_type is bool and value == "False":
@@ -72,29 +68,6 @@ def get_base_type(annotation):
         if len(non_none_args) == 1:
             return non_none_args[0]
     return annotation
-
-
-def legacy_script_info(runner, script):
-    """``ScriptInfo`` of a script still on ``ui()``, from its positional layout."""
-
-    from remi.ui import Context, nodes
-
-    try:
-        layout = runner.layout_for(script)
-        ctx = Context()
-        args = []
-        for node in layout.inputs:
-            arg = models.ScriptArg(label=node.label or node.name, value=node.resolve_default(ctx))
-            for field in ("minimum", "maximum", "step"):
-                if getattr(node, field, None) is not None:
-                    setattr(arg, field, getattr(node, field))
-            if isinstance(node, (nodes.Choice, nodes.MultiChoice)):
-                arg.choices = [str(value) for _label, value in node.resolve_choices(ctx)]
-            args.append(arg)
-        return models.ScriptInfo(name=script.name, is_img2img=script.is_img2img, is_alwayson=script.alwayson, args=args)
-    except Exception:
-        errors.report(f"Error building API info for {script.filename}", exc_info=True)
-        return None
 
 
 def validate_sampler_name(name):
@@ -352,9 +325,8 @@ class Api:
 
         for runner in [scripts.scripts_txt2img, scripts.scripts_img2img]:
             for script in runner.scripts:
-                info = script.api_info if script.api_info is not None else legacy_script_info(runner, script)
-                if info is not None:
-                    res.append(info)
+                if script.api_info is not None:
+                    res.append(script.api_info)
 
         return res
 

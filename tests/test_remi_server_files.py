@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image, PngImagePlugin
 
-from remi.files import FileError, FileStore, clean_name, sniff, snap_width
+from remi.files import FileError, FileStore, clean_name, snap_width, sniff
 from remi.networks import NetworkEntry, NetworkIndex
 from remi.server.testing import server_app
 from remi.testing import webui_state
@@ -363,7 +363,7 @@ def test_networks_are_searched_paged_and_never_expose_absolute_paths(server, net
     rest = client.get("/api/v2/networks/lora", params={"cursor": page["next_cursor"]}).json()
     assert [item["name"] for item in rest["items"]] == ["zeta_light"] and rest["items"][0]["path"] == "sub/zeta_light.safetensors"
     assert [item["name"] for item in client.get("/api/v2/networks/lora", params={"q": "SUB light"}).json()["items"]] == ["zeta_light"]
-    assert [item["name"] for item in client.get("/api/v2/networks/lora", params={"sort": "name", "order": "desc"}).json()["items"]][0] == "zeta_light"
+    assert client.get("/api/v2/networks/lora", params={"sort": "name", "order": "desc"}).json()["items"][0]["name"] == "zeta_light"
     alpha = page["items"][0]
     assert alpha["description"] == "the first letter" and alpha["prompt"] == "<lora:alpha:1>"
     assert client.get(f"/api/v2/thumbs/{alpha['preview']}").status_code == 200

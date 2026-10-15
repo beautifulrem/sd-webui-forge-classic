@@ -2,8 +2,7 @@
 Scheduler) and the Anima features that select DiT blocks: LoRA key layout and
 per-layer weight syntax, block mappings of the depth-expanded models, stage
 timing windows, prompt / patch / sampling-progress helpers, and the seams to
-Forge's LoRA index and LoRA Control. Their Gradio UI helpers are in
-``modules.anima_lora_ui``."""
+Forge's LoRA index and LoRA Control."""
 
 from __future__ import annotations
 

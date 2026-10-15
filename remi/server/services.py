@@ -11,9 +11,8 @@ import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import ClassVar
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 from remi.files import DEFAULT_MAX_UPLOAD, FileStore
 from remi.jobs import JobQueue, JobStore, run_job, run_on_main_thread
@@ -142,7 +141,6 @@ def default_services(factory: Callable[[Path], Services] | None = None) -> Servi
     with _default_lock:
         if _default is None:
             from modules.paths_internal import data_path
-
             from remi.server.settings import option
 
             # Not "remi": the data path defaults to the repository root, where remi/ is the package

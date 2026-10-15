@@ -13,11 +13,6 @@ options_templates = {}
 hide_dirs = shared.hide_dirs
 
 
-def _gradio_hub_themes() -> list[str]:
-    from modules import shared_gradio_themes  # imports Gradio: only when the choices are read
-
-    return shared_gradio_themes.gradio_hf_hub_themes
-
 restricted_opts = {
     "clean_temp_dir_at_start",
     "directories_filename_pattern",
@@ -174,7 +169,6 @@ options_templates.update(
             "enable_console_prompts": OptionInfo(False, "Print the generation prompts to console"),
             "samples_log_stdout": OptionInfo(False, "Print the generation infotxt to console"),
             "show_warnings": OptionInfo(False, "Show warnings in console").needs_reload_ui(),
-            "show_gradio_deprecation_warnings": OptionInfo(False, "Show gradio deprecation warnings in console").needs_reload_ui(),
             "memmon_poll_rate": OptionInfo(5, "VRAM usage polls per second during generation", ui.Slider, {"minimum": 0, "maximum": 50, "step": 1}).info("0 = disable"),
             "multiple_tqdm": OptionInfo(True, "Add an additional progress bar to the console to show the total progress of an entire job"),
             "enable_upscale_progressbar": OptionInfo(True, "Show a progress bar in the console for tiled upscaling"),
@@ -413,8 +407,8 @@ options_templates.update(
             "js_modal_lightbox_initially_zoomed": OptionInfo(True, "[Lightbox]: show images zoomed in by default"),
             "js_modal_lightbox_gamepad": OptionInfo(False, "[Lightbox]: navigate with gamepad"),
             "js_modal_lightbox_gamepad_repeat": OptionInfo(250, "[Lightbox]: gamepad repeat period").info("in ms"),
-            "sd_webui_modal_lightbox_icon_opacity": OptionInfo(1.0, "[Lightbox]: control icon unfocused opacity", ui.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.05}, onchange=shared.reload_gradio_theme).info("for mouse only").needs_reload_ui(),
-            "sd_webui_modal_lightbox_toolbar_opacity": OptionInfo(0.9, "[Lightbox]: tool bar opacity", ui.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.05}, onchange=shared.reload_gradio_theme).info("for mouse only").needs_reload_ui(),
+            "sd_webui_modal_lightbox_icon_opacity": OptionInfo(1.0, "[Lightbox]: control icon unfocused opacity", ui.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.05}).info("for mouse only"),
+            "sd_webui_modal_lightbox_toolbar_opacity": OptionInfo(0.9, "[Lightbox]: tool bar opacity", ui.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.05}).info("for mouse only"),
             "open_dir_button_choice": OptionInfo("Subdirectory", "What directory the [📂] button opens", ui.Choice, {"style": "radio", "choices": ("Output Root", "Subdirectory", "Subdirectory (even temp dir)")}),
         },
     )
@@ -459,19 +453,16 @@ options_templates.update(
         ("ui", "User Interface", "ui"),
         {
             "localization": OptionInfo("None", "Localization", ui.Choice, lambda: {"choices": ["None", *localization.localizations.keys()]}, refresh=lambda: localization.list_localizations(cmd_opts.localizations_dir)).needs_reload_ui(),
-            "quicksettings_list": OptionInfo([], "Quicksettings List", ui.MultiChoice, lambda: {"choices": sorted(key for (key, opt) in shared.opts.data_labels.items() if type(opt) is OptionInfo)}).js("info", "settingsHintsShowQuicksettings").info("settings that appear at the top of the page <b>instead of</b> in the Settings tab").needs_reload_ui(),
+            "quicksettings_list": OptionInfo([], "Quicksettings List", ui.MultiChoice, lambda: {"choices": sorted(key for (key, opt) in shared.opts.data_labels.items() if type(opt) is OptionInfo)}).info("settings that appear at the top of the page <b>instead of</b> in the Settings tab").needs_reload_ui(),
             "ui_tab_order": OptionInfo([], "UI Tab Order", ui.MultiChoice, lambda: {"choices": list(shared.tab_names)}).needs_reload_ui(),
             "hidden_tabs": OptionInfo([], "Hide UI Tabs", ui.MultiChoice, lambda: {"choices": list(shared.tab_names)}).needs_reload_ui(),
             "ui_reorder_list": OptionInfo([], "Parameter order for txt2img / img2img", ui.MultiChoice, lambda: {"choices": list(shared_items.ui_reorder_categories())}).info("selected items appear first").needs_reload_ui(),
-            "gradio_theme": OptionInfo("Default", "Gradio Theme", ui.Choice, lambda: {"allow_custom": True, "choices": ["Default", *_gradio_hub_themes()]}).needs_reload_ui(),
-            "gradio_themes_cache": OptionInfo(True, "Cache selected theme locally"),
             "show_progress_in_title": OptionInfo(True, "Show generation progress in window title"),
             "send_seed": OptionInfo(True, 'Send the Seed information when using the "Send to" buttons'),
             "send_cfg": OptionInfo(True, 'Send the CFG information when using the "Send to" buttons'),
             "send_size": OptionInfo(True, 'Send the Resolution information when using the "Send to" buttons'),
             "send_image_info_not_ui": OptionInfo(False, 'Send the Parameters in the infotext instead of the UI fields when using the "Send to" buttons').info("<b>e.g.</b> send the result of Wildcards instead of the syntax").needs_reload_ui(),
             "allow_i2i_send_info": OptionInfo(False, 'Send the Parameters too when using the "Send to" buttons in img2img tab').info("otherwise only the image is sent").needs_reload_ui(),
-            "enable_reloading_ui_scripts": OptionInfo(False, 'Additionally reload the "modules.ui" scripts when using "Reload UI"').info("for developing"),
         },
     )
 )

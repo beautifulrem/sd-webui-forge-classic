@@ -2,10 +2,9 @@
 disabling, update checks and updates, installing from a git URL or the
 extension index, uninstalling, and config-state backups ("Backup/Restore").
 
-The HTTP routes (``remi/server/routes/extensions.py``) and the legacy Gradio
-tab (``modules/ui_extensions.py``) both call this module. Functions raise
-:class:`AdminError` subclasses carrying an HTTP status and a translatable
-message template; nothing here imports Gradio or touches the request layer.
+The HTTP routes (``remi/server/routes/extensions.py``) call this module.
+Functions raise :class:`AdminError` subclasses carrying an HTTP status and a
+translatable message template; nothing here touches the request layer.
 
 Extensions are arbitrary code: every function that changes anything first
 calls :func:`check_access`, which refuses when the server is reachable from
@@ -42,7 +41,7 @@ import urllib.request
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 DEFAULT_INDEX_URL = "https://raw.githubusercontent.com/AUTOMATIC1111/stable-diffusion-webui-extensions/master/index.json"
@@ -221,7 +220,7 @@ def commit_url(remote: str | None, commit: str | None) -> str | None:
 def iso(timestamp: float | None) -> str | None:
     if not timestamp:
         return None
-    return datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
+    return datetime.fromtimestamp(timestamp, UTC).isoformat()
 
 
 # endregion

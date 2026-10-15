@@ -19,7 +19,7 @@ export type PageInfo = Schemas["PageInfo"]
 export type LocaleInfo = Schemas["LocaleInfo"]
 export type ModelRef = Schemas["ModelRef"]
 export type ModelsSummary = Schemas["ModelsSummary"]
-/** A script, Extras operation or extension tab still on Gradio (bootstrap `not_ported`). */
+/** A script file, script or Extras operation that could not be loaded (bootstrap `not_ported`). */
 export type NotPorted = Schemas["NotPorted"]
 export type QueueStatus = Schemas["QueueStatus"]
 export type AuthStatus = Schemas["AuthStatus"]

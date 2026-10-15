@@ -3,10 +3,10 @@
 
 import base64
 import io
-import threading
 import json
 import os
 import sys
+import threading
 import time
 from types import SimpleNamespace
 
@@ -112,7 +112,7 @@ def names(response):
 def test_archs_follow_the_presets():
     from modules_forge.presets import PresetArch
 
-    assert nm.ARCHS == tuple(PresetArch.choices())
+    assert tuple(PresetArch.choices()) == nm.ARCHS
 
 
 def test_training_tags_are_summed_and_sorted():
@@ -424,13 +424,13 @@ def test_extension_pages_are_adapted(server, tmp_path, monkeypatch):
 
 
 def test_a_page_named_like_a_builtin_kind_gets_its_own_id():
-    page = SimpleNamespace(title="VAE", extra_networks_tabname="vae", list_items=lambda: [])
+    page = SimpleNamespace(title="VAE", extra_networks_tabname="vae", list_items=list)
     assert ExtraPageProvider(page).kind == "page_vae"
 
 
 def test_built_in_extension_pages_are_not_listed_twice(monkeypatch):
     fake = SimpleNamespace(extra_pages=[SimpleNamespace(name="lora", title="Lora"), SimpleNamespace(name="checkpoints", title="Checkpoints"), SimpleNamespace(name="hypernetworks", title="Hypernetworks")])
-    monkeypatch.setitem(sys.modules, "modules.ui_extra_networks", fake)
+    monkeypatch.setitem(sys.modules, "modules.extra_networks_pages", fake)
     monkeypatch.setattr(module, "_extra_pages", [])
     assert [page.name for page in module.extra_pages()] == ["hypernetworks"]
 
@@ -508,7 +508,7 @@ def test_sorting_by_date_created(lora, lora_root, monkeypatch):
     lora.services.networks.invalidate("lora")
     assert names(lora.client.get("/api/v2/networks/lora", params={"sort": "created"})) == ["ink", "watercolor", "alice", "plain"]
     items = lora.client.get("/api/v2/networks/lora", params={"sort": "created", "order": "desc"}).json()["items"]
-    assert [item["name"] for item in items][0] == "plain" and items[0]["created"] == 40.0
+    assert items[0]["name"] == "plain" and items[0]["created"] == 40.0
 
 
 def test_offset_jumps_straight_to_a_window(lora):

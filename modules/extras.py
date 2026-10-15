@@ -10,29 +10,7 @@ from safetensors.torch import save_file
 
 from backend.state_dict import state_dict_prefix_replace
 from backend.utils import load_torch_file
-from modules import images, sd_models, shared
-from modules.util import plaintext_to_html
-
-
-def run_pnginfo(image):
-    if image is None:
-        return "", "", ""
-
-    geninfo, items = images.read_info_from_image(image)
-    items = {**{"parameters": geninfo}, **items}
-
-    info = ""
-    for key, text in items.items():
-        info += f"""<div>
-            <p><b>{plaintext_to_html(str(key))}</b></p>
-            <p>{plaintext_to_html(str(text))}</p>
-        </div>""".strip() + "\n"
-
-    if len(info) == 0:
-        message = "Nothing found in the image."
-        info = f"<div><p>{message}<p></div>"
-
-    return "", geninfo, info
+from modules import sd_models, shared
 
 
 class InterpolationMethod(Enum):
@@ -55,27 +33,17 @@ class InterpolationMethod(Enum):
                 return "Require 3 Model ; Result is calculated as A + (B - C) * M"
 
 
-def read_metadata(primary_model_name: str, secondary_model_name: str, tertiary_model_name: str) -> str:
-    metadata = {}
-
-    for checkpoint_name in (primary_model_name, secondary_model_name, tertiary_model_name):
-        if (checkpoint_info := sd_models.checkpoints_list.get(checkpoint_name, None)) is not None:
-            metadata.update({checkpoint_name: checkpoint_info.metadata})
-
-    import gradio as gr  # the legacy merger UI
-
-    return gr.update(value=json.dumps(metadata, indent=4, ensure_ascii=False), visible=True)
-
-
 def run_modelmerger(id_task, primary_model_name: str, secondary_model_name: str, tertiary_model_name: str, interp_method: str, multiplier: float, custom_name: str, discard_weights: str, save_metadata: bool, config_source: list[str], add_merge_recipe: bool):
-    import gradio as gr  # the legacy merger UI
+    """Merge up to three checkpoints and save the result; returns the status
+    message (also on failure). The merge logic of the A1111 "Checkpoint
+    Merger"; no WebUI page calls it yet."""
 
     shared.state.begin(job="model-merge")
 
-    def fail(message: str):
+    def fail(message: str) -> str:
         shared.state.textinfo = message
         shared.state.end()
-        return [gr.skip(), gr.skip(), gr.skip(), gr.skip(), message]
+        return message
 
     if not primary_model_name:
         return fail("Failed: Missing Primary Model")
@@ -288,4 +256,4 @@ def run_modelmerger(id_task, primary_model_name: str, secondary_model_name: str,
     shared.state.end()
 
     sd_models.list_models()
-    return [gr.update(choices=sorted(sd_models.checkpoint_tiles()))] * 4 + [f"Checkpoint saved to {output_modelname}"]
+    return f"Checkpoint saved to {output_modelname}"

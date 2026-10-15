@@ -31,7 +31,7 @@ def bind_host(cmd_opts: Any) -> str:
 
     if getattr(cmd_opts, "server_name", None):
         return cmd_opts.server_name
-    return "0.0.0.0" if getattr(cmd_opts, "listen", False) else os.environ.get("GRADIO_SERVER_NAME", "127.0.0.1")
+    return "0.0.0.0" if getattr(cmd_opts, "listen", False) else "127.0.0.1"
 
 
 def port_free(host: str, port: int) -> bool:
@@ -223,7 +223,7 @@ def serve(*, webui: bool, startup_timer: Any = None) -> None:
         startup_timer.record("app reload callback")
         script_callbacks.script_unloaded_callback()
         startup_timer.record("scripts unloaded callback")
-        initialize.initialize_rest(reload_script_modules=True)
+        initialize.initialize_rest()
 
 
 def _start_server(app: Any, host: str, port: int, cmd_opts: Any, attempts: int = 3) -> ServerThread:

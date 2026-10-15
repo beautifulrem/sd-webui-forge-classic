@@ -1,5 +1,5 @@
-# This file is the main thread that handles all Gradio calls for major T2I / I2I processing
-# Other Gradio calls (e.g. those from Extensions) are not influenced
+# This file is the main thread that runs the major T2I / I2I / Extras jobs (remi.jobs)
+# Other calls (e.g. those from Extensions) are not influenced
 # By using one single thread to process all major calls, model moving is significantly faster
 
 import threading

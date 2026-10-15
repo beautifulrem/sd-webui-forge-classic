@@ -45,7 +45,6 @@ def main() -> int:
     options = parser.parse_args()
 
     sys.argv = sys.argv[:1]  # modules.shared parses argv on import
-    os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
     os.chdir(ROOT)
     sys.path[:0] = [ROOT, os.path.join(ROOT, "modules_forge", "packages")]
 

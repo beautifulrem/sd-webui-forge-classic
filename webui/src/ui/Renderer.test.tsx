@@ -426,13 +426,10 @@ describe("layout and display nodes", () => {
     expect(within(screen.getByRole("group", { name: "Sampler" })).getByRole("combobox", { name: "Sampling method" })).toBeInTheDocument()
     expect(within(screen.getByRole("group", { name: "Seed" })).getByLabelText("Seed")).toBeInTheDocument()
     expect(document.querySelector("[data-slot-section=accordions] [data-script=refiner]")).not.toBeNull()
-    // Unknown slot falls back to the default "scripts" slot; a legacy script's flat
-    // input list is a closed section titled by the script, rendered once opened.
-    const legacy = screen.getByRole("button", { name: "Legacy extension" })
-    expect(legacy.closest("[data-slot-section]")).toHaveAttribute("data-slot-section", "scripts")
-    expect(screen.queryByText("Argument 1")).toBeNull()
-    fireEvent.click(legacy)
-    expect(screen.getByText("Argument 1")).toBeInTheDocument()
+    // Unknown slot falls back to the default "scripts" slot.
+    const misc = screen.getByRole("group", { name: "Misc extension" })
+    expect(misc.closest("[data-slot-section]")).toHaveAttribute("data-slot-section", "scripts")
+    expect(within(misc).getByText("Flag")).toBeInTheDocument()
     expect(screen.queryByText("X values")).toBeNull()
     act(() => store.getState().setValue("core", "script", "X/Y/Z plot"))
     expect(screen.getByLabelText("X values")).toBeInTheDocument()

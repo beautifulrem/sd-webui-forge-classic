@@ -772,22 +772,10 @@ def script_arguments(owner: str, names, values, *, defaults=None) -> SimpleNames
 
 
 class PasteKey(str):
-    """An infotext key that is also the paste function of one control.
-
-    Forge's ``PasteField(component, target)`` reads ``target`` as a label
-    when it is a str and as a function when it is callable; a PasteKey is
-    both, so each of Forge's three paste paths finds what it looks for:
-
-    - UI paste (``infotext_utils._parse_info``) calls it, as any callable
-      target: the function may fill many controls from one recorded value,
-      or give a value the run left out of the infotext (an empty text).
-    - "Send to" carries the fields whose target is in the panel's
-      ``paste_field_names``: being its key, the control is carried like any
-      plainly keyed field.
-    - The API's infotext replay (``api.Api.apply_infotext``) takes
-      ``field.function``'s value, running no ``on_infotext_pasted``
-      callback: the function is the one place a panel converts a recorded
-      value for both the UI paste and the API."""
+    """An infotext key that is also the paste function of one param: the
+    param records under the key, and pasting (WebUI paste and the API's
+    infotext replay alike) calls the function, which may derive the value
+    from several entries or give one the run left out of the infotext."""
 
     def __new__(cls, key, function):
         self = super().__new__(cls, key)
@@ -798,28 +786,8 @@ class PasteKey(str):
         return self.function(params)
 
 
-def register_table_fields(script, rows, controls) -> list:
-    """Infotext paste fields and Anima preset controls of a panel whose script
-    arguments are the table ``rows``, each ``(name, infotext key or None,
-    preset name or None, ...)``. ``controls``: the rows' controls by name, or
-    in row order. Returns them in row order, which is what ``ui`` returns."""
-
-    from modules.anima_presets import register_preset_control
-    from modules.infotext_utils import PasteField
-
-    rows = list(rows)
-    in_order = controls if not isinstance(controls, dict) else [controls[name] for name, *_ in rows]
-    fields = [(control, key, preset_name) for (_name, key, preset_name, *_), control in zip(rows, in_order, strict=True)]
-    for control, _, preset_name in fields:
-        if preset_name is not None:
-            register_preset_control(script.tabname, preset_name, control)
-    script.infotext_fields = [PasteField(control, key) for control, key, _ in fields if key is not None]
-    script.paste_field_names = [key for _, key, _ in fields if key is not None]
-    return [control for control, _, _ in fields]
-
-
 def table_params(rows, root) -> tuple[str, ...]:
-    """The declarative :func:`register_table_fields`, for ``params()``.
+    """Bind a panel's argument table to its ``params()`` tree.
 
     ``rows`` is the panel's argument table, each ``(name, infotext key or
     None, preset field or None, ...)``; every row names one input of the
@@ -855,12 +823,10 @@ def table_params(rows, root) -> tuple[str, ...]:
 
 class AnimaPatchPanel:
     """Mixin for an always-visible Anima panel that patches the UNet of each
-    pass (DAVE, cross-attention boost). Its ``ui`` returns the enable switch
-    and then the settings, in the order of ``INFOTEXT_KEYS``.
-
-    Declaratively (``params()``), name each input after its preset field's
-    last part (``"dave.strength"`` -> ``strength``) and return
-    ``self.panel_params(root)``."""
+    pass (DAVE, cross-attention boost). Its arguments are the enable switch
+    and then the settings, in the order of ``INFOTEXT_KEYS``: ``params()``
+    names each input after its preset field's last part (``"dave.strength"``
+    -> ``strength``) and returns ``self.panel_params(root)``."""
 
     INFOTEXT_KEYS: tuple[str, ...] = ()
     # Anima preset control names, in the same order (see modules/anima_presets.py)
@@ -870,12 +836,6 @@ class AnimaPatchPanel:
         from modules import scripts
 
         return scripts.AlwaysVisible
-
-    def register_paste_fields(self, controls: list) -> list:
-        """Infotext paste fields and Anima preset controls for ``ui``'s
-        ``controls``; returns them."""
-
-        return register_table_fields(self, zip(self.PRESET_FIELDS, self.INFOTEXT_KEYS, self.PRESET_FIELDS, strict=True), controls)
 
     @classmethod
     def panel_param_names(cls) -> tuple[str, ...]:

@@ -43,7 +43,7 @@ SAME_SAMPLER = "Use same sampler"
 SAME_SCHEDULER = "Use same scheduler"
 
 
-# region Resolution helpers (Gradio-free equivalents of modules.ui's)
+# region Resolution helpers
 
 
 def resolution_step() -> int:
@@ -53,7 +53,7 @@ def resolution_step() -> int:
 
 
 def snap_resolution(value: float) -> int:
-    """``modules.ui.sRound``: the nearest multiple of the resolution step."""
+    """The nearest multiple of the resolution step (``processing.sRound``)."""
 
     step = resolution_step()
     return math.floor(value / step + 0.5) * step
@@ -85,7 +85,7 @@ def _hr_checkpoints() -> list[str]:
 def _hr_modules() -> list[str]:
     from modules import shared
 
-    # The module list main_entry scanned, without importing it (it loads Gradio)
+    # The module list main_entry scanned, without importing it (it loads the processing pipeline)
     main_entry = sys.modules.get("modules_forge.main_entry")
     if main_entry is None:
         return [SAME_MODULES]

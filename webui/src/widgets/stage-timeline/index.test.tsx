@@ -61,7 +61,6 @@ const schema: TabSchema = {
       kind: "alwayson",
       section: null,
       order: 0,
-      legacy: false,
       layout: {
         type: "section",
         title: "Anima LoRA Stage Scheduler",

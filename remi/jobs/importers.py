@@ -41,7 +41,7 @@ import sqlite3
 import zlib
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from remi.jobs.store import CANCELLED, COMPLETED, FAILED, INTERRUPTED, QUEUED, Job
@@ -552,7 +552,7 @@ def _timestamp(value: Any) -> float | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     return parsed.timestamp()
 
 

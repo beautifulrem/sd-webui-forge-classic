@@ -38,7 +38,7 @@ def call(env, name, values, core=None):
 
 
 @pytest.mark.parametrize("tab", ["txt2img", "img2img"])
-def test_matches_the_gradio_panel(env, tab):
+def test_matches_the_legacy_panel(env, tab):
     _script, layout = env.kit.layout_of(env.module.PromptBlacklistScript, tab)
     # Intended: the blacklist box and the duplicate switch were controls the
     # Gradio handlers read without passing them to process(); actions read the
@@ -143,5 +143,5 @@ def test_localized(env, blacklist_file):
     assert len(set(shown)) == len(shown) == 8
 
 
-def test_gradio_free(ext_kit):
-    ext_kit.assert_gradio_free(EXTENSION, [SCRIPT])
+def test_standalone(ext_kit):
+    ext_kit.assert_standalone(EXTENSION, [SCRIPT])

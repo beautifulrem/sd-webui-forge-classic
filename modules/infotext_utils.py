@@ -4,51 +4,15 @@ import json
 import os
 import re
 from ast import literal_eval
-from functools import partial
 from typing import Any
 
-from PIL import Image
 
 from backend.text_processing.emphasis import uses_emphasis
-from modules import errors, images, processing, script_callbacks, shared
-from modules.paths import data_path
-from remi.ui.legacy_gradio import gr  # lazy: only the legacy paste/send-to wiring uses Gradio
+from modules import processing, shared
 
 re_param_code = r'\s*([\w\s\-\/]+):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)'
 re_param = re.compile(re_param_code)
 re_imagesize = re.compile(r"^(\d+)x(\d+)$")
-type_of_gr_update = dict  # gr.update() / gr.skip() are plain dicts in Gradio 4
-
-
-class ParamBinding:
-    def __init__(self, paste_button: gr.Button, tabname: str, source_text_component: gr.Textbox = None, source_image_component: gr.Gallery | gr.Image = None, source_tabname: str = None, override_settings_component: gr.Dropdown = None, paste_field_names: list[str] = None):
-        self.paste_button = paste_button
-        self.tabname = tabname
-        self.source_text_component = source_text_component
-        self.source_image_component = source_image_component
-        self.source_tabname = source_tabname
-        self.override_settings_component = override_settings_component
-        self.paste_field_names = paste_field_names or []
-
-
-class PasteField(tuple):
-    def __new__(cls, component, target, *, api=None):
-        return super().__new__(cls, (component, target))
-
-    def __init__(self, component, target, *, api=None):
-        self.component: gr.components.Component = component
-        self.label = target if isinstance(target, str) else None
-        self.function = target if callable(target) else None
-        self.api = api
-
-
-paste_fields: dict[str, dict] = {}
-registered_param_bindings: list[ParamBinding] = []
-
-
-def reset():
-    paste_fields.clear()
-    registered_param_bindings.clear()
 
 
 def quote(text: str) -> str:
@@ -69,201 +33,6 @@ def unquote(text: str) -> str:
         return json.loads(text)
     except Exception:
         return text
-
-
-def _parse_info(output: gr.components.Component, key: str, params: dict[str, Any]) -> gr.update:
-    if not callable(key):
-        v = params.get(key, None)
-    else:
-        try:
-            v = key(params)
-        except Exception:
-            errors.report(f'Error executing "{key}"', exc_info=True)
-            v = None
-
-    if v is None:
-        return gr.skip()
-    elif isinstance(v, type_of_gr_update):
-        return v
-    else:
-        try:
-            valtype = type(output.value)
-
-            if valtype == bool and v == "False":
-                val = False
-            elif valtype == int:
-                val = float(v)
-            else:
-                val = valtype(v)
-
-            return gr.update(value=val)
-        except Exception:
-            return gr.skip()
-
-
-def image_from_url_text(filedata) -> Image.Image:
-    if filedata is None:
-        return None
-
-    if isinstance(filedata, list):
-        if len(filedata) == 0:
-            return None
-        filedata = filedata[0]
-
-    filename: os.PathLike = None
-
-    if isinstance(filedata, dict) and filedata.get("is_file", False):
-        filename = filedata["name"]
-
-    elif isinstance(filedata, tuple) and len(filedata) == 2:  # Gradio 4 sends images from Gallery as a list of tuples
-        return filedata[0]
-
-    if filename:
-        from modules import ui_tempdir
-
-        is_in_right_dir = ui_tempdir.check_tmp_file(shared.demo, filename)
-        assert is_in_right_dir, "trying to open image file outside of allowed directories"
-        filename = filename.rsplit("?", 1)[0]
-        return images.read(filename)
-
-    if isinstance(filedata, str):
-        from modules.api.api import decode_base64_to_image
-
-        return decode_base64_to_image(filedata)
-
-    return None
-
-
-def add_paste_fields(tabname: str, init_img: gr.Image, fields: list[gr.components.Component], override_settings_component: gr.Dropdown = None):
-
-    if fields:
-        for i in range(len(fields)):
-            if not isinstance(fields[i], PasteField):
-                fields[i] = PasteField(*fields[i])
-
-    paste_fields[tabname] = {"init_img": init_img, "fields": fields, "override_settings_component": override_settings_component}
-
-    # backwards compatibility for existing extensions
-    import modules.ui
-
-    if tabname == "txt2img":
-        modules.ui.txt2img_paste_fields = fields
-    elif tabname == "img2img":
-        modules.ui.img2img_paste_fields = fields
-
-
-def create_buttons(tabs_list: list[str]) -> dict[str, gr.Button]:
-    return {tab: gr.Button(f"Send to {tab}", elem_id=f"{tab}_tab") for tab in tabs_list}
-
-
-def register_paste_params_button(binding: ParamBinding):
-    registered_param_bindings.append(binding)
-
-
-def _connect_paste_params_buttons(binding: ParamBinding):
-    fields: list[PasteField] = paste_fields[binding.tabname]["fields"]
-    dest_image: gr.Image = paste_fields[binding.tabname]["init_img"]
-    override_settings: gr.Dropdown = binding.override_settings_component or paste_fields[binding.tabname]["override_settings_component"]
-
-    dest_width: gr.Slider = next(iter([field for field, name in fields if name == "Size-1"] if fields else []), None)
-    dest_height: gr.Slider = next(iter([field for field, name in fields if name == "Size-2"] if fields else []), None)
-
-    if binding.source_image_component and dest_image:
-        need_dimensions: bool = binding.tabname != "inpaint" and (dest_width and dest_height)
-
-        if isinstance(binding.source_image_component, gr.Gallery):
-            func = send_image_and_dimensions if need_dimensions else image_from_url_text
-            jsfunc = "extract_image_from_gallery"
-        else:
-            func = send_image_and_dimensions if need_dimensions else lambda x: x
-            jsfunc = None
-
-        binding.paste_button.click(
-            fn=func,
-            inputs=[binding.source_image_component],
-            outputs=[dest_image, dest_width, dest_height] if need_dimensions else [dest_image],
-            show_progress=False,
-            js=jsfunc,
-        )
-
-    if binding.source_text_component is not None and fields is not None:
-        connect_paste(binding.paste_button, fields, binding.source_text_component, override_settings, binding.tabname)
-
-    if binding.source_tabname is not None and fields is not None:
-        paste_field_names = [
-            *["Prompt", "Negative prompt", "Steps", "Face restoration"],
-            *(["Seed"] if shared.opts.send_seed else []),
-            *(["CFG scale"] if shared.opts.send_cfg else []),
-            *binding.paste_field_names,
-        ]
-
-        if isinstance(binding.source_image_component, gr.Gallery) and shared.opts.send_image_info_not_ui:
-
-            def read_infotext(x: Any, paste_fields: list[tuple]) -> list[gr.update]:
-                image: Image.Image = x if isinstance(x, Image.Image) else image_from_url_text(x)
-                if image is None:
-                    return [gr.skip() for _ in paste_fields]
-
-                info, _ = images.read_info_from_image(image)
-                if not info:
-                    return [gr.skip() for _ in paste_fields]
-
-                params = parse_generation_parameters(info)
-                script_callbacks.infotext_pasted_callback(info, params)
-
-                res = []
-                for output, key in paste_fields:
-                    res.append(_parse_info(output, key, params))
-
-                return res
-
-            binding.paste_button.click(
-                fn=partial(read_infotext, paste_fields=[(field, name) for field, name in fields if name in paste_field_names]),
-                inputs=[binding.source_image_component],
-                outputs=[field for field, name in fields if name in paste_field_names],
-                js="extract_image_from_gallery",
-                show_progress=False,
-            ).then(fn=None, _js=f"switch_to_{binding.tabname}")
-
-        else:
-            binding.paste_button.click(
-                fn=lambda *x: x,
-                inputs=[field for field, name in paste_fields[binding.source_tabname]["fields"] if name in paste_field_names],
-                outputs=[field for field, name in fields if name in paste_field_names],
-                show_progress=False,
-            ).then(fn=None, _js=f"switch_to_{binding.tabname}")
-
-    else:
-        binding.paste_button.click(fn=None, _js=f"switch_to_{binding.tabname}")
-
-
-def connect_paste_params_buttons():
-    for binding in registered_param_bindings:
-        _connect_paste_params_buttons(binding)
-
-
-def send_image_and_dimensions(x) -> tuple[Image.Image, int, int]:
-    if isinstance(x, Image.Image):
-        img = x
-    else:
-        img = image_from_url_text(x)
-
-    if img is None:
-        return None, gr.skip(), gr.skip()
-
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-
-    from modules.processing import sRound
-
-    if shared.opts.send_size and isinstance(img, Image.Image):
-        w = sRound(img.width)
-        h = sRound(img.height)
-    else:
-        w = gr.skip()
-        h = gr.skip()
-
-    return img, w, h
 
 
 def restore_old_hires_fix_params(res: dict):
@@ -474,7 +243,7 @@ INFOTEXT_TO_SETTING = [("VAE/TE", "forge_additional_modules")]
 
 def create_override_settings_dict(text_pairs: list[str]) -> dict[str, Any]:
     """
-    creates processing's override_settings parameters from gradio's multiselect
+    creates processing's override_settings parameters from "Infotext key: value" pairs
     >>> ["VAE/TE: []"]
     {"forge_additional_modules": []}
     """
@@ -534,41 +303,3 @@ def get_override_settings(params: dict[str, Any], *, skip_fields: list[str] = No
             res.append((param_name, setting_name, v))
 
     return res
-
-
-def connect_paste(button: gr.Button, paste_fields: list[PasteField], input_comp: gr.Textbox, override_settings_component: gr.Dropdown, tabname: str):
-    def paste_func(prompt: str) -> list[gr.update]:
-        if not prompt and not (shared.cmd_opts.hide_ui_dir_config or shared.cmd_opts.no_prompt_history):
-            try:
-                filename = os.path.join(data_path, "params.txt")
-                with open(filename, "r", encoding="utf8") as file:
-                    prompt: str = file.read()
-            except OSError:
-                pass
-
-        params = parse_generation_parameters(prompt)
-        script_callbacks.infotext_pasted_callback(prompt, params)
-
-        res: list[gr.update] = []
-
-        for output, key in paste_fields:
-            res.append(_parse_info(output, key, params))
-
-        return res
-
-    if override_settings_component is not None:
-        _handled_fields = [key for _, key in paste_fields]
-
-        def paste_settings(params):
-            vals = get_override_settings(params, skip_fields=_handled_fields)
-            vals_pairs = [f"{infotext_text}: {value}" for infotext_text, _, value in vals]
-            return gr.update(value=vals_pairs, choices=vals_pairs, visible=bool(vals_pairs))
-
-        paste_fields = paste_fields + [(override_settings_component, paste_settings)]
-
-    button.click(
-        fn=paste_func,
-        inputs=[input_comp],
-        outputs=[x[0] for x in paste_fields],
-        show_progress=False,
-    ).then(fn=None, js=f"recalculate_prompts_{tabname}")

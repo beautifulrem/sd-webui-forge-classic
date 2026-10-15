@@ -98,7 +98,6 @@ class ScriptEntry(TypedDict):
     section: str | None
     order: int | float
     visible_if: NotRequired[Condition]
-    legacy: bool
     layout: NodeSchema | None
     defaults: dict[str, Any]
     args: list[str]

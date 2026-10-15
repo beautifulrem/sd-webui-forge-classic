@@ -103,7 +103,7 @@ def conflict_patch(tab: str, values: Mapping[str, Mapping[str, Any]], selected: 
             chosen = next((name for name in names if members[name] == selected_ref), None)
             wanted = tuple(members[name] not in switched_off and bool(current(*members[name])) for name in names)
             resolved = resolve_exclusive_features(names, wanted, selected=chosen)
-            for name, on, editable in zip(names, resolved.enabled, resolved.interactive):
+            for name, on, editable in zip(names, resolved.enabled, resolved.interactive, strict=True):
                 state[members[name]] = on
                 lock(members[name], editable)
 

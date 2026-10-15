@@ -10,8 +10,11 @@ from modules_forge.utils import numpy_to_pytorch, resize_image_with_pad
 
 
 class PreprocessorParameter:
+    """A preprocessor slider: ``slider_kwargs`` are its label, bounds, step,
+    default (``value``) and visibility, read by the ControlNet unit widget."""
+
     def __init__(self, minimum=0.0, maximum=1.0, step=0.01, label="Parameter 1", value=0.5, visible=False, **kwargs):
-        self.gradio_update_kwargs = dict(minimum=minimum, maximum=maximum, step=step, label=label, value=value, visible=visible, **kwargs)
+        self.slider_kwargs = dict(minimum=minimum, maximum=maximum, step=step, label=label, value=value, visible=visible, **kwargs)
 
 
 class Preprocessor:

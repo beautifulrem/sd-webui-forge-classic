@@ -4,6 +4,7 @@ import io
 import os
 import time
 import zipfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import piexif
@@ -176,7 +177,7 @@ def test_an_unmounted_drive_hides_its_images_until_it_is_back(library, server, w
 def test_a_deleted_file_leaves_the_index_but_is_found_again_if_it_comes_back(library, server, webui):
     files = server.services.files
     path = files.get(library["old.png"]).path
-    data = open(path, "rb").read()
+    data = Path(path).read_bytes()
     os.remove(path)
     assert library["old.png"] not in ids(server.client.get("/api/v2/gallery"))
     assert not files.is_removed(path)
@@ -226,7 +227,7 @@ def test_zip_packs_the_originals(library, server):
     assert download.status_code == 200 and "attachment" in download.headers["content-disposition"]
     with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
         names = archive.namelist()
-        assert len(names) == 2 and all(name.endswith((".png")) for name in names)
+        assert len(names) == 2 and all(name.endswith(".png") for name in names)
         assert archive.read(names[0])[:8] == b"\x89PNG\r\n\x1a\n"
     assert server.client.post("/api/v2/gallery/zip", json={"ids": ["unknownid12345"]}).status_code == 404
 
@@ -264,7 +265,6 @@ def test_old_exports_are_pruned_with_their_index_rows(library, server):
 
 def test_reveal_is_guarded(library, server, monkeypatch):
     from modules import shared
-
     from remi import library as library_module
 
     opened = []
@@ -301,7 +301,7 @@ def test_model_and_category_helpers(tmp_path):
 
 
 def test_the_index_follows_outputs_registered_later(server, webui, tmp_path):
-    index = GalleryIndex(server.services.files, folders=lambda: [])
+    index = GalleryIndex(server.services.files, folders=list)
     assert index.list()[2] == 0
     path = write_png(tmp_path / "later.png", text=infotext("late", "m1"))
     server.services.files.register_output(path, tab="img2img", infotext=infotext("late", "m1"))
@@ -321,7 +321,7 @@ def upload(server, data, name="image.png"):
 
 def test_png_info_lists_parameters_text_chunks_and_chunks(server, tmp_path):
     path = write_png(tmp_path / "info.png", text=infotext("a cat", "anima-v1", seed=42), extra={"workflow": '{"nodes": []}'})
-    file_id = upload(server, open(path, "rb").read())
+    file_id = upload(server, Path(path).read_bytes())
     response = server.client.post("/api/v2/pnginfo", json={"file_id": file_id})
     assert response.status_code == 200, response.text
     data = response.json()

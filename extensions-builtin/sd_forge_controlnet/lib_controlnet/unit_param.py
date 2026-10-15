@@ -326,7 +326,7 @@ def imported_images(source: Mapping[str, Any], store_upload, is_img2img: bool) -
 
 
 def _slider(parameter) -> dict[str, Any]:
-    kwargs = parameter.gradio_update_kwargs
+    kwargs = parameter.slider_kwargs
     entry = {key: kwargs[key] for key in ("label", "minimum", "maximum", "step", "value") if key in kwargs}
     entry["visible"] = bool(kwargs.get("visible", False))
     return {key: value for key, value in entry.items() if not (isinstance(value, float) and not math.isfinite(value))}

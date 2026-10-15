@@ -68,7 +68,7 @@ def test_the_schema_exports_the_timelines():
 
 
 @pytest.mark.parametrize("tab", harness.TABS)
-def test_the_gradio_layout_cut_to_the_api_slots_is_refused(tab):
+def test_the_legacy_layout_cut_to_the_api_slots_is_refused(tab):
     """The API gives the script its params() slots only: a request built for
     the Gradio panel arrives cut to them and must fail clearly."""
     legacy = [entry["default"] for entry in harness.legacy_snapshot(ROOT, tab)["inputs"]]
@@ -91,9 +91,8 @@ def test_a_timing_value_is_bounded_and_codes_read_as_curves():
         layout.coerce({"base_timing": [0.1, 0.2]})
 
 
-def test_the_extension_is_gradio_free():
-    assert harness.gradio_imports(ROOT) == []
-    harness.assert_loads_without_gradio(SCRIPT)
+def test_the_extension_loads_standalone():
+    harness.assert_loads_standalone(SCRIPT)
 
 
 def test_the_zh_cn_catalog_covers_every_string():

@@ -23,7 +23,7 @@ def test_params_match_the_legacy_ui(tab):
     # the manual tool's inputs (not script args in Gradio, a click handler
     # read them) are params now, after them; process() ignores them.
     harness.assert_matches_legacy(_layout(tab), ROOT, tab, extra=SCRIPT.MANUAL_PARAMS)
-    legacy_tool = [(control["gradio"], control["label"], control["value"]) for control in harness.legacy_snapshot(ROOT, tab)["non_arg_controls"] if control["gradio"] in ("Textbox", "Slider", "Checkbox")]
+    legacy_tool = [(control["legacy_control"], control["label"], control["value"]) for control in harness.legacy_snapshot(ROOT, tab)["non_arg_controls"] if control["legacy_control"] in ("Textbox", "Slider", "Checkbox")]
     layout = _layout(tab)
     tool = [(node.type, node.label, node.resolve_default(ui.Context())) for node in (layout.by_name[name] for name in SCRIPT.MANUAL_PARAMS)]
     kinds = {"Textbox": "text", "Slider": "slider", "Checkbox": "toggle"}
@@ -112,8 +112,8 @@ def test_process_reads_the_auto_args_and_ignores_the_tool(monkeypatch, tab):
     assert p.all_prompts == (["[a:b:7]"] if tab == "img2img" else ["[a:b:15]"])
 
 
-def test_gradio_free():
-    harness.assert_gradio_free(ROOT, ("scripts/anima_prompt_rescale.py",))
+def test_standalone():
+    harness.assert_standalone(ROOT, ("scripts/anima_prompt_rescale.py",))
 
 
 def test_zh_cn_catalog_covers_the_panel():

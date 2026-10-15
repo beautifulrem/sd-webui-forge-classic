@@ -15,8 +15,6 @@ import modules.shared as shared
 current_task = None
 pending_tasks = OrderedDict()
 finished_tasks = []
-recorded_results = []
-recorded_results_limit = 2
 
 
 def start_task(id_task):
@@ -41,12 +39,6 @@ def create_task_id(task_type):
     N = 7
     res = "".join(random.choices(string.ascii_uppercase + string.digits, k=N))
     return f"task({task_type}-{res})"
-
-
-def record_results(id_task, res):
-    recorded_results.append((id_task, res))
-    if len(recorded_results) > recorded_results_limit:
-        recorded_results.pop(0)
 
 
 def add_task_to_queue(id_job):
@@ -145,18 +137,3 @@ def progressapi(req: ProgressRequest):
                 id_live_preview = shared.state.id_live_preview
 
     return ProgressResponse(active=active, queued=queued, completed=completed, progress=progress, eta=eta, live_preview=live_preview, id_live_preview=id_live_preview, textinfo=shared.state.textinfo)
-
-
-def restore_progress(id_task):
-    """The legacy Gradio UI's "restore progress" (waits for the task)."""
-
-    import gradio as gr
-
-    while id_task == current_task or id_task in pending_tasks:
-        time.sleep(0.1)
-
-    res = next(iter([x[1] for x in recorded_results if id_task == x[0]]), None)
-    if res is not None:
-        return res
-
-    return gr.skip(), gr.skip(), gr.skip(), f"Couldn't restore progress for {id_task}: results either have been discarded or never were obtained"

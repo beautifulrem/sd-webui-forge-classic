@@ -1,5 +1,5 @@
-"""sd_forge_lora's hooks load without Gradio; the card browser and the
-metadata editor live in the SPA (``remi.networks``)."""
+"""sd_forge_lora's hooks; the card browser and the metadata editor live in
+the SPA (``remi.networks``)."""
 
 import ast
 import importlib.util
@@ -12,12 +12,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_no_file_imports_gradio():
+def test_no_extra_networks_ui_left():
     for path in [*ROOT.glob("*.py"), *ROOT.glob("scripts/*.py")]:
         tree = ast.parse(path.read_text(encoding="utf8"))
-        imported = {alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
-        imported |= {(node.module or "").split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
-        assert "gradio" not in imported, path
         assert not {"ui_extra_networks", "ui_extra_networks_user_metadata"} & {alias.name for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) for alias in node.names}, path
     assert not (ROOT / "ui_edit_user_metadata.py").exists() and not (ROOT / "ui_extra_networks_lora.py").exists()
 
@@ -34,7 +31,6 @@ class OnDisk:
 def script(monkeypatch):
     from modules import shared
 
-    monkeypatch.setitem(sys.modules, "gradio", None)  # importing it fails
     fake_networks = types.ModuleType("networks")
     fake_networks.available_networks = {"style": OnDisk("style", "style_v2")}
     fake_networks.available_network_hash_lookup = {"abcdef123456": OnDisk("style", "style_v2")}
@@ -63,7 +59,7 @@ def test_options_use_remi_widgets(script):
     from remi import ui
 
     sd_lora = script.options["sd_lora"]
-    assert sd_lora.widget is ui.Choice and script.options["lora_preferred_name"].widget is ui.Choice
+    assert sd_lora.component is ui.Choice and script.options["lora_preferred_name"].component is ui.Choice
     assert sd_lora.component_args()["choices"] == ["None", "style"]
     preferred = script.options["lora_preferred_name"]
     assert preferred.component_args == {"choices": ["Alias from file", "Filename"], "style": "radio"}

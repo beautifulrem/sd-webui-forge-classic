@@ -104,7 +104,8 @@ function History({ onView }: { onView: (job: Job, index: number) => void }) {
       <div className="flex flex-wrap items-center gap-1.5">
         <h2 id="queue-history-title" className="mr-1 text-sm font-semibold">
           {t("History")}
-          {total !== null ? <span className="ml-1.5 text-xs font-normal text-muted-foreground tabular-nums">{total}</span> : null}
+          {total !== null ? " " : null}
+          {total !== null ? <span className="ml-1 text-xs font-normal text-muted-foreground tabular-nums">{total}</span> : null}
         </h2>
         <div className="relative min-w-36 flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />

@@ -15,7 +15,6 @@ environment_whitelist = {
     "GIT",
     "INDEX_URL",
     "WEBUI_LAUNCH_LIVE_OUTPUT",
-    "GRADIO_ANALYTICS_ENABLED",
     "PYTHONPATH",
     "TORCH_INDEX_URL",
     "TORCH_COMMAND",
@@ -127,7 +126,7 @@ def get_argv():
     res = []
 
     for v in sys.argv:
-        if shared_cmd_options.cmd_opts.gradio_auth and shared_cmd_options.cmd_opts.gradio_auth == v:
+        if shared_cmd_options.cmd_opts.auth and shared_cmd_options.cmd_opts.auth == v:
             res.append("<hidden>")
             continue
 

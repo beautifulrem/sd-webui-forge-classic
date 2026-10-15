@@ -33,7 +33,7 @@ def env(ext_kit):
 
 
 @pytest.mark.parametrize("tab", ["txt2img", "img2img"])
-def test_matches_the_gradio_panel(env, tab):
+def test_matches_the_legacy_panel(env, tab):
     _script, layout = env.kit.layout_of(env.module.ExtraOptionsSection, tab)
     # Intended: a free number has no step (Gradio's Number defaulted to 1)
     changes = {3: {"step": None}} if tab == "txt2img" else {}
@@ -113,8 +113,8 @@ def test_schema_export(env):
 
 def test_settings_are_remi_widgets(env):
     labels = env.webui.opts.data_labels
-    assert labels["extra_options_txt2img"].widget.__name__ == "MultiChoice"
-    assert labels["extra_options_cols"].widget.__name__ == "Slider"
+    assert labels["extra_options_txt2img"].component.__name__ == "MultiChoice"
+    assert labels["extra_options_cols"].component.__name__ == "Slider"
 
 
 def test_localized(env):
@@ -128,5 +128,5 @@ def test_localized(env):
     env.kit.assert_localized(EXTENSION, own)
 
 
-def test_gradio_free(ext_kit):
-    ext_kit.assert_gradio_free(EXTENSION, [SCRIPT], options=OPTIONS)
+def test_standalone(ext_kit):
+    ext_kit.assert_standalone(EXTENSION, [SCRIPT], options=OPTIONS)

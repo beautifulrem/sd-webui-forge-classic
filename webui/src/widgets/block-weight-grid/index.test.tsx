@@ -47,7 +47,6 @@ function renderWidgets(defaults: Record<string, string>): FormStore {
         kind: "alwayson",
         section: null,
         order: 0,
-        legacy: false,
         layout: { type: "section", title: "Anima LoRA/LoKR Layer Weight", open: true, children: [blocks, modules, qwen] },
         defaults,
         args: Object.keys(defaults),

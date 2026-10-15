@@ -22,7 +22,7 @@ def env(ext_kit):
             yield SimpleNamespace(kit=ext_kit, module=module)
 
 
-def test_matches_the_gradio_panel(env):
+def test_matches_the_legacy_panel(env):
     _script, layout = env.kit.layout_of(env.module.Script, "img2img")
     env.kit.assert_matches_snapshot(layout, env.kit.load_snapshot(SCRIPT, "img2img"))
 
@@ -73,5 +73,5 @@ def test_localized(env):
     env.kit.assert_localized(EXTENSION, env.kit.schema_strings(layout.schema()), extra={script.title()})
 
 
-def test_gradio_free(ext_kit):
-    ext_kit.assert_gradio_free(EXTENSION, [SCRIPT])
+def test_standalone(ext_kit):
+    ext_kit.assert_standalone(EXTENSION, [SCRIPT])

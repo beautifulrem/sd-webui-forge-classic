@@ -1,7 +1,6 @@
 import dataclasses
-import os
 
-from modules import errors, shared
+from modules import shared
 
 
 @dataclasses.dataclass
@@ -54,32 +53,27 @@ class PostprocessedImage:
 
 class ScriptPostprocessing:
     filename = None
-    controls = None
+    arg_names = None
+    """The ``params()`` names, in argument order (set by ``remi.core.extras.assign_args``)."""
     args_from = None
     args_to = None
 
     order = 1000
-    """scripts will be ordred by this value in postprocessing UI"""
+    """scripts will be ordred by this value in the Extras form"""
 
     name = None
     """this function should return the title of the script."""
 
-    group = None
-    """A gr.Group component that has all script's UI inside it"""
+    def params(self):
+        """The operation's parameters as one ``remi.ui`` layout node (None:
+        none); process() receives them by name."""
 
-    def ui(self):
-        """
-        This function should create gradio UI elements. See https://gradio.app/docs/#components
-        The return value should be a dictionary that maps parameter names to components used in processing.
-        Values of those components will be passed to process() function.
-        """
-
-        pass
+        return None
 
     def process(self, pp: PostprocessedImage, **args):
         """
         This function is called to postprocess the image.
-        args contains a dictionary with all values returned by components from ui()
+        args are the params() values by name
         """
 
         pass
@@ -88,7 +82,7 @@ class ScriptPostprocessing:
         """
         Called for all scripts before calling process(). Scripts can examine the image here and set fields
         of the pp object to communicate things to other scripts.
-        args contains a dictionary with all values returned by components from ui()
+        args are the params() values by name
         """
 
         pass
@@ -97,23 +91,15 @@ class ScriptPostprocessing:
         pass
 
 
-def wrap_call(func, filename, funcname, *args, default=None, **kwargs):
-    try:
-        res = func(*args, **kwargs)
-        return res
-    except Exception as e:
-        errors.display(e, f"calling {filename}/{funcname}")
-
-    return default
-
-
 class ScriptPostprocessingRunner:
     def __init__(self):
         self.scripts = None
-        self.ui_created = False
+        self.disabled_scripts = []
+        """operations left out (params() failed, or an A1111 ``ui()`` without params()), with the reason"""
 
     def initialize_scripts(self, scripts_data):
         self.scripts = []
+        self.disabled_scripts = []
 
         for script_data in scripts_data:
             script: ScriptPostprocessing = script_data.script_class()
@@ -123,18 +109,6 @@ class ScriptPostprocessingRunner:
                 continue
 
             self.scripts.append(script)
-
-    def create_script_ui(self, script, inputs):
-        script.args_from = len(inputs)
-        script.args_to = len(inputs)
-
-        script.controls = wrap_call(script.ui, script.filename, "ui")
-
-        for control in script.controls.values():
-            control.custom_script_source = os.path.basename(script.filename)
-
-        inputs += list(script.controls.values())
-        script.args_to = len(inputs)
 
     def scripts_in_preferred_order(self):
         if self.scripts is None:
@@ -156,29 +130,13 @@ class ScriptPostprocessingRunner:
 
         return sorted(filtered_scripts, key=lambda x: script_scores[x.name])
 
-    def setup_ui(self):
-        import gradio as gr
-
-        inputs = []
-
-        for script in self.scripts_in_preferred_order():
-            with gr.Row() as group:
-                self.create_script_ui(script, inputs)
-
-            script.group = group
-
-        self.ui_created = True
-        return inputs
-
     def run(self, pp: PostprocessedImage, args):
         scripts = []
 
         for script in self.scripts_in_preferred_order():
             script_args = args[script.args_from:script.args_to]
 
-            process_args = {}
-            for (name, _component), value in zip(script.controls.items(), script_args):
-                process_args[name] = value
+            process_args = dict(zip(script.arg_names or (), script_args))
 
             scripts.append((script, process_args))
 
@@ -209,21 +167,18 @@ class ScriptPostprocessingRunner:
         pp.extra_images = all_images[1:]
 
     def create_args_for_run(self, scripts_args):
-        if not self.ui_created:
-            import gradio as gr
+        """Positional args for :meth:`run` from ``{operation name: {param:
+        value}}`` (the A1111 extras API); every other arg is None (an
+        operation without values stays off)."""
 
-            with gr.Blocks(analytics_enabled=False):
-                self.setup_ui()
+        from remi.core.extras import assign_args
 
-        scripts = self.scripts_in_preferred_order()
-        args = [None] * max([x.args_to for x in scripts])
+        assigned = assign_args(self)
+        args = [None] * max((script.args_to for script, _layout in assigned), default=0)
 
-        for script in scripts:
-            script_args_dict = scripts_args.get(script.name, None)
-            if script_args_dict is not None:
-
-                for i, name in enumerate(script.controls):
-                    args[script.args_from + i] = script_args_dict.get(name, None)
+        for script, layout in assigned:
+            if (values := scripts_args.get(script.name)) is not None:
+                args[script.args_from : script.args_to] = [values.get(name) for name in layout.names]
 
         return args
 

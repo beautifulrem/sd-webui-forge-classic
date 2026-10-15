@@ -74,7 +74,6 @@ function schemaFor(tab: "txt2img" | "img2img"): TabSchema {
         kind: "alwayson",
         section: null,
         order: 0,
-        legacy: false,
         layout: {
           type: "section",
           title: "ControlNet Integrated",

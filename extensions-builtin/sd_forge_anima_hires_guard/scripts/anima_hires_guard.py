@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import math
-import sys
 
 from backend.logging import setup_logger
 from lib_anima_hires import BALANCED, GuardLimits, guard_dimensions
@@ -31,15 +30,9 @@ def _is_anima(process) -> bool:
 
 
 def _forge_resolution_step() -> int:
-    """The grid Forge rounds every Hires target to (processing's ``sRound``).
+    """The grid Forge rounds every Hires target to (processing's ``sRound``)."""
 
-    ``modules.ui`` reads ``opts.res_step`` once at import because the setting
-    needs a restart, so its copy is the one in effect when it is loaded.
-    """
-
-    ui = sys.modules.get("modules.ui")
-    step = getattr(ui, "_STEP", None) or getattr(shared.opts, "res_step", 64)
-    return max(1, int(step))
+    return max(1, int(getattr(shared.opts, "res_step", 64) or 64))
 
 
 # (preset control name, infotext key) of each script argument, in order

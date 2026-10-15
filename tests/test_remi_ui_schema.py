@@ -171,34 +171,19 @@ def test_settings_schema():
     assert schema["values"]["steps"] == 30 and schema["values"]["secret"] == "s" and "hint" not in schema["values"]
 
 
-def test_gradio_components_of_unported_extensions_are_read_by_name():
-    gr = pytest.importorskip("gradio")
+def test_settings_widgets():
     from modules import options as options_module
     from remi.ui.settings import setting_node
 
-    node = setting_node("x", options_module.OptionInfo(["a"], "X", gr.Dropdown, {"choices": ["a", "b"], "multiselect": True}), ["a"])
+    node = setting_node("x", options_module.OptionInfo(["a"], "X", ui.MultiChoice, {"choices": ["a", "b"]}), ["a"])
     assert isinstance(node, ui.MultiChoice)
-    node = setting_node("y", options_module.OptionInfo("a", "Y", gr.Radio, {"choices": ["a", "b"]}), "a")
+    node = setting_node("y", options_module.OptionInfo("a", "Y", ui.Choice, {"choices": ["a", "b"], "style": "radio"}), "a")
     assert isinstance(node, ui.Choice) and node.style == "radio"
-    node = setting_node("z", options_module.OptionInfo(0.5, "Z", gr.Slider, {"minimum": 0, "maximum": 1, "step": 0.1}), 0.5)
+    node = setting_node("z", options_module.OptionInfo(0.5, "Z", ui.Slider, {"minimum": 0, "maximum": 1, "step": 0.1}), 0.5)
     assert isinstance(node, ui.Slider) and not node.integer
+    # A component that is not a remi.ui widget (an A1111 Gradio class) is picked from the default's type
+    node = setting_node("w", options_module.OptionInfo(True, "W", object), True)
+    assert isinstance(node, ui.Toggle)
     # An int setting stays an int slider though its stored value came back as a float
     node = setting_node("n", options_module.OptionInfo(4, "N", ui.Slider, {"minimum": 0, "maximum": 8, "step": 1}), 4.0)
     assert node.integer and node.resolve_default(ui.Context()) == 4
-
-
-def test_the_legacy_settings_page_gets_gradio_classes():
-    gr = pytest.importorskip("gradio")
-    from modules import options as options_module
-    from modules.ui_components import FormRow
-
-    assert options_module.OptionInfo(1, "S", ui.State).component is gr.State
-    assert options_module.OptionRow().component is FormRow
-    with gr.Blocks():
-        radio = options_module.OptionInfo("a", "R", ui.Choice, {"choices": ["a", "b"], "style": "radio"}).component(label="R", value="a", choices=["a", "b"], style="radio")
-        editable = options_module.OptionInfo("a", "E", ui.Choice, {"allow_custom": True}).component(label="E", value="a", choices=["a"], allow_custom=True)
-        multi = options_module.OptionInfo(["a"], "M", ui.MultiChoice).component(label="M", value=["a"], choices=["a"])
-        html = options_module.OptionHTML("x").component(value="x")
-    assert isinstance(radio, gr.Radio) and editable.allow_custom_value and multi.multiselect and isinstance(html, gr.HTML)
-    # Gradio classes given by extensions pass through untouched
-    assert options_module.OptionInfo(1, "S", gr.Slider).component is gr.Slider

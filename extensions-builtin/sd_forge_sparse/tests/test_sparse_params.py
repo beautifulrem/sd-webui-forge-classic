@@ -101,5 +101,5 @@ def test_zh_cn_covers_the_panel(sparse):
     harness.assert_localized(SCRIPT.parents[1], [harness.script_layout(sparse.SparseAttentionForForge(), tab).schema() for tab in harness.TABS])
 
 
-def test_imports_without_gradio():
-    harness.assert_gradio_free([SCRIPT])
+def test_imports_standalone():
+    harness.assert_imports_standalone([SCRIPT])

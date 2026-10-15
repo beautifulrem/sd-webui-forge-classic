@@ -70,7 +70,7 @@ LEGACY_MAP = {
 }
 
 
-def test_layout_matches_the_gradio_tab(page):
+def test_layout_matches_the_legacy_tab(page):
     snapshot = harness.load_snapshot(SCRIPT)
     assert snapshot["title"] == page.title == "Prompt Workshop"
     # api_key fields are masked inputs now (write-only: a saved key is never sent back)
@@ -105,8 +105,8 @@ def _walk(node):
             yield from _walk(child)
 
 
-def test_no_gradio_left():
-    harness.assert_page_gradio_free(EXT, [SCRIPT])
+def test_no_tab_code_left():
+    harness.assert_page_standalone(EXT, [SCRIPT])
 
 
 # endregion

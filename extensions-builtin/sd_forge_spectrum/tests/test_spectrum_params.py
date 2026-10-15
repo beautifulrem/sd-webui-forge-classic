@@ -153,5 +153,5 @@ def test_zh_cn_covers_the_panel():
     harness.assert_localized(ROOT, schemas, extra=["Enter a preset name"])
 
 
-def test_imports_without_gradio():
-    harness.assert_gradio_free([SCRIPT])
+def test_imports_standalone():
+    harness.assert_imports_standalone([SCRIPT])

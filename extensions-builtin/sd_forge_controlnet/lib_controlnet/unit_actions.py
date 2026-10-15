@@ -80,7 +80,7 @@ def core_size(ctx: ui.ActionContext) -> tuple[int, int]:
 def _setting(value: Any, parameter) -> Any:
     """A slider value, or the preprocessor's default for an unset (negative) one."""
 
-    return parameter.gradio_update_kwargs.get("value", 512) if value is None or value < 0 else value
+    return parameter.slider_kwargs.get("value", 512) if value is None or value < 0 else value
 
 
 def run_preview(ctx: ui.ActionContext, index: int, value: dict[str, Any]) -> dict[str, Any]:

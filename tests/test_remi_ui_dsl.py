@@ -5,7 +5,6 @@ import math
 import pytest
 
 from remi import ui
-from remi.ui.legacy import legacy_layout
 from remi.ui.nodes import SEED_MAX
 
 
@@ -267,37 +266,11 @@ class TestValues:
         values, problems = layout.paste({"Panel": "1", "Panel strength": "0.75", "Panel mode": "zzz", "Panel flag": "False", "Panel tags": "['y']"})
         assert values == {"on": True, "strength": 0.75, "flag": False, "tags": ["y"]}
         assert [problem.param for problem in problems] == ["mode"]
-        # A legacy gr.update() from a paste function
-        legacy = ui.ScriptLayout(ui.Slider("s", 0, 10, 0, 1, paste=lambda d: {"__type__": "update", "value": 3}))
-        assert legacy.paste({})[0] == {"s": 3}
 
     def test_preset_values(self):
         layout = ui.ScriptLayout(ui.Group(ui.Toggle("on", preset="dave.enabled"), ui.Choice("opt", ["平衡", "Quality"], preset=("artist.optimization", "平衡"))))
         assert layout.presets == {"dave.enabled": ("on", layout.presets["dave.enabled"][1]), "artist.optimization": ("opt", "平衡")}
         assert layout.preset_values({"dave.enabled": False, "artist.optimization": "Balance"}) == {"on": False, "opt": "平衡"}
-
-
-class TestLegacyLayout:
-    def test_positional_params_take_control_values_and_paste_like_gradio(self):
-        class Control:
-            def __init__(self, value, label):
-                self.value, self.label = value, label
-
-        controls = [Control(1, "Steps"), Control(True, "On"), Control("x", "Text"), Control(None, None)]
-        paste = lambda d: d.get("Other")  # noqa: E731
-        layout = legacy_layout("legacy", controls, [(controls[0], "Steps"), (controls[1], "On"), (controls[2], paste)])
-        assert layout.legacy and layout.names == ["#0", "#1", "#2", "#3"]
-        assert layout.defaults() == {"#0": 1, "#1": True, "#2": "x", "#3": None}
-        values, _ = layout.paste({"Steps": "20", "On": "False", "Other": "y"})
-        assert values == {"#0": 20.0, "#1": False, "#2": "y"}
-        assert layout.values_to_args({"#3": [1]}) == [1, True, "x", [1]]
-        # A param left out or sent unchanged is (a fresh copy of) the control's own value, not its JSON view
-        state = {"cache": (1, 2)}
-        layout = legacy_layout("legacy", [Control(state, "State")])
-        first = layout.values_to_args({})[0]
-        assert first == state and first is not state
-        first["cache"] = None  # a script mutating its state does not change the next run's
-        assert layout.values_to_args({"#0": {"cache": [1, 2]}})[0] == state
 
 
 class TestActions:

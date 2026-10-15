@@ -40,7 +40,6 @@ const schema: TabSchema = {
       kind: "alwayson",
       section: "sampler",
       order: 0,
-      legacy: false,
       layout: { type: "slider", name: "steps", label: "Sampling Steps", minimum: 1, maximum: 150, step: 1, integer: true },
       defaults: { steps: 20 },
       args: ["steps"],
@@ -51,7 +50,6 @@ const schema: TabSchema = {
       kind: "alwayson",
       section: "sampler",
       order: 5,
-      legacy: false,
       layout: {
         type: "group",
         children: [

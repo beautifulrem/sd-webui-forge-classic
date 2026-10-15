@@ -154,10 +154,10 @@ def test_extras_runner_passes_named_values(webui):
     assert set(assigned) == {"upscale", "degrid"}
     args = postprocessing_args(runner, {"upscale": {"upscale_mode": 1, "upscale_to_width": 512}, "degrid": {"degrid_threshold": 0.4}})
     upscale, _ = assigned["upscale"]
-    received = dict(zip(upscale.controls, args[upscale.args_from : upscale.args_to]))
+    received = dict(zip(upscale.arg_names, args[upscale.args_from : upscale.args_to]))
     assert received["upscale_mode"] == 1 and received["upscale_to_width"] == 512 and received["upscale_enabled"] is True
     degrid, _ = assigned["degrid"]
-    assert dict(zip(degrid.controls, args[degrid.args_from : degrid.args_to])) == {"degrid_enabled": True, "degrid_threshold": 0.4}
+    assert dict(zip(degrid.arg_names, args[degrid.args_from : degrid.args_to])) == {"degrid_enabled": True, "degrid_threshold": 0.4}
     json.dumps(scripts_schema(runner), allow_nan=False)
 
 
@@ -180,8 +180,8 @@ def test_degrid_runs_on_the_torch_device(webui, monkeypatch):
 
 
 @pytest.mark.parametrize("name", SCRIPTS)
-def test_no_gradio(name):
-    contract.assert_gradio_free(ROOT / "scripts" / f"{name}.py")
+def test_ported(name):
+    contract.assert_ported(ROOT / "scripts" / f"{name}.py")
 
 
 def test_zh_cn_covers_every_string(webui):

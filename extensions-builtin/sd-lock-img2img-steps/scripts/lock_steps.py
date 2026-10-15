@@ -24,7 +24,6 @@ class LockImg2ImgSteps(scripts.Script):
 
     # Render in Forge's native sampler section instead of the generic scripts area
     section = "sampler"
-    create_group = False
     sorting_priority = 1
 
     def title(self):

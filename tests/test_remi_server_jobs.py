@@ -149,6 +149,31 @@ def test_priority_then_order_decide_what_runs_next(server):
     assert ran == ["second", "urgent", "third", "first"]
 
 
+def pending_tasks():
+    from modules import progress
+
+    return progress.get_pending_tasks().tasks
+
+
+def test_the_progress_registry_only_lists_jobs_of_a_running_queue(webui, tmp_path):
+    """A failed job and a stopped queue leave nothing "pending" in /internal/pending-tasks
+    (the registry is process-wide; the next start registers the queued jobs again)."""
+
+    state = FakeState()
+    with server_app(tmp_path, state=state, executor=StubExecutor(state, error=RuntimeError("boom"))) as server:
+        failed = submit(server)
+        assert server.services.queue.wait_idle()
+        assert f"task(remi-{failed['job_id']})" not in pending_tasks()
+        server.services.queue.set_paused(True)
+        queued = submit(server)
+        assert f"task(remi-{queued['job_id']})" in pending_tasks()
+    assert f"task(remi-{queued['job_id']})" not in pending_tasks()
+    with server_app(tmp_path) as server:
+        assert f"task(remi-{queued['job_id']})" in pending_tasks()
+        server.client.delete(f"/api/v2/jobs/{queued['job_id']}")
+    assert pending_tasks() == []
+
+
 def test_pause_is_persisted(webui, tmp_path):
     store = JobStore(tmp_path / "jobs.db")
     store.set_meta("paused", "1")

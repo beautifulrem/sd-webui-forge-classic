@@ -53,7 +53,7 @@ def test_the_panels_export_their_schema(webui, tab):
     entries = _entries(runner)
     json.dumps(list(entries.values()), allow_nan=False)
     assert set(IDS.values()) <= set(entries)
-    assert all(not entries[script_id]["legacy"] and entries[script_id]["kind"] == "alwayson" for script_id in IDS.values())
+    assert all(entries[script_id]["kind"] == "alwayson" for script_id in IDS.values())
     assert entries[IDS["regional"]]["args"][-1] == "region_editor"
     assert entries[IDS["resolutions"]]["section"] == "dimensions"
     resolutions = entries[IDS["resolutions"]]["args"]

@@ -59,7 +59,6 @@ def _curve(value):
 
 class DynamicShiftScript(scripts.Script):
     section = "sampler"
-    create_group = False
     sorting_priority = 5
 
     def title(self):

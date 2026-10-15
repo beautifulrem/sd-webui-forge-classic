@@ -151,8 +151,8 @@ def test_the_core_conflict_action_locks_the_panel():
     assert patch[f"{owner}.dcw_enable"] == {"value": True, "enabled": True}
 
 
-def test_gradio_free():
-    harness.assert_gradio_free(ROOT, ("scripts/anima_guidance.py",))
+def test_standalone():
+    harness.assert_standalone(ROOT, ("scripts/anima_guidance.py",))
 
 
 def test_zh_cn_catalog_covers_the_panel():

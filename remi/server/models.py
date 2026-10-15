@@ -72,14 +72,15 @@ class ModelsSummary(Model):
 
 
 class NotPorted(Model):
-    """A script, Extras operation or extension tab not on ``params()`` yet."""
+    """A script file, script or Extras operation that could not be loaded
+    (it failed to import, or declares A1111's ``ui()`` instead of ``params()``)."""
 
-    kind: Literal["script", "extras", "page"]
+    kind: Literal["script", "extras"]
     id: str
     title: str
     tab: str | None = None
     extension: str | None = None
-    status: Literal["legacy", "disabled"] = "legacy"
+    status: Literal["disabled"] = "disabled"
     reason: str | None = None
 
 

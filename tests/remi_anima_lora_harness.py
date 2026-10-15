@@ -3,11 +3,12 @@ Scheduled Mixer, LoRA Layer Weight and LoRA Stage Scheduler.
 
 Not a test module; their suites load it by file path (the repo ``tests``
 folder is not importable from an extension folder, see
-``extension_script_harness.py``). Nothing here imports Gradio.
+``extension_script_harness.py``).
 
-Each extension keeps the contract of its Gradio ``ui()`` recorded before the
-port in ``tests/fixtures/legacy_ui_<tab>.json`` (one entry per script
-argument: kind, Gradio class, label, default, bounds / choices, infotext key,
+Each extension keeps the contract of its former Gradio ``ui()``, recorded
+before the port in ``tests/fixtures/legacy_ui_<tab>.json`` (one entry per
+script argument: kind, legacy control class, label, default, bounds /
+choices, infotext key,
 whether a paste function reads it, Anima preset field and value). The ported
 layout is compared with it by :func:`describe` / :func:`assert_parity`.
 """
@@ -17,7 +18,6 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
-import os
 import re
 import subprocess
 import sys
@@ -36,7 +36,6 @@ def prepare_imports(extension_root: Path | str | None = None) -> None:
     for path in (REPO / "modules_forge" / "packages", REPO, extension_root):
         if path is not None and str(path) not in sys.path:
             sys.path.insert(0, str(path))
-    os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
 
 def load_script(path: Path | str, name: str):
@@ -173,7 +172,7 @@ def _forge_source(path: str, names: set[str], namespace: dict) -> dict:
         for node in tree.body
         if (isinstance(node, ast.FunctionDef) and node.name in names) or (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) in names)
     ]
-    exec(compile(ast.Module(nodes, []), path, "exec"), namespace)  # noqa: S102 - the WebUI's own source
+    exec(compile(ast.Module(nodes, []), path, "exec"), namespace)
     return namespace
 
 
@@ -227,36 +226,20 @@ def replayed_args(layout, params: Mapping, start: Mapping | None = None, *, call
 
 # endregion
 
-# region Gradio-free
+# region Standalone
 
 
-def gradio_imports(extension_root: Path | str) -> list[str]:
-    """``file:line`` of every Gradio import in the extension's Python files."""
-
-    found = []
-    root = Path(extension_root)
-    for path in sorted(root.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf8"))
-        for node in ast.walk(tree):
-            names = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""] if isinstance(node, ast.ImportFrom) else []
-            if any(name == "gradio" or name.startswith("gradio.") for name in names):
-                found.append(f"{path.relative_to(root)}:{node.lineno}")
-    return found
-
-
-def assert_loads_without_gradio(script_path: Path | str) -> None:
-    """The script loads and builds its layouts on both tabs with Gradio blocked."""
+def assert_loads_standalone(script_path: Path | str) -> None:
+    """The script loads and builds its layouts on both tabs in a fresh interpreter."""
 
     code = f"""
 import sys
-sys.modules["gradio"] = None
 sys.path.insert(0, {str(REPO / "tests")!r})
 import remi_anima_lora_harness as harness
-module = harness.load_script({str(script_path)!r}, "gradio_free_check")
+module = harness.load_script({str(script_path)!r}, "standalone_check")
 for tab in harness.TABS:
     layout = harness.script_layout(module.Script(), tab)
     harness.schema_json(layout)
-assert not any(name.split(".")[0] == "gradio" for name, mod in sys.modules.items() if mod is not None)
 print("ok")
 """
     result = subprocess.run([sys.executable, "-c", code], cwd=str(REPO), capture_output=True, text=True, timeout=600)

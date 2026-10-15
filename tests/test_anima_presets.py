@@ -23,10 +23,7 @@ from modules.anima_presets import (
     TURBO_LABEL,
     TURBO_NAG_LABEL,
     preset_value,
-    preset_controls,
     turbo_settings_advice,
-    register_preset_control,
-    reset_preset_controls,
 )
 from modules.anima_support import parse_block_list
 
@@ -167,9 +164,8 @@ class PresetConsistencyTests(unittest.TestCase):
         registering = [
             source
             for source in sources
-            # Gradio registration (direct calls, a SCRIPT_ARGS table's, an AnimaPatchPanel's
-            # PRESET_FIELDS) or the declarative params() bindings (preset=, table_params)
-            if any(call in source for call in ("register_preset_control(", "register_table_fields(", "PRESET_FIELDS = (", "table_params(", "preset="))
+            # The params() bindings: preset=, a SCRIPT_ARGS table (table_params), an AnimaPatchPanel's PRESET_FIELDS
+            if any(call in source for call in ("PRESET_FIELDS = (", "table_params(", "preset="))
         ]
         for feature in sorted({name.split(".", 1)[0] for name in SAFE_BASE_AESTHETIC_PRESET}):
             with self.subTest(feature):
@@ -177,24 +173,6 @@ class PresetConsistencyTests(unittest.TestCase):
 
 
 class PresetRegistryTests(unittest.TestCase):
-    def test_registry_keeps_component_order_and_resolves_values(self):
-        first = object()
-        second = object()
-        reset_preset_controls("test")
-        register_preset_control("test", "native.steps", first)
-        register_preset_control("test", "artist.optimization", second, "平衡")
-
-        names, components, values = preset_controls("test")
-
-        self.assertEqual(names, ("native.steps", "artist.optimization"))
-        self.assertEqual(components, (first, second))
-        self.assertEqual(values, (SAFE_BASE_AESTHETIC_PRESET["native.steps"], "平衡"))
-
-    def test_registry_rejects_unowned_fields(self):
-        reset_preset_controls("test")
-        with self.assertRaises(KeyError):
-            register_preset_control("test", "prompt.positive", object())
-
     def test_every_unlockable_conflict_control_has_a_preset_value(self):
         self.assertLessEqual(PRESET_CONFLICT_CONTROLS, SAFE_BASE_AESTHETIC_PRESET.keys())
 

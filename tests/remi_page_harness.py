@@ -1,14 +1,7 @@
 """Harness for extension tabs (``on_ui_tabs``) ported to ``remi.pages``.
 
-Not a test module; extension suites load it by file path. Nothing but the
-recording CLI imports Gradio.
-
-Before a tab is ported its Gradio UI is recorded once::
-
-    /tmp/remi-testenv/bin/python tests/remi_page_harness.py \\
-        extensions-builtin/<ext>/scripts/<script>.py
-
-which builds the script's ``on_ui_tabs`` Blocks and writes
+Not a test module; extension suites load it by file path. Each ported tab
+keeps the record of its former Gradio UI, taken before the port, in
 ``extensions-builtin/<ext>/tests/fixtures/legacy_ui_page.json``: one entry
 per input control in creation order (kind, label, default, bounds or
 choices, ``elem_id``), then the buttons' labels. A tab has no txt2img /
@@ -87,7 +80,7 @@ def assert_page_matches(layout, snapshot: Mapping[str, Any], mapping: Mapping[in
             assert got.get(key) == want.get(key), f"input {index} ({entry['label']!r} -> {name}): {key} is {got.get(key)!r}, expected {want.get(key)!r}"
 
 
-# region Loading, running and checking a page (no Gradio)
+# region Loading, running and checking a page
 
 
 def load_page_script(path: str | Path, name: str):
@@ -236,85 +229,18 @@ def page_strings(page, script_path: str | Path) -> set[str]:
     return {text for text in found if text.strip() and not re.fullmatch(r"[\d.,\s-]+|\.\w+", text)}
 
 
-def assert_page_gradio_free(extension: str | Path, scripts) -> None:
-    """No Gradio import and no JS/CSS asset in the extension, and its scripts
-    import with Gradio blocked (a fresh interpreter)."""
-
-    import ast
+def assert_page_standalone(extension: str | Path, scripts) -> None:
+    """No JS/CSS asset and no extension tab callback (``on_ui_tabs``) left in
+    the extension, and its scripts import in a fresh interpreter."""
 
     extension = Path(extension)
-    offending = []
-    for path in sorted(extension.rglob("*.py")):
-        if "tests" in path.parts:
-            continue
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf8"))):
-            names = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""] if isinstance(node, ast.ImportFrom) else []
-            offending += [f"{path.name}: {name}" for name in names if name.partition(".")[0] == "gradio" or name.startswith("modules.ui")]
-    assert not offending, offending
+    left = [path.name for path in sorted(extension.rglob("*.py")) if "tests" not in path.parts and "on_ui_tabs" in path.read_text(encoding="utf8")]
+    assert not left, left
     assert not list(extension.glob("javascript/*")) and not (extension / "style.css").exists(), "JS/CSS assets left"
     spec = importlib.util.spec_from_file_location("remi_port_harness", REPO / "tests" / "remi_port_harness.py")
     port = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(port)
-    port.assert_gradio_free(scripts, extra_paths=[extension])
+    port.assert_imports_standalone(scripts, extra_paths=[extension])
 
-
-# endregion
-
-# region Recording a legacy tab (needs Gradio)
-
-
-def legacy_page_snapshot(blocks) -> dict[str, Any]:
-    """Inputs and buttons of a built ``gr.Blocks``, in creation order."""
-
-    import gradio as gr
-
-    from remi.ui.legacy import gradio_kind, legacy_layout
-
-    controls = [block for block in blocks.blocks.values() if gradio_kind(block) is not None]
-    layout = legacy_layout("legacy", controls, [])
-    entries = []
-    for node, control in zip(layout.inputs, controls):
-        entry = describe_node(node, __import__("remi.ui", fromlist=["Context"]).Context())
-        if not entry["label"].strip() or entry["label"].startswith("#"):
-            entry["label"] = str(getattr(control, "label", "") or "")
-        entry["elem_id"] = getattr(control, "elem_id", None)
-        entries.append(entry)
-    buttons = [str(block.value) for block in blocks.blocks.values() if isinstance(block, gr.Button)]
-    return {"inputs": entries, "buttons": buttons}
-
-
-def _record(script_path: Path) -> Path:
-    spec = importlib.util.spec_from_file_location("extension_script_harness", REPO / "tests" / "extension_script_harness.py")
-    harness = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(harness)
-    harness.prepare_webui_imports()
-
-    from modules import script_callbacks
-    from remi.testing import webui_state
-
-    with webui_state():
-        script_callbacks.clear_callbacks()
-        harness.load_script(script_path, f"legacy_page_{script_path.stem}")
-        tabs = [tab for callback in script_callbacks.callback_map["callbacks_ui_tabs"] for tab in callback.callback() or []]
-        if len(tabs) != 1:
-            raise SystemExit(f"expected one tab from {script_path}, got {len(tabs)}")
-        snapshot = legacy_page_snapshot(tabs[0][0])
-        snapshot["title"] = tabs[0][1]
-    target = fixture_path(script_path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(snapshot, indent=1, ensure_ascii=False) + "\n", encoding="utf8")
-    return target
-
-
-if __name__ == "__main__":
-    import argparse
-
-    sys.argv, argv = sys.argv[:1], sys.argv
-    for path in (str(REPO / "modules_forge" / "packages"), str(REPO)):
-        sys.path.insert(0, path)
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("script", type=Path)
-    options = parser.parse_args(argv[1:])
-    print(_record(options.script.resolve()).relative_to(REPO))
 
 # endregion

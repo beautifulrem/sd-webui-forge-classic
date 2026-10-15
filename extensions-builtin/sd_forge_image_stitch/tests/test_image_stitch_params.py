@@ -26,7 +26,7 @@ def env(ext_kit):
 
 
 @pytest.mark.parametrize("tab", ["txt2img", "img2img"])
-def test_matches_the_gradio_panel(env, tab):
+def test_matches_the_legacy_panel(env, tab):
     _script, layout = env.kit.layout_of(env.module.ImageStitch, tab)
     # Intended: the interactive gallery (a JSON value of (image, caption) pairs)
     # is an image list of upload ids (resolved to PIL images) shown by the
@@ -78,5 +78,5 @@ def test_localized(env):
     env.kit.assert_localized(EXTENSION, strings, extra={script.title()})
 
 
-def test_gradio_free(ext_kit):
-    ext_kit.assert_gradio_free(EXTENSION, [SCRIPT])
+def test_standalone(ext_kit):
+    ext_kit.assert_standalone(EXTENSION, [SCRIPT])

@@ -905,13 +905,6 @@
        "needs_reload_ui": true
       },
       {
-       "type": "toggle",
-       "name": "show_gradio_deprecation_warnings",
-       "label": "Show gradio deprecation warnings in console",
-       "default": false,
-       "needs_reload_ui": true
-      },
-      {
        "type": "slider",
        "name": "memmon_poll_rate",
        "label": "VRAM usage polls per second during generation",
@@ -2468,9 +2461,7 @@
        "integer": false,
        "notes": [
         "for mouse only"
-       ],
-       "needs_reload_ui": true,
-       "onchange": true
+       ]
       },
       {
        "type": "slider",
@@ -2483,9 +2474,7 @@
        "integer": false,
        "notes": [
         "for mouse only"
-       ],
-       "needs_reload_ui": true,
-       "onchange": true
+       ]
       },
       {
        "type": "choice",
@@ -2954,10 +2943,6 @@
          "label": "enable_prompt_comments"
         },
         {
-         "value": "enable_reloading_ui_scripts",
-         "label": "enable_reloading_ui_scripts"
-        },
-        {
          "value": "enable_upscale_progressbar",
          "label": "enable_upscale_progressbar"
         },
@@ -3400,14 +3385,6 @@
         {
          "value": "gallery_height",
          "label": "gallery_height"
-        },
-        {
-         "value": "gradio_theme",
-         "label": "gradio_theme"
-        },
-        {
-         "value": "gradio_themes_cache",
-         "label": "gradio_themes_cache"
         },
         {
          "value": "grid_background_color",
@@ -4562,10 +4539,6 @@
          "label": "sgm_noise_multiplier"
         },
         {
-         "value": "show_gradio_deprecation_warnings",
-         "label": "show_gradio_deprecation_warnings"
-        },
-        {
          "value": "show_mahiro",
          "label": "show_mahiro"
         },
@@ -5106,147 +5079,6 @@
        "needs_reload_ui": true
       },
       {
-       "type": "choice",
-       "name": "gradio_theme",
-       "label": "Gradio Theme",
-       "default": "Default",
-       "choices": [
-        {
-         "value": "Default",
-         "label": "Default"
-        },
-        {
-         "value": "gradio/base",
-         "label": "gradio/base"
-        },
-        {
-         "value": "gradio/glass",
-         "label": "gradio/glass"
-        },
-        {
-         "value": "gradio/monochrome",
-         "label": "gradio/monochrome"
-        },
-        {
-         "value": "gradio/seafoam",
-         "label": "gradio/seafoam"
-        },
-        {
-         "value": "gradio/soft",
-         "label": "gradio/soft"
-        },
-        {
-         "value": "gradio/dracula_test",
-         "label": "gradio/dracula_test"
-        },
-        {
-         "value": "abidlabs/dracula_test",
-         "label": "abidlabs/dracula_test"
-        },
-        {
-         "value": "abidlabs/Lime",
-         "label": "abidlabs/Lime"
-        },
-        {
-         "value": "abidlabs/pakistan",
-         "label": "abidlabs/pakistan"
-        },
-        {
-         "value": "Ama434/neutral-barlow",
-         "label": "Ama434/neutral-barlow"
-        },
-        {
-         "value": "dawood/microsoft_windows",
-         "label": "dawood/microsoft_windows"
-        },
-        {
-         "value": "finlaymacklon/smooth_slate",
-         "label": "finlaymacklon/smooth_slate"
-        },
-        {
-         "value": "Franklisi/darkmode",
-         "label": "Franklisi/darkmode"
-        },
-        {
-         "value": "freddyaboulton/dracula_revamped",
-         "label": "freddyaboulton/dracula_revamped"
-        },
-        {
-         "value": "freddyaboulton/test-blue",
-         "label": "freddyaboulton/test-blue"
-        },
-        {
-         "value": "gstaff/xkcd",
-         "label": "gstaff/xkcd"
-        },
-        {
-         "value": "Insuz/Mocha",
-         "label": "Insuz/Mocha"
-        },
-        {
-         "value": "Insuz/SimpleIndigo",
-         "label": "Insuz/SimpleIndigo"
-        },
-        {
-         "value": "JohnSmith9982/small_and_pretty",
-         "label": "JohnSmith9982/small_and_pretty"
-        },
-        {
-         "value": "nota-ai/theme",
-         "label": "nota-ai/theme"
-        },
-        {
-         "value": "nuttea/Softblue",
-         "label": "nuttea/Softblue"
-        },
-        {
-         "value": "ParityError/Anime",
-         "label": "ParityError/Anime"
-        },
-        {
-         "value": "reilnuud/polite",
-         "label": "reilnuud/polite"
-        },
-        {
-         "value": "remilia/Ghostly",
-         "label": "remilia/Ghostly"
-        },
-        {
-         "value": "rottenlittlecreature/Moon_Goblin",
-         "label": "rottenlittlecreature/Moon_Goblin"
-        },
-        {
-         "value": "step-3-profit/Midnight-Deep",
-         "label": "step-3-profit/Midnight-Deep"
-        },
-        {
-         "value": "Taithrah/Minimal",
-         "label": "Taithrah/Minimal"
-        },
-        {
-         "value": "ysharma/huggingface",
-         "label": "ysharma/huggingface"
-        },
-        {
-         "value": "ysharma/steampunk",
-         "label": "ysharma/steampunk"
-        },
-        {
-         "value": "NoCrypt/miku",
-         "label": "NoCrypt/miku"
-        }
-       ],
-       "style": "dropdown",
-       "allow_custom": true,
-       "needs_reload_ui": true
-      },
-      {
-       "type": "toggle",
-       "name": "gradio_themes_cache",
-       "label": "Cache selected theme locally",
-       "default": true
-      },
-      {
        "type": "toggle",
        "name": "show_progress_in_title",
        "label": "Show generation progress in window title",
@@ -5287,15 +5119,6 @@
         "otherwise only the image is sent"
        ],
        "needs_reload_ui": true
-      },
-      {
-       "type": "toggle",
-       "name": "enable_reloading_ui_scripts",
-       "label": "Additionally reload the \"modules.ui\" scripts when using \"Reload UI\"",
-       "default": false,
-       "notes": [
-        "for developing"
-       ]
       }
      ]
     },
@@ -5494,6 +5317,138 @@
         {
          "value": "Beta scheduler beta",
          "label": "Beta scheduler beta"
+        },
+        {
+         "value": "Prompt",
+         "label": "Prompt"
+        },
+        {
+         "value": "Negative prompt",
+         "label": "Negative prompt"
+        },
+        {
+         "value": "Hires upscaler",
+         "label": "Hires upscaler"
+        },
+        {
+         "value": "Hires steps",
+         "label": "Hires steps"
+        },
+        {
+         "value": "Denoising strength",
+         "label": "Denoising strength"
+        },
+        {
+         "value": "Hires upscale",
+         "label": "Hires upscale"
+        },
+        {
+         "value": "Hires resize-1",
+         "label": "Hires resize-1"
+        },
+        {
+         "value": "Hires resize-2",
+         "label": "Hires resize-2"
+        },
+        {
+         "value": "Hires Distilled CFG Scale",
+         "label": "Hires Distilled CFG Scale"
+        },
+        {
+         "value": "Hires CFG Scale",
+         "label": "Hires CFG Scale"
+        },
+        {
+         "value": "Hires checkpoint",
+         "label": "Hires checkpoint"
+        },
+        {
+         "value": "Hires VAE/TE",
+         "label": "Hires VAE/TE"
+        },
+        {
+         "value": "Hires prompt",
+         "label": "Hires prompt"
+        },
+        {
+         "value": "Hires negative prompt",
+         "label": "Hires negative prompt"
+        },
+        {
+         "value": "Size-1",
+         "label": "Size-1"
+        },
+        {
+         "value": "Size-2",
+         "label": "Size-2"
+        },
+        {
+         "value": "Batch size",
+         "label": "Batch size"
+        },
+        {
+         "value": "Distilled CFG Scale",
+         "label": "Distilled CFG Scale"
+        },
+        {
+         "value": "CFG scale",
+         "label": "CFG scale"
+        },
+        {
+         "value": "Seed",
+         "label": "Seed"
+        },
+        {
+         "value": "Variation seed",
+         "label": "Variation seed"
+        },
+        {
+         "value": "Variation seed strength",
+         "label": "Variation seed strength"
+        },
+        {
+         "value": "Seed resize from-1",
+         "label": "Seed resize from-1"
+        },
+        {
+         "value": "Seed resize from-2",
+         "label": "Seed resize from-2"
+        },
+        {
+         "value": "Steps",
+         "label": "Steps"
+        },
+        {
+         "value": "Refiner switch at",
+         "label": "Refiner switch at"
+        },
+        {
+         "value": "Refiner CFG scale",
+         "label": "Refiner CFG scale"
+        },
+        {
+         "value": "Mask blur",
+         "label": "Mask blur"
+        },
+        {
+         "value": "Mask mode",
+         "label": "Mask mode"
+        },
+        {
+         "value": "Masked content",
+         "label": "Masked content"
+        },
+        {
+         "value": "Inpaint area",
+         "label": "Inpaint area"
+        },
+        {
+         "value": "Masked area padding",
+         "label": "Masked area padding"
+        },
+        {
+         "value": "Image CFG scale",
+         "label": "Image CFG scale"
         },
         {
          "value": "Lora hashes",
@@ -13660,7 +13615,6 @@
   "enable_console_prompts": false,
   "samples_log_stdout": false,
   "show_warnings": false,
-  "show_gradio_deprecation_warnings": false,
   "memmon_poll_rate": 5,
   "multiple_tqdm": true,
   "enable_upscale_progressbar": true,
@@ -13803,15 +13757,12 @@
   "ui_tab_order": [],
   "hidden_tabs": [],
   "ui_reorder_list": [],
-  "gradio_theme": "Default",
-  "gradio_themes_cache": true,
   "show_progress_in_title": true,
   "send_seed": true,
   "send_cfg": true,
   "send_size": true,
   "send_image_info_not_ui": false,
   "allow_i2i_send_info": false,
-  "enable_reloading_ui_scripts": false,
   "enable_pnginfo": true,
   "save_txt": false,
   "add_model_name_to_info": true,
@@ -14244,7 +14195,6 @@
   "enable_console_prompts": false,
   "samples_log_stdout": false,
   "show_warnings": false,
-  "show_gradio_deprecation_warnings": false,
   "memmon_poll_rate": 5,
   "multiple_tqdm": true,
   "enable_upscale_progressbar": true,
@@ -14387,15 +14337,12 @@
   "ui_tab_order": [],
   "hidden_tabs": [],
   "ui_reorder_list": [],
-  "gradio_theme": "Default",
-  "gradio_themes_cache": true,
   "show_progress_in_title": true,
   "send_seed": true,
   "send_cfg": true,
   "send_size": true,
   "send_image_info_not_ui": false,
   "allow_i2i_send_info": false,
-  "enable_reloading_ui_scripts": false,
   "enable_pnginfo": true,
   "save_txt": false,
   "add_model_name_to_info": true,

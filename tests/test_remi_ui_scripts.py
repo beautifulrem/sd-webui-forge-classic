@@ -1,18 +1,21 @@
-"""The params() path of modules/scripts.py and the ported processing scripts.
+"""The params() path of modules/scripts.py and the built-in processing scripts.
 
-The processing scripts keep their legacy Gradio ``ui()`` until the Gradio UI
-is deleted; their ``params()`` must declare the same arguments in the same
-order, with the same labels, defaults, bounds, choices and infotext keys.
+Their ``params()`` declare the arguments their former Gradio ``ui()`` did, in
+the same order, with the same labels, defaults, bounds, choices and infotext
+keys (``tests/fixtures/legacy_ui/processing_scripts.json``, recorded from
+that ``ui()`` before it was removed).
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
 from remi import ui
 from remi.testing import processing_script_classes, webui_state
 
-gr = pytest.importorskip("gradio")
+SNAPSHOT = json.loads((Path(__file__).parent / "fixtures" / "legacy_ui" / "processing_scripts.json").read_text(encoding="utf-8"))
+KINDS = {"Toggle": ui.Toggle, "Slider": ui.Slider, "Number": (ui.Seed, ui.Number), "Choice": ui.Choice, "Text": ui.Text}
 
 
 @pytest.fixture(scope="module")
@@ -30,70 +33,48 @@ def _script(cls, tab):
     return script
 
 
-def _kind(control):
-    from modules.ui_components import InputAccordionImpl
-
-    return {
-        InputAccordionImpl: ui.Toggle,
-        gr.Checkbox: ui.Toggle,
-        gr.Slider: ui.Slider,
-        gr.Number: (ui.Seed, ui.Number),
-        gr.Dropdown: ui.Choice,
-        gr.Textbox: ui.Text,
-    }[type(control)]
-
-
-PARAMS_SAMPLES = [
-    {},
-    {"Variation seed": "5", "Seed resize from-1": "512", "Refiner": "x", "Sampler": "Euler", "Schedule type": "Karras"},
-    {"Sampler": "DPM++ 2M Karras", "Hires sampler": "Euler"},
-]
-
-
 @pytest.mark.parametrize("tab", ["txt2img", "img2img"])
 def test_params_match_the_legacy_ui(webui, tab):
-    for data in processing_script_classes():
+    recorded = {entry["script"]: entry["inputs"] for entry in SNAPSHOT[tab]}
+    classes = processing_script_classes()
+    assert sorted(recorded) == sorted(data.script_class.__name__ for data in classes)
+    for data in classes:
         script = _script(data.script_class, tab)
-        with gr.Blocks():
-            controls = list(script.ui(script.is_img2img) or [])
         layout = ui.ScriptLayout(script.params(script.is_img2img), owner="x", order=script.param_order)
         ctx = ui.Context()
         name = data.script_class.__name__
-        assert len(controls) == len(layout.inputs), name
+        legacy = recorded[name]
+        assert len(legacy) == len(layout.inputs), name
 
-        for control, node in zip(controls, layout.inputs):
+        for control, node in zip(legacy, layout.inputs, strict=True):
             where = f"{name}.{node.name}"
-            assert isinstance(node, _kind(control)), where
-            assert (control.label or "") == node.label, where
+            assert isinstance(node, KINDS[control["kind"]]), where
+            assert control["label"] == node.label, where
             if callable(node.default):  # follows the UI preset (the old UI updated it on page load)
-                assert node.default() == node.resolve_default(ctx) or node.resolve_default(ctx) in node.values(ctx), where
+                default = node.resolve_default(ctx)
+                assert default in node.values(ctx) if isinstance(node, ui.Choice) else default is not None, where
             else:
-                assert control.value == node.resolve_default(ctx), where
+                assert control["default"] == node.resolve_default(ctx), where
             for bound in ("minimum", "maximum", "step"):
                 if isinstance(node, ui.Slider):
-                    assert getattr(control, bound) == getattr(node, bound), where
+                    assert control[bound] == getattr(node, bound), where
             if isinstance(node, ui.Choice):
-                assert [choice[1] if isinstance(choice, tuple) else choice for choice in control.choices] == node.values(ctx), where
-
-        fields = list(script.infotext_fields or [])
-        assert len(fields) == sum(1 for node in layout.inputs if node.infotext or node.paste), name
-        for component, target in fields:
-            node = layout.inputs[next(index for index, control in enumerate(controls) if control is component)]
-            if isinstance(target, str):
-                assert node.infotext == target, f"{name}.{node.name}"
+                assert control["choices"] == node.values(ctx), where
+            if "infotext" in control:
+                assert node.infotext == control["infotext"], where
+            elif "paste" in control:
+                assert node.paste is not None, where
+                assert [node.paste(dict(sample)) for sample in SNAPSHOT["samples"]] == control["paste"], where
             else:
-                assert node.paste is not None, f"{name}.{node.name}"
-                for params in PARAMS_SAMPLES:
-                    assert node.paste(params) == target(params), f"{name}.{node.name} {params}"
+                assert node.infotext is None and node.paste is None, where
 
 
 def test_runner_builds_layouts_ids_and_slots_without_a_ui(webui):
     runner = webui.txt2img
-    assert not runner.legacy_ui_built
     assert [script.script_id for script in runner.scripts] == ["seed", "sampler", "refiner", "comments"]
     assert all(script.layout is not None for script in runner.scripts)
     total = runner.ensure_arg_slots()
-    # The Gradio build order: sampler, accordions (Refiner), seed, then the scripts section
+    # The A1111 slot order: sampler, accordions (Refiner), seed, then the scripts section
     slots = {script.script_id: (script.args_from, script.args_to) for script in runner.scripts}
     assert slots == {"sampler": (1, 4), "refiner": (4, 9), "seed": (9, 15), "comments": (15, 15)}
     assert total == 15
@@ -128,7 +109,7 @@ def test_scripts_schema(webui):
     entries = webui.txt2img.scripts_schema()
     json.dumps(entries, allow_nan=False)
     seed = next(entry for entry in entries if entry["id"] == "seed")
-    assert seed["kind"] == "alwayson" and seed["section"] == "seed" and not seed["legacy"]
+    assert seed["kind"] == "alwayson" and seed["section"] == "seed" and "legacy" not in seed
     assert seed["args"] == ["seed", "subseed_show", "subseed", "subseed_strength", "seed_resize_from_w", "seed_resize_from_h"]
     assert seed["layout"]["type"] == "group" and seed["defaults"]["seed"] == -1
     sampler = next(entry for entry in entries if entry["id"] == "sampler")
@@ -159,16 +140,16 @@ class _Ported:
 
 
 class _Legacy:
-    """A selectable script still on ui()."""
+    """An A1111 selectable script: Gradio controls in ui(), no params()."""
 
     def title(self):
         return "Legacy Demo"
 
     def ui(self, is_img2img):
-        return [gr.Slider(1, 10, value=3, label="Count"), gr.Textbox(value="hi", label="Word")]
+        raise AssertionError("ui() is never called")
 
     def run(self, p, count, word):
-        return (count, word)
+        raise AssertionError("a disabled script must not run")
 
 
 def _runner_with_selectables():
@@ -193,130 +174,29 @@ def test_selectable_scripts(webui, monkeypatch):
 
     monkeypatch.setattr(shared, "total_tqdm", SimpleNamespace(clear=lambda: None))
     runner = _runner_with_selectables()
-    assert runner.selector_choices() == ["None", "Loopback Demo", "Legacy Demo"]
-    assert runner.by_id["loopback_demo"].layout is not None and runner.by_id["legacy_demo"].layout is None
+    # A script that only has A1111's ui() is left out, with the reason
+    assert runner.selector_choices() == ["None", "Loopback Demo"]
+    assert "legacy_demo" not in runner.by_id
+    assert [(script.title(), reason) for script, reason in runner.disabled_scripts] == [("Legacy Demo", "declares ui() instead of params()")]
 
-    args = runner.script_args_from_values("Loopback Demo", {"loopback_demo": {"loops": 5}, "legacy_demo": {"#0": 9}})
-    ported, legacy = runner.by_id["loopback_demo"], runner.by_id["legacy_demo"]
+    args = runner.script_args_from_values("Loopback Demo", {"loopback_demo": {"loops": 5}})
+    ported = runner.by_id["loopback_demo"]
     assert args[0] == 1
     assert args[ported.args_from : ported.args_to] == [5, True]
-    # Unselected selectable scripts get their defaults
-    assert args[legacy.args_from : legacy.args_to] == [3, "hi"]
     assert runner.run(None, *args) == (5, True)
-
-    args = runner.script_args_from_values("Legacy Demo", {"legacy_demo": [7, "yo"]})
-    assert args[0] == 2 and args[legacy.args_from : legacy.args_to] == [7, "yo"]
-    assert runner.run(None, *args) == (7, "yo")
+    # Values may also be a list in argument order
+    args = runner.script_args_from_values("Loopback Demo", {"loopback_demo": [7, False]})
+    assert args[ported.args_from : ported.args_to] == [7, False]
+    with pytest.raises(ui.ValidationError):
+        runner.script_args_from_values("Loopback Demo", {"loopback_demo": [7, False, 1]})
+    assert runner.set_named_arg(list(args), "loopback demo", "loops", 3)[ported.args_from] == 3
 
     entries = {entry["id"]: entry for entry in runner.scripts_schema()}
     assert entries["loopback_demo"]["visible_if"] == {"param": "core.script", "eq": "Loopback Demo"}
-    assert entries["legacy_demo"]["legacy"] and entries["legacy_demo"]["args"] == ["#0", "#1"]
-    assert entries["legacy_demo"]["defaults"] == {"#0": 3, "#1": "hi"}
-
-
-def test_the_legacy_gradio_ui_renders_ported_scripts_in_place(webui):
-    """While the Gradio UI exists it owns the slots; a params()-only script
-    gets an approximate rendering there, and the new path follows its slots."""
-
-    from modules import scripts
-
-    runner = _runner_with_selectables()
-    previous = scripts.scripts_current
-    scripts.scripts_current = runner
-    try:
-        with gr.Blocks():
-            runner.prepare_ui()
-            for category in scripts.ordered_ui_categories():
-                if category == "scripts":
-                    runner.setup_ui()
-                runner.setup_ui_for_section(category)
-    finally:
-        scripts.scripts_current = previous
-    assert runner.legacy_ui_built
-    ported = runner.by_id["loopback_demo"]
-    assert [control.value for control in ported.controls] == [2, True]
-    assert runner.ensure_arg_slots() == len(runner.inputs)
-    args = runner.script_args_from_values("Loopback Demo", {"loopback_demo": {"loops": 4}})
-    assert len(args) == len(runner.inputs)
-    assert args[ported.args_from : ported.args_to] == [4, True]
-    for script in runner.scripts:
-        assert runner.inputs[script.args_from : script.args_to] == list(script.controls or []), script.script_id
+    assert set(entries) >= {"loopback_demo"} and "legacy_demo" not in entries
 
 
 # region Unported scripts and failures
-
-
-def _legacy_plot():
-    """An unported selectable script shaped like the old X/Y/Z plot's ``ui()``
-    (the plot itself is ported): a ``type="index"`` dropdown, a textbox, a
-    multiselect, a checkbox and a slider."""
-
-    from modules import scripts
-
-    class LegacyPlot(scripts.Script):
-        def title(self):
-            return "X/Y/Z plot"
-
-        def ui(self, is_img2img):
-            return [
-                gr.Dropdown(label="X type", choices=["Nothing", "Seed", "Steps"], value="Seed", type="index"),
-                gr.Textbox(label="X values", lines=1),
-                gr.Dropdown(label="X values", multiselect=True, choices=[], visible=False),
-                gr.Checkbox(label="Draw legend", value=True),
-                gr.Slider(label="Grid Margins", minimum=0, maximum=500, value=0, step=2),
-            ]
-
-        def run(self, p, *args):
-            return args
-
-    return scripts.ScriptClassData(LegacyPlot, "legacy_plot.py", "", None)
-
-
-def test_unported_scripts_get_what_gradio_passed():
-    """A script on ``ui()`` (``type="index"`` dropdowns, checkboxes, numbers):
-    its params are typed, and it receives indices, not labels."""
-
-    with webui_state(script_classes=[_legacy_plot()]) as state:
-        runner = state.txt2img
-        xyz = runner.by_id["x_y_z_plot"]
-        layout = runner.layout_for(xyz)
-        x_type = layout.by_name["#0"]
-        assert layout.legacy and isinstance(x_type, ui.Choice) and x_type.returns == "index"
-        controls = xyz.controls
-        expected = [control.preprocess(control.value) if hasattr(control, "preprocess") else control.value for control in controls]
-
-        args = runner.script_args_from_values("X/Y/Z plot", {})
-        assert args[0] == 1 and args[xyz.args_from : xyz.args_to] == expected
-        assert args[xyz.args_from] == x_type.values(ui.Context()).index("Seed")
-        # The schema default sent back unchanged is the same as leaving it out
-        defaults = runner.scripts_schema()[-1]["defaults"]
-        assert runner.script_args_from_values("X/Y/Z plot", {"x_y_z_plot": defaults})[xyz.args_from : xyz.args_to] == expected
-
-        steps = x_type.values(ui.Context()).index("Steps")
-        assert runner.script_args_from_values("X/Y/Z plot", {"x_y_z_plot": {"#0": "Steps"}})[xyz.args_from] == steps
-        with pytest.raises(ui.ValidationError):
-            runner.script_args_from_values("X/Y/Z plot", {"x_y_z_plot": {"#0": "Not an axis"}})
-        json.dumps(runner.scripts_schema(), allow_nan=False)
-
-
-def test_legacy_controls_map_to_typed_params():
-    from remi.ui.legacy import legacy_layout
-
-    with gr.Blocks():
-        controls = [
-            gr.Dropdown(["a", "b", "c"], value="b", type="index", label="Pick"),
-            gr.Radio(["x", "y"], value=None, type="index", label="Radio"),
-            gr.CheckboxGroup(["p", "q"], value=["q"], type="index", label="Parts"),
-            gr.Number(value=2.5, precision=0, label="Count"),
-            gr.Dropdown(["s"], value="custom", allow_custom_value=True, label="Free"),
-            gr.State({"k": 1}),
-            gr.Checkbox(value=True, label="On"),
-        ]
-    layout = legacy_layout("legacy", controls)
-    assert [node.type for node in layout.inputs] == ["choice", "choice", "multichoice", "number", "choice", "state", "toggle"]
-    assert layout.values_to_args({}) == [1, None, [1], 2, "custom", {"k": 1}, True]
-    assert layout.values_to_args({"#0": "c", "#1": "y", "#2": ["p", "q"], "#3": 7.4, "#4": "other"})[:5] == [2, 1, [0, 1], 7, "other"]
-    assert layout.defaults()["#0"] == "b" and layout.defaults()["#5"] == {"k": 1}
 
 
 class _BrokenParams:
@@ -345,7 +225,7 @@ class _BrokenUi:
         return scripts.AlwaysVisible
 
     def ui(self, is_img2img):
-        return [][1]
+        raise AssertionError("ui() is never called")
 
     def process(self, p, *args):
         raise AssertionError("a disabled script must not run")
@@ -370,9 +250,9 @@ def test_scripts_whose_params_cannot_be_read_are_disabled():
     classes = [type(name, (base, scripts.Script), {}) for name, base in (("BrokenParams", _BrokenParams), ("BrokenUi", _BrokenUi), ("CoreScript", _Core))]
     with webui_state(script_classes=classes) as state:
         runner = state.txt2img
-        assert "broken_params" not in runner.by_id and [reason for _script, reason in runner.disabled_scripts] == ["params() failed: 'dave.nope'"]
-        runner.ensure_arg_slots()
-        assert "broken_ui" not in runner.by_id and [reason for _script, reason in runner.disabled_scripts][1] == "ui() failed"
+        reasons = {script.title(): reason for script, reason in runner.disabled_scripts}
+        assert reasons == {"Broken Params": "params() failed: 'dave.nope'", "Broken UI": "declares ui() instead of params()"}
+        assert "broken_params" not in runner.by_id and "broken_ui" not in runner.by_id
         ids = [entry["id"] for entry in runner.scripts_schema()]
         assert "broken_params" not in ids and "broken_ui" not in ids
         assert all(script.title() not in ("Broken Params", "Broken UI") for script in runner.alwayson_scripts)

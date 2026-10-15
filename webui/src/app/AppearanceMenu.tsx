@@ -1,5 +1,6 @@
 /** Header menu: theme, density, accent colour and language. */
 import { Check, Languages, Monitor, Moon, Palette, Rows3, Rows4, Sun } from "lucide-react"
+import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { useTranslation } from "react-i18next"
 import type { LocaleInfo } from "@/api/types"
 import { Button } from "@/components/ui/button"
@@ -87,17 +88,16 @@ export default function AppearanceMenu({ locales }: { locales: LocaleInfo[] }) {
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuLabel>{t("Accent color")}</DropdownMenuLabel>
-          <div role="radiogroup" aria-label={t("Accent color")} className="flex flex-wrap gap-1.5 px-1.5 pt-0.5 pb-1.5">
+          <DropdownMenuRadioGroup
+            value={accent}
+            onValueChange={(v) => setAccent(v as Accent)}
+            aria-label={t("Accent color")}
+            className="flex flex-wrap gap-1.5 px-1.5 pt-0.5 pb-1.5"
+          >
             {ACCENTS.map((value) => (
-              <AccentSwatch
-                key={value}
-                accent={value}
-                label={t(ACCENT_LABELS[value])}
-                selected={accent === value}
-                onSelect={() => setAccent(value)}
-              />
+              <AccentSwatch key={value} accent={value} label={t(ACCENT_LABELS[value])} selected={accent === value} />
             ))}
-          </div>
+          </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
         {locales.length > 1 ? (
           <>
@@ -122,21 +122,19 @@ export default function AppearanceMenu({ locales }: { locales: LocaleInfo[] }) {
   )
 }
 
-function AccentSwatch(props: { accent: Accent; label: string; selected: boolean; onSelect: () => void }) {
+function AccentSwatch(props: { accent: Accent; label: string; selected: boolean }) {
+  // A menu radio item (a plain radiogroup is not allowed inside role="menu"); Base UI handles keys and checking.
   return (
     <Tooltip>
       <TooltipTrigger
         render={
-          <button
-            type="button"
-            role="radio"
-            aria-checked={props.selected}
+          <MenuPrimitive.RadioItem
+            value={props.accent}
             aria-label={props.label}
             data-accent={props.accent}
-            onClick={props.onSelect}
             className={cn(
               "grid size-6 place-items-center rounded-full bg-primary text-primary-foreground outline-none transition-transform",
-              "hover:scale-110 focus-visible:ring-3 focus-visible:ring-ring/60",
+              "hover:scale-110 focus-visible:ring-3 focus-visible:ring-ring/60 data-highlighted:scale-110 data-highlighted:ring-3 data-highlighted:ring-ring/60",
               props.selected && "ring-2 ring-foreground/70 ring-offset-2 ring-offset-popover",
             )}
           />

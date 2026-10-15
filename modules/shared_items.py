@@ -65,7 +65,7 @@ def list_schedulers():
 
 
 def get_infotext_names():
-    from modules import infotext_utils, shared
+    from modules import shared
 
     res = {}
 
@@ -73,10 +73,15 @@ def get_infotext_names():
         if info.infotext:
             res[info.infotext] = 1
 
-    for tab_data in infotext_utils.paste_fields.values():
-        for _, name in tab_data.get("fields") or []:
-            if isinstance(name, str):
-                res[name] = 1
+    from remi.core.tabs import core_layout, runner_for
+
+    for tab in ("txt2img", "img2img"):
+        try:
+            layouts = [core_layout(tab), *(script.layout for script in runner_for(tab).scripts if script.layout is not None)]
+        except Exception:  # the runners are not built yet
+            continue
+        for layout in layouts:
+            res.update(dict.fromkeys(layout.infotext, 1))
 
     res["Lora hashes"] = 1
 

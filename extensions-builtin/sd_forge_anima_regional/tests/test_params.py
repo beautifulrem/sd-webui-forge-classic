@@ -80,5 +80,5 @@ def test_every_string_has_a_zh_cn_translation():
     harness.assert_localized(layouts, ROOT / "localizations" / "zh_CN.json")
 
 
-def test_the_extension_imports_no_gradio():
-    harness.assert_gradio_free(SCRIPT)
+def test_the_extension_is_ported():
+    harness.assert_ported(SCRIPT)

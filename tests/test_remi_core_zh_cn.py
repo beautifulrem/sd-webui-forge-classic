@@ -47,7 +47,7 @@ def test_the_collector_sees_the_whole_ui(strings):
     assert {"Hires. fix", "Denoising strength", "Stable Diffusion", "Saving Images/Grids", "This task is already running"} <= strings
     assert len(strings) > 500
     # data is left out: sampler and setting names, the choices of DATA_CHOICES
-    assert "Euler a" not in strings and "samples_format" not in strings and not {"png", "veryfast", "gradio/soft"} & strings
+    assert "Euler a" not in strings and "samples_format" not in strings and not {"png", "veryfast"} & strings
     # lowercase choice labels elsewhere are UI text ("Masked content")
     assert {"fill", "original"} <= strings
 

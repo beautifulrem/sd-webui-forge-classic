@@ -235,7 +235,6 @@ def _lut_from_preset(ctx, path) -> str | None:
 # ---------------------------------------------------------------------------
 class PostProcessSuite(scripts.Script):
     section = "accordions"
-    create_group = False
 
     def title(self):
         return "Post Processing Suite"

@@ -238,7 +238,7 @@ def test_schema_export(ad, models, tab):
     with webui_state({"ad_max_models": 2}, script_classes=[ad.AfterDetailerScript]) as state:
         runner = state.img2img if tab == "img2img" else state.txt2img
         entry = next(item for item in runner.scripts_schema() if item["title"] == "ADetailer")
-        assert entry["id"] == "adetailer" and entry["kind"] == "alwayson" and entry["legacy"] is False
+        assert entry["id"] == "adetailer" and entry["kind"] == "alwayson"
         assert entry["args"] == list(ad.param_order(2))
         assert json.loads(json.dumps(entry)) == entry  # plain JSON
         assert entry["defaults"]["ad_controlnet_guidance_start_end_2nd"] == [0.0, 1.0]
@@ -456,11 +456,11 @@ def test_settings_keep_their_keys_and_use_remi_widgets(ad, settings):
     assert list(settings) == list(legacy)
     for key, info in settings.items():
         assert (info.label, info.default) == (legacy[key]["label"], legacy[key]["default"]), key
-        assert info.widget is None or info.widget.__module__.startswith("remi.ui"), key
-    assert settings["ad_max_models"].widget is ui.Slider and settings["ad_max_models"].requires_reload_ui
-    assert settings["ad_bbox_sortby"].widget is ui.Choice and settings["ad_bbox_sortby"].component_args["style"] == "radio"
+        assert info.component is None or info.component.__module__.startswith("remi.ui"), key
+    assert settings["ad_max_models"].component is ui.Slider and settings["ad_max_models"].requires_reload_ui
+    assert settings["ad_bbox_sortby"].component is ui.Choice and settings["ad_bbox_sortby"].component_args["style"] == "radio"
     assert settings["ad_match_inpaint_bbox_size"].component_args == {"choices": ["Off", "Strict", "Free"], "style": "radio"}
-    assert settings["ad_extra_models_dir"].widget is ui.Text
+    assert settings["ad_extra_models_dir"].component is ui.Text
 
 
 def test_registers_its_xyz_axes(ad, monkeypatch):
@@ -500,17 +500,17 @@ def test_routes(ad):
 
 # endregion
 
-# region Gradio-free and localization
+# region Ported and localization
 
 
-def test_no_gradio():
+def test_ported():
     sources = [path for path in sorted(EXT.rglob("*.py")) if "tests" not in path.relative_to(EXT).parts]
     for path in sources:
-        contract.assert_gradio_free(path)
+        contract.assert_ported(path)
     assert not list(EXT.glob("javascript/*")) and not (EXT / "style.css").exists()
 
-    # Imports and builds both tabs' layouts with Gradio blocked
-    code = kit.port.GRADIO_BLOCKER + "\n".join(
+    # Imports and builds both tabs' layouts in a fresh interpreter
+    code = "\n".join(
         [
             "import sys",
             f"sys.path.insert(0, {str(EXT / 'tests')!r})",
@@ -520,12 +520,11 @@ def test_no_gradio():
             "    ad = lib.load_adetailer()",
             "    for tab in ('txt2img', 'img2img'):",
             "        lib.kit.layout_of(ad.AfterDetailerScript, tab)",
-            "assert not any(name.partition('.')[0] in ('gradio', 'gradio_rangeslider') for name in sys.modules)",
-            "print('gradio-free')",
+            "print('standalone')",
         ]
     )
     result = subprocess.run([sys.executable, "-c", code], cwd=REPO, capture_output=True, text=True, timeout=600)
-    assert result.returncode == 0 and result.stdout.strip().endswith("gradio-free"), result.stderr[-4000:]
+    assert result.returncode == 0 and result.stdout.strip().endswith("standalone"), result.stderr[-4000:]
 
 
 def test_zh_cn_covers_every_string(ad, models, settings):

@@ -11,7 +11,7 @@
    "infotext": "Anima Hires guard enabled",
    "preset": "hires_guard.enabled",
    "info": null,
-   "gradio": "Checkbox",
+   "legacy_control": "Checkbox",
    "visible": false
   },
   {
@@ -26,7 +26,7 @@
    "infotext": "Anima Hires policy",
    "preset": "hires_guard.policy",
    "info": null,
-   "gradio": "Dropdown",
+   "legacy_control": "Dropdown",
    "visible": true
   },
   {
@@ -43,7 +43,7 @@
    "infotext": "Anima Hires preset",
    "preset": "hires_guard.preset",
    "info": "Custom uses the three sliders below.",
-   "gradio": "Dropdown",
+   "legacy_control": "Dropdown",
    "visible": true
   },
   {
@@ -53,7 +53,7 @@
    "infotext": "Anima Hires align",
    "preset": "hires_guard.align",
    "info": "Matches Anima's 8x VAE reduction and 2x transformer patches. Hires targets also follow Forge's Resolution Step setting.",
-   "gradio": "Checkbox",
+   "legacy_control": "Checkbox",
    "visible": true
   },
   {
@@ -67,7 +67,7 @@
    "infotext": "Anima base MP",
    "preset": "hires_guard.base_mp",
    "info": null,
-   "gradio": "Slider",
+   "legacy_control": "Slider",
    "visible": true
   },
   {
@@ -81,7 +81,7 @@
    "infotext": "Anima Hires MP",
    "preset": "hires_guard.hires_mp",
    "info": null,
-   "gradio": "Slider",
+   "legacy_control": "Slider",
    "visible": true
   },
   {
@@ -95,13 +95,13 @@
    "infotext": "Anima Hires max upscale",
    "preset": "hires_guard.max_upscale",
    "info": null,
-   "gradio": "Slider",
+   "legacy_control": "Slider",
    "visible": true
   }
  ],
  "non_arg_controls": [
   {
-   "gradio": "Markdown",
+   "legacy_control": "Markdown",
    "label": null,
    "value": "Anima only. Validates the base pass and Hires target after resolution randomization. **Report only** never changes dimensions."
   }

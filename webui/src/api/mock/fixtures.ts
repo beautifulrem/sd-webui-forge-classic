@@ -551,23 +551,22 @@ const PROMPT_MATRIX: ScriptSchema = {
   defaults: { put_at_start: false, margin: 0 },
 }
 
-const LEGACY: ScriptSchema = {
-  id: "legacy-ext",
-  title: "Legacy extension",
+// An extension asking for a slot this tab does not have, with JSON params.
+const MISC: ScriptSchema = {
+  id: "misc-ext",
+  title: "Misc extension",
   kind: "alwayson",
   section: "unknown-slot",
   order: 99,
-  legacy: true,
-  // Like the backend's legacy_layout: an untitled group of positional JSON inputs.
   layout: {
     type: "group",
     open: true,
     children: [
-      { type: "json", name: "#0", label: "Argument 1" },
-      { type: "json", name: "#1", label: "Argument 2" },
+      { type: "json", name: "flag", label: "Flag" },
+      { type: "json", name: "pair", label: "Pair" },
     ],
   },
-  defaults: { "#0": true, "#1": [0.5, "auto"] },
+  defaults: { flag: true, pair: [0.5, "auto"] },
 }
 
 export function tabSchema(tab: "txt2img" | "img2img"): TabSchema {
@@ -575,7 +574,7 @@ export function tabSchema(tab: "txt2img" | "img2img"): TabSchema {
     version: 1,
     tab,
     core: { owner: "core", layout: coreLayout(tab), defaults: coreDefaults(tab) },
-    scripts: [SEED, SAMPLER, REFINER, ANIMA, CONTROLNET, BATCH, XYZ, PROMPT_MATRIX, LEGACY],
+    scripts: [SEED, SAMPLER, REFINER, ANIMA, CONTROLNET, BATCH, XYZ, PROMPT_MATRIX, MISC],
     conflict_params: [
       ...(tab === "txt2img" ? ["core.enable_hr"] : []),
       "anima.lock_cfg",

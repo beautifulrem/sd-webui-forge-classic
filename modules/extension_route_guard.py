@@ -1,19 +1,20 @@
-"""Login and cross-site checks for routes extensions add to Gradio's app.
+"""Login and cross-site checks for routes extensions add to the app.
 
 Routes added with ``app.get`` / ``app.post`` in an app_started callback live
-on Gradio's FastAPI app but outside Gradio's own login check, so with
-``--gradio-auth`` (e.g. behind ``--share``) anyone could call them; and CORS
-only hides responses, so any web page could make a user's browser send them
-state-changing requests. :func:`guard_routes` wraps such routes.
+outside the WebUI's own routers, so without a guard anyone reaching the server
+could call them; and CORS only hides responses, so any web page could make a
+user's browser send them state-changing requests. :func:`guard_routes` wraps
+such routes.
 
 Routes extensions add without opting in (:func:`guard_new_routes`) always get
-the cross-site checks. Under ``--nowebui`` (no Gradio UI) they require
+the cross-site checks. Under ``--nowebui`` (no WebUI) they require
 ``--api-auth`` HTTP Basic credentials whenever it is set, on any bind, exactly
-like ``/sdapi``. With the UI they require a login when the server is reachable
-beyond this machine (``--share`` / ``--ngrok``, ``--listen`` or a non-loopback
-``--server-name``) and ``--gradio-auth(-path)`` is set: the Gradio login, API
-clients (no login cookie) then authenticating with ``--api-auth`` credentials;
-loopback-only UI servers keep them open to local API clients.
+like ``/sdapi``. With the WebUI they require a login when the server is
+reachable beyond this machine (``--ngrok``, ``--listen`` or a non-loopback
+``--server-name``) and ``--auth`` / ``--auth-file`` is set: the WebUI login
+(``app.auth_dependency``), API clients (no session cookie) then
+authenticating with ``--api-auth`` credentials; loopback-only WebUI servers
+keep them open to local API clients.
 """
 
 from __future__ import annotations
@@ -185,14 +186,8 @@ def refusal(app, request, require_login: bool = True, accept_api_auth: bool = Fa
     auth_dependency = getattr(app, "auth_dependency", None)
     if auth_dependency is not None:
         user = auth_dependency(request)
-    elif getattr(app, "auth", None):
-        cookie_id = getattr(app, "cookie_id", "")
-        token = request.cookies.get(f"access-token-{cookie_id}") or request.cookies.get(
-            f"access-token-unsecure-{cookie_id}"
-        )
-        user = getattr(app, "tokens", {}).get(token)
     elif accept_api_auth and getattr(_cmd_opts(), "api_auth", None):
-        # No Gradio login on this app (--nowebui): --api-auth is the login, as for /sdapi
+        # No WebUI login on this app (--nowebui): --api-auth is the login, as for /sdapi
         return None if _has_api_credentials(request) else (401, "Not authenticated")
     else:
         return None
@@ -239,9 +234,9 @@ def _routes(app):
 
 def guard_routes(app, prefixes: Iterable[str]) -> int:
     """Login + cross-site checks for UI-only routes under ``prefixes``;
-    returns how many were wrapped. Under --nowebui there is no Gradio login:
+    returns how many were wrapped. Under --nowebui there is no WebUI login:
     --api-auth credentials are the login, as for /sdapi. Not with the UI: on a
-    server with --api-auth but no Gradio login they would refuse the UI's own
+    server with --api-auth but no WebUI login they would refuse the UI's own
     browser requests, which carry no Basic credentials."""
     prefixes = tuple(prefixes)
     routes = [r for r in _routes(app) if getattr(r, "path", "").startswith(prefixes)]
@@ -253,10 +248,10 @@ def snapshot_routes(app) -> set:
 
 
 def _exposed_with_login(cmd_opts) -> bool:
-    """Whether extension routes need a login. Under --nowebui (no Gradio UI):
+    """Whether extension routes need a login. Under --nowebui (no WebUI):
     whenever --api-auth is set, on any bind, as /sdapi requires it. Otherwise
-    on a server reachable beyond this machine (--share / --ngrok tunnel, or a
-    non-loopback bind such as --listen / --server-name 0.0.0.0) with a Gradio
+    on a server reachable beyond this machine (--ngrok tunnel, or a
+    non-loopback bind such as --listen / --server-name 0.0.0.0) with a WebUI
     login: others can reach it, and the admin asked for one."""
     if cmd_opts is None:
         return False
@@ -264,14 +259,14 @@ def _exposed_with_login(cmd_opts) -> bool:
         return bool(getattr(cmd_opts, "api_auth", None))
     if _is_loopback_only(cmd_opts):
         return False
-    return bool(getattr(cmd_opts, "gradio_auth", None) or getattr(cmd_opts, "gradio_auth_path", None))
+    return bool(getattr(cmd_opts, "auth", None) or getattr(cmd_opts, "auth_file", None))
 
 
 def guard_new_routes(app, before: set, exclude: Iterable[str] = ()) -> int:
     """Cross-site checks for every route added since ``before`` (i.e. by
     extensions), except under ``exclude``. Login under --nowebui whenever
     --api-auth is set (Basic credentials, as /sdapi), or on an exposed server
-    (--share / --ngrok / non-loopback bind) with --gradio-auth (Gradio cookie,
+    (--ngrok / non-loopback bind) with --auth (the WebUI session cookie,
     or --api-auth Basic credentials); otherwise, e.g. on a loopback-only UI
     server, extension APIs stay open to non-browser clients, which send no
     Origin header."""

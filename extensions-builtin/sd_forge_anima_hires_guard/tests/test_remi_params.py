@@ -43,8 +43,8 @@ def test_limit_sliders_are_editable_with_the_custom_preset_only(preset, editable
     assert ui.evaluate(rows[0].enabled_if, {"preset": preset}) is editable
 
 
-def test_gradio_free():
-    harness.assert_gradio_free(ROOT, ("scripts/anima_hires_guard.py",))
+def test_standalone():
+    harness.assert_standalone(ROOT, ("scripts/anima_hires_guard.py",))
 
 
 def test_zh_cn_catalog_covers_the_panel():

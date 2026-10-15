@@ -3,18 +3,15 @@ schema exported from ``shared.opts.data_labels`` (schema-format.md §6).
 
 ``OptionInfo.component`` takes a ``remi.ui`` class (``ui.Slider``,
 ``ui.Choice``, ``ui.MultiChoice``, ``ui.Color``, ``ui.Text``, ...) with
-Gradio-style ``component_args`` (``minimum``/``maximum``/``step``,
+A1111-style ``component_args`` (``minimum``/``maximum``/``step``,
 ``choices``, ``precision``, ``lines``, ``placeholder``, ``visible``,
 ``interactive``) plus ``style`` (``"radio"``, ``"checkboxes"``) and
-``allow_custom``. Gradio classes passed by not-yet-ported extensions are read
-by name, without importing Gradio. While the Gradio settings page still
-exists, :func:`legacy_gradio_component` turns a ``remi.ui`` class into the
-Gradio factory that page calls.
+``allow_custom``; any other component (or none) is picked from the default's
+type.
 """
 
 from __future__ import annotations
 
-import functools
 import re
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -22,26 +19,6 @@ from typing import Any
 from remi.ui import nodes
 from remi.ui.context import Context, ensure_context
 from remi.ui.schema import SCHEMA_VERSION, jsonable
-
-# Gradio / ui_components class names -> (remi.ui class, fixed arguments)
-_GRADIO_WIDGETS: dict[str, tuple[type, dict]] = {
-    "Slider": (nodes.Slider, {}),
-    "Number": (nodes.Number, {}),
-    "Textbox": (nodes.Text, {}),
-    "Checkbox": (nodes.Toggle, {}),
-    "Radio": (nodes.Choice, {"style": "radio"}),
-    "Dropdown": (nodes.Choice, {}),
-    "DropdownEditable": (nodes.Choice, {"allow_custom": True}),
-    "DropdownMulti": (nodes.MultiChoice, {}),
-    "CheckboxGroup": (nodes.MultiChoice, {"style": "checkboxes"}),
-    "ColorPicker": (nodes.Color, {}),
-    "FormColorPicker": (nodes.Color, {}),
-    "State": (nodes.State, {}),
-    "HTML": (nodes.Html, {}),
-    "FormHTML": (nodes.Html, {}),
-    "FormRow": (nodes.Row, {}),
-    "Row": (nodes.Row, {}),
-}
 
 REMI_WIDGETS = (nodes.Toggle, nodes.Slider, nodes.Number, nodes.Text, nodes.Choice, nodes.MultiChoice, nodes.Color, nodes.State, nodes.Json, nodes.Html, nodes.Separator, nodes.Row)
 
@@ -55,14 +32,6 @@ def widget_kind(component: Any, args: Mapping[str, Any], default: Any) -> tuple[
 
     if is_remi_widget(component):
         return component, {}
-    if component is not None:
-        name = getattr(component, "__name__", "")
-        module = getattr(component, "__module__", "") or ""
-        if name in _GRADIO_WIDGETS and (module.startswith("gradio") or module.startswith("modules.ui_components")):
-            kind, fixed = _GRADIO_WIDGETS[name]
-            if kind is nodes.Choice and args.get("multiselect"):
-                kind = nodes.MultiChoice
-            return kind, dict(fixed)
     if isinstance(default, bool):
         return nodes.Toggle, {}
     if isinstance(default, str):
@@ -77,16 +46,11 @@ def component_args(info) -> dict:
     return dict(args or {})
 
 
-def _option_widget(info) -> Any:
-    # ``widget`` is what OptionInfo was given; ``component`` is the legacy view
-    return info.widget if hasattr(info, "widget") else info.component
-
-
 def setting_node(key: str, info, value: Any) -> nodes.Node:
     """The ``remi.ui`` node of one option, its default being ``value``."""
 
     args = component_args(info)
-    kind, extra = widget_kind(_option_widget(info), args, info.default)
+    kind, extra = widget_kind(info.component, args, info.default)
     extra.update({name: args[name] for name in ("style", "allow_custom") if name in args})
     if args.get("allow_custom_value"):
         extra["allow_custom"] = True
@@ -243,67 +207,3 @@ def refresh_setting(opts, key: str) -> dict:
         if name in args:
             patch[name] = args[name]
     return {key: patch}
-
-
-# region Legacy Gradio settings page
-
-
-@functools.cache
-def legacy_gradio_component(widget: Any) -> Any:
-    """The Gradio class/factory the Gradio settings page should call for an
-    option whose component is ``widget``; non-``remi.ui`` values unchanged."""
-
-    if not is_remi_widget(widget):
-        return widget
-
-    import gradio as gr
-
-    from modules import ui_components
-
-    if widget is nodes.State:
-        return gr.State
-    if widget is nodes.Row:
-        return ui_components.FormRow
-    if widget is nodes.Html:
-        return functools.partial(_gradio_html, "settings-info")
-    if widget is nodes.Separator:
-        return functools.partial(_gradio_html, "settings-div")
-    return functools.partial(_gradio_widget, widget)
-
-
-def _gradio_html(elem_classes: str, **kwargs):
-    import gradio as gr
-
-    return gr.HTML(elem_classes=elem_classes, **kwargs)
-
-
-def _gradio_widget(widget: type, **kwargs):
-    import gradio as gr
-
-    from modules import ui_components
-
-    style = kwargs.pop("style", None)
-    allow_custom = kwargs.pop("allow_custom", False) or kwargs.pop("allow_custom_value", False)
-    kwargs.pop("multiselect", None)
-    if widget is nodes.Toggle:
-        return gr.Checkbox(**kwargs)
-    if widget is nodes.Slider:
-        return gr.Slider(**kwargs)
-    if widget is nodes.Number:
-        return gr.Number(**kwargs)
-    if widget is nodes.Text:
-        return gr.Textbox(**kwargs)
-    if widget is nodes.Color:
-        return ui_components.FormColorPicker(**kwargs)
-    if widget is nodes.Choice:
-        if style == "radio":
-            return gr.Radio(**kwargs)
-        return gr.Dropdown(allow_custom_value=allow_custom, **kwargs)
-    if widget is nodes.MultiChoice:
-        if style == "checkboxes":
-            return gr.CheckboxGroup(**kwargs)
-        return gr.Dropdown(multiselect=True, allow_custom_value=allow_custom, **kwargs)
-    return gr.JSON(**kwargs)
-
-
-# endregion

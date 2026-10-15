@@ -45,7 +45,7 @@ def env(webui, tmp_path, monkeypatch):
 
 
 def fake_ext(name, *, path, builtin=False, remote="https://github.com/u/repo.git", enabled=True, **extra):
-    fields = dict(name=name, path=str(path), enabled=enabled, is_builtin=builtin, remote=remote, branch="main", version="abcdef12", commit_hash="abcdef1234567890", commit_date=1_700_000_000, status="", can_update=False, have_info_from_repo=True)
+    fields = {"name": name, "path": str(path), "enabled": enabled, "is_builtin": builtin, "remote": remote, "branch": "main", "version": "abcdef12", "commit_hash": "abcdef1234567890", "commit_date": 1_700_000_000, "status": "", "can_update": False, "have_info_from_repo": True}
     fields.update(extra)
     ext = SimpleNamespace(**fields)
     ext.read_info_from_repo = lambda: None

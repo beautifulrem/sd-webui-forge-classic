@@ -39,9 +39,3 @@ class Profiler:
             self.profiler.__exit__(exc_type, exc, exc_tb)
 
             self.profiler.export_chrome_trace(shared.opts.profiling_filename)
-
-
-def webpath():
-    from modules import ui_gradio_extensions  # the legacy Gradio UI's file links
-
-    return ui_gradio_extensions.webpath(shared.opts.profiling_filename)

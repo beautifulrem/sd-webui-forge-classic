@@ -3,8 +3,33 @@ line-length = 1024
 
 [tool.ruff]
 target-version = "py311"
-exclude = ["extensions"]
-lint.select = ["N805", "S307", "S102", "T", "W", "F"]
+line-length = 1024
+extend-exclude = ["extensions", "webui/node_modules", "webui/dist", "models", "output", "tmp", "cache"]
+
+[tool.ruff.lint]
+# Upstream-origin code keeps Forge's legacy rule set (N805, S307, S102, T, W, F). Remi's own code
+# (remi/, tools/, webui/tools/, tests/remi_*.py, tests/test_remi_*.py) also gets the stricter rules
+# below: the negated per-file-ignores entry switches them off everywhere else. tools/check.sh lints
+# the Remi paths and the test suites; the rest of the tree only for syntax errors (E9).
+select = ["N805", "S307", "S102", "T", "W", "F", "E", "I", "B", "UP", "SIM", "C4", "RUF", "PIE", "PLE"]
+ignore = [
+    "E501", # long lines are the house style (black at 1024)
+    "RUF001", "RUF002", "RUF003", # CJK punctuation in strings and comments is intended
+    "RUF012", # pydantic models declare mutable defaults safely
+    "SIM105", "SIM108", # try/except/pass and if/else blocks are often clearer
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI parameter markers and frozen dataclasses are fine as defaults
+extend-immutable-calls = ["fastapi.Query", "fastapi.Body", "fastapi.Depends", "fastapi.File", "fastapi.Form", "remi.library.GalleryQuery", "remi.prompt_tools.tags.FrequencyConfig"]
+
+[tool.ruff.lint.per-file-ignores]
+"!{remi/**,tools/**,webui/tools/**,tests/remi_*.py,tests/test_remi_*.py}" = ["E", "I", "B", "UP", "SIM", "C4", "RUF", "PIE", "PLE"]
+"{tools/**,webui/tools/**,remi/server/launch.py}" = ["T20"] # command-line scripts and the launch banner print
+"{tests/**,extensions-builtin/*/tests/**}" = ["S102"] # tests exec isolated module sources
+
+[tool.ruff.lint.isort]
+known-first-party = ["remi", "modules", "modules_forge", "backend"]
 
 [tool.pytest.ini_options]
 # Imports resolve from the repo root wherever pytest starts (as modules_forge/initialization.py sets up the bundled packages)

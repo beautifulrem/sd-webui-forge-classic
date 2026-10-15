@@ -6,8 +6,7 @@ actions (preview, pose, region canvas, model refresh) work without Gradio.
 
 Legacy record: ``tests/fixtures/legacy_ui_<tab>.json`` (``args``: the
 positional arguments; ``unit_controls``: the controls of one unit), taken from
-the Gradio ``ui()`` before the port by ``tests/record_controlnet_legacy_ui.py``
-(which rebuilds them from the last revision with that panel).
+the Gradio ``ui()`` before the port (and before the Gradio UI was removed).
 
 Intentional differences from the Gradio panel (the widget's behaviour,
 webui/src/widgets/controlnet-unit, tested there):
@@ -300,7 +299,7 @@ def test_the_unit_value_is_normalized(cn):
             normalize(bad, False)
 
 
-def test_processing_args_are_what_the_gradio_controls_built(cn, registry, files):
+def test_processing_args_are_what_the_legacy_controls_built(cn, registry, files):
     """The same settings and pictures, once as the Gradio unit group passed
     them (``UiControlNetUnit(*unit_args)``, the canvases' RGBA arrays) and
     once as the widget's JSON with uploads, give the same ``ControlNetUnit``.

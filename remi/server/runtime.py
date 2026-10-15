@@ -1,37 +1,23 @@
-"""Server-side startup that used to happen while the Gradio UI was built:
+"""Server-side startup before each app is created (also on "Reload UI"):
 extension settings, the script runners and their layouts, the built-in tab
-names and the model selection. :func:`prepare` runs before each app is
-created (also on "Reload UI").
+names and the model selection.
 
-Scripts still on Gradio's ``ui()`` (ported in a later wave) never get a UI:
-when Gradio is importable their ``ui()`` runs once in a throwaway
-``gr.Blocks`` only to read their argument count and defaults; otherwise they
-are disabled with a log line. Bootstrap lists them as not yet ported.
+Scripts and Extras operations without ``params()`` (A1111's Gradio ``ui()``)
+and script files that fail to import are left out; bootstrap lists them in
+``not_ported``.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import logging
 import os
 from typing import Any
 
 log = logging.getLogger(__name__)
 
-NO_GRADIO = "not yet ported to params(), and Gradio is not installed"
-
 BUILTIN_TABS = (("txt2img", "txt2img"), ("img2img", "img2img"), ("extras", "Extras"), ("png-info", "PNG Info"), ("gallery", "Gallery"), ("networks", "Networks"))
 """``(route id, title)`` of the built-in tabs; titles are what the
 ``ui_tab_order`` / ``hidden_tabs`` options store."""
-
-_extras_disabled: list[tuple[Any, str]] = []
-
-
-def gradio_available() -> bool:
-    try:
-        return importlib.util.find_spec("gradio") is not None
-    except (ImportError, ValueError):
-        return False
 
 
 def prepare(*, models: bool = True) -> None:
@@ -63,48 +49,19 @@ def _page_titles() -> list[str]:
 
 
 def initialize_runners() -> None:
-    from modules import scripts
-
-    scripts.scripts_current = scripts.scripts_txt2img
-    scripts.scripts_txt2img.initialize_scripts(is_img2img=False)
-    scripts.scripts_img2img.initialize_scripts(is_img2img=True)
-    scripts.scripts_current = None
-    prepare_legacy_scripts()
-
-
-def prepare_legacy_scripts(*, gradio: bool | None = None) -> None:
-    """Read (or, without Gradio, disable) the scripts and Extras operations
-    still on ``ui()``."""
+    """Build the txt2img / img2img runners and assign every script's and
+    Extras operation's argument slots."""
 
     from modules import scripts
-    from modules.scripts import has_params, overrides_ui
-
-    gradio = gradio_available() if gradio is None else gradio
-    for runner in (scripts.scripts_txt2img, scripts.scripts_img2img):
-        for script in list(runner.scripts):
-            if has_params(script) or not overrides_ui(script):
-                continue
-            if gradio:
-                runner.layout_for(script)  # throwaway ui(); disables the script if it fails
-            else:
-                log.warning("Script %s (%s) is disabled: %s", script.title(), script.filename, NO_GRADIO)
-                runner.disable_script(script, NO_GRADIO)
-        runner.ensure_arg_slots()
-
-    _extras_disabled.clear()
-    postproc = scripts.scripts_postproc
-    if postproc is None:
-        return
-    postproc.scripts_in_preferred_order()  # creates the operations
-    if not gradio:
-        for operation in list(postproc.scripts):
-            if not callable(getattr(operation, "params", None)) and operation.controls is None:
-                log.warning("Extras operation %s (%s) is disabled: %s", operation.name, operation.filename, NO_GRADIO)
-                postproc.scripts.remove(operation)
-                _extras_disabled.append((operation, NO_GRADIO))
     from remi.core.extras import assign_args
 
-    assign_args(postproc)
+    for runner, is_img2img in ((scripts.scripts_txt2img, False), (scripts.scripts_img2img, True)):
+        runner.initialize_scripts(is_img2img=is_img2img)
+        runner.ensure_arg_slots()
+
+    postproc = scripts.scripts_postproc
+    if postproc is not None:
+        assign_args(postproc)
 
 
 def _extension_of(path: str | None) -> str | None:
@@ -121,37 +78,20 @@ def _extension_of(path: str | None) -> str | None:
 
 
 def not_ported() -> list[dict[str, Any]]:
-    """Everything still on the Gradio API: legacy scripts (kept with
-    positional params, or disabled), legacy Extras operations and extension
-    tabs (``on_ui_tabs``, ported to pages later)."""
+    """What could not be loaded: script files that failed to import, scripts
+    and Extras operations left out by their runner (no ``params()``, or it
+    failed), with the reason."""
 
-    from modules import script_callbacks, scripts
+    from modules import scripts
 
     found: list[dict[str, Any]] = []
-    for scriptfile in getattr(scripts, "scripts_needing_gradio", []):
-        found.append({"kind": "script", "id": scriptfile.filename, "title": scriptfile.filename, "extension": _extension_of(scriptfile.path), "status": "disabled", "reason": NO_GRADIO})
+    for scriptfile, reason in getattr(scripts, "scripts_not_loaded", []):
+        found.append({"kind": "script", "id": scriptfile.filename, "title": scriptfile.filename, "extension": _extension_of(scriptfile.path), "status": "disabled", "reason": reason})
     for tab, runner in (("txt2img", scripts.scripts_txt2img), ("img2img", scripts.scripts_img2img)):
-        if runner is None:
-            continue
-        for script in runner.scripts:
-            layout = script.layout if script.layout is not None else runner.layout_for(script)
-            if layout.legacy:
-                found.append({"kind": "script", "id": script.script_id, "title": script.title(), "tab": tab, "extension": _extension_of(script.filename), "status": "legacy"})
-        for script, reason in runner.disabled_scripts:
+        for script, reason in getattr(runner, "disabled_scripts", None) or []:
             found.append({"kind": "script", "id": getattr(script, "script_id", "") or "", "title": _title(script), "tab": tab, "extension": _extension_of(script.filename), "status": "disabled", "reason": reason})
-    postproc = scripts.scripts_postproc
-    if postproc is not None and postproc.scripts:
-        from remi.core.extras import assign_args
-
-        for operation, layout in assign_args(postproc):
-            if layout.legacy:
-                found.append({"kind": "extras", "id": layout.owner, "title": operation.name or type(operation).__name__, "tab": "extras", "extension": _extension_of(operation.filename), "status": "legacy"})
-    for operation, reason in _extras_disabled:
+    for operation, reason in getattr(scripts.scripts_postproc, "disabled_scripts", None) or []:
         found.append({"kind": "extras", "id": "", "title": operation.name or type(operation).__name__, "tab": "extras", "extension": _extension_of(operation.filename), "status": "disabled", "reason": reason})
-    for callback in script_callbacks.callback_map["callbacks_ui_tabs"]:
-        extension = _extension_of(callback.script)
-        name = extension or os.path.basename(callback.script or "")
-        found.append({"kind": "page", "id": callback.name, "title": name, "extension": extension, "status": "disabled", "reason": "extension tab (on_ui_tabs) not yet ported to a page"})
     return found
 
 
@@ -167,7 +107,7 @@ def _title(script: Any) -> str:
 
 def initialize_model_selection() -> None:
     """Pick a checkpoint when none is set, scan the module folders and set
-    the loading parameters (what the Gradio model bar did on build)."""
+    the loading parameters."""
 
     from modules import sd_models, shared
 
@@ -182,7 +122,6 @@ def initialize_model_selection() -> None:
 
 
 def _main_entry() -> Any:
-    # The model selection state still lives next to the Gradio model bar
     from modules_forge import main_entry
 
     return main_entry

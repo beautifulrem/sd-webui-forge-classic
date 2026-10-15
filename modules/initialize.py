@@ -1,7 +1,4 @@
-import importlib
 import logging
-import os
-import sys
 import warnings
 
 from modules.timer import startup_timer
@@ -18,9 +15,6 @@ def shush():
 
 
 def imports():
-    # Extensions not ported yet may still import Gradio; keep it offline then
-    os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
-
     from modules import errors, paths, timer  # noqa: F401
 
     startup_timer.record("setup paths")
@@ -81,10 +75,10 @@ def initialize():
     gfpgan_model.setup_model(cmd_opts.gfpgan_models_path)
     startup_timer.record("setup gfpgan")
 
-    initialize_rest(reload_script_modules=False)
+    initialize_rest()
 
 
-def initialize_rest(*, reload_script_modules=False):
+def initialize_rest():
     """
     Called both from initialize() and when reloading the webui.
     """
@@ -123,11 +117,6 @@ def initialize_rest(*, reload_script_modules=False):
 
     with startup_timer.subcategory("load scripts"):
         scripts.load_scripts()
-
-    if reload_script_modules and shared.opts.enable_reloading_ui_scripts:
-        for module in [module for name, module in sys.modules.items() if name.startswith("modules.ui")]:
-            importlib.reload(module)
-        startup_timer.record("reload script modules")
 
     from modules import modelloader
 

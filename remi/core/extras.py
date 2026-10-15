@@ -1,10 +1,9 @@
 """Postprocessing (Extras) operations as ``remi.ui`` owners.
 
-A ``ScriptPostprocessing`` receives its values by keyword, so its params are
-named either by its ``params()`` layout (when ported) or by the keys of the
-control dict its legacy ``ui()`` returns. An operation whose ``params()`` or
-``ui()`` fails is dropped from the runner (reported once), so the others
-keep working.
+A ``ScriptPostprocessing`` receives its values by keyword, named by its
+``params()`` layout. An operation whose ``params()`` fails, or that only has
+A1111's ``ui()`` (Gradio controls, not supported), is dropped from the runner
+(reported once), so the others keep working.
 """
 
 from __future__ import annotations
@@ -13,65 +12,45 @@ from collections.abc import Mapping
 from typing import Any
 
 from remi.ui import Context, ParamError, ScriptLayout, ValidationError, jsonable
-from remi.ui.legacy import legacy_layout
 from remi.ui.types import ScriptEntry
 
 
-def _has_params(script: Any) -> bool:
-    return callable(getattr(script, "params", None))
-
-
-def _drop(runner: Any, script: Any, reason: str) -> None:
+def _drop(runner: Any, script: Any, reason: str, *, trace: bool = True) -> None:
     from modules import errors
 
-    errors.report(f"Extras operation {script.name or type(script).__name__} is disabled: {reason}", exc_info=True)
+    errors.report(f"Extras operation {script.name or type(script).__name__} is disabled: {reason}", exc_info=trace)
     runner.scripts.remove(script)
+    runner.disabled_scripts.append((script, reason))
 
 
-def _ensure_legacy_controls(runner: Any) -> None:
-    """Build the legacy operations' Gradio controls when no UI did, one
-    operation at a time."""
+def legacy_ui_only(script: Any) -> bool:
+    """An A1111 operation that builds Gradio controls in ``ui()`` and has no ``params()``."""
 
-    pending = [script for script in runner.scripts_in_preferred_order() if not _has_params(script) and script.controls is None]
-    if runner.ui_created or not pending:
-        return
-    import gradio as gr
+    from modules.scripts_postprocessing import ScriptPostprocessing
 
-    from modules import gradio_extensions  # noqa: F401 - the Gradio patches ui() code expects
-
-    with gr.Blocks(analytics_enabled=False):
-        for script in pending:
-            try:
-                controls = script.ui()
-                if not isinstance(controls, Mapping):
-                    raise TypeError(f"ui() returned {type(controls).__name__}, not a dict of controls")
-                script.controls = dict(controls)
-            except Exception as error:
-                _drop(runner, script, f"ui() failed: {error}")
+    return callable(getattr(type(script), "ui", None)) and getattr(type(script), "params", None) is ScriptPostprocessing.params
 
 
 def _layout(script: Any, owner: str) -> ScriptLayout:
-    if _has_params(script):
-        cached = getattr(script, "_remi_layout", None)
-        if cached is None or cached.owner != owner:
-            cached = script._remi_layout = ScriptLayout(script.params(), owner=owner)
-        return cached
-    controls = script.controls or {}
-    return legacy_layout(owner, list(controls.values()), names=list(controls))
+    cached = getattr(script, "_remi_layout", None)
+    if cached is None or cached.owner != owner:
+        cached = script._remi_layout = ScriptLayout(script.params(), owner=owner)
+    return cached
 
 
 def assign_args(runner: Any) -> list[tuple[Any, ScriptLayout]]:
-    """``(operation, layout)`` in run order. Unless the Gradio UI built the
-    operations (it then owns ``args_from``/``args_to``), assigns their
-    argument slots; a ported operation gets the name list
-    ``ScriptPostprocessingRunner.run`` zips its values with."""
+    """``(operation, layout)`` in run order; assigns each operation's
+    argument slots and the name list ``ScriptPostprocessingRunner.run``
+    zips its values with."""
 
     from modules.scripts import script_slug, unique_id
 
-    _ensure_legacy_controls(runner)
     result: list[tuple[Any, ScriptLayout]] = []
     taken: set[str] = set()
     for script in runner.scripts_in_preferred_order():
+        if legacy_ui_only(script):
+            _drop(runner, script, "declares ui() instead of params()", trace=False)
+            continue
         owner = unique_id(script_slug(script.name or type(script).__name__), taken)
         try:
             layout = _layout(script, owner)
@@ -81,13 +60,11 @@ def assign_args(runner: Any) -> list[tuple[Any, ScriptLayout]]:
         taken.add(owner)
         result.append((script, layout))
 
-    if not runner.ui_created:
-        position = 0
-        for script, layout in result:
-            if script.controls is None:
-                script.controls = dict.fromkeys(layout.names)
-            script.args_from, script.args_to = position, position + len(layout)
-            position += len(layout)
+    position = 0
+    for script, layout in result:
+        script.arg_names = list(layout.names)
+        script.args_from, script.args_to = position, position + len(layout)
+        position += len(layout)
     return result
 
 
@@ -125,7 +102,6 @@ def scripts_schema(runner: Any, ctx: Context | None = None) -> list[ScriptEntry]
                 "kind": "alwayson",
                 "section": "scripts",
                 "order": order,
-                "legacy": layout.legacy,
                 "layout": layout.schema(ctx),
                 "defaults": jsonable(layout.defaults(ctx)),
                 "args": layout.names,

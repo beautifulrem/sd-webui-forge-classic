@@ -53,7 +53,7 @@ describe.each(Object.entries(SCHEMAS))("real %s schema", (tab, schema) => {
       const [owner, name] = ref.split(".", 2) as [string, string]
       expect(index.inputs.get(owner)?.has(name), ref).toBe(true)
     }
-    // Every script param with a default has an input (or is a legacy positional value).
+    // Every script param with a default has an input.
     for (const script of schema.scripts) {
       const names = new Set(inputsIn(script.layout).map((n) => n.name))
       for (const name of Object.keys(script.defaults)) expect(names.has(name), `${script.id}.${name}`).toBe(true)

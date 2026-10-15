@@ -2,8 +2,7 @@
 
 Not a test module. Extension suites load it by file path (see
 ``extension_script_harness.py`` for why the repo ``tests`` folder is not an
-importable package there). Nothing here imports Gradio: a ported panel is
-tested through its ``ScriptLayout``, which is what the SPA, the HTTP API, the
+importable package there). A ported panel is tested through its ``ScriptLayout``, which is what the SPA, the HTTP API, the
 infotext paste (UI and ``/sdapi``) and the Anima presets all read.
 
 - :func:`load_script` imports an extension script as Forge does.
@@ -22,7 +21,6 @@ from __future__ import annotations
 import functools
 import importlib.util
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -40,13 +38,11 @@ def prepare_imports() -> None:
     for path in (REPO / "modules_forge" / "packages", REPO):
         if str(path) not in sys.path:
             sys.path.insert(0, str(path))
-    os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
 
 @functools.cache
 def _legacy():
-    """The Gradio-era harness, for its Gradio-free fakes (``make_process``,
-    ``Patcher``) and ``forge_source``."""
+    """The shared fakes (``make_process``, ``Patcher``) and ``forge_source``."""
 
     spec = importlib.util.spec_from_file_location("extension_script_harness", REPO / "tests" / "extension_script_harness.py")
     module = importlib.util.module_from_spec(spec)
@@ -74,21 +70,16 @@ def load_script(path, name):
     return module
 
 
-def assert_gradio_free(script_path) -> None:
-    """The extension script imports no Gradio (at load time or lazily) and
-    names no ``gr``."""
+def assert_ported(script_path) -> None:
+    """No class of the extension script keeps an A1111 UI hook (``ui()``,
+    component callbacks): its arguments come from ``params()``."""
 
     import ast
 
+    hooks = {"ui", "on_before_component", "on_after_component", "before_component", "after_component"}
     tree = ast.parse(Path(script_path).read_text(encoding="utf8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            assert not any(alias.name.split(".")[0] == "gradio" for alias in node.names), script_path
-        elif isinstance(node, ast.ImportFrom):
-            assert (node.module or "").split(".")[0] != "gradio", script_path
-            assert not any(alias.name in ("gradio_extensions", "ui_components") for alias in node.names), script_path
-        elif isinstance(node, ast.Name):
-            assert node.id != "gr", script_path
+    left = [f"{cls.name}.{item.name}" for cls in ast.walk(tree) if isinstance(cls, ast.ClassDef) for item in cls.body if isinstance(item, ast.FunctionDef) and item.name in hooks]
+    assert left == [], (script_path, left)
 
 
 # region Layouts

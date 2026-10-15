@@ -9,7 +9,6 @@ extension modules or coupling their runtimes together.
 
 from __future__ import annotations
 
-from typing import Any
 
 
 SAFE_BASE_AESTHETIC_LABEL = "Official Base/Aesthetic — Safe (Recommended)"
@@ -295,40 +294,3 @@ PRESET_CONFLICT_CONTROLS = frozenset(
         "pid.enabled",
     }
 )
-
-
-_DEFAULT_VALUE = object()
-_CONTROLS: dict[str, dict[str, tuple[Any, object]]] = {}
-
-
-def reset_preset_controls(tab: str) -> None:
-    """Start a fresh registry for a newly built txt2img/img2img tab."""
-
-    _CONTROLS[tab] = {}
-
-
-def register_preset_control(
-    tab: str,
-    name: str,
-    component: Any,
-    value: object = _DEFAULT_VALUE,
-) -> None:
-    """Register one preset-owned component, replacing stale UI references."""
-
-    if name not in SAFE_BASE_AESTHETIC_PRESET:
-        raise KeyError(f"Unknown Anima preset field: {name}")
-    if value is _DEFAULT_VALUE:
-        value = SAFE_BASE_AESTHETIC_PRESET[name]
-    _CONTROLS.setdefault(tab, {})[name] = (component, value)
-
-
-def preset_controls(tab: str) -> tuple[tuple[str, ...], tuple[Any, ...], tuple[object, ...]]:
-    """Return a stable component/value snapshot suitable for a Gradio event."""
-
-    controls = _CONTROLS.get(tab, {})
-    names = tuple(controls)
-    return (
-        names,
-        tuple(component for component, _value in controls.values()),
-        tuple(value for _component, value in controls.values()),
-    )

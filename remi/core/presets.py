@@ -125,7 +125,7 @@ def apply_form_patch(layout: Any, patch: Mapping[str, Any]) -> None:
 
 def _main_entry() -> Any:
     """``modules_forge.main_entry`` when something already loaded it (it
-    imports Gradio; the Gradio UI and ``modules.processing`` do)."""
+    imports the processing pipeline; ``modules.processing`` loads it)."""
 
     return sys.modules.get("modules_forge.main_entry")
 

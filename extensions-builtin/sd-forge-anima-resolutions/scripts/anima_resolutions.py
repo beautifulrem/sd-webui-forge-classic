@@ -585,7 +585,6 @@ class AnimaRandomizeResolutionScript(scripts.Script):
     RESOLUTIONS, HIGH_RES_RESOLUTIONS, or both (the combined pool)."""
 
     section = "dimensions"
-    create_group = False
 
     def title(self):
         return "Anima random resolution"

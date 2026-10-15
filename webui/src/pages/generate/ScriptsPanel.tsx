@@ -42,7 +42,7 @@ function ScriptCard({ script }: { script: ScriptSchema }) {
   const layout = script.layout
   const titled = layout.type === "section" || (layout.type === "group" && Boolean(layout.title))
   const body: Node = layout.type === "group" && !titled ? { ...layout, type: "column" } : layout
-  // Listed extensions start closed (legacy ones are long flat lists); the chosen selectable script stays open.
+  // Listed extensions start closed; the chosen selectable script stays open.
   const collapsed: Node | null = !titled && script.kind !== "selectable" ? { type: "section", title: script.title, open: false, children: [body] } : null
   return (
     <OwnerProvider owner={script.id}>

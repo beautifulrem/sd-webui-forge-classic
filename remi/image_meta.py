@@ -118,7 +118,7 @@ def _user_comment(data: bytes) -> str:
                 text = body.decode(encoding)
             except UnicodeDecodeError:
                 continue
-            if text and text.isprintable() or "\n" in text:
+            if (text and text.isprintable()) or "\n" in text:
                 return text
     return body.decode("utf-8", errors="replace") if prefix.startswith((b"ASCII", b"\x00" * 8)) else data.decode("utf-8", errors="replace")
 

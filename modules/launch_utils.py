@@ -29,9 +29,6 @@ dir_repos = "repositories"
 
 default_command_live = os.environ.get("WEBUI_LAUNCH_LIVE_OUTPUT") == "1"
 
-# Extensions not ported to the Remi UI yet may still import Gradio
-os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
-
 
 def check_python_version():
     major = sys.version_info.major

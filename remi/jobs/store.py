@@ -22,7 +22,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from remi.files import decode_cursor, encode_cursor, connect
+from remi.files import connect, decode_cursor, encode_cursor
 
 QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED, INTERRUPTED = "queued", "running", "completed", "failed", "cancelled", "interrupted"
 STATUSES = (QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED, INTERRUPTED)
@@ -306,7 +306,7 @@ class JobStore:
                 self._renumber()  # positions too close (or tied) to place it between
             return True
 
-    def _spot(self, job_id: str, group: int, after: str | None, before: str | None) -> float | None | bool:
+    def _spot(self, job_id: str, group: int, after: str | None, before: str | None) -> float | bool | None:
         """The position between the neighbours; None: no neighbour; False:
         no float fits between them."""
 

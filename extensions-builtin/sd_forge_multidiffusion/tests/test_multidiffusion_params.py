@@ -91,5 +91,5 @@ def test_zh_cn_covers_the_panel(multidiffusion):
     harness.assert_localized(SCRIPT.parents[1], [schema], extra=["Add a source image to read its size"])
 
 
-def test_imports_without_gradio():
-    harness.assert_gradio_free([SCRIPT], preimport=PREIMPORT)
+def test_imports_standalone():
+    harness.assert_imports_standalone([SCRIPT], preimport=PREIMPORT)

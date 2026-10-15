@@ -1,0 +1,457 @@
+{
+ "_about": "Recorded from the Gradio ui() of modules/processing_scripts before it was removed; paste: the paste function's result for each of the test's PARAMS_SAMPLES",
+ "samples": [
+  {},
+  {
+   "Variation seed": "5",
+   "Seed resize from-1": "512",
+   "Refiner": "x",
+   "Sampler": "Euler",
+   "Schedule type": "Karras"
+  },
+  {
+   "Sampler": "DPM++ 2M Karras",
+   "Hires sampler": "Euler"
+  }
+ ],
+ "txt2img": [
+  {
+   "script": "ScriptSeed",
+   "inputs": [
+    {
+     "kind": "Number",
+     "label": "Seed",
+     "default": -1,
+     "infotext": "Seed"
+    },
+    {
+     "kind": "Toggle",
+     "label": "Extra",
+     "default": false,
+     "paste": [
+      false,
+      true,
+      false
+     ]
+    },
+    {
+     "kind": "Number",
+     "label": "Variation seed",
+     "default": -1,
+     "infotext": "Variation seed"
+    },
+    {
+     "kind": "Slider",
+     "label": "Variation strength",
+     "default": 0.0,
+     "minimum": 0,
+     "maximum": 1,
+     "step": 0.01,
+     "infotext": "Variation seed strength"
+    },
+    {
+     "kind": "Slider",
+     "label": "Resize seed from width",
+     "default": 0,
+     "minimum": 0,
+     "maximum": 2048,
+     "step": 8,
+     "infotext": "Seed resize from-1"
+    },
+    {
+     "kind": "Slider",
+     "label": "Resize seed from height",
+     "default": 0,
+     "minimum": 0,
+     "maximum": 2048,
+     "step": 8,
+     "infotext": "Seed resize from-2"
+    }
+   ]
+  },
+  {
+   "script": "ScriptSampler",
+   "inputs": [
+    {
+     "kind": "Slider",
+     "label": "Sampling Steps",
+     "default": 20,
+     "minimum": 1,
+     "maximum": 150,
+     "step": 1,
+     "infotext": "Steps"
+    },
+    {
+     "kind": "Choice",
+     "label": "Sampling Method",
+     "default": "DPM++ 2M",
+     "choices": [
+      "DPM++ 2M",
+      "DPM++ SDE",
+      "DPM++ 2M SDE",
+      "DPM++ 3M SDE",
+      "DPM++ 2s a RF",
+      "Euler a",
+      "Euler",
+      "Anima Flow Euler",
+      "Anima Flow UniPC2",
+      "Anima Flow PC3",
+      "Anima SPEED",
+      "Anima FreeFuse Euler",
+      "ER SDE",
+      "Anima ER SDE CNS",
+      "LCM",
+      "LMS",
+      "Heun",
+      "DPM2",
+      "Res Multistep",
+      "Kohaku LoNyu Yog",
+      "Restart",
+      "UniPC",
+      "DDIM",
+      "PLMS",
+      "DPM++ 2M CFG++",
+      "Euler a CFG++",
+      "Euler CFG++"
+     ],
+     "paste": [
+      "DPM++ 2M",
+      "Euler",
+      "DPM++ 2M"
+     ]
+    },
+    {
+     "kind": "Choice",
+     "label": "Schedule Type",
+     "default": "Automatic",
+     "choices": [
+      "Automatic",
+      "Karras",
+      "Exponential",
+      "Polyexponential",
+      "Normal",
+      "Simple",
+      "Uniform",
+      "SGM Uniform",
+      "Linear Quadratic",
+      "KL Optimal",
+      "DDIM",
+      "Align Your Steps",
+      "Beta",
+      "Beta57",
+      "Turbo",
+      "Bong Tangent",
+      "FlowMatchEulerDiscrete",
+      "Anima FlowMatch",
+      "Flux2"
+     ],
+     "paste": [
+      "Automatic",
+      "Karras",
+      "Automatic"
+     ]
+    }
+   ]
+  },
+  {
+   "script": "ScriptRefiner",
+   "inputs": [
+    {
+     "kind": "Toggle",
+     "label": "Refiner",
+     "default": false,
+     "paste": [
+      false,
+      true,
+      false
+     ]
+    },
+    {
+     "kind": "Choice",
+     "label": "Checkpoint",
+     "default": "None",
+     "choices": [
+      "None"
+     ],
+     "paste": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "kind": "Slider",
+     "label": "Switch at",
+     "default": 0.875,
+     "minimum": 0.0,
+     "maximum": 1.0,
+     "step": 0.025,
+     "infotext": "Refiner switch at"
+    },
+    {
+     "kind": "Slider",
+     "label": "Refiner CFG Scale",
+     "default": 0.0,
+     "minimum": 0.0,
+     "maximum": 24.0,
+     "step": 0.5,
+     "infotext": "Refiner CFG scale"
+    },
+    {
+     "kind": "Text",
+     "label": "",
+     "default": "high_noise=low_noise\nhigh-noise=low-noise"
+    }
+   ]
+  },
+  {
+   "script": "ScriptComments",
+   "inputs": []
+  },
+  {
+   "script": "ScriptMahiro",
+   "inputs": [
+    {
+     "kind": "Toggle",
+     "label": "MaHiRo",
+     "default": false,
+     "infotext": "MaHiRo"
+    }
+   ]
+  },
+  {
+   "script": "ScriptRescaleCFG",
+   "inputs": [
+    {
+     "kind": "Slider",
+     "label": "Rescale CFG",
+     "default": 0.0,
+     "minimum": 0.0,
+     "maximum": 1.0,
+     "step": 0.05,
+     "infotext": "Rescale CFG"
+    }
+   ]
+  }
+ ],
+ "img2img": [
+  {
+   "script": "ScriptSeed",
+   "inputs": [
+    {
+     "kind": "Number",
+     "label": "Seed",
+     "default": -1,
+     "infotext": "Seed"
+    },
+    {
+     "kind": "Toggle",
+     "label": "Extra",
+     "default": false,
+     "paste": [
+      false,
+      true,
+      false
+     ]
+    },
+    {
+     "kind": "Number",
+     "label": "Variation seed",
+     "default": -1,
+     "infotext": "Variation seed"
+    },
+    {
+     "kind": "Slider",
+     "label": "Variation strength",
+     "default": 0.0,
+     "minimum": 0,
+     "maximum": 1,
+     "step": 0.01,
+     "infotext": "Variation seed strength"
+    },
+    {
+     "kind": "Slider",
+     "label": "Resize seed from width",
+     "default": 0,
+     "minimum": 0,
+     "maximum": 2048,
+     "step": 8,
+     "infotext": "Seed resize from-1"
+    },
+    {
+     "kind": "Slider",
+     "label": "Resize seed from height",
+     "default": 0,
+     "minimum": 0,
+     "maximum": 2048,
+     "step": 8,
+     "infotext": "Seed resize from-2"
+    }
+   ]
+  },
+  {
+   "script": "ScriptSampler",
+   "inputs": [
+    {
+     "kind": "Slider",
+     "label": "Sampling Steps",
+     "default": 20,
+     "minimum": 1,
+     "maximum": 150,
+     "step": 1,
+     "infotext": "Steps"
+    },
+    {
+     "kind": "Choice",
+     "label": "Sampling Method",
+     "default": "DPM++ 2M",
+     "choices": [
+      "DPM++ 2M",
+      "DPM++ SDE",
+      "DPM++ 2M SDE",
+      "DPM++ 3M SDE",
+      "DPM++ 2s a RF",
+      "Euler a",
+      "Euler",
+      "Anima Flow Euler",
+      "Anima Flow UniPC2",
+      "Anima Flow PC3",
+      "Anima SPEED",
+      "Anima FreeFuse Euler",
+      "ER SDE",
+      "Anima ER SDE CNS",
+      "LCM",
+      "LMS",
+      "Heun",
+      "DPM2",
+      "Res Multistep",
+      "Kohaku LoNyu Yog",
+      "Restart",
+      "UniPC",
+      "DDIM",
+      "PLMS",
+      "DPM++ 2M CFG++",
+      "Euler a CFG++",
+      "Euler CFG++"
+     ],
+     "paste": [
+      "DPM++ 2M",
+      "Euler",
+      "DPM++ 2M"
+     ]
+    },
+    {
+     "kind": "Choice",
+     "label": "Schedule Type",
+     "default": "Automatic",
+     "choices": [
+      "Automatic",
+      "Karras",
+      "Exponential",
+      "Polyexponential",
+      "Normal",
+      "Simple",
+      "Uniform",
+      "SGM Uniform",
+      "Linear Quadratic",
+      "KL Optimal",
+      "DDIM",
+      "Align Your Steps",
+      "Beta",
+      "Beta57",
+      "Turbo",
+      "Bong Tangent",
+      "FlowMatchEulerDiscrete",
+      "Anima FlowMatch",
+      "Flux2"
+     ],
+     "paste": [
+      "Automatic",
+      "Karras",
+      "Automatic"
+     ]
+    }
+   ]
+  },
+  {
+   "script": "ScriptRefiner",
+   "inputs": [
+    {
+     "kind": "Toggle",
+     "label": "Refiner",
+     "default": false,
+     "paste": [
+      false,
+      true,
+      false
+     ]
+    },
+    {
+     "kind": "Choice",
+     "label": "Checkpoint",
+     "default": "None",
+     "choices": [
+      "None"
+     ],
+     "paste": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "kind": "Slider",
+     "label": "Switch at",
+     "default": 0.875,
+     "minimum": 0.0,
+     "maximum": 1.0,
+     "step": 0.025,
+     "infotext": "Refiner switch at"
+    },
+    {
+     "kind": "Slider",
+     "label": "Refiner CFG Scale",
+     "default": 0.0,
+     "minimum": 0.0,
+     "maximum": 24.0,
+     "step": 0.5,
+     "infotext": "Refiner CFG scale"
+    },
+    {
+     "kind": "Text",
+     "label": "",
+     "default": "high_noise=low_noise\nhigh-noise=low-noise"
+    }
+   ]
+  },
+  {
+   "script": "ScriptComments",
+   "inputs": []
+  },
+  {
+   "script": "ScriptMahiro",
+   "inputs": [
+    {
+     "kind": "Toggle",
+     "label": "MaHiRo",
+     "default": false,
+     "infotext": "MaHiRo"
+    }
+   ]
+  },
+  {
+   "script": "ScriptRescaleCFG",
+   "inputs": [
+    {
+     "kind": "Slider",
+     "label": "Rescale CFG",
+     "default": 0.0,
+     "minimum": 0.0,
+     "maximum": 1.0,
+     "step": 0.05,
+     "infotext": "Rescale CFG"
+    }
+   ]
+  }
+ ]
+}

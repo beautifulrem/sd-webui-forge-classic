@@ -4,11 +4,16 @@ from fastapi.testclient import TestClient
 from modules.extension_route_guard import guard_routes
 
 
-def _client(gradio_auth=None):
+def _login(app):
+    """The WebUI login (remi.server.auth): the user of a valid session cookie."""
+
+    app.auth_dependency = lambda request: "user" if request.cookies.get("session") == "good" else None
+
+
+def _client(login=False):
     app = FastAPI()
-    app.auth = gradio_auth
-    app.cookie_id = "cid"
-    app.tokens = {"good": "user"}
+    if login:
+        _login(app)
 
     @app.get("/ext/read")
     def read():
@@ -34,11 +39,11 @@ def test_cross_site_writes_are_refused():
     assert client.get("/ext/read", headers={"origin": "https://evil.example"}).json() == "ok"
 
 
-def test_gradio_login_is_required_when_configured():
-    client = _client(gradio_auth=[("user", "pw")])
+def test_webui_login_is_required_when_configured():
+    client = _client(login=True)
     assert client.get("/ext/read").status_code == 401
     assert client.get("/other").json() == "other"  # not guarded
-    client.cookies.set("access-token-cid", "good")
+    client.cookies.set("session", "good")
     assert client.get("/ext/read").json() == "ok"
 
 
@@ -46,7 +51,7 @@ def test_new_extension_routes_refuse_cross_site_writes_only():
     from modules.extension_route_guard import guard_new_routes, snapshot_routes
 
     app = FastAPI()
-    app.auth = [("user", "pw")]
+    _login(app)
 
     @app.post("/core")
     def core():
@@ -78,9 +83,7 @@ def test_websocket_handshakes_get_the_same_checks(monkeypatch):
     monkeypatch.setitem(sys.modules, "modules.shared_cmd_options", SimpleNamespace(cmd_opts=options))
 
     app = FastAPI()
-    app.auth = [("user", "pw")]
-    app.cookie_id = "cid"
-    app.tokens = {"good": "user"}
+    _login(app)
 
     @app.websocket("/ext/ws")
     async def socket(websocket: WebSocket):
@@ -95,7 +98,7 @@ def test_websocket_handshakes_get_the_same_checks(monkeypatch):
             pass
     assert refused.value.code == 1008  # no login
 
-    client.cookies.set("access-token-cid", "good")
+    client.cookies.set("session", "good")
     with pytest.raises(WebSocketDisconnect) as refused:
         with client.websocket_connect("/ext/ws", headers={"origin": "https://evil.example"}):
             pass
@@ -170,7 +173,6 @@ def _guard_options(monkeypatch, **overrides):
     values = dict(listen=False, server_name=None, share=False, ngrok=None, nowebui=False, cors_allow_origins=None, cors_allow_origins_regex=None)
     options = SimpleNamespace(**(values | overrides))
     monkeypatch.setitem(sys.modules, "modules.shared_cmd_options", SimpleNamespace(cmd_opts=options))
-    monkeypatch.delenv("GRADIO_SERVER_NAME", raising=False)
     return options
 
 
@@ -192,22 +194,21 @@ def test_loopback_server_name_keeps_dns_rebinding_protection(monkeypatch):
         assert not is_rebound_host(_get("my-box.lan:7860")), server_name
 
 
-def test_bind_address_follows_what_gradio_and_uvicorn_do(monkeypatch):
+def test_bind_address_follows_the_server(monkeypatch):
     from modules.extension_route_guard import is_rebound_host
 
     _guard_options(monkeypatch)
-    monkeypatch.setenv("GRADIO_SERVER_NAME", "0.0.0.0")  # Gradio then listens on every interface
+    assert is_rebound_host(_get("192.168.1.5:7860"))  # loopback by default
+    _guard_options(monkeypatch, listen=True)
     assert not is_rebound_host(_get("192.168.1.5:7860"))
-    monkeypatch.setenv("GRADIO_SERVER_NAME", "127.0.0.1")
-    assert is_rebound_host(_get("192.168.1.5:7860"))
 
     # --nowebui binds loopback too (remi.server.launch.bind_host): rebinding is refused
     _guard_options(monkeypatch, nowebui=True)
     assert is_rebound_host(_get("evil.example:7861"))
     _guard_options(monkeypatch, nowebui=True, listen=True)
     assert not is_rebound_host(_get("192.168.1.5:7861"))
-    _guard_options(monkeypatch, share=True)
-    assert not is_rebound_host(_get("abc.gradio.live"))
+    _guard_options(monkeypatch, ngrok="token")
+    assert not is_rebound_host(_get("abc.ngrok.app"))
 
 
 def test_rebound_host_check_honours_the_cors_regex(monkeypatch):
@@ -225,11 +226,9 @@ def _exposed_app(monkeypatch, **overrides):
     """An app whose extension route was added after the snapshot, as webui.py does."""
     from modules.extension_route_guard import guard_new_routes, snapshot_routes
 
-    _guard_options(monkeypatch, **(dict(gradio_auth="user:pw", gradio_auth_path=None, api_auth=None) | overrides))
+    _guard_options(monkeypatch, **(dict(auth="user:pw", auth_file=None, api_auth=None) | overrides))
     app = FastAPI()
-    app.auth = [("user", "pw")]
-    app.cookie_id = "cid"
-    app.tokens = {"good": "user"}
+    _login(app)
     before = snapshot_routes(app)
 
     @app.post("/ext/api")
@@ -246,20 +245,20 @@ def _basic(user, password):
     return {"authorization": "Basic " + base64.b64encode(f"{user}:{password}".encode()).decode()}
 
 
-def test_exposed_servers_require_the_gradio_login_for_extension_routes(monkeypatch):
+def test_exposed_servers_require_the_webui_login_for_extension_routes(monkeypatch):
     for tunnel in (dict(share=True), dict(ngrok="token")):
         client = _exposed_app(monkeypatch, **tunnel)
         assert client.post("/ext/api").status_code == 401
-        client.cookies.set("access-token-cid", "good")
+        client.cookies.set("session", "good")
         assert client.post("/ext/api").json() == "ext"
 
 
-def test_lan_bound_servers_require_the_gradio_login_for_extension_routes(monkeypatch):
+def test_lan_bound_servers_require_the_webui_login_for_extension_routes(monkeypatch):
     # --listen / a non-loopback --server-name: reachable from the network, like a tunnel
     for bind in (dict(listen=True), dict(server_name="0.0.0.0"), dict(server_name="192.168.1.5")):
         client = _exposed_app(monkeypatch, **bind)
         assert client.post("/ext/api").status_code == 401, bind
-        client.cookies.set("access-token-cid", "good")
+        client.cookies.set("session", "good")
         assert client.post("/ext/api").json() == "ext"
     client = _exposed_app(monkeypatch, listen=True, api_auth="bot:secret")
     assert client.post("/ext/api", headers=_basic("bot", "secret")).json() == "ext"
@@ -282,17 +281,17 @@ def test_api_auth_credentials_do_not_count_without_api_auth(monkeypatch):
 
 
 def test_local_or_login_free_servers_keep_extension_apis_open(monkeypatch):
-    # loopback-only: local API clients keep working; exposed without --gradio-auth: nothing to log in with
-    for options in (dict(share=False, ngrok=None), dict(share=True, gradio_auth=None), dict(listen=True, gradio_auth=None)):
+    # loopback-only: local API clients keep working; exposed without --auth: nothing to log in with
+    for options in (dict(share=False, ngrok=None), dict(share=True, auth=None), dict(listen=True, auth=None)):
         assert _exposed_app(monkeypatch, **options).post("/ext/api").json() == "ext"
-    assert _exposed_app(monkeypatch, share=True, gradio_auth=None, gradio_auth_path="auth.txt").post("/ext/api").status_code == 401
+    assert _exposed_app(monkeypatch, share=True, auth=None, auth_file="auth.txt").post("/ext/api").status_code == 401
 
 
 def _api_only_app(monkeypatch, **overrides):
-    """--nowebui: a plain FastAPI app, no Gradio login attributes."""
+    """--nowebui: a plain FastAPI app, no WebUI login."""
     from modules.extension_route_guard import guard_new_routes, snapshot_routes
 
-    _guard_options(monkeypatch, **(dict(nowebui=True, gradio_auth=None, gradio_auth_path=None, api_auth=None) | overrides))
+    _guard_options(monkeypatch, **(dict(nowebui=True, auth=None, auth_file=None, api_auth=None) | overrides))
     app = FastAPI()
     before = snapshot_routes(app)
 
@@ -308,18 +307,18 @@ def test_api_only_servers_require_api_auth_for_extension_routes(monkeypatch):
     # --nowebui: /sdapi needs --api-auth whenever it is set, on any bind (every
     # interface by default, --listen, or a loopback --server-name), so do extension routes
     loopback = (dict(server_name="127.0.0.1"), dict(server_name="localhost"), dict(server_name="[::1]"))
-    for options in (dict(), dict(listen=True, gradio_auth="u:p"), *loopback):
+    for options in (dict(), dict(listen=True, auth="u:p"), *loopback):
         client = _api_only_app(monkeypatch, api_auth="api:secret", **options)
         assert client.post("/ext/api").status_code == 401, options
         assert client.post("/ext/api", headers=_basic("api", "wrong")).status_code == 401
-        assert client.post("/ext/api", headers=_basic("u", "p")).status_code == 401  # no Gradio login here
+        assert client.post("/ext/api", headers=_basic("u", "p")).status_code == 401  # no WebUI login here
         assert client.post("/ext/api", headers=_basic("api", "secret")).json() == "ext"
 
 
 def test_api_only_servers_without_api_auth_stay_open(monkeypatch):
-    # like /sdapi: no --api-auth, nothing to log in with (--gradio-auth has no UI to guard)
+    # like /sdapi: no --api-auth, nothing to log in with (--auth has no UI to guard)
     assert _api_only_app(monkeypatch, listen=True).post("/ext/api").json() == "ext"
-    assert _api_only_app(monkeypatch, listen=True, gradio_auth="u:p").post("/ext/api").json() == "ext"
+    assert _api_only_app(monkeypatch, listen=True, auth="u:p").post("/ext/api").json() == "ext"
     assert _api_only_app(monkeypatch, server_name="127.0.0.1").post("/ext/api").json() == "ext"
 
 
@@ -328,7 +327,7 @@ def test_api_only_servers_require_api_auth_for_routes_extensions_guard_themselve
     # they must need the same --api-auth login as the unmarked ones
     from modules.extension_route_guard import guard_new_routes, snapshot_routes
 
-    _guard_options(monkeypatch, nowebui=True, gradio_auth=None, gradio_auth_path=None, api_auth="api:secret")
+    _guard_options(monkeypatch, nowebui=True, auth=None, auth_file=None, api_auth="api:secret")
     app = FastAPI()
     before = snapshot_routes(app)
 
@@ -350,21 +349,21 @@ def test_api_only_servers_require_api_auth_for_routes_extensions_guard_themselve
 
 
 def test_ui_servers_do_not_take_api_auth_for_routes_extensions_guard_themselves(monkeypatch):
-    # With the UI, guard_routes routes stay UI-only: no Gradio login, no login
-    _guard_options(monkeypatch, gradio_auth=None, gradio_auth_path=None, api_auth="api:secret")
+    # With the UI, guard_routes routes stay UI-only: no WebUI login, no login
+    _guard_options(monkeypatch, auth=None, auth_file=None, api_auth="api:secret")
     client = _client()
     assert client.post("/ext/write").json() == "written"
-    client = _client(gradio_auth=[("user", "pw")])
+    client = _client(login=True)
     assert client.post("/ext/write", headers=_basic("api", "secret")).status_code == 401
 
 
-def test_refusal_uses_api_auth_when_the_app_has_no_gradio_login(monkeypatch):
+def test_refusal_uses_api_auth_when_the_app_has_no_webui_login(monkeypatch):
     from types import SimpleNamespace
 
     from modules.extension_route_guard import refusal
 
     _guard_options(monkeypatch, nowebui=True, listen=True, api_auth="api:secret")
-    app = SimpleNamespace()  # no auth / auth_dependency
+    app = SimpleNamespace()  # no auth_dependency
 
     def request(**headers):
         return SimpleNamespace(method="POST", headers={"host": "127.0.0.1:7861", **headers}, cookies={})

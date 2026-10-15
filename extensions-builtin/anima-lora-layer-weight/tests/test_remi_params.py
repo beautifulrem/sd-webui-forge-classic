@@ -57,7 +57,7 @@ def test_weight_texts_validate_as_text():
         layout.coerce({"lora_block_weights": [0.5, 1.0]})
 
 
-def test_the_zh_ui_preset_scopes_of_the_gradio_panel_are_accepted():
+def test_the_zh_ui_preset_scopes_of_the_legacy_panel_are_accepted():
     layout = harness.script_layout(module.Script())
     coerced = layout.coerce({"lora_preset_scope": module.PRESET_SCOPE_ALL, "lokr_preset_scope": "仅目标列表"})
     assert (coerced["lora_preset_scope"], coerced["lokr_preset_scope"]) == (module.PRESET_SCOPE_ALL_EN, module.PRESET_SCOPE_TARGETS_EN)
@@ -106,9 +106,8 @@ def test_editing_the_presets_updates_the_preset_choices():
     assert patch["lokr_preset_name"]["value"] == "mine"
 
 
-def test_the_extension_is_gradio_free():
-    assert harness.gradio_imports(ROOT) == []
-    harness.assert_loads_without_gradio(SCRIPT)
+def test_the_extension_loads_standalone():
+    harness.assert_loads_standalone(SCRIPT)
 
 
 def test_the_zh_cn_catalog_covers_every_string():

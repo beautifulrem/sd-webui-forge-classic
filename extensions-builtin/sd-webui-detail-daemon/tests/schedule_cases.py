@@ -54,4 +54,4 @@ if __name__ == "__main__":
 
     module = load_detail_daemon()
     FIXTURE.write_text(dump(cases(module.Script().make_schedule)), encoding="utf-8")
-    print("wrote", FIXTURE)
+    print("wrote", FIXTURE)  # noqa: T201 - recording script

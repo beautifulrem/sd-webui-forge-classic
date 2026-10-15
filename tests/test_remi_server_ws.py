@@ -209,20 +209,19 @@ def test_clients_only_get_preview_formats_they_announced():
 
 
 def test_websocket_hello_events_and_binary_previews(webui, tmp_path):
-    with server_app(tmp_path) as server:
-        with server.client.websocket_connect(WS_URL) as socket:
-            hello = socket.receive_json()
-            assert hello["type"] == "hello" and "preview.binary" in hello["features"]
-            assert socket.receive_json() == {"type": "queue.changed", "size": 0, "paused": False, "running": None}
-            socket.send_json({"type": "hello", "features": ["events.v1", "preview.binary", "preview.webp"]})
-            socket.send_json({"type": "ping"})
-            assert socket.receive_json() == {"type": "pong"}
+    with server_app(tmp_path) as server, server.client.websocket_connect(WS_URL) as socket:
+        hello = socket.receive_json()
+        assert hello["type"] == "hello" and "preview.binary" in hello["features"]
+        assert socket.receive_json() == {"type": "queue.changed", "size": 0, "paused": False, "running": None}
+        socket.send_json({"type": "hello", "features": ["events.v1", "preview.binary", "preview.webp"]})
+        socket.send_json({"type": "ping"})
+        assert socket.receive_json() == {"type": "pong"}
 
-            server.services.bus.publish("toast", level="info", message="hi")
-            assert socket.receive_json() == {"type": "toast", "level": "info", "message": "hi"}
-            server.services.bus.publish_frame(PreviewFrame(FORMAT_JPEG, 3, 1, b"jpeg"))  # not announced: skipped
-            server.services.bus.publish_frame(PreviewFrame(FORMAT_WEBP, 3, 2, b"webp"))
-            assert unpack_frame(socket.receive_bytes()) == PreviewFrame(FORMAT_WEBP, 3, 2, b"webp")
+        server.services.bus.publish("toast", level="info", message="hi")
+        assert socket.receive_json() == {"type": "toast", "level": "info", "message": "hi"}
+        server.services.bus.publish_frame(PreviewFrame(FORMAT_JPEG, 3, 1, b"jpeg"))  # not announced: skipped
+        server.services.bus.publish_frame(PreviewFrame(FORMAT_WEBP, 3, 2, b"webp"))
+        assert unpack_frame(socket.receive_bytes()) == PreviewFrame(FORMAT_WEBP, 3, 2, b"webp")
 
 
 def test_a_job_streams_progress_and_previews_over_the_socket(webui, tmp_path, monkeypatch):
@@ -230,24 +229,23 @@ def test_a_job_streams_progress_and_previews_over_the_socket(webui, tmp_path, mo
     monkeypatch.setitem(webui.opts.data, "live_preview_fps", 30)
     monkeypatch.setitem(webui.opts.data, "live_previews_enable", True)
     executor = StubExecutor(state, steps=6, step_time=0.1)
-    with server_app(tmp_path, state=state, executor=executor, realtime=True) as server:
-        with server.client.websocket_connect(WS_URL) as socket:
-            socket.receive_json(), socket.receive_json()  # hello, queue
-            job = server.client.post("/api/v2/jobs", json={"tab": "txt2img", "core": {"prompt": "x"}}).json()
-            types, frames = [], []
-            while "job.completed" not in types:
-                message = socket.receive()
-                if message.get("bytes") is not None:
-                    frames.append(unpack_frame(message["bytes"]))
-                elif message.get("text"):
-                    import json
+    with server_app(tmp_path, state=state, executor=executor, realtime=True) as server, server.client.websocket_connect(WS_URL) as socket:
+        socket.receive_json(), socket.receive_json()  # hello, queue
+        job = server.client.post("/api/v2/jobs", json={"tab": "txt2img", "core": {"prompt": "x"}}).json()
+        types, frames = [], []
+        while "job.completed" not in types:
+            message = socket.receive()
+            if message.get("bytes") is not None:
+                frames.append(unpack_frame(message["bytes"]))
+            elif message.get("text"):
+                import json
 
-                    event = json.loads(message["text"])
-                    types.append(event["type"])
-                    if event["type"] == "job.progress":
-                        assert event["job_id"] == job["job_id"] and event["seq"] == job["seq"] and event["steps"] == 6
-            assert types.index("job.queued") < types.index("job.started") < types.index("job.completed")
-            assert "job.progress" in types and frames and all(frame.job_seq == job["seq"] for frame in frames)
+                event = json.loads(message["text"])
+                types.append(event["type"])
+                if event["type"] == "job.progress":
+                    assert event["job_id"] == job["job_id"] and event["seq"] == job["seq"] and event["steps"] == 6
+        assert types.index("job.queued") < types.index("job.started") < types.index("job.completed")
+        assert "job.progress" in types and frames and all(frame.job_seq == job["seq"] for frame in frames)
 
 
 # endregion

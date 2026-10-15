@@ -1,6 +1,5 @@
-"""Startup without Gradio: the legacy-script policy, launch helpers, the
-SPA build step, model selection through PATCH /options and /sdapi on the
-same app."""
+"""Startup: scripts that cannot be loaded, launch helpers, the SPA build
+step, model selection through PATCH /options and /sdapi on the same app."""
 
 import os
 import subprocess
@@ -19,6 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class LegacyScript(scripts.Script):
+    """An A1111 script: Gradio controls in ui(), no params()."""
+
     def title(self):
         return "Legacy thing"
 
@@ -26,68 +27,54 @@ class LegacyScript(scripts.Script):
         return scripts.AlwaysVisible
 
     def ui(self, is_img2img):
-        import gradio as gr
-
-        return [gr.Checkbox(value=True, label="On"), gr.Slider(0, 10, value=3, step=1, label="Amount")]
+        raise AssertionError("ui() is never called")
 
     def process(self, p, on, amount):
-        pass
+        raise AssertionError("a disabled script must not run")
 
 
-# region Legacy scripts
+# region Scripts that cannot be loaded
 
 
-def test_without_gradio_unported_scripts_are_disabled_and_listed(caplog):
+def test_ui_only_scripts_are_disabled_and_listed(capsys):
     with webui_state(script_classes=[LegacyScript]) as state:
-        assert state.txt2img.by_id["legacy_thing"].layout is None
-        runtime.prepare_legacy_scripts(gradio=False)
-        assert "legacy_thing" not in state.txt2img.by_id
-        assert any("Legacy thing" in record.getMessage() and runtime.NO_GRADIO in record.getMessage() for record in caplog.records)
+        assert "legacy_thing" not in state.txt2img.by_id and "legacy_thing" not in state.img2img.by_id
+        assert "Legacy thing" not in state.txt2img.titles
+        assert "declares ui() (Gradio controls) instead of params()" in capsys.readouterr().out
         found = [item for item in runtime.not_ported() if item["title"] == "Legacy thing"]
-        assert {item["tab"] for item in found} == {"txt2img", "img2img"} and all(item["status"] == "disabled" and item["reason"] == runtime.NO_GRADIO for item in found)
+        assert {item["tab"] for item in found} == {"txt2img", "img2img"} and all(item["status"] == "disabled" and item["reason"] == "declares ui() instead of params()" for item in found)
         # the generation forms still validate and build their arguments
         from remi.core.tabs import processing_args
 
         assert processing_args("txt2img", {}, {})[1][0] == 0
 
 
-def test_with_gradio_unported_scripts_keep_positional_defaults():
-    pytest.importorskip("gradio")
-    with webui_state(script_classes=[LegacyScript]) as state:
-        runtime.prepare_legacy_scripts(gradio=True)
-        script = state.txt2img.by_id["legacy_thing"]
-        layout = state.txt2img.layout_for(script)
-        assert layout.legacy and layout.names == ["#0", "#1"]
-        args = state.txt2img.script_args_from_values(None, {})
-        assert args[script.args_from : script.args_to] == [True, 3]
-        assert {"kind": "script", "id": "legacy_thing", "title": "Legacy thing", "tab": "txt2img", "extension": None, "status": "legacy"} in runtime.not_ported()
-
-
-def test_extension_tabs_are_listed_as_not_ported(monkeypatch):
-    from modules import script_callbacks
-
+def test_script_files_that_fail_to_import_are_listed(monkeypatch):
     with webui_state():
-        callback = script_callbacks.ScriptCallback(str(ROOT / "extensions-builtin" / "agent-scheduler" / "scripts" / "x.py"), lambda: [], "agent-scheduler/x.py/ui_tabs")
-        monkeypatch.setitem(script_callbacks.callback_map, "callbacks_ui_tabs", [callback])
-        pages = [item for item in runtime.not_ported() if item["kind"] == "page"]
-        assert pages == [{"kind": "page", "id": "agent-scheduler/x.py/ui_tabs", "title": "agent-scheduler", "extension": "agent-scheduler", "status": "disabled", "reason": "extension tab (on_ui_tabs) not yet ported to a page"}]
+        folder = ROOT / "extensions" / "old-tab"
+        broken = scripts.ScriptFile(str(folder), "tab.py", str(folder / "scripts" / "tab.py"))
+        monkeypatch.setattr(scripts, "scripts_not_loaded", [(broken, "needs the module 'missing_toolkit', which is not installed")])
+        assert {"kind": "script", "id": "tab.py", "title": "tab.py", "extension": "old-tab", "status": "disabled", "reason": "needs the module 'missing_toolkit', which is not installed"} in runtime.not_ported()
+
+
+def test_a_script_that_imports_a_missing_module_is_skipped(tmp_path, monkeypatch):
+    script = tmp_path / "scripts" / "needs_toolkit.py"
+    script.parent.mkdir()
+    script.write_text("import missing_toolkit_for_test\n")
+    monkeypatch.setattr(scripts, "list_scripts", lambda dirname, ext, include_extensions=True: [scripts.ScriptFile(str(tmp_path), script.name, str(script))] if dirname == "scripts" else [])
+    saved = (scripts.scripts_txt2img, scripts.scripts_img2img, scripts.scripts_postproc, list(scripts.scripts_data), list(scripts.postprocessing_scripts_data))
+    try:
+        scripts.load_scripts()
+        assert [(item.filename, reason) for item, reason in scripts.scripts_not_loaded] == [("needs_toolkit.py", "needs the module 'missing_toolkit_for_test', which is not installed")]
+    finally:
+        scripts.scripts_txt2img, scripts.scripts_img2img, scripts.scripts_postproc = saved[:3]
+        scripts.scripts_data[:], scripts.postprocessing_scripts_data[:] = saved[3], saved[4]
+        scripts.scripts_not_loaded.clear()
 
 
 # endregion
 
-# region Gradio-free imports
-
-
-GRADIO_BLOCKER = """
-import importlib.abc, sys
-
-class NoGradio(importlib.abc.MetaPathFinder):
-    def find_spec(self, name, path=None, target=None):
-        if name.partition(".")[0] in ("gradio", "gradio_client"):
-            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
-
-sys.meta_path.insert(0, NoGradio())
-"""
+# region Startup
 
 
 def run_python(code: str, timeout: int = 300) -> subprocess.CompletedProcess:
@@ -95,10 +82,12 @@ def run_python(code: str, timeout: int = 300) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True, timeout=timeout)
 
 
-def test_the_webui_starts_and_generates_without_gradio_installed(tmp_path):
-    # A fresh install has no Gradio: startup (forge init, imports, scripts),
-    # the app with /sdapi and every module a job runs must not need it.
-    code = GRADIO_BLOCKER + f"""
+def test_the_webui_starts_and_generates(tmp_path):
+    # Startup (forge init, imports, scripts), the app with /sdapi and every
+    # module a job runs, in a fresh interpreter (the suites also run in an
+    # environment with nothing but requirements.txt installed).
+    code = f"""
+import sys
 sys.argv = ["launch.py", "--skip-prepare-environment", "--skip-version-check", "--skip-torch-cuda-test", "--data-dir", {str(tmp_path)!r}]
 import webui
 from modules import scripts
@@ -110,20 +99,18 @@ for name in ("modules.txt2img", "modules.img2img", "modules.postprocessing", "mo
     __import__(name)
 app = create_app(services=Services.create({str(tmp_path / "remi")!r}, dispatch=run_inline), auth=Auth(), sdapi=True, start_services=False)
 assert any(getattr(route, "path", "") == "/sdapi/v1/txt2img" for route in app.routes)
-assert "gradio" not in sys.modules
-# scripts still on Gradio are disabled with one line each and listed as not ported
-needing = {{item.filename for item in scripts.scripts_needing_gradio}}
-listed = {{item["id"] for item in runtime.not_ported() if item.get("reason") == runtime.NO_GRADIO}}
-assert needing <= listed, (needing, listed)
-print("ok", len(needing))
+# every built-in script and Extras operation loads
+assert runtime.not_ported() == [], runtime.not_ported()
+print("ok")
 """
     result = run_python(code)
     assert result.returncode == 0 and "ok" in result.stdout, result.stdout[-3000:] + result.stderr[-6000:]
     assert "Error loading script" not in result.stdout + result.stderr
 
 
-def test_the_server_path_imports_no_gradio():
-    code = GRADIO_BLOCKER + """
+def test_the_server_path_starts_alone():
+    # The API app itself (queue, files, networks) starts without the WebUI runtime
+    code = """
 import sys, tempfile
 sys.argv = sys.argv[:1]
 from remi.jobs import run_inline
@@ -135,10 +122,8 @@ app = create_app(services=services, auth=Auth(), sdapi=False, start_services=Fal
 from fastapi.testclient import TestClient
 with TestClient(app, base_url="http://127.0.0.1:7860") as client:
     assert client.get("/api/v2/queue").status_code == 200
-assert "gradio" not in sys.modules, "gradio was imported"
 for name in ("modules.progress", "modules.initialize_util", "modules.script_callbacks", "modules.call_queue", "modules.cmd_args"):
     __import__(name)
-assert "gradio" not in sys.modules, "gradio was imported by an owned module"
 print("ok")
 """
     result = run_python(code)
@@ -378,11 +363,6 @@ def test_webui_build_always_uses_pnpm_and_its_lockfile_or_explains(tmp_path, cap
     (webui / "src" / "main.ts").write_text("export const changed = 1")
     monkeypatch.setattr(launch_utils, "webui_build_commands", lambda: None)
     assert launch_utils.build_webui(webui) is True and "out of date" in capsys.readouterr().out
-
-
-def test_gradio_is_no_longer_installed_by_the_launcher():
-    source = (ROOT / "modules" / "launch_utils.py").read_text()
-    assert "gradio==" not in source and 'is_installed("gradio")' not in source
 
 
 # endregion

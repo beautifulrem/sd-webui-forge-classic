@@ -172,7 +172,6 @@ def test_fixed_base_keeps_the_image_and_guards_only_the_target():
 
 def _guard_script(monkeypatch, anima=True):
     import importlib.util
-    import sys
     from pathlib import Path
 
     # The WebUI modules parse sys.argv on first import: keep pytest's away
@@ -288,17 +287,17 @@ def _forge_hires_target(process, step):
     return s_round(x), s_round(y)
 
 
-def _with_resolution_step(monkeypatch, step):
+def _with_resolution_step(monkeypatch, step, script):
     from types import SimpleNamespace
 
-    monkeypatch.setitem(sys.modules, "modules.ui", SimpleNamespace(_STEP=step))
+    monkeypatch.setitem(type(script).after_model_load.__globals__, "shared", SimpleNamespace(opts=SimpleNamespace(res_step=step)))
 
 
 @pytest.mark.parametrize("step", [64, 16, 128])
 @pytest.mark.parametrize("align", [True, False])
 def test_rendered_hires_size_holds_the_caps_after_forge_rounding(monkeypatch, step, align):
     script = _guard_script(monkeypatch)
-    _with_resolution_step(monkeypatch, step)
+    _with_resolution_step(monkeypatch, step, script)
     bases = [(1024, 1024), (1000, 1000), (832, 1216), (896, 1152), (1184, 1744), (1095, 1095), (1056, 1056)]
     targets = [(1.41, 0, 0), (1.75, 0, 0), (2.5, 0, 0), (1.0, 1600, 0), (1.0, 0, 2000), (1.0, 1216, 1728), (1.0, 4096, 4096)]
     for width, height in bases:
@@ -318,7 +317,7 @@ def test_balanced_scale_that_forge_rounds_over_the_ceiling_is_clamped(monkeypatc
     # 1024 x 1.41 = 1443.84: 1440 on the 16 px grid (2.07 MP), but Forge's
     # 64 px Resolution Step renders 1472 (2.17 MP, over Balanced's 2.1)
     script = _guard_script(monkeypatch)
-    _with_resolution_step(monkeypatch, 64)
+    _with_resolution_step(monkeypatch, 64, script)
     process = _process(width=1024, height=1024, hr_scale=1.41)
     script.after_model_load(process, True, "Clamp unsafe values", "Balanced", True, 1.2, 2.1, 1.75)
     assert (process.hr_resize_x, process.hr_resize_y) == (1408, 1408)
@@ -328,7 +327,7 @@ def test_balanced_scale_that_forge_rounds_over_the_ceiling_is_clamped(monkeypatc
 
 def test_safe_scale_is_still_written_as_an_explicit_target(monkeypatch):
     script = _guard_script(monkeypatch)
-    _with_resolution_step(monkeypatch, 64)
+    _with_resolution_step(monkeypatch, 64, script)
     process = _process(width=1024, height=1024, hr_scale=1.25)
     script.after_model_load(process, True, "Clamp unsafe values", "Balanced", True, 1.2, 2.1, 1.75)
     assert (process.hr_resize_x, process.hr_resize_y) == (1280, 1280)
@@ -339,15 +338,12 @@ def test_safe_scale_is_still_written_as_an_explicit_target(monkeypatch):
     assert (report.hr_resize_x, report.hr_resize_y) == (0, 0)
 
 
-def test_resolution_step_prefers_the_value_forge_loaded(monkeypatch):
-    from types import SimpleNamespace
-
+def test_resolution_step_is_the_setting(monkeypatch):
     script = _guard_script(monkeypatch)
     step = type(script).after_model_load.__globals__["_forge_resolution_step"]
-    _with_resolution_step(monkeypatch, 128)
+    _with_resolution_step(monkeypatch, 128, script)
     assert step() == 128
-    monkeypatch.delitem(sys.modules, "modules.ui")
-    monkeypatch.setitem(type(script).after_model_load.__globals__, "shared", SimpleNamespace(opts=SimpleNamespace(res_step=32)))
+    _with_resolution_step(monkeypatch, 32, script)
     assert step() == 32
 
 
@@ -391,7 +387,7 @@ def test_a_non_finite_limit_is_refused_before_anything_is_guarded(monkeypatch, f
     # 1024x1024 Custom job to 304x304 and recorded it as an ordinary clamp,
     # inf lifted the ceiling, a NaN upscale cap turned the Hires upscale off
     script = _guard_script(monkeypatch)
-    _with_resolution_step(monkeypatch, 64)
+    _with_resolution_step(monkeypatch, 64, script)
     limits = {"base_mp": 1.2, "hires_mp": 2.1, "max_upscale": 1.75, field: value}
     process = _process(width=1024, height=1024, hr_scale=1.4)
     with pytest.raises(ValueError, match=rf"^Anima Hires Guard refuses non-finite script arguments: {field}={value!r}$"):

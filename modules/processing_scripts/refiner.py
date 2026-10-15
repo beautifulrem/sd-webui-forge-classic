@@ -28,21 +28,12 @@ def checkpoint_choices() -> list[str]:
 
 class ScriptRefiner(scripts.ScriptBuiltinUI):
     section = "accordions"
-    create_group = False
-    ckpts = []
 
     def title(self):
         return "Refiner"
 
     def show(self, is_img2img):
         return scripts.AlwaysVisible if shared.opts.show_refiner else None
-
-    @classmethod
-    def refresh_checkpoints(cls):
-        import gradio as gr
-
-        cls.ckpts = checkpoint_choices()
-        return gr.update(choices=cls.ckpts)
 
     def params(self, is_img2img):
         if shared.opts.refiner_use_steps:
@@ -67,72 +58,6 @@ class ScriptRefiner(scripts.ScriptBuiltinUI):
                 ),
             ],
         )
-
-    def ui(self, is_img2img):
-        import gradio as gr
-
-        from modules.infotext_utils import PasteField
-        from modules.ui_components import InputAccordion
-        from modules_forge import main_entry
-
-        self.refresh_checkpoints()
-        with InputAccordion(False, label="Refiner", elem_id=self.elem_id("enable")) as enable_refiner:
-            refiner_checkpoint = gr.Dropdown(
-                value="None",
-                label="Checkpoint",
-                info="(use model of same architecture and quantization)" if shared.opts.refiner_fast_sd else "(use model of same architecture)",
-                elem_id=self.elem_id("checkpoint"),
-                choices=self.ckpts,
-            )
-
-            main_entry.on_refresh_checkpoint(self.refresh_checkpoints, outputs=[refiner_checkpoint])
-
-            with gr.Row():
-                refiner_switch_at = gr.Slider(
-                    value=0.875,
-                    label="Switch at",
-                    minimum=0.0,
-                    maximum=1.0,
-                    step=0.025,
-                    elem_id=self.elem_id("switch_at"),
-                    **(
-                        {"info": "(in steps)", "tooltip": "percentage of total steps"}
-                        if shared.opts.refiner_use_steps
-                        else {
-                            "info": "(in sigmas)",
-                            "tooltip": "Wan 2.2 I2V: 0.9" if is_img2img else "Wan 2.2 T2V: 0.875",
-                        }
-                    ),
-                )
-                refiner_cfg = gr.Slider(
-                    value=0.0,
-                    label="Refiner CFG Scale",
-                    minimum=0.0,
-                    maximum=24.0,
-                    step=0.5,
-                    elem_id=self.elem_id("cfg"),
-                    info="use original if < 1.0",
-                )
-
-            with gr.Accordion(label="LoRA Replacements", open=True):
-                gr.Markdown(LORA_REPLACEMENTS_HELP)
-                replacements = gr.Textbox(
-                    value=lambda: shared.opts.refiner_lora_replacement,
-                    lines=4,
-                    max_lines=12,
-                    placeholder=LORA_REPLACEMENTS_PLACEHOLDER,
-                    show_label=False,
-                )
-                replacements.do_not_save_to_config = True
-
-        self.infotext_fields = [
-            PasteField(enable_refiner, lambda d: "Refiner" in d),
-            PasteField(refiner_checkpoint, lambda d: lookup_checkpoint(d.get("Refiner")), api="refiner_checkpoint"),
-            PasteField(refiner_switch_at, "Refiner switch at", api="refiner_switch_at"),
-            PasteField(refiner_cfg, "Refiner CFG scale", api="refiner_cfg"),
-        ]
-
-        return [enable_refiner, refiner_checkpoint, refiner_switch_at, refiner_cfg, replacements]
 
     def setup(self, p, enable_refiner: bool, refiner_checkpoint: str, refiner_switch_at: float, refiner_cfg: float, replacements: str):
         if not enable_refiner or refiner_checkpoint in (None, "", "None"):

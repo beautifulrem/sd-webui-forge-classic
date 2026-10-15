@@ -82,6 +82,11 @@ export default defineConfig(({ mode }) => {
       include: ["src/**/*.test.{ts,tsx}"],
       css: false,
       restoreMocks: true,
+      // jsdom suites are CPU heavy: half the cores and generous timeouts keep runs stable under load
+      // (the e2e server, pytest) instead of timing out; override with `--maxWorkers`.
+      maxWorkers: "50%",
+      testTimeout: 20_000,
+      hookTimeout: 30_000,
     },
   }
 })

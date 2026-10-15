@@ -43,7 +43,7 @@ export default function CommandPalette() {
       description={t("Search for a page or an action")}
       className="sm:max-w-lg"
     >
-      <CommandRoot loop>
+      <CommandRoot loop label={t("Search for a page or an action")}>
         <CommandInput placeholder={t("Type a command or search…")} />
         <CommandList className="max-h-[min(60vh,26rem)]">
           <CommandEmpty>{t("No results.")}</CommandEmpty>

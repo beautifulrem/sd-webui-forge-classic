@@ -88,7 +88,7 @@ def sniff(head: bytes, name: str = "") -> Sniffed | None:
         return Sniffed("image", "image/bmp", ".bmp")
     if head[:4] in (b"II*\x00", b"MM\x00*"):
         return Sniffed("image", "image/tiff", ".tif")
-    if head.startswith(b"\xff\x0a") or head.startswith(b"\x00\x00\x00\x0cJXL \r\n\x87\n"):
+    if head.startswith((b"\xff\x0a", b"\x00\x00\x00\x0cJXL \r\n\x87\n")):
         return Sniffed("image", "image/jxl", ".jxl")
     if head[4:8] == b"ftyp":
         brand = head[8:12]

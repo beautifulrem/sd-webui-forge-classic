@@ -196,7 +196,6 @@ def test_the_runner_hands_run_the_index(webui):
     with webui_state(script_classes=[data]) as state:
         runner = state.txt2img
         plot = runner.by_id["x_y_z_plot"]
-        assert not plot.layout.legacy
         args = runner.script_args_from_values("X/Y/Z plot", {"x_y_z_plot": {"x_type": "CFG Scale", "x_values": "4, 7"}})
         x_type, x_values = args[plot.args_from : plot.args_from + 2]
         assert plot.current_axis_options[x_type].label == "CFG Scale" and x_values == "4, 7"
@@ -205,5 +204,5 @@ def test_the_runner_hands_run_the_index(webui):
         assert entry["kind"] == "selectable" and entry["args"][:3] == ["x_type", "x_values", "x_values_dropdown"]
 
 
-def test_no_gradio():
-    contract.assert_gradio_free(ROOT / "scripts" / "xyz_grid.py")
+def test_ported():
+    contract.assert_ported(ROOT / "scripts" / "xyz_grid.py")

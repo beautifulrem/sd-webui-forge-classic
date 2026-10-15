@@ -93,7 +93,6 @@ def run(code, task):
 
 
 def check_versions():
-    import gradio
     import torch
     from packaging import version
 
@@ -102,15 +101,10 @@ def check_versions():
     else:
         expected_torch = "2.13.0"
 
-    expected_gradio = "4.40.0"
-
     outdated: list[str] = []
 
     if version.parse(torch.__version__) < version.parse(expected_torch):
         outdated.append(f"You are running PyTorch {torch.__version__}, which is outdated.")
-
-    if version.parse(gradio.__version__) != version.parse(expected_gradio):
-        outdated.append(f"You are running Gradio {gradio.__version__}, while this program was built on Gradio {expected_gradio}.")
 
     if not outdated:
         return

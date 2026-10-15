@@ -16,7 +16,7 @@ describe("splitRef", () => {
   })
   it("splits on the first dot", () => {
     expect(splitRef("core.width", "anima")).toEqual(["core", "width"])
-    expect(splitRef("legacy.#0", "x")).toEqual(["legacy", "#0"])
+    expect(splitRef("misc-ext.pair", "x")).toEqual(["misc-ext", "pair"])
   })
 })
 

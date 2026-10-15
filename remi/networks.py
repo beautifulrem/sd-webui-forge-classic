@@ -14,9 +14,9 @@ ids from the :class:`remi.files.FileStore` (WebP thumbnails are served by
 ``/thumbs``) and a tiny blurred placeholder computed in the background.
 Paths are only exposed relative to their model folder.
 
-Extensions add kinds with :func:`register_provider` or, without Gradio,
-:func:`register_extra_page` (any object with ``title``, ``list_items()`` and
-the ``ExtraNetworksPage`` item dictionaries).
+Extensions add kinds with :func:`register_provider`, :func:`register_extra_page`
+(any object with ``title``, ``list_items()`` and the ``ExtraNetworksPage``
+item dictionaries) or A1111's ``modules.ui_extra_networks.register_page``.
 """
 
 from __future__ import annotations
@@ -177,7 +177,7 @@ def register_provider(kind: str, provider: Provider, info: KindInfo | None = Non
 
 
 def register_extra_page(page: Any) -> None:
-    """Add an extra-networks page without Gradio (``ExtraNetworksPage``
+    """Add an extra-networks page (``ExtraNetworksPage``
     protocol: ``title``, ``list_items()``, optional ``refresh()``,
     ``allow_negative_prompt``)."""
 
@@ -204,12 +204,12 @@ def providers() -> dict[str, Provider]:
 
 
 def extra_pages() -> list[Any]:
-    """Pages from ``modules.ui_extra_networks`` (when something loaded it;
-    never imported here: it imports Gradio) and :func:`register_extra_page`,
-    except the built-in LoRA / Textual Inversion / Checkpoints pages."""
+    """Pages registered with ``modules.extra_networks_pages.register_page``
+    (when something loaded it) and :func:`register_extra_page`, except the
+    built-in LoRA / Textual Inversion / Checkpoints pages."""
 
-    module = sys.modules.get("modules.ui_extra_networks")
-    pages = list(getattr(module, "extra_pages", None) or []) + _extra_pages
+    module = sys.modules.get("modules.extra_networks_pages")
+    pages = [page for page in getattr(module, "extra_pages", None) or [] if page not in _extra_pages] + _extra_pages
     builtin = {"lora", "textual inversion", "checkpoints"}
     return [page for page in pages if str(getattr(page, "name", getattr(page, "title", ""))).lower() not in builtin]
 

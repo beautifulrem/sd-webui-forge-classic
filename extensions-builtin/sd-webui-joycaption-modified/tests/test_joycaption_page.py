@@ -106,7 +106,7 @@ LEGACY_QUANTS_WITH_BNB = ["bf16 (best quality, ~17 GB VRAM)", "int8 (~10 GB VRAM
 
 
 @pytest.mark.parametrize("bitsandbytes", [False, True])
-def test_layout_matches_the_gradio_tab(page, jc, monkeypatch, bitsandbytes):
+def test_layout_matches_the_legacy_tab(page, jc, monkeypatch, bitsandbytes):
     snapshot = harness.load_snapshot(SCRIPT)
     assert snapshot["title"] == page.title == "JoyCaption"
     assert snapshot["inputs"][0]["choices"] == LEGACY_QUANTS_WITH_BNB[:1]
@@ -151,8 +151,8 @@ def _walk(node):
             yield from _walk(child)
 
 
-def test_no_gradio_left():
-    harness.assert_page_gradio_free(EXT, [SCRIPT])
+def test_no_tab_code_left():
+    harness.assert_page_standalone(EXT, [SCRIPT])
 
 
 # endregion

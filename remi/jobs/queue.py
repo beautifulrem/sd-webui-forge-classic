@@ -82,7 +82,6 @@ def layout_hash(tab: str) -> str:
         parts += [(script.script_id, runner.layout_for(script).names) for script in runner.scripts]
     else:
         from modules import scripts
-
         from remi.core.extras import assign_args
 
         parts += [(layout.owner, layout.names) for _script, layout in assign_args(scripts.scripts_postproc)]
@@ -173,10 +172,14 @@ class JobQueue:
             job = self._claimed
         if interrupt and job is not None:
             self._signal(job.id, self._interrupted)
+        stopped = True
         if self._thread is not None:
             self._thread.join(timeout)
-            return not self._thread.is_alive()
-        return True
+            stopped = not self._thread.is_alive()
+        # The process-wide progress registry mirrors a running queue: start() registers them again
+        for queued in self.store.queued():
+            self._pending_done(queued)
+        return stopped
 
     @contextlib.contextmanager
     def hold(self) -> Iterator[None]:
@@ -511,6 +514,8 @@ class JobQueue:
             self._fail(job, self._error_message(error))
             return
         finally:
+            # The executor starts the progress task; one that failed (or never got there) must not stay "pending".
+            self._pending_done(job)
             self.poll()
         status = CANCELLED if job.id in self._cancelled else INTERRUPTED if job.id in self._interrupted else COMPLETED
         outputs = self._register(job, result or JobResult())

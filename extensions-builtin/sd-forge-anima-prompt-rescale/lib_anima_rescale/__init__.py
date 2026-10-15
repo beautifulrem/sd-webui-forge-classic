@@ -1,4 +1,4 @@
-"""Pure prompt-schedule rescaling helpers (no Forge/gradio dependency)."""
+"""Pure prompt-schedule rescaling helpers (no Forge dependency)."""
 
 from .rescale import (
     executed_steps,

@@ -162,7 +162,7 @@ export function createFormStore(formId: string, { persistDrafts = true } = {}): 
       for (const spec of owners) {
         const ownerValues: OwnerValues = {}
         const ownerDefaults: OwnerValues = {}
-        // Defaults for names without a node (e.g. legacy positional extras) are kept verbatim.
+        // Defaults for names without a node (e.g. hidden state) are kept verbatim.
         for (const [name, value] of Object.entries(spec.defaults)) {
           ownerDefaults[name] = value
           ownerValues[name] = value

@@ -105,8 +105,8 @@ def test_every_string_has_a_zh_cn_translation():
     harness.assert_localized(layouts, ROOT / "localizations" / "zh_CN.json", skip_choices=("history",), extra=("Anima random resolution",))
 
 
-def test_the_extension_imports_no_gradio():
-    harness.assert_gradio_free(SCRIPT)
+def test_the_extension_is_ported():
+    harness.assert_ported(SCRIPT)
     source = SCRIPT.read_text(encoding="utf8")
     assert "on_after_component" not in source and "print(" not in source
 

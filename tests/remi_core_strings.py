@@ -63,7 +63,6 @@ def _text_strings(node, found: set[str]) -> None:
 # (a new lowercase label anywhere else is UI text and must be translated)
 DATA_CHOICES = frozenset(
     {
-        "gradio_theme",  # theme repository names
         "samples_format",  # file formats
         "grid_format",
         "live_previews_image_format",
@@ -188,4 +187,4 @@ if __name__ == "__main__":
     if options.out:
         options.out.write_text(text + "\n", encoding="utf-8")
     else:
-        print(text)
+        print(text)  # noqa: T201 - command-line output

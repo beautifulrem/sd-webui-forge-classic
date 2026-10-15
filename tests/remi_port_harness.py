@@ -1,9 +1,8 @@
-"""Harness for extension scripts ported from Gradio ``ui()`` to ``params()``.
+"""Harness for extension scripts ported from A1111's ``ui()`` to ``params()``.
 
 Not a test module; extension suites load it by file path (the repo
 ``tests`` folder is not an importable package there, see
-``extension_script_harness.py``). Nothing but the recording CLI imports
-Gradio:
+``extension_script_harness.py``):
 
 - :func:`prepare_imports` / :func:`load_script` import an extension script
   as Forge does; :func:`script_layout` builds its ``ScriptLayout`` for a tab
@@ -12,20 +11,14 @@ Gradio:
   (kind, label, default, bounds or choices, widget, infotext key, paste
   function, Anima preset field, and the wiring: exclusive lock,
   ``visible_if`` / ``enabled_if``); :func:`assert_matches_snapshot` compares
-  it with the legacy ``ui()`` record, listing every intended difference.
-- :func:`assert_gradio_free` imports scripts with Gradio blocked.
+  it with the legacy ``ui()`` record (``tests/fixtures/legacy_ui_<tab>.json``
+  of each extension, recorded from the Gradio UI before it was removed),
+  listing every intended difference.
+- :func:`assert_imports_standalone` imports scripts in a fresh interpreter.
 - :func:`ui_strings` / :func:`assert_localized` check an extension's
   ``localizations/<locale>.json`` covers every string its schema shows (core
   ``localizations/<locale>.json`` may cover some) without contradicting the
   core or language pack catalogs it is merged with.
-
-Before a panel is ported its Gradio ``ui()`` is recorded once::
-
-    /tmp/remi-testenv/bin/python tests/remi_port_harness.py \\
-        extensions-builtin/<ext>/scripts/<script>.py [--class Name] [--tabs ...]
-
-which writes ``extensions-builtin/<ext>/tests/fixtures/legacy_ui_<tab>.json``
-for the tabs the script shows on, or the ``--tabs`` given.
 """
 
 from __future__ import annotations
@@ -150,25 +143,13 @@ def assert_localized(extension_root: str | Path, schemas: Iterable[Any], locale:
     return catalog
 
 
-GRADIO_BLOCKER = """
-import importlib.abc, sys
-
-class NoGradio(importlib.abc.MetaPathFinder):
-    def find_spec(self, name, path=None, target=None):
-        if name.partition(".")[0] in ("gradio", "gradio_client", "gradio_rangeslider"):
-            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
-
-sys.meta_path.insert(0, NoGradio())
-"""
-
-
-def assert_gradio_free(scripts: Iterable[str | Path], *, preimport: Iterable[str] = (), modules: Iterable[str] = (), extra_paths: Iterable[str | Path] = ()) -> None:
+def assert_imports_standalone(scripts: Iterable[str | Path], *, preimport: Iterable[str] = (), modules: Iterable[str] = (), extra_paths: Iterable[str | Path] = ()) -> None:
     """Each script file and module of ``modules`` (e.g. a core processing
-    script) imports (in a fresh interpreter, default options as at a WebUI
-    start) with Gradio blocked, and nothing it imports loads it."""
+    script) imports in a fresh interpreter, default options as at a WebUI
+    start, with only the WebUI's own dependencies."""
 
     paths = [str(REPO), str(REPO / "modules_forge" / "packages"), *(str(path) for path in extra_paths)]
-    lines = [GRADIO_BLOCKER, "import importlib.util, sys", "sys.argv = sys.argv[:1]"]
+    lines = ["import importlib.util, sys", "sys.argv = sys.argv[:1]"]
     lines += [f"import {name}" for name in preimport]
     lines += ["from remi.testing import webui_state", "with webui_state():", "    pass"]
     lines += [f"    import {name}" for name in modules]
@@ -176,13 +157,13 @@ def assert_gradio_free(scripts: Iterable[str | Path], *, preimport: Iterable[str
         script = Path(script).resolve()
         lines += [
             f"    sys.path.insert(0, {str(script.parents[1])!r})",
-            f"    spec = importlib.util.spec_from_file_location('gradio_free_{index}', {str(script)!r})",
+            f"    spec = importlib.util.spec_from_file_location('standalone_{index}', {str(script)!r})",
             "    spec.loader.exec_module(importlib.util.module_from_spec(spec))",
         ]
-    lines += ["assert not any(name.partition('.')[0] == 'gradio' for name in sys.modules)", "print('gradio-free')"]
+    lines += ["print('imported')"]
     env = {**os.environ, "PYTHONPATH": os.pathsep.join(paths)}
     result = subprocess.run([sys.executable, "-c", "\n".join(lines)], cwd=REPO, env=env, capture_output=True, text=True, timeout=600)
-    assert result.returncode == 0 and result.stdout.strip().endswith("gradio-free"), result.stdout[-2000:] + result.stderr[-4000:]
+    assert result.returncode == 0 and result.stdout.strip().endswith("imported"), result.stdout[-2000:] + result.stderr[-4000:]
 
 
 def describe(layout, ctx=None) -> list[dict[str, Any]]:
@@ -244,83 +225,8 @@ def assert_matches_snapshot(layout, snapshot: list[dict[str, Any]], changes: Map
         for key in WIRING_KEYS:
             entry.setdefault(key, None)
     assert len(actual) == len(expected), f"{len(actual)} arguments, the legacy ui() had {len(snapshot)} (+{len(expected) - len(snapshot)} added)"
-    for index, (got, want) in enumerate(zip(actual, expected)):
+    for index, (got, want) in enumerate(zip(actual, expected, strict=True)):
         for key in sorted(set(got) | set(want)):
             if want.get(key) is ...:
                 continue
             assert got.get(key) == want.get(key), f"argument {index} ({got['label']!r}): {key} is {got.get(key)!r}, expected {want.get(key)!r}"
-
-
-# region Recording a legacy ui() (needs Gradio)
-
-
-def legacy_snapshot(script, tab: str) -> list[dict[str, Any]]:
-    """Build ``script``'s Gradio ``ui()`` for ``tab`` and describe it."""
-
-    import gradio as gr
-
-    from modules.anima_presets import preset_controls, reset_preset_controls
-    from remi.ui.legacy import legacy_layout
-
-    reset_preset_controls(tab)
-    script.tabname = tab
-    script.is_img2img = tab == "img2img"
-    script.is_txt2img = not script.is_img2img
-    script.infotext_fields = []
-    with gr.Blocks():
-        controls = list(script.ui(script.is_img2img) or [])
-    layout = legacy_layout("legacy", controls, script.infotext_fields)
-    names, components, _values = preset_controls(tab)
-    presets = {id(component): name for name, component in zip(names, components)}
-    entries = describe(layout)
-    for entry, control in zip(entries, controls):
-        entry["preset"] = presets.get(id(control))
-    return entries
-
-
-def _record(script_path: Path, class_name: str | None, tabs: list[str] | None, preimport: list[str]) -> list[Path]:
-    prepare_imports()
-    spec = importlib.util.spec_from_file_location("extension_script_harness", REPO / "tests" / "extension_script_harness.py")
-    harness = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(harness)
-    harness.prepare_webui_imports()
-    for name in preimport:
-        importlib.import_module(name)
-
-    from modules import scripts
-    from remi.testing import webui_state
-
-    written = []
-    with webui_state():  # default options, as a fresh WebUI start
-        module = harness.load_script(script_path, f"legacy_snapshot_{script_path.stem}")
-        classes = [value for value in vars(module).values() if isinstance(value, type) and issubclass(value, scripts.Script) and value.__module__ == module.__name__]
-        if class_name:
-            classes = [cls for cls in classes if cls.__name__ == class_name]
-        if len(classes) != 1:
-            raise SystemExit(f"expected one script class in {script_path}, found {[cls.__name__ for cls in classes]} (use --class)")
-        for tab in tabs or TABS:
-            script = classes[0]()
-            script.filename = str(script_path)
-            script.is_img2img = tab == "img2img"
-            if not tabs and not script.show(script.is_img2img):
-                continue
-            target = fixture_path(script_path, tab)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(json.dumps(legacy_snapshot(script, tab), indent=1, ensure_ascii=False) + "\n", encoding="utf8")
-            written.append(target)
-    return written
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("script", type=Path)
-    parser.add_argument("--class", dest="class_name")
-    parser.add_argument("--tabs", nargs="+", choices=TABS, help="record these tabs whatever show() says (e.g. a panel gated on an optional package)")
-    parser.add_argument("--preimport", nargs="+", default=[], help="modules to import first (e.g. to settle a circular import the WebUI's start order avoids)")
-    options = parser.parse_args()
-    for path in _record(options.script.resolve(), options.class_name, options.tabs, options.preimport):
-        print(path.relative_to(REPO))
-
-# endregion

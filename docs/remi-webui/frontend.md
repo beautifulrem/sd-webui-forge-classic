@@ -245,12 +245,10 @@ Rules the renderer implements:
 - **Slots**: scripts render in the core layout's `slot` whose `section`
   matches, sorted by `order`; unknown/absent sections go to `scripts`, which
   is appended after the core layout if the schema has no such slot. A script
-  whose layout is not a section or titled group (e.g. a legacy script's
-  untitled group of `#i` inputs, the `sampler` row) gets a titled frame; an
-  untitled group's own box is replaced by it. A legacy script's flat input
-  list (sometimes hundreds of inputs) is instead a closed section titled by
-  the script, as its Gradio accordion was; the extensions panel lists every
-  untitled script that way too.
+  whose layout is not a section or titled group (e.g. an untitled group,
+  the `sampler` row) gets a titled frame; an untitled group's own box is
+  replaced by it. The extensions panel lists every untitled script as a
+  closed section titled by the script.
 - **Uploads**: images are previewed from object URLs; removing / replacing
   an image revokes its URL once no form store references the id, older
   unreferenced previews are swept before each upload, and at most 24 are
@@ -891,7 +889,7 @@ real schema — `sampler`, `seed` and `refiner` are scripts in the `sampler`,
 toggle is exclusive, has `on_change: hr_resolution` and an output line, and
 `conflict_params` lists the lockable params — and covers every node kind and
 condition operator, cross-owner conditions, an unknown slot, a selectable
-script, a legacy positional script (untitled group, like `legacy_layout`), a
+script, a script with an untitled group of JSON params, a
 bound tabs node, an Anima-like section (enable toggle, preset action,
 exclusive locks, custom widget) and a ControlNet-like section (uploads,
 `on_change`, sanitised HTML). The mock `__conflicts__` reads the `scripts`
@@ -915,6 +913,10 @@ code.
 built-in processing scripts). Tests only; never bundled.
 
 ## Tests
+
+`tools/check.sh` runs every gate (Python and SPA) in one command; see
+[testing.md](testing.md) for the steps, the end-to-end and axe suites, the
+real-server smoke test and CI.
 
 `pnpm test` runs Vitest in jsdom: condition evaluator (incl. Python
 semantics), form store (drafts and their coercion, reset, patches,

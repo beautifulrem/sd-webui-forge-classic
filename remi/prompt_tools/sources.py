@@ -293,7 +293,7 @@ class ChantIndex:
         if not q:
             return chants[:limit]
         prefix, rest = [], []
-        for chant, haystack in zip(chants, haystacks):
+        for chant, haystack in zip(chants, haystacks, strict=True):
             if chant.name.lower().startswith(q):
                 prefix.append(chant)
             elif all(term in haystack for term in q.split()):

@@ -1,8 +1,8 @@
 """Shared, deterministic conflict rules for Anima generation controls.
 
-The pure resolvers in this module are used by both Gradio callbacks and
-processing-time validation.  GUI callbacks pass ``selected`` so the user's
-last action wins.  API/CLI processing omits it, which keeps the primary
+The pure resolvers in this module are used by both the WebUI's conflict
+actions (``remi.core.conflicts``) and processing-time validation.  UI
+actions pass ``selected`` so the user's last action wins.  API/CLI processing omits it, which keeps the primary
 algorithm choice and safely drops incompatible auxiliary switches.
 """
 
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from functools import partial
 from typing import Any
 
 
@@ -467,109 +466,3 @@ def exclusive_group_order(group: str, members) -> tuple[str, ...]:
 
 
 # endregion
-
-
-_EXCLUSIVE_UI_COMPONENTS: dict[
-    tuple[str, str], dict[str, Any]
-] = {}
-_EXCLUSIVE_UI_SIGNATURES: dict[tuple[str, str], tuple[int, ...]] = {}
-
-
-def _exclusive_gradio_updates(
-    names: tuple[str, ...], selected: str, *enabled: bool
-):
-    import gradio as gr
-
-    state = resolve_exclusive_features(names, tuple(enabled), selected=selected)
-    return [
-        gr.update(value=value, interactive=interactive)
-        for value, interactive in zip(state.enabled, state.interactive)
-    ]
-
-
-def wire_exclusive_components(
-    names: tuple[str, ...], components: tuple[Any, ...]
-) -> None:
-    """Wire a complete one-of-N Gradio group using the pure resolver."""
-
-    if len(names) != len(components) or any(component is None for component in components):
-        return
-    for selected, component in zip(names, components):
-        component.change(
-            fn=partial(_exclusive_gradio_updates, names, selected),
-            inputs=list(components),
-            outputs=list(components),
-            queue=False,
-            show_progress=False,
-        )
-
-
-def _tab_build(tab: str) -> Any:
-    """The UI build of ``tab`` under way: its prompt, the first component
-    each build of a tab creates (the marker the presets extension resets its
-    registry on), in the Gradio Blocks being built. None outside a build."""
-
-    from gradio.context import Context
-
-    root = Context.root_block
-    if root is None:
-        return None
-    marker = f"{tab}_prompt"
-    return next((block for block in root.blocks.values() if getattr(block, "elem_id", None) == marker), root)
-
-
-def _current_exclusive_updates(key, signature, names, selected, *enabled):
-    """The group's updates from the handlers of its latest wiring; those of
-    a wiring a later member superseded change nothing."""
-
-    if _EXCLUSIVE_UI_SIGNATURES.get(key) != signature:
-        import gradio as gr
-
-        return [gr.update() for _ in names]
-    return _exclusive_gradio_updates(names, selected, *enabled)
-
-
-def register_exclusive_component(
-    *,
-    tab: str,
-    group: str,
-    names: tuple[str, ...],
-    name: str,
-    component: Any,
-) -> None:
-    """Collect cross-extension controls of a one-of-N group and wire the ones
-    present: a member whose extension is disabled is left out.
-
-    A new build of ``tab`` (Reload UI) starts the group afresh, so handles of
-    the previous Gradio tree are not kept. Each member registered after the
-    second re-wires the group with it; the handlers wired before then change
-    nothing any more.
-    """
-
-    if name not in names:
-        raise ValueError(f"{name!r} is not a member of conflict group {group!r}")
-    key = (str(tab), str(group))
-    build = _tab_build(tab)
-    bucket = _EXCLUSIVE_UI_COMPONENTS.get(key)
-    if bucket is None or bucket.get("build") is not build:
-        bucket = _EXCLUSIVE_UI_COMPONENTS[key] = {"build": build, "members": {}}
-        _EXCLUSIVE_UI_SIGNATURES.pop(key, None)
-    members = bucket["members"]
-    members[name] = component
-
-    present = tuple(member for member in names if member in members)
-    if len(present) < 2:
-        return
-    components = tuple(members[member] for member in present)
-    signature = tuple(id(item) for item in components)
-    if _EXCLUSIVE_UI_SIGNATURES.get(key) == signature:
-        return
-    _EXCLUSIVE_UI_SIGNATURES[key] = signature
-    for selected, item in zip(present, components):
-        item.change(
-            fn=partial(_current_exclusive_updates, key, signature, present, selected),
-            inputs=list(components),
-            outputs=list(components),
-            queue=False,
-            show_progress=False,
-        )

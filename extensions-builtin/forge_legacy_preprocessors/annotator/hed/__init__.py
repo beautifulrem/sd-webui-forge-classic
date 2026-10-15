@@ -3,7 +3,7 @@
 # This implementation may produce slightly different results from Saining Xie's official implementations,
 # but it generates smoother edges and is more suitable for ControlNet as well as other image-to-image translations.
 # Different from official models and other implementations, this is an RGB-input model (rather than BGR)
-# and in this way it works better for gradio's RGB protocol
+# and in this way it works better with RGB images
 
 import os
 import cv2

@@ -1,5 +1,5 @@
-"""The gallery's "Save", "Save zip" and "Open folder" (``ui_common`` of the
-Gradio UI, without Gradio): copies of outputs go to ``opts.outdir_save``
+"""The gallery's "Save", "Save zip" and "Open folder" (A1111's ``ui_common``
+behaviour): copies of outputs go to ``opts.outdir_save``
 through the normal save path (filename pattern, ``on_image_saved``,
 ``log.csv``)."""
 
@@ -180,7 +180,7 @@ def output_folder(kind: str) -> str:
 
 def open_folder(path: str) -> None:
     """Open ``path`` in the file manager of the machine running the WebUI
-    (``util.open_folder`` without Gradio)."""
+    (also behind ``util.open_folder``)."""
 
     if not os.path.isdir(path):
         raise GalleryError("the folder does not exist yet (it is created when an image is saved)", 404)

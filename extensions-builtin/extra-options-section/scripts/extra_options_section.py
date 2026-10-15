@@ -92,7 +92,6 @@ shared.options_templates.update(
                 ui.MultiChoice,
                 lambda: {"choices": list(shared.opts.data_labels.keys())},
             )
-            .js("info", "settingsHintsShowQuicksettings")
             .info("setting entries that also appear in txt2img interfaces")
             .needs_reload_ui(),
             "extra_options_img2img": shared.OptionInfo(
@@ -101,7 +100,6 @@ shared.options_templates.update(
                 ui.MultiChoice,
                 lambda: {"choices": list(shared.opts.data_labels.keys())},
             )
-            .js("info", "settingsHintsShowQuicksettings")
             .info("setting entries that also appear in img2img interfaces")
             .needs_reload_ui(),
             "extra_options_cols": shared.OptionInfo(

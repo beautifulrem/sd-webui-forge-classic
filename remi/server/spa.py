@@ -18,7 +18,7 @@ from pathlib import Path
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from starlette.types import Receive, Scope, Send
 
-from remi.server.auth import Auth, route_path, refusal, refuse
+from remi.server.auth import Auth, refusal, refuse, route_path
 
 DIST = Path(__file__).resolve().parents[2] / "webui" / "dist"
 API_PREFIXES = ("/api/", "/sdapi/", "/internal/")

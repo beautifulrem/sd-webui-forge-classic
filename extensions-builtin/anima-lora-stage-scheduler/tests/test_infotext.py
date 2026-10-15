@@ -176,7 +176,7 @@ def test_params_and_process_name_the_script_args_in_table_order(module, monkeypa
         module.Script().process(SimpleNamespace(), *args, "not a script arg")
 
 
-def test_the_gradio_panels_26_positional_args_run_the_same_schedule(module):
+def test_the_legacy_panels_26_positional_args_run_the_same_schedule(module):
     """The Gradio panel passed each timing control on its own: the folded
     timing value runs exactly the same schedule."""
 

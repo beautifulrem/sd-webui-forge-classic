@@ -216,7 +216,6 @@ export type ScriptSchema = {
   section?: string | null
   order?: number
   visible_if?: Condition | null
-  legacy?: boolean
   layout: Node | null
   defaults: OwnerDefaults
   args?: string[]

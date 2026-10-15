@@ -19,7 +19,8 @@ const INDIRECT = /(app\/(routes|App|AppearanceMenu|Header)\.tsx|pages\/.*\.tsx?|
 function chromeKeys(): Set<string> {
   const keys = new Set<string>()
   for (const [path, source] of Object.entries(sources)) {
-    for (const m of source.matchAll(/\bt\(\s*"((?:[^"\\]|\\.)+)"/g)) keys.add(m[1]!)
+    // `t("…", { ns: … })` names a widget's own catalog (checked by the widget's tests), not chrome.
+    for (const m of source.matchAll(/\bt\(\s*"((?:[^"\\]|\\.)+)"(\s*,\s*\{\s*ns:)?/g)) if (!m[2]) keys.add(m[1]!)
     if (INDIRECT.test(path)) {
       for (const m of source.matchAll(/\b(?:label|title|description): "([^"]+)"/g)) keys.add(m[1]!)
       for (const m of source.matchAll(/\b(?:group): "([A-Z][^"]+)"/g)) keys.add(m[1]!)

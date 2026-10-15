@@ -129,7 +129,7 @@ describe("form store", () => {
     store.getState().load(tabOwners(schema))
     const s = store.getState()
     expect(s.values.anima!.preset).toBe("balanced")
-    expect(s.values["legacy-ext"]?.["#1"]).toEqual([0.5, "auto"])
+    expect(s.values["misc-ext"]?.pair).toEqual([0.5, "auto"])
     expect(s.values.sampler).toEqual({ steps: 28, sampler_name: "Euler a", scheduler: "Automatic" })
     expect(s.index.slots).toEqual(new Set(["sampler", "seed", "accordions", "scripts"]))
   })

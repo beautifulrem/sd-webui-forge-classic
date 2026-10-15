@@ -3,20 +3,19 @@ import sys
 from dataclasses import dataclass
 
 from modules import errors
-from modules.paths_internal import script_path
 from modules.shared_cmd_options import cmd_opts
 from remi import ui
 
 
 class OptionInfo:
     """One setting. ``component`` is a ``remi.ui`` widget class (``ui.Slider``,
-    ``ui.Choice``, ...; see remi/ui/settings.py) with Gradio-style
-    ``component_args``; ``None`` picks one from the default's type."""
+    ``ui.Choice``, ...; see remi/ui/settings.py) with its ``component_args``;
+    ``None`` picks one from the default's type."""
 
     def __init__(self, default=None, label="", component=None, component_args=None, onchange=None, section=None, refresh=None, comment_before='', comment_after='', infotext=None, restrict_api=False, category_id=None):
         self.default = default
         self.label = label
-        self.widget = component
+        self.component = component
         self.component_args = component_args
         self.onchange = onchange
         self.section = section
@@ -42,26 +41,14 @@ class OptionInfo:
         self.restrict_api = restrict_api
         """If True, the setting will not be accessible via API"""
 
-    @property
-    def component(self):
-        """What the legacy Gradio settings page instantiates: the Gradio
-        equivalent of a ``remi.ui`` widget (other values as given)."""
-
-        from remi.ui.settings import legacy_gradio_component
-
-        return legacy_gradio_component(self.widget)
-
-    @component.setter
-    def component(self, value):
-        self.widget = value
-
     def link(self, label, url):
         self.comment_before += f"[<a href='{url}' target='_blank'>{label}</a>]"
         self.links.append((label, url))
         return self
 
     def js(self, label, js_func):
-        self.comment_before += f"[<a onclick='{js_func}(); return false'>{label}</a>]"
+        """A1111 link running a client-side function of the old settings page; ignored."""
+
         return self
 
     def info(self, info):

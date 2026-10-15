@@ -1,7 +1,7 @@
 """Shared helpers for the tests of extension scripts ported to ``params()``.
 
 Not a test module: extension suites load it by file path (see
-tests/extension_script_harness.py for why). Nothing here imports Gradio.
+tests/extension_script_harness.py for why).
 
 - :func:`load_script` imports a script file as Forge does.
 - :func:`script_layout` builds a script's ``ScriptLayout`` for a tab, as the
@@ -12,7 +12,7 @@ tests/extension_script_harness.py for why). Nothing here imports Gradio.
 - :func:`replayed_args` replays a run's infotext into a layout: the paste
   (onto the values the form had) and the API's infotext replay (onto the
   defaults) both read the infotext through the layout.
-- :func:`assert_gradio_free` checks an extension's sources and imports.
+- :func:`assert_standalone` checks an extension's sources and imports.
 """
 
 from __future__ import annotations
@@ -122,7 +122,7 @@ def assert_matches_legacy(layout, extension_root, tab, *, changed: Mapping[tuple
         names, ported = names[: -len(extra)], ported[: -len(extra)]
     legacy = legacy_contract(extension_root, tab)
     assert len(ported) == len(legacy), (names, len(legacy))
-    for name, now, before in zip(names, ported, legacy):
+    for name, now, before in zip(names, ported, legacy, strict=True):
         expected = {key: changed.get((name, key), value) for key, value in before.items()}
         actual = {key: now.get(key) for key in expected}
         assert actual == expected, name
@@ -148,7 +148,7 @@ def _forge_source(path: str, names: set[str], namespace: dict) -> dict:
         for node in tree.body
         if (isinstance(node, ast.FunctionDef) and node.name in names) or (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", None) in names)
     ]
-    exec(compile(ast.Module(nodes, []), path, "exec"), namespace)  # noqa: S102 - the WebUI's own source
+    exec(compile(ast.Module(nodes, []), path, "exec"), namespace)
     return namespace
 
 
@@ -230,38 +230,30 @@ def assert_localized(extension_root: Path | str, layouts, locale: str = "zh_CN")
     assert sorted(set(catalog) - set(strings)) == []
 
 
-def gradio_imports(extension_root: Path | str) -> list[str]:
-    """``file:line`` of every Gradio import in the extension's Python files."""
-
-    found = []
-    for path in sorted(Path(extension_root).rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            names = [alias.name for alias in node.names] if isinstance(node, ast.Import) else [node.module or ""] if isinstance(node, ast.ImportFrom) else []
-            if any(name == "gradio" or name.startswith(("gradio.", "gradio_")) for name in names):
-                found.append(f"{path.relative_to(extension_root)}:{node.lineno}")
-    return found
-
-
-def assert_gradio_free(extension_root: Path | str, scripts: tuple[str, ...]) -> None:
-    """No Gradio import in the extension's sources, and its ``scripts``
-    (paths relative to it) load and build their layouts with Gradio blocked."""
+def assert_standalone(extension_root: Path | str, scripts: tuple[str, ...]) -> None:
+    """No A1111 UI hook (``ui()``, component callbacks) left in the
+    extension's sources, and its ``scripts`` (paths relative to it) load and
+    build their layouts in a fresh interpreter."""
 
     extension_root = Path(extension_root).resolve()
-    assert gradio_imports(extension_root) == []
+    hooks = {"ui", "on_before_component", "on_after_component", "before_component", "after_component"}
+    for path in sorted(extension_root.rglob("*.py")):
+        if "tests" in path.relative_to(extension_root).parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        left = [f"{cls.name}.{item.name}" for cls in ast.walk(tree) if isinstance(cls, ast.ClassDef) for item in cls.body if isinstance(item, ast.FunctionDef) and item.name in hooks]
+        assert left == [], f"{path.name}: {left}"
     code = f"""
 import sys
-sys.modules["gradio"] = None
 sys.path.insert(0, {str(REPO / "tests")!r})
 import remi_script_harness as harness
 for index, path in enumerate({[str(extension_root / script) for script in scripts]!r}):
-    module = harness.load_script(path, f"gradio_free_{{index}}")
+    module = harness.load_script(path, f"standalone_{{index}}")
     from modules import scripts
     for value in list(vars(module).values()):
         if isinstance(value, type) and issubclass(value, scripts.Script) and value.__module__ == module.__name__:
             for tab in ("txt2img", "img2img"):
                 harness.script_layout(value(), tab)
-assert "gradio" not in [name for name, mod in sys.modules.items() if mod is not None and name.split(".")[0] == "gradio"]
 print("ok")
 """
     result = subprocess.run([sys.executable, "-c", code], cwd=str(REPO), capture_output=True, text=True, env={**os.environ, "PYTHONPATH": str(REPO)}, timeout=600)

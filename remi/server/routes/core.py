@@ -205,7 +205,6 @@ def _action_target(owner: str, tab: str | None) -> Any:
         raise HTTPException(status_code=422, detail=str(error)) from error
     if runner is None:
         from modules import scripts
-
         from remi.core.extras import assign_args
 
         for operation, layout in assign_args(scripts.scripts_postproc):

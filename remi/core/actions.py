@@ -42,7 +42,7 @@ class CoreActions:
 
     @ui.action("hr_resolution")
     def hr_resolution(self, ctx: ui.ActionContext, values: dict) -> Patch:
-        """The "Upscaled resolution" line of Hires. fix (``modules.ui.calc_resolution_hires``)."""
+        """The "Upscaled resolution" line of Hires. fix."""
 
         from remi.core.forms import hires_resolution_layout
 

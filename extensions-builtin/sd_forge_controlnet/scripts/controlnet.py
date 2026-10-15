@@ -535,13 +535,13 @@ class ControlNetForForgeOfficial(scripts.Script):
         preprocessor = global_state.get_preprocessor(unit.module)
 
         if unit.processor_res < 0:
-            unit.processor_res = int(preprocessor.slider_resolution.gradio_update_kwargs.get("value", 512))
+            unit.processor_res = int(preprocessor.slider_resolution.slider_kwargs.get("value", 512))
 
         if unit.threshold_a < 0:
-            unit.threshold_a = int(preprocessor.slider_1.gradio_update_kwargs.get("value", 1.0))
+            unit.threshold_a = int(preprocessor.slider_1.slider_kwargs.get("value", 1.0))
 
         if unit.threshold_b < 0:
-            unit.threshold_b = int(preprocessor.slider_2.gradio_update_kwargs.get("value", 1.0))
+            unit.threshold_b = int(preprocessor.slider_2.slider_kwargs.get("value", 1.0))
 
         return
 

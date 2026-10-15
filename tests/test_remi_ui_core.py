@@ -10,6 +10,8 @@ from PIL import Image
 from remi import ui
 from remi.testing import webui_state
 
+# The legacy Gradio txt2img inputs, in their positional order
+LEGACY_ARGS = ("prompt", "negative_prompt", "styles", "batch_count", "batch_size", "cfg_scale", "distilled_cfg_scale", "height", "width", "enable_hr", "denoising_strength", "hr_scale", "hr_upscaler", "hr_second_pass_steps", "hr_resize_x", "hr_resize_y", "hr_checkpoint_name", "hr_additional_modules", "hr_sampler_name", "hr_scheduler", "hr_prompt", "hr_negative_prompt", "hr_cfg", "hr_distilled_cfg", "override_settings")
 TXT2IMG_LEGACY_DEFAULTS = {
     "prompt": "",
     "negative_prompt": "",
@@ -56,7 +58,6 @@ def anima_checkpoint(monkeypatch):
 
 
 def test_txt2img_form_has_the_legacy_inputs_and_defaults(webui):
-    from modules.txt2img import LEGACY_ARGS
     from remi.core.tabs import core_layout
 
     layout = core_layout("txt2img")
@@ -72,7 +73,7 @@ def test_img2img_and_extras_forms(webui):
     img2img = core_layout("img2img")
     defaults = img2img.defaults()
     assert defaults["mode"] == "img2img" and defaults["resize_mode"] == "Crop and Resize" and defaults["inpaint_full_res"] == "Only masked"
-    args = dict(zip(img2img.names, img2img.values_to_args({"mode": "Inpaint upload", "resize_tab": "Resize by", "inpainting_fill": "latent noise"})))
+    args = dict(zip(img2img.names, img2img.values_to_args({"mode": "Inpaint upload", "resize_tab": "Resize by", "inpainting_fill": "latent noise"}), strict=True))
     assert (args["mode"], args["resize_tab"], args["inpainting_fill"], args["resize_mode"], args["inpaint_full_res"]) == (4, 1, 2, 1, 1)
     assert core_layout("extras").defaults() == {"mode": "Single Image", "image": None, "image_batch": [], "input_dir": "", "output_dir": "", "show_extras_results": True, "video_input": ""}
 
@@ -120,7 +121,7 @@ def test_categories_follow_the_user_order(webui):
 
     webui.opts.data["ui_reorder_list"] = ["seed", "prompt"]
     try:
-        first = [node for node in txt2img_form().items]
+        first = list(txt2img_form().items)
         assert first[0].type == "slot" and first[0].section == "seed"
     finally:
         webui.opts.data["ui_reorder_list"] = []
@@ -139,12 +140,12 @@ def _walk(node):
 # region Entry points
 
 
-def test_named_txt2img_builds_the_same_processing_as_the_legacy_inputs(webui):
+def test_named_txt2img_builds_the_processing_of_the_legacy_defaults(webui):
     from modules import txt2img
 
     p = txt2img.prepare_txt2img({"prompt": "cat", "enable_hr": True, "hr_scale": 1.5, "hr_sampler_name": "Use same sampler"}, {"seed": {"seed": 3}})
     legacy_values = {**TXT2IMG_LEGACY_DEFAULTS, "prompt": "cat", "enable_hr": True, "hr_scale": 1.5}
-    q = txt2img.txt2img_create_processing("", None, *[legacy_values[name] for name in txt2img.LEGACY_ARGS], *p.script_args)
+    q = txt2img.txt2img_processing(legacy_values, p.script_args)
     for key in vars(p):
         if not key.startswith("_"):
             assert repr(getattr(p, key)) == repr(getattr(q, key)) or key == "script_args_value", key
@@ -254,24 +255,6 @@ def test_compose_inputs_matches_each_legacy_mode():
     assert compose_inputs(5, None, None, None) == (None, None)
 
 
-def test_legacy_img2img_inputs_map_to_the_shared_canvas():
-    from modules.img2img import _legacy_core
-
-    names = ("init_img", "sketch", "sketch_fg", "init_img_with_mask", "init_img_with_mask_fg", "inpaint_color_sketch", "inpaint_color_sketch_fg", "init_img_inpaint", "init_mask_inpaint")
-    values = {name: name for name in names}
-    values.update({name: 0 for name in ("prompt", "negative_prompt", "mask_blur", "inpainting_fill", "batch_size", "cfg_scale", "distilled_cfg_scale", "image_cfg_scale", "denoising_strength", "height", "width", "scale_by", "resize_mode", "inpaint_full_res", "inpaint_full_res_padding", "inpainting_mask_invert", "selected_scale_tab", "n_iter", "prompt_styles", "override_settings_texts")})
-    values.update({name: None for name in ("img2img_batch_input_dir", "img2img_batch_output_dir", "img2img_batch_inpaint_mask_dir", "img2img_batch_use_png_info", "img2img_batch_png_info_props", "img2img_batch_png_info_dir", "img2img_batch_source_type", "img2img_batch_upload")})
-    layers = {mode: tuple(_legacy_core(mode, values)[key] for key in ("init_img", "sketch", "mask", "mask_upload")) for mode in range(6)}
-    assert layers == {
-        0: ("init_img", None, None, None),
-        1: ("sketch", "sketch_fg", None, None),
-        2: ("init_img_with_mask", None, "init_img_with_mask_fg", None),
-        3: ("inpaint_color_sketch", "inpaint_color_sketch_fg", None, None),
-        4: ("init_img_inpaint", None, None, "init_mask_inpaint"),
-        5: (None, None, None, None),
-    }
-
-
 def test_core_actions(webui):
     from remi.core.actions import core_actions
 
@@ -342,7 +325,7 @@ def test_infotext_round_trip(webui):
     # The parsed values validate and produce the same infotext keys again
     from remi.core.tabs import processing_args
 
-    core_args, script_args = processing_args("txt2img", {key: value for key, value in core.items()}, scripts)
+    core_args, script_args = processing_args("txt2img", dict(core), scripts)
     assert core_args["width"] == 832 and script_args[webui.txt2img.by_id["seed"].args_from] == 1234
 
 
@@ -710,14 +693,13 @@ def test_entry_points_set_up_the_job_state(webui, job_runtime, monkeypatch):
 
 
 def _extras_operations():
-    gr = pytest.importorskip("gradio")
     from modules import scripts_postprocessing
 
     class Scale(scripts_postprocessing.ScriptPostprocessing):
         name, order = "Scale", 1
 
-        def ui(self):
-            return {"factor": gr.Slider(1, 4, value=2, step=1, label="Factor"), "method": gr.Dropdown(["nearest", "bilinear"], value="bilinear", type="index", label="Method")}
+        def params(self):
+            return ui.Row(ui.Slider("factor", 1, 4, 2, 1, label="Factor"), ui.Choice("method", ["nearest", "bilinear"], "bilinear", type="index", label="Method"))
 
         def process(self, pp, factor, method):
             pp.image = pp.image.resize((pp.image.width * factor, pp.image.height * factor))
@@ -733,13 +715,21 @@ def _extras_operations():
             if enable:
                 pp.info["Tint"] = color
 
-    class Broken(scripts_postprocessing.ScriptPostprocessing):
-        name, order = "Broken", 3
+    class Legacy(scripts_postprocessing.ScriptPostprocessing):
+        """An A1111 operation: Gradio controls in ui(), no params()."""
+
+        name, order = "Legacy", 3
 
         def ui(self):
-            return {"x": [][1]}
+            raise AssertionError("ui() is never called")
 
-    return [Scale, Tint, Broken]
+    class Broken(scripts_postprocessing.ScriptPostprocessing):
+        name, order = "Broken", 4
+
+        def params(self):
+            return [][1]  # noqa: PLE0643 - the failure under test
+
+    return [Scale, Tint, Legacy, Broken]
 
 
 def test_extras_with_operations(job_runtime, monkeypatch):
@@ -749,10 +739,11 @@ def test_extras_with_operations(job_runtime, monkeypatch):
     with webui_state({"use_original_name_batch": True}, postprocessing=_extras_operations()) as state:
         schema = tab_schema("extras")
         entries = {entry["id"]: entry for entry in schema["scripts"]}
-        # The failing operation is dropped; the others keep working
+        # The operations that cannot be read are dropped, with the reason; the others keep working
         assert list(entries) == ["scale", "tint"] and [script.name for script in state.postproc.scripts] == ["Scale", "Tint"]
-        assert entries["scale"]["legacy"] and entries["scale"]["args"] == ["factor", "method"] and entries["scale"]["defaults"] == {"factor": 2, "method": "bilinear"}
-        assert not entries["tint"]["legacy"] and entries["tint"]["args"] == ["enable", "color"]
+        assert [(script.name, reason.split(":")[0]) for script, reason in state.postproc.disabled_scripts] == [("Legacy", "declares ui() instead of params()"), ("Broken", "params() failed")]
+        assert entries["scale"]["args"] == ["factor", "method"] and entries["scale"]["defaults"] == {"factor": 2, "method": "bilinear"}
+        assert entries["tint"]["args"] == ["enable", "color"] and "legacy" not in entries["tint"]
 
         image = Image.new("RGB", (8, 8))
         outputs, info = postprocessing.run_extras_named({"image": image}, {"scale": {"factor": 3, "method": "nearest"}, "tint": {"enable": True}}, save_output=False)

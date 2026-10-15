@@ -1,7 +1,6 @@
 """Login and request checks of the Remi server.
 
-Credentials come from ``--auth user:pass[,user2:pass2]`` and ``--auth-file``
-(the old ``--gradio-auth`` / ``--gradio-auth-path`` are aliases). With
+Credentials come from ``--auth user:pass[,user2:pass2]`` and ``--auth-file``. With
 credentials, every request to the app (REST, WebSocket, files, the SPA
 shell) needs a session cookie from ``POST /api/v2/auth/login`` or HTTP Basic
 credentials; without them the server is open, as before. Independently of
@@ -74,9 +73,9 @@ def parse_credentials(lines: Iterable[str]) -> dict[str, str]:
 
 def credentials_from_cmd_opts(cmd_opts: Any) -> dict[str, str]:
     lines: list[str] = []
-    if getattr(cmd_opts, "gradio_auth", None):
-        lines.append(cmd_opts.gradio_auth)
-    path = getattr(cmd_opts, "gradio_auth_path", None)
+    if getattr(cmd_opts, "auth", None):
+        lines.append(cmd_opts.auth)
+    path = getattr(cmd_opts, "auth_file", None)
     if path:
         with open(path, encoding="utf8") as file:
             lines += file.read().splitlines()

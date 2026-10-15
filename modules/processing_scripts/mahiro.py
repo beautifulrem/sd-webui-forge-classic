@@ -10,7 +10,6 @@ from remi import ui
 
 class ScriptMahiro(scripts.ScriptBuiltinUI):
     section = "cfg"
-    create_group = False
     sorting_priority = 1
 
     def title(self):
@@ -21,20 +20,6 @@ class ScriptMahiro(scripts.ScriptBuiltinUI):
 
     def params(self, is_img2img):
         return ui.Toggle("enable", False, label="MaHiRo", infotext="MaHiRo")
-
-    def ui(self, is_img2img):
-        import gradio as gr
-
-        from modules.infotext_utils import PasteField
-
-        enable = gr.Checkbox(
-            value=False,
-            label="MaHiRo",
-            elem_id=f"{'img2img' if is_img2img else 'txt2img'}_enable_mahiro",
-            scale=1,
-        )
-        self.infotext_fields = [PasteField(enable, "MaHiRo", api="mahiro")]
-        return [enable]
 
     def after_extra_networks_activate(self, p, enable, *args, **kwargs):
         if enable:

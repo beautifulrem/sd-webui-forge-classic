@@ -123,7 +123,7 @@ def guard_dimensions(
 
     ``hires_alignment``: grid for the Hires target, default ``limits.alignment``.
     Forge rounds every Hires target to its Resolution Step with round-half-up
-    (``modules.ui.sRound``), so a caller should pass a multiple of that step:
+    (``modules.processing.sRound``), so a caller should pass a multiple of that step:
     a target already on the grid survives the rounding unchanged, and the caps
     checked here are the caps of the rendered size.
     """

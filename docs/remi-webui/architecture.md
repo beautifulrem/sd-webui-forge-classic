@@ -135,31 +135,24 @@ title: `seed`, `sampler`, `refiner`, …; `core` and `settings` are reserved,
 so a script titled "Core" is `core_2`). Selectable scripts are the core
 `script` choice plus each script shown with `visible_if: {"param":
 "core.script", "eq": title}`; slot 0 of `p.script_args` is still the index.
-A script whose `params()` raises (or, for a legacy script, whose `ui()`
-fails in the throwaway build) is disabled: `ScriptRunner.disable_script`
+A script whose `params()` raises, or that only has A1111's `ui()` (Gradio
+controls, not supported), is disabled: `ScriptRunner.disable_script`
 removes it from the runner (no slots, no schema entry, no hooks) and keeps
-the reason in `runner.disabled_scripts`; Extras operations likewise.
+the reason in `runner.disabled_scripts`; Extras operations likewise
+(`scripts_postproc.disabled_scripts`). A script file that fails to import
+(e.g. it imports Gradio) is skipped and kept in
+`modules.scripts.scripts_not_loaded` with the reason. All three are listed
+in bootstrap `not_ported`.
 
 `ScriptRunner` API: `build_layouts()` (in `initialize_scripts`),
-`layout_for(script)`, `prepare_layouts()`, `ensure_arg_slots()`,
-`script_args_from_values(selected, {script_id: values})`,
-`script_values_from_args(args)`, `scripts_schema()`, `paste_values(params)`,
-`preset_bindings()`, `preset_values(label)`, `disable_script(script, reason)`.
-
-Until the Gradio UI is deleted: scripts not yet ported keep `ui()`; their
-params are positional (`#0`, `#1`, …), typed from their Gradio controls by
-class name (`remi/ui/legacy.py`: index-type dropdowns/radios/checkbox groups
-become `type="index"` choices, `gr.Number` keeps its precision, `gr.State`
-keeps its object; unknown controls are `Json`), built in a throwaway
-`gr.Blocks` (with `modules.gradio_extensions` applied) when no UI did. A
-param the request leaves out, or sends equal to its exported default, is
-what Gradio passed for the untouched control (`control.preprocess(value)`,
-a fresh copy for `gr.State`). A ported script
-without `ui()` gets an approximate Gradio rendering (`remi/ui/legacy_gradio.py`)
-so it keeps its slots there; when the Gradio UI is built it owns the slot
-assignment and the named-value path follows it. The built-in processing
-scripts keep both `ui()` and `params()` (tests assert they match) until then.
-`ui()` and `on_before_component`/`on_after_component` are then removed.
+`layout_for(script)`, `ensure_arg_slots()`,
+`script_args_from_values(selected, {script_id: values})` (a script's values
+may also be a list in argument order), `script_values_from_args(args)`,
+`scripts_schema()`, `paste_values(params)`, `preset_bindings()`,
+`preset_values(label)`, `disable_script(script, reason)`, and A1111's
+`set_named_arg(args, script_name, param, value)` (by param name). Slots are
+assigned in A1111's order (UI category, then sorting priority), which
+positional `/sdapi` clients and saved jobs rely on.
 
 Anima helpers become declarative keyword arguments: `preset=` (or
 `preset=(field, value)` for a localized value), `infotext=`, and
@@ -168,8 +161,7 @@ Anima helpers become declarative keyword arguments: `preset=` (or
 root)` applies a `SCRIPT_ARGS` table (infotext keys incl. `PasteKey`, preset
 fields) to a `params()` tree and returns the `param_order`;
 `AnimaPatchPanel.panel_params(root)` does it for the patch panels (inputs named
-after the preset fields' last part). The Gradio-path functions remain for
-unported extensions.
+after the preset fields' last part).
 
 ### Pages (former `on_ui_tabs`)
 
@@ -212,13 +204,14 @@ Workshop (`sd-forge-prompt-workshop`).
 
 `OptionInfo` keeps its signature, but `component` refers to `remi.ui` widget
 kinds (`ui.Slider`, `ui.Choice`, `ui.MultiChoice`, `ui.Color`, `ui.Text`,
-`ui.State`, …) with Gradio-style `component_args` plus `style` (`"radio"`,
-`"checkboxes"`) and `allow_custom`. Gradio classes of unported extensions are
-mapped by name. The settings schema is exported from `shared.opts.data_labels`
-by `remi.ui.settings.settings_schema` (`.info()`, `.link()`, `.html()`,
-`.needs_restart()`, `.needs_reload_ui()` are kept structured). While the
-Gradio settings page exists, `OptionInfo.component` returns the Gradio
-equivalent (`OptionInfo.widget` is what was given).
+`ui.State`, …) with A1111-style `component_args` plus `style` (`"radio"`,
+`"checkboxes"`) and `allow_custom`; any other component (an A1111 Gradio
+class) is ignored and the widget picked from the default's type. The
+settings schema is exported from `shared.opts.data_labels` by
+`remi.ui.settings.settings_schema` (`.info()`, `.link()`, `.html()`,
+`.needs_restart()`, `.needs_reload_ui()` are kept structured; `.js()`, a
+client-side link of the old settings page, is accepted and ignored).
+`on_ui_settings` callbacks run before each app is built.
 
 ## `remi.core` — generation forms
 
@@ -245,10 +238,9 @@ with `remi.core.JobContext(id_task, user, resolve_upload, extra)`. They raise
 `remi.ui.ValidationError` (every bad value) before anything runs, set up
 `shared.state` and the progress registry for the job (`remi.core.job.job_state`:
 `state.begin(job=id_task)`, `progress.start_task`, and the interrupt/skip
-flags cleared afterwards, as `wrap_gradio_gpu_call` did), and return the
+flags cleared afterwards), and return the
 `Processed` (extras: images and info HTML). `resolve_upload` should give batch
-uploads their original file name as `image.filename` (output names). The
-Gradio handlers delegate to the same processing builders.
+uploads their original file name as `image.filename` (output names).
 
 `remi.core.infotext.parse_infotext(text, tab=None)` → `{tab, core, scripts,
 params, problems}` from `parse_generation_parameters`, the `on_infotext_pasted`
@@ -265,11 +257,9 @@ with `conflict_patch` run again on the result: locks, mode choices) and `__forge
 switches checkpoint, modules and dtype through `main_entry` as the old preset
 radio did, then the form patch of `forge_preset_patch` plus `__settings__`).
 
-Gradio-free imports: `remi.*`, `modules.shared`, `modules.shared_options`,
-`modules.scripts` and the option registrations import no Gradio.
-`modules.processing` still does, through `modules_forge.main_entry` (model
-selection state next to the Gradio model bar) until that file is split when
-the Gradio UI is deleted; `remi.core` reads `main_entry` only when something
+Model selection (checkpoint, VAE / text encoder modules, "Diffusion in Low
+Bits" and the loading parameters) lives in `modules_forge.main_entry`; it
+imports the processing pipeline, so `remi.core` reads it only when something
 already loaded it, except `apply_forge_preset`.
 
 ## HTTP API v2 (`/api/v2`)
@@ -282,7 +272,7 @@ schema-format.md §3 body; other errors `{"detail": str}`.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/app` | bootstrap: version, features, tabs, pages, locales, default locale, options subset, models summary, `not_ported` (scripts / Extras operations / extension tabs still on Gradio), `auth`, `queue` |
+| GET | `/app` | bootstrap: version, features, tabs, pages, locales, default locale, options subset, models summary, `not_ported` (script files, scripts and Extras operations that could not be loaded, with the reason: an import error, A1111's `ui()` without `params()`, a failing `params()`), `auth`, `queue` |
 | GET | `/schema/{tab}` | `tab` ∈ `txt2img`, `img2img`, `extras`: core form + scripts (layout trees, defaults) |
 | GET | `/pages`, `/pages/{id}` | extension pages and one page's schema (schema-format.md §8; read from `remi.pages` when present: `registered()`, `get(id)`, `page_schema(id)`) |
 | POST | `/actions/{owner}/{action}` | run an action, `owner` = script id, `page:<id>`, `core`, or `settings` (`refresh:<key>`); `gpu=True` actions run behind generation on the main thread |
@@ -370,11 +360,10 @@ client has a bounded event queue and one preview slot.
   serves, so it can be watched and interrupted), stops the server (open
   requests get 10 s), re-runs `initialize_rest`, rebuilds and serves, then
   releases the queue.
-- Startup and every module a job runs import no Gradio (a test starts the
-  WebUI with Gradio blocked). Scripts still on `ui()`: with Gradio importable
-  their `ui()` runs once in a throwaway `gr.Blocks` for positional defaults;
-  without it they are disabled with a log line, as are script files that
-  import Gradio at load time. All are listed in bootstrap `not_ported`.
+- Gradio is not a dependency: nothing imports it and `requirements.txt` /
+  `launch_utils` do not install it (see "Gradio removal" below). Scripts
+  without `params()` and script files that fail to import are disabled with
+  a log line and listed in bootstrap `not_ported`.
 - Jobs: the worker claims the next job, then waits for the generation lock;
   only with the lock is the job current (`job.started`, progress, previews,
   `model.loading`). Interrupt/skip/cancel of a job that has not begun are
@@ -389,8 +378,7 @@ client has a bounded event queue and one preview slot.
   `modules_forge.main_thread`), progress monitor and preview encoder.
   Housekeeping (at start, then hourly) prunes uploads and unsaved outputs
   older than `remi_upload_retention_days` and indexes the output folders.
-- Auth: `--auth user:pass[,…]` / `--auth-file` (aliases `--gradio-auth`,
-  `--gradio-auth-path`). With logins, `/api/v2`, `/internal`, the WebSocket,
+- Auth: `--auth user:pass[,…]` / `--auth-file`. With logins, `/api/v2`, `/internal`, the WebSocket,
   files and the SPA need the signed session cookie (`POST /auth/login`;
   the shell shows a built-in login page) or HTTP Basic. `/api/v2` and
   `/internal` refuse rebound `Host`s and cross-site writes/WebSocket
@@ -410,8 +398,7 @@ client has a bounded event queue and one preview slot.
   `--subpath`. `launch.py` builds it when missing or when its sources or
   lockfile changed since the build (a stamp in `dist/`), with pnpm and the
   lockfile (installed pnpm, corepack, or `npx pnpm@12`; without Node a
-  stale build is used with a warning; `REMI_SKIP_WEBUI_BUILD=1` skips), and
-  no longer installs Gradio.
+  stale build is used with a warning; `REMI_SKIP_WEBUI_BUILD=1` skips).
 
 ## Frontend
 
@@ -465,3 +452,62 @@ repository calls them. Scripts and tools use `POST /api/v2/jobs` (named
 `core` / `scripts` params, `priority`, `repeat`, `forever`), `/queue/*`
 and the `job.*` WebSocket events instead; the A1111 `/sdapi/v1` API stays
 for clients written against it.
+
+## Gradio removal
+
+Gradio, `gradio_client` and `gradio_rangeslider` are gone: no import, no
+requirement, no launcher install step. `tests/test_dependencies.py` keeps it
+that way: every module-level third-party import of the WebUI's own code
+(`modules`, `modules_forge`, `remi`, `scripts`, `extensions-builtin`) must
+come from `requirements.txt` or the packages it pulls in, and the suites run
+in an environment with nothing else installed.
+
+Deleted (legacy UI only): `modules/ui.py` and the `modules/ui_*.py` UI
+modules (checkpoint merger, common, components, extensions, extra-network
+cards and metadata editors, Gradio extensions, load/save, postprocessing,
+prompt styles, settings, tempdir, top row), `modules/gradio_extensions.py`,
+`modules/shared_gradio_themes.py`, `modules/anima_lora_ui.py`,
+`modules_forge/forge_canvas/`, `javascript/`, `script.js`, `style.css`, the
+`html/extra-networks-*` templates, `html/card-no-preview.jpg` and
+`html/footer.html`, `remi/ui/legacy.py` and `remi/ui/legacy_gradio.py` (the
+positional `#i` layouts of unported scripts; schema entries no longer carry
+`legacy`), `Script.ui()` / `ScriptPostprocessing.ui()` and the runners'
+Gradio build path (`setup_ui`, `create_script_ui`, `inputs`, `controls`,
+`infotext_fields`, `paste_field_names`, `group`, `elem_id`), the component
+hooks (`Script.before_component` / `after_component` /
+`on_before_component` / `on_after_component`), the Gradio handlers of
+txt2img / img2img / Extras / PNG Info, the `call_queue.wrap_gradio_*`
+wrappers and `progress.restore_progress`, the paste / "Send to" wiring of
+`infotext_utils` (`PasteField`, `ParamBinding`, `connect_paste*`),
+`main_entry`'s model bar (`make_checkpoint_manager_ui`, `forge_main_entry`,
+`on_preset_change`, `on_refresh_checkpoint`), the Gradio exclusive-group
+wiring of `anima_feature_conflicts`, the Gradio preset-control registry of
+`anima_presets` and `anima_support.register_table_fields`, the settings
+`gradio_theme`, `gradio_themes_cache`, `show_gradio_deprecation_warnings`
+and `enable_reloading_ui_scripts`, the command-line flags `--gradio-debug`,
+`--gradio-allowed-path`, `--no-gradio-queue` and the `--gradio-auth` /
+`--gradio-auth-path` aliases (use `--auth` / `--auth-file`), and the
+`GRADIO_SERVER_NAME` environment variable (use `--listen` / `--server-name`).
+
+Callbacks (`modules/script_callbacks.py`): `on_ui_tabs` (extension tabs are
+`remi.pages`), `on_ui_train_tabs` and `on_before_component` /
+`on_after_component` are removed; an A1111 extension that uses them builds a
+Gradio UI and fails to import, so it is listed in `not_ported`.
+`on_ui_settings` (registers settings) and `on_before_ui` (registers
+extra-network pages, X/Y/Z axes, … before each app build) are kept;
+`on_app_started` receives `demo=None`.
+
+Kept, each for a non-UI reason:
+
+| What | Why |
+|---|---|
+| `modules/ui_extra_networks.py` | three-line import alias of `modules/extra_networks_pages.py`: A1111 extensions register their extra-network pages through `modules.ui_extra_networks.register_page`; the Networks page lists them (`remi.networks`) |
+| `modules/extra_networks_pages.py` | the data API of extra-network pages (`ExtraNetworksPage.list_items()`, `register_page`), without any HTML |
+| `modules_forge/main_entry.py` | model selection state and changes (`checkpoint_change`, `modules_change`, `dtype_change`, `refresh_model_loading_parameters`) used by processing, Hires. fix, the refiner, X/Y/Z and the server |
+| `modules/extras.py` `run_modelmerger` | the checkpoint merge itself (no WebUI page calls it yet); returns its status message |
+| `html/licenses.html` | read by `GET /api/v2/licenses` |
+| `html/ui.webp` | README screenshot |
+| `OptionInfo.js()`, `comment_before` / `comment_after` | A1111 extension API; `.js()` is ignored |
+| `util.open_folder`, `ScriptRunner.set_named_arg` | A1111 helpers extensions call; Gradio-free now (`set_named_arg` takes param names) |
+| `--share`, `--use-textbox-seed`, `--add-stop-route` | accepted so existing launch commands keep working; they do nothing |
+| `legacy_ui_<tab>.json` test fixtures | the argument contract recorded from each script's Gradio `ui()` before its port (the control class is the `legacy_control` key); the ports are tested against them |

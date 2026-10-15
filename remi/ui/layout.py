@@ -23,9 +23,6 @@ class ScriptLayout:
     values become positional arguments with :meth:`values_to_args`; missing
     names take their defaults."""
 
-    legacy = False
-    """True for the positional ``#i`` layout of a script on the legacy ``ui()`` path."""
-
     def __init__(self, root: Node | None, *, owner: str = "script", order: Sequence[str] | None = None):
         self.root = root
         self.owner = owner
@@ -208,7 +205,7 @@ class ScriptLayout:
 
         Each param with a ``paste`` function or an ``infotext`` key is read;
         absent entries (``None``) are skipped, as are values that do not
-        validate (reported in ``problems``, as Gradio silently skipped them)."""
+        validate (reported in ``problems``)."""
 
         ctx = ensure_context(ctx)
         values: dict[str, Any] = {}
@@ -224,8 +221,6 @@ class ScriptLayout:
                 raw = params.get(node.infotext)
             else:
                 continue
-            if isinstance(raw, Mapping) and raw.get("__type__") == "update":  # a legacy gr.update()
-                raw = raw.get("value")
             if raw is None:
                 continue
             try:
@@ -261,4 +256,4 @@ def empty_layout(owner: str) -> ScriptLayout:
     return ScriptLayout(None, owner=owner)
 
 
-__all__ = ["ScriptLayout", "empty_layout", "ValidationError"]
+__all__ = ["ScriptLayout", "ValidationError", "empty_layout"]

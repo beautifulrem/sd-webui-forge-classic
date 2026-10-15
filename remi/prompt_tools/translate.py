@@ -188,7 +188,7 @@ def translate(
         if missing:
             translated = NETWORK[config.provider](config, missing, target, post)
             # unchanged texts are cached too (already in the target language)
-            fresh = {source: value for source, value in zip(missing, translated) if value.strip()}
+            fresh = {source: value for source, value in zip(missing, translated, strict=False) if value.strip()}
             store(fresh)
             result.update(fresh)
     return [value if (value := result.get(text)) and value != text else None for text in texts]

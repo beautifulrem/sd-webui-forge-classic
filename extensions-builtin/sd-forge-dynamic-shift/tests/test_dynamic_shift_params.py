@@ -27,12 +27,12 @@ def _curve_change(module):
     return {"kind": "custom", "choices": None, "widget": "shift-curve", "props": {"choices": module.CURVES, "start": "shift_start", "end": "shift_end", "steps": "sampler.steps"}}
 
 
-def test_matches_the_gradio_panel_txt2img(env):
+def test_matches_the_legacy_panel_txt2img(env):
     _script, layout = env.kit.layout_of(env.module.DynamicShiftScript, "txt2img")
     env.kit.assert_matches_snapshot(layout, env.kit.load_snapshot(SCRIPT, "txt2img"), {3: _curve_change(env.module)})
 
 
-def test_matches_the_gradio_panel_img2img(env):
+def test_matches_the_legacy_panel_img2img(env):
     _script, layout = env.kit.layout_of(env.module.DynamicShiftScript, "img2img")
     # Intended: img2img's unrendered Hires. fix params get txt2img's labels and slider bounds
     # (Gradio's invisible sliders had the default 0-100 / 1)
@@ -145,5 +145,5 @@ def test_localized(env):
     env.kit.assert_localized(EXTENSION, strings, extra={script.title(), "[DynShift] Start", "[DynShift] End", "[DynShift] Curve"})
 
 
-def test_gradio_free(ext_kit):
-    ext_kit.assert_gradio_free(EXTENSION, [SCRIPT])
+def test_standalone(ext_kit):
+    ext_kit.assert_standalone(EXTENSION, [SCRIPT])

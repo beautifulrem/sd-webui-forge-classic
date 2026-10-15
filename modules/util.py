@@ -3,7 +3,7 @@ import os
 import re
 
 from modules import shared
-from modules.paths_internal import cwd, script_path
+from modules.paths_internal import cwd
 
 
 def natural_sort_key(s: str, regex=re.compile(r"([0-9]+)")):
@@ -19,20 +19,6 @@ def plaintext_to_html(text, classname=None):
     content = "<br>\n".join(html_lib.escape(x) for x in text.split("\n"))
 
     return f"<p class='{classname}'>{content}</p>" if classname else f"<p>{content}</p>"
-
-
-def html_path(filename):
-    return os.path.join(script_path, "html", filename)
-
-
-def html(filename):
-    path = html_path(filename)
-
-    try:
-        with open(path, encoding="utf8") as file:
-            return file.read()
-    except OSError:
-        return ""
 
 
 def walk_files(path, allowed_extensions=None):
@@ -180,39 +166,16 @@ def topological_sort(dependencies):
 
 
 def open_folder(path):
-    """Open a folder in the file manager of the respect OS."""
-    # import at function level to avoid potential issues
-    import platform
-    import subprocess
-    import sys
+    """Open a folder in the file manager of the machine running the WebUI
+    (A1111 extensions call this; ``remi.server.gallery.open_folder``)."""
 
-    import gradio as gr
+    from remi.server.gallery import GalleryError
+    from remi.server.gallery import open_folder as open_path
 
-    if not os.path.exists(path):
-        msg = f'Folder "{path}" does not exist. after you save an image, the folder will be created.'
-        print(msg)
-        gr.Info(msg)
-        return
-    elif not os.path.isdir(path):
-        msg = f"""
-WARNING
-An open_folder request was made with an path that is not a folder.
-This could be an error or a malicious attempt to run code on your computer.
-Requested path was: {path}
-"""
-        print(msg, file=sys.stderr)
-        gr.Warning(msg)
-        return
-
-    path = os.path.normpath(path)
-    if platform.system() == "Windows":
-        os.startfile(path)
-    elif platform.system() == "Darwin":
-        subprocess.Popen(["open", path])
-    elif "microsoft-standard-WSL2" in platform.uname().release:
-        subprocess.Popen(["explorer.exe", subprocess.check_output(["wslpath", "-w", path])])
-    else:
-        subprocess.Popen(["xdg-open", path])
+    try:
+        open_path(path)
+    except GalleryError as error:
+        print(f'Cannot open "{path}": {error}')
 
 
 def load_file_from_url(

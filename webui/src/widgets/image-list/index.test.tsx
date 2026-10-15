@@ -37,7 +37,6 @@ const schema: TabSchema = {
       kind: "alwayson",
       section: null,
       order: 0,
-      legacy: false,
       layout: {
         type: "group",
         title: "ImageStitch Integrated",

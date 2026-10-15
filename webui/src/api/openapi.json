@@ -9776,8 +9776,7 @@
             "type": "string",
             "enum": [
               "script",
-              "extras",
-              "page"
+              "extras"
             ],
             "title": "Kind"
           },
@@ -9813,12 +9812,9 @@
           },
           "status": {
             "type": "string",
-            "enum": [
-              "legacy",
-              "disabled"
-            ],
+            "const": "disabled",
             "title": "Status",
-            "default": "legacy"
+            "default": "disabled"
           },
           "reason": {
             "anyOf": [
@@ -9839,7 +9835,7 @@
           "title"
         ],
         "title": "NotPorted",
-        "description": "A script, Extras operation or extension tab not on ``params()`` yet."
+        "description": "A script file, script or Extras operation that could not be loaded\n(it failed to import, or declares A1111's ``ui()`` instead of ``params()``)."
       },
       "Note": {
         "properties": {

@@ -1,8 +1,11 @@
+"""Model selection: the checkpoint, VAE / text encoder modules and
+"Diffusion in Low Bits" choice, and the loading parameters they give
+``sd_models.forge_model_reload``."""
+
 from __future__ import annotations
 
 import logging
 import os.path
-from typing import TYPE_CHECKING, Callable
 
 import torch
 from rich import print_json
@@ -11,27 +14,15 @@ from backend.logging import setup_logger
 from backend.nn.anima_quant import ANIMA_QUANT_INT8_CONVROT, ANIMA_QUANT_SCALED_FP8
 from modules import (
     anima_online_lora,
-    infotext_utils,
     paths,
     processing,
     sd_models,
     shared,
     shared_items,
 )
-from modules_forge.presets import PresetArch, is_video, use_distill, use_shift
-
-if TYPE_CHECKING:  # Gradio is only needed by the legacy model bar below
-    import gradio as gr
-    from gradio.events import Dependency
 
 logger = logging.getLogger("ui_models")
 setup_logger(logger)
-
-ui_forge_preset: gr.Radio
-ui_checkpoint: gr.Dropdown
-ui_vae: gr.Dropdown
-ui_forge_unet_dtype: gr.Radio
-_event_refresh: Dependency
 
 forge_unet_storage_dtype_options: dict[str, tuple[torch.dtype, bool]] = {
     "Automatic": (None, False),
@@ -57,41 +48,6 @@ anima_quant_options: dict[str, str] = {
 
 module_list: dict[str, os.PathLike] = {}
 module_map: dict[str, str] = {}
-
-
-def make_checkpoint_manager_ui():
-    import gradio as gr
-    from gradio.context import Context
-
-    from modules import ui_common
-
-    global ui_forge_preset, ui_checkpoint, ui_vae, ui_forge_unet_dtype, _event_refresh
-
-    if shared.opts.sd_model_checkpoint in [None, "None", "none", ""]:
-        if len(sd_models.checkpoints_list) == 0:
-            sd_models.list_models()
-        if len(sd_models.checkpoints_list) > 0:
-            shared.opts.set("sd_model_checkpoint", next(iter(sd_models.checkpoints_list.values())).name)
-
-    ui_forge_preset = gr.Dropdown(label="UI Preset", value=shared.opts.forge_preset, choices=PresetArch.choices(), elem_id="forge_ui_preset")
-
-    ui_checkpoint = gr.Dropdown(label="Checkpoint", value=None, choices=None, elem_id="setting_sd_model_checkpoint", elem_classes=["model_selection"])
-
-    ui_vae = gr.Dropdown(label="VAE / Text Encoder", value=None, choices=None, multiselect=True, elem_id="setting_sd_modules", elem_classes=["model_selection"])
-
-    def refresh_model_list():
-        ckpt_list, vae_list = refresh_models()
-        return [gr.update(choices=ckpt_list), gr.update(choices=vae_list)]
-
-    refresh_button = ui_common.ToolButton(value=ui_common.refresh_symbol, elem_id="forge_refresh_checkpoint", tooltip="Refresh")
-    _event_refresh = refresh_button.click(fn=refresh_model_list, outputs=[ui_checkpoint, ui_vae], queue=False)
-    Context.root_block.load(fn=refresh_model_list, outputs=[ui_checkpoint, ui_vae], queue=False)
-
-    ui_forge_unet_dtype = gr.Dropdown(label="Diffusion in Low Bits", value=None, choices=list(forge_unet_storage_dtype_options.keys()), elem_id="forge_ui_dtype")
-
-    ui_checkpoint.input(checkpoint_change, inputs=[ui_checkpoint, ui_forge_preset], queue=False, show_progress=False)
-    ui_vae.input(modules_change, inputs=[ui_vae, ui_forge_preset], queue=False, show_progress=False)
-    ui_forge_unet_dtype.input(dtype_change, inputs=[ui_forge_unet_dtype, ui_forge_preset], queue=False, show_progress=False)
 
 
 def find_files_with_extensions(base_path: os.PathLike, extensions: list[str]) -> dict[str, os.PathLike]:
@@ -231,172 +187,3 @@ def dtype_change(dtype: str, preset: str, save=True, refresh=True) -> bool:
         shared.opts.save(shared.config_filename)
     refresh_model_loading_parameters(refresh=refresh)
     return True
-
-
-def get_a1111_ui_component(tab: str, label: str) -> gr.components.Component:
-    fields = infotext_utils.paste_fields[tab]["fields"]
-    for f in fields:
-        if f.label == label or f.api == label:
-            return f.component
-
-
-def forge_main_entry():
-    from gradio.context import Context
-
-    ui_txt2img_steps = get_a1111_ui_component("txt2img", "Steps")
-    ui_txt2img_hr_steps = get_a1111_ui_component("txt2img", "Hires steps")
-    ui_img2img_steps = get_a1111_ui_component("img2img", "Steps")
-
-    ui_txt2img_sampler = get_a1111_ui_component("txt2img", "sampler_name")
-    ui_img2img_sampler = get_a1111_ui_component("img2img", "sampler_name")
-    ui_txt2img_scheduler = get_a1111_ui_component("txt2img", "scheduler")
-    ui_img2img_scheduler = get_a1111_ui_component("img2img", "scheduler")
-
-    ui_txt2img_width = get_a1111_ui_component("txt2img", "Size-1")
-    ui_img2img_width = get_a1111_ui_component("img2img", "Size-1")
-    ui_txt2img_height = get_a1111_ui_component("txt2img", "Size-2")
-    ui_img2img_height = get_a1111_ui_component("img2img", "Size-2")
-
-    ui_txt2img_cfg = get_a1111_ui_component("txt2img", "CFG scale")
-    ui_txt2img_hr_cfg = get_a1111_ui_component("txt2img", "Hires CFG Scale")
-    ui_img2img_cfg = get_a1111_ui_component("img2img", "CFG scale")
-
-    ui_txt2img_distilled_cfg = get_a1111_ui_component("txt2img", "Distilled CFG Scale")
-    ui_txt2img_hr_distilled_cfg = get_a1111_ui_component("txt2img", "Hires Distilled CFG Scale")
-    ui_img2img_distilled_cfg = get_a1111_ui_component("img2img", "Distilled CFG Scale")
-
-    ui_txt2img_batch_size = get_a1111_ui_component("txt2img", "Batch size")
-    ui_img2img_batch_size = get_a1111_ui_component("img2img", "Batch size")
-
-    output_targets = [
-        ui_checkpoint,
-        ui_vae,
-        ui_forge_unet_dtype,
-        ui_txt2img_steps,
-        ui_txt2img_hr_steps,
-        ui_img2img_steps,
-        ui_txt2img_sampler,
-        ui_img2img_sampler,
-        ui_txt2img_scheduler,
-        ui_img2img_scheduler,
-        ui_txt2img_width,
-        ui_img2img_width,
-        ui_txt2img_height,
-        ui_img2img_height,
-        ui_txt2img_cfg,
-        ui_txt2img_hr_cfg,
-        ui_img2img_cfg,
-        ui_txt2img_distilled_cfg,
-        ui_txt2img_hr_distilled_cfg,
-        ui_img2img_distilled_cfg,
-        ui_txt2img_batch_size,
-        ui_img2img_batch_size,
-    ]
-
-    ui_forge_preset.change(on_preset_change, inputs=[ui_forge_preset], outputs=output_targets, queue=False, show_progress=False).success(
-        fn=_load_presets,
-        inputs=[ui_checkpoint, ui_vae, ui_forge_unet_dtype, ui_forge_preset],
-        queue=False,
-        show_progress=False,
-    ).then(js="clickLoraRefresh", fn=None, queue=False, show_progress=False)
-    Context.root_block.load(on_preset_change, inputs=[ui_forge_preset], outputs=output_targets, queue=False, show_progress=False)
-
-    refresh_model_loading_parameters()
-    _refreshed_callback()
-
-
-def _load_presets(ui_checkpoint: str, ui_vae: list[str], ui_forge_unet_dtype: str, ui_forge_preset: str):
-    dtype_change(ui_forge_unet_dtype, ui_forge_preset, save=False, refresh=False)
-    modules_change(ui_vae, ui_forge_preset, save=False, refresh=False)
-    checkpoint_change(ui_checkpoint, ui_forge_preset, save=True, refresh=True)
-
-
-def on_preset_change(preset: str):
-    import gradio as gr
-
-    assert preset is not None
-    shared.opts.set("forge_preset", preset)
-    shared.opts.save(shared.config_filename)
-
-    if use_shift(preset):
-        d_args = {"visible": getattr(shared.opts, f"{preset}_show_shift", True), "label": "Shift"}
-    elif use_distill(preset):
-        d_args = {"visible": True, "label": "Distilled CFG Scale"}
-    else:
-        d_args = {"visible": False}
-
-    if (fps := is_video(preset)) > 1:
-        batch_args_t2i = {"minimum": 1, "maximum": fps * 15 + 1, "step": fps, "label": "Frames", "value": getattr(shared.opts, f"{preset}_t2i_batch_size", 1)}
-    else:
-        batch_args_t2i = {"minimum": 1, "maximum": 8, "step": 1, "label": "Batch Size", "value": getattr(shared.opts, f"{preset}_t2i_batch_size", 1)}
-
-    batch_args_i2i = batch_args_t2i.copy()
-    batch_args_i2i["value"] = getattr(shared.opts, f"{preset}_i2i_batch_size", 1)
-
-    modules_value = [os.path.basename(m) for m in getattr(shared.opts, f"forge_additional_modules_{preset}", [])]
-    if not shared.opts.sd_modules_dropdown_use_short:
-        modules_value = [module_map[m] for m in modules_value]
-
-    return [
-        # ui_checkpoint, ui_vae, ui_forge_unet_dtype
-        gr.update(value=getattr(shared.opts, f"forge_checkpoint_{preset}", shared.opts.sd_model_checkpoint)),
-        gr.update(value=modules_value),
-        gr.update(value=getattr(shared.opts, f"forge_unet_storage_dtype_{preset}", "Automatic")),
-        # ui_txt2img_steps, ui_txt2img_hr_steps, ui_img2img_steps
-        gr.update(value=v) if (v := getattr(shared.opts, f"{preset}_t2i_step", 20)) > 0 else gr.skip(),
-        gr.update(value=v) if (v := getattr(shared.opts, f"{preset}_t2i_hr_step", 20)) > 0 else gr.skip(),
-        gr.update(value=v) if (v := getattr(shared.opts, f"{preset}_i2i_step", 20)) > 0 else gr.skip(),
-        # ui_txt2img_sampler, ui_img2img_sampler, ui_txt2img_scheduler, ui_img2img_scheduler
-        gr.update(value=getattr(shared.opts, f"{preset}_t2i_sampler", "Euler")),
-        gr.update(value=getattr(shared.opts, f"{preset}_i2i_sampler", "Euler")),
-        gr.update(value=getattr(shared.opts, f"{preset}_t2i_scheduler", "Simple")),
-        gr.update(value=getattr(shared.opts, f"{preset}_i2i_scheduler", "Simple")),
-        # ui_txt2img_width, ui_img2img_width, ui_txt2img_height, ui_img2img_height
-        gr.update(value=v) if (v := getattr(shared.opts, f"{preset}_t2i_width", 1024)) > 0 else gr.skip(),
-        gr.update(value=v) if (v := getattr(shared.opts, f"{preset}_i2i_width", 1024)) > 0 else gr.skip(),
-        gr.update(value=v) if (v := getattr(shared.opts, f"{preset}_t2i_height", 1024)) > 0 else gr.skip(),
-        gr.update(value=v) if (v := getattr(shared.opts, f"{preset}_i2i_height", 1024)) > 0 else gr.skip(),
-        # ui_txt2img_cfg, ui_txt2img_hr_cfg, ui_img2img_cfg
-        gr.update(value=v) if (v := getattr(shared.opts, f"{preset}_t2i_cfg", 1.0)) > 0 else gr.skip(),
-        gr.update(value=v) if (v := getattr(shared.opts, f"{preset}_t2i_hr_cfg", 1.0)) > 0 else gr.skip(),
-        gr.update(value=v) if (v := getattr(shared.opts, f"{preset}_i2i_cfg", 1.0)) > 0 else gr.skip(),
-        # ui_txt2img_distilled_cfg, ui_img2img_distilled_cfg, ui_txt2img_hr_distilled_cfg
-        gr.update(value=getattr(shared.opts, f"{preset}_t2i_dcfg", 3.0), **d_args),
-        gr.update(value=getattr(shared.opts, f"{preset}_t2i_hr_dcfg", 3.0), **d_args),
-        gr.update(value=getattr(shared.opts, f"{preset}_i2i_dcfg", 3.0), **d_args),
-        # ui_txt2img_batch_size, ui_img2img_batch_size
-        gr.update(**batch_args_t2i),
-        gr.update(**batch_args_i2i),
-    ]
-
-
-# region Callback
-
-
-_CALLBACK_SET = False
-
-_refresh_callbacks: list[tuple[Callable, list[gr.components.Component], list[gr.components.Component]]] = []
-
-
-def capture_callbacks():
-    global _CALLBACK_SET
-    _CALLBACK_SET = False
-    _refresh_callbacks.clear()
-
-
-def on_refresh_checkpoint(callback: Callable, inputs: list[gr.components.Component] = None, outputs: list[gr.components.Component] = None):
-    """register a function to be called after the refresh button for Checkpoint / VAE / Text Encoder is clicked"""
-    if _CALLBACK_SET:
-        raise RuntimeError("Cannot register callback after forge_main_entry")
-    _refresh_callbacks.append((callback, inputs, outputs))
-
-
-def _refreshed_callback():
-    global _CALLBACK_SET
-
-    event = _event_refresh
-
-    for callback, inputs, outputs in _refresh_callbacks:
-        event = event.then(fn=callback, inputs=inputs, outputs=outputs, queue=False, show_progress=False)
-
-    _CALLBACK_SET = True

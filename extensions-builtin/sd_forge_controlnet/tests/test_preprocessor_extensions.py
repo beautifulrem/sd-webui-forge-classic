@@ -1,9 +1,9 @@
 """The extensions that register into ControlNet (ControlNet-LLLite, IP-Adapter
-and the forge_* preprocessor folders) load without Gradio, as the WebUI loads
-them, and what they register is offered by the unit widget's catalog; their
+and the forge_* preprocessor folders) load as the WebUI loads them, and what they register is offered by the unit widget's catalog; their
 slider labels are translated (each extension's ``localizations/zh_CN.json``,
 the control types in ControlNet's)."""
 
+import ast
 import json
 import os
 import subprocess
@@ -40,7 +40,6 @@ with webui_state():
         "catalog": catalog(),
         "origin": origin,
         "control_models": [model.__name__ for model in supported_control_models],
-        "gradio": sorted(name for name in sys.modules if name.partition(".")[0] in ("gradio", "gradio_client", "gradio_rangeslider")),
     }}
 print("RESULT " + json.dumps(result))
 """
@@ -49,17 +48,13 @@ print("RESULT " + json.dumps(result))
 @pytest.fixture(scope="module")
 def loaded():
     scripts = [str(EXTENSIONS / script) for script in SCRIPTS]
-    code = harness.GRADIO_BLOCKER + "\nsys.argv = sys.argv[:1]\n" + PROBE.format(scripts=scripts)
+    code = "import sys\nsys.argv = sys.argv[:1]\n" + PROBE.format(scripts=scripts)
     paths = [str(harness.REPO), str(harness.REPO / "modules_forge" / "packages"), str(EXTENSIONS / "forge_legacy_preprocessors")]
     env = {**os.environ, "PYTHONPATH": os.pathsep.join(paths)}
     result = subprocess.run([sys.executable, "-c", code], cwd=harness.REPO, env=env, capture_output=True, text=True, timeout=900)
     line = next((line for line in result.stdout.splitlines() if line.startswith("RESULT ")), None)
     assert result.returncode == 0 and line, result.stdout[-2000:] + result.stderr[-4000:]
     return json.loads(line[len("RESULT ") :])
-
-
-def test_they_load_without_gradio(loaded):
-    assert loaded["gradio"] == []
 
 
 def test_their_preprocessors_and_patchers_are_offered(loaded):
@@ -104,13 +99,13 @@ def test_their_slider_labels_are_translated(loaded):
         assert harness.catalog_conflicts(EXTENSIONS / folder) == [], folder
 
 
-def test_no_gradio_in_their_sources():
-    folders = {script.partition("/")[0] for script in SCRIPTS}
+def test_no_ui_code_in_their_scripts():
+    """Their scripts declare no A1111 UI (``ui()``, extension tabs)."""
+
     offenders = []
-    for folder in sorted(folders):
-        for path in (EXTENSIONS / folder).rglob("*.py"):
-            text = path.read_text(encoding="utf8", errors="replace")
-            if any(line.lstrip().startswith(("import gradio", "from gradio")) for line in text.splitlines()):
-                offenders.append(str(path.relative_to(EXTENSIONS)))
+    for script in SCRIPTS:
+        tree = ast.parse((EXTENSIONS / script).read_text(encoding="utf8"))
+        offenders += [f"{script}: {cls.name}.ui" for cls in ast.walk(tree) if isinstance(cls, ast.ClassDef) for item in cls.body if isinstance(item, ast.FunctionDef) and item.name == "ui"]
+        offenders += [f"{script}: on_ui_tabs" for node in ast.walk(tree) if isinstance(node, ast.Attribute) and node.attr == "on_ui_tabs"]
     assert offenders == []
     assert not (EXTENSIONS / "sd_forge_controlnet" / "javascript").exists() and not (EXTENSIONS / "sd_forge_controlnet" / "style.css").exists()

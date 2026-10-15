@@ -19,7 +19,7 @@ from remi.ui.context import Context
 from remi.ui.errors import ParamError, SchemaError
 from remi.ui.types import ChoiceValue, NodeSchema
 
-NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|#\d+")
+NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 COLOR_RE = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 SEED_MAX = 2**63 - 1
 """Largest seed: per-image offsets (``seed + i``) stay inside torch's 64-bit range."""
@@ -84,7 +84,7 @@ def to_number(value: Any) -> int | float:
 
 
 def _as_int(value: int | float) -> int:
-    return value if isinstance(value, int) else int(math.floor(value + 0.5))
+    return value if isinstance(value, int) else math.floor(value + 0.5)
 
 
 def check_finite_json(value: Any, path: str = "value") -> Any:

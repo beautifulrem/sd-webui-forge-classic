@@ -22,10 +22,8 @@ from modules.processing import (
 )
 from modules.sd_models import get_closet_checkpoint_match, model_data
 from modules.shared import opts, state
-from modules_forge import main_thread
 from remi.core.forms import resolution_step, snap_resolution
 from remi.ui.nodes import mask_channel
-from remi.ui.legacy_gradio import gr  # lazy: only the legacy handlers below use Gradio
 
 if TYPE_CHECKING:
     from remi.core import JobContext
@@ -403,72 +401,3 @@ def run_img2img(core: dict | None, scripts: dict | None = None, job: JobContext 
     if opts.samples_log_stdout:
         print(processed.js())
     return processed
-
-
-# region Legacy Gradio entry points
-
-
-def _legacy_core(mode: int, values: dict[str, Any]) -> dict[str, Any]:
-    """The named core args of the legacy positional inputs: each mode's own
-    canvas becomes the shared image / sketch / mask layers."""
-
-    layers = {
-        0: (values["init_img"], None, None),
-        1: (values["sketch"], values["sketch_fg"], None),
-        2: (values["init_img_with_mask"], None, values["init_img_with_mask_fg"]),
-        3: (values["inpaint_color_sketch"], values["inpaint_color_sketch_fg"], None),
-        4: (values["init_img_inpaint"], None, values["init_mask_inpaint"]),
-    }.get(mode, (None, None, None))
-    core = {
-        "mode": mode,
-        "init_img": layers[0],
-        "sketch": layers[1],
-        "mask": layers[2] if mode != 4 else None,
-        "mask_upload": layers[2] if mode == 4 else None,
-        "resize_tab": values["selected_scale_tab"],
-        "batch_count": values["n_iter"],
-        "styles": values["prompt_styles"],
-        "override_settings": values["override_settings_texts"],
-        "batch_input_dir": values["img2img_batch_input_dir"],
-        "batch_output_dir": values["img2img_batch_output_dir"],
-        "batch_inpaint_mask_dir": values["img2img_batch_inpaint_mask_dir"],
-        "batch_use_png_info": values["img2img_batch_use_png_info"],
-        "batch_png_info_props": values["img2img_batch_png_info_props"],
-        "batch_png_info_dir": values["img2img_batch_png_info_dir"],
-        "batch_source": values["img2img_batch_source_type"],
-        "batch_upload": values["img2img_batch_upload"],
-    }
-    for name in ("prompt", "negative_prompt", "mask_blur", "inpainting_fill", "batch_size", "cfg_scale", "distilled_cfg_scale", "image_cfg_scale", "denoising_strength", "height", "width", "scale_by", "resize_mode", "inpaint_full_res", "inpaint_full_res_padding", "inpainting_mask_invert"):
-        core[name] = values[name]
-    return core
-
-
-def img2img_function(id_task: str, request: gr.Request, mode: int, prompt: str, negative_prompt: str, prompt_styles, init_img, sketch, sketch_fg, init_img_with_mask, init_img_with_mask_fg, inpaint_color_sketch, inpaint_color_sketch_fg, init_img_inpaint, init_mask_inpaint, mask_blur: int, mask_alpha: float, inpainting_fill: int, n_iter: int, batch_size: int, cfg_scale: float, distilled_cfg_scale: float, image_cfg_scale: float, denoising_strength: float, selected_scale_tab: int, height: int, width: int, scale_by: float, resize_mode: int, inpaint_full_res: bool, inpaint_full_res_padding: int, inpainting_mask_invert: int, img2img_batch_input_dir: str, img2img_batch_output_dir: str, img2img_batch_inpaint_mask_dir: str, override_settings_texts, img2img_batch_use_png_info: bool, img2img_batch_png_info_props: list, img2img_batch_png_info_dir: str, img2img_batch_source_type: str, img2img_batch_upload: list, *args):
-    from modules.ui_common import plaintext_to_html
-
-    values = dict(locals())
-    p, batch = img2img_processing(_legacy_core(mode, values), args, user=getattr(request, "username", None))
-    processed = run_img2img_processing(p, batch)
-
-    generation_info_js = processed.js()
-    if opts.samples_log_stdout:
-        print(generation_info_js)
-
-    if opts.do_not_show_images:
-        processed.images = []
-
-    if processed.video_path is None:
-        gallery_arg = gr.update(value=processed.images + processed.extra_images, visible=True)
-        video_arg = gr.update(value=None, visible=False)
-    else:
-        gallery_arg = gr.update(value=None, visible=False)
-        video_arg = gr.update(value=processed.video_path, visible=True)
-
-    return gallery_arg, video_arg, generation_info_js, plaintext_to_html(processed.info), plaintext_to_html(processed.comments, classname="comments")
-
-
-def img2img(id_task: str, request: gr.Request, mode: int, prompt: str, negative_prompt: str, prompt_styles, init_img, sketch, sketch_fg, init_img_with_mask, init_img_with_mask_fg, inpaint_color_sketch, inpaint_color_sketch_fg, init_img_inpaint, init_mask_inpaint, mask_blur: int, mask_alpha: float, inpainting_fill: int, n_iter: int, batch_size: int, cfg_scale: float, distilled_cfg_scale: float, image_cfg_scale: float, denoising_strength: float, selected_scale_tab: int, height: int, width: int, scale_by: float, resize_mode: int, inpaint_full_res: bool, inpaint_full_res_padding: int, inpainting_mask_invert: int, img2img_batch_input_dir: str, img2img_batch_output_dir: str, img2img_batch_inpaint_mask_dir: str, override_settings_texts, img2img_batch_use_png_info: bool, img2img_batch_png_info_props: list, img2img_batch_png_info_dir: str, img2img_batch_source_type: str, img2img_batch_upload: list, *args):
-    return main_thread.run_and_wait_result(img2img_function, id_task, request, mode, prompt, negative_prompt, prompt_styles, init_img, sketch, sketch_fg, init_img_with_mask, init_img_with_mask_fg, inpaint_color_sketch, inpaint_color_sketch_fg, init_img_inpaint, init_mask_inpaint, mask_blur, mask_alpha, inpainting_fill, n_iter, batch_size, cfg_scale, distilled_cfg_scale, image_cfg_scale, denoising_strength, selected_scale_tab, height, width, scale_by, resize_mode, inpaint_full_res, inpaint_full_res_padding, inpainting_mask_invert, img2img_batch_input_dir, img2img_batch_output_dir, img2img_batch_inpaint_mask_dir, override_settings_texts, img2img_batch_use_png_info, img2img_batch_png_info_props, img2img_batch_png_info_dir, img2img_batch_source_type, img2img_batch_upload, *args)
-
-
-# endregion

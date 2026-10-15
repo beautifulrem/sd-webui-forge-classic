@@ -142,7 +142,7 @@ class CheckpointHasher:
         finally:
             with self._lock:
                 self._state["running"] = False
-                self._state["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                self._state["finished_at"] = datetime.datetime.now(datetime.UTC).isoformat()
 
 
 hasher = CheckpointHasher()

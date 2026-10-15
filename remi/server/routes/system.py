@@ -150,7 +150,7 @@ def profile_startup() -> Any:
 def _sysinfo_text(attachment: bool) -> PlainTextResponse:
     from modules import sysinfo as info
 
-    filename = f"sysinfo-{datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d-%H-%M')}.json"
+    filename = f"sysinfo-{datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d-%H-%M')}.json"
     return PlainTextResponse(info.get(), headers={"Content-Disposition": f'{"attachment" if attachment else "inline"}; filename="{filename}"'})
 
 

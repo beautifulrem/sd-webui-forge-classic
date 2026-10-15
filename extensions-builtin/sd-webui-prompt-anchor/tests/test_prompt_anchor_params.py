@@ -23,7 +23,7 @@ def env(ext_kit):
 
 
 @pytest.mark.parametrize("tab", ["txt2img", "img2img"])
-def test_matches_the_gradio_panel(env, tab):
+def test_matches_the_legacy_panel(env, tab):
     _script, layout = env.kit.layout_of(env.module.PromptAnchorScript, tab)
     snapshot = env.kit.load_snapshot(SCRIPT, tab)
     # Intended: the anchor editor has no label (the panel title names it; Gradio's
@@ -98,5 +98,5 @@ def test_localized(env):
     env.kit.assert_localized(EXTENSION, env.kit.schema_strings(layout.schema()), extra={script.title(), *settings})
 
 
-def test_gradio_free(ext_kit):
-    ext_kit.assert_gradio_free(EXTENSION, [SCRIPT])
+def test_standalone(ext_kit):
+    ext_kit.assert_standalone(EXTENSION, [SCRIPT])

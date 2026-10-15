@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from test_runtime_dispatch import _run_p, mixer, runtime
+from test_runtime_dispatch import _run_p, mixer
 
 ROOT = Path(__file__).parents[1]
 SCRIPT = ROOT / "scripts" / "anima_artist_scheduled_mixer.py"
@@ -159,7 +159,7 @@ def test_the_template_controls_are_optional_trailing_arguments():
 
 
 @pytest.mark.parametrize("tab", harness.TABS)
-def test_the_gradio_layout_cut_to_the_api_slots_is_refused(tab):
+def test_the_legacy_layout_cut_to_the_api_slots_is_refused(tab):
     """The API gives the script its params() slots only: a request built for
     the Gradio panel arrives cut to them and must fail, not run misread."""
     legacy = [entry["default"] for entry in harness.legacy_snapshot(ROOT, tab)["inputs"]]
@@ -206,9 +206,8 @@ def test_pasting_keeps_the_recorded_blocks():
     assert [row["blocks"] for row in values["hires_rows"]] == ["0-51", "-1"]
 
 
-def test_the_extension_is_gradio_free():
-    assert harness.gradio_imports(ROOT) == []
-    harness.assert_loads_without_gradio(SCRIPT)
+def test_the_extension_loads_standalone():
+    harness.assert_loads_standalone(SCRIPT)
 
 
 def test_the_zh_cn_catalog_covers_every_string():

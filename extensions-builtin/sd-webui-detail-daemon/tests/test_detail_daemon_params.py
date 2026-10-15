@@ -98,8 +98,8 @@ def test_settings_use_remi_widgets(dd):
     saved = dict(shared.opts.data_labels)
     try:
         dd.add_settings()
-        assert shared.opts.data_labels["detail_daemon_count"].widget is ui.Slider
-        assert shared.opts.data_labels["detail_daemon_verbose"].widget is ui.Toggle
+        assert shared.opts.data_labels["detail_daemon_count"].component is ui.Slider
+        assert shared.opts.data_labels["detail_daemon_verbose"].component is ui.Toggle
     finally:
         shared.opts.data_labels.clear()
         shared.opts.data_labels.update(saved)
@@ -127,8 +127,8 @@ def test_the_widget_schedule_fixture_is_current(dd):
     assert json.loads(FIXTURE.read_text(encoding="utf-8")) == json.loads(json.dumps(cases(dd.Script().make_schedule)))
 
 
-def test_no_gradio_or_matplotlib():
-    contract.assert_gradio_free(SCRIPT)
+def test_ported_without_matplotlib():
+    contract.assert_ported(SCRIPT)
     source = SCRIPT.read_text(encoding="utf-8")
     assert "matplotlib" not in source and not (SCRIPT.parents[1] / "style.css").exists()
 

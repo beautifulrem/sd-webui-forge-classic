@@ -13,11 +13,11 @@ def test_the_runner_gives_it_an_empty_ported_layout(monkeypatch):
 
     negpip = harness.load_script(SCRIPT, "negpip_params_under_test")
     monkeypatch.setattr(negpip, "on_cfg_denoiser", lambda callback: None)  # keep the session's callbacks
-    assert not scripts.has_params(negpip.NegPiP) and not scripts.overrides_ui(negpip.NegPiP)
+    assert not scripts.has_params(negpip.NegPiP) and not scripts.legacy_ui_only(negpip.NegPiP())
     with webui_state(script_classes=[negpip.NegPiP]) as webui:
         script = next(script for script in webui.txt2img.scripts if isinstance(script, negpip.NegPiP))
-        assert script.layout is not None and not script.layout.legacy and len(script.layout) == 0
+        assert script.layout is not None and len(script.layout) == 0
 
 
-def test_imports_without_gradio():
-    harness.assert_gradio_free([SCRIPT])
+def test_imports_standalone():
+    harness.assert_imports_standalone([SCRIPT])

@@ -679,7 +679,6 @@
     "Number of columns on the page": "每页的列数",
     "Number of rows on the page": "每页的行数",
     "Minimum number of pages per load": "每次加载的最小页数",
-    "Use automatic height for gallery (requires Gradio >= 3.36.0)": "画廊使用自动高度（需要 Gradio >= 3.36.0）",
     "Use optimized images in the thumbnail interface (significantly reduces the amount of data transferred)": "在缩略图界面中使用优化后的图像（显著减少传输的数据量）",
     "Size of the thumbnails (px)": "缩略图大小 (px)",
     "Crop thumbnail to square": "将缩略图裁剪为正方形",

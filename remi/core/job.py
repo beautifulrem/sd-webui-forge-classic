@@ -33,8 +33,7 @@ class JobContext:
 
 @contextmanager
 def job_state(job: JobContext) -> Iterator[None]:
-    """``shared.state`` and the progress registry around one job, as
-    ``call_queue.wrap_gradio_gpu_call`` set them up: a fresh state (so an
+    """``shared.state`` and the progress registry around one job: a fresh state (so an
     interrupt or skip of the previous job does not leak into this one), the
     task marked current while it runs, and the flags cleared afterwards.
     Serialising jobs (one at a time, on the main thread) is the caller's."""

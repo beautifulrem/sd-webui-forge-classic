@@ -1,14 +1,20 @@
+"""Extension callbacks (A1111 ``script_callbacks``).
+
+Callbacks that only made sense while building the Gradio UI are gone:
+``on_ui_tabs`` (extension tabs are ``remi.pages``), ``on_ui_train_tabs``,
+``on_before_component`` / ``on_after_component`` (and the ``Script`` methods
+of the same names). ``on_ui_settings`` and ``on_before_ui`` run before each
+app is built; ``on_app_started`` receives ``demo=None``.
+"""
+
 from __future__ import annotations
 
 import dataclasses
 import inspect
 import os
-from typing import TYPE_CHECKING, Optional, Any
+from typing import Any
 
 from fastapi import FastAPI
-
-if TYPE_CHECKING:
-    from gradio import Blocks
 
 from modules import errors, timer, extensions, shared, util
 
@@ -96,11 +102,6 @@ class AfterCFGCallbackParams:
 
         self.total_sampling_steps = total_sampling_steps
         """Total number of sampling steps planned"""
-
-
-class UiTrainTabParams:
-    def __init__(self, txt2img_preview_params):
-        self.txt2img_preview_params = txt2img_preview_params
 
 
 class ImageGridLoopParams:
@@ -221,8 +222,6 @@ def enumerate_callbacks():
 callback_map = dict(
     callbacks_app_started=[],
     callbacks_model_loaded=[],
-    callbacks_ui_tabs=[],
-    callbacks_ui_train_tabs=[],
     callbacks_ui_settings=[],
     callbacks_before_image_saved=[],
     callbacks_image_saved=[],
@@ -230,8 +229,6 @@ callback_map = dict(
     callbacks_cfg_denoiser=[],
     callbacks_cfg_denoised=[],
     callbacks_cfg_after_cfg=[],
-    callbacks_before_component=[],
-    callbacks_after_component=[],
     callbacks_image_grid=[],
     callbacks_infotext_pasted=[],
     callbacks_script_unloaded=[],
@@ -252,7 +249,7 @@ def clear_callbacks():
     ordered_callbacks_map.clear()
 
 
-def app_started_callback(demo: Optional[Blocks], app: FastAPI):
+def app_started_callback(demo: None, app: FastAPI):
     for c in ordered_callbacks('app_started'):
         try:
             c.callback(demo, app)
@@ -275,26 +272,6 @@ def model_loaded_callback(sd_model):
             c.callback(sd_model)
         except Exception:
             report_exception(c, 'model_loaded_callback')
-
-
-def ui_tabs_callback():
-    res = []
-
-    for c in ordered_callbacks('ui_tabs'):
-        try:
-            res += c.callback() or []
-        except Exception:
-            report_exception(c, 'ui_tabs_callback')
-
-    return res
-
-
-def ui_train_tabs_callback(params: UiTrainTabParams):
-    for c in ordered_callbacks('ui_train_tabs'):
-        try:
-            c.callback(params)
-        except Exception:
-            report_exception(c, 'callbacks_ui_train_tabs')
 
 
 def ui_settings_callback():
@@ -351,22 +328,6 @@ def cfg_after_cfg_callback(params: AfterCFGCallbackParams):
             c.callback(params)
         except Exception:
             report_exception(c, 'cfg_after_cfg_callback')
-
-
-def before_component_callback(component, **kwargs):
-    for c in ordered_callbacks('before_component'):
-        try:
-            c.callback(component, **kwargs)
-        except Exception:
-            report_exception(c, 'before_component_callback')
-
-
-def after_component_callback(component, **kwargs):
-    for c in ordered_callbacks('after_component'):
-        try:
-            c.callback(component, **kwargs)
-        except Exception:
-            report_exception(c, 'after_component_callback')
 
 
 def image_grid_callback(params: ImageGridLoopParams):
@@ -474,29 +435,9 @@ def on_model_loaded(callback, *, name=None):
     add_callback(callback_map['callbacks_model_loaded'], callback, name=name, category='model_loaded')
 
 
-def on_ui_tabs(callback, *, name=None):
-    """register a function to be called when the UI is creating new tabs.
-    The function must either return a None, which means no new tabs to be added, or a list, where
-    each element is a tuple:
-        (gradio_component, title, elem_id)
-
-    gradio_component is a gradio component to be used for contents of the tab (usually gr.Blocks)
-    title is tab text displayed to user in the UI
-    elem_id is HTML id for the tab
-    """
-    add_callback(callback_map['callbacks_ui_tabs'], callback, name=name, category='ui_tabs')
-
-
-def on_ui_train_tabs(callback, *, name=None):
-    """register a function to be called when the UI is creating new tabs for the train tab.
-    Create your new tabs with gr.Tab.
-    """
-    add_callback(callback_map['callbacks_ui_train_tabs'], callback, name=name, category='ui_train_tabs')
-
-
 def on_ui_settings(callback, *, name=None):
-    """register a function to be called before UI settings are populated; add your settings
-    by using shared.opts.add_option(shared.OptionInfo(...)) """
+    """register a function to be called before the settings schema is built (at startup and
+    on "Reload UI"); add your settings by using shared.opts.add_option(shared.OptionInfo(...)) """
     add_callback(callback_map['callbacks_ui_settings'], callback, name=name, category='ui_settings')
 
 
@@ -548,23 +489,6 @@ def on_cfg_after_cfg(callback, *, name=None):
     add_callback(callback_map['callbacks_cfg_after_cfg'], callback, name=name, category='cfg_after_cfg')
 
 
-def on_before_component(callback, *, name=None):
-    """register a function to be called before a component is created.
-    The callback is called with arguments:
-        - component - gradio component that is about to be created.
-        - **kwargs - args to gradio.components.IOComponent.__init__ function
-
-    Use elem_id/label fields of kwargs to figure out which component it is.
-    This can be useful to inject your own components somewhere in the middle of vanilla UI.
-    """
-    add_callback(callback_map['callbacks_before_component'], callback, name=name, category='before_component')
-
-
-def on_after_component(callback, *, name=None):
-    """register a function to be called after a component is created. See on_before_component for more."""
-    add_callback(callback_map['callbacks_after_component'], callback, name=name, category='after_component')
-
-
 def on_image_grid(callback, *, name=None):
     """register a function to be called before making an image grid.
     The callback is called with one argument:
@@ -590,13 +514,14 @@ def on_script_unloaded(callback, *, name=None):
 
 
 def on_before_ui(callback, *, name=None):
-    """register a function to be called before the UI is created."""
+    """register a function to be called before the app is built (at startup and on "Reload UI"),
+    e.g. to register extra-networks pages or X/Y/Z plot axes."""
 
     add_callback(callback_map['callbacks_before_ui'], callback, name=name, category='before_ui')
 
 
 def on_list_optimizers(callback, *, name=None):
-    """register a function to be called when UI is making a list of cross attention optimization options.
+    """register a function to be called when the WebUI is making a list of cross attention optimization options.
     The function will be called with one argument, a list, and shall add objects of type modules.sd_hijack_optimizations.SdOptimization
     to it."""
 
@@ -604,14 +529,14 @@ def on_list_optimizers(callback, *, name=None):
 
 
 def on_list_unets(callback, *, name=None):
-    """register a function to be called when UI is making a list of alternative options for unet.
+    """register a function to be called when the WebUI is making a list of alternative options for unet.
     The function will be called with one argument, a list, and shall add objects of type modules.sd_unet.SdUnetOption to it."""
 
     add_callback(callback_map['callbacks_list_unets'], callback, name=name, category='list_unets')
 
 
 def on_before_token_counter(callback, *, name=None):
-    """register a function to be called when UI is counting tokens for a prompt.
+    """register a function to be called when the WebUI is counting tokens for a prompt.
     The function will be called with one argument of type BeforeTokenCounterParams, and should modify its fields if necessary."""
 
     add_callback(callback_map['callbacks_before_token_counter'], callback, name=name, category='before_token_counter')

@@ -54,7 +54,6 @@ function renderTable(rows: Json[], optimization = "Balance"): FormStore {
         kind: "alwayson",
         section: null,
         order: 0,
-        legacy: false,
         layout: {
           type: "section",
           title: "Anima Artist Scheduled Mixer",

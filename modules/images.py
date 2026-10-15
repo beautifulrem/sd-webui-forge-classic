@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime
 import functools
 import hashlib
-import io
 import json
 import math
 import os
@@ -877,27 +876,6 @@ def read_info_from_image(image: Image.Image) -> tuple[str | None, dict]:
     geninfo, items = read_standard()
 
     return geninfo, items
-
-
-def image_data(data):
-    import gradio as gr
-
-    try:
-        image = read(io.BytesIO(data))
-        textinfo, _ = read_info_from_image(image)
-        return textinfo, None
-    except Exception:
-        pass
-
-    try:
-        text = data.decode("utf8")
-        assert len(text) < 10000
-        return text, None
-
-    except Exception:
-        pass
-
-    return gr.skip(), None
 
 
 def flatten(img, bgcolor):

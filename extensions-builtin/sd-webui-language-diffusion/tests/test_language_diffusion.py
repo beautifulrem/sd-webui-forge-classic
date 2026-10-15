@@ -92,5 +92,5 @@ def test_the_localization_setting_is_presented_in_each_language(webui):
         info.label, info.component_args, info.onchange = saved
 
 
-def test_no_gradio_left():
-    harness.assert_page_gradio_free(EXT, [SCRIPT])
+def test_no_tab_code_left():
+    harness.assert_page_standalone(EXT, [SCRIPT])
