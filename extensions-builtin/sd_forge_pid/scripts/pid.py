@@ -1,15 +1,13 @@
 from unittest.mock import patch
 
 import cv2
-import gradio as gr
 import numpy as np
 import torch
 from PIL import Image
 
 from backend import memory_management
 from modules import devices, images, scripts
-from modules.anima_feature_conflicts import wire_exclusive_components
-from modules.anima_presets import register_preset_control
+from modules.anima_feature_conflicts import PID_HIRES_GROUP
 from modules.processing import (
     Processed,
     StableDiffusionProcessing,
@@ -22,15 +20,33 @@ from modules.processing import (
 from modules.sd_models import checkpoint_tiles
 from modules.sd_vae import vae_dict
 from modules.shared import opts, state
-from modules.ui_components import InputAccordion
 from modules_forge.main_entry import module_list
 from pid_state import batch_value, result_sink
+from remi import ui
+
+DESCRIPTION = (
+    "Optional 4x pixel-diffusion postprocessor (4 LCM steps). It cannot be combined "
+    "with Hires fix. PiD weights are limited to non-commercial research/evaluation; "
+    "review the model license before use."
+)
+
+
+def pid_checkpoints() -> list[str]:
+    return [m for m in sorted(checkpoint_tiles(use_short=True)) if "pid" in m.lower()]
+
+
+def vae_choices() -> list[str]:
+    return sorted(vae_dict.keys())
+
+
+def text_encoder_choices() -> list[str]:
+    vaes = set(vae_dict.keys())
+    return [m for m in sorted(module_list.keys()) if m not in vaes]
 
 
 class PiDForForge(scripts.Script):
     def __init__(self):
-        self.models: list[str] = [m for m in sorted(checkpoint_tiles(use_short=True)) if "pid" in m.lower()]
-        self._hires_component = None
+        self.models: list[str] = pid_checkpoints()
 
     def title(self):
         return "PiD Integrated"
@@ -38,51 +54,26 @@ class PiDForForge(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible if bool(self.models) else None
 
-    def after_component(self, component, **kwargs):
-        if getattr(component, "elem_id", None) == "txt2img_hr-checkbox":
-            self._hires_component = component
-
-    def ui(self, *args, **kwargs):
-        vaes: list[str] = sorted(vae_dict.keys())
-        modules: list[str] = [m for m in sorted(module_list.keys()) if m not in vaes]
-
-        with InputAccordion(False, label=self.title()) as enable:
-            gr.Markdown(
-                "Optional 4x pixel-diffusion postprocessor (4 LCM steps). It cannot be combined "
-                "with Hires fix. PiD weights are limited to non-commercial research/evaluation; "
-                "review the model license before use."
-            )
-            prompt = gr.Textbox(value=None, lines=3, max_lines=3, label="Prompt", placeholder="(leave empty to use main prompt)")
-            with gr.Row():
-                ckpt = gr.Dropdown(value=next(iter(self.models), None), choices=self.models, label="PiD")
-                vae = gr.Dropdown(value=next(iter(vaes), None), choices=vaes, label="VAE")
-                tec = gr.Dropdown(value=next(iter(modules), None), choices=modules, label="Gemma2 2B IT ELM")
-            with gr.Row():
-                degrade_sigma = gr.Slider(minimum=0.0, maximum=1.0, value=0.0, step=0.05, label="Degrade Sigma", info="(denoising strength)")
-                cc = gr.Checkbox(True, label="Color Correction", info="(fix discoloration issue)")
-
-        if self.tabname == "txt2img":
-            wire_exclusive_components(
-                ("pid", "hires"),
-                (enable, self._hires_component),
-            )
-
-        self.infotext_fields = [
-            (prompt, "pid_prompt"),
-            (ckpt, "pid_ckpt"),
-            (vae, "pid_vae"),
-            (tec, "pid_tec"),
-            (degrade_sigma, "degrade_sigma"),
-        ]
-
-        for name, component in {
-            "pid.enabled": enable,
-            "pid.degrade_sigma": degrade_sigma,
-            "pid.color_correction": cc,
-        }.items():
-            register_preset_control(self.tabname, name, component)
-
-        return [enable, prompt, ckpt, vae, tec, degrade_sigma, cc]
+    def params(self, is_img2img):
+        # One of PiD and Hires. fix (core ``enable_hr``): txt2img has both
+        exclusive = None if is_img2img else (PID_HIRES_GROUP, "pid")
+        return ui.Section(
+            self.title(),
+            enable=ui.Toggle("enable", False, label=self.title(), preset="pid.enabled", exclusive=exclusive),
+            children=[
+                ui.Markdown(DESCRIPTION),
+                ui.Text("prompt", "", lines=3, max_lines=3, placeholder="(leave empty to use main prompt)", label="Prompt", infotext="pid_prompt"),
+                ui.Row(
+                    ui.Choice("ckpt", pid_checkpoints, label="PiD", infotext="pid_ckpt"),
+                    ui.Choice("vae", vae_choices, label="VAE", infotext="pid_vae"),
+                    ui.Choice("tec", text_encoder_choices, label="Gemma2 2B IT ELM", infotext="pid_tec"),
+                ),
+                ui.Row(
+                    ui.Slider("degrade_sigma", 0.0, 1.0, 0.0, 0.05, label="Degrade Sigma", info="(denoising strength)", infotext="degrade_sigma", preset="pid.degrade_sigma"),
+                    ui.Toggle("cc", True, label="Color Correction", info="(fix discoloration issue)", preset="pid.color_correction"),
+                ),
+            ],
+        )
 
     @torch.inference_mode()
     def post_sample(

@@ -1,0 +1,13 @@
+{
+  "Extra options": "额外选项",
+  "Options": "选项",
+  "Settings in UI": "UI 中的设置",
+  "This page allows you to add some settings to the main interface of txt2img and img2img tabs.": "此页面可将部分设置添加到文生图和图生图的主界面中。",
+  "Settings for txt2img": "txt2img 的设置",
+  "setting entries that also appear in txt2img interfaces": "也出现在 txt2img 界面中的设置项",
+  "Settings for img2img": "img2img 的设置",
+  "setting entries that also appear in img2img interfaces": "也出现在 img2img 界面中的设置项",
+  "Number of columns for added settings": "添加的设置的列数",
+  "displayed amount will depend on the actual browser window width": "显示的数量将取决于实际的浏览器窗口宽度",
+  "Place added settings into an accordion": "将添加的设置放入折叠面板"
+}

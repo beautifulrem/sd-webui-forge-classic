@@ -50,6 +50,12 @@ Anima 画师串调度混合是一个 Forge Neo 扩展，用来让 Anima 的画�
 
 粘贴这些参数（提示词旁的粘贴按钮，或 PNG 信息页的发送按钮）会恢复面板，中英文界面可互相粘贴：开启画师串混合，设置记录的控件，按记录逐行填入画师行（行数随之调整），并像手动修改一样保存该标签页的当前设置。粘贴不会改动模板、模板下拉框和文本编码缓存开关。infotext 里没有高分画师行时，高分画师行保持不变。没有这些键的 infotext（未使用画师串混合的生成，或旧版本只写了摘要的图片）不会改动面板。图库下方的发送按钮也会像其他 Anima 面板一样，把面板从文生图带到图生图。
 
+## API
+
+`alwayson_scripts` 的 args 按面板参数顺序传入：`enable`、`hires_independent`、`disable_hires_mixing`、`global_strength`、`optimization`、`combine_mode`、`fusion_mode`、`apply_uncond`、`enable_cache`、`base_rows`、`hires_rows`，之后是可省略的模板控件（`template`、`template_target`、`template_name`、`rename_to`；生成时不读取）。`base_rows` / `hires_rows` 是行列表，每行是以 `enabled, artist, weight, blocks, start, end, peak, curve, stage, auto_shift` 为键的对象，或按此顺序的列表。Shift 取请求自身的 `distilled_cfg_scale`、`hr_distilled_cfg`。
+
+API 不再接受 Gradio 面板的 653 个位置参数（行数、Shift 副本、640 个行值）：API 只保留脚本的 15 个参数位，按旧布局发送的请求会被拒绝，错误信息会列出应传入的参数。
+
 ## 推荐默认值
 
 - 优化预设：`平衡`

@@ -1,0 +1,11 @@
+{
+  "MultiDiffusion Integrated": "MultiDiffusion 集成",
+  "Method": "方法",
+  "MultiDiffusion": "MultiDiffusion",
+  "Mixture of Diffusers": "Mixture of Diffusers",
+  "Tile Width": "Tile 宽度",
+  "Use source image size": "使用源图像尺寸",
+  "Tile Height": "Tile 高度",
+  "Tile Batch Size": "Tile Batch 大小",
+  "Add a source image to read its size": "请先添加源图像以读取其尺寸"
+}

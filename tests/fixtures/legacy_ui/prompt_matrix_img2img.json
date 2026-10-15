@@ -1,0 +1,7 @@
+{"script": "Prompt Matrix", "tab": "img2img", "count": 5, "infotext_fields": 0, "inputs": [
+  {"kind": "toggle", "label": "Put the variable parts at the start of prompt", "info": null, "default": false, "infotext": null, "paste": false, "preset": null},
+  {"kind": "toggle", "label": "Use different seeds for each image", "info": null, "default": false, "infotext": null, "paste": false, "preset": null},
+  {"kind": "choice", "label": "Prompt", "info": null, "default": "positive", "style": "radio", "allow_custom": false, "choices": ["positive", "negative"], "returns": "value", "infotext": null, "paste": false, "preset": null},
+  {"kind": "choice", "label": "Joining Char.", "info": null, "default": "comma", "style": "radio", "allow_custom": false, "choices": ["comma", "space"], "returns": "value", "infotext": null, "paste": false, "preset": null},
+  {"kind": "slider", "label": "Grid Margins (px)", "info": null, "default": 0, "minimum": 0, "maximum": 256, "step": 2, "integer": true, "infotext": null, "paste": false, "preset": null}
+]}

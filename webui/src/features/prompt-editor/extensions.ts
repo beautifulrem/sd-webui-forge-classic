@@ -3,7 +3,7 @@
  * build an `EditorView` from them): key commands, highlighting, bracket lint
  * and registered completion sources.
  */
-import { autocompletion } from "@codemirror/autocomplete"
+import { acceptCompletion, autocompletion } from "@codemirror/autocomplete"
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
 import { linter, type Diagnostic } from "@codemirror/lint"
 import { Compartment, type Extension, Prec, RangeSet } from "@codemirror/state"
@@ -12,7 +12,7 @@ import { t } from "@/i18n"
 import { type Edit, editAttention } from "@/ui/prompt/attention"
 import { minimalChange, type PromptKeyOptions } from "@/ui/prompt/editing"
 import { moveTags } from "@/ui/prompt/reorder"
-import { completionSources } from "./completion-registry"
+import { completionSources, type DecoratedCompletion, withAcceptKey } from "./completion-registry"
 import { bracketProblems, type PromptTokenKind, tokenizePrompt } from "./tokenize"
 
 function applyEdit(view: EditorView, edit: Edit | null, userEvent: string): boolean {
@@ -115,11 +115,30 @@ export function bracketDiagnostics(text: string): Diagnostic[] {
 
 export const bracketLint: Extension = linter((view) => bracketDiagnostics(view.state.doc.toString()), { delay: 250 })
 
-/** Autocompletion over the registered sources; nothing at all while none is registered. */
+/**
+ * Autocompletion over the registered sources; nothing at all while none is
+ * registered. Tab accepts like Enter (the source can tell them apart with
+ * `completionAcceptKey()`); options may carry `className` / `decorate`
+ * (`DecoratedCompletion`).
+ */
 export function completionExtension(): Extension {
   const sources = completionSources()
   if (sources.length === 0) return []
-  return autocompletion({ override: sources.map((entry) => entry.source), icons: false })
+  return [
+    autocompletion({
+      override: sources.map((entry) => entry.source),
+      icons: false,
+      maxRenderedOptions: 100,
+      optionClass: (completion) => (completion as DecoratedCompletion).className ?? "",
+      addToOptions: [{ position: 80, render: (completion) => (completion as DecoratedCompletion).decorate?.() ?? null }],
+    }),
+    Prec.highest(
+      keymap.of([
+        { key: "Tab", run: (view) => withAcceptKey("Tab", () => acceptCompletion(view)) },
+        { key: "Enter", run: (view) => withAcceptKey("Enter", () => acceptCompletion(view)) },
+      ]),
+    ),
+  ]
 }
 
 /** A compartment holding `completionExtension()`; reconfigure it when the registry changes. */

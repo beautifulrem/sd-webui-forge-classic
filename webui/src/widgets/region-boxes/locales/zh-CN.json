@@ -1,0 +1,14 @@
+{
+  "Region layouts": "区域布局",
+  "Two columns": "左右两栏",
+  "Two rows": "上下两栏",
+  "Three columns": "三栏（横向）",
+  "Three rows": "三栏（纵向）",
+  "Regions": "区域",
+  "region": "区域",
+  "Region {{number}}": "区域 {{number}}",
+  "Region {{number}} active": "启用区域 {{number}}",
+  "Region {{number}}: x {{x}}, y {{y}}, width {{width}}, height {{height}}": "区域 {{number}}：X {{x}}，Y {{y}}，宽 {{width}}，高 {{height}}",
+  "Empty prompt: not used": "提示词为空：不会生效",
+  "Arrow keys move the region, Shift+arrow keys resize it, Alt moves in steps of ten.": "方向键移动区域，Shift+方向键调整大小，按住 Alt 时每次移动十步。"
+}

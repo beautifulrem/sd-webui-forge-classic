@@ -60,7 +60,7 @@ class CoreActions:
     def anima_preset(self, ctx: ui.ActionContext, values: dict) -> Patch:
         from remi.core.presets import anima_preset_patch
 
-        return anima_preset_patch(_tab(ctx), _argument(ctx, "label"))
+        return anima_preset_patch(_tab(ctx), _argument(ctx, "label"), values={**ctx.scripts, "core": values})
 
     @ui.action("__forge_preset__", gpu=True)
     def forge_preset(self, ctx: ui.ActionContext, values: dict) -> Patch:

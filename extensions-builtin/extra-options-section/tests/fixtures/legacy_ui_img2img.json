@@ -1,0 +1,32 @@
+[
+ {
+  "kind": "slider",
+  "label": "Noise Multiplier for img2img",
+  "default": 1.0,
+  "minimum": 0.0,
+  "maximum": 1.5,
+  "step": 0.05,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "toggle",
+  "label": "Apply color correction to img2img results to match original colors",
+  "default": false,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Extra Noise Multiplier for img2img and Hires. fix",
+  "default": 0.0,
+  "minimum": 0.0,
+  "maximum": 1.0,
+  "step": 0.05,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ }
+]

@@ -1,0 +1,256 @@
+{
+ "shown": true,
+ "script": "AnimaRegionalScript",
+ "inputs": [
+  {
+   "kind": "toggle",
+   "label": "Anima Regional Conditioning",
+   "default": false,
+   "infotext": "Anima regional enabled",
+   "preset": "regional.enabled"
+  },
+  {
+   "kind": "text",
+   "label": "Anima blocks",
+   "default": "0-27",
+   "lines": 1,
+   "infotext": "Anima regional blocks",
+   "preset": "regional.blocks"
+  },
+  {
+   "kind": "slider",
+   "label": "Start progress",
+   "default": 0.0,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima regional start",
+   "preset": "regional.start"
+  },
+  {
+   "kind": "slider",
+   "label": "End progress",
+   "default": 0.65,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima regional end",
+   "preset": "regional.end"
+  },
+  {
+   "kind": "slider",
+   "label": "Edge feather",
+   "default": 0.03,
+   "minimum": 0.0,
+   "maximum": 0.25,
+   "step": 0.005,
+   "infotext": "Anima regional feather",
+   "preset": "regional.feather"
+  },
+  {
+   "kind": "slider",
+   "label": "Base preserve",
+   "default": 0.15,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima regional base preserve",
+   "preset": "regional.base_preserve"
+  },
+  {
+   "kind": "toggle",
+   "label": "Active",
+   "default": true,
+   "infotext": "Anima region 1 active",
+   "preset": "regional.region1_active"
+  },
+  {
+   "kind": "text",
+   "label": "Regional prompt",
+   "default": "",
+   "lines": 1,
+   "infotext": "Anima region 1 prompt",
+   "preset": null
+  },
+  {
+   "kind": "slider",
+   "label": "X",
+   "default": 0.0,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima region 1 x",
+   "preset": "regional.region1_x"
+  },
+  {
+   "kind": "slider",
+   "label": "Y",
+   "default": 0.0,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima region 1 y",
+   "preset": "regional.region1_y"
+  },
+  {
+   "kind": "slider",
+   "label": "Width",
+   "default": 0.5,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima region 1 width",
+   "preset": "regional.region1_width"
+  },
+  {
+   "kind": "slider",
+   "label": "Height",
+   "default": 1.0,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima region 1 height",
+   "preset": "regional.region1_height"
+  },
+  {
+   "kind": "slider",
+   "label": "Strength",
+   "default": 1.0,
+   "minimum": 0.0,
+   "maximum": 2.0,
+   "step": 0.05,
+   "infotext": "Anima region 1 strength",
+   "preset": "regional.region1_strength"
+  },
+  {
+   "kind": "toggle",
+   "label": "Active",
+   "default": true,
+   "infotext": "Anima region 2 active",
+   "preset": "regional.region2_active"
+  },
+  {
+   "kind": "text",
+   "label": "Regional prompt",
+   "default": "",
+   "lines": 1,
+   "infotext": "Anima region 2 prompt",
+   "preset": null
+  },
+  {
+   "kind": "slider",
+   "label": "X",
+   "default": 0.5,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima region 2 x",
+   "preset": "regional.region2_x"
+  },
+  {
+   "kind": "slider",
+   "label": "Y",
+   "default": 0.0,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima region 2 y",
+   "preset": "regional.region2_y"
+  },
+  {
+   "kind": "slider",
+   "label": "Width",
+   "default": 0.5,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima region 2 width",
+   "preset": "regional.region2_width"
+  },
+  {
+   "kind": "slider",
+   "label": "Height",
+   "default": 1.0,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima region 2 height",
+   "preset": "regional.region2_height"
+  },
+  {
+   "kind": "slider",
+   "label": "Strength",
+   "default": 1.0,
+   "minimum": 0.0,
+   "maximum": 2.0,
+   "step": 0.05,
+   "infotext": "Anima region 2 strength",
+   "preset": "regional.region2_strength"
+  },
+  {
+   "kind": "toggle",
+   "label": "Active",
+   "default": false,
+   "infotext": "Anima region 3 active",
+   "preset": "regional.region3_active"
+  },
+  {
+   "kind": "text",
+   "label": "Regional prompt",
+   "default": "",
+   "lines": 1,
+   "infotext": "Anima region 3 prompt",
+   "preset": null
+  },
+  {
+   "kind": "slider",
+   "label": "X",
+   "default": 0.25,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima region 3 x",
+   "preset": "regional.region3_x"
+  },
+  {
+   "kind": "slider",
+   "label": "Y",
+   "default": 0.25,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima region 3 y",
+   "preset": "regional.region3_y"
+  },
+  {
+   "kind": "slider",
+   "label": "Width",
+   "default": 0.5,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima region 3 width",
+   "preset": "regional.region3_width"
+  },
+  {
+   "kind": "slider",
+   "label": "Height",
+   "default": 0.5,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "infotext": "Anima region 3 height",
+   "preset": "regional.region3_height"
+  },
+  {
+   "kind": "slider",
+   "label": "Strength",
+   "default": 1.0,
+   "minimum": 0.0,
+   "maximum": 2.0,
+   "step": 0.05,
+   "infotext": "Anima region 3 strength",
+   "preset": "regional.region3_strength"
+  }
+ ]
+}

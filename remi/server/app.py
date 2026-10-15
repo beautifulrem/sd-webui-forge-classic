@@ -139,6 +139,9 @@ def create_app(
     api = APIRouter(prefix=API_PREFIX)
     for module in (core, jobs, files, networks, extensions, system):
         api.include_router(module.router)
+    from remi.server.routes import admin; api.include_router(admin.router)  # noqa: E702 - settings & extensions stream
+    from remi.server.routes import library, queue_tools; api.include_router(queue_tools.router); api.include_router(library.router)  # noqa: E702 - gallery, PNG info & queue stream
+    from remi.server.routes import prompt_tools; api.include_router(prompt_tools.router)  # noqa: E702 - prompt tools stream
     app.include_router(api)
     app.include_router(system.internal, prefix="/internal")
     system.add_progress_routes(app)

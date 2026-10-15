@@ -11,7 +11,6 @@ if TYPE_CHECKING:
 
     from modules.processing import StableDiffusionProcessingImg2Img as P
 
-import gradio as gr
 from lib_adetailer import (
     PredictOutput,
     __version__,
@@ -28,7 +27,7 @@ from lib_adetailer.args import (
     InpaintBBoxMatchMode,
     SkipImg2ImgOrig,
 )
-from lib_adetailer.controlnet import ControlNetExt, get_cn_models
+from lib_adetailer.controlnet import ControlNetExt, get_cn_models, get_cn_modules
 from lib_adetailer.mask import (
     filter_by_ratio,
     filter_k_by,
@@ -38,7 +37,19 @@ from lib_adetailer.mask import (
     sort_bboxes,
 )
 from lib_adetailer.opts import OptimalCropSize, dynamic_denoise_strength
-from lib_adetailer.ui import WebuiInfo, adui, ordinal, suffix
+from lib_adetailer.ui import (
+    MAX_MODELS,
+    MODEL_CHANGED_ACTION,
+    REFRESH_ACTION,
+    WebuiInfo,
+    adui,
+    ordinal,
+    pack_args,
+    param_name,
+    param_order,
+    suffix,
+    world_flags,
+)
 from lib_adetailer.utils import ensure_pil_image, print
 from lib_adetailer.utils.helper import (
     copy_extra_params,
@@ -68,19 +79,50 @@ from modules.sd_samplers import all_samplers as ALL_SAMPLERS
 from modules.sd_schedulers import schedulers as ALL_SCHEDULERS
 from modules.sd_vae import vae_dict
 from modules.shared import opts, state
+from remi import ui
 
 PARAMS_TXT = "params.txt"
 
 adetailer_dir = Path(paths.models_path, "adetailer")
 os.makedirs(adetailer_dir, exist_ok=True)
 
-extra_models_dirs: str = opts.data.get("ad_extra_models_dir", "")
-model_mapping = get_models(adetailer_dir, *extra_models_dirs.split("|"))
+
+def scan_models(download: bool = True) -> dict[str, str]:
+    extra_models_dirs: str = opts.data.get("ad_extra_models_dir", "")
+    return get_models(adetailer_dir, *extra_models_dirs.split("|"), download=download)
+
+
+model_mapping = scan_models()
+"""Detector models by name; replaced (never emptied) by the Refresh button."""
 
 print(f"Initialized - Version: {__version__} ; {len(model_mapping)} Models")
 
-txt2img_submit_button: gr.Button = None
-img2img_submit_button: gr.Button = None
+
+DEFAULT_MAX_MODELS = 4
+"""The ``ad_max_models`` default (also before on_ui_settings registers it)."""
+
+
+def num_models() -> int:
+    """The ``ad_max_models`` setting (tabs; read when the layout is built)."""
+
+    try:
+        count = int(shared.opts.data.get("ad_max_models", DEFAULT_MAX_MODELS))
+    except (TypeError, ValueError):
+        count = DEFAULT_MAX_MODELS
+    return max(1, min(MAX_MODELS, count))
+
+
+def vae_names() -> list[str]:
+    return ["None", *sorted(vae_dict.keys())]
+
+
+WEBUI_INFO = WebuiInfo(
+    ad_model_list=lambda: list(model_mapping),
+    sampler_names=lambda: [sampler.name for sampler in ALL_SAMPLERS],
+    scheduler_names=lambda: [x.label for x in ALL_SCHEDULERS],
+    checkpoints_list=lambda: checkpoint_tiles(use_short=True),
+    vae_list=vae_names,
+)
 
 
 class AfterDetailerScript(scripts.Script):
@@ -96,28 +138,49 @@ class AfterDetailerScript(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def ui(self, is_img2img):
-        num_models: int = opts.data.get("ad_max_models", 2)
-        ad_model_list: list[str] = list(model_mapping.keys())
-        sampler_names: list[str] = [sampler.name for sampler in ALL_SAMPLERS]
-        scheduler_names: list[str] = [x.label for x in ALL_SCHEDULERS]
-        checkpoint_list: list[str] = checkpoint_tiles(use_short=True)
-        vae_list: list[str] = ["None", *sorted(vae_dict.keys())]
+    def params(self, is_img2img):
+        count = num_models()
+        # Positional: the toggles, then each tab's params as pack_args() reads them
+        self.param_order = param_order(count)
+        self.num_models = count
+        return adui(count, is_img2img, WEBUI_INFO)
 
-        webui_info = WebuiInfo(
-            ad_model_list=ad_model_list,
-            sampler_names=sampler_names,
-            scheduler_names=scheduler_names,
-            t2i_button=txt2img_submit_button,
-            i2i_button=img2img_submit_button,
-            checkpoints_list=checkpoint_list,
-            vae_list=vae_list,
-        )
+    @ui.action(REFRESH_ACTION)
+    def refresh_models(self, ctx, values):
+        """Rescan the detector models (without downloading) and refresh every
+        tab's server-side lists; a selection that disappeared falls back."""
 
-        components, infotext_fields = adui(num_models, is_img2img, webui_info)
+        global model_mapping
 
-        self.infotext_fields = infotext_fields
-        return components
+        # Swapped in one step: a running job never sees a partial mapping
+        model_mapping = scan_models(download=False)
+
+        lists = {
+            "ad_model": ["None", *model_mapping],
+            "ad_checkpoint": WEBUI_INFO.checkpoints_list(),
+            "ad_vae": WEBUI_INFO.vae_list(),
+            "ad_controlnet_model": get_cn_models(),
+            "ad_controlnet_module": get_cn_modules(),
+        }
+        patch = {}
+        count = getattr(self, "num_models", num_models())
+        for n in range(count):
+            for attr, choices in lists.items():
+                name = param_name(attr, n)
+                entry = {"choices": list(choices)}
+                if name in values and values[name] not in choices:
+                    entry["value"] = choices[0] if choices else None
+                patch[name] = entry
+        selected = {**values, **{name: entry["value"] for name, entry in patch.items() if "value" in entry}}
+        patch.update(world_flags(selected, count))
+        patch.update(ui.toast(ui.message("{{count}} ADetailer models", count=len(model_mapping)), "success"))
+        return patch
+
+    @ui.action(MODEL_CHANGED_ACTION)
+    def model_changed(self, ctx, values):
+        """Show "Detector Classes" for the tabs whose detector is YOLO-World."""
+
+        return world_flags(values, getattr(self, "num_models", num_models()))
 
     def _init_controlnet(self):
         assert self.controlnet_ext is None
@@ -506,10 +569,11 @@ class AfterDetailerScript(scripts.Script):
         )
 
     def get_ad_model(self, name: str):
-        if name not in model_mapping:
-            msg = f"[ADetailer]: Model {name!r} not found... Available models: {list(model_mapping.keys())}"
+        mapping = model_mapping  # one snapshot across a concurrent Refresh
+        if name not in mapping:
+            msg = f"[ADetailer]: Model {name!r} not found... Available models: {list(mapping.keys())}"
             raise ValueError(msg)
-        return model_mapping[name]
+        return mapping[name]
 
     def sort_bboxes(self, pred: PredictOutput) -> PredictOutput:
         sortby = opts.data.get("ad_bbox_sortby", BBOX_SORTBY[0])
@@ -659,6 +723,8 @@ class AfterDetailerScript(scripts.Script):
         if getattr(p, "_ad_disabled", False):
             return
 
+        args = pack_args(args)
+
         if is_img2img_inpaint(p) and is_all_black(self.get_image_mask(p)):
             p._ad_disabled = True
             print("Inpainting with no Mask - ADetailer Disabled...")
@@ -769,6 +835,7 @@ class AfterDetailerScript(scripts.Script):
         return False
 
     def postprocess_image(self, p: "P", pp: scripts.PostprocessImageArgs, *args):
+        args = pack_args(args)
         if getattr(p, "_ad_disabled", False) or not self.is_ad_enabled(*args):
             return
 
@@ -804,17 +871,6 @@ class AfterDetailerScript(scripts.Script):
         self.write_params_txt(params_txt_content)
 
 
-def on_after_component(component: gr.components.Component, **kwargs):
-    if (eid := getattr(component, "elem_id", None)) is None:
-        return
-
-    global txt2img_submit_button, img2img_submit_button
-    if eid == "txt2img_generate":
-        txt2img_submit_button = component
-    elif eid == "img2img_generate":
-        img2img_submit_button = component
-
-
 # region Settings
 
 
@@ -824,10 +880,10 @@ def on_ui_settings():
     shared.opts.add_option(
         "ad_max_models",
         shared.OptionInfo(
-            default=4,
+            default=DEFAULT_MAX_MODELS,
             label="Max Tabs",
-            component=gr.Slider,
-            component_args={"minimum": 1, "maximum": 8, "step": 1},
+            component=ui.Slider,
+            component_args={"minimum": 1, "maximum": MAX_MODELS, "step": 1},
             **args,
         ).needs_reload_ui(),
     )
@@ -837,7 +893,7 @@ def on_ui_settings():
         shared.OptionInfo(
             default="",
             label="Extra paths to scan ADetailer models separated by vertical bars",
-            component=gr.Textbox,
+            component=ui.Text,
             component_args={"placeholder": "path/to/models|another/path/to/models"},
             **args,
         )
@@ -850,7 +906,7 @@ def on_ui_settings():
         shared.OptionInfo(
             default="",
             label="Output directory for ADetailer images",
-            component=gr.Textbox,
+            component=ui.Text,
             **args,
         ),
     )
@@ -879,7 +935,7 @@ def on_ui_settings():
         shared.OptionInfo(
             default=SCRIPT_DEFAULT,
             label="Names of Script to apply to ADetailer",
-            component=gr.Textbox,
+            component=ui.Text,
             component_args={"placeholder": "comma-separated list of script names"},
             **args,
         ),
@@ -890,8 +946,8 @@ def on_ui_settings():
         shared.OptionInfo(
             default="None",
             label="Sort bounding boxes by",
-            component=gr.Radio,
-            component_args={"choices": BBOX_SORTBY},
+            component=ui.Choice,
+            component_args={"choices": BBOX_SORTBY, "style": "radio"},
             **args,
         ),
     )
@@ -906,7 +962,7 @@ def on_ui_settings():
         shared.OptionInfo(
             default=0,
             label="Power Scaling for Dynamic Denoising Strength",
-            component=gr.Slider,
+            component=ui.Slider,
             component_args={"minimum": -10, "maximum": 10, "step": 0.05},
             **args,
         )
@@ -928,8 +984,8 @@ def on_ui_settings():
         "ad_match_inpaint_bbox_size",
         shared.OptionInfo(
             default=InpaintBBoxMatchMode.STRICT.value,
-            component=gr.Radio,
-            component_args={"choices": INPAINT_BBOX_MATCH_MODES},
+            component=ui.Choice,
+            component_args={"choices": INPAINT_BBOX_MATCH_MODES, "style": "radio"},
             label="Automatically match the inpainting resolution to the size of bounding box",
             **args,
         )
@@ -986,7 +1042,6 @@ def make_axis_on_xyz_grid():
     if any(x.label.startswith("[ADetailer]") for x in xyz_grid.axis_options):
         return
 
-    model_list = ["None", *model_mapping.keys()]
     xyz_samplers = [sampler.name for sampler in ALL_SAMPLERS]
     xyz_schedulers = [scheduler.label for scheduler in ALL_SCHEDULERS]
 
@@ -995,7 +1050,7 @@ def make_axis_on_xyz_grid():
             "[ADetailer] ADetailer Detector",
             str,
             partial(set_value, field="ad_model"),
-            choices=lambda: model_list,
+            choices=lambda: ["None", *model_mapping],
         ),
         xyz_grid.AxisOption(
             "[ADetailer] ADetailer Prompt",
@@ -1072,6 +1127,7 @@ def make_axis_on_xyz_grid():
 
 
 def on_before_ui():
+    # Before the X/Y/Z script's layout is built (it lists the axes then)
     try:
         make_axis_on_xyz_grid()
     except Exception as e:
@@ -1081,7 +1137,7 @@ def on_before_ui():
 # region API
 
 
-def add_api_endpoints(_: gr.Blocks, app: "FastAPI"):
+def add_api_endpoints(_demo, app: "FastAPI"):
     @app.get("/adetailer/v1/version")
     async def version():
         return {"version": __version__}
@@ -1096,6 +1152,5 @@ def add_api_endpoints(_: gr.Blocks, app: "FastAPI"):
 
 
 script_callbacks.on_ui_settings(on_ui_settings)
-script_callbacks.on_after_component(on_after_component)
 script_callbacks.on_app_started(add_api_endpoints)
 script_callbacks.on_before_ui(on_before_ui)

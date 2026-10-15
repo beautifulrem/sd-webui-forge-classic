@@ -1,0 +1,10 @@
+{
+  "Applying post-processing…": "正在应用后期处理…",
+  "Post-processed image sent to img2img": "已将后期处理后的图像发送到图生图",
+  "Could not send the post-processed image": "无法发送后期处理后的图像",
+  "Selected result": "选中的结果",
+  "Apply PP → Send to img2img": "应用后期处理 → 发送到图生图",
+  "Generate an image first": "请先生成一张图像",
+  "Post-processed image sent to inpaint": "已将后期处理后的图像发送到局部重绘",
+  "Apply PP → Send to inpaint": "应用后期处理 → 发送到局部重绘"
+}

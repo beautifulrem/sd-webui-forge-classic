@@ -3,8 +3,10 @@
  * index.html at /" — no catch-all needed next to /api, /files and /sdapi.
  *
  *   #/txt2img  #/img2img  #/extras  #/png-info  #/gallery  #/networks
- *   #/queue  #/settings  #/extensions  #/page/<id>
+ *   #/queue  #/settings  #/extensions  #/ext/<id>
  *
+ * Extension pages live at `#/ext/<id>` (`#/page/<id>`, the earlier form, still
+ * opens them).
  * An optional query (`#/settings?q=sampler`) is kept in `route.query`.
  */
 import { useSyncExternalStore } from "react"
@@ -44,7 +46,7 @@ export function parseHash(hash: string): Route {
   try {
     segments = pathPart.split("/").filter(Boolean).map(decodeURIComponent)
   } catch {
-    // A malformed escape (`#/page/%E0%A4`) is a bad link, not a crash.
+    // A malformed escape (`#/ext/%E0%A4`) is a bad link, not a crash.
     return { name: "not-found", path: pathPart }
   }
   const query = search ? new URLSearchParams(search) : undefined
@@ -53,7 +55,7 @@ export function parseHash(hash: string): Route {
   if (isOneOf(GENERATE_TABS, head) && rest.length === 0) return { name: "generate", tab: head, query }
   if (isOneOf(STATIC_PAGES, head) && rest.length === 0) return { name: head, query }
   const [id] = rest
-  if (head === "page" && id !== undefined && rest.length === 1) return { name: "page", id, query }
+  if ((head === "ext" || head === "page") && id !== undefined && rest.length === 1) return { name: "page", id, query }
   return { name: "not-found", path: pathPart }
 }
 
@@ -64,7 +66,7 @@ export function routeHref(route: Route): string {
       path = route.tab
       break
     case "page":
-      path = `page/${encodeURIComponent(route.id)}`
+      path = `ext/${encodeURIComponent(route.id)}`
       break
     case "not-found":
       path = route.path

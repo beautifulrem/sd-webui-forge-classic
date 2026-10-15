@@ -12,11 +12,14 @@ import { tabOwners } from "@/ui/tab"
 import type { ActionRequest, FormTab, InfotextParsed, Job, JobOutput, JobRequest, PromptStyle, TokenCountRequest } from "../types"
 import { bootstrap, extrasSchema, models, serverCatalogZh, styles, tabSchema, toolboxPage } from "./fixtures"
 import { broadcast, broadcastBinary } from "./socket"
+import { adminRoutes } from "./admin"
+import { networkRoutes } from "./networks"
+import { libraryRoutes } from "./library"
 
 type Handler = (match: RegExpExecArray, body: unknown, url: URL) => unknown | Promise<unknown>
 
 /** Thrown by a handler to answer with an error status and JSON body. */
-class MockHttpError extends Error {
+export class MockHttpError extends Error {
   readonly status: number
   readonly body: unknown
   constructor(status: number, body: unknown) {
@@ -247,8 +250,10 @@ function infotext(request: JobRequest, seed: number): string {
 }
 
 /** Like `GET /queue`; also sent to every socket right after its hello. */
+let paused = false
+
 export function queueStatus() {
-  return { size: queue.length, paused: false, running: running?.id ?? null }
+  return { size: queue.length, paused, running: running?.id ?? null }
 }
 
 async function runJob(job: Job, request: JobRequest) {
@@ -296,6 +301,12 @@ async function runJob(job: Job, request: JobRequest) {
     broadcast({ type: "job.completed", job_id: job.id, seq: job.seq, tab: job.tab, status: "completed", outputs, infotext: text })
   }
   broadcast({ type: "queue.changed", ...queueStatus() })
+  startNext()
+}
+
+/** Runs the next queued job unless one runs or the queue is paused. */
+function startNext() {
+  if (running || paused) return
   const next = queue.shift()
   if (next) void runJob(next.job, next.request)
 }
@@ -311,12 +322,15 @@ function enqueue(request: JobRequest) {
     priority: request.priority ?? 0,
     forever: request.forever ?? false,
     summary: String(request.core.prompt ?? "").slice(0, 120),
+    starred: false,
+    replayable: true,
+    notes: [],
   }
   jobs.unshift(job)
   requests.set(job.id, request)
   broadcast({ type: "job.queued", job_id: job.id, seq: job.seq, tab: job.tab, position: queue.length })
-  if (running) queue.push({ job, request })
-  else void runJob(job, request)
+  queue.push({ job, request })
+  startNext()
   return job
 }
 
@@ -382,6 +396,9 @@ function parseInfotextMock(text: string, tab: FormTab | null | undefined): Infot
 // ---------------------------------------------------------------- routes
 
 const routes: [method: string, pattern: RegExp, handler: Handler][] = [
+  ...adminRoutes, // settings & extensions pages (admin.ts)
+  ...networkRoutes,
+  ...libraryRoutes, // gallery, PNG info & queue tools (library.ts)
   ["GET", /^\/app$/, () => bootstrap],
   ["GET", /^\/schema\/(txt2img|img2img|extras)$/, (m) => (m[1] === "extras" ? extrasSchema : tabSchema(m[1] as "txt2img" | "img2img"))],
   ["GET", /^\/pages\/toolbox$/, () => toolboxPage],
@@ -476,8 +493,19 @@ const routes: [method: string, pattern: RegExp, handler: Handler][] = [
       // Cursor = offset into the newest-first list.
       const offset = Number(url.searchParams.get("cursor") ?? 0) || 0
       const limit = Math.min(Number(url.searchParams.get("limit") ?? 50) || 50, 200)
-      const items = jobs.slice(offset, offset + limit)
-      return { items, next_cursor: offset + limit < jobs.length ? String(offset + limit) : null, total: jobs.length }
+      const statuses = url.searchParams.get("status")?.split(",")
+      const terms = (url.searchParams.get("q") ?? "").toLowerCase().split(/\s+/).filter(Boolean)
+      const starred = url.searchParams.get("starred")
+      const tab = url.searchParams.get("tab")
+      const matching = jobs.filter(
+        (job) =>
+          (!statuses || statuses.includes(job.status)) &&
+          (!tab || job.tab === tab) &&
+          (starred === null || job.starred === (starred === "true")) &&
+          terms.every((term) => `${job.summary ?? ""} ${job.infotext ?? ""}`.toLowerCase().includes(term)),
+      )
+      const items = matching.slice(offset, offset + limit)
+      return { items, next_cursor: offset + limit < matching.length ? String(offset + limit) : null, total: matching.length }
     },
   ],
   [
@@ -486,10 +514,94 @@ const routes: [method: string, pattern: RegExp, handler: Handler][] = [
     (m) => {
       const job = jobs.find((j) => j.id === m[1])
       if (!job) throw new MockHttpError(404, { detail: "Mock: unknown job" })
-      return job
+      const request = requests.get(job.id)
+      return { ...job, core: request?.core ?? {}, scripts: request?.scripts ?? {}, layout_hash: "mock", schema_version: 1 }
     },
   ],
   ["GET", /^\/queue\/items$/, () => queue.map((q) => q.job)],
+  ["GET", /^\/queue$/, () => queueStatus()],
+  [
+    "POST",
+    /^\/queue\/(pause|resume)$/,
+    (m) => {
+      paused = m[1] === "pause"
+      broadcast({ type: "queue.changed", ...queueStatus() })
+      startNext()
+      return queueStatus()
+    },
+  ],
+  [
+    "POST",
+    /^\/queue\/reorder$/,
+    (_m, body) => {
+      const order = (body as { order?: string[] }).order ?? []
+      const rank = (id: string) => (order.includes(id) ? order.indexOf(id) : -1)
+      const listed = queue.filter((q) => rank(q.job.id) !== -1).sort((a, b) => rank(a.job.id) - rank(b.job.id))
+      let next = 0
+      for (const [index, entry] of queue.entries()) if (rank(entry.job.id) !== -1) queue[index] = listed[next++]!
+      queue.sort((a, b) => b.job.priority - a.job.priority)
+      broadcast({ type: "queue.changed", ...queueStatus() })
+      return queueStatus()
+    },
+  ],
+  [
+    "POST",
+    /^\/queue\/move$/,
+    (_m, body) => {
+      const { id, after, before, priority } = body as { id: string; after?: string | null; before?: string | null; priority?: number | null }
+      const from = queue.findIndex((q) => q.job.id === id)
+      if (from === -1) throw new MockHttpError(409, { detail: "Mock: the job is not queued any more" })
+      const [entry] = queue.splice(from, 1)
+      if (typeof priority === "number") entry!.job.priority = priority
+      const anchor = after ? queue.findIndex((q) => q.job.id === after) : -1
+      const below = before ? queue.findIndex((q) => q.job.id === before) : -1
+      const at = anchor !== -1 ? anchor + 1 : below !== -1 ? below : from
+      queue.splice(at, 0, entry!)
+      queue.sort((a, b) => b.job.priority - a.job.priority)
+      broadcast({ type: "queue.changed", ...queueStatus() })
+      return queueStatus()
+    },
+  ],
+  [
+    "PATCH",
+    /^\/jobs\/([^/]+)$/,
+    (m, body) => {
+      const job = jobs.find((j) => j.id === m[1])
+      if (!job) throw new MockHttpError(404, { detail: "Mock: unknown job" })
+      const patch = body as { priority?: number; forever?: boolean }
+      if (typeof patch.priority === "number") job.priority = patch.priority
+      if (typeof patch.forever === "boolean") job.forever = patch.forever
+      queue.sort((a, b) => b.job.priority - a.job.priority)
+      broadcast({ type: "queue.changed", ...queueStatus() })
+      return job
+    },
+  ],
+  [
+    "POST",
+    /^\/jobs\/([^/]+)\/duplicate$/,
+    (m) => {
+      const request = requests.get(m[1] ?? "")
+      if (!request) throw new MockHttpError(404, { detail: "Mock: unknown job" })
+      return enqueueAll({ ...request, repeat: 1 })
+    },
+  ],
+  [
+    "PUT",
+    /^\/jobs\/([^/]+)\/params$/,
+    (m, body) => {
+      const job = jobs.find((j) => j.id === m[1])
+      if (!job) throw new MockHttpError(404, { detail: "Mock: unknown job" })
+      if (job.status !== "queued") throw new MockHttpError(409, { detail: "only queued jobs can be edited" })
+      const { core, scripts } = body as { core: Record<string, unknown>; scripts: Record<string, Record<string, unknown>> }
+      const request = { ...requests.get(job.id)!, core, scripts }
+      const errors = validateJob(request)
+      if (errors.length > 0) throw new MockHttpError(422, { errors })
+      requests.set(job.id, request)
+      job.summary = String(core.prompt ?? "").slice(0, 120)
+      broadcast({ type: "queue.changed", ...queueStatus() })
+      return { ...job, core, scripts, layout_hash: "mock", schema_version: 1 }
+    },
+  ],
   [
     "POST",
     /^\/outputs\/save$/,

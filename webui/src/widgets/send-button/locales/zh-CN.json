@@ -1,0 +1,10 @@
+{
+  "Send": "发送",
+  "Nothing to send": "没有可发送的内容",
+  "Added to the {{target}} prompt": "已添加到{{target}}提示词",
+  "txt2img": "文生图",
+  "img2img": "图生图",
+  "No link to open": "没有可打开的链接",
+  "No image to send": "没有可发送的图像",
+  "Could not send the image": "无法发送图像"
+}

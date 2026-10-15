@@ -43,7 +43,7 @@ describe("generated client requests", () => {
     expect(await request.json()).toEqual({ tab: "img2img", core: { prompt: "x" }, scripts: {}, priority: 0, repeat: 1, forever: false })
 
     const metaFetch = reply({}, 200)
-    await api.networkMeta("lora", "sub/a b")
+    await api.networks.meta("lora", "sub/a b")
     const meta = (metaFetch.mock.calls.at(-1)![0] as Request).url
     expect(new URL(meta).pathname).toBe("/api/v2/networks/lora/sub%2Fa%20b/meta")
   })

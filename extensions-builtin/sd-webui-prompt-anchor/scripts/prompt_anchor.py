@@ -2,8 +2,8 @@
 sd-webui-prompt-anchor
 ======================
 
-Adds a secondary "Anchor prompt" textbox above the main txt2img / img2img
-positive prompt boxes. Whatever the user types into the anchor box is
+Adds a secondary "Anchor prompt" editor next to the main txt2img / img2img
+positive prompts. Whatever the user types into the anchor box is
 PREPENDED to the regular positive prompt at generation time -- without
 ever being written into the main prompt textarea.
 
@@ -27,25 +27,16 @@ cleanly separated.
 Implementation overview
 -----------------------
 
-Two pieces co-operate:
-
-1. A `scripts.Script` subclass with `alwayson=True` that:
-   - Builds the UI (anchor textbox + enable checkbox + separator field).
-     Gradio places this in the normal "always-on script accordion" area
-     below the prompt; a small JS shim moves the DOM node up to sit
-     directly above the prompt textarea on page load.
+A `scripts.Script` subclass with `alwayson=True` that:
+   - Declares the panel (`params()`: enable switch in the panel header,
+     anchor prompt editor, separator field). `section = "prompt"` places
+     it in the core form's prompt slot, below the main prompts; the panel
+     collapses to its header. The SPA keeps the values in the form draft
+     (per browser, restored on reload).
    - Implements `process(p, *args)` to PREPEND the anchor text onto
      `p.prompt`, `p.all_prompts`, `p.hr_prompt`, and `p.all_hr_prompts`.
    - Writes the anchor text into infotext via `p.extra_generation_params`
      so it round-trips into PNG metadata and "send to txt2img" buttons.
-
-2. javascript/prompt_anchor.js handles:
-   - The reparenting step above (move our wrapper to sit above the
-     prompt textarea on the txt2img and img2img tabs).
-   - localStorage persistence -- the anchor text and the enabled state
-     are saved on every keystroke and restored on UI load.
-   - Optional collapse/expand toggle so the box can be hidden when not
-     in use without losing the saved content.
 
 Why `process()` and not the textarea
 ------------------------------------
@@ -53,7 +44,7 @@ Why `process()` and not the textarea
 Modifying `p.prompt` in `process()` runs BEFORE per-batch processing
 (wildcards, dynamic prompts, etc.), so any extension that expands
 wildcards will see -- and expand -- wildcards placed inside the anchor
-box. And because we never touch the textarea DOM, no other extension
+box. And because the main prompt is never edited, no other extension
 can race us, append to us, or overwrite us.
 
 The opposite tradeoff is that the anchor text isn't visible in the
@@ -68,23 +59,27 @@ from __future__ import annotations
 import re
 import traceback
 
-import gradio as gr
-
 from modules import prompt_rewrites, scripts, script_callbacks, shared
+from remi import ui
 
 
 # ---------------------------------------------------------------------------
 # Constants / settings keys
 # ---------------------------------------------------------------------------
 
-# Distinctive elem_ids -- deliberately NOT matching "txt2img_prompt" /
-# "img2img_prompt" so extensions targeting those selectors leave us alone.
-ELEM_ID_TXT2IMG = "prompt_anchor_txt2img"
-ELEM_ID_IMG2IMG = "prompt_anchor_img2img"
-ELEM_ID_TXT2IMG_ENABLE = "prompt_anchor_enable_txt2img"
-ELEM_ID_IMG2IMG_ENABLE = "prompt_anchor_enable_img2img"
-ELEM_ID_TXT2IMG_GROUP = "prompt_anchor_group_txt2img"
-ELEM_ID_IMG2IMG_GROUP = "prompt_anchor_group_img2img"
+ENABLE_LABEL = "Anchor prompt (prepended to positive prompt at generation)"
+PLACEHOLDER = (
+    "Anchor text gets prepended to your positive prompt at "
+    "generation time. Use this for styles, artists, quality "
+    "tags -- anything you want to keep set-and-forget."
+)
+SEPARATOR_INFO = (
+    "Inserted between the anchor and the main prompt. "
+    "Default ', ' suits comma-separated tag prompts. "
+    "Trailing commas/whitespace on the anchor and "
+    "leading commas on the main prompt are stripped "
+    "automatically to prevent doubled separators."
+)
 
 # Infotext key. Quoted so multi-line / comma-laden values survive the
 # AUTOMATIC1111 "key: value, key: value" infotext parser.
@@ -100,6 +95,12 @@ def _default_separator() -> str:
     already ends with a comma (or the main prompt starts with one), to
     avoid producing duplicate commas in joined output. See `_join()`."""
     return ", "
+
+
+def _configured_separator() -> str:
+    """The separator a fresh form starts with: Settings -> Prompt Anchor."""
+    value = shared.opts.data.get("prompt_anchor_default_separator")
+    return value if isinstance(value, str) else _default_separator()
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +143,7 @@ def _join(anchor: str, main: str, separator: str) -> str:
 
 class PromptAnchorScript(scripts.Script):
     """One instance is constructed per tab (txt2img, img2img) by the
-    webui's Script framework. We use `is_img2img` to pick distinct
-    elem_ids so the two tabs don't share gradio components (they
-    wouldn't anyway because they're in different Blocks, but the
-    distinct elem_ids matter for our JS / localStorage)."""
+    webui's Script framework; each tab's form keeps its own anchor."""
 
     section = "prompt"
     create_group = False
@@ -160,104 +158,41 @@ class PromptAnchorScript(scripts.Script):
 
     # ---- UI ----------------------------------------------------------------
 
-    def ui(self, is_img2img):
-        """Build the per-tab UI. Returns the list of components whose
-        values will be passed (in order) to `process()` as *args.
-
-        Layout note: we wrap everything in a gr.Group with a fixed
-        elem_id so the JS shim can find and reparent the whole block in
-        one move. Inside the group we use a thin gr.Row holding the
-        checkbox + a label, with the textarea on its own line below --
-        this matches the visual rhythm of the main prompt area (prompt
-        textarea + small controls strip)."""
-        group_id = ELEM_ID_IMG2IMG_GROUP if is_img2img else ELEM_ID_TXT2IMG_GROUP
-        box_id = ELEM_ID_IMG2IMG if is_img2img else ELEM_ID_TXT2IMG
-        toggle_id = ELEM_ID_IMG2IMG_ENABLE if is_img2img else ELEM_ID_TXT2IMG_ENABLE
-
-        with gr.Group(elem_id=group_id, elem_classes=["prompt-anchor-group"]):
-            with gr.Row(elem_classes=["prompt-anchor-header"]):
-                enabled = gr.Checkbox(
-                    label="Anchor prompt (prepended to positive prompt at generation)",
-                    value=True,
-                    elem_id=toggle_id,
-                    elem_classes=["prompt-anchor-enabled"],
-                    container=False,
-                    scale=1,
-                )
-                # Small ghost button used by the JS to toggle the
-                # collapsed/expanded visual state. Defined here so it
-                # gets a stable elem_id; the click handler is purely
-                # JS-side so we register no .click() listener.
-                collapse_btn = gr.Button(
-                    value="−",
-                    elem_id=f"{group_id}_collapse",
-                    elem_classes=["prompt-anchor-collapse"],
-                    size="sm",
-                    scale=0,
-                    min_width=32,
-                )
-
-            # IMPORTANT: include "prompt" in elem_classes. The webui's
-            # edit-attention.js (Ctrl+Up/Down weighting), the negative-
-            # prompt detection, and most popular tag-autocomplete
-            # extensions identify "real" prompt textareas by the
-            # presence of the .prompt CSS class on the gradio wrapper.
-            # Adding it here gets us all of that behaviour for free
-            # without having to depend on internal selectors that might
-            # change between webui versions. Our distinctive elem_id is
-            # what protects us from extensions that target the MAIN
-            # txt2img prompt by elem_id.
-            anchor = gr.Textbox(
-                label="",
-                show_label=False,
-                lines=2,
-                max_lines=20,
-                placeholder=(
-                    "Anchor text gets prepended to your positive prompt at "
-                    "generation time. Use this for styles, artists, quality "
-                    "tags -- anything you want to keep set-and-forget."
+    def params(self, is_img2img):
+        """The anchor panel, rendered in the core form's prompt slot (this
+        script's ``section``), right below the main prompts. The enable
+        switch sits in the panel header; collapsing the panel keeps it
+        reachable. The SPA keeps the text in the form's draft, so it
+        survives reloads per browser as the old localStorage shim did."""
+        collapsed = bool(shared.opts.data.get("prompt_anchor_collapsed_by_default", False))
+        return ui.Section(
+            "Anchor prompt",
+            open=not collapsed,
+            enable=ui.Toggle("enabled", True, label=ENABLE_LABEL),
+            children=[
+                ui.Text(
+                    "anchor",
+                    "",
+                    lines=2,
+                    max_lines=20,
+                    prompt=True,
+                    label="",
+                    placeholder=PLACEHOLDER,
+                    paste=_decode_infotext_anchor,
                 ),
-                elem_id=box_id,
-                elem_classes=["prompt", "prompt-anchor-textbox"],
-                interactive=True,
-                container=False,
-            )
-
-            # Forge Neo collects every always-on script's infotext fields
-            # after ui() returns and folds them into the tab's canonical
-            # paste-field list. Register here instead of calling
-            # infotext_utils.add_paste_fields() from on_after_component:
-            # add_paste_fields replaces the whole list and, at this point in
-            # Neo's UI build, the host later replaces it again. The old hook
-            # therefore either lost this field or risked clobbering native
-            # paste targets depending on build order.
-            self.infotext_fields = [(anchor, _decode_infotext_anchor)]
-
-            # Separator lives in an accordion to keep the visible UI tight
-            # for the 99% case where the default ", " is fine.
-            with gr.Accordion(
-                "Advanced", open=False,
-                elem_classes=["prompt-anchor-advanced"],
-            ):
-                separator = gr.Textbox(
-                    label="Separator between anchor and main prompt",
-                    value=_default_separator(),
-                    lines=1,
-                    info=(
-                        "Inserted between the anchor and the main prompt. "
-                        "Default ', ' suits comma-separated tag prompts. "
-                        "Trailing commas/whitespace on the anchor and "
-                        "leading commas on the main prompt are stripped "
-                        "automatically to prevent doubled separators."
+                ui.Group(
+                    "Advanced",
+                    ui.Text(
+                        "separator",
+                        _configured_separator,
+                        lines=1,
+                        label="Separator between anchor and main prompt",
+                        info=SEPARATOR_INFO,
                     ),
-                    elem_classes=["prompt-anchor-separator"],
-                )
-
-        # IMPORTANT: collapse_btn is included here so Gradio keeps it as
-        # part of the components list (otherwise an unused button can be
-        # GC'd in some setups). Its value is discarded in process(); the
-        # `*_` swallows any future additions too.
-        return [enabled, anchor, separator, collapse_btn]
+                    open=False,
+                ),
+            ],
+        )
 
     # ---- Generation hooks --------------------------------------------------
 
@@ -360,41 +295,30 @@ class PromptAnchorScript(scripts.Script):
 
 
 # ---------------------------------------------------------------------------
-# Infotext round-trip: register paste fields so "Send to txt2img" buttons
-# repopulate the anchor box from PNG metadata.
+# Infotext round-trip: the anchor param's paste function, so pasting
+# parameters and "Send to" repopulate the anchor from PNG metadata.
 # ---------------------------------------------------------------------------
 #
-# When the user clicks "Send to txt2img" on a PNG-info image (or any of the
-# other paste-into-tab buttons), the webui parses the infotext and walks a
-# list of (component, infotext_key) pairs registered via
-# `infotext_utils.add_paste_fields("txt2img", ...)`. We register our anchor
-# textbox against the same key we write in process(), so the value comes
-# back.
-#
-# We also need to handle DECODING -- the value we wrote is wrapped in
-# double quotes with escape sequences, and the standard parser hands us
-# the raw text between the colon and the next comma. So we register a
-# *callable* paste field that does the unescape.
+# The value we wrote is wrapped in double quotes with escape sequences, and
+# the standard parser hands us the raw text between the colon and the next
+# comma, so the paste function does the unescape.
 
 def _decode_infotext_anchor(infotext_dict):
     """Given the parsed infotext (a dict of key -> raw string value),
     return the cleaned anchor text. Reverses the encoding done in
     process(): strips wrapping quotes, decodes backslash escapes.
 
-    Returns gr.update() with no `value=` (i.e. leaves the field
-    unchanged) if no anchor info is present in this infotext -- avoids
-    wiping a manually-typed anchor when the user pastes parameters from
-    an image that wasn't generated with this extension.
+    Returns None (i.e. leaves the field unchanged) if no anchor info is
+    present in this infotext -- avoids wiping a manually-typed anchor when
+    the user pastes parameters from an image that wasn't generated with
+    this extension.
 
-    Signature note: webui's infotext_utils invokes the callable form
-    of a paste field with a SINGLE argument (the params dict), not two.
-    Adding a second arg breaks the paste flow with a TypeError that's
-    silently swallowed -- so the field just never updates, looking
-    like a bug in our code.
+    Signature note: paste functions receive a SINGLE argument (the
+    params dict).
     """
     raw = infotext_dict.get(INFOTEXT_KEY)
     if raw is None:
-        return gr.update()
+        return None
     raw = raw.strip()
     if raw.startswith('"') and raw.endswith('"') and len(raw) >= 2:
         raw = raw[1:-1]
@@ -408,10 +332,9 @@ def _decode_infotext_anchor(infotext_dict):
 # ---------------------------------------------------------------------------
 
 def _on_ui_settings():
-    """Adds a section to Settings -> Prompt Anchor with a single field
-    for the default separator. Stored under shared.opts and read by the
-    JS shim to seed the per-tab separator field's default value on
-    first load."""
+    """Adds a section to Settings -> Prompt Anchor: the separator field's
+    default (read on every page load) and the panel's initial open state
+    (read when the layouts are built, hence Reload UI)."""
     try:
         section = ("prompt_anchor", "Prompt Anchor")
         shared.opts.add_option(
@@ -419,8 +342,7 @@ def _on_ui_settings():
             shared.OptionInfo(
                 _default_separator(),
                 "Default separator between anchor and main prompt",
-                gr.Textbox,
-                {"interactive": True},
+                ui.Text,
                 section=section,
             ),
         )
@@ -429,9 +351,8 @@ def _on_ui_settings():
             shared.OptionInfo(
                 False,
                 "Start the anchor box collapsed on page load",
-                gr.Checkbox,
                 section=section,
-            ),
+            ).needs_reload_ui(),
         )
     except Exception:
         traceback.print_exc()

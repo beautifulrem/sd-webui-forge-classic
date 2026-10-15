@@ -1,0 +1,6 @@
+{"script": "Prompts from File or Textbox", "tab": "txt2img", "count": 4, "infotext_fields": 0, "inputs": [
+  {"kind": "toggle", "label": "Iterate seed every line", "info": null, "default": false, "infotext": null, "paste": false, "preset": null},
+  {"kind": "toggle", "label": "Use same random seed for all lines", "info": null, "default": false, "infotext": null, "paste": false, "preset": null},
+  {"kind": "choice", "label": "Insert prompts at the", "info": null, "default": "start", "style": "radio", "allow_custom": false, "choices": ["start", "end"], "returns": "value", "infotext": null, "paste": false, "preset": null},
+  {"kind": "text", "label": "List of prompt inputs", "info": null, "default": "", "lines": 2, "infotext": null, "paste": false, "preset": null}
+]}

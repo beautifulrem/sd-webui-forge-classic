@@ -1,0 +1,164 @@
+[
+ {
+  "kind": "toggle",
+  "label": "Spectrum Integrated",
+  "default": false,
+  "infotext": "spec_enabled",
+  "paste": false,
+  "preset": "spectrum.enabled"
+ },
+ {
+  "kind": "slider",
+  "label": "Prediction Weighting",
+  "default": 0.25,
+  "minimum": 0.0,
+  "maximum": 1.0,
+  "step": 0.05,
+  "infotext": "spec_w",
+  "paste": false,
+  "preset": "spectrum.weight"
+ },
+ {
+  "kind": "slider",
+  "label": "Polynomial Degree",
+  "default": 4,
+  "minimum": 1,
+  "maximum": 8,
+  "step": 1,
+  "infotext": "spec_m",
+  "paste": false,
+  "preset": "spectrum.degree"
+ },
+ {
+  "kind": "slider",
+  "label": "Regularization",
+  "default": 0.1,
+  "minimum": 0.0,
+  "maximum": 2.0,
+  "step": 0.05,
+  "infotext": "spec_lam",
+  "paste": false,
+  "preset": "spectrum.regularization"
+ },
+ {
+  "kind": "slider",
+  "label": "Cache Window",
+  "default": 2,
+  "minimum": 1,
+  "maximum": 10,
+  "step": 1,
+  "infotext": "spec_window_size",
+  "paste": false,
+  "preset": "spectrum.window"
+ },
+ {
+  "kind": "slider",
+  "label": "Window Growth",
+  "default": 0.0,
+  "minimum": 0.0,
+  "maximum": 2.0,
+  "step": 0.05,
+  "infotext": "spec_flex_window",
+  "paste": false,
+  "preset": "spectrum.window_growth"
+ },
+ {
+  "kind": "slider",
+  "label": "Warmup Steps",
+  "default": 6,
+  "minimum": 0,
+  "maximum": 20,
+  "step": 1,
+  "infotext": "spec_warmup_steps",
+  "paste": false,
+  "preset": "spectrum.warmup"
+ },
+ {
+  "kind": "slider",
+  "label": "Stop Caching Step",
+  "default": 0.9,
+  "minimum": 0.0,
+  "maximum": 1.0,
+  "step": 0.05,
+  "infotext": "spec_stop_caching_step",
+  "paste": false,
+  "preset": "spectrum.stop"
+ },
+ {
+  "kind": "slider",
+  "label": "Minimum Tail Actual Steps",
+  "default": 3,
+  "minimum": 0,
+  "maximum": 12,
+  "step": 1,
+  "infotext": "spec_tail_actual_steps",
+  "paste": false,
+  "preset": "spectrum.tail_actual"
+ },
+ {
+  "kind": "slider",
+  "label": "Feature History",
+  "default": 10,
+  "minimum": 3,
+  "maximum": 32,
+  "step": 1,
+  "infotext": "spec_history_size",
+  "paste": false,
+  "preset": "spectrum.history"
+ },
+ {
+  "kind": "choice",
+  "label": "Refresh Schedule",
+  "default": "Window",
+  "choices": [
+   "Window",
+   "SEA (auto-calibrated)"
+  ],
+  "infotext": "spec_schedule",
+  "paste": false,
+  "preset": "spectrum.schedule"
+ },
+ {
+  "kind": "slider",
+  "label": "SEA Refresh Ratio",
+  "default": 0.0,
+  "minimum": 0.0,
+  "maximum": 1.0,
+  "step": 0.01,
+  "infotext": "spec_refresh_ratio",
+  "paste": false,
+  "preset": "spectrum.refresh_ratio"
+ },
+ {
+  "kind": "slider",
+  "label": "SEA Spectral Beta",
+  "default": 2.0,
+  "minimum": 0.5,
+  "maximum": 4.0,
+  "step": 0.1,
+  "infotext": "spec_sea_beta",
+  "paste": false,
+  "preset": "spectrum.sea_beta"
+ },
+ {
+  "kind": "choice",
+  "label": "Compatibility Policy",
+  "default": "Conservative",
+  "choices": [
+   "Conservative",
+   "Strict",
+   "Legacy / fastest"
+  ],
+  "infotext": "spec_compat_policy",
+  "paste": false,
+  "preset": "spectrum.policy"
+ },
+ {
+  "kind": "toggle",
+  "label": "Verbose Spectrum decisions",
+  "default": false,
+  "infotext": "spec_verbose",
+  "paste": false,
+  "preset": "spectrum.verbose"
+ }
+]

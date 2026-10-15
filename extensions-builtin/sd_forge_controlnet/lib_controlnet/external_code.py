@@ -178,9 +178,8 @@ class ControlNetUnit:
     @staticmethod
     def infotext_fields():
         """
-        Fields that should be included in infotext.
-        You should define a Gradio element with exact same name in ControlNetUiGroup
-        as well, so that infotext can wire the value to correct field when parsing.
+        Fields written to the infotext (``ControlNet <i>: Module: ..., Weight: ...``);
+        pasting it sets these fields of the unit (``lib_controlnet.unit_param.pasted_fields``).
         """
         return (
             "module",

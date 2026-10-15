@@ -1,0 +1,110 @@
+{
+ "script": "AnimaHiresGuardScript",
+ "title": "Anima Hires Guard",
+ "tab": "txt2img",
+ "shown": true,
+ "inputs": [
+  {
+   "type": "toggle",
+   "label": "Anima Hires Guard",
+   "default": false,
+   "infotext": "Anima Hires guard enabled",
+   "preset": "hires_guard.enabled",
+   "info": null,
+   "gradio": "Checkbox",
+   "visible": false
+  },
+  {
+   "type": "choice",
+   "label": "Policy",
+   "default": "Clamp unsafe values",
+   "choices": [
+    "Clamp unsafe values",
+    "Report only"
+   ],
+   "style": "dropdown",
+   "infotext": "Anima Hires policy",
+   "preset": "hires_guard.policy",
+   "info": null,
+   "gradio": "Dropdown",
+   "visible": true
+  },
+  {
+   "type": "choice",
+   "label": "Safety preset",
+   "default": "Balanced",
+   "choices": [
+    "Balanced",
+    "Low VRAM",
+    "Detail",
+    "Custom"
+   ],
+   "style": "dropdown",
+   "infotext": "Anima Hires preset",
+   "preset": "hires_guard.preset",
+   "info": "Custom uses the three sliders below.",
+   "gradio": "Dropdown",
+   "visible": true
+  },
+  {
+   "type": "toggle",
+   "label": "Align to 16 px",
+   "default": true,
+   "infotext": "Anima Hires align",
+   "preset": "hires_guard.align",
+   "info": "Matches Anima's 8x VAE reduction and 2x transformer patches. Hires targets also follow Forge's Resolution Step setting.",
+   "gradio": "Checkbox",
+   "visible": true
+  },
+  {
+   "type": "slider",
+   "label": "Base maximum (MP)",
+   "default": 1.2,
+   "minimum": 0.4,
+   "maximum": 3.0,
+   "step": 0.05,
+   "integer": false,
+   "infotext": "Anima base MP",
+   "preset": "hires_guard.base_mp",
+   "info": null,
+   "gradio": "Slider",
+   "visible": true
+  },
+  {
+   "type": "slider",
+   "label": "Hires maximum (MP)",
+   "default": 2.1,
+   "minimum": 0.8,
+   "maximum": 6.0,
+   "step": 0.05,
+   "integer": false,
+   "infotext": "Anima Hires MP",
+   "preset": "hires_guard.hires_mp",
+   "info": null,
+   "gradio": "Slider",
+   "visible": true
+  },
+  {
+   "type": "slider",
+   "label": "Maximum upscale per axis",
+   "default": 1.75,
+   "minimum": 1.0,
+   "maximum": 3.0,
+   "step": 0.05,
+   "integer": false,
+   "infotext": "Anima Hires max upscale",
+   "preset": "hires_guard.max_upscale",
+   "info": null,
+   "gradio": "Slider",
+   "visible": true
+  }
+ ],
+ "non_arg_controls": [
+  {
+   "gradio": "Markdown",
+   "label": null,
+   "value": "Anima only. Validates the base pass and Hires target after resolution randomization. **Report only** never changes dimensions."
+  }
+ ],
+ "paste_field_names": []
+}

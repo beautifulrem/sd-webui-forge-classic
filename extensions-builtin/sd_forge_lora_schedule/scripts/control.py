@@ -25,9 +25,6 @@ class LoRAControl(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def ui(self, is_img2img):
-        return None
-
     @staticmethod
     def _parse_schedule(syntax: str) -> list[tuple[float, float]]:
         return [tuple(map(float, chunk.split("@"))) for chunk in syntax.split(",")]

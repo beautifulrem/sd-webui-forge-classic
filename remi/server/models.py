@@ -268,6 +268,13 @@ class JobProgress(Model):
     text: str | None = None
 
 
+class Note(Model):
+    """A translatable note: an English message with ``{{name}}`` placeholders and their values."""
+
+    message: str
+    values: dict[str, str | int] = {}
+
+
 class Job(Model):
     id: str
     seq: int
@@ -285,6 +292,16 @@ class Job(Model):
     forever: bool = False
     retry_of: str | None = None
     infotext: str | None = None
+    starred: bool = False
+    replayable: bool = Field(True, description="false: imported with arguments that do not map to the current parameters (never run or retried as is)")
+    name: str | None = Field(None, description="a name the job was given (imported tasks)")
+    source: str | None = Field(None, description='the importer that brought the job in ("agent-scheduler", "prompt-queue")')
+    notes: list[Note] = Field([], description="what an importer could not map exactly")
+
+
+class OpaqueArgs(Model):
+    count: int
+    preview: list[str] = Field([], description="short descriptions of the unmapped arguments")
 
 
 class JobDetail(Job):
@@ -292,6 +309,7 @@ class JobDetail(Job):
     scripts: dict[str, Any]
     layout_hash: str
     schema_version: int
+    opaque: OpaqueArgs | None = None
 
 
 class JobPatch(Model):
@@ -302,15 +320,29 @@ class JobPatch(Model):
 MAX_REORDER = 500
 
 
+# region Extensions and system (remi/server/routes/extensions.py, admin.py)
+
+
+class AdminErrorBody(Model):
+    """A refused or failed extensions/system operation."""
+
+    detail: str = Field(description="the message in English")
+    template: str | None = Field(None, description="the message's translatable text with {{name}} placeholders")
+    params: dict[str, str] = Field(default={}, description="the placeholders' values")
+
+
 class ExtensionInfo(Model):
     name: str
     enabled: bool
     builtin: bool
-    remote: str | None = None
+    remote: str | None = Field(None, description="the git remote (a browsable URL when it is one, credentials removed)")
+    remote_url: str | None = Field(None, description="https URL of the repository, when known")
     branch: str | None = None
-    version: str | None = None
+    version: str | None = Field(None, description="short commit hash")
+    commit_hash: str | None = None
+    commit_url: str | None = Field(None, description="link to the commit on its forge (GitHub, GitLab, Codeberg)")
     commit_date: str | None = None
-    status: str | None = Field(None, description='after a check: "latest", "new commits", "behind HEAD", ...')
+    status: str | None = Field(None, description='after a check: "latest", "new commits", "behind HEAD", "unknown (remote error)", ...')
     can_update: bool = False
 
 
@@ -318,6 +350,9 @@ class ExtensionList(Model):
     items: list[ExtensionInfo]
     disable_all: Literal["none", "extra", "all"] | str
     access: bool = Field(description="whether this server allows installing, updating and toggling extensions")
+    restartable: bool = Field(False, description="whether /server/restart can restart the process")
+    disabled_by: str | None = Field(None, description='why extensions are not loaded: "all", "extra" (the option) or a command-line flag')
+    index_url: str = Field("", description="the default extension index URL")
 
 
 class ExtensionsPatch(Model):
@@ -329,10 +364,149 @@ class ExtensionUpdateRequest(Model):
     names: list[str] = Field(min_length=1, max_length=500)
 
 
+class ExtensionCheckRequest(Model):
+    names: list[str] | None = Field(None, max_length=500, description="default: every enabled extension with a remote")
+
+
 class ExtensionInstallRequest(Model):
     url: str = Field(min_length=1, max_length=2000)
+    branch: str | None = Field(None, max_length=200)
+    dirname: str | None = Field(None, max_length=100, description="folder name under extensions/ (default: from the URL)")
+
+
+class IndexEntry(Model):
+    name: str
+    url: str
+    description: str = ""
+    tags: list[str] = []
+    added: str | None = None
+    created_at: str | None = None
+    commit_time: str | None = None
+    stars: int = 0
+    order: int = Field(0, description="position in the index (its own order)")
+    installed: bool = False
+
+
+class ExtensionIndex(Model):
+    """An extension index (``index.json`` of the A1111 extensions list)."""
+
+    url: str
+    fetched_at: str | None = None
+    items: list[IndexEntry]
+    tags: dict[str, str] = Field(description="tag → description")
+
+
+class RepoState(Model):
+    remote: str | None = None
     branch: str | None = None
-    dirname: str | None = Field(None, description="folder name under extensions/ (default: from the URL)")
+    commit_hash: str | None = None
+    commit_url: str | None = None
+    commit_date: str | None = None
+
+
+class ExtensionRepoState(RepoState):
+    enabled: bool = True
+
+
+class ConfigStateInfo(Model):
+    id: str = Field(description="the backup's file name in config_states/")
+    name: str
+    created_at: str | None = None
+    webui_commit: str | None = None
+    extensions: int = Field(0, description="number of extensions recorded")
+
+
+class ConfigStateExtension(Model):
+    name: str
+    builtin: bool = False
+    saved: ExtensionRepoState | None = Field(None, description="null: not in the backup")
+    current: ExtensionRepoState | None = Field(None, description="null: not installed now")
+
+
+class ConfigStateWebui(Model):
+    saved: RepoState
+    current: RepoState
+
+
+class ConfigStateDetail(ConfigStateInfo):
+    webui: ConfigStateWebui
+    items: list[ConfigStateExtension]
+
+
+class ConfigStateSave(Model):
+    name: str = Field("", max_length=100)
+
+
+class ConfigStateRestore(Model):
+    what: Literal["extensions"] = Field("extensions", description="only the extensions are restored; the WebUI checkout is never reset")
+
+
+class RestoreResult(Model):
+    reload: bool = Field(description="apply with /server/reload (extension commits are restored while reloading)")
+
+
+class LicenseEntry(Model):
+    id: str
+    name: str
+    url: str | None = None
+    description: str = ""
+    license_url: str | None = Field(None, description="raw text of the license (fetched by the browser)")
+
+
+class LicenseGroup(Model):
+    title: str
+    items: list[LicenseEntry]
+
+
+class Licenses(Model):
+    groups: list[LicenseGroup]
+
+
+class SysinfoCheckRequest(Model):
+    text: str = Field(max_length=32 * 1024 * 1024)
+
+
+class SysinfoCheck(Model):
+    valid: bool
+
+
+class LoadedWeights(Model):
+    name: str = Field(description="the model's class (UNet, VAE, text encoder, ...)")
+    memory_mb: int | None = Field(None, description="memory it holds on its device, in MiB")
+    device: str | None = None
+
+
+class LoadedModels(Model):
+    checkpoint: str | None = Field(None, description="the checkpoint in memory, if any")
+    items: list[LoadedWeights]
+
+
+class HashRequest(Model):
+    threads: int = Field(1, ge=1, le=16, description="checkpoints hashed at once")
+
+
+class HashProgress(Model):
+    running: bool
+    done: int = 0
+    total: int = 0
+    failed: list[str] = []
+    current: list[str] = Field(default=[], description="checkpoints being hashed")
+    finished_at: str | None = None
+
+
+class ModelReloadRequest(Model):
+    force: bool = Field(False, description="load again even when the selected model is already loaded")
+
+
+class ServerStatus(Model):
+    restartable: bool = Field(description="whether /server/restart can restart the process")
+    extension_access: bool
+    settings_frozen: bool = Field(description="--freeze-settings: PATCH /options refuses every change")
+    model_loaded: str | None = Field(None, description="the checkpoint in memory, if any")
+    version: str
+
+
+# endregion
 
 
 class SaveRequest(Model):
@@ -393,39 +567,6 @@ class ScanResult(Model):
     added: int
 
 
-class NetworkItem(Model):
-    name: str
-    title: str
-    kind: str
-    path: str
-    preview: str | None = None
-    description: str | None = None
-    prompt: str | None = None
-    negative_prompt: str | None = None
-    search_terms: list[str] = []
-    hash: str | None = None
-    alias: str | None = None
-    sd_version: str | None = None
-    mtime: float | None = None
-    size: int | None = None
-
-
-class NetworkMeta(NetworkItem):
-    metadata: dict[str, Any] = {}
-    user_metadata: dict[str, Any] = {}
-
-
-class UserMetadataPatch(Model):
-    """Keys to set (``null`` removes one); ``replace`` drops the others."""
-
-    user_metadata: dict[str, Any]
-    replace: bool = False
-
-
-class PreviewRequest(Model):
-    file_id: str
-
-
 # endregion
 
 # region Options, infotext, i18n, server
@@ -438,6 +579,7 @@ class SettingsSchema(Model):
     categories: list[dict[str, Any]]
     quicksettings: list[str]
     values: dict[str, Any]
+    defaults: dict[str, Any] = Field(default={}, description="each stored setting's built-in default (reset to default)")
 
 
 class InfotextRequest(Model):

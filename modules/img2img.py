@@ -201,15 +201,30 @@ def _rgba(image: Image.Image) -> Image.Image:
     return image if image.mode == "RGBA" else image.convert("RGBA")
 
 
+def _fit(layer: Image.Image | None, size: tuple[int, int]) -> Image.Image | None:
+    """A layer at the image's size: the editor paints at the image's own size,
+    API clients (and uploaded masks) may not.
+
+    A layer of another size is stretched over the whole image, whatever its
+    aspect ratio: it is taken to cover the image edge to edge. Upstream
+    resized an uploaded mask with the job's resize mode instead (crop / fill
+    to the target size), which only lined up when the mask had been made at
+    the processing size; stretching keeps a mask drawn over the source image
+    (any scale) in place, which is what the canvas and the mask upload field
+    produce. A mask of a different aspect ratio is therefore distorted, not
+    cropped."""
+
+    if layer is None or layer.size == size:
+        return layer
+    return layer.resize(size, Image.Resampling.BILINEAR)
+
+
 def _over(image: Image.Image, layer: Image.Image | None) -> Image.Image:
     """``layer`` (a color sketch) composited over ``image``."""
 
     if layer is None:
         return image
-    layer = _rgba(layer)
-    if layer.size != image.size:
-        layer = layer.resize(image.size)
-    return Image.alpha_composite(_rgba(image), layer)
+    return Image.alpha_composite(_rgba(image), _fit(_rgba(layer), image.size))
 
 
 def _opaque(mask: Image.Image | None) -> Image.Image | None:
@@ -225,10 +240,17 @@ def compose_inputs(mode: int, init_img, sketch, mask) -> tuple[Image.Image | Non
     ``remi.core.forms.IMG2IMG_MODES``) from the canvas layers: the image,
     the color sketch painted over it and the mask (painted over it in
     "Inpaint", the uploaded mask image in "Inpaint upload"). Masks are read
-    by ``remi.ui.nodes.mask_channel``: alpha, or luminance when opaque."""
+    by ``remi.ui.nodes.mask_channel``: alpha, or luminance when opaque.
+
+    The image is turned upright (EXIF orientation) first: the browser shows
+    it upright, so that is the picture the layers were painted on. Layers of
+    another size are scaled to the image."""
 
     image = None
     out_mask = None
+    if init_img is not None:
+        init_img = images.fix_image(init_img)
+    size = init_img.size if init_img is not None else None
 
     if mode == 0:  # img2img
         image = init_img
@@ -236,17 +258,19 @@ def compose_inputs(mode: int, init_img, sketch, mask) -> tuple[Image.Image | Non
         image = _over(init_img, sketch)
     elif mode == 2:  # inpaint: the painted mask
         image = init_img
-        out_mask = _opaque(mask_channel(mask))
+        out_mask = _opaque(_fit(mask_channel(mask), size) if size else mask_channel(mask))
     elif mode == 3:  # inpaint sketch: the sketch's alpha, dilated
         image = _over(init_img, sketch)
         if sketch is not None:
             out_mask = _rgba(sketch).getchannel("A").convert("L")
+            if size:
+                out_mask = _fit(out_mask, size)
             short_side = min(out_mask.size)
             dilation_size = int(0.015 * short_side) * 2 + 1
             out_mask = _opaque(out_mask.filter(ImageFilter.MaxFilter(dilation_size)))
     elif mode == 4:  # inpaint upload: the uploaded mask image
         image = init_img
-        out_mask = _opaque(mask_channel(mask))
+        out_mask = _opaque(_fit(mask_channel(mask), size) if size else mask_channel(mask))
 
     if out_mask and isinstance(out_mask, Image.Image):
         out_mask = out_mask.point(lambda v: 255 if v > 128 else 0)

@@ -71,6 +71,14 @@ On a fresh launch, this Extension will download the following **10** detector mo
 > [!Important]
 > The **YOLO** models must be in `.pt` format
 
+The **Refresh models** button next to a tab's detector rescans the model folders (without downloading)
+
+## API
+- **Remi WebUI** (`/api/v2`): named params `ad_enable`, `ad_skip_img2img`, then each tab's [`ADetailerArgs`](lib_adetailer/args.py) fields, suffixed from the 2nd tab on (`ad_model`, `ad_model_2nd`, `ad_model_3rd`, ...), then one UI-only flag per tab (`ad_model_is_world`, `ad_model_is_world_2nd`, ...; shows "Detector Classes", never processed)
+- **A1111** (`/sdapi/v1`): unchanged, one dict per model in `alwayson_scripts`, e.g. `{"ADetailer": {"args": [true, false, {"ad_model": "face_yolov8n.pt"}]}}`
+  - `/sdapi/v1/script-info` now describes the form's scalar params in that order (`2 + 40 × tabs`, labels without the tab ordinal) instead of `[enable, skip, dict per tab]`; sending dicts works as before
+- `GET /adetailer/v1/version`, `/adetailer/v1/schema` (the dict's JSON schema), `/adetailer/v1/ad_model`
+
 <br>
 <hr>
 <br>

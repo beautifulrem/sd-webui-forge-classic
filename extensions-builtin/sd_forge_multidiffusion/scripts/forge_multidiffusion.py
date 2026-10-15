@@ -1,10 +1,25 @@
-import gradio as gr
 from lib_multidiffusion.tiled_diffusion import TiledDiffusion
 
 from modules import scripts
-from modules.ui import detect_image_size_symbol
-from modules.ui_common import ToolButton
-from modules.ui_components import InputAccordion
+from remi import ui
+
+TILE_MIN, TILE_MAX = 256, 2048
+
+
+def source_image_size(ctx: ui.ActionContext) -> tuple[int, int] | None:
+    """Width and height of the img2img source image (core ``init_img``), read
+    from the server's upload index; None without an indexed image. Needs the
+    server's request (``ctx.request``)."""
+
+    from remi.server.deps import get_services
+
+    file_id = ctx.core.get("init_img")
+    if not isinstance(file_id, str) or not file_id:
+        return None
+    record = get_services(ctx.request).files.get(file_id)
+    if record is None or not record.width or not record.height:
+        return None
+    return record.width, record.height
 
 
 class MultiDiffusionForForge(scripts.Script):
@@ -16,26 +31,33 @@ class MultiDiffusionForForge(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible if is_img2img else None
 
-    def ui(self, *args, **kwargs):
-        with InputAccordion(False, label=self.title()) as enabled:
-            method = gr.Radio(label="Method", choices=("MultiDiffusion", "Mixture of Diffusers"), value="Mixture of Diffusers")
-            with gr.Row():
-                tile_width = gr.Slider(label="Tile Width", minimum=256, maximum=2048, step=64, value=768, elem_id=self.elem_id("tile_width"))
-                detect_size = ToolButton(value=detect_image_size_symbol, elem_id=self.elem_id("detect_size"), tooltip="Auto detect size from image")
-                tile_height = gr.Slider(label="Tile Height", minimum=256, maximum=2048, step=64, value=768, elem_id=self.elem_id("tile_height"))
-            with gr.Row():
-                tile_overlap = gr.Slider(label="Tile Overlap", minimum=0, maximum=1024, step=16, value=64, elem_id=self.elem_id("tile_overlap"))
-                tile_batch_size = gr.Slider(label="Tile Batch Size", minimum=1, maximum=8, step=1, value=1, elem_id=self.elem_id("tile_batch_size"))
-
-        detect_size.click(
-            fn=lambda w, h: (w or gr.skip(), h or gr.skip()),
-            _js="currentImg2imgSourceResolution",
-            inputs=[tile_width, tile_height],
-            outputs=[tile_width, tile_height],
-            show_progress=False,
+    def params(self, is_img2img):
+        return ui.Section(
+            self.title(),
+            enable=ui.Toggle("enabled", False, label=self.title()),
+            children=[
+                ui.Choice("method", ("MultiDiffusion", "Mixture of Diffusers"), "Mixture of Diffusers", style="radio", label="Method"),
+                ui.Row(
+                    ui.Slider("tile_width", TILE_MIN, TILE_MAX, 768, 64, label="Tile Width"),
+                    ui.Slider("tile_height", TILE_MIN, TILE_MAX, 768, 64, label="Tile Height"),
+                ),
+                ui.Button("Use source image size", "detect_size", "tool"),
+                ui.Row(
+                    ui.Slider("tile_overlap", 0, 1024, 64, 16, label="Tile Overlap"),
+                    ui.Slider("tile_batch_size", 1, 8, 1, 1, label="Tile Batch Size"),
+                ),
+            ],
         )
 
-        return enabled, method, tile_width, tile_height, tile_overlap, tile_batch_size
+    @ui.action("detect_size")
+    def detect_size(self, ctx: ui.ActionContext, values: dict) -> dict:
+        """Tile size from the source image's size (the former 📐 button)."""
+
+        size = source_image_size(ctx)
+        if size is None:
+            return ui.toast("Add a source image to read its size", "warning")
+        width, height = (min(max(int(value), TILE_MIN), TILE_MAX) for value in size)
+        return {"tile_width": {"value": width}, "tile_height": {"value": height}}
 
     def process_before_every_sampling(self, p, enabled: bool, method: str, tile_width: int, tile_height: int, tile_overlap: int, tile_batch_size: int, **kwargs):
         if not enabled:

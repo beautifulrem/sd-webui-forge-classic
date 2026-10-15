@@ -1,0 +1,4 @@
+{
+  "Lock img2img Steps": "锁定图生图步数",
+  "Lock Sampling Steps (ignore values from Send to img2img / paste)": "锁定采样步数（忽略“发送到图生图”和粘贴的值）"
+}

@@ -5,10 +5,11 @@
 import { api } from "@/api/endpoints"
 import { keys, queryClient } from "@/api/queries"
 import type { ActionExtra, ActionRequest, ActionResponse, ActionToast, Bootstrap, ParamPatch, ParamValues } from "@/api/types"
-import { t } from "@/i18n"
+import { i18n, t } from "@/i18n"
 import { showToast } from "@/lib/toast"
 import { splitRef } from "./conditions"
 import type { FormStore } from "./form-store"
+import { isMessage, messageText } from "./messages"
 
 const TOAST_LEVELS = new Set(["info", "success", "warning", "error"])
 const PATCH_KEYS = new Set(["value", "choices", "visible", "enabled", "label", "info", "minimum", "maximum", "step"])
@@ -31,7 +32,7 @@ export function splitResponse(owner: string, response: ActionResponse | unknown)
   if (!isRecord(response)) return out
   for (const [key, entry] of Object.entries(response)) {
     if (key === "__toast__") {
-      if (isRecord(entry) && typeof entry.message === "string") {
+      if (isRecord(entry) && (typeof entry.message === "string" || isMessage(entry.message))) {
         const level = TOAST_LEVELS.has(entry.level as string) ? (entry.level as ActionToast["level"]) : undefined
         out.toast = { level, message: entry.message }
       }
@@ -114,7 +115,7 @@ export function applyResponse(store: FormStore, owner: string, split: SplitRespo
   const state = store.getState()
   if (split.params.length > 0) state.applyPatches(split.params)
   if (split.outputs) state.setOutputs(owner, split.outputs)
-  if (split.toast) showToast(split.toast.level, split.toast.message)
+  if (split.toast) showToast(split.toast.level, messageText(i18n, split.toast.message))
   if (split.settings) {
     // Stored by the server already: update the cached values, never write them back.
     const settings = split.settings

@@ -40,8 +40,8 @@ widgets/<name>/     custom widgets, one directory each (auto-registered)
 features/           generate-view features: prompt-editor, gallery (session results, history grid),
                     lightbox, progress (run machine + controller, restore, wake lock / title /
                     notifications), model-bar, send-to, infotext
-pages/<page>/       one lazily loaded chunk per page; pages/custom/<name>/ = dedicated
-                    views for extension pages with `widget=`
+pages/<page>/       one lazily loaded chunk per page; pages/ext/ = extension pages (#/ext/<id>),
+                    pages/custom/<name>/ = dedicated views for extension pages with `widget=`
 components/         app-level components (SearchSelect, Segmented, ErrorBoundary, …)
 components/ui/      vendored shadcn components (edit sparingly; lint-exempt)
 i18n/               i18next setup, locale store, catalog loading
@@ -50,17 +50,17 @@ lib/                appearance store (theme.ts), toast, media query, cn()
 test/               setup.ts (jsdom shims, jest-dom, i18n init), fake-socket.ts (WebSocket double)
 ```
 
-`src/canvas/` (Konva) arrives with the img2img editor; it is the only module
-that may import Konva. `konva`, `react-konva`, `@codemirror/autocomplete` and
-`@codemirror/lint` are installed for wave 2 (canvas editor, tag completion,
-prompt diagnostics) and are not imported yet, so they cost nothing in the
-bundle.
+`src/canvas/` is the image editor (see "Image editor"); it is the only module
+that may import Konva, and only `canvas/engine/renderer.ts` does, inside the
+editor's lazy chunk. `react-konva` stays unused (the editor drives Konva
+imperatively).
 
 ## App shell
 
 - **Routing**: `app/router.ts` is a typed hash router (`#/txt2img`, `#/img2img`,
   `#/extras`, `#/png-info`, `#/gallery`, `#/networks`, `#/queue`,
-  `#/settings`, `#/extensions`, `#/page/<id>`, optional `?query`). Hash routing
+  `#/settings`, `#/extensions`, `#/ext/<id>` (extension pages; `#/page/<id>`
+  still opens them), optional `?query`). Hash routing
   keeps the server contract to "serve `index.html` at `/`". Use
   `navigate(route)`, `routeHref(route)` for links, `useRoute()` to read.
 - **Pages** are code-split: `app/routes.tsx` maps each route name to a
@@ -180,7 +180,8 @@ pages). `jobRequest(store, schema)` (`ui/tab.ts`) builds the `POST /jobs` body.
 | `Field.tsx` | label row, modified dot (click = reset to default, tooltip shows the default), info text, server validation message (`FieldError`) |
 | `a11y.ts` | ids of label / info / error texts and `describedBy(id, info, error)` for controls |
 | `conditions.ts` | condition evaluator (`param` / `eq` / `ne` / `in` / `gt…lte` / `all` / `any` / `not`, `"owner.param"`) |
-| `form-store.ts` | per-form Zustand store (`getFormStore(formId)`) |
+| `form-store.ts` | per-form Zustand store (`getFormStore(formId)`); `setValues`/`applyPatches` skip params locked by a toggle's `locks` (`locks.ts`), `persist: false` inputs are never drafted |
+| `messages.ts` | translation of server texts (toasts, text outputs, `{text, params}` messages) |
 | `actions.ts` | `runAction` + patch application, `runChangeEffects` (on_change + conflict locks after an edit), `resetParams` |
 | `uploads.ts` | upload + local previews (object URLs revoked when unreferenced, at most 24 kept) |
 | `RichText.tsx`, `rich-text.tsx` | Markdown → React elements (no raw HTML); HTML sanitised via DOMParser → React elements (allow-list, no `innerHTML`) |
@@ -229,7 +230,9 @@ Rules the renderer implements:
   enable toggles, choices, toggling off, and resets. A section reset or
   "Reset all parameters" (`resetOwners`, over every owner at once) runs each
   distinct `on_change` once and one conflicts call (`selected` only when a
-  single conflict param changed). "Reset all parameters" asks first when the
+  single conflict param changed). A param's `on_input` action runs only
+  after the user edits that control (`useParam`): never after pastes,
+  presets, bulk resets or action patches. "Reset all parameters" asks first when the
   prompts or a source image would be lost.
   Values set by a patch do not trigger effects (no loops). After a schema
   load, if a draft restored a non-default conflict param, the locks are
@@ -282,7 +285,24 @@ That is all: `import.meta.glob` discovers it at build time, it is loaded
 lazily the first time a `custom` node with `widget: "<name>"` renders, and
 the field chrome (label, modified dot, reset, info) is provided around it.
 An unknown widget name falls back to the JSON editor so values are never
-lost. Example: `widgets/block-weights`.
+lost. Example: `widgets/block-weights`. Shared widgets with a server-side
+node: `widgets/range-slider` (`ui.RangeSlider`).
+
+A widget may also edit an input of another kind through its `widget` hint
+(today `image_list`: `ui.ImageList(name, widget="image-list")`). The value
+keeps that kind's rules (an image list's upload ids are never restored from
+drafts, and count as source images), and the widget receives the node as
+`WidgetNode`. An async widget edit (an upload) must commit against the
+store's current value (`store.getState().values[owner][node.name]`), not the
+value of the render that started it (see `widgets/image-list`).
+
+A widget may sum up its values in the header of the section holding it
+(shown while the section is collapsed, like the old ControlNet "2x Unit"
+badge): a `src/widgets/<name>/summary.ts` exporting
+`sectionSummary(values, nodes)` (the owner's values, the section's inputs of
+that widget) returning translated text or `null`. It is imported eagerly
+(`ui/section-summary.ts`), so keep it free of heavy imports. Example:
+`widgets/controlnet-unit/summary.ts`.
 
 ### Adding a page
 
@@ -291,7 +311,24 @@ lost. Example: `widgets/block-weights`.
   `routes.tsx` and a `BUILTIN_NAV` entry.
 - Extension page with a dedicated view (`Page(..., widget="x")`): create
   `src/pages/custom/x/index.tsx` (default export `({ page })`). Without
-  `widget`, the page is schema-rendered from `GET /api/v2/pages/{id}`.
+  `widget`, the page is schema-rendered from `GET /api/v2/pages/{id}` by
+  `pages/ext` (`PageView`): its form `page:<id>` is loaded once per schema
+  object and kept across visits (values, upload ids and outputs survive
+  leaving the page and a schema reload), and its `on_load` action runs each
+  time the page is shown. Other views send values to a page with
+  `sendToPage(id, values)` (`pages/ext/deliver.ts`: applied at once to a
+  loaded page, else right after its first load; each value's `on_change`
+  runs). Pages declaring `send_to` image targets get "Send to <label>"
+  buttons wherever `PageSendButtons` (`pages/ext/send-targets.tsx`) is
+  placed: PNG Info's "Send image" group.
+- Page widgets: `task-runner` (start a page task and follow it: progress,
+  status text, Cancel; the poll outlives the view, so a result lands even
+  after leaving the page), `send-button` (a param of the page to the
+  txt2img / img2img prompt — append with the old ", " joining, or replace,
+  with or without switching — to another page's image input, optionally
+  after an action such as a download, or an http(s) link in a new tab) and
+  `secret-text` (a masked, write-only text such as an API key; declare it
+  `persist=False, submit=False`).
 - Extension page icons are names from the curated map in `app/icons.ts`
   (unknown → puzzle piece).
 
@@ -323,8 +360,9 @@ mode's schema is prefetched).
   (paste anywhere in the size card). Scripts without a slot of their own are
   a searchable, collapsible list with an "only modified" filter, per-script
   reset and "reset all"; the selectable-script choice and the chosen script
-  follow. img2img's source block renders in `SourceSlot` (`CoreForm.tsx`),
-  which the canvas editor replaces in wave 3.
+  follow. img2img's source blocks render in `SourceSlot` (`CoreForm.tsx`)
+  as the canvas module's `Img2imgSourcePanel`; the image is edited on the
+  stage (see "Image editor").
 - **Prompt editor** (`features/prompt-editor`, CodeMirror 6, lazy chunk):
   colouring from `tokenize.ts` (attention weights, `[a:b:0.5]` / `[a|b]`
   schedules, `<lora:…>` with numeric arguments, `BREAK` / `AND`,
@@ -348,7 +386,14 @@ mode's schema is prefetched).
   from `@/features/prompt-editor` adds a CodeMirror `CompletionSource` to every
   open and future editor (no autocompletion extension while none is
   registered); sources read `promptKind` (`facets.ts`) to tell positive from
-  negative prompts.
+  negative prompts. Tab accepts like Enter; `completionAcceptKey()` tells
+  them apart inside a completion's `apply`; options may carry `className`
+  and `decorate()` (`DecoratedCompletion`: a class on the row, a node after
+  the label). **Prompt decorators**: `registerPromptDecorator(id,
+  Component)` wraps every prompt editor (`PromptField` and the renderer's
+  `prompt: true` text fields, via `PromptDecorators.tsx`); the component
+  gets the editor as `children` (keep it mounted), the value and setter,
+  the kind, the label and the editor handle.
 - **Run controller** (`features/progress`): `run-machine.ts` is a pure
   reducer (Generate / queue another / Ctrl+Enter restart / Interrupt (also
   cancels this form's queued jobs and a submit in flight) / Skip / generate
@@ -407,6 +452,410 @@ mode's schema is prefetched).
   /options`; `model.loading` stages show next to it. Narrow headers fold
   preset, modules and dtype into a popover.
 
+## Image editor (`src/canvas`)
+
+Replaces ForgeCanvas (core-frontend-features.md §3.33, §10.G). Public
+surface (`@/canvas`): `<ImageEditor>` (lazy; Konva and the editor UI are one
+chunk, `preloadImageEditor()` fetches it early), the img2img integration
+(`Img2imgSourcePanel`, `Img2imgStage`) and the schema binding helpers.
+
+| directory | role |
+|---|---|
+| `core/` | pure logic, unit-tested: geometry and view math, undo `History` (≥ 32 states, byte budget), pixel patches (empty / RLE / raw, masks as alpha), dab placement along strokes, flood fill, tiles, mask export / luminance fallback, resize-frame and "Only masked" area maths (mirrors `modules.images` / `modules.masking`), shortcuts, schema → mode layers (`modes.ts`) |
+| `engine/` | `EditorDocument` (background, one raster per layer, history, per-layer upload sync), `CanvasRaster` / `MemoryRaster` (tests), `LayerSync` (debounced, hash-cached uploads), `Interaction` (pointer / wheel / pinch), `Renderer` (the only Konva file), `registry` (documents by key) |
+| `state/` | tool settings persisted per browser (`remi-canvas-tools`); `activity.ts` (a painting gesture is in progress, readable from the main bundle) |
+| `ui/` | the editor chrome: tool rail, options bar, colour popover, layers popover, shortcuts help, empty state, full-screen dialog |
+| `img2img/` | the img2img form binding, the Source panel and the stage's Source / Result switch |
+| `form/` | schema-declared layers in any form (`SchemaImageEditor`, used by the renderer's image input) and the undoable "replace the background" write |
+
+- **Documents** live in `engine/registry.ts` by `docKey` (`"img2img"`, a
+  ControlNet unit…), so layers and history survive unmounting (switching
+  pages, the full-screen dialog, the Result view). A layer is one
+  full-resolution offscreen canvas; a stroke is drawn into a scratch raster
+  and composited once at the brush opacity (no per-stroke nodes). Undo keeps
+  the pixels under the touched 256-px tiles before the edit (compressed) and
+  the edit itself for redo. Undo and redo act on the edited layer only
+  (never a hidden layer of another mode; edits of different layers commute,
+  so the newest entry of that layer is taken out of the shared stack). The
+  budget is 1/32 of `navigator.deviceMemory` within 96–384 MiB, 160 MiB when
+  the browser does not report it, at most 96 MiB on coarse-pointer devices.
+  The painted bounds are tracked by the edits ("Only masked" preview); after
+  an erase or undo only the previous bounds are scanned.
+- **Values**: the editor follows its `image` / layer values (set from outside
+  by send-to, paste, reset: a new background clears its painted layers and
+  the history). After an edit, once the user pauses (600 ms, then idle), the
+  layer is exported as a PNG in wire format (sketch RGBA; mask white + alpha),
+  hashed, uploaded unless the same content was uploaded in the last hour
+  (undo back to it; older ids may have been pruned by the server), and
+  committed with `onLayerChange`. `pendingKey` registers the
+  document with `ui/pending-writes`; the run controller flushes it before
+  `POST /jobs`, so the job carries what is on screen. Painting waits until
+  the document shows the value's image; an image that fails to load clears
+  the document and shows an error with Retry. Replacing or removing the
+  background flushes the layers first and, when painted layers are dropped
+  with it, offers Undo in a toast (`form/replace-background.ts`).
+- **Schema layers**: any form's `image` input that `sketch` / `mask` inputs
+  of the same owner name as `source` renders as one editor
+  (`docKey` `formId:owner:param`, `pendingKey` the form); the layer inputs
+  render nothing; the visible ones (own `visible_if`, `hidden`, patches) are
+  offered, with a picker when there are several. A `mask` without `source`
+  stays an upload field.
+- **Modes** come from the schema, not a table (`core/modes.ts`): the image
+  input whose name other image inputs' `source` refers to is the background;
+  the layer edited is the visible `sketch` / `mask` input; a visible
+  `mask_blur` makes a sketch's alpha the inpaint mask. img2img: no layer;
+  Sketch / Inpaint sketch: `sketch`; Inpaint: `mask`; Inpaint upload:
+  `mask_upload` (uploaded in the Source panel, shown and editable on the
+  canvas); Batch: no canvas (the stage shows results).
+- **Tools**: brush (size on a log slider, opacity, softness, colour with
+  picker / hex / swatches / recent / eyedropper / screen picker), eraser
+  (Shift while painting), fill (tolerance; by the layer or the image as
+  shown), rectangle and lasso (Shift subtracts), invert mask, clear; masks
+  always paint at full strength (the server thresholds at 50 %). Pointer
+  events are coalesced and applied once per animation frame; pen pressure
+  scales the dab.
+- **View**: wheel zooms at the cursor (or pans, a preference; Ctrl+wheel /
+  pinch always zoom), Space / right / middle drag / Hand / two fingers pan,
+  R or 0 fit, 1 actual size, +/− steps, F full screen. With nothing to
+  paint, one finger scrolls the page on touch screens (`touch-action:
+  pan-y`); two fingers pan and zoom. The brush cursor shows
+  the real diameter; brush sizes are image px, or screen px with
+  `forge_canvas_consistent_brush`. Canvases follow `devicePixelRatio` (and
+  moves between screens). `forge_canvas_plain(_color)` and
+  `forge_canvas_toolbar_always` are honoured.
+- **Keys** (pointer over the editor or focus inside it, never while typing):
+  B E G M L I H tools, `[` `]` and W / A / S + wheel size / opacity /
+  softness, Ctrl/⌘+Z / Y / Shift+Z, Ctrl/⌘+X or Delete clear, Ctrl/⌘+I
+  invert, `?` the shortcuts popover.
+- **Overlays**: while width / height / resize mode change, the target frame
+  of the resize mode (crop / fill shading) shows for a moment ("Resize by":
+  the image × scale, snapped like `snap_resolution`; the Source panel also
+  fills the `scale_by_resolution` output); mask blur
+  (CSS blur at the view scale) and the "Only masked" area (padding and
+  processing ratio, as `modules.masking` computes it) show while their
+  settings change, or always from the layers popover.
+- **img2img**: the parameters pane's Source card has the mode picker
+  (balanced tiles, no wrapping strip), one line per image (thumbnail, size,
+  "use image size", replace, remove) and the mode's options from the schema,
+  flattened into the card (untitled groups lose their box). The stage has a
+  Source / Result switch: it turns to Result when the first job of a run of
+  this form starts (not for the next job of Generate forever, a repeat or a
+  queue, and never during a stroke; a stroke in progress when the editor
+  unmounts is committed) and back to Source when a new source arrives or a
+  submit is rejected for a source layer. Upload, paste, drop, replace, remove and a blank canvas of
+  the target size are on the editor itself.
+- **Widgets** (ControlNet units): `noUpload`, `noScribble`, `fixedColor`,
+  `fixedSize`, `fixedOpacity`, `fixedSoftness`,
+  `layers={{ mask: { kind: "mask", value } }}` + `activeLayer="mask"` for a
+  mask-only editor, `height` (default: the "Canvas Height" setting,
+  `forge_canvas_height`) or `fill` (fill a sized container), `hint`, `error`.
+
+## Networks (`features/networks`, `pages/networks`)
+
+One browser (`NetworkBrowser`) serves the full-screen Networks page and the
+drawer in Generate (header button "Networks", Alt+N, also in the command
+palette; its chunk loads on first open). Each surface keeps its own kind,
+search, sort, view, card size and per-kind filters (`store.ts`, persisted as
+`remi-networks`, with the drawer's open state and width and the folder
+tree's width). Until a sort is chosen, `extra_networks_card_order_field` /
+`extra_networks_card_order` decide it.
+
+- **Data**: `GET /networks` (kinds with their card action), fixed windows of
+  100 items per `{kind, q, folder, archs, compatible, sort, order}`
+  (`useNetworkWindow`: the grid reports the indices it shows, debounced
+  120 ms, and only the windows covering them — plus half a window around —
+  are fetched with `offset`, so a jump to the end of 5,000 items is one
+  request and an invalidation refetches only the windows on screen). The
+  first window (with the total) of a previous search is kept while a new
+  search of the same kind loads, never across kinds; search is debounced
+  180 ms. `/facets` feeds the folder tree and the architecture chips.
+  `networks.changed` invalidates everything under `["networks"]`, and so does
+  `options.changed` for the options the answers depend on (`forge_preset`,
+  `extra_networks_default_multiplier`, `lora_preferred_name`, the hidden
+  folder options: `NETWORK_OPTION_KEYS`).
+- **Grid** (`NetworkGrid`, TanStack Virtual): rows of cards (3:4 preview,
+  name, folder, architecture / LyCORIS badges, a check when on) or list rows
+  (thumbnail, path, badges, size, date). The overscan is computed so that at
+  most 60 cards are mounted (`grid-layout.ts`); items not loaded yet are
+  skeletons. A new kind, search, filter or sort mounts a new grid (keyed by
+  them): it starts at the top with no cursor. Previews are `/thumbs` at the
+  card's device-pixel width snapped to the server's widths (stable URLs while
+  resizing), lazy, over the blurred `placeholder`; video previews are muted
+  loops (still with `prefers-reduced-motion`); without one a tinted
+  monogram. The card / row is the `option`; its hover buttons are a sibling
+  overlay outside the accessibility tree, and the item count's live region
+  sits outside the listbox. One listbox tab stop (`aria-multiselectable`, selected =
+  on): arrows, Page Up/Down, Home/End, Enter/Space apply, I metadata, E
+  editor, Shift+F10 / Menu / "." the item menu; "/" focuses the search.
+- **Clicking a card** (`actions.ts`): prompt kinds toggle their text in the
+  form's `core.prompt` / `core.negative_prompt` (`prompt-insert.ts`: a
+  `<type:name:…>` tag matches whatever its weight and takes the activation
+  text after it along; other text matches as a whole word; the separator is
+  `extra_networks_add_text_separator`). A card with negative text fills both
+  prompts; otherwise the target is the prompt editor focused last (read from
+  its `promptKind` facet on `focusin`) or the Prompt / Negative switch.
+  Writing through the form store lets the editors undo it; on the Networks
+  page the target form is chosen in the header and keeps the text until its
+  page loads. Checkpoint cards write `sd_model_checkpoint`, VAE / text
+  encoder cards toggle `forge_additional_modules`.
+- **Item actions** (hover buttons, one shared Base UI menu: at the pointer
+  for a right click, under the "…" button, at the card for Shift+F10):
+  metadata dialog (file facts, training facts, dataset tags
+  as frequency-weighted chips — click copies, "Copy top 40" / "Copy all" —
+  and the raw header, filterable), user-metadata editor (the kind's fields;
+  dataset-tag chips toggle words in the activation text; random prompt from
+  the tags; the preferred weight is bounded like the server, ±100), set
+  preview (this session's results, the paged gallery or an upload; a radio
+  group with arrow keys; every opening starts with nothing picked), copy
+  path, open folder (only with the bootstrap feature `folders.open`, i.e.
+  not with `--hide-ui-dir-config`). Edit, set preview and open folder are
+  hidden for items without a model file (`editable: false`). The
+  checkpoint editor no longer offers upstream's unused "Preferred VAE / Text
+  encoder(s)" (`vae_te`) field; the key is kept in sidecars that have it.
+- **Filters**: architecture chips with counts, "For <preset>" (default on
+  for LoRA when `lora_preset_filter` is set; it filters by the *effective*
+  architecture, the user's `sd version` or else the one read from the file,
+  where upstream only used `sd version`), the folder (a resizable tree pane
+  on wide pages, a popover elsewhere; a WAI-ARIA tree with counts whose
+  "All" row counts every folder), "Clear filters". Failed requests show an
+  error with Retry. On phones the Networks page puts the form and prompt
+  target switches in a row above the browser.
+- Mock mode serves 5,000 LoRA in nested folders, 454 of them in a hidden
+  `styles/.wip` folder (`api/mock/networks.ts`).
+
+## Settings, quick settings, extensions, server control
+
+- **Settings** (`pages/settings`, `#/settings?view=&q=&filter=&section=`):
+  `GET /options` is loaded into one form store (`settings-store.ts`, owner
+  `settings`, not persisted) whose defaults are the schema's built-in
+  `defaults`, so each control's modified dot resets to the default; the
+  stored values are kept beside it and their difference is the unsaved
+  edits (marked per row and per nav section, reverted per row, "Unsaved"
+  filter, sticky Apply bar, Ctrl/Cmd+S). Apply is one `PATCH /options`,
+  optimistic; on any refusal every edit stays an edit (rejected ones show the
+  server message under the control) until the refetched values settle it.
+  An options reload keeps unsaved edits. Edits survive leaving the page; the
+  shell asks before the tab closes, and leaving shows a "Review" toast. Every
+  setting renders with the schema renderer inside a virtualized list
+  (category / section headings, `settings-model.ts` flattens it); search
+  covers keys, labels, notes, links, help HTML text and choice labels, in
+  English and the active language, all terms required, with matches
+  highlighted through the CSS Custom Highlight API (`highlight.ts`; no DOM
+  changes). Filters: All / Changed (from the default) / Unsaved / Pinned.
+  The search text and filter live in a module store (`settings-filters.ts`)
+  so they survive leaving the page, and are mirrored into `q` / `filter`
+  (replace navigation, typing after a pause); a route change made elsewhere
+  (a "Review" link, back/forward) wins, the page's own writes are not read
+  back. Rows carry notes, links, sanitized help HTML, "Requires restart /
+  Reload UI" badges, a refresh button (`refresh:<key>` action) and a pin
+  toggle. Settings the server refuses (`locked`, schema-format.md §6) are
+  disabled with their reason (not repeated per row under `--freeze-settings`,
+  where a banner says it); import skips them. Applied settings that need a reload or restart raise a notice
+  with the matching command. Export (changed or all values, JSON) and import
+  (ours or an A1111 `config.json`; differences validated with
+  `POST /options/validate`, then staged as edits). System views: server and
+  models (Reload UI, restart, unload / load / load again from disk, the
+  weights in memory, hash every checkpoint with progress, notification
+  permission, settings file, localization template download), system info
+  (summary, collapsible sections, download, copy, file check), licenses
+  (structured data; license texts fetched on demand).
+  `tools/dump_settings.py` writes the real schema to
+  `api/mock/contract/settings.json` (tests and mock mode).
+- **Former Settings tabs and actions** (decisions):
+  - *Defaults* (the `ui-config.json` editor) is not carried over: Remi forms
+    never read `ui-config.json`; their starting values are the schema
+    defaults, the UI preset's defaults and the saved form drafts.
+  - *Reload custom script bodies* is covered by "Reload UI": the schemas are
+    built from the scripts, so reloading script bodies without rebuilding
+    them would leave stale forms (and there is no injected JS/CSS to
+    refresh).
+  - *List loaded models* → Server and models → "Show the weights in memory"
+    (`GET /models/loaded`).
+  - *Calculate hash for all checkpoints* → "Hash all checkpoints"
+    (`/models/hashes`, background, polled progress).
+  - *Download localization template* → "Download localization template":
+    the English keys of the SPA catalog, the server catalog and the settings
+    schema, with the active language's translations filled in.
+  - The `quicksettings_list` "info" link (`settingsHintsShowQuicksettings`,
+    a popup of all setting names) is replaced by the pin buttons on every row
+    and a "Show pinned settings" link under that setting (the Pinned
+    filter); the settings search covers keys and labels.
+- **Quick settings** (`features/quicksettings`): the header's ⚡ button lists
+  `quicksettings_list` minus the model bar's keys (checkpoint, VAE / TE,
+  dtype, preset), rendered by the schema renderer in a lazy popover and
+  written as they change (continuous kinds debounced; a refusal reverts with
+  the message). Pins are set from the settings rows (optimistic
+  `PATCH quicksettings_list`).
+- **Extensions** (`pages/extensions`, `#/extensions?tab=installed|available|url|backup`):
+  installed list (user and built-in apart; switches and update marks are
+  staged, then "Save" or "Apply and reload UI"; per-extension or bulk update
+  checks with progress, one request each, four at a time, stoppable;
+  uninstall with confirmation, never for built-in ones; "Disable all
+  extensions"), the extension index (server-fetched, virtualized, search,
+  tag hide / only-show with any / all matching, eight sorts, install), install
+  from URL (validated URL, branch, folder), and config-state backups (list,
+  save, detail against the current commits, restore the extensions, delete;
+  both confirmed). The WebUI checkout is never restored from here (a backup
+  made before the rewrite points at an upstream commit; `git reset --hard`
+  would drop the working tree). Without extension access every write is
+  disabled with an explanation. Server errors are shown translated: their
+  `template` (English, `{{name}}` placeholders) is a catalog key
+  (`adminErrorMessage`). The Available list is virtualized inside the page's
+  own scroll (`data-scroll-root`, `scrollMargin`), so there is one
+  scrollbar; date sorts put undated entries last.
+- **Server control** (`features/server-control`, mounted by the shell):
+  "Reload UI" / "Restart server" from the settings page, the palette or
+  after applying extension changes; a confirm dialog (warns about unsaved
+  edits and a running job), then an overlay that follows the server through
+  `/internal/ping` and reloads the page once a ping answers with another
+  `instance` than before the command (a server without instance ids: after
+  a missed ping); the old server answering again after a missed ping puts
+  the overlay back to "stopping". Timeout, "Keep waiting" and "Reload page
+  now". `unsaved.ts` is the shared unsaved-edits registry behind the unload
+  guard; it is bypassed only right before the page reloads (a dismissed or
+  failed command keeps the close-tab prompt).
+- Menu and popover triggers with tooltips use `usePopupTooltip`
+  (`components/popup-tooltip.ts`): focus returning to the trigger when the
+  popup closes no longer reopens the tooltip (the Appearance menu bug).
+
+## Extras, PNG Info, Gallery, Queue
+
+- **Extras** (`pages/extras`, `features/extras`, `features/compare`): the
+  `extras` schema rendered as is (source tabs Single Image / Batch Process /
+  Batch from Directory / Single Video bound to `mode`, then every
+  postprocessing operation's section in its slot: upscale with two upscalers
+  and the second's visibility, face restoration, …). Process (Ctrl/Cmd+Enter,
+  Esc interrupts) submits an `extras` job tracked in the progress store
+  (`run.ts`; jobs in flight survive a reload, this session's results are kept
+  in sessionStorage with the source image of each run). A single-image result
+  shows in `CompareSlider` against its source (drag anywhere, or the handle
+  with ←/→, Shift for 10 %, Home / End; both images fitted to the frame so an
+  upscale compares feature for feature) or alone; batches get a thumbnail
+  strip. Result actions (download, save, send to img2img / inpaint / Extras,
+  copy parameters), the viewer, "Add to queue".
+- **PNG Info** (`pages/png-info`, `features/pnginfo`,
+  `#/png-info?file=<id>`): drop, paste (anywhere on the page) or choose an
+  image; it is uploaded once and read by `POST /pnginfo`. The infotext panel,
+  "send parameters" to txt2img / img2img (page switch), copy, "send image" to
+  img2img / inpaint / Extras, and three tabs: parsed parameters, every
+  metadata entry grouped (image, text chunks, EXIF IFDs; binary values as
+  sizes) and the PNG chunk list. Values are rendered as text only.
+- **Gallery** (`pages/gallery`, `features/library`): `GET /gallery` pages
+  (120 items) per filter set; filters and the view persist
+  (`remi-gallery-view`, the search text is per visit): search (debounced, all
+  words in the infotext, name or model), form / folder (txt2img, img2img,
+  Extras, grids, saved, other, with counts), model (searchable, counts from
+  `/gallery/facets`), date range (local days, presets), starred, sort
+  (newest / oldest / name / largest), layout (justified rows or masonry
+  columns at each image's exact aspect ratio, `layout.ts`, pure) and tile
+  size. TanStack Virtual renders only the rows / tiles near the viewport
+  (rows for the justified layout, lanes for masonry) and fetches the next
+  page near the end; thumbnails are `/thumbs` at the tile's device-pixel
+  width. Keyboard: the grid is one tab stop (roving focus), arrows move
+  (↑ / ↓ to the image above / below), Home / End, Enter opens, Space selects
+  (Shift extends), F stars; Ctrl/Cmd+A selects everything loaded, Delete
+  removes the selection, Esc clears it. Selection (`selection.ts`, pure:
+  toggle, Shift ranges from the anchor, pruned when items leave the list)
+  shows a floating bar: download as zip (`/gallery/zip`), star / unstar
+  (optimistic), compare (exactly two: `CompareDialog`, the slider), remove
+  (confirm; "also delete the files" is opt-in). The viewer is the shared
+  lightbox with an `aside`: file facts, star, PNG Info, show in folder
+  (`/gallery/{id}/reveal`, refused for remote browsers), delete, and the
+  infotext panel; its toolbar has the result actions ("use parameters",
+  send to, download). `outputs.changed` and finished jobs refresh it;
+  "Rescan" indexes the output folders.
+- **Queue** (`pages/queue`, `features/queue`): two columns on wide screens
+  (queue | history), tabs below 64 rem. The running card (live preview frames
+  of the running job, step / batch / ETA, skip, interrupt), "Up next" in run
+  order from `GET /queue/items` (`queue.changed` keeps it current) and the
+  history. Queued jobs: drag the grip (pointer) or move it from the keyboard
+  (Space picks up, ↑ / ↓, Space drops, Esc cancels; announced), move to top /
+  bottom, priority (high / normal / low), duplicate, cancel, edit. A move
+  across priorities takes the neighbours' priority (`reorder.ts`, pure: the
+  list stays in run order) and is shown at once. **Edit** (`edit-session.ts`)
+  loads the job's named values into its form (`deliver`, the page switches)
+  and, for a queued job, opens an edit session: a banner over the run
+  controls offers "Update job" (`PUT /jobs/{id}/params`, validation errors
+  land on the fields) or stop editing; a job that started meanwhile leaves
+  the values in the form. History: paged (50) and virtualized, search
+  (debounced), status (all / completed / failed / stopped), form and starred
+  filters; each row shows status, duration, up to four output thumbnails
+  (open the viewer), star, queue again (`retry`), open in its form, remove;
+  imported jobs show their notes, and jobs that are not replayable say so
+  and cannot be queued again as they are. Header: pause / resume and the
+  settings menu: import from Agent Scheduler / Prompt Queue (dialog: the
+  sources found, one click each, then the report with counts and every task
+  that was not imported exactly, with its notes), stop every generate
+  forever, stop and cancel everything, clear the history (keeping starred
+  jobs by default). **"Add to queue"** (`FormQueueControls.tsx`) sits next
+  to Generate / Process in every form: it posts the form as a job without
+  making it the form's run (a toast links to the Queue). Generate forever and
+  repeat N stay the run controller's (client-driven, see "Generate page").
+
+## Prompt tools (`features/prompt-tools`)
+
+Tag autocompletion and the former Prompt All-in-One, on `/api/v2/prompt-tools`
+(server: `remi/prompt_tools`, `remi/server/routes/prompt_tools.py`; data and
+settings come from the built-in `sd-webui-tagcomplete-neo` and
+`sd-webui-prompt-all-in-one-neo` extensions, disabling one turns its part off).
+`register.ts` (imported by `main.tsx`, small) registers the completion source
+and the prompt decorator and refreshes on `options.changed`, `model.loaded`,
+`networks.changed` and `job.queued`; everything else is lazy.
+`GET /prompt-tools/config` says what is on (`tags.*` mirrors the `tac_*`
+settings, `tools.*` the `prompt_tools_*` ones); without it (mock mode, an
+older server) nothing is shown.
+
+- **Completion** (`completion/`, lazy chunk on the first keystroke):
+  `context.ts` finds the target at the cursor (a tag back to the last
+  unescaped delimiter; `<lora:` / `<l:` → LoRA, `<e:` → embedding, `<c:` /
+  `<chant:` → chant, bare `<` → all three; `__name` → wildcard names,
+  `__name__word` → that wildcard's values; nothing in weights, comments —
+  every `#` / `//` to the end of the line and `/* … */`, as Forge strips
+  them — or `BREAK`/`AND`; a typed `@artist` prefix is not searched but
+  kept for an artist tag). The server ranks (match tier, then posts, then the user's
+  usage); the client keeps that order (`filter: false`), caches queries
+  (LRU, 60 s; cleared on settings / network changes) and waits 40 ms before
+  an uncached request. `insert.ts` applies the insertion settings
+  (underscores and their exclusions, escaped brackets, `, ` after a tag but
+  not before `,` `)` `]` `}` `>` `|` `:`, `<lora:alias:weight>`, activation
+  text at the start / end / before / after, Anima's `@` artist prefix, Tab
+  completing nested wildcards one folder or to the first difference). An
+  accepted item is counted (`POST /usage`, per positive / negative prompt).
+  Options show the category colour, alias (`← alias`), translation, kind
+  and post count; the info panel has the LoRA preview, description,
+  activation text and wiki link.
+- **Decorator** (`PromptToolsDecorator.tsx`, in the shell): the editor stays
+  mounted and is hidden in the tag view; the tools bar (`PromptToolbar`,
+  lazy) offers text ↔ tags, quick tags, history, favorites and translation
+  (only with a configured provider; a network provider's API key is entered
+  in its menu, `PUT /translation-key`, stored apart from the settings and
+  never sent back). `prompt_tools_toolbar` limits the bar to the main
+  prompts (`PromptDecoratorProps.main`, set by `PromptField`). The view per
+  prompt is persisted (`remi-prompt-tools`).
+- **Tag chips** (`chips/`): `parse.ts` turns a prompt into chips and
+  separators so `serialize(parse(text)) === text`; weights are effective
+  (`((x))` 1.21, `[x]` 0.91, `(x:1.3)`, a network's first number); an edit
+  rewrites only its chip (`(x:1.3)` canonical form). A disabled chip is a
+  prompt comment `/*x, */` that takes one separator along (offered only with
+  `enable_prompt_comments`). `ChipsView`: roving focus (one tab stop),
+  ←/→ focus, Alt+←/→ move, Delete removes, Ctrl/Cmd+Z undoes in the hidden
+  editor, pointer drag to reorder (touch: horizontal), a popover per chip
+  (text, weight slider / number / ±0.1 / reset, enable / disable, favorite,
+  delete; a weight is written once, on release / blur), an input with tag
+  suggestions (`ui/combobox`; a picked tag is written and counted like a
+  completion); moves and removals are announced in a live region.
+- **Panels** (lazy, in a popover): quick tag groups (categories, search;
+  a tag toggles in the prompt, written like a completion: underscores,
+  escaped brackets), history (search, use, append, name, star, delete,
+  clear; positive or negative prompts, one item per distinct text: naming
+  and deleting cover the whole group), favorites (the prompt's own kind and
+  tag snippets, paged by the server; collections, search, save the prompt,
+  use / append, rename, move, reorder, delete, JSON export / import of
+  everything). Translation: "write the prompt in English" (the non-English
+  tags, all replaced on one parse, a translated list becomes several tags,
+  weights kept, undoable) and "show the tags in …" (tag view, network
+  providers); long lists are sent in chunks.
+
 ## i18n
 
 - Keys are the **English text** (`keySeparator`/`nsSeparator` off).
@@ -455,7 +904,11 @@ works; interrupted jobs end as `job.completed` with status `interrupted`.
 `/infotext/image` and the `__forge_preset__` action answer too; model
 changes emit `model.loading` stages. There is a
 schema-rendered extension page (`Toolbox`) and a zh_CN server catalog
-sample. Production builds contain no mock code.
+sample. `api/mock/library.ts` serves the Gallery (260 outputs of varied
+sizes, forms, models and dates; stars, removal, zip, reveal), PNG Info and
+the Queue tools (duplicate, edit, star, clear, an import report); the
+simulated worker honours pause / resume. Production builds contain no mock
+code.
 
 `src/api/mock/contract/{txt2img,img2img,extras}.json` are the real
 `tab_schema()` outputs (`tools/dump_schemas.py`, default options and the
@@ -493,9 +946,41 @@ modules commit (incl. the picker nested in the narrow header's popover),
 token counter debounce and recount after a model load, notifications,
 reset confirmation, queue position,
 form reload carry-over, and the page (submit, 422 marking, keys, history).
+Library pages: justified / masonry layout and the above / below neighbour,
+selection ranges and pruning, gallery filters → query (local day bounds),
+the gallery page (rows at aspect ratio, check boxes and bulk star / delete,
+Shift-click ranges, Escape, the roving keyboard focus, filters sent), the
+compare slider (keyboard, clamping), Extras runs (single-source tracking,
+finish / restore after a reload) and page, PNG Info (upload, tables, send),
+queue reorder planning across priorities, the pending list (keyboard move
+and its requests), edit sessions (update, 422 marking, a job that started)
+and "Add to queue".
+Image editor: undo history (order, ≥ 32 states, byte budget, per-layer
+removal), patches round-trip, mask export (white + exact alpha whatever the
+tint, luminance fallback), flood fill, dab placement (batch-independent,
+pressure), view maths, overlays against the server's crop maths, shortcuts,
+the document on memory rasters (strokes, opacity, erase, invert, clear, fill,
+external loads, sampling, per-layer undo / redo, tracked bounds, upload sync
+with hash reuse, its expiry and flush), the undo budget, input (a stroke
+committed on unmount, one-finger touch left to the page), toolbar keys and
+`aria-keyshortcuts`, the editor's value binding (`Editor.test.tsx`: uploaded
+mask loading, send-to, a failed load with Retry, layer commits), schema
+layers through the renderer, the real img2img schema → mode layers, the
+Source panel (balanced mode grid, no nested frames, mode options, errors,
+the "Resize by" size), source / size writes (undo toast, flush first),
+stage view switches (first job of a run only, never mid-stroke) and the
+submit waiting for layer uploads; pytest
+(`tests/test_remi_canvas_layers.py`) for the server's layer composition and
+the Source area's zh-CN catalog.
 `tests/e2e` (Playwright, mock mode): generate + history, Escape interrupt,
-editor keys and bracket warning, mode switch, viewer, send to img2img, and
-the phone layout. TypeScript runs with `noUncheckedIndexedAccess`.
+editor keys and bracket warning, mode switch, viewer, send to img2img, the
+phone layout, the image editor (`canvas.spec.ts`: paint / undo / redo a
+mask kept across the stage views with the job carrying it, sketch with Shift
+erasing, zoom / fit / full screen / shortcuts, an Inpaint-upload mask on the
+canvas across mode switches with per-layer undo and the job's layer ids,
+drop and paste, image size and removal, touch scrolling on phones), and the library (`library.spec.ts`): gallery search and viewer
+details, two-image compare, PNG Info → txt2img, and the queue (pause, "Add
+to queue" twice, keyboard reorder, resume, history). TypeScript runs with `noUncheckedIndexedAccess`.
 
 ## Performance
 
@@ -513,9 +998,13 @@ widgets, locale catalogs. Measured 2026-10-15 (`pnpm build`, `gzip -9`):
 | CSS (incl. `@font-face`) | 136 KB | 24 KB |
 | `generate` page + schema renderer + features (all its static chunks) | 501 KB | 177 KB |
 | lightbox (lazy; on top of the generate route) | 13 KB | 6 KB |
+| image editor (Konva + editor UI; lazy, preloaded by img2img) | 209 KB | 67 KB |
 | style editor (lazy; on top of the generate route) | 14 KB | 6 KB |
 | model bar (own code; shared with the header) | 15 KB | 6 KB |
-| `queue` page (incl. TanStack Virtual) | 34 KB | 11 KB |
+| `queue` page (own chunk, wave 3) | 53 KB | 20 KB |
+| `gallery` page (own chunk; TanStack Virtual is shared) | 46 KB | 19 KB |
+| `extras` page (own chunk; the schema renderer is shared with generate) | 16 KB | 7 KB |
+| `png-info` page (own chunk) | 18 KB | 7 KB |
 | prompt editor (CodeMirror + lint + autocomplete) | 328 KB | 105 KB |
 | command palette (cmdk + dialog) | 59 KB | 20 KB |
 
@@ -525,8 +1014,8 @@ Fonts load per unicode range (Inter latin ≈ 48 KB woff2).
 
 - `GET /app` returns `Bootstrap` (generated from the server's model).
 - Schema-rendered extension pages: `GET /api/v2/pages/{id}` →
-  `{version, id, title, owner: "page:<id>", layout, defaults}` (not in the
-  architecture table yet).
+  `{version, id, title, owner: "page:<id>", layout, defaults, on_load?,
+  send_to?}` (schema-format.md §8).
 - WS job events carry `job_id` and `seq` (= binary `job_seq`); `job_no` is
   0-based; `tab` is optional. Binary preview headers are little-endian.
 - Action bodies carry `scripts: {owner id: values}` (every non-core owner

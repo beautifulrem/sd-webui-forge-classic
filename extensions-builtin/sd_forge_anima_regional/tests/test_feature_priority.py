@@ -10,7 +10,7 @@ sys.argv = sys.argv[:1]
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "anima_regional.py"
 # Shared with the other suites of this folder, loaded by path (see its docstring)
-_spec = importlib.util.spec_from_file_location("extension_script_harness", ROOT.parents[1] / "tests" / "extension_script_harness.py")
+_spec = importlib.util.spec_from_file_location("remi_panel_harness", ROOT.parents[1] / "tests" / "remi_panel_harness.py")
 harness = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(harness)
 
@@ -162,10 +162,11 @@ def test_block_field_defaults_to_the_2b_range():
 
     tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
     defaults = [
-        node.args[0].value
+        node.args[1].value
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
-        and getattr(node.func, "attr", None) == "Textbox"
+        and getattr(node.func, "attr", None) == "Text"
         and any(keyword.arg == "label" and getattr(keyword.value, "value", None) == "Anima blocks" for keyword in node.keywords)
     ]
+    assert harness.script_layout(regional.AnimaRegionalScript()).defaults()["blocks"] == "0-27"
     assert defaults == ["0-27"]

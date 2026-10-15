@@ -357,7 +357,7 @@ def networks(server, tmp_path):
 
 def test_networks_are_searched_paged_and_never_expose_absolute_paths(server, networks):
     client = server.client
-    assert client.get("/api/v2/networks").json() == ["lora"]
+    assert [kind["id"] for kind in client.get("/api/v2/networks").json()] == ["lora"]
     page = client.get("/api/v2/networks/lora", params={"limit": 2}).json()
     assert [item["name"] for item in page["items"]] == ["alpha", "anime_style"] and page["total"] == 3
     rest = client.get("/api/v2/networks/lora", params={"cursor": page["next_cursor"]}).json()

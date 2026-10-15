@@ -395,7 +395,7 @@ options_templates.update(
             "keyedit_delimiters": OptionInfo(r".,\/!?%^*;:{}=`~() ", "RegEx Delimiters when editing the prompt with Ctrl + Up/Down"),
             "keyedit_delimiters_whitespace": OptionInfo(["Tab", "Carriage Return", "Line Feed"], "Whitespace Delimiters when editing the prompt with Ctrl + Up/Down", ui.MultiChoice, {"style": "checkboxes", "choices": ("Tab", "Carriage Return", "Line Feed")}),
             "keyedit_move": OptionInfo(True, "Alt + Left/Right moves prompt chunks"),
-            "prompt_debounce": OptionInfo(0, "Delay before a prompt edit is sent to Gradio", ui.Slider, {"minimum": 0, "maximum": 500, "step": 50}).info("in ms ; reduce lag when typing prompts, may also affect Extensions that react to the prompt inputs").needs_reload_ui(),
+            "prompt_debounce": OptionInfo(0, "Delay before a prompt edit reaches extensions", ui.Slider, {"minimum": 0, "maximum": 500, "step": 50}).info("in ms ; for extensions that react to the prompt inputs; the Remi editor itself is not delayed").needs_reload_ui(),
             "disable_token_counters": OptionInfo(False, "Disable Token Counter"),
             "include_styles_into_token_counters": OptionInfo(True, "Include enabled Styles in Token Count"),
         },

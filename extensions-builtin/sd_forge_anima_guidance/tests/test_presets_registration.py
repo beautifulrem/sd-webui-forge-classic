@@ -1,46 +1,33 @@
 """The preset's guidance.* values are the panel's own defaults."""
 
-import importlib.util
-import sys
 from pathlib import Path
 
 import pytest
+import remi_script_harness as harness
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-# Shared with the DAVE / Cross-Attention Boost suites, loaded by path (see its docstring)
-_spec = importlib.util.spec_from_file_location("extension_script_harness", ROOT.parents[1] / "tests" / "extension_script_harness.py")
-harness = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(harness)
 
 # User content the preset leaves alone: CLIP modulation prompts and local file paths
-UNOWNED = (
-    "Base CLIP prompt override",
-    "Positive modulation direction",
-    "Negative modulation direction",
-    "Local adapter .pt path",
-    "Local CLIP-L .safetensors path",
-)
+UNOWNED = ("modulation_base", "modulation_positive", "modulation_negative", "adapter_path", "clip_path")
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def guidance():
-    # modules.infotext_utils (the panel's PasteField): set up by conftest.py for the whole session
     return harness.load_script(ROOT / "scripts" / "anima_guidance.py", "anima_guidance_presets_under_test")
 
 
-def test_apply_preset_turns_the_panel_off_at_its_defaults(guidance):
-    for tab in ("txt2img", "img2img"):
-        # The preset table lists the guidance controls in the panel's order
-        harness.assert_registers_preset(guidance.AnimaGuidanceScript(), "guidance", tab, unowned_labels=UNOWNED)
+@pytest.mark.parametrize("tab", ["txt2img", "img2img"])
+def test_apply_preset_turns_the_panel_off_at_its_defaults(guidance, tab):
+    # The preset table lists the guidance controls in the panel's order
+    harness.assert_registers_preset(harness.script_layout(guidance.AnimaGuidanceScript(), tab), "guidance", unowned=UNOWNED)
 
 
-def test_script_args_name_the_registered_preset_fields(guidance):
-    from modules.anima_presets import SAFE_BASE_AESTHETIC_PRESET, preset_controls
+def test_script_args_name_the_bound_preset_fields(guidance):
+    from modules.anima_presets import SAFE_BASE_AESTHETIC_PRESET
 
-    harness.build_ui(guidance.AnimaGuidanceScript())
-    names, _, _ = preset_controls("txt2img")
-    assert list(names) == [preset for _, _, preset, _ in guidance.SCRIPT_ARGS if preset is not None]
+    layout = harness.script_layout(guidance.AnimaGuidanceScript())
+    bound = {name: field for field, name in harness.preset_fields(layout).items()}
+    assert [bound.get(name) for name in layout.names] == [preset for _, _, preset, _ in guidance.SCRIPT_ARGS]
     # An argument list stored before a later control was added gets the preset's default for it
     for _, _, preset, default in guidance.SCRIPT_ARGS:
         if default is not guidance._REQUIRED:
@@ -51,22 +38,24 @@ def test_script_args_name_the_registered_preset_fields(guidance):
 def test_local_path_boxes_are_hidden_under_hide_ui_dir_config(guidance, monkeypatch):
     # Server paths are privileged, like upstream's batch img2img directories.
     for hidden in (False, True):
-        monkeypatch.setitem(guidance.shared.hide_dirs, "visible", not hidden)
-        controls = dict(zip(guidance.SCRIPT_ARG_NAMES, harness.build_ui(guidance.AnimaGuidanceScript())))
+        monkeypatch.setattr(guidance.shared.cmd_opts, "hide_ui_dir_config", hidden)
+        layout = harness.script_layout(guidance.AnimaGuidanceScript())
         for name in ("adapter_path", "clip_path"):
-            assert controls[name].visible is not hidden, name
+            assert layout.by_name[name].hidden is hidden, name
+            # Still a script argument: hidden params are submitted
+            assert name in layout.names
 
 
 def test_every_cfg_mode_is_offered_and_pasted_back(guidance):
-    from modules.anima_feature_conflicts import GUIDANCE_MODES, TCFG_GUIDANCE
-    from modules.anima_presets import preset_controls
+    from modules.anima_feature_conflicts import GUIDANCE_MODES, ROLE_DCW, ROLE_GUIDANCE_MODE, ROLE_MOMENTUM, TCFG_GUIDANCE
+    from remi.ui import Context
 
-    script = guidance.AnimaGuidanceScript()
-    controls = dict(zip(guidance.SCRIPT_ARG_NAMES, harness.build_ui(script)))
-    choices = [choice[0] if isinstance(choice, (tuple, list)) else choice for choice in controls["guidance_mode"].choices]
+    layout = harness.script_layout(guidance.AnimaGuidanceScript())
+    mode = layout.by_name["guidance_mode"]
     assert TCFG_GUIDANCE in GUIDANCE_MODES
-    assert choices == list(GUIDANCE_MODES)
+    assert mode.values(Context()) == list(GUIDANCE_MODES)
     # One infotext key writes and pastes back the mode, and the preset owns it.
-    assert "Anima CFG guidance mode" in script.paste_field_names
-    names, components, _ = preset_controls("txt2img")
-    assert components[list(names).index("guidance.mode")] is controls["guidance_mode"]
+    assert layout.infotext["Anima CFG guidance mode"] == "guidance_mode"
+    # The conflict roles the core __conflicts__ action locks, found by preset field
+    fields = harness.preset_fields(layout)
+    assert (fields[ROLE_GUIDANCE_MODE], fields[ROLE_MOMENTUM], fields[ROLE_DCW]) == ("guidance_mode", "momentum_enable", "dcw_enable")

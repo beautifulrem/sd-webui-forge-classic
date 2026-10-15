@@ -5,7 +5,7 @@
  * as `dict` (schemas, param values, action patches) is refined here.
  */
 import type { ChoiceOption, PageSchema, SettingsSchema, TabSchema } from "@/ui/schema"
-import type { components } from "./gen/schema"
+import type { components, paths } from "./gen/schema"
 
 export type { PageSchema, SettingsSchema, TabSchema }
 
@@ -69,6 +69,32 @@ export type JobDetail = Schemas["JobDetail"]
 
 export type Page<T> = { items: T[]; next_cursor?: string | null; total?: number | null }
 
+/** `GET /jobs` query: cursor, statuses (comma-separated), search, stars, form. */
+export type JobsQuery = NonNullable<paths["/api/v2/jobs"]["get"]["parameters"]["query"]>
+/** Why an imported job cannot run as it is: the arguments that do not map to the current parameters. */
+export type OpaqueArgs = Schemas["OpaqueArgs"]
+
+export type ImportSource = Schemas["ImportSourceInfo"]["id"]
+export type ImportSourceInfo = Schemas["ImportSourceInfo"]
+/** What an import did, per record (`outcome`) and in total. */
+export type ImportReport = Schemas["ImportReport"]
+export type ImportItem = Schemas["ImportItem"]
+/** A translatable importer note: an English message with `{{name}}` placeholders and their values. */
+export type JobNote = Schemas["Note"]
+
+/** One output in the Gallery (`category`: the form or folder it came from). */
+export type GalleryItem = Schemas["GalleryItem"]
+export type GalleryCategory = GalleryItem["category"]
+export type GalleryFacets = Schemas["GalleryFacets"]
+/** `GET /gallery` query: search, filters (dates as ISO strings), sort and cursor. */
+export type GalleryQuery = NonNullable<paths["/api/v2/gallery"]["get"]["parameters"]["query"]>
+export type GallerySort = NonNullable<GalleryQuery["sort"]>
+
+/** `POST /pnginfo`: an image's generation parameters, metadata entries and PNG chunks. */
+export type ImageMetadata = Schemas["ImageMetadata"]
+export type MetadataEntry = Schemas["MetadataEntry"]
+export type PngChunk = Schemas["PngChunk"]
+
 export type Upload = Schemas["Upload"]
 
 /** `POST /outputs/save`: file names written to the Save folder, and the zip's file id when asked for. */
@@ -78,6 +104,11 @@ export type OutputItem = Schemas["OutputItem"]
 
 export type NetworkItem = Schemas["NetworkItem"]
 export type NetworkMeta = Schemas["NetworkMeta"]
+export type NetworkKind = Schemas["NetworkKind"]
+export type NetworkFacets = Schemas["NetworkFacets"]
+export type NetworkFolder = Schemas["NetworkFolder"]
+/** `GET /networks/{kind}` query: search, filters, sort and cursor. */
+export type NetworkQuery = NonNullable<paths["/api/v2/networks/{kind}"]["get"]["parameters"]["query"]>
 
 /** GET/PATCH /options: settings values and layout (schema-format.md §6). */
 export type OptionsResponse = SettingsSchema
@@ -107,7 +138,8 @@ export type ParamPatch = {
 
 export type ToastLevel = "info" | "success" | "warning" | "error"
 
-export type ActionToast = { level?: ToastLevel; message: string }
+/** `message`: a text, or a `{ text, params }` message (`remi.ui.message`) translated with its placeholders filled. */
+export type ActionToast = { level?: ToastLevel; message: string | { text: string; params?: Record<string, unknown> } }
 
 /** Reserved keys of an action response (schema-format.md §5). */
 export type ActionReserved = {

@@ -1,0 +1,32 @@
+{
+ "extension": "anima-lora-layer-weight",
+ "tab": "txt2img",
+ "count": 24,
+ "paste_field_names": ["Anima LoRA layer lora enabled", "Anima LoRA layer lora targets", "Anima LoRA layer lora blocks enabled", "Anima LoRA layer lora blocks", "Anima LoRA layer lora modules enabled", "Anima LoRA layer lora modules", "Anima LoRA layer lora qwen enabled", "Anima LoRA layer lora qwen", "Anima LoRA layer lokr enabled", "Anima LoRA layer lokr targets", "Anima LoRA layer lokr blocks enabled", "Anima LoRA layer lokr blocks", "Anima LoRA layer lokr modules enabled", "Anima LoRA layer lokr modules", "Anima LoRA layer lokr qwen enabled", "Anima LoRA layer lokr qwen"],
+ "inputs": [
+  {"kind": "toggle", "gradio": "Checkbox", "label": "Enable LoRA layer weights", "default": false, "infotext": "Anima LoRA layer lora enabled", "paste": true, "preset": "lora_layer.lora_enabled", "preset_value": false},
+  {"kind": "text", "gradio": "Textbox", "label": "Target LoRA", "default": "", "infotext": "Anima LoRA layer lora targets", "paste": true},
+  {"kind": "toggle", "gradio": "Checkbox", "label": "Anima block weights", "default": true, "infotext": "Anima LoRA layer lora blocks enabled", "paste": true},
+  {"kind": "text", "gradio": "Textbox", "label": "Anima block weights", "default": "all=1.0", "infotext": "Anima LoRA layer lora blocks", "paste": true},
+  {"kind": "toggle", "gradio": "Checkbox", "label": "Module weights", "default": false, "infotext": "Anima LoRA layer lora modules enabled", "paste": true},
+  {"kind": "text", "gradio": "Textbox", "label": "Module weights", "default": "self_attn=1.0\ncross_attn=1.0\nmlp=1.0\nadaln=1.0", "infotext": "Anima LoRA layer lora modules", "paste": true},
+  {"kind": "toggle", "gradio": "Checkbox", "label": "Qwen text-encoder layer weights", "default": false, "infotext": "Anima LoRA layer lora qwen enabled", "paste": true},
+  {"kind": "text", "gradio": "Textbox", "label": "Qwen text-encoder layer weights", "default": "", "infotext": "Anima LoRA layer lora qwen", "paste": true},
+  {"kind": "toggle", "gradio": "Checkbox", "label": "Enable preset", "default": false, "visible": false},
+  {"kind": "choice", "gradio": "Dropdown", "label": "Preset name", "default": "平衡", "choices": [["平衡", "平衡"], ["保构图", "保构图"], ["强画风", "强画风"]]},
+  {"kind": "choice", "gradio": "Dropdown", "label": "Preset apply scope", "default": "All matching type in prompt", "choices": [["All matching type in prompt", "All matching type in prompt"], ["Target list only", "Target list only"]]},
+  {"kind": "text", "gradio": "Textbox", "label": "Custom presets", "default": "平衡=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,cross_attn=1.0,mlp=1.0,adaln=1.0\n保构图=blocks=0-9=0.35,10-18=1.0,19-27=0.7\n强画风=blocks=0-9=0.7,10-18=1.0,19-27=0.9"},
+  {"kind": "toggle", "gradio": "Checkbox", "label": "Enable LoKR layer weights", "default": false, "infotext": "Anima LoRA layer lokr enabled", "paste": true, "preset": "lora_layer.lokr_enabled", "preset_value": false},
+  {"kind": "text", "gradio": "Textbox", "label": "Target LoKR", "default": "", "infotext": "Anima LoRA layer lokr targets", "paste": true},
+  {"kind": "toggle", "gradio": "Checkbox", "label": "Anima block weights", "default": true, "infotext": "Anima LoRA layer lokr blocks enabled", "paste": true},
+  {"kind": "text", "gradio": "Textbox", "label": "Anima block weights", "default": "all=1.0", "infotext": "Anima LoRA layer lokr blocks", "paste": true},
+  {"kind": "toggle", "gradio": "Checkbox", "label": "Module weights", "default": false, "infotext": "Anima LoRA layer lokr modules enabled", "paste": true},
+  {"kind": "text", "gradio": "Textbox", "label": "Module weights", "default": "self_attn=1.0\ncross_attn=1.0\nmlp=1.0\nadaln=1.0", "infotext": "Anima LoRA layer lokr modules", "paste": true},
+  {"kind": "toggle", "gradio": "Checkbox", "label": "Qwen text-encoder layer weights", "default": false, "infotext": "Anima LoRA layer lokr qwen enabled", "paste": true},
+  {"kind": "text", "gradio": "Textbox", "label": "Qwen text-encoder layer weights", "default": "", "infotext": "Anima LoRA layer lokr qwen", "paste": true},
+  {"kind": "toggle", "gradio": "Checkbox", "label": "Enable preset", "default": false, "visible": false},
+  {"kind": "choice", "gradio": "Dropdown", "label": "Preset name", "default": "平衡", "choices": [["平衡", "平衡"], ["保构图", "保构图"], ["强画风", "强画风"]]},
+  {"kind": "choice", "gradio": "Dropdown", "label": "Preset apply scope", "default": "All matching type in prompt", "choices": [["All matching type in prompt", "All matching type in prompt"], ["Target list only", "Target list only"]]},
+  {"kind": "text", "gradio": "Textbox", "label": "Custom presets", "default": "平衡=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,cross_attn=1.0,mlp=1.0,adaln=1.0\n保构图=blocks=0-9=0.35,10-18=1.0,19-27=0.7\n强画风=blocks=0-9=0.7,10-18=1.0,19-27=0.9"}
+ ]
+}

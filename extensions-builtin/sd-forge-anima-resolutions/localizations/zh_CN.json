@@ -1,0 +1,11 @@
+{
+  "Anima random resolution": "Anima 随机分辨率",
+  "Anima resolution helper": "Anima 分辨率助手",
+  "Standard presets keep W+H at or below 2176; high-res presets keep W+H within 2560–3072 (at most 1856 per side). Randomize (standard) rolls the standard list, Randomize (high-res) the high-res list; both on roll the combined pool.": "标准预设的宽+高不超过 2176；高分辨率预设的宽+高在 2560–3072 之间（单边最大 1856）。随机（标准）从标准列表中抽取，随机（高分辨率）从高分辨率列表中抽取；两者都开启时从合并后的列表中抽取。",
+  "Session prompt history (most recent first, max 100)": "本次会话的提示词历史（最新在前，最多 100 条）",
+  "Pick an entry to put it back into the prompt; Refresh adds the latest prompts.": "选择一条即可放回提示词；点击刷新载入最新的提示词。",
+  "Refresh": "刷新",
+  "Randomize resolution each generation (standard preset list)": "每次生成随机选择分辨率（标准预设列表）",
+  "Randomize high-res resolution each generation (high-res preset list; both on = combined pool)": "每次生成随机选择高分辨率（高分辨率预设列表；两者都开启 = 合并列表）",
+  "Sets Width and Height (the Resize to tab) to a multiple-of-64 size whose W+H is as close to 3072 as the aspect ratio allows (2560–3072, at most 1856 per side). The source size is the size its parameters record, else the image size.": "把宽度和高度（“缩放到”标签页）设为 64 的倍数，并在保持宽高比的前提下让宽+高尽量接近 3072（2560–3072，单边最大 1856）。源尺寸取图像参数中记录的尺寸，没有记录时取图像本身的尺寸。"
+}

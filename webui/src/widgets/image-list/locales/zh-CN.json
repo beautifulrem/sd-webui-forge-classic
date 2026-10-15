@@ -1,0 +1,15 @@
+{
+  "This image is no longer available": "此图像已不可用",
+  "Images": "图像",
+  "Image {{n}}": "图像 {{n}}",
+  "Remove image {{n}}": "移除图像 {{n}}",
+  "Image actions": "图像操作",
+  "Move earlier": "前移",
+  "Move later": "后移",
+  "Replace": "替换",
+  "Remove": "移除",
+  "Clear all": "全部清除",
+  "Add images": "添加图像",
+  "Uploading…": "正在上传…",
+  "Drop images, paste, or click to add": "拖放、粘贴或点击以添加图像"
+}

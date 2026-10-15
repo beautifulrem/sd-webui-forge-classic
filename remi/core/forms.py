@@ -136,11 +136,14 @@ def _paste_hr_scheduler(params: dict):
 # region Shared pieces
 
 
-def _prompts(tab: str) -> ui.Node:
+def _prompts(tab: str, runner: ScriptRunner | None = None) -> ui.Node:
+    # Scripts of section "prompt" (prompt anchor, blacklist) render next to the prompts
+    prompt_scripts = runner is not None and any(script.section == "prompt" for script in runner.alwayson_scripts)
     return ui.Group(
         ui.Text("prompt", "", lines=3, prompt=True, label="Prompt", placeholder=PROMPT_PLACEHOLDER, infotext="Prompt"),
         ui.Text("negative_prompt", "", lines=3, prompt=True, label="Negative Prompt", placeholder=NEGATIVE_PLACEHOLDER, infotext="Negative prompt", enabled_if=ui.param("cfg_scale", gt=1)),
         ui.MultiChoice("styles", _style_names, [], label="Styles", paste=_paste_styles),
+        ui.Slot("prompt") if prompt_scripts else None,
     )
 
 
@@ -269,7 +272,7 @@ def txt2img_form(runner: ScriptRunner | None = None) -> ui.Node:
     sections: list[ui.Node] = []
     for category in ordered_categories():
         if category == "prompt":
-            sections.append(_prompts("txt2img"))
+            sections.append(_prompts("txt2img", runner))
         elif category == "dimensions":
             sections.append(ui.Column(ui.Row(*_size("txt2img")), ui.Row(*_batch()) if together else None, ui.Slot(category)))
         elif category == "cfg":
@@ -359,7 +362,7 @@ def img2img_form(runner: ScriptRunner | None = None) -> ui.Node:
     sections: list[ui.Node] = []
     for category in ordered_categories():
         if category == "prompt":
-            sections.append(_prompts("img2img"))
+            sections.append(_prompts("img2img", runner))
         elif category == "image":
             sections.append(ui.Group(_img2img_image(), ui.Slot(category)))
         elif category == "inpaint":

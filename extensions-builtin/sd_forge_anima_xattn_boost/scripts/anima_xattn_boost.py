@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import logging
 
-import gradio as gr
-
 from backend.logging import setup_logger
 from lib_anima_xattn_boost.boost import DEFAULT_BAND, DEFAULT_GAIN, DEFAULT_RENORM, BoostState, apply_xattn_boost_patch
 from modules import scripts
 from modules.anima_support import AnimaPatchPanel, clamp, is_anima_engine, require_finite, to_float
-from modules.ui_components import InputAccordion
+from remi import ui
 
 logger = logging.getLogger("AnimaXattnBoost")
 setup_logger(logger)
 
-# Infotext keys, in the order of the controls returned by ``ui``
+# Infotext keys, in script argument order
 INFOTEXT_KEYS = ("Anima xattn boost enabled", "Anima xattn boost strength", "Anima xattn boost band", "Anima xattn boost renorm")
 # Anima preset fields, in the same order
 PRESET_FIELDS = ("xattn_boost.enabled", "xattn_boost.strength", "xattn_boost.band", "xattn_boost.renorm")
@@ -35,20 +33,26 @@ class AnimaXattnBoostScript(AnimaPatchPanel, scripts.Script):
     def title(self):
         return "Anima Cross-Attention Boost"
 
-    def ui(self, *args, **kwargs):
-        with InputAccordion(False, label=self.title()) as enable:
-            gr.Markdown(
-                "Improves adherence to weak tags and multi-subject bindings by amplifying the positive prompt's "
-                "cross-attention during the first high-noise steps (sigma at or above the band). No extra model "
-                "forwards. It amplifies every tag, framing and count tags included: expect some composition and "
-                "identity drift."
+    def params(self, is_img2img):
+        return self.panel_params(
+            ui.Section(
+                self.title(),
+                enable=ui.Toggle("enabled", False, label=self.title()),
+                children=[
+                    ui.Markdown(
+                        "Improves adherence to weak tags and multi-subject bindings by amplifying the positive prompt's "
+                        "cross-attention during the first high-noise steps (sigma at or above the band). No extra model "
+                        "forwards. It amplifies every tag, framing and count tags included: expect some composition and "
+                        "identity drift."
+                    ),
+                    ui.Row(
+                        ui.Slider("strength", 1.0, 3.0, DEFAULT_GAIN, 0.05, label="Strength", info="Cross-attention residual gain; 1 is off. 2.0 is the only strength the reference ships."),
+                        ui.Slider("band", 0.5, 1.0, DEFAULT_BAND, 0.01, label="Band (sigma)", info="Boost model calls whose sigma is at or above this; 0.85 is the only tested band."),
+                        ui.Slider("renorm", 0.0, 1.0, DEFAULT_RENORM, 0.05, label="Norm matching", info="Pulls each boosted image back toward its unboosted mean token norm (0 = raw gain)."),
+                    ),
+                ],
             )
-            with gr.Row():
-                strength = gr.Slider(1.0, 3.0, value=DEFAULT_GAIN, step=0.05, label="Strength", info="Cross-attention residual gain; 1 is off. 2.0 is the only strength the reference ships.")
-                band = gr.Slider(0.5, 1.0, value=DEFAULT_BAND, step=0.01, label="Band (sigma)", info="Boost model calls whose sigma is at or above this; 0.85 is the only tested band.")
-                renorm = gr.Slider(0.0, 1.0, value=DEFAULT_RENORM, step=0.05, label="Norm matching", info="Pulls each boosted image back toward its unboosted mean token norm (0 = raw gain).")
-        controls = self.register_paste_fields([enable, strength, band, renorm])
-        return controls
+        )
 
     def process_before_every_sampling(self, p, enable, strength, band, renorm, **kwargs):
         # Before anything is installed: a NaN gain would blacken the image

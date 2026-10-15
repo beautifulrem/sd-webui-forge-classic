@@ -1,0 +1,9 @@
+{
+  "Curve": "曲线",
+  "Linear": "线性",
+  "Cosine": "余弦",
+  "Exponential": "指数",
+  "Dynamic": "动态",
+  "Constant {{value}}": "恒定 {{value}}",
+  "Sigma schedule over {{steps}} steps: shift {{start}} to {{end}}, {{curve}}": "{{steps}} 步的 Sigma 调度：Shift 从 {{start}} 到 {{end}}，{{curve}}"
+}

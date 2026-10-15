@@ -1,7 +1,9 @@
-import { lazy, Suspense, useId } from "react"
+import { lazy, Suspense, useId, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { PromptDecorators } from "@/features/prompt-editor/PromptDecorators"
+import type { PromptEditorHandle } from "@/features/prompt-editor/PromptEditor"
 import { useParam } from "../hooks"
 import { describedBy } from "../a11y"
 import { Field } from "../Field"
@@ -23,27 +25,41 @@ export function Text({ node }: { node: TextNode }) {
   const label = t(param.label)
   const ariaDescribedBy = describedBy(id, info, param.error)
   const invalid = param.error ? true : undefined
+  const handle = useRef<PromptEditorHandle | null>(null)
 
   let control
   if (node.prompt) {
     const minHeight = `${Math.max(lines, 2) * LINE_HEIGHT_REM + 1}rem`
+    const kind = /negative/i.test(node.name) ? ("negative" as const) : ("positive" as const)
     control = (
-      <Suspense
-        fallback={<div aria-hidden className="rounded-lg border border-input bg-input/30" style={{ minHeight }} />}
+      <PromptDecorators
+        value={value}
+        setValue={param.setValue}
+        kind={kind}
+        editor={() => handle.current}
+        label={label || node.name}
+        disabled={!param.enabled}
+        fieldId={id}
       >
-        <PromptEditor
-          id={id}
-          value={value}
-          onChange={param.setValue}
-          placeholder={placeholder}
-          disabled={!param.enabled}
-          minLines={lines}
-          maxLines={node.max_lines ?? undefined}
-          ariaLabel={label || node.name}
-          ariaDescribedBy={ariaDescribedBy}
-          ariaInvalid={invalid}
-        />
-      </Suspense>
+        <Suspense
+          fallback={<div aria-hidden className="rounded-lg border border-input bg-input/30" style={{ minHeight }} />}
+        >
+          <PromptEditor
+            ref={handle}
+            kind={kind}
+            id={id}
+            value={value}
+            onChange={param.setValue}
+            placeholder={placeholder}
+            disabled={!param.enabled}
+            minLines={lines}
+            maxLines={node.max_lines ?? undefined}
+            ariaLabel={label || node.name}
+            ariaDescribedBy={ariaDescribedBy}
+            ariaInvalid={invalid}
+          />
+        </Suspense>
+      </PromptDecorators>
     )
   } else if (lines === 1) {
     control = (

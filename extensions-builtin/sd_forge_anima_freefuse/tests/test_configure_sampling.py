@@ -7,8 +7,8 @@ import pytest
 
 sys.argv = sys.argv[:1]
 EXTENSION_PATH = Path(__file__).parents[1]
-# Shared with the DAVE / Cross-Attention Boost suites, loaded by path (see its docstring)
-_spec = importlib.util.spec_from_file_location("extension_script_harness", EXTENSION_PATH.parents[1] / "tests" / "extension_script_harness.py")
+# Shared with the other ported panels' suites, loaded by path (see its docstring)
+_spec = importlib.util.spec_from_file_location("remi_panel_harness", EXTENSION_PATH.parents[1] / "tests" / "remi_panel_harness.py")
 harness = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(harness)
 
@@ -110,13 +110,13 @@ SUMMARY_KEYS = {"Anima FreeFuse", "Anima FreeFuse collect", "Anima FreeFuse rout
         (SUBJECTS, "", {"Anima FreeFuse subject 3 LoRA", "Anima FreeFuse subject 3 concept", "Anima FreeFuse background"}),
     ],
 )
-def test_written_infotext_restores_the_panel_controls(script, subjects, background, unwritten):
+def test_written_infotext_restores_the_panel_params(script, subjects, background, unwritten):
     module, applied = script
     panel = module.AnimaFreeFuseScript()
-    controls = harness.build_ui(panel)
-    fields = {key: component for component, key in panel.infotext_fields}
-    assert list(fields) == panel.paste_field_names == list(module.INFOTEXT_KEYS)
-    assert len(fields) == len(controls)
+    layout = harness.script_layout(panel)
+    fields = [node.infotext for node in layout.inputs if node.infotext]
+    assert fields == list(module.INFOTEXT_KEYS)
+    assert len(fields) == len(layout.inputs)
     p = _process(("alice and bob with carol in a forest",))
     module.set_feature_active(p, module.FREEFUSE)
     args = (True, *_values(subjects, background=background))
@@ -127,9 +127,7 @@ def test_written_infotext_restores_the_panel_controls(script, subjects, backgrou
     written = p.extra_generation_params
     assert set(written) - set(fields) == SUMMARY_KEYS  # diagnostics only
     assert set(fields) - set(written) == unwritten
-    for key in fields.keys() & written.keys():
-        index = next(number for number, control in enumerate(controls) if control is fields[key])
-        assert written[key] == args[index], key
+    harness.assert_infotext_restores_params(layout, args, {key: value for key, value in written.items() if key in fields})
 
 
 @pytest.mark.parametrize(

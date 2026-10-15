@@ -1,7 +1,7 @@
 # sd-webui-prompt-anchor
 
-Adds an **anchor prompt** box above the main positive prompt on the
-**txt2img** and **img2img** tabs. Whatever you put in the anchor gets
+Adds an **anchor prompt** editor right below the main prompts on the
+**txt2img** and **img2img** forms. Whatever you put in the anchor gets
 prepended to your positive prompt at generation time -- *without* ever
 being written into the main prompt textarea.
 
@@ -27,9 +27,8 @@ into a single positive prompt.
 ## Key behaviours
 
 - **Foreign-extension proof.** Extensions that auto-fill the main
-  `#txt2img_prompt` (booru-tag senders, captioners, etc.) will NOT
-  touch the anchor box -- it has its own elem_id and is never wired
-  into any "send to txt2img" flow. You can grow your main prompt
+  prompt (booru-tag senders, captioners, etc.) will NOT touch the
+  anchor -- it is a param of its own. You can grow your main prompt
   with auto-appends as much as you want; the anchor stays put.
 
 - **Wildcards work inside the anchor.** The prepend happens early
@@ -46,17 +45,17 @@ into a single positive prompt.
   as `Anchor prompt: "..."`, so it round-trips: "Send to txt2img"
   on any image generated with this extension restores both halves.
 
-- **Survives reloads.** Anchor text is saved to your browser's
-  localStorage on every keystroke, restored on page load. (No
-  server-side state -- different browsers = different anchors.)
+- **Survives reloads.** The anchor is part of the form draft the
+  WebUI keeps in your browser, restored on page load. (No server-side
+  state -- different browsers = different anchors.)
 
-- **Collapsible.** Hit the `−` button to fold the box down to just its
-  header row when you want the screen back.
+- **Collapsible.** Fold the panel down to its header (which keeps the
+  enable switch) when you want the screen back.
 
 - **Smart joining.** The default separator is `, `. Trailing commas
   on the anchor and leading commas on the main prompt are stripped
   before joining, so you can't accidentally produce `,,`. Override
-  the separator per-tab under the **Advanced** accordion, or change
+  the separator per-tab under the **Advanced** group, or change
   the global default in **Settings → Prompt Anchor**.
 
 ## Installation
@@ -72,23 +71,20 @@ No additional Python packages required.
 
 ## Layout
 
-After install you'll see a thin bar above your txt2img positive prompt:
+The panel sits in the prompt slot of the generation form, right below the
+prompts (its script `section` is `prompt`):
 
 ```
 +-------------------------------------------------+
-| [x] Anchor prompt (prepended to positive...)  −|
+| > Anchor prompt                          [on]   |
 +-------------------------------------------------+
-|                                                 |
 |  score_9, score_8_up, masterpiece, ...          |
-|                                                 |
+|  > Advanced (separator)                         |
 +-------------------------------------------------+
-|  > Advanced (separator, etc.)                   |
-+-------------------------------------------------+
-
-  [main positive prompt textarea below...]
 ```
 
-The same on img2img.
+The same on img2img. The anchor box is a full prompt editor (attention
+weights, LoRA syntax, tag completion).
 
 ## Tips
 
@@ -97,7 +93,7 @@ The same on img2img.
   what you want, since image-to-image often calls for different
   foundation tags than text-to-image.
 
-- The enable checkbox is the on/off switch. Uncheck it for a single
+- The enable switch is the on/off switch. Uncheck it for a single
   generation if you want to test a prompt *without* the anchor; the
   anchor text itself is preserved.
 
@@ -109,15 +105,11 @@ The same on img2img.
 
 ## Notes for other extension authors
 
-If you want your extension's output to land in the anchor box rather
-than the main prompt, the anchor's elem_ids are:
-
-  - `prompt_anchor_txt2img`
-  - `prompt_anchor_img2img`
-
-Standard Gradio textbox conventions apply. The infotext key for
-round-tripping is `Anchor prompt` (value is double-quoted with
-backslash-escapes for embedded quotes / newlines).
+The anchor is the `anchor` param of the `prompt_anchor` script (with
+`enabled` and `separator`): an action can patch it as
+`"prompt_anchor.anchor"`. The infotext key for round-tripping is
+`Anchor prompt` (value is double-quoted with backslash-escapes for
+embedded quotes / newlines).
 
 ## License
 

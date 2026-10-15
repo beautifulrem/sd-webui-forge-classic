@@ -1,18 +1,17 @@
-"""A scheduled run's infotext pastes back into the panel it was run from."""
+"""A scheduled run's infotext pastes back into the panel it was run from:
+the SPA paste, ``/infotext/parse`` and the API's infotext replay all read it
+through the panel's ``remi.ui`` layout."""
 
 import importlib.util
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import gradio as gr
 import pytest
-from lib_stage_scheduler import options, runtime, templates, ui
+from lib_stage_scheduler import options, runtime, templates
 
-sys.argv = sys.argv[:1]
 SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_lora_stage_scheduler.py"
-# Shared with the other panels' suites, loaded by path (see its docstring)
-_spec = importlib.util.spec_from_file_location("extension_script_harness", Path(__file__).parents[3] / "tests" / "extension_script_harness.py")
+# Shared with the other Anima LoRA panels' suites, loaded by path (see its docstring)
+_spec = importlib.util.spec_from_file_location("remi_anima_lora_harness", Path(__file__).parents[3] / "tests" / "remi_anima_lora_harness.py")
 harness = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(harness)
 _MODULE = []
@@ -25,21 +24,8 @@ def module():
     return _MODULE[0]
 
 
-def _language(monkeypatch, language):
-    from modules import shared
-
-    monkeypatch.setattr(shared, "opts", SimpleNamespace(**{options.LANGUAGE_OPTION: language}), raising=False)
-
-
-def _build_ui(module):
-    from modules.anima_presets import reset_preset_controls
-
-    reset_preset_controls("txt2img")
-    script = module.Script()
-    script.tabname, script.is_txt2img, script.is_img2img = "txt2img", True, False
-    with gr.Blocks() as blocks:
-        controls = script.ui(False)
-    return script, controls, blocks
+def _layout(module):
+    return harness.script_layout(module.Script(), "txt2img")
 
 
 def _run(module, args, enable_hr=True):
@@ -50,13 +36,6 @@ def _run(module, args, enable_hr=True):
     state = p._anima_lora_stage_scheduler_state
     runtime._cleanup_runtime(p)
     return p.extra_generation_params, state
-
-
-def _paste(script, params):
-    """What pasting ``params`` sets each control to (None: left alone),
-    through the panel's on_infotext_pasted callback."""
-
-    return harness.ui_paste(script, params, callbacks=[runtime._translate_pasted_infotext])
 
 
 def _schedule(state):
@@ -85,87 +64,75 @@ def _schedule(state):
     return passes, state.hr_disable_mode, state.hr_disable_tags if state.hr_disable_mode == options.DISABLE_SELECTED else None
 
 
-def _args(labels):
-    """A run of every panel control away from its default. ``labels``: the
-    target scope / disable mode labels of the UI language."""
+def _timing(auto, start, end, peak, strength, curve):
+    return {"auto": auto, "start": start, "end": end, "peak": peak, "strength": strength, "curve": curve}
 
-    targets, prompt_all = labels(options.MODE_TARGETS), labels(options.MODE_PROMPT_ALL)
+
+def _values():
+    """Named params of a run with every panel control away from its default."""
+
     style_start, style_end, style_peak, _ = templates._auto_stage_values(options.STAGE_STYLE, 5.0)
-    return [
-        True,
+    return {
+        "enabled": True,
         # Base: target list, manual timing, a per-LoRA template
-        targets,
-        "mylora, other",
-        "0.8",
-        options.PRESET_CHARACTER_ALLOW,
-        "mylora=" + options.PRESET_COMPOSITION_ALLOW,
-        False,
-        0.3,
-        0.7,
-        0.4,
-        1.7,
-        options.CURVE_TRIANGLE,
-        True,
+        "base_target_mode": options.MODE_TARGETS,
+        "base_target_loras": "mylora, other",
+        "base_panel_weight": "0.8",
+        "base_template": options.PRESET_CHARACTER_ALLOW,
+        "base_lora_templates": "mylora=" + options.PRESET_COMPOSITION_ALLOW,
+        "base_timing": _timing(False, 0.3, 0.7, 0.4, 1.7, options.CURVE_TRIANGLE),
+        "hr_independent": True,
         # Hires: independent, block weights, auto timing at the Hires Shift
-        prompt_all,
-        "",
-        "blocks=0-18=1,19-27=0.2",
-        options.PRESET_STYLE_ALLOW,
-        "",
-        True,
-        round(style_start, 4),
-        round(style_end, 4),
-        round(style_peak, 4),
-        1.0,
-        options.CURVE_BACK,
-        labels(options.DISABLE_SELECTED),
-        "<lora:a:0.5>\n<lora:b:blocks=0-9=0.8,10-27=1>",
-    ]
+        "hr_target_mode": options.MODE_PROMPT_ALL,
+        "hr_target_loras": "",
+        "hr_panel_weight": "blocks=0-18=1,19-27=0.2",
+        "hr_template": options.PRESET_STYLE_ALLOW,
+        "hr_lora_templates": "",
+        "hr_timing": _timing(True, round(style_start, 4), round(style_end, 4), round(style_peak, 4), 1.0, options.CURVE_BACK),
+        "hr_disable_mode": options.DISABLE_SELECTED,
+        "hr_disable_tags": "<lora:a:0.5>\n<lora:b:blocks=0-9=0.8,10-27=1>",
+    }
 
 
-HIRES_CURVE = 23  # _args' index of the Hires panel's curve
+def _args(module, **changes):
+    return _layout(module).values_to_args({**_values(), **changes})
 
 
-def _zh(choice):
-    """The zh UI's label of a target scope or disable mode: the choice itself."""
-    return choice
+def _legacy_args(values):
+    """The same panel as the 26 positional arguments of the Gradio panel."""
+
+    args = []
+    for name in options.SCRIPT_ARG_NAMES:
+        prefix, _, arg = name.partition("_")
+        if arg in options.TIMING_ARGS and prefix in ("base", "hr"):
+            args.append(values[f"{prefix}_timing"][options.TIMING_KEYS[options.TIMING_ARGS.index(arg)]])
+        else:
+            args.append(values[name])
+    return args
 
 
-def _en(choice):
-    """The en UI's label of a target scope or disable mode."""
-    return {**options.TARGET_MODE_EN, **options.DISABLE_EN}[choice]
-
-
-@pytest.mark.parametrize("run_language, paste_language", [("zh", "zh"), ("en", "zh"), ("zh", "en"), ("en", "en")])
-def test_a_runs_infotext_restores_every_control(module, monkeypatch, run_language, paste_language):
-    labels = {"zh": _zh, "en": _en}
-    _language(monkeypatch, run_language)
-    params, _ = _run(module, _args(labels[run_language]))
-    _language(monkeypatch, paste_language)
-    script, controls, _ = _build_ui(module)
-
-    assert [component for component, _ in script.infotext_fields] == controls
-    assert script.paste_field_names == list(options.INFOTEXT_KEYS) == [key for _, key in script.infotext_fields]
+def test_a_runs_infotext_restores_every_control(module):
+    params, _ = _run(module, _args(module))
+    layout = _layout(module)
     assert set(params) <= set(options.INFOTEXT_KEYS)
-    # Every control is back where the run had it, labelled in the pasting UI's
-    # language; the Hires curve the run did not use (its template's parts
-    # bring their own) is left alone
-    expected = _args(labels[paste_language])
-    expected[HIRES_CURVE] = None
-    assert _paste(script, params) == expected
+    assert set(layout.infotext.values()) == set(options.PARAM_NAMES)
+
+    # Every control is back where the run had it; the Hires curve the run did
+    # not use (its template's parts bring their own) reads as smooth
+    expected = _values()
+    expected["hr_timing"] = {**expected["hr_timing"], "curve": options.CURVE_SMOOTH}
+    assert harness.pasted(layout, params) == expected
 
 
-def test_the_curve_is_recorded_when_the_run_uses_it(module, monkeypatch):
+def test_the_curve_is_recorded_when_the_run_uses_it(module):
     # The panel's curve shapes the run only where no template parts run and
     # the window applies the LoRA (a ban window is all or nothing): exactly
     # there does another curve change the strength, and the curve recorded
-    _language(monkeypatch, "zh")
     templates._TEMPLATES.edit(lambda data: data.update(partless={"auto": True, "stage": options.STAGE_STYLE}, curved={"auto": True, "stage": options.STAGE_STYLE, "curve": options.CURVE_FRONT}, banning={"auto": False, "parts": [options.PRESET_STYLE_BAN]}))
     key = options._panel_key
 
     def run(template, auto, per_lora="", curve=options.CURVE_HOLD):
-        args = _args(_zh)
-        args[4:12] = [template, per_lora, auto, 0.3, 0.7, 0.4, 1.0, curve]
+        args = _args(module, base_template=template, base_lora_templates=per_lora, base_timing=_timing(auto, 0.3, 0.7, 0.4, 1.0, curve))
         params, state = _run(module, args)
         config = state.base.config_for_file("mylora.safetensors", {"mylora"})
         factors = [runtime._stage_curve_factor(config, at / 20) for at in range(21)]
@@ -187,30 +154,21 @@ def test_the_curve_is_recorded_when_the_run_uses_it(module, monkeypatch):
     assert [run(*case)[0] for case in cases] == [True, True, False, False, True, False, False]
 
 
-def test_ui_and_process_name_the_script_args_in_table_order(module, monkeypatch):
-    _language(monkeypatch, "zh")
-    script, controls, _ = _build_ui(module)
-    panel = dict(options.PANEL_ARGS)
-
-    def elem_id(name):
-        # A panel control's elem_id is "base_*" / "hires_*" ("auto" is "auto_timing")
-        prefix, _, field = name.partition("_")
-        if field not in panel:
-            return name
-        return f"{'hires' if prefix == 'hr' else prefix}_{'auto_timing' if field == 'auto' else field}"
-
-    assert [control.elem_id for control in controls] == [script.elem_id(elem_id(name)) for name in options.SCRIPT_ARG_NAMES]
+def test_params_and_process_name_the_script_args_in_table_order(module, monkeypatch):
+    layout = _layout(module)
+    assert layout.names == list(options.PARAM_NAMES)
 
     # process gives each panel's _build_pass_config the args of that panel's names
     calls = []
     build = runtime._build_pass_config
     monkeypatch.setattr(runtime, "_build_pass_config", lambda *panel_args: calls.append(panel_args) or build(*panel_args))
-    args = _args(_zh)
-    named = dict(zip(options.SCRIPT_ARG_NAMES, args, strict=True))
+    values = _values()
+    args = layout.values_to_args(values)
     _run(module, args)
     for prefix, shift, call in zip(("base", "hr"), (3.0, 5.0), calls, strict=True):
-        values = [named[f"{prefix}_{name}"] for name in panel]
-        assert call == (*values[:6], None, *values[6:], shift)
+        timing = values[f"{prefix}_timing"]
+        panel = [values[f"{prefix}_{name}"] for name in ("target_mode", "target_loras", "panel_weight", "template", "lora_templates")]
+        assert call == (*panel, timing["auto"], None, timing["start"], timing["end"], timing["peak"], timing["strength"], timing["curve"], shift)
 
     with pytest.raises(TypeError, match=f"takes {len(args)} script arguments, got {len(args) - 1}"):
         module.Script().process(SimpleNamespace(), *args[:-1])
@@ -218,36 +176,43 @@ def test_ui_and_process_name_the_script_args_in_table_order(module, monkeypatch)
         module.Script().process(SimpleNamespace(), *args, "not a script arg")
 
 
-def test_each_panels_sliders_start_on_its_default_templates_window(module, monkeypatch):
-    # Unticking auto timing keeps the sliders: they must hold the window of the
+def test_the_gradio_panels_26_positional_args_run_the_same_schedule(module):
+    """The Gradio panel passed each timing control on its own: the folded
+    timing value runs exactly the same schedule."""
+
+    values = _values()
+    params, state = _run(module, _layout(module).values_to_args(values))
+    legacy_params, legacy_state = _run(module, _legacy_args(values))
+    assert legacy_params == params and _schedule(legacy_state) == _schedule(state)
+
+
+def test_each_panel_starts_on_its_default_templates_window(module):
+    # Unticking auto timing keeps the window: it must be the window of the
     # template the dropdown shows, in the Hires. fix panel as in the base one
-    _language(monkeypatch, "zh")
-    script, controls, _ = _build_ui(module)
-    named = dict(zip(options.SCRIPT_ARG_NAMES, controls, strict=True))
+    defaults = _layout(module).defaults()
     for prefix in ("base", "hr"):
-        stage = templates._template_stage_from_name(named[f"{prefix}_template"].value)
-        window = tuple(named[f"{prefix}_{field}"].value for field in ("start", "end", "peak"))
-        assert window == options.STAGE_DEFAULT_TIMINGS[stage], prefix
+        stage = templates._template_stage_from_name(defaults[f"{prefix}_template"])
+        timing = defaults[f"{prefix}_timing"]
+        assert (timing["start"], timing["end"], timing["peak"]) == options.STAGE_DEFAULT_TIMINGS[stage], prefix
+        assert timing["auto"] is True and timing["strength"] == 1.0 and timing["curve"] == options.CURVE_SMOOTH
 
 
-def test_the_infotext_records_stable_values_whatever_the_ui_language(module, monkeypatch):
-    _language(monkeypatch, "zh")
-    zh, _ = _run(module, _args(_zh))
-    _language(monkeypatch, "en")
-    en, _ = _run(module, _args(_en))
-
-    assert zh == en
+def test_the_infotext_records_stable_values(module):
+    params, _ = _run(module, _args(module))
     key = options._panel_key
-    assert (zh[key("base", "scope")], zh[key("hires", "scope")], zh[options.INFOTEXT_HIRES_DISABLE]) == ("targets", "all", "selected")
-    assert zh[key("base", "curve")] == "triangle" and key("hires", "curve") not in zh
-    assert (zh[key("base", "weight")], zh[key("base", "strength")], zh[key("base", "per-LoRA templates")]) == ("0.8", 1.7, "mylora=" + options.PRESET_COMPOSITION_ALLOW)
+    assert (params[key("base", "scope")], params[key("hires", "scope")], params[options.INFOTEXT_HIRES_DISABLE]) == ("targets", "all", "selected")
+    assert params[key("base", "curve")] == "triangle" and key("hires", "curve") not in params
+    assert (params[key("base", "weight")], params[key("base", "strength")], params[key("base", "per-LoRA templates")]) == ("0.8", 1.7, "mylora=" + options.PRESET_COMPOSITION_ALLOW)
 
 
-def test_the_pasted_panel_runs_the_same_schedule_per_lora_templates_included(module, monkeypatch):
-    _language(monkeypatch, "en")
-    params, state = _run(module, _args(_en))
-    script, _, _ = _build_ui(module)
-    pasted, pasted_state = _run(module, _paste(script, params))
+@pytest.mark.parametrize("hires", ["independent", "shared"])
+@pytest.mark.parametrize("start", ["defaults", "edited"])
+def test_the_pasted_panel_runs_the_same_schedule_per_lora_templates_included(module, hires, start):
+    # Into a fresh panel (the API's infotext replay) or one with other values (the SPA paste)
+    changes = {} if hires == "independent" else {"hr_independent": False, "hr_disable_mode": options.DISABLE_ALL}
+    params, state = _run(module, _args(module, **changes))
+    begin = None if start == "defaults" else {"base_panel_weight": "0.3", "hr_template": options.PRESET_CHARACTER_BAN}
+    pasted, pasted_state = _run(module, harness.replayed_args(_layout(module), params, begin))
 
     assert pasted == params
     assert _schedule(pasted_state) == _schedule(state)
@@ -257,38 +222,30 @@ def test_the_pasted_panel_runs_the_same_schedule_per_lora_templates_included(mod
     assert mylora.template_name == options.PRESET_COMPOSITION_ALLOW
     assert (mylora.start, mylora.end, mylora.peak) == templates._auto_stage_values(options.STAGE_COMPOSITION, 3.0)[:3]
     assert (pasted_state.base.start, pasted_state.base.end) == (0.3, 0.7)
-    assert pasted_state.hr_disable_tags == ["<lora:a:0.5>", "<lora:b:blocks=0-9=0.8,10-27=1>"]
-
-
-@pytest.mark.parametrize("run_language, api_language", [("zh", "en"), ("en", "zh"), ("en", "en")])
-@pytest.mark.parametrize("hires", ["independent", "shared"])
-def test_the_api_replays_the_infotext_into_the_same_schedule(module, monkeypatch, run_language, api_language, hires):
-    # The API sets the script args from the recorded values as they are (the
-    # scope, curve and disable mode codes), without on_infotext_pasted; its
-    # pasted_value reads a recorded "False" as False
-    labels = {"zh": _zh, "en": _en}[run_language]
-    _language(monkeypatch, run_language)
-    args = _args(labels)
-    if hires == "shared":
-        args[12], args[24] = False, labels(options.DISABLE_ALL)
-    params, state = _run(module, args)
-    _language(monkeypatch, api_language)
-    script, controls, _ = _build_ui(module)
-    replayed, replayed_state = _run(module, harness.api_replay(script, controls, params))
-
-    assert replayed == params
-    assert _schedule(replayed_state) == _schedule(state)
-    assert (replayed_state.base.target_mode, replayed_state.base.curve) == (options.MODE_TARGETS, options.CURVE_TRIANGLE)
-    # Recorded "False" checkboxes: base manual timing; a shared Hires panel
-    assert params[options._panel_key("base", "auto timing")] is False and replayed_state.base.auto_timing is False
-    assert (replayed_state.base.start, replayed_state.base.end) == (0.3, 0.7)
+    assert (pasted_state.base.target_mode, pasted_state.base.curve) == (options.MODE_TARGETS, options.CURVE_TRIANGLE)
+    # Recorded "False" switches: base manual timing; a shared Hires panel
+    assert params[options._panel_key("base", "auto timing")] is False and pasted_state.base.auto_timing is False
     if hires == "shared":
         assert params[options.INFOTEXT_HIRES_INDEPENDENT] is False
-        assert replayed_state.hires.template_name == replayed_state.base.template_name and replayed_state.hires.target_mode == options.MODE_TARGETS
-    assert replayed_state.hr_disable_mode == (options.DISABLE_SELECTED if hires == "independent" else options.DISABLE_ALL)
+        assert pasted_state.hires.template_name == pasted_state.base.template_name and pasted_state.hires.target_mode == options.MODE_TARGETS
+        assert pasted_state.hr_disable_mode == options.DISABLE_ALL
+    else:
+        assert pasted_state.hr_disable_tags == ["<lora:a:0.5>", "<lora:b:blocks=0-9=0.8,10-27=1>"]
 
 
-def test_the_run_takes_each_choice_as_its_code_its_zh_label_or_its_en_label():
+def test_the_spa_paste_keeps_the_recorded_timing(module):
+    """The SPA paste runs the pasted params' on_change actions: none of them
+    may put the pasted timing back on its template's defaults."""
+
+    params, _ = _run(module, _args(module))
+    begin = {"base_template": options.PRESET_STYLE_BAN, "hr_template": options.PRESET_CHARACTER_BAN}
+    values = harness.spa_paste(module.Script(), _layout(module), params, begin, core={"distilled_cfg_scale": 3.0, "hr_distilled_cfg": 5.0})
+    assert values["base_template"] == options.PRESET_CHARACTER_ALLOW
+    assert values["base_timing"] == _values()["base_timing"]
+    assert values["hr_timing"] == {**_values()["hr_timing"], "curve": options.CURVE_SMOOTH}
+
+
+def test_the_run_takes_each_choice_as_its_code_its_value_or_its_english_label():
     for codes, labels, normalize in (
         (options.TARGET_MODE_CODES, options.TARGET_MODE_EN, options._normalize_target_mode),
         (options.DISABLE_CODES, options.DISABLE_EN, options._normalize_disable_mode),
@@ -299,89 +256,100 @@ def test_the_run_takes_each_choice_as_its_code_its_zh_label_or_its_en_label():
     assert (options._normalize_target_mode("?"), options._normalize_disable_mode(None), options._normalize_curve("")) == (options.MODE_AUTO_ANIMA, options.DISABLE_NONE, options.CURVE_SMOOTH)
 
 
-def test_text_a_run_ignored_pastes_empty_and_no_hires_leaves_the_hires_section_alone(module, monkeypatch):
-    _language(monkeypatch, "zh")
-    args = _args(_zh)
-    args[1] = options.MODE_AUTO_ANIMA  # the target list is ignored
-    args[5] = ""
-    params, _ = _run(module, args, enable_hr=False)
-    script, controls, _ = _build_ui(module)
-    pasted = _paste(script, params)
+def test_text_a_run_ignored_pastes_empty_and_no_hires_leaves_the_hires_section_alone(module):
+    # The target list is ignored outside the target-list scope
+    params, _ = _run(module, _args(module, base_target_mode=options.MODE_AUTO_ANIMA, base_lora_templates=""), enable_hr=False)
+    pasted = harness.pasted(_layout(module), params)
 
     key = options._panel_key
     assert key("base", "targets") not in params and key("base", "per-LoRA templates") not in params
     assert not any(" hires " in name for name in params)
-    assert pasted[:12] == [*args[:2], "", *args[3:12]]  # the ignored target list is emptied
-    assert pasted[12:] == [None] * 14  # no Hires. fix pass: the hires controls stay
+    assert pasted["base_target_loras"] == "" and pasted["base_lora_templates"] == ""  # emptied
+    assert pasted["base_target_mode"] == options.MODE_AUTO_ANIMA
+    assert not any(name.startswith("hr_") for name in pasted)  # no Hires. fix pass: the hires controls stay
 
 
-def test_a_shared_hires_panel_records_only_its_switch_and_disable_mode(module, monkeypatch):
-    _language(monkeypatch, "zh")
-    args = _args(_zh)
-    args[12], args[24], args[25] = False, options.DISABLE_ALL, "<lora:a:0.5>"
-    params, _ = _run(module, args)
-    script, _, _ = _build_ui(module)
-    pasted = _paste(script, params)
+def test_a_shared_hires_panel_records_only_its_switch_and_disable_mode(module):
+    params, _ = _run(module, _args(module, hr_independent=False, hr_disable_mode=options.DISABLE_ALL, hr_disable_tags="<lora:a:0.5>"))
+    pasted = harness.pasted(_layout(module), params)
 
     assert params[options.INFOTEXT_HIRES_INDEPENDENT] is False and params[options.INFOTEXT_HIRES_DISABLE] == "all"
     assert options.INFOTEXT_HIRES_DISABLE_TAGS not in params  # ignored when disabling every LoRA
-    assert pasted[12] is False and pasted[13:24] == [None] * 11
-    assert pasted[24:] == [options.DISABLE_ALL, ""]
+    hires = {name: value for name, value in pasted.items() if name.startswith("hr_")}
+    assert hires == {"hr_independent": False, "hr_disable_mode": options.DISABLE_ALL, "hr_disable_tags": ""}
 
-    args[24] = options.DISABLE_NONE
-    params, _ = _run(module, args)
+    params, _ = _run(module, _args(module, hr_independent=False, hr_disable_mode=options.DISABLE_NONE))
     assert options.INFOTEXT_HIRES_DISABLE not in params
-    assert _paste(script, params)[24:] == [options.DISABLE_NONE, ""]
+    pasted = harness.pasted(_layout(module), params)
+    assert (pasted["hr_disable_mode"], pasted["hr_disable_tags"]) == (options.DISABLE_NONE, "")
 
 
-def test_an_old_summary_only_infotext_leaves_the_panel_alone(module, monkeypatch):
-    _language(monkeypatch, "en")
-    script, _, _ = _build_ui(module)
+def test_an_old_summary_only_infotext_leaves_the_panel_alone(module):
     old = {
         "Anima LoRA Stage Scheduler": f"base={options.PRESET_STYLE_ALLOW}:0.62-1.00, hires={options.PRESET_STYLE_ALLOW}:0.70-1.00",
         "Anima Hires LoRA Disable": options.DISABLE_ALL,
     }
+    assert harness.pasted(_layout(module), old) == {}
 
-    assert _paste(script, old) == [None] * len(options.INFOTEXT_KEYS)
 
-
-def test_a_template_missing_here_leaves_its_dropdown_alone(module, monkeypatch, caplog):
-    _language(monkeypatch, "zh")
+def test_a_template_missing_here_leaves_its_dropdown_alone(module, caplog):
     templates._TEMPLATES.edit(lambda data: (data.update(mine={"auto": True, "stage": options.STAGE_STYLE}), ("mine", "")))
-    args = _args(_zh)
-    args[4] = "mine"
-    params, _ = _run(module, args)
+    params, _ = _run(module, _args(module, base_template="mine"))
     templates._TEMPLATES.edit(lambda data: (data.pop("mine"), (None, "")))
-    script, _, _ = _build_ui(module)
 
-    pasted = _paste(script, params)
-    args[HIRES_CURVE] = None  # left alone: see test_a_runs_infotext_restores_every_control
-    assert pasted[4] is None and "mine" in caplog.text
-    assert pasted[:4] == args[:4] and pasted[5:] == args[5:]
+    pasted = harness.pasted(_layout(module), params)
+    assert "base_template" not in pasted and "mine" in caplog.text
+    assert pasted["base_target_loras"] == "mylora, other" and pasted["hr_template"] == options.PRESET_STYLE_ALLOW
 
 
-def test_template_dropdowns_reapply_on_user_selection_only(module, monkeypatch):
-    _language(monkeypatch, "zh")
-    script, controls, blocks = _build_ui(module)
-    template_ids = {controls[4]._id, controls[16]._id}
-    triggers = {(target, event) for dependency in blocks.config["dependencies"] for target, event in dependency["targets"]}
-
-    assert {(template, "input") for template in template_ids} <= triggers
-    assert not {(template, "change") for template in template_ids} & triggers
+def test_a_template_deleted_from_the_other_tab_runs_as_the_default(module, caplog):
+    """Templates are shared by both tabs; a form still showing a deleted
+    one submits it: the job runs the default template, with a warning."""
+    layout = _layout(module)
+    coerced = layout.coerce({**layout.defaults(), "base_template": "deleted elsewhere"})
+    assert coerced["base_template"] == layout.defaults()["base_template"] and "deleted elsewhere" in caplog.text
 
 
-def test_template_management_reapplies_the_templates_it_changes():
-    templates._TEMPLATES.edit(lambda data: (data.update(mine={"auto": False, "stage": options.STAGE_STYLE, "start": 0.1, "end": 0.3, "peak": 0.2, "strength": 1.5, "curve": options.CURVE_HOLD}), ("mine", "")))
-    builtin = next(iter(options.BUILTIN_TEMPLATES))
-    rename = ui._reapplying_changed_templates(ui._rename_template_ui)
-    delete = ui._reapplying_changed_templates(ui._delete_template_ui)
+def test_selecting_a_template_applies_its_timing(module):
+    from lib_stage_scheduler import ui
+    from remi import ui as remi_ui
 
-    base, hires, _, _, *timings = rename("mine", "renamed", "mine", builtin, 3.0, 5.0)
-    assert (base["value"], "value" in hires) == ("renamed", False)
-    assert [update["value"] for update in timings[:6]] == [False, 0.1, 0.3, 0.2, 1.5, options.CURVE_HOLD]
-    assert all("value" not in update for update in timings[6:])  # the hires panel's template stayed
+    ctx = remi_ui.ActionContext(tab="txt2img", core={"distilled_cfg_scale": 3.0, "hr_distilled_cfg": 6.0})
+    values = {"base_template": options.PRESET_COMPOSITION_ALLOW, "hr_template": options.PRESET_STYLE_ALLOW}
+    script = module.Script()
+    patch = remi_ui.call_action(script, "base_template_changed", ctx, values)
+    assert patch == {"base_timing": {"value": ui.apply_template(options.PRESET_COMPOSITION_ALLOW, 3.0)}}
+    patch = remi_ui.call_action(script, "hr_template_changed", ctx, values)
+    assert patch["hr_timing"]["value"] == ui.apply_template(options.PRESET_STYLE_ALLOW, 6.0)
+    # img2img has no Hires Shift: the base one
+    patch = remi_ui.call_action(script, "hr_template_changed", remi_ui.ActionContext(tab="img2img", core={"distilled_cfg_scale": 4.0}), values)
+    assert patch["hr_timing"]["value"] == ui.apply_template(options.PRESET_STYLE_ALLOW, 4.0)
 
-    base, hires, _, _, *timings = delete("renamed", builtin, "renamed", 3.0, 5.0)
-    assert hires["value"] == builtin  # fell back
-    assert all("value" not in update for update in timings[:6])
-    assert [update["value"] for update in timings[6:]] == [value["value"] for value in ui._apply_template_ui(builtin, 5.0)]
+
+def test_template_actions_report_and_refresh_both_panels(module):
+    from remi import ui as remi_ui
+
+    script = module.Script()
+    values = _layout(module).defaults()
+
+    def call(action, **extra):
+        return remi_ui.call_action(script, action, remi_ui.ActionContext(tab="txt2img", core={"distilled_cfg_scale": 3.0}, extra=extra), values)
+
+    saved = call("template_save", name="mine", auto=False, panel="base")
+    # A message the SPA translates, then fills in
+    assert saved["__toast__"] == {"level": "success", "message": {"text": "Saved template: {{name}}", "params": {"name": "mine"}}}
+    assert "mine" in [choice["value"] for choice in saved["base_template"]["choices"]] and "mine" in saved["__outputs__"]["templates"]
+    assert templates._template_config("mine")["auto"] is False
+
+    combo = call("template_combo", name="combo", presets=[options.PRESET_STYLE_BAN, options.PRESET_CHARACTER_ALLOW])
+    assert combo["__toast__"]["level"] == "success"
+    assert [part["mode"] for part in templates._template_parts(templates._template_config("combo"))] == [options.PART_BAN, options.PART_ALLOW]
+
+    refused = call("template_rename", old="mine", new=options.PRESET_STYLE_ALLOW)
+    assert refused == {"__toast__": {"level": "warning", "message": options._t("builtin_name_taken")}}
+
+    values["base_template"] = "mine"
+    renamed = call("template_rename", old="mine", new="ours")
+    assert renamed["base_template"]["value"] == "ours" and renamed["base_timing"]["value"]["auto"] is False
+    deleted = call("template_delete", name="combo")
+    assert "combo" not in deleted["__outputs__"]["templates"]

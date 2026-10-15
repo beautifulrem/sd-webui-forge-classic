@@ -24,6 +24,16 @@ right halves) sum to full weight across the seam, and edges on the canvas
 border are not faded. Spectrum
 is explicitly forced to actual forwards while regional routing is active.
 
+In the WebUI the regions are drawn over a preview shaped like the image (the
+`region-boxes` widget, `webui/src/widgets/region-boxes`): drag a region to move
+it, drag an edge or corner to resize it (edges snap to the image centre and to
+the other regions; hold Shift to place freely), or focus it and use the arrow
+keys (Shift resizes, Alt moves ten steps). Layout buttons tile the image into
+two or three columns or rows. The X / Y / Width / Height / Active sliders stay
+the stored parameters: the editor reads and writes them, so infotext, presets
+and the API are unchanged. Its own script argument (`region_editor`, last) is
+not read; argument lists without it are accepted.
+
 The approach follows the independently encoded regional context and spatial
 attention-routing design of [Comfyui-Anima-Regional-Conditioning](https://github.com/Sen-sou/Comfyui-Anima-Regional-Conditioning) (MIT, see NOTICE), adapted to
 Forge's Anima attention implementation without persistent module monkeypatches.

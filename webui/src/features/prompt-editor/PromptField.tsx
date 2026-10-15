@@ -4,13 +4,14 @@
  * drops (an image dropped anywhere on the field is handed to `onDropImage`).
  */
 import { ImageDown } from "lucide-react"
-import { type ReactNode, type Ref, Suspense, useId, useRef, useState } from "react"
+import { type ReactNode, type Ref, Suspense, useId, useImperativeHandle, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { describedBy, infoTextId } from "@/ui/a11y"
 import { FieldError, ModifiedDot } from "@/ui/Field"
 import { useParam } from "@/ui/hooks"
 import type { TextNode } from "@/ui/schema"
+import { PromptDecorators } from "./PromptDecorators"
 import { LazyPromptEditor, type PromptEditorHandle } from "./index"
 import type { PromptKind } from "./facets"
 import { TokenCounter } from "./TokenCounter"
@@ -62,6 +63,17 @@ export function PromptField({ node, kind = "positive", steps, styles, actions, o
   const [dragging, setDragging] = useState(false)
   const depth = useRef(0)
   const bracketId = `${id}-brackets`
+  const handle = useRef<PromptEditorHandle | null>(null)
+  // The page's ref reaches the editor through this field's own handle.
+  useImperativeHandle(
+    editorRef,
+    () => ({
+      focus: () => handle.current?.focus(),
+      insertText: (text: string) => handle.current?.insertText(text),
+      view: () => handle.current?.view() ?? null,
+    }),
+    [],
+  )
   const ariaDescribedBy = describedBy(id, param.info, param.error, bracketId)
 
   const hasImage = (event: React.DragEvent) => [...event.dataTransfer.items].some((item) => item.kind === "file" && item.type.startsWith("image/"))
@@ -106,23 +118,34 @@ export function PromptField({ node, kind = "positive", steps, styles, actions, o
           <TokenCounter text={value} steps={steps} styles={styles} negative={kind === "negative"} />
         </div>
       </div>
-      <Suspense fallback={<div aria-hidden className="rounded-lg border border-input bg-input/30" style={{ minHeight: `${lines * LINE_REM + 0.9}rem` }} />}>
-        <LazyPromptEditor
-          ref={editorRef}
-          id={id}
-          kind={kind}
-          value={value}
-          onChange={param.setValue}
-          placeholder={placeholder}
-          disabled={!param.enabled}
-          minLines={lines}
-          maxLines={node.max_lines ?? 16}
-          ariaLabel={label || node.name}
-          ariaDescribedBy={ariaDescribedBy}
-          ariaInvalid={param.error ? true : undefined}
-          onDropFiles={onDropImage ? dropImages : undefined}
-        />
-      </Suspense>
+      <PromptDecorators
+        value={value}
+        setValue={param.setValue}
+        kind={kind}
+        editor={() => handle.current}
+        label={label || node.name}
+        disabled={!param.enabled}
+        fieldId={id}
+        main
+      >
+        <Suspense fallback={<div aria-hidden className="rounded-lg border border-input bg-input/30" style={{ minHeight: `${lines * LINE_REM + 0.9}rem` }} />}>
+          <LazyPromptEditor
+            ref={handle}
+            id={id}
+            kind={kind}
+            value={value}
+            onChange={param.setValue}
+            placeholder={placeholder}
+            disabled={!param.enabled}
+            minLines={lines}
+            maxLines={node.max_lines ?? 16}
+            ariaLabel={label || node.name}
+            ariaDescribedBy={ariaDescribedBy}
+            ariaInvalid={param.error ? true : undefined}
+            onDropFiles={onDropImage ? dropImages : undefined}
+          />
+        </Suspense>
+      </PromptDecorators>
       <BracketSummary id={bracketId} value={value} />
       {param.info ? (
         <p id={infoTextId(id)} className="text-xs leading-snug text-muted-foreground">

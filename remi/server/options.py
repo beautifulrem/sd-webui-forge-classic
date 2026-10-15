@@ -22,7 +22,8 @@ def _error(key: str, message: str) -> ParamError:
 
 
 def frozen_reason(opts: Any, key: str, cmd_opts: Any) -> str | None:
-    """Why the API may not change ``key`` (None when it may)."""
+    """Why ``PATCH /options`` may not change ``key`` (None when it may); the
+    settings schema marks such settings ``locked`` with this reason."""
 
     info = opts.data_labels.get(key)
     if info is None:
@@ -31,14 +32,14 @@ def frozen_reason(opts: Any, key: str, cmd_opts: Any) -> str | None:
         return "changing settings is disabled (--freeze-settings)"
     if info.do_not_save:
         return "not a stored setting"
-    if info.restrict_api:
-        return "this setting cannot be changed through the API"
+    # ``restrict_api`` guards the A1111 API (/sdapi/v1/options); /api/v2 is the
+    # WebUI's own API, behind the same login as the Gradio settings page was.
     args = info.component_args() if callable(info.component_args) else info.component_args
     if isinstance(args, dict) and args.get("visible", True) is False:
         return "this setting is hidden"
     sections = getattr(cmd_opts, "freeze_settings_in_sections", None)
     if sections and info.section and info.section[0] in [item.strip() for item in sections.split(",")]:
-        return f"settings in section {info.section[0]!r} are frozen"
+        return "the settings in this section are frozen"
     keys = getattr(cmd_opts, "freeze_specific_settings", None)
     if keys and key in [item.strip() for item in keys.split(",")]:
         return "this setting is frozen"

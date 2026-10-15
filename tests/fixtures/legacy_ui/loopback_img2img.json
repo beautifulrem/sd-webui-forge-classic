@@ -1,0 +1,5 @@
+{"script": "Loopback", "tab": "img2img", "count": 3, "infotext_fields": 0, "inputs": [
+  {"kind": "slider", "label": "Loops", "info": null, "default": 2, "minimum": 1, "maximum": 8, "step": 1, "integer": true, "infotext": null, "paste": false, "preset": null},
+  {"kind": "slider", "label": "Final Denoising Strength", "info": null, "default": 0.5, "minimum": 0.0, "maximum": 1.0, "step": 0.05, "integer": false, "infotext": null, "paste": false, "preset": null},
+  {"kind": "choice", "label": "Denoising Strength Curve", "info": null, "default": "Linear", "style": "dropdown", "allow_custom": false, "choices": ["Aggressive", "Linear", "Lazy"], "returns": "value", "infotext": null, "paste": false, "preset": null}
+]}

@@ -38,9 +38,12 @@ holds a value) or a **layout/display** node.
 | `label` | string | always present; `""` means "render without a label" |
 | `info` | string? | help text under the control |
 | `default` | JSON | the value a fresh form starts with (already resolved; never a function) |
-| `on_change` | string? | action name to call (`POST /actions/{owner}/{action}`) after the user changes the value |
+| `on_change` | string? | action name to call (`POST /actions/{owner}/{action}`) after the user changes the value; also after a paste / "Send to" / bulk reset that changes it |
+| `on_input` | string? | action name to call only after the user edits this control (Gradio's `.input`): never after pastes, presets, resets of several params or action patches. For derived updates a pasted infotext already records (e.g. a template's timing) |
 | `width` | `"auto"` \| `"fill"` \| 1–12? | sizing hint inside a `row` (12-column grid); absent = `"auto"` |
 | `hidden` | `true`? | keep the value (it is submitted) but do not render the control |
+| `persist` | `false`? | never kept in drafts: every page load starts from `default` (e.g. a copy of a setting); a schema reload in the same session keeps the value like any other |
+| `submit` | `false`? | held by the form for actions only: never sent with a job (so neither reused jobs nor drafts bring it back); processing gets `default` |
 | `infotext` | string? | infotext key this param is written to / read from (informational; parsing is server-side) |
 | `preset` | string? | Anima preset field this param belongs to (informational) |
 | `exclusive` | `{"group": str, "member": str}`? | `toggle` only: one-of-N group membership; server action `__conflicts__` resolves locks |
@@ -51,7 +54,7 @@ Wire value = what the client keeps in its form state and submits.
 
 | `type` | extra keys | wire value |
 |---|---|---|
-| `toggle` | – | `boolean` |
+| `toggle` | `locks`? (`"owner.param"`, or a param of the same owner) | `boolean`. While `true`, the locked param ignores programmatic writes (pasted parameters, "Send to", reused jobs, presets, action patch values); user edits and resets still apply |
 | `slider` | `minimum`, `maximum`, `step` (numbers), `integer` (bool) | number (integer when `integer`) |
 | `number` | `minimum`?, `maximum`?, `step`?, `precision`? (int), `integer` (bool) | number |
 | `text` | `lines` (int ≥ 1), `max_lines`?, `placeholder`?, `prompt` (bool) | string. `prompt: true` = prompt editor (weights, LoRA, tag completion) |
@@ -60,7 +63,7 @@ Wire value = what the client keeps in its form state and submits.
 | `seed` | – | integer: `-1` (random) or `0` … `2^63-1`. Renderer adds dice (set -1) and recycle (last seed) buttons. Values above `2^53` lose precision in JavaScript numbers |
 | `color` | – | string `#rrggbb` (or `#rgb`, `#rrggbbaa`) |
 | `image` | `kind` (`"image"`\|`"mask"`\|`"sketch"`), `source`? (name of the `image` param this layer is painted over), `mode`? (`"RGB"`\|`"RGBA"`\|`"L"`) | upload id string (`POST /api/v2/uploads`) or `null` |
-| `image_list` | – | array of upload ids |
+| `image_list` | `widget`?, `props`? | array of upload ids. With `widget`, the widget registered under that name edits the list (it receives `props`); the value keeps upload semantics (never restored from drafts) |
 | `file` | `accept`? (string, e.g. `".safetensors,.pt"`) | upload id string or `null` |
 | `json` | – | any JSON |
 | `custom` | `widget` (string), `props` (object) | any JSON, owned by the widget registered as `widget` in `webui/src/widgets` |
@@ -68,6 +71,13 @@ Wire value = what the client keeps in its form state and submits.
 
 `integer` of a slider is `true` when its bounds, step and default were
 declared as integers (`Slider(0.0, 2.0, 1.0, 1.0)` is a float slider).
+
+A two-ended range (Gradio's RangeSlider) is `ui.RangeSlider(name, minimum,
+maximum, default, step)`: a `custom` node with `widget: "range-slider"` and
+`props: {minimum, maximum, step}`, wire value and processing argument
+`[low, high]`. The server clamps both ends to the bounds and orders them;
+integers when the bounds, step and default are (as `slider`). Infotext
+pastes `"a, b"`, `"(a, b)"` or `"[a, b]"`.
 
 `choices` is an array of `{"value": string|number, "label": string}`. The
 label is translated, the value is submitted. Choice lists that depend on the
@@ -105,7 +115,7 @@ The img2img form has two mask params: `mask` (painted over `init_img`, mode
 | `markdown` | `text` | CommonMark, rendered without raw HTML |
 | `html` | `text` | trusted server HTML (sanitize anyway) |
 | `separator` | – | horizontal rule |
-| `button` | `label`, `action`, `variant` (`"primary"`\|`"secondary"`\|`"ghost"`\|`"tool"`) | calls the owner's action with the owner's current values |
+| `button` | `label`, `action`, `variant` (`"primary"`\|`"secondary"`\|`"ghost"`\|`"tool"`\|`"danger"`: destructive, e.g. delete) | calls the owner's action with the owner's current values |
 | `gallery` | `name`, `label`? | output-only image list (filled by `__outputs__` of an action or by job results) |
 | `output` | `name`, `kind` (`"text"`\|`"html"`\|`"image"`\|`"json"`), `label`? | output-only value |
 | `slot` | `section` | placeholder in a **core** form: render here the scripts whose `section` equals this value (see §4) |
@@ -274,11 +284,17 @@ returns a patch:
   "<param>": {"value"?, "choices"?, "visible"?, "enabled"?, "label"?, "info"?,
               "minimum"?, "maximum"?, "step"?},
   "<other_owner>.<param>": {...},          // patch another owner (e.g. "core.width")
-  "__toast__": {"level": "info" | "success" | "warning" | "error", "message": str},
+  "__toast__": {"level": "info" | "success" | "warning" | "error", "message": str | {"text": str, "params"?: {...}}},  // a message (ui.message) is translated, then its {{name}} placeholders filled
   "__outputs__": {"<output name>": value},
   "__settings__": {"<setting>": value}     // settings the action already changed on the server
 }
 ```
+
+Texts shown to the user are translated by the client: a toast `message` and
+a string value of a `text` output when a catalog has them verbatim, and a
+message object `{"text": str, "params"?: object}` (`remi.ui.message`) of a
+`text` output, whose `text` is the English catalog key with `{{name}}`
+placeholders filled from `params` after translation.
 
 `visible`/`enabled` set in a patch override the static node state until the
 next patch or schema reload; they are combined with `visible_if`/`enabled_if`
@@ -317,7 +333,8 @@ to the core owner: core params bare, others `"owner.param"`):
      "sections": [{"id": "sd", "label": "Stable Diffusion", "items": [Node, ...]}]}
   ],
   "quicksettings": ["sd_model_checkpoint", ...],
-  "values": {key: value}
+  "values": {key: value},
+  "defaults": {key: value}     // each stored setting's built-in default
 }
 ```
 
@@ -333,11 +350,14 @@ Items are input nodes whose `name` is the setting key, plus `html`,
 | `needs_restart` / `needs_reload_ui` | changing it takes effect after a restart / page reload |
 | `refresh` | `true`: the setting has a refresh action (`POST /actions/settings/refresh:<key>`) that returns a `choices` patch |
 | `onchange` | `true`: the server runs a side effect when it changes |
-| `restricted` | `true`: read-only through the API |
+| `restricted` | `true`: not changeable through the A1111 API (`/sdapi/v1/options`); `PATCH /api/v2/options` (the WebUI's own API) may change it |
+| `locked` | why `PATCH /options` refuses changes (`--freeze-settings`, a frozen section or key, `--hide-ui-dir-config`, not stored); such a setting is also `"enabled_if": false` |
 
 A setting that is not editable has `"enabled_if": false`; one that must not be
 shown has `"hidden": true`. `default` is the setting's current value (it may
-lie outside stale `choices`). Sections without an id (internal options) are
+lie outside stale `choices`); the top-level `defaults` map holds the built-in
+default of every stored setting (the settings page resets to it and filters
+"changed" settings by it). Sections without an id (internal options) are
 not exported; their values are in `values`.
 
 ## 7. Infotext parse (`POST /api/v2/infotext/parse`)
@@ -379,9 +399,26 @@ An extension page (former `on_ui_tabs`) is one owner, rendered like a script:
   "owner": "page:toolbox",                 // action owner (POST /actions/page:toolbox/{action})
   "widget": "agent-scheduler" | null,      // a dedicated frontend view; layout is then null
   "layout": Node | null,
-  "defaults": {name: value}
+  "defaults": {name: value},
+  "on_load": "status",                     // optional: action run each time the page is shown
+  "send_to": [{"kind": "image", "param": "image", "label": "JoyCaption"}]  // optional: what other views can send here
 }
 ```
 
-Page actions receive `{"values": {...}}` (no tab, no core form) and return
-§5 patches; `__outputs__` fill the page's `gallery`/`output` nodes.
+Page actions receive `{"values": {...}}` (no core form; `tab` is the form
+id `page:<id>`) and return §5 patches; `__outputs__` fill the page's
+`gallery`/`output` nodes. A `send_to` entry of kind `image` puts an image
+(upload or output file id) into `param` (an `image` input), then runs its
+`on_change`.
+
+**Tasks.** An action that starts long work answers at once with
+`{"__outputs__": {"task:<name>": Status}}`, `Status = {id, name, state
+("queued"|"running"|"completed"|"failed"|"cancelled"), progress (0…1 or
+null), text (string or message, §5), error, done, cancelling}`. The client
+polls the page's `__task__` action with `{"task": name, "id": status.id}`:
+running answers may carry partial outputs; the answer once the task has
+ended carries the task's result patch (values, outputs, a toast; a failure
+adds an error toast). `{"resume": true}` (a view mounting again) asks for
+the status; it carries the result too while no view has received it (the
+task ended while none followed it, e.g. during a reload). The
+`__cancel__` action (`{"task": name}`) asks the task to stop.

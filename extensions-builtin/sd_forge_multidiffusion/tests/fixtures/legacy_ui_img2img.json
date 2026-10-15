@@ -1,0 +1,66 @@
+[
+ {
+  "kind": "toggle",
+  "label": "MultiDiffusion Integrated",
+  "default": false,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "choice",
+  "label": "Method",
+  "default": "Mixture of Diffusers",
+  "choices": [
+   "MultiDiffusion",
+   "Mixture of Diffusers"
+  ],
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Tile Width",
+  "default": 768,
+  "minimum": 256,
+  "maximum": 2048,
+  "step": 64,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Tile Height",
+  "default": 768,
+  "minimum": 256,
+  "maximum": 2048,
+  "step": 64,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Tile Overlap",
+  "default": 64,
+  "minimum": 0,
+  "maximum": 1024,
+  "step": 16,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Tile Batch Size",
+  "default": 1,
+  "minimum": 1,
+  "maximum": 8,
+  "step": 1,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ }
+]

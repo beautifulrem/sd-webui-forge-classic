@@ -8,7 +8,8 @@ describe("router", () => {
     expect(parseHash("#/")).toEqual(DEFAULT_ROUTE)
     expect(parseHash("#/img2img")).toMatchObject({ name: "generate", tab: "img2img" })
     expect(parseHash("#/queue")).toMatchObject({ name: "queue" })
-    expect(parseHash("#/page/agent%20scheduler")).toMatchObject({ name: "page", id: "agent scheduler" })
+    expect(parseHash("#/ext/agent%20scheduler")).toMatchObject({ name: "page", id: "agent scheduler" })
+    expect(parseHash("#/page/joycaption")).toMatchObject({ name: "page", id: "joycaption" })
     expect(parseHash("#/nope/x")).toEqual({ name: "not-found", path: "nope/x" })
   })
 
@@ -20,12 +21,13 @@ describe("router", () => {
   })
 
   it("treats a malformed escape as not found instead of throwing", () => {
-    expect(parseHash("#/page/%E0%A4")).toEqual({ name: "not-found", path: "page/%E0%A4" })
+    expect(parseHash("#/ext/%E0%A4")).toEqual({ name: "not-found", path: "ext/%E0%A4" })
     expect(() => parseHash("#/%")).not.toThrow()
   })
 
   it("round-trips hrefs", () => {
-    for (const hash of ["#/txt2img", "#/png-info", "#/page/a%2Fb"]) expect(routeHref(parseHash(hash))).toBe(hash)
+    for (const hash of ["#/txt2img", "#/png-info", "#/ext/a%2Fb"]) expect(routeHref(parseHash(hash))).toBe(hash)
+    expect(routeHref(parseHash("#/page/tools"))).toBe("#/ext/tools")
   })
 })
 

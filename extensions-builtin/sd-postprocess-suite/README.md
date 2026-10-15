@@ -2,7 +2,7 @@
 
 A feature-packed, **reorderable** post-processing pipeline for
 [sd-webui-forge-classic (neo)](https://github.com/Haoming02/sd-webui-forge-classic).
-It adds a native generation accordion to **both txt2img and img2img** and runs a stack of image
+It adds a native generation section to **both txt2img and img2img** and runs a stack of image
 effects in `postprocess_image_after_composite` — the final hook before the
 image is saved — so every effect is baked into the saved file, the gallery and
 the API result. Works alongside other extensions (it only touches the finished
@@ -12,9 +12,8 @@ Pure `numpy` + `Pillow`, with the descreen using `numpy.fft`. **No extra
 dependencies.**
 
 ## Install
-Drop the `sd-postprocess-suite` folder into your `extensions/` directory (or use
-*Extensions → Install from URL*) and restart the UI. Open the **Post Processing
-Suite** accordion in either tab's generation controls.
+Built into Remi (`extensions-builtin/`). Open the **Post Processing Suite**
+section in either tab's generation controls.
 
 ## How it works
 1. Tick the master **Post Processing Suite** toggle.
@@ -28,20 +27,21 @@ Suite** accordion in either tab's generation controls.
 Active stages are recorded into the PNG metadata under `PP Suite` for reference.
 
 ## Presets
-Open the **💾 Presets** panel at the top of the suite.
+Open the **Presets** group at the top of the suite.
 
-- **Save** — type a name and click *Save* to store the entire current
-  configuration (master toggle + every stage's enabled state, order and
+- **Save** — type a name into *Preset* and click *Save* to store the entire
+  current configuration (master toggle + every stage's enabled state, order and
   parameters) as a JSON file under
-  `extension-data/sd-postprocess-suite/presets/` in Forge's data directory.
+  `extension-data/sd-postprocess-suite/presets/` in Forge's data directory. A
+  LUT file is copied next to it (`presets/luts/`), so the preset keeps working
+  after the upload is cleaned up.
 - **Load** — pick a preset and click *Load* to apply it to all controls.
-- **Delete** / **🔄** — remove a preset / refresh the list.
+- **Delete** / **Refresh** — remove a preset / re-read the folder.
 
 Presets are stored structured-by-stage, so they keep working even if future
 versions add or remove stages (unknown keys are ignored, missing ones fall back
 to defaults). The img2img "Apply to" selector is intentionally *not* part of a
-preset, so looks stay portable between tabs. (After loading, a stage's accordion may stay collapsed even though it's
-enabled — the toggle value is still correct; just expand it to see the knobs.)
+preset, so looks stay portable between tabs.
 
 ## Where it runs (img2img: "Apply post-processing to")
 On **img2img** a selector chooses where the pipeline is applied:
@@ -58,9 +58,10 @@ On **img2img** a selector chooses where the pipeline is applied:
 "only masked" full-res and latent-resize, to avoid disturbing those paths.)
 
 ## Send to img2img (txt2img only)
-The **🖼️ Apply PP → Send to img2img** button runs the current settings on the
-**selected** gallery image and drops the processed result straight into the
-img2img canvas, then switches tabs — your txt2img → img2img handoff with the
+The **Apply PP → Send to img2img** button (the `pp-send` widget) runs the
+current settings on the result selected on the stage (the newest one when none
+is picked) on the server, then puts the processed copy into the img2img source
+image and switches to img2img — your txt2img → img2img handoff with the
 post-processing already applied.
 
 ## Stages
@@ -89,5 +90,7 @@ low-freq radius* if real detail starts smearing.
 ## Extending
 Add a dict to `STAGES` in `lib_postprocess/pipeline.py`, add a matching branch
 in `apply_stage`, and (if it's a new operation) a function in
-`lib_postprocess/effects.py`. The UI and arg-handling are generated from the
-spec automatically.
+`lib_postprocess/effects.py`. The panel (`params()`, one collapsed section per
+category and stage, params named `<stage>_<param>`) and the argument handling
+are generated from the spec automatically. Add the new labels to
+`localizations/zh_CN.json`; `tests/` checks the coverage.

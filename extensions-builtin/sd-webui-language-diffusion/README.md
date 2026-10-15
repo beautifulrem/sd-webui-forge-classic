@@ -14,6 +14,24 @@
 
 ---
 
+> [!Note]
+> ### In Remi WebUI
+>
+> The catalogs in `localizations/` are served by `GET /api/v2/i18n/<locale>`
+> (merged over the core catalog `localizations/<locale>.json` of the WebUI) and
+> the language is picked in the header (Appearance → Language), which lists
+> every locale by its own name and switches without a reload. The setting
+> *Language* (`localization`) is the default for browsers that have not
+> picked one; its choices show each language in its own language.
+>
+> Simplified Chinese lives in the WebUI's core catalog
+> (`localizations/zh_CN.json`, complete for every core string); this pack's
+> `zh_CN.json` keeps only texts the core catalog does not translate.
+>
+> The Gradio-era parts described below — the flag icons (`javascript/`,
+> `style.css`), the tooltip patch, the quicksettings pin and the page
+> reload on change — are gone: the SPA translates everything itself.
+
 > [!Important]
 > ### 🙏 Native speakers — please help review!
 >

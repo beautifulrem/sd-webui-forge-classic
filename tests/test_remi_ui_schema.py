@@ -90,6 +90,21 @@ def test_dynamic_choices_and_defaults_are_resolved_once_per_context():
     assert len(calls) == 2
 
 
+def test_on_input_is_exported_next_to_on_change():
+    data = ui.to_schema(ui.Group(ui.Choice("c", ["a"], on_change="changed", on_input="picked")))["children"][0]
+    assert (data["on_change"], data["on_input"]) == ("changed", "picked")
+    assert "on_input" not in ui.to_schema(ui.Group(ui.Choice("c", ["a"])))["children"][0]
+
+
+def test_toasts_take_translatable_messages():
+    toast = ui.toast(ui.message("Saved template: {{name}}", name="mine"), "success")
+    assert toast == {"__toast__": {"level": "success", "message": {"text": "Saved template: {{name}}", "params": {"name": "mine"}}}}
+    merged = ui.merge_patches(ui.toast("Done."), toast)
+    assert merged["__toast__"] == {"level": "success", "message": "Done.; Saved template: mine"}
+    with pytest.raises(ui.SchemaError):
+        ui.toast({"text": 3})
+
+
 def test_jsonable():
     assert ui.jsonable({"a": (1, float("nan")), 2: {3}}) == {"a": [1, None], "2": [3]}
 

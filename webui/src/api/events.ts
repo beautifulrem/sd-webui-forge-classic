@@ -24,6 +24,8 @@ export type WsEventMap = {
   "options.changed": { keys?: string[] }
   /** A network folder was re-scanned (`kind`: lora, checkpoints, …). */
   "networks.changed": { kind?: string }
+  /** Outputs were starred, removed or deleted from the gallery (`ids`: some of them). */
+  "outputs.changed": { ids?: string[] }
   /** This client fell behind and lost `dropped` events; a fresh snapshot follows. */
   resync: { dropped?: number }
   pong: Record<string, never>
@@ -59,6 +61,7 @@ const SHAPES: { [K in WsEventType]: Record<string, (v: unknown) => boolean> } = 
   "queue.changed": {},
   "options.changed": { keys: optional(isStringArray) },
   "networks.changed": { kind: optional(isString) },
+  "outputs.changed": { ids: optional(isStringArray) },
   resync: { dropped: optional(isNumber) },
   pong: {},
   toast: { message: isString },

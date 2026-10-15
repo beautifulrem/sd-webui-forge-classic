@@ -1,6 +1,5 @@
 from typing import List
 
-import gradio as gr
 import numpy as np
 from fastapi import Body, FastAPI
 from fastapi.exceptions import HTTPException
@@ -38,7 +37,7 @@ def encode_np_to_base64(image):
     return api.encode_pil_to_base64(pil)
 
 
-def controlnet_api(_: gr.Blocks, app: FastAPI):
+def controlnet_api(_, app: FastAPI):
     @app.get("/controlnet/model_list")
     async def model_list():
         up_to_date_model_list = get_all_controlnet_names()

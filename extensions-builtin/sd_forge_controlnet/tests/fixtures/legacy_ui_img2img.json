@@ -1,0 +1,439 @@
+{
+ "_about": "Recorded from the Gradio ui() before the port (gradio 4.40, preprocessors: modules_forge.supported_preprocessor only, no ControlNet models).",
+ "args": [
+  {
+   "kind": "state",
+   "label": "",
+   "default": {
+    "use_preview_as_input": false,
+    "generated_image": null,
+    "mask_image": null,
+    "mask_image_fg": null,
+    "hr_option": "Both",
+    "enabled": false,
+    "module": "None",
+    "model": "None",
+    "weight": 1.0,
+    "image": null,
+    "image_fg": null,
+    "resize_mode": "Crop and Resize",
+    "processor_res": -1,
+    "threshold_a": -1,
+    "threshold_b": -1,
+    "guidance_start": 0.0,
+    "guidance_end": 1.0,
+    "pixel_perfect": false,
+    "control_mode": "Balanced",
+    "type_filter": "All",
+    "save_detected_map": true,
+    "_idx": -1
+   },
+   "infotext": null,
+   "paste": false,
+   "preset": null
+  },
+  {
+   "kind": "state",
+   "label": "",
+   "default": {
+    "use_preview_as_input": false,
+    "generated_image": null,
+    "mask_image": null,
+    "mask_image_fg": null,
+    "hr_option": "Both",
+    "enabled": false,
+    "module": "None",
+    "model": "None",
+    "weight": 1.0,
+    "image": null,
+    "image_fg": null,
+    "resize_mode": "Crop and Resize",
+    "processor_res": -1,
+    "threshold_a": -1,
+    "threshold_b": -1,
+    "guidance_start": 0.0,
+    "guidance_end": 1.0,
+    "pixel_perfect": false,
+    "control_mode": "Balanced",
+    "type_filter": "All",
+    "save_detected_map": true,
+    "_idx": -1
+   },
+   "infotext": null,
+   "paste": false,
+   "preset": null
+  },
+  {
+   "kind": "state",
+   "label": "",
+   "default": {
+    "use_preview_as_input": false,
+    "generated_image": null,
+    "mask_image": null,
+    "mask_image_fg": null,
+    "hr_option": "Both",
+    "enabled": false,
+    "module": "None",
+    "model": "None",
+    "weight": 1.0,
+    "image": null,
+    "image_fg": null,
+    "resize_mode": "Crop and Resize",
+    "processor_res": -1,
+    "threshold_a": -1,
+    "threshold_b": -1,
+    "guidance_start": 0.0,
+    "guidance_end": 1.0,
+    "pixel_perfect": false,
+    "control_mode": "Balanced",
+    "type_filter": "All",
+    "save_detected_map": true,
+    "_idx": -1
+   },
+   "infotext": null,
+   "paste": false,
+   "preset": null
+  }
+ ],
+ "unit_args": [
+  "use_preview_as_input",
+  "generated_image",
+  "mask_image",
+  "mask_image_fg",
+  "hr_option",
+  "enabled",
+  "module",
+  "model",
+  "weight",
+  "image",
+  "image_fg",
+  "resize_mode",
+  "processor_res",
+  "threshold_a",
+  "threshold_b",
+  "guidance_start",
+  "guidance_end",
+  "pixel_perfect",
+  "control_mode"
+ ],
+ "infotext_keys": [
+  "ControlNet 0 control_mode",
+  "ControlNet 0 guidance_end",
+  "ControlNet 0 guidance_start",
+  "ControlNet 0 hr_option",
+  "ControlNet 0 model",
+  "ControlNet 0 module",
+  "ControlNet 0 pixel_perfect",
+  "ControlNet 0 processor_res",
+  "ControlNet 0 resize_mode",
+  "ControlNet 0 threshold_a",
+  "ControlNet 0 threshold_b",
+  "ControlNet 0 weight",
+  "ControlNet 1 control_mode",
+  "ControlNet 1 guidance_end",
+  "ControlNet 1 guidance_start",
+  "ControlNet 1 hr_option",
+  "ControlNet 1 model",
+  "ControlNet 1 module",
+  "ControlNet 1 pixel_perfect",
+  "ControlNet 1 processor_res",
+  "ControlNet 1 resize_mode",
+  "ControlNet 1 threshold_a",
+  "ControlNet 1 threshold_b",
+  "ControlNet 1 weight",
+  "ControlNet 2 control_mode",
+  "ControlNet 2 guidance_end",
+  "ControlNet 2 guidance_start",
+  "ControlNet 2 hr_option",
+  "ControlNet 2 model",
+  "ControlNet 2 module",
+  "ControlNet 2 pixel_perfect",
+  "ControlNet 2 processor_res",
+  "ControlNet 2 resize_mode",
+  "ControlNet 2 threshold_a",
+  "ControlNet 2 threshold_b",
+  "ControlNet 2 weight"
+ ],
+ "unit_controls": [
+  {
+   "field": "enabled",
+   "component": "Checkbox",
+   "label": "Enable",
+   "default": false,
+   "visible": true,
+   "info": null,
+   "infotext": null
+  },
+  {
+   "field": "pixel_perfect",
+   "component": "Checkbox",
+   "label": "Pixel Perfect",
+   "default": false,
+   "visible": true,
+   "info": null,
+   "infotext": "ControlNet 0 pixel_perfect"
+  },
+  {
+   "field": "preprocessor_preview",
+   "component": "Checkbox",
+   "label": "Allow Preview",
+   "default": false,
+   "visible": false,
+   "info": null,
+   "infotext": null
+  },
+  {
+   "field": "mask_upload",
+   "component": "Checkbox",
+   "label": "Use Mask",
+   "default": false,
+   "visible": false,
+   "info": null,
+   "infotext": null
+  },
+  {
+   "field": "use_preview_as_input",
+   "component": "Checkbox",
+   "label": "Preview as Input",
+   "default": false,
+   "visible": false,
+   "info": null,
+   "infotext": null
+  },
+  {
+   "field": "upload_independent_img_in_img2img",
+   "component": "Checkbox",
+   "label": "Upload independent control image",
+   "default": false,
+   "visible": true,
+   "info": null,
+   "infotext": null
+  },
+  {
+   "field": "type_filter",
+   "component": "Radio",
+   "label": "Control Type",
+   "default": "All",
+   "visible": true,
+   "info": null,
+   "choices": [
+    "All",
+    "Canny",
+    "Region"
+   ],
+   "infotext": null
+  },
+  {
+   "field": "module",
+   "component": "Dropdown",
+   "label": "Preprocessor",
+   "default": "None",
+   "visible": true,
+   "info": null,
+   "choices": [
+    "None",
+    "canny"
+   ],
+   "infotext": "ControlNet 0 module"
+  },
+  {
+   "field": "model",
+   "component": "Dropdown",
+   "label": "Model",
+   "default": "None",
+   "visible": true,
+   "info": null,
+   "choices": [
+    "None"
+   ],
+   "infotext": "ControlNet 0 model"
+  },
+  {
+   "field": "weight",
+   "component": "Slider",
+   "label": "Control Weight",
+   "default": 1.0,
+   "minimum": 0.0,
+   "maximum": 2.0,
+   "step": 0.05,
+   "visible": true,
+   "info": null,
+   "infotext": "ControlNet 0 weight"
+  },
+  {
+   "field": "timestep_range",
+   "component": "RangeSlider",
+   "label": "Timestep Range",
+   "default": [
+    0.0,
+    1.0
+   ],
+   "minimum": 0,
+   "maximum": 1.0,
+   "step": 0.01,
+   "visible": true,
+   "info": null,
+   "infotext": null
+  },
+  {
+   "field": "processor_res",
+   "component": "Slider",
+   "label": "Preprocessor resolution",
+   "default": -1,
+   "minimum": 64,
+   "maximum": 2048,
+   "step": 10,
+   "visible": false,
+   "info": null,
+   "infotext": "ControlNet 0 processor_res"
+  },
+  {
+   "field": "threshold_a",
+   "component": "Slider",
+   "label": "Threshold A",
+   "default": -1,
+   "minimum": 64,
+   "maximum": 1024,
+   "step": 1,
+   "visible": false,
+   "info": null,
+   "infotext": "ControlNet 0 threshold_a"
+  },
+  {
+   "field": "threshold_b",
+   "component": "Slider",
+   "label": "Threshold B",
+   "default": -1,
+   "minimum": 64,
+   "maximum": 1024,
+   "step": 1,
+   "visible": false,
+   "info": null,
+   "infotext": "ControlNet 0 threshold_b"
+  },
+  {
+   "field": "control_mode",
+   "component": "Radio",
+   "label": "Control Mode",
+   "default": "Balanced",
+   "visible": true,
+   "info": null,
+   "choices": [
+    "Balanced",
+    "My prompt is more important",
+    "ControlNet is more important"
+   ],
+   "infotext": "ControlNet 0 control_mode"
+  },
+  {
+   "field": "resize_mode",
+   "component": "Radio",
+   "label": "Resize Mode",
+   "default": "Crop and Resize",
+   "visible": false,
+   "info": null,
+   "choices": [
+    "Just Resize",
+    "Crop and Resize",
+    "Resize and Fill"
+   ],
+   "infotext": "ControlNet 0 resize_mode"
+  },
+  {
+   "field": "hr_option",
+   "component": "Radio",
+   "label": "Hires-Fix Option",
+   "default": "Both",
+   "visible": false,
+   "info": null,
+   "choices": [
+    "Both",
+    "Low res only",
+    "High res only"
+   ],
+   "infotext": "ControlNet 0 hr_option"
+  },
+  {
+   "field": "save_detected_map",
+   "component": "Checkbox",
+   "label": null,
+   "default": true,
+   "visible": false,
+   "info": null,
+   "infotext": null
+  },
+  {
+   "field": "region_num",
+   "component": "Slider",
+   "label": "Number of Subjects",
+   "default": 0,
+   "minimum": 0,
+   "maximum": 7,
+   "step": 1,
+   "visible": true,
+   "info": "0 for Blank Canvas",
+   "infotext": null
+  },
+  {
+   "field": "region_height",
+   "component": "Slider",
+   "label": "Vertical Position",
+   "default": 0.4,
+   "minimum": 0.2,
+   "maximum": 0.8,
+   "step": 0.05,
+   "visible": true,
+   "info": null,
+   "infotext": null
+  },
+  {
+   "field": "region_randomize",
+   "component": "Slider",
+   "label": "Randomize Bias",
+   "default": 0.075,
+   "minimum": 0.0,
+   "maximum": 0.5,
+   "step": 0.025,
+   "visible": true,
+   "info": null,
+   "infotext": null
+  },
+  {
+   "field": "region_shape",
+   "component": "Radio",
+   "label": "Mask Shape",
+   "default": "Rectangle",
+   "visible": true,
+   "info": null,
+   "choices": [
+    "Rectangle",
+    "Oval"
+   ],
+   "infotext": null
+  },
+  {
+   "field": "new_canvas_width",
+   "component": "Slider",
+   "label": "New Canvas Width",
+   "default": 512,
+   "minimum": 256,
+   "maximum": 1024,
+   "step": 64,
+   "visible": true,
+   "info": null,
+   "infotext": null
+  },
+  {
+   "field": "new_canvas_height",
+   "component": "Slider",
+   "label": "New Canvas Height",
+   "default": 512,
+   "minimum": 256,
+   "maximum": 1024,
+   "step": 64,
+   "visible": true,
+   "info": null,
+   "infotext": null
+  }
+ ]
+}

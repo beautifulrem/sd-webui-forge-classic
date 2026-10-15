@@ -1,0 +1,364 @@
+{
+ "inputs": [
+  {
+   "kind": "choice",
+   "label": "Precision",
+   "default": "bf16 (best quality, ~17 GB VRAM)",
+   "choices": [
+    "bf16 (best quality, ~17 GB VRAM)"
+   ],
+   "elem_id": null
+  },
+  {
+   "kind": "toggle",
+   "label": "Keep model loaded after captioning",
+   "default": true,
+   "elem_id": null
+  },
+  {
+   "kind": "choice",
+   "label": "Caption type",
+   "default": "Descriptive (Formal)",
+   "choices": [
+    "(none — system prompt only)",
+    "Descriptive (Formal)",
+    "Descriptive (Casual)",
+    "Straightforward",
+    "NSFW Descriptive (Explicit)",
+    "Booru Tags + Natural Language",
+    "Action-Focused",
+    "Character-Focused",
+    "Anthro / Furry Descriptive",
+    "Danbooru tag list",
+    "e621 tag list",
+    "Rule34 tag list",
+    "Booru-Like Tag List",
+    "Booru Tags (general only, no metadata)"
+   ],
+   "elem_id": null
+  },
+  {
+   "kind": "choice",
+   "label": "Caption length",
+   "default": "long",
+   "choices": [
+    "any",
+    "very short",
+    "short",
+    "medium",
+    "long",
+    "very long",
+    "20",
+    "30",
+    "40",
+    "50",
+    "60",
+    "70",
+    "80",
+    "90",
+    "100",
+    "110",
+    "120",
+    "130",
+    "140",
+    "150",
+    "160",
+    "170",
+    "180",
+    "190",
+    "200",
+    "210",
+    "220",
+    "230",
+    "240",
+    "250",
+    "260"
+   ],
+   "elem_id": null
+  },
+  {
+   "kind": "text",
+   "label": "{name} replacement (used only if the {name} extra option is selected)",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "toggle",
+   "label": "Use custom prompt",
+   "default": false,
+   "elem_id": null
+  },
+  {
+   "kind": "text",
+   "label": "Custom prompt",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "toggle",
+   "label": "Use system prompt (uncheck to send only the caption-type prompt)",
+   "default": true,
+   "elem_id": null
+  },
+  {
+   "kind": "text",
+   "label": "System prompt",
+   "default": "You are an expert image captioner. Your captions are used to train an image generation model that learns from a mixture of booru-style tags and natural-language descriptions, covering both SFW and NSFW imagery.\n\nDescribe only what is visibly present, using concrete, specific terms — precise anatomical and visual vocabulary, booru-style where it fits, prose where prose reads better. Front-load the subject and what they are doing.\n\nHard rules:\n- Never mention what is absent. No \"there is no watermark\", no \"the background lacks detail\", no negative descriptions of any kind.\n- No meta-commentary about the image itself. Do not write \"this image\", \"this photo\", \"the scene depicts\", \"we see\", \"captured in\", \"frozen in\", or anything similar.\n- No mood, atmosphere, or interpretive language. Do not write \"intimate\", \"playful\", \"mysterious\", \"evokes\", \"feels\", \"conveys\".\n- No quality or aesthetic judgments. Do not call anything \"tasteful\", \"beautiful\", \"stunning\", \"provocative\", or praise the technique.\n- For NSFW content, use direct anatomical and explicit terms without euphemism or hedging.\n- Write in present-tense, declarative sentences.\n- If readable text is visible, quote it verbatim. Otherwise, do not mention text at all.",
+   "elem_id": "joycaption-system-prompt-v2"
+  },
+  {
+   "kind": "slider",
+   "label": "Max new tokens",
+   "default": 512,
+   "minimum": 64,
+   "maximum": 2048,
+   "step": 16,
+   "elem_id": null
+  },
+  {
+   "kind": "slider",
+   "label": "Temperature",
+   "default": 0.6,
+   "minimum": 0.0,
+   "maximum": 2.0,
+   "step": 0.05,
+   "elem_id": null
+  },
+  {
+   "kind": "slider",
+   "label": "Top-p",
+   "default": 0.9,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.05,
+   "elem_id": null
+  },
+  {
+   "kind": "slider",
+   "label": "Top-k (0 = disabled)",
+   "default": 0,
+   "minimum": 0,
+   "maximum": 200,
+   "step": 1,
+   "elem_id": null
+  },
+  {
+   "kind": "multichoice",
+   "label": "",
+   "default": [],
+   "choices": [
+    "Include information about the ages of any people/characters when applicable.",
+    "Identify the image orientation (portrait, landscape, or square) and aspect ratio if obvious.",
+    "Describe body type with specific terms (slim, athletic, curvy, chubby, muscular, etc.).",
+    "Describe skin tone, complexion, and any visible texture (smooth, freckled, tanned, pale).",
+    "Note any visible body hair where present.",
+    "Mention apparent height or scale relative to other elements or characters.",
+    "Describe any visible tattoos, piercings, scars, or other markings.",
+    "Note the degree of nudity (fully clothed, partial, topless, bottomless, fully nude).",
+    "Explicitly describe any visible genitalia in anatomical detail.",
+    "Describe breast size, shape, and any nipple visibility precisely.",
+    "Describe the level of arousal visible (flushed skin, erect nipples, erection, etc.).",
+    "If sexual activity is occurring, describe the specific act and position in detail.",
+    "Note if the scene depicts oral, vaginal, anal, or other specific sexual contact.",
+    "Describe penetration depth, point of contact, and what is being penetrated by what.",
+    "Describe any visible bodily fluids (sweat, saliva, semen, etc.) explicitly.",
+    "If applicable, describe any sex toys, restraints, or accessories in detail.",
+    "Identify the species (or hybrid species) of any anthropomorphic character.",
+    "Describe fur color, pattern, length, and any markings.",
+    "Describe the muzzle, ears, tail, claws, and any species-specific features.",
+    "Distinguish between anthropomorphic (humanoid with animal features), feral, or taur body types.",
+    "Note any visible paw pads, scales, feathers, or non-fur surface details.",
+    "Describe the sexual dimorphism visible (e.g. sheath, knot, slit, etc. where applicable).",
+    "Describe each garment in detail, including color, material, fit, and condition.",
+    "Note any specific clothing style, era, or subculture (gothic, casual, formal, fetish, etc.).",
+    "Mention specific accessories (collars, gloves, stockings, jewelry, eyewear, etc.).",
+    "If clothing is being removed, displaced, or sheer/see-through, describe how.",
+    "If hair is styled, describe the style precisely (twin tails, braid, undercut, etc.) along with color.",
+    "Note makeup, nail polish, or other cosmetic details.",
+    "Describe the exact pose using specific body-position language.",
+    "Describe the position and gesture of each visible hand.",
+    "Describe the position and gesture of each visible foot.",
+    "Describe head tilt, gaze direction, and eye contact with the viewer.",
+    "Note any movement implied (mid-jump, mid-stroke, falling, walking, etc.).",
+    "Describe facial expression in concrete terms (e.g. \"mouth open, eyes half-closed\" rather than \"happy\").",
+    "If multiple subjects are present, describe how they are positioned relative to each other and any physical contact between them.",
+    "Mention whether the image depicts an extreme close-up, close-up, medium close-up, medium shot, cowboy shot, medium wide shot, wide shot, or extreme wide shot.",
+    "Specify the depth of field and whether the background is in focus or blurred.",
+    "Explicitly specify the vantage height (eye-level, low-angle worm's-eye, bird's-eye, drone, rooftop, etc.).",
+    "Include information about camera angle.",
+    "Describe the location specifically (bedroom, classroom, bathroom, outdoors, etc.) and any defining objects.",
+    "Describe time of day or implied time (morning light, night, golden hour, indoor lighting).",
+    "Note the apparent weather or environmental conditions if outdoors.",
+    "If the setting contains text, signs, or labels, transcribe them exactly.",
+    "Describe any background characters, ambient activity, or context.",
+    "Include information about lighting.",
+    "If applicable, mention the likely use of artificial or natural lighting sources.",
+    "Include information on the image's composition style, such as leading lines, rule of thirds, or symmetry.",
+    "Identify the art style (photorealistic, anime, semi-realistic, painterly, 3D render, etc.).",
+    "Note any specific medium (digital painting, watercolor, oil, pencil sketch, screen-print, etc.).",
+    "Describe linework quality (clean lineart, sketchy, no lines/painted, etc.).",
+    "Describe color treatment (vivid, muted, monochrome, sepia, high-contrast, pastel).",
+    "Note any obvious artistic influences or genre conventions visible.",
+    "If it is a photo you MUST include information about what camera was likely used and details such as aperture, shutter speed, ISO, etc.",
+    "Include information about whether there are JPEG artifacts or not.",
+    "You MUST include information about the subjective aesthetic quality of the image from low to very high.",
+    "If there is a person/character in the image you must refer to them as {name}.",
+    "Do NOT include information about people/characters that cannot be changed (like ethnicity, gender, etc), but do still include changeable attributes (like hair style).",
+    "Use vulgar slang and profanity, such as (but not limited to) \"fucking,\" \"slut,\" \"cock,\" etc.",
+    "Do NOT use polite euphemisms—lean into blunt, casual phrasing.",
+    "Do NOT include anything sexual; keep it PG.",
+    "Include whether the image is sfw, suggestive, or nsfw.",
+    "If it is a work of art, do not include the artist's name or the title of the work.",
+    "ONLY describe the most important elements of the image.",
+    "Use present tense throughout.",
+    "Begin the caption with the main subject and action, not the setting.",
+    "Use sentence fragments where appropriate for booru-tag-like compactness.",
+    "Front-load the most important visual details in the first sentence.",
+    "Keep the description to a single flowing paragraph without line breaks.",
+    "Avoid restating the same visual fact in multiple ways.",
+    "Do NOT speculate about what the subject is thinking, feeling, or intending.",
+    "Do NOT describe the scene as \"tasteful,\" \"artistic,\" \"provocative,\" or with any value judgment.",
+    "Do NOT use phrases like \"captured in a moment,\" \"frozen in time,\" or other photography clichés.",
+    "Do NOT describe what is NOT in the image (absences, negative space mentions).",
+    "Do NOT use the words \"image,\" \"photo,\" \"picture,\" \"scene,\" or \"depicts\" to refer to the image itself.",
+    "Do not mention the mood/feeling/etc of the image.",
+    "Do NOT mention the image's resolution.",
+    "Do NOT mention any text that is in the image.",
+    "Do NOT use any ambiguous language.",
+    "Include information about whether there is a watermark or not.",
+    "If there is a watermark, you must mention it.",
+    "Your response will be used by a text-to-image model, so avoid useless meta phrases like \"This image shows…\", \"You are looking at...\", etc."
+   ],
+   "elem_id": null
+  },
+  {
+   "kind": "choice",
+   "label": "Load existing into editor",
+   "default": null,
+   "choices": [
+    "Descriptive (Formal)",
+    "Descriptive (Casual)",
+    "Straightforward",
+    "NSFW Descriptive (Explicit)",
+    "Booru Tags + Natural Language",
+    "Action-Focused",
+    "Character-Focused",
+    "Anthro / Furry Descriptive",
+    "Danbooru tag list",
+    "e621 tag list",
+    "Rule34 tag list",
+    "Booru-Like Tag List",
+    "Booru Tags (general only, no metadata)"
+   ],
+   "elem_id": null
+  },
+  {
+   "kind": "text",
+   "label": "Name",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "text",
+   "label": "Prompt — \"any\" length",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "text",
+   "label": "Prompt — when a {word_count} is given (use the placeholder)",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "text",
+   "label": "Prompt — when a named {length} bucket is given (use the placeholder)",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "image",
+   "label": "Image",
+   "default": null,
+   "elem_id": "joycaption_single_image"
+  },
+  {
+   "kind": "text",
+   "label": "Caption",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "text",
+   "label": "Prompt used",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "text",
+   "label": "txt2img prompt + caption (editable; sent to txt2img below)",
+   "default": "",
+   "elem_id": "joycaption_txt2img_combined"
+  },
+  {
+   "kind": "text",
+   "label": "Folder path (absolute)",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "toggle",
+   "label": "Recursive",
+   "default": false,
+   "elem_id": null
+  },
+  {
+   "kind": "toggle",
+   "label": "Overwrite existing",
+   "default": false,
+   "elem_id": null
+  },
+  {
+   "kind": "text",
+   "label": "Prefix (optional)",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "text",
+   "label": "Suffix (optional)",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "choice",
+   "label": "Save as",
+   "default": ".txt",
+   "choices": [
+    ".txt",
+    ".caption",
+    ".tags"
+   ],
+   "elem_id": null
+  },
+  {
+   "kind": "text",
+   "label": "Log",
+   "default": "",
+   "elem_id": null
+  }
+ ],
+ "buttons": [
+  "Load model",
+  "Unload (free VRAM)",
+  "Reset system prompt to default",
+  "Load",
+  "Save",
+  "Delete user override",
+  "Caption image",
+  "→ Append to txt2img Prompt (does not replace)",
+  "↻ Replace txt2img Prompt (overwrites existing)",
+  "Run batch"
+ ],
+ "title": "JoyCaption"
+}

@@ -253,11 +253,62 @@ class JobQueue:
         job = self.get(job_id)
         if job.status in (QUEUED, RUNNING):
             raise JobError("the job has not finished")
+        return self._copy(job, user=user)
+
+    def duplicate(self, job_id: str, *, user: str | None = None) -> Job:
+        """Queue a copy of any job: right after it while it is queued, else at the end."""
+
+        job = self.get(job_id)
+        return self._copy(job, user=user, after=job.id if job.status == QUEUED else None)
+
+    def _copy(self, job: Job, *, user: str | None, after: str | None = None) -> Job:
+        if not job.replayable:
+            raise JobError("this job has arguments that do not map to the current parameters; open it in its form to queue it again")
         self.validate(job.tab, job.core, job.scripts)  # the layout or its uploads may have changed
-        new = self.store.add(job.tab, job.core, job.scripts, priority=job.priority, layout_hash=self.hash_layout(job.tab), schema_version=job.schema_version, summary=job.summary, user=user, retry_of=job.id)
+        meta = {key: job.meta[key] for key in ("name",) if job.meta.get(key)}
+        new = self.store.add(job.tab, job.core, job.scripts, priority=job.priority, layout_hash=self.hash_layout(job.tab), schema_version=job.schema_version, summary=job.summary, user=user, retry_of=job.id, after=after, meta=meta or None)
         self._enqueued(new)
         self._changed()
         return new
+
+    def update_params(self, job_id: str, core: dict[str, Any], scripts: dict[str, Any]) -> Job:
+        """Replace a queued job's parameters (validated like a submission)."""
+
+        from remi.ui.schema import SCHEMA_VERSION
+
+        job = self.get(job_id)
+        if job.status != QUEUED:
+            raise JobError("only queued jobs can be edited")
+        self.validate(job.tab, core, scripts)
+        updated = self.store.update_params(job_id, core or {}, scripts or {}, layout_hash=self.hash_layout(job.tab), schema_version=SCHEMA_VERSION, summary=_summary(core or {}, job.tab))
+        if updated is None:
+            raise JobError("the job started meanwhile")
+        self._changed()
+        return updated
+
+    def set_starred(self, ids: list[str], starred: bool) -> int:
+        count = self.store.set_starred(ids, starred)
+        self._changed()
+        return count
+
+    def clear_history(self, *, keep_starred: bool = True) -> int:
+        count = self.store.clear_finished(keep_starred=keep_starred)
+        self._changed()
+        return count
+
+    def add_imported(self, job: Job, *, source: str, source_id: str) -> Job:
+        """Store an imported job (queued ones are announced like submissions)."""
+
+        added = self.store.add_record(job)
+        self.store.record_import(source, source_id, added.id)
+        if added.status == QUEUED:
+            self._enqueued(added)
+        return added
+
+    def changed(self) -> None:
+        """Announce the queue state (after a batch of changes)."""
+
+        self._changed()
 
     def interrupt(self, job_id: str) -> Job:
         """Stop the running job (keeping what it made) or cancel a queued one."""
@@ -292,6 +343,14 @@ class JobQueue:
 
     def reorder(self, ids: list[str]) -> None:
         self.store.reorder(ids)
+        self._changed()
+
+    def move(self, job_id: str, *, after: str | None = None, before: str | None = None, priority: int | None = None) -> None:
+        """Move a queued job next to a neighbour (see :meth:`JobStore.move`)."""
+
+        self.get(job_id)
+        if not self.store.move(job_id, after=after, before=before, priority=priority):
+            raise JobError("the job is not queued any more")
         self._changed()
 
     def interrupt_all(self, *, clear_queue: bool = False, stop_forever: bool = True) -> None:
@@ -403,9 +462,11 @@ class JobQueue:
                 if self._stopping:
                     return
                 job = self.store.claim_next()
-                if job is None:
-                    continue
-                self._claimed = job
+                if job is not None:
+                    self._claimed = job
+            if job is None:  # it cancelled queued jobs it cannot run: nothing is queued now
+                self._changed()
+                continue
             try:
                 with self.lock:  # behind /sdapi requests and GPU actions
                     self._run(job)

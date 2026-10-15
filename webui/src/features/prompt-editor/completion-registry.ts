@@ -11,7 +11,7 @@
  *     return { from: word.from, options: await lookup(word.text) }
  *   })
  */
-import type { CompletionSource } from "@codemirror/autocomplete"
+import type { Completion, CompletionSource } from "@codemirror/autocomplete"
 
 export type CompletionEntry = {
   id: string
@@ -27,6 +27,37 @@ let snapshot: readonly CompletionEntry[] = []
 function changed() {
   snapshot = [...entries.values()].sort((a, b) => b.priority - a.priority)
   for (const listener of listeners) listener()
+}
+
+/**
+ * Optional rendering extras a source can put on its completions: a class on
+ * the option row and a node appended to it (counts, translations, …).
+ */
+export type DecoratedCompletion = Completion & {
+  className?: string
+  /** Extra content after the label (a fresh node per call). */
+  decorate?: () => Node | null
+}
+
+let acceptKey: "Tab" | "Enter" | null = null
+
+/**
+ * The key that accepted the completion being applied (`null`: a click),
+ * readable from a completion's `apply` function (e.g. Tab completes a
+ * wildcard path one folder at a time, Enter inserts it whole).
+ */
+export function completionAcceptKey(): "Tab" | "Enter" | null {
+  return acceptKey
+}
+
+/** Set by the editor's key bindings around `acceptCompletion`. */
+export function withAcceptKey<T>(key: "Tab" | "Enter" | null, run: () => T): T {
+  acceptKey = key
+  try {
+    return run()
+  } finally {
+    acceptKey = null
+  }
 }
 
 /** Registers (or replaces) the source `id`; returns the unregister function. */

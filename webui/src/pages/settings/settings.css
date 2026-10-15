@@ -1,0 +1,5 @@
+/* Search matches in the settings list (CSS Custom Highlight API, see highlight.ts). */
+::highlight(remi-settings-search) {
+  background-color: oklch(var(--brand-l) var(--brand-c) var(--brand-h) / 28%);
+  color: inherit;
+}

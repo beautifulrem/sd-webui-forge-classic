@@ -15,7 +15,7 @@ See docs/remi-webui/architecture.md and schema-format.md.
 """
 
 from remi.ui import conditions
-from remi.ui.actions import ActionContext, ActionSpec, action, actions_of, call_action, check_patch, merge_patches, toast, update
+from remi.ui.actions import ActionContext, ActionSpec, action, actions_of, call_action, check_patch, merge_patches, message, toast, update
 from remi.ui.conditions import all_of, any_of, evaluate, not_, param
 from remi.ui.context import Context
 from remi.ui.errors import ParamError, SchemaError, ValidationError
@@ -39,6 +39,7 @@ from remi.ui.nodes import (
     Node,
     Number,
     Output,
+    RangeSlider,
     Row,
     Section,
     Seed,
@@ -77,6 +78,7 @@ __all__ = [
     "Number",
     "Output",
     "ParamError",
+    "RangeSlider",
     "Row",
     "SchemaError",
     "ScriptLayout",
@@ -101,6 +103,7 @@ __all__ = [
     "evaluate",
     "jsonable",
     "merge_patches",
+    "message",
     "not_",
     "param",
     "to_schema",

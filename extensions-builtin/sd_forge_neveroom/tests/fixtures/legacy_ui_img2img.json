@@ -1,0 +1,18 @@
+[
+ {
+  "kind": "toggle",
+  "label": "Enabled for UNet (always offload)",
+  "default": false,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "toggle",
+  "label": "Enabled for VAE (always tiled)",
+  "default": false,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ }
+]

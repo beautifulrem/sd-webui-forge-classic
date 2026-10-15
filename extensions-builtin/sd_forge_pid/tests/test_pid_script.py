@@ -6,7 +6,6 @@ import pathlib
 import sys
 import types
 from types import SimpleNamespace
-from unittest.mock import patch
 
 sys.argv = sys.argv[:1]
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -24,6 +23,8 @@ def _module(name, **attributes):
 def _load():
     # These need the full WebUI install (k_diffusion, huggingface_guess);
     # stub only what the script imports, and only while it is imported.
+    # Only the stubbed entries are restored: the modules imported meanwhile
+    # (torch, cv2) stay, as native extensions cannot be imported twice.
     stubs = {
         "modules.processing": _module(
             "modules.processing",
@@ -40,10 +41,18 @@ def _load():
         "modules.images": _module("modules.images", save_image=None),
         "modules_forge.main_entry": _module("modules_forge.main_entry", module_list={}),
     }
-    with patch.dict(sys.modules, stubs):
+    saved = {name: sys.modules.get(name) for name in stubs}
+    sys.modules.update(stubs)
+    try:
         spec = importlib.util.spec_from_file_location("pid_script_under_test", SCRIPT)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
+    finally:
+        for name, previous in saved.items():
+            if previous is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = previous
     return module
 
 

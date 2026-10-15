@@ -2,16 +2,15 @@ import os.path
 from typing import Optional
 
 import cv2
-import gradio as gr
 import numpy as np
 import torch
-from lib_controlnet import external_code, global_state
+from lib_controlnet import external_code, global_state, unit_actions
 from lib_controlnet.api import controlnet_api
-from lib_controlnet.controlnet_ui.controlnet_ui_group import ControlNetUiGroup
 from lib_controlnet.enums import HiResFixOption
 from lib_controlnet.external_code import ControlNetUnit
 from lib_controlnet.infotext import Infotext
 from lib_controlnet.logging import logger
+from lib_controlnet.unit_param import ControlNetUnitParam, catalog
 from lib_controlnet.utils import (
     align_dim_latent,
     crop_and_resize_image,
@@ -34,8 +33,18 @@ from modules.processing import (
 from modules_forge.shared import try_load_supported_control_model
 from modules_forge.supported_controlnet import ControlModelPatcher
 from modules_forge.utils import HWC3, numpy_to_pytorch
+from remi import ui
 
 global_state.update_controlnet_filenames()
+
+
+def unit_count() -> int:
+    """``control_net_unit_count`` (1-5; read when the layouts are built)."""
+
+    try:
+        return min(max(int(shared.opts.data.get("control_net_unit_count", 3)), 1), 5)
+    except (TypeError, ValueError):
+        return 3
 
 
 class ControlNetCachedParameters:
@@ -57,38 +66,78 @@ class ControlNetForForgeOfficial(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def ui(self, is_img2img):
-        infotext = Infotext()
-        ui_groups = []
-        controls = []
-        max_models = shared.opts.data.get("control_net_unit_count", 3)
-        elem_id_tabname = f"{'img2img' if is_img2img else 'txt2img'}_controlnet"
-        default_unit = ControlNetUnit(enabled=False, module="None", model="None")
+    def params(self, is_img2img):
+        """One ``controlnet-unit`` param per unit (each one processing
+        argument, the ``ControlNetUnit`` the old ``gr.State`` held), then,
+        in img2img, the ControlNet batch input directory."""
 
-        with gr.Group(elem_id=elem_id_tabname):
-            with gr.Accordion(open=False, label="ControlNet Integrated", elem_id="controlnet", elem_classes=["controlnet"]):
-                with gr.Tabs(elem_id=elem_id_tabname + "_tabs", elem_classes="controlnet_tabs"):
-                    for i in range(max_models):
-                        with gr.Tab(label=f"ControlNet Unit {i + 1}", id=i):
-                            group = ControlNetUiGroup(is_img2img, default_unit)
-                            ui_groups.append(group)
-                            controls.append(group.render(f"ControlNet-{i}", elem_id_tabname))
+        count = self.units_built = unit_count()
+        titles = [f"ControlNet Unit {i + 1}" for i in range(count)]
+        paste = bool(shared.opts.data.get("control_net_sync_field_args", True))
+        units = [ControlNetUnitParam(f"unit_{i}", i, is_img2img=is_img2img, tab_titles=titles, paste=paste, label="") for i in range(count)]
+        batch_dir = None
+        if is_img2img:
+            batch_dir = ui.Text(
+                "batch_input_dir",
+                "",
+                label="Controlnet input directory",
+                placeholder="Leave empty to use input directory",
+                info="Batch: the control image of each input image is the file of the same name in this directory (else the next file).",
+                hidden=bool(shared.cmd_opts.hide_ui_dir_config),
+                visible_if=ui.param("core.mode", eq="Batch"),
+            )
+        return ui.Section("ControlNet Integrated", ui.Tabs(*[ui.Tab(title, unit) for title, unit in zip(titles, units)]), batch_dir, open=False)
 
-        for i, ui_group in enumerate(ui_groups):
-            infotext.register_unit(i, ui_group)
+    def _unit(self, ctx: ui.ActionContext, values: dict):
+        """``(index, canonical value)`` of the unit an action is for."""
 
-        if shared.opts.data.get("control_net_sync_field_args", True):
-            self.infotext_fields = infotext.infotext_fields
-            self.paste_field_names = infotext.paste_field_names
+        index = unit_actions.unit_index(ctx, unit_count())
+        node = ControlNetUnitParam(f"unit_{index}", index, is_img2img=ctx.tab == "img2img", tab_titles=[])
+        try:
+            value = node.coerce(values.get(node.name, node.default), ui.Context())
+        except ui.ParamError as error:
+            raise ui.ValidationError([ui.ParamError(str(error), owner=ctx.owner or None, param=node.name)]) from None
+        return index, value
 
-        return tuple(controls)
+    @ui.action("refresh_models")
+    def refresh_models(self, ctx, values):
+        global_state.update_controlnet_filenames()
+        return {"__outputs__": {"catalog": catalog()}}
 
-    def get_enabled_units(self, units):
-        # Parse dict from API calls.
-        units = [ControlNetUnit.from_dict(unit) if isinstance(unit, dict) else unit for unit in units]
-        assert all(isinstance(unit, ControlNetUnit) for unit in units)
+    @ui.action("preview", gpu=True)
+    def preview(self, ctx, values):
+        index, value = self._unit(ctx, values)
+        return unit_actions.run_preview(ctx, index, value)
+
+    @ui.action("render_pose")
+    def render_pose(self, ctx, values):
+        return unit_actions.render_pose(ctx, unit_actions.unit_index(ctx, unit_count()))
+
+    @ui.action("region_canvas")
+    def region_canvas(self, ctx, values):
+        return unit_actions.make_region_canvas(ctx, unit_actions.unit_index(ctx, unit_count()))
+
+    def split_args(self, args) -> tuple[list, str]:
+        """``(units, batch input directory)`` of the script's arguments: one
+        slot per unit (``ControlNetUnit``, or an API unit dict), then, in
+        img2img, the directory. Extra arguments are ignored, as before."""
+
+        count = getattr(self, "units_built", None) or unit_count()
+        batch_dir = args[count] if len(args) > count and isinstance(args[count], str) else ""
+        return list(args[:count]), batch_dir
+
+    def get_enabled_units(self, args):
+        # Parse dict from API calls; anything else in a unit slot is not a unit
+        units = [ControlNetUnit.from_dict(unit) if isinstance(unit, dict) else unit for unit in self.split_args(args)[0] if isinstance(unit, (dict, ControlNetUnit))]
         enabled_units = [x for x in units if x.enabled]
         return enabled_units
+
+    def get_batch_input_dir(self, args) -> str:
+        """The img2img "Controlnet input directory" argument; "" when absent,
+        or when the WebUI hides directory settings (--hide-ui-dir-config:
+        then no request may point ControlNet at a server directory)."""
+
+        return "" if shared.cmd_opts.hide_ui_dir_config else self.split_args(args)[1]
 
     @staticmethod
     def try_crop_image_with_a1111_mask(p: StableDiffusionProcessing, unit: ControlNetUnit, input_image: np.ndarray, resize_mode: external_code.ResizeMode, preprocessor, *, _is_mask: bool = False) -> np.ndarray:
@@ -135,11 +184,12 @@ class ControlNetForForgeOfficial(scripts.Script):
         image: np.ndarray = None
 
         # ---------------- BATCH DIR OVERRIDE ----------------
-        batch_dir: os.PathLike = ControlNetUiGroup.GLOBAL_CONTROLNET_BATCH_DIR.strip()
-        src_path: os.PathLike = getattr(a1111_i2i_image, "filename", "").strip()
+        batch_dir: os.PathLike = (getattr(self, "batch_input_dir", "") or "").strip()
+        src_path: os.PathLike = (getattr(a1111_i2i_image, "filename", "") or "").strip()
 
-        if os.path.isdir(batch_dir):
+        if batch_dir and os.path.isdir(batch_dir):
             matched_path: os.PathLike = None
+            i = 0
 
             control_files = list(
                 util.walk_files(
@@ -413,11 +463,11 @@ class ControlNetForForgeOfficial(scripts.Script):
             hr_option = HiResFixOption.BOTH
 
         if has_high_res_fix and is_hr_pass and (not hr_option.high_res_enabled):
-            logger.info(f"ControlNet Skipped High-res pass.")
+            logger.info("ControlNet Skipped High-res pass.")
             return
 
         if has_high_res_fix and (not is_hr_pass) and (not hr_option.low_res_enabled):
-            logger.info(f"ControlNet Skipped Low-res pass.")
+            logger.info("ControlNet Skipped Low-res pass.")
             return
 
         if params.model is None:
@@ -507,6 +557,7 @@ class ControlNetForForgeOfficial(scripts.Script):
             return
 
         self.current_params = {}
+        self.batch_input_dir = self.get_batch_input_dir(args) if isinstance(p, StableDiffusionProcessingImg2Img) else ""
         enabled_units = self.get_enabled_units(args)
         Infotext.write_infotext(enabled_units, p)
         for i, unit in enumerate(enabled_units):
@@ -548,7 +599,7 @@ def on_ui_settings():
         shared.OptionInfo(
             3,
             "Number of ControlNet Units",
-            gr.Slider,
+            ui.Slider,
             {"minimum": 1, "maximum": 5, "step": 1},
             section=section,
             category_id=category_id,
@@ -559,7 +610,7 @@ def on_ui_settings():
         shared.OptionInfo(
             1,
             "Number of Models to Cache in Memory",
-            gr.Slider,
+            ui.Slider,
             {"minimum": 0, "maximum": 10, "step": 1},
             section=section,
             category_id=category_id,
@@ -606,9 +657,6 @@ def on_ui_settings():
 
 
 script_callbacks.on_ui_settings(on_ui_settings)
-script_callbacks.on_infotext_pasted(Infotext.on_infotext_pasted)
-script_callbacks.on_after_component(ControlNetUiGroup.on_after_component)
-script_callbacks.on_before_reload(ControlNetUiGroup.reset)
 
 if shared.cmd_opts.api:
     script_callbacks.on_app_started(controlnet_api)

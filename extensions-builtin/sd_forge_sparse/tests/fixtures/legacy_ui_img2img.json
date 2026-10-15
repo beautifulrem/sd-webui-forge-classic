@@ -1,0 +1,70 @@
+[
+ {
+  "kind": "toggle",
+  "label": "Sparse Attention Integrated",
+  "default": false,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Tau",
+  "default": 1.25,
+  "minimum": 0.0,
+  "maximum": 4.0,
+  "step": 0.05,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "json",
+  "label": "Timestep Range",
+  "default": [
+   0.15,
+   0.85
+  ],
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Tokens Threshold",
+  "default": 4096,
+  "minimum": 0,
+  "maximum": 32768,
+  "step": 512,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Extra Tokens",
+  "default": 0,
+  "minimum": 0,
+  "maximum": 256,
+  "step": 64,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "text",
+  "label": "Dense Blocks",
+  "default": "",
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "toggle",
+  "label": "Verbose (Debug)",
+  "default": false,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ }
+]

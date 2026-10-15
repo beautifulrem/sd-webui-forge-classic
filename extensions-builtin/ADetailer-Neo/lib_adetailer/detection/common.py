@@ -56,7 +56,8 @@ def _download(folder: os.PathLike, names: dict[str, URL]):
             print(f'Failed to download "{file}"')
 
 
-def get_models(ad_dir: str, *extra_dirs: str) -> dict[str, os.PathLike]:
+def get_models(ad_dir: str, *extra_dirs: str, download: bool = True) -> dict[str, os.PathLike]:
+    """Detector models by file name; ``download=False`` only scans (refresh)."""
 
     TO_DOWNLOAD: Final[dict[str, URL]] = {
         # https://huggingface.co/Bingsu/adetailer
@@ -75,7 +76,7 @@ def get_models(ad_dir: str, *extra_dirs: str) -> dict[str, os.PathLike]:
         "face_landmarker.task": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
     }
 
-    if not no_huggingface:
+    if download and not no_huggingface:
         print("Loading Models...")
         _download(ad_dir, TO_DOWNLOAD)
 

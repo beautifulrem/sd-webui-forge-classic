@@ -11,12 +11,18 @@ export function tabOwners(schema: TabSchema): OwnerSpec[] {
   ]
 }
 
-/** The job body for the current values of a tab form. */
+/** The job body for the current values of a tab form (without `submit: false` inputs). */
 export function jobRequest(store: FormStore, schema: TabSchema): JobRequest {
-  const { values } = store.getState()
+  const { values, index } = store.getState()
+  const submitted = (owner: string): Record<string, unknown> => {
+    const ownerValues = values[owner] ?? {}
+    const nodes = index.inputs.get(owner)
+    if (!nodes || ![...nodes.values()].some((node) => node.submit === false)) return ownerValues
+    return Object.fromEntries(Object.entries(ownerValues).filter(([name]) => nodes.get(name)?.submit !== false))
+  }
   return {
     tab: schema.tab,
-    core: values.core ?? {},
-    scripts: Object.fromEntries(schema.scripts.map((script) => [script.id, values[script.id] ?? {}])),
+    core: submitted("core"),
+    scripts: Object.fromEntries(schema.scripts.map((script) => [script.id, submitted(script.id)])),
   }
 }

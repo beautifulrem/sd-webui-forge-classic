@@ -5,7 +5,6 @@ import logging
 import weakref
 import uuid
 from dataclasses import dataclass, field
-from functools import partial
 
 from modules.anima_lora_files import adapter_kind_for_file, is_anima_adapter_file, lora_coverage
 from modules.anima_online_lora import acquire_online_lora, online_lora_leased_by_other_than, release_online_lora, user_online_lora
@@ -34,7 +33,6 @@ from modules.anima_support import clamp as _clamp, to_float as _to_float
 from lib_stage_scheduler.options import (
     BUILTIN_TEMPLATES,
     CURVE_CODES,
-    DISABLE_ALIASES,
     DISABLE_ALL,
     DISABLE_CODES,
     DISABLE_NONE,
@@ -49,12 +47,8 @@ from lib_stage_scheduler.options import (
     PanelWeightSpec,
     STAGE_CHARACTER,
     STAGE_CHOICES,
-    TARGET_MODE_ALIASES,
     TARGET_MODE_CODES,
-    _display_disable_mode,
-    _display_target_mode,
     _format_float,
-    _lookup_choice,
     _normalize_curve,
     _normalize_disable_mode,
     _normalize_target_mode,
@@ -67,7 +61,6 @@ from lib_stage_scheduler.templates import (
     _parse_lora_template_overrides,
     _primary_template_part,
     _template_config,
-    _template_names,
     _template_parts,
 )
 
@@ -594,45 +587,6 @@ def _run_infotext(p, state: RuntimeState, hr_independent, base_lora_templates, h
         if state.hr_disable_mode == DISABLE_SELECTED and state.hr_disable_tags:
             params[INFOTEXT_HIRES_DISABLE_TAGS] = "\n".join(state.hr_disable_tags)
     return params
-
-
-def _translate_pasted_choice(params, key, codes, display, aliases=None, default=None):
-    """Make ``params[key]``, the code of a choice (``codes`` maps choices to
-    codes), ``display`` of that choice. A choice or its label in ``aliases``
-    (label -> choice) is taken as well. An unknown value is dropped, leaving
-    the control alone; a missing one reads as ``default``."""
-
-    value = params.get(key, codes.get(default))
-    choice = _lookup_choice(value, codes, aliases)
-    if choice is None:
-        if value is not None:
-            logger.warning("Ignored unknown pasted %s: %s", key, value)
-        params.pop(key, None)
-    else:
-        params[key] = display(choice)
-
-
-def _translate_pasted_infotext(infotext, params):
-    """Turn the recorded values into control values before Forge pastes them
-    (on_infotext_pasted): codes into the labels of the UI language, the text
-    fields a recorded panel left out into empty ones. A template missing here
-    leaves its dropdown alone. Keys a run did not record (older PNGs carry
-    only one summary line) leave their controls alone."""
-
-    for pass_name in ("base", "hires"):
-        key = partial(_panel_key, pass_name)
-        if key("template") not in params:
-            continue
-        _translate_pasted_choice(params, key("scope"), TARGET_MODE_CODES, _display_target_mode, TARGET_MODE_ALIASES)
-        _translate_pasted_choice(params, key("curve"), CURVE_CODES, str)
-        for name in ("targets", "per-LoRA templates"):
-            params.setdefault(key(name), "")
-        if params[key("template")] not in _template_names():
-            logger.warning("Pasted Anima LoRA stage template is not installed: %s", params[key("template")])
-            del params[key("template")]
-    if INFOTEXT_HIRES_INDEPENDENT in params:
-        _translate_pasted_choice(params, INFOTEXT_HIRES_DISABLE, DISABLE_CODES, _display_disable_mode, DISABLE_ALIASES, DISABLE_NONE)
-        params.setdefault(INFOTEXT_HIRES_DISABLE_TAGS, "")
 
 
 def _remove_hires_lora_tags(p, state: RuntimeState):

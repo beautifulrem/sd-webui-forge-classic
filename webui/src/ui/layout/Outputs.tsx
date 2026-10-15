@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { useFormState, useOwner } from "../hooks"
 import { SafeHtml } from "../RichText"
 import { type ImageRef, toImageRef } from "../image-ref"
+import { isMessage, messageText } from "../messages"
 import type { GalleryNode, OutputNode } from "../schema"
 
 function useOutput(name: string): unknown {
@@ -45,7 +46,7 @@ export function GalleryView({ node }: { node: GalleryNode }) {
 }
 
 export function OutputView({ node }: { node: OutputNode }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const value = useOutput(node.name)
   let body
   switch (node.kind ?? "text") {
@@ -63,11 +64,10 @@ export function OutputView({ node }: { node: OutputNode }) {
           <pre className="max-h-80 overflow-auto rounded-md bg-muted p-2.5 font-mono text-xs">{JSON.stringify(value, null, 2)}</pre>
         )
       break
-    default:
-      body =
-        value === undefined || value === null || value === "" ? null : (
-          <div className="rounded-md bg-muted/60 px-2.5 py-2 text-sm whitespace-pre-wrap">{String(value)}</div>
-        )
+    default: {
+      const text = value === undefined || value === null ? "" : isMessage(value) || typeof value === "string" ? messageText(i18n, value) : String(value)
+      body = text ? <div className="rounded-md bg-muted/60 px-2.5 py-2 text-sm whitespace-pre-wrap">{text}</div> : null
+    }
   }
   if (!body && !node.label) return null
   return (

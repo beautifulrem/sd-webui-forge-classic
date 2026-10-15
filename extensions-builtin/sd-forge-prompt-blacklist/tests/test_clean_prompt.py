@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-# The script imports gradio/WebUI modules at import time; load only the pure
+# The script imports WebUI modules at import time; load only the pure
 # prompt-cleaning helpers.
 SCRIPT = Path(__file__).parents[1] / "scripts" / "prompt_blacklist.py"
 _HELPERS = {"_strip_emphasis", "_normalize", "_parse_blacklist", "_is_blacklisted", "_bracket_residue", "clean_prompt"}

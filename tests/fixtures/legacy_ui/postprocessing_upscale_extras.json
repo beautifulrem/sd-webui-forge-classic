@@ -1,0 +1,13 @@
+{"script": "Upscale", "tab": "extras", "count": 11, "inputs": [
+  {"kind": "toggle", "label": "Upscale", "info": null, "default": true, "infotext": null, "paste": false, "preset": null, "name": "upscale_enabled"},
+  {"kind": "toggle", "label": "Color Correction", "info": null, "default": false, "infotext": null, "paste": false, "preset": null, "name": "upscale_cc"},
+  {"kind": "number", "label": "upscale_mode", "info": null, "default": 0, "step": 1, "integer": false, "infotext": null, "paste": false, "preset": null, "name": "upscale_mode"},
+  {"kind": "slider", "label": "Resize", "info": null, "default": 4.0, "minimum": 1.0, "maximum": 8.0, "step": 0.05, "integer": false, "infotext": null, "paste": false, "preset": null, "name": "upscale_by"},
+  {"kind": "slider", "label": "Max Side Length", "info": null, "default": 0, "minimum": 0, "maximum": 8192, "step": 8, "integer": true, "infotext": null, "paste": false, "preset": null, "name": "max_side_length"},
+  {"kind": "slider", "label": "Width", "info": null, "default": 1024, "minimum": 64, "maximum": 8192, "step": 8, "integer": true, "infotext": null, "paste": false, "preset": null, "name": "upscale_to_width"},
+  {"kind": "slider", "label": "Height", "info": null, "default": 1024, "minimum": 64, "maximum": 8192, "step": 8, "integer": true, "infotext": null, "paste": false, "preset": null, "name": "upscale_to_height"},
+  {"kind": "toggle", "label": "Crop to fit", "info": null, "default": true, "infotext": null, "paste": false, "preset": null, "name": "upscale_crop"},
+  {"kind": "choice", "label": "Upscaler 1", "info": null, "default": "None", "style": "dropdown", "allow_custom": false, "choices": ["None", "Lanczos", "Nearest", "ESRGAN"], "returns": "value", "infotext": null, "paste": false, "preset": null, "name": "upscaler_1_name"},
+  {"kind": "choice", "label": "Upscaler 2", "info": null, "default": "None", "style": "dropdown", "allow_custom": false, "choices": ["None", "Lanczos", "Nearest", "ESRGAN"], "returns": "value", "infotext": null, "paste": false, "preset": null, "name": "upscaler_2_name"},
+  {"kind": "slider", "label": "Upscaler 2 visibility", "info": null, "default": 0.0, "minimum": 0.0, "maximum": 1.0, "step": 0.05, "integer": false, "infotext": null, "paste": false, "preset": null, "name": "upscaler_2_visibility"}
+]}

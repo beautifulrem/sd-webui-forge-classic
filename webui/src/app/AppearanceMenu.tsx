@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { usePopupTooltip } from "@/components/popup-tooltip"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useLocale } from "@/i18n"
 import { ACCENTS, type Accent, type Density, type Theme, useAppearance } from "@/lib/theme"
@@ -44,13 +45,15 @@ export default function AppearanceMenu({ locales }: { locales: LocaleInfo[] }) {
   const { theme, density, accent, setTheme, setDensity, setAccent } = useAppearance()
   const locale = useLocale((s) => s.locale)
   const setLocale = useLocale((s) => s.setLocale)
+  // Closing the menu refocuses the button: keep its tooltip from popping up and staying.
+  const tip = usePopupTooltip()
 
   return (
-    <DropdownMenu>
-      <Tooltip>
+    <DropdownMenu open={tip.popupOpen} onOpenChange={tip.onPopupOpenChange}>
+      <Tooltip {...tip.tooltip}>
         <TooltipTrigger
           render={
-            <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label={t("Appearance")} />} />
+            <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label={t("Appearance")} {...tip.trigger} />} />
           }
         >
           <Palette />

@@ -6,6 +6,13 @@ JoyCaption is free, open, uncensored, and covers both SFW and NSFW content equal
 
 The tab sits up top alongside `Extras`, `PNG Info`, `Checkpoint Merger`, etc.
 
+> **Remi WebUI:** JoyCaption is a page (`#/ext/joycaption`, in the navigation's
+> pages group). Loading the model, captioning and folder runs show their
+> progress and can be cancelled; they wait for a running generation.
+> "Send to JoyCaption" is offered by PNG Info, and the Prompt Workshop sends
+> its downloaded post image here. Folder captioning is disabled with
+> `--hide-ui-dir-config`.
+
 ---
 
 ## Features

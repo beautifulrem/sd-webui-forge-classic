@@ -4,31 +4,35 @@ from __future__ import annotations
 
 import logging
 
-import gradio as gr
-
 from backend.logging import setup_logger
 from modules import scripts
+from modules.anima_presets import PRESET_DESCRIPTIONS, PRESETS, SAFE_BASE_AESTHETIC_LABEL, turbo_settings_advice
 from modules.anima_support import is_anima_engine
-from modules.anima_presets import (
-    PRESET_CONFLICT_CONTROLS,
-    PRESET_DESCRIPTIONS,
-    PRESETS,
-    SAFE_BASE_AESTHETIC_LABEL,
-    preset_controls,
-    preset_value,
-    register_preset_control,
-    turbo_settings_advice,
-    reset_preset_controls,
-)
-
+from remi import ui
 
 logger = logging.getLogger("anima_presets")
 setup_logger(logger)
 
 
+def owner_relative(patch: dict, owner: str) -> dict:
+    """A patch relative to the core owner (core params bare, others
+    ``owner.param``) made relative to ``owner``: core params become
+    ``core.param`` and ``owner``'s own params bare."""
+
+    relative = {}
+    for key, entry in patch.items():
+        if key.startswith("__"):
+            relative[key] = entry
+        elif "." not in key:
+            relative[f"core.{key}"] = entry
+        else:
+            target, name = key.split(".", 1)
+            relative[name if target == owner else key] = entry
+    return relative
+
+
 class AnimaRemiPresetScript(scripts.Script):
-    # Default section, after every other built-in extension has registered its
-    # controls. Torch Compile currently uses 99999.
+    # Default section, below the panels the preset configures.
     sorting_priority = 100000
     create_group = False
 
@@ -38,87 +42,34 @@ class AnimaRemiPresetScript(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def after_component(self, component, **kwargs):
-        elem_id = getattr(component, "elem_id", None) or kwargs.get("elem_id")
-        tab = self.tabname
-
-        # The prompt is one of the first per-tab components. Seeing it marks a
-        # fresh UI build and prevents references from an earlier reload leaking
-        # into the Apply event.
-        if elem_id == f"{tab}_prompt":
-            reset_preset_controls(tab)
-
-        native_ids = {
-            f"{tab}_sampling": "native.sampler",
-            f"{tab}_scheduler": "native.scheduler",
-            f"{tab}_steps": "native.steps",
-            f"{tab}_cfg_scale": "native.cfg",
-            f"{tab}_distilled_cfg_scale": "native.distilled_cfg",
-            f"{tab}_enable-checkbox": "native.refiner",
-        }
-        if tab == "txt2img":
-            native_ids["txt2img_hr-checkbox"] = "native.hires"
-
-        name = native_ids.get(elem_id)
-        if name is not None:
-            register_preset_control(tab, name, component)
-
-    def ui(self, is_img2img):
-        tab = "img2img" if is_img2img else "txt2img"
-        names, components, values = preset_controls(tab)
-
-        with gr.Accordion(self.title(), open=False):
-            preset = gr.Dropdown(
-                choices=list(PRESETS),
-                value=SAFE_BASE_AESTHETIC_LABEL,
-                label="Preset",
-            )
-            description = gr.Markdown(PRESET_DESCRIPTIONS[SAFE_BASE_AESTHETIC_LABEL])
-            gr.Markdown(
+    def params(self, is_img2img):
+        # The preset owns no processing setting: its one param picks what Apply writes.
+        return ui.Section(
+            self.title(),
+            ui.Choice("preset", list(PRESETS), SAFE_BASE_AESTHETIC_LABEL, label="Preset"),
+            *(ui.Markdown(PRESET_DESCRIPTIONS[label], visible_if=ui.param("preset", eq=label)) for label in PRESETS if PRESET_DESCRIPTIONS.get(label)),
+            ui.Markdown(
                 "Optional guidance, DAVE, Cross-Attention Boost, cache, spatial, "
                 "Hires, Refiner and post-processing stacks start disabled. Applying a preset "
                 "preserves prompt text, model paths and LoRA/artist names."
-            )
-            apply = gr.Button("Apply preset", variant="primary")
-            status = gr.Markdown("")
-
-        preset.do_not_save_to_config = True
-        description.do_not_save_to_config = True
-        apply.do_not_save_to_config = True
-        status.do_not_save_to_config = True
-
-        preset.change(
-            fn=lambda label: gr.update(value=PRESET_DESCRIPTIONS.get(label, "")),
-            inputs=[preset],
-            outputs=[description],
-            queue=False,
-            show_progress=False,
+            ),
+            ui.Button("Apply preset", "apply", "primary"),
         )
 
-        def apply_preset(label):
-            label = label if label in PRESETS else SAFE_BASE_AESTHETIC_LABEL
-            updates = []
-            for name, value in zip(names, values):
-                value = preset_value(label, name, value)
-                if name in PRESET_CONFLICT_CONTROLS:
-                    updates.append(gr.update(value=value, interactive=True))
-                else:
-                    updates.append(gr.update(value=value))
-            return [
-                *updates,
-                gr.update(value=f"**Applied:** {label} ({len(names)} controls)"),
-            ]
+    @ui.action("apply")
+    def apply(self, ctx: ui.ActionContext, values: dict) -> dict:
+        """Every control bound to an Anima preset field, native and extension
+        ones alike (the layouts' ``preset=`` bindings), set to the chosen
+        preset, with the conflict locks resolved again over the current form
+        (``ctx.core``/``ctx.scripts``) and the preset's values. Unknown labels
+        apply the default preset."""
 
-        apply.click(
-            fn=apply_preset,
-            inputs=[preset],
-            outputs=[*components, status],
-            queue=False,
-            show_progress=False,
-        )
+        from remi.core.presets import anima_preset_patch
 
-        # This panel configures other scripts and does not add processing args.
-        return []
+        tab = ctx.tab if ctx.tab in ("txt2img", "img2img") else self.tabname or "txt2img"
+        owner = ctx.owner or self.script_id
+        current = {**ctx.scripts, "core": ctx.core, owner: values}
+        return owner_relative(anima_preset_patch(tab, str(values.get("preset") or ""), values=current), owner)
 
     def process(self, p, *args):
         if not is_anima_engine(getattr(p, "sd_model", None)):

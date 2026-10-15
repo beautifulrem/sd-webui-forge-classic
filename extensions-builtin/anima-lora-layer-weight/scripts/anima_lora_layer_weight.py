@@ -3,10 +3,9 @@ from dataclasses import dataclass
 from functools import partial
 from types import SimpleNamespace
 
-import gradio as gr
-
-from modules import script_callbacks, scripts
+from modules import scripts
 from modules.anima_lora_support import (
+    ANIMA_BLOCK_MAPPINGS,
     LORA_TAG_RE,
     LayerWeights,
     invalidate_cond_caches,
@@ -31,105 +30,21 @@ from modules.anima_lora_support import (
     merge_consistent_rules,
     compact_text as _compact_text,
 )
-from modules.anima_lora_ui import intro_block, register_language_option, ui_language, ui_text
 from modules.anima_lora_files import adapter_kind_for_file as _adapter_kind_for_file
 from modules.anima_lora_files import is_anima_adapter_file as _is_anima_adapter_file
 from modules.anima_lora_files import lora_coverage as _lora_coverage
-from modules.anima_presets import register_preset_control
-from modules.anima_support import PasteKey, is_plain_number as _is_plain_number, script_arguments
+from modules.anima_support import PasteKey, is_plain_number as _is_plain_number, script_arguments, table_params
+from remi import ui
 
 
 logger = logging.getLogger("anima_lora_layer_weight")
-LANGUAGE_OPTION = "anima_lora_layer_weight_language"
-LANG = {
-    "zh": {
-        "settings_label": "Anima LoRA 分层权重界面语言",
-        "title": "Anima LoRA 分层权重",
-        "accordion": "Anima LoRA/LoKR 分层权重",
-        "enable_lora": "启用 LoRA 分层权重",
-        "enable_lokr": "启用 LoKR 分层权重",
-        "target_lora": "目标 LoRA",
-        "target_lokr": "目标 LoKR",
-        "target_lora_placeholder": "留空=全部 Anima LoRA；填文件名/别名=只控制指定 LoRA",
-        "target_lokr_placeholder": "留空=全部 Anima LoKR；填文件名/别名=只控制指定 LoKR",
-        "block_enabled": "Anima blocks 层权重",
-        "module_enabled": "模块权重",
-        "qwen_enabled": "Qwen 文本编码器层权重",
-        "block_weights": "Anima blocks 层权重",
-        "module_weights": "模块权重",
-        "qwen_weights": "Qwen 文本编码器层权重",
-        "block_placeholder": "示例: 0-5=0.6, 6-20=1.0, 21-27=0.8",
-        "module_placeholder": "self_attn/cross_attn/mlp/adaln",
-        "qwen_placeholder": "留空=文本编码器保持原权重；示例: 0-31=1.0",
-        "preset_enabled": "启用预设",
-        "preset_name": "预设名称",
-        "preset_scope": "预设应用范围",
-        "scope_all": "提示词里的全部同类型",
-        "scope_targets": "仅目标列表",
-        "custom_presets": "自定义预设",
-        "preset_placeholder": "每行一个预设：名称=blocks=...;modules=...",
-        "apply_preset": "应用预设到提示词",
-        "lora_usage": "LoRA 使用教程",
-        "lokr_usage": "LoKR 使用教程",
-    },
-    "en": {
-        "settings_label": "Anima LoRA Layer Weight UI language",
-        "title": "Anima LoRA Layer Weight",
-        "accordion": "Anima LoRA/LoKR Layer Weight",
-        "enable_lora": "Enable LoRA layer weights",
-        "enable_lokr": "Enable LoKR layer weights",
-        "target_lora": "Target LoRA",
-        "target_lokr": "Target LoKR",
-        "target_lora_placeholder": "Empty = all Anima LoRAs; file name or alias = only the listed LoRAs",
-        "target_lokr_placeholder": "Empty = all Anima LoKRs; file name or alias = only the listed LoKRs",
-        "block_enabled": "Anima block weights",
-        "module_enabled": "Module weights",
-        "qwen_enabled": "Qwen text-encoder layer weights",
-        "block_weights": "Anima block weights",
-        "module_weights": "Module weights",
-        "qwen_weights": "Qwen text-encoder layer weights",
-        "block_placeholder": "Example: 0-5=0.6, 6-20=1.0, 21-27=0.8",
-        "module_placeholder": "self_attn/cross_attn/mlp/adaln",
-        "qwen_placeholder": "Empty = keep text encoder unchanged; example: 0-31=1.0",
-        "preset_enabled": "Enable preset",
-        "preset_name": "Preset name",
-        "preset_scope": "Preset apply scope",
-        "scope_all": "All matching type in prompt",
-        "scope_targets": "Target list only",
-        "custom_presets": "Custom presets",
-        "preset_placeholder": "One preset per line: name=blocks=...;modules=...",
-        "apply_preset": "Apply preset to prompt",
-        "lora_usage": "LoRA usage guide",
-        "lokr_usage": "LoKR usage guide",
-    },
-}
 
-
-def _language():
-    return ui_language(LANGUAGE_OPTION)
-
-
-def _t(key):
-    return ui_text(LANG, LANGUAGE_OPTION, key)
-
-
-INTRO_EN = (
+TITLE = "Anima LoRA Layer Weight"
+INTRO = (
     "Control Anima LoRA/LoKR patch strength by block range, module type, and "
     "optional Qwen text-encoder layers. Use it to tune composition, character "
     "features, and style without editing model files."
 )
-INTRO_ZH = "按 block、模块和可选 Qwen 文本编码器层控制 Anima LoRA/LoKR 强度，用于调节构图、人物特征和画风，不修改模型文件。"
-
-
-def _register_ui_settings():
-    register_language_option(
-        LANGUAGE_OPTION,
-        "Anima LoRA Layer Weight language / Anima LoRA 分层权重语言",
-        ("anima-lora-layer-weight", "Anima LoRA Layer Weight"),
-    )
-
-
-script_callbacks.on_ui_settings(_register_ui_settings)
 
 DEFAULT_BLOCK_WEIGHTS = "all=1.0"
 DEFAULT_MODULE_WEIGHTS = "\n".join(
@@ -140,8 +55,12 @@ DEFAULT_MODULE_WEIGHTS = "\n".join(
         "adaln=1.0",
     ]
 )
+# The "Apply preset to prompt" scopes; the legacy Chinese label still reads as "all"
 PRESET_SCOPE_ALL = "提示词里的全部同类型"
 PRESET_SCOPE_ALL_EN = "All matching type in prompt"
+PRESET_SCOPE_TARGETS_EN = "Target list only"
+# The values the Gradio panel's zh UI had, read as the English choices
+PRESET_SCOPE_ALIASES = {PRESET_SCOPE_ALL: PRESET_SCOPE_ALL_EN, "仅目标列表": PRESET_SCOPE_TARGETS_EN}
 DEFAULT_PRESETS_TEXT = "\n".join(
     [
         "平衡=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,cross_attn=1.0,mlp=1.0,adaln=1.0",
@@ -149,46 +68,22 @@ DEFAULT_PRESETS_TEXT = "\n".join(
         "强画风=blocks=0-9=0.7,10-18=1.0,19-27=0.9",
     ]
 )
-USAGE_TEXT = """使用方式:
-1. LoRA 与 LoKR 分开控制：LoRA 选项卡只控制普通 LoRA，LoKR 选项卡只控制 LoKR。
-2. 目标留空时，会自动对所有检测为 Anima 架构且类型匹配的文件启用该选项卡的分层权重。
-3. 目标填入文件名、别名或不带后缀文件名时，只对填入的文件生效；多个目标用逗号或换行分隔。
-4. 插件命中目标后，提示词里的普通权重会被忽略，例如 <lora:灵魂潮汐:0.6> 里的 0.6 不参与计算，最终权重直接由已开启的分层权重决定。
-5. Anima blocks 层权重、模块权重可以同时开启；Qwen 文本编码器层权重独立开启，默认关闭。
-6. 同时启用 blocks 和模块权重时，UNet/DiT 最终权重 = block 层权重 * 模块权重；只启用其中一个时，只使用已启用项。
-7. Qwen 文本编码器层权重只能在插件面板控制，不支持写在提示词里；文件没有训练文本编码器时会自动跳过文本编码器权重，不会报错。
-8. 如果写了某个文件没有训练的 block、模块或 Qwen 文本编码器层，该部分会直接跳过，只对文件实际包含的部分生效。
-9. Blocks 0-9 是浅层，主要控制姿态与构图；Blocks 10-18 是中层，主要控制人物外貌、服装等特征；Blocks 19-27 是深层，主要控制画风与光影。
-10. 可以直接在提示词权重位置写 block 分层，例如 <lora:灵魂潮汐:0-7=0.6;8-20=1.0;21-27=0.8>。
-11. 也可以在提示词里同时写 block 和模块权重，例如 <lora:灵魂潮汐:blocks=0-9=0.8,10-18=1.0,19-27=0.7;modules=self_attn=1.0,mlp=0.8,cross_attn=0.6>。
-12. 使用提示词内联分层时，该文件会跳过对应选项卡里的 blocks 和模块设置，只使用提示词内写的 block/模块权重；Qwen 仍只读取插件面板设置。
-13. 内联 block 分层也支持直接写 28 个数字，例如 <lora:灵魂潮汐:1,1,0.9,0.9,0.8,...>，顺序对应 blocks 0 到 27。在 40/52 层的扩展模型（Anima 2.9B/3.8B）上使用 28 层 LoRA 时，block 编号仍按 LoRA 自己的 28 层计算，插入的复制层跟随其来源层。
-14. 可以在预设列表里写多行命名预设，例如 平衡=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,mlp=0.8。预设只含 blocks 和 modules，Qwen 层权重始终来自面板。
-15. 点击“应用预设到提示词”会把当前页正向提示词中命中的 LoRA/LoKR 权重替换成该预设的 blocks/modules 内联分层语法。
-16. 预设应用范围选择“提示词里的全部同类型”时，会替换提示词里所有同类型的 Anima LoRA/LoKR；选择“仅目标列表”时，只替换目标框里填入的 LoRA/LoKR。
-"""
-USAGE_TEXT_EN = """Usage:
-1. LoRA and LoKR are controlled separately. The LoRA tab only affects regular LoRAs; the LoKR tab only affects LoKRs.
+USAGE_TEXT_EN = """1. LoRA and LoKR are controlled separately. The LoRA tab only affects regular LoRAs; the LoKR tab only affects LoKRs.
 2. When the target field is empty, the tab automatically applies to all matching Anima adapters of that type.
 3. When targets are filled, only the listed file names, aliases, or names without extension are controlled. Separate multiple targets with commas or new lines.
-4. After a target is controlled by this plugin, the normal prompt weight, for example the 0.6 in <lora:name:0.6>, is ignored for the matched adapter.
+4. After a target is controlled by this plugin, the normal prompt weight, for example the 0.6 in `<lora:name:0.6>`, is ignored for the matched adapter.
 5. Anima block weights and module weights can be enabled together. Qwen text-encoder layer weights are independent and disabled by default.
 6. When block and module weights are both enabled, the final model weight is block weight * module weight.
 7. Qwen text-encoder layer weights can only be controlled from this panel. Files without text-encoder training are skipped naturally.
 8. Missing blocks, modules, or Qwen layers are skipped; only weights that exist in the selected file are affected.
 9. Blocks 0-9 mainly affect pose and composition, 10-18 affect character and outfit features, and 19-27 affect style and lighting.
-10. You can write inline block weights in the prompt, for example <lora:name:0-7=0.6;8-20=1.0;21-27=0.8>.
-11. Inline syntax can also combine blocks and modules, for example <lora:name:blocks=0-9=0.8,10-18=1.0,19-27=0.7;modules=self_attn=1.0,mlp=0.8,cross_attn=0.6>.
+10. You can write inline block weights in the prompt, for example `<lora:name:0-7=0.6;8-20=1.0;21-27=0.8>`.
+11. Inline syntax can also combine blocks and modules, for example `<lora:name:blocks=0-9=0.8,10-18=1.0,19-27=0.7;modules=self_attn=1.0,mlp=0.8,cross_attn=0.6>`.
 12. Inline block/module weights override the corresponding tab settings for that file. Qwen weights still come from the panel.
 13. Inline block weights also support 28 comma-separated numbers in block order from 0 to 27. On depth-expanded models (Anima 2.9B/3.8B) a 28-block LoRA keeps its own block numbering; inserted copies follow the block they were copied from.
-14. Presets can be written one per line, for example Balanced=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,mlp=0.8. Presets hold blocks and modules; Qwen layer weights always come from the panel.
+14. Presets can be written one per line, for example `Balanced=blocks=0-9=0.6,10-18=1.0,19-27=0.75;modules=self_attn=1.0,mlp=0.8`. Presets hold blocks and modules; Qwen layer weights always come from the panel.
 15. "Apply preset to prompt" replaces matching LoRA/LoKR prompt weights with the preset's inline blocks/modules syntax.
-16. The apply scope can affect all matching adapters in the prompt, or only the adapters listed in the target field.
-"""
-
-
-def _usage_text():
-    return USAGE_TEXT_EN if _language() == "en" else USAGE_TEXT
+16. The apply scope can affect all matching adapters in the prompt, or only the adapters listed in the target field."""
 
 
 # One row per control of a tab, in the order of its script args (the API's
@@ -473,12 +368,14 @@ def _preset_choices(text: str) -> list[str]:
     return choices
 
 
-def _preset_dropdown_update(text: str, current_value: str = ""):
+def _preset_name_patch(text: str, current_value: str = "") -> dict:
+    """The preset name choices of a preset text; the selection is kept (a
+    name typed in is kept too) or falls back to the first preset."""
     choices = _preset_choices(text)
     if current_value and current_value not in choices:
         choices = [current_value] + choices
     value = current_value if current_value in choices else (choices[0] if choices else "")
-    return gr.update(choices=choices, value=value)
+    return ui.update(choices=choices, value=value)
 
 
 def _preset_target_mode(scope: str) -> str:
@@ -720,133 +617,170 @@ def _apply_prompt_rewrite(p, target_loras: str, adapter_kind: str) -> dict[str, 
     return inline_rules
 
 
-def _lora_tab(adapter_kind: str, elem_id, default_target: str = ""):
-    """The controls of one tab, by TAB_ARGS name, and its "Apply preset to
-    prompt" button."""
+# Anima's Qwen3 0.6B text encoder
+QWEN_LAYERS = 28
+# Depth bands of the 28-block (2B) layout the presets are written in
+BLOCK_BANDS = (("Composition", 0, 9), ("Character", 10, 18), ("Style", 19, 27))
+# The module grid's rows: every module module_name_from_block_tail names
+MODULES = ("self_attn", "cross_attn", "mlp", "adaln", "norm")
 
-    enabled = gr.Checkbox(label=_t(f"enable_{adapter_kind}"), value=False, elem_id=elem_id(f"{adapter_kind}_enabled"))
-    target_placeholder = _t("target_lora_placeholder") if adapter_kind == "lora" else _t("target_lokr_placeholder")
-    block_placeholder = _t("block_placeholder")
-    module_placeholder = _t("module_placeholder")
-    qwen_placeholder = _t("qwen_placeholder")
-    scope_all = _t("scope_all")
-    scope_targets = _t("scope_targets")
 
-    target_loras = gr.Textbox(label=_t("target_lora") if adapter_kind == "lora" else _t("target_lokr"), value=default_target, lines=1, placeholder=target_placeholder, elem_id=elem_id(f"{adapter_kind}_target_loras"))
-    with gr.Row():
-        block_enabled = gr.Checkbox(label=_t("block_enabled"), value=True, elem_id=elem_id(f"{adapter_kind}_block_enabled"))
-        module_enabled = gr.Checkbox(label=_t("module_enabled"), value=False, elem_id=elem_id(f"{adapter_kind}_module_enabled"))
-        text_layer_enabled = gr.Checkbox(label=_t("qwen_enabled"), value=False, elem_id=elem_id(f"{adapter_kind}_text_layer_enabled"))
+# The "Apply preset to prompt" toasts (translated by the SPA through localizations/zh_CN.json)
+TOAST_NO_MATCH = "No matching adapter in the prompt, or the preset has no weights."
+TOAST_APPLIED = "Preset applied to the prompt."
 
-    with gr.Row():
-        block_weights = gr.Textbox(label=_t("block_weights"), value=DEFAULT_BLOCK_WEIGHTS, lines=3, placeholder=block_placeholder, elem_id=elem_id(f"{adapter_kind}_block_weights"))
-        module_weights = gr.Textbox(label=_t("module_weights"), value=DEFAULT_MODULE_WEIGHTS, lines=5, placeholder=module_placeholder, elem_id=elem_id(f"{adapter_kind}_module_weights"))
 
-    text_layer_weights = gr.Textbox(label=_t("qwen_weights"), value="", lines=3, placeholder=qwen_placeholder, elem_id=elem_id(f"{adapter_kind}_text_layer_weights"))
-    preset_enabled = gr.Checkbox(label=_t("preset_enabled"), value=False, visible=False, elem_id=elem_id(f"{adapter_kind}_preset_enabled"))
-    preset_name = gr.Dropdown(
-        label=_t("preset_name"),
-        choices=_preset_choices(DEFAULT_PRESETS_TEXT),
-        value="平衡",
-        allow_custom_value=True,
-        interactive=True,
-        elem_id=elem_id(f"{adapter_kind}_preset_name"),
+def _grid_presets() -> list[dict]:
+    """The block grid's one-click weights: flat, and each named default
+    preset's blocks section."""
+    presets = [{"label": "Flat 1.0", "value": DEFAULT_BLOCK_WEIGHTS}]
+    for line in DEFAULT_PRESETS_TEXT.splitlines():
+        name, _, body = line.partition("=")
+        blocks = _parse_preset_sections(body).block_weights
+        if blocks:
+            presets.append({"label": name, "value": blocks})
+    return presets
+
+
+def _text_value(value) -> str:
+    """A weight field's value: the weight text (the grid widgets edit it)."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"expected weight text, got {type(value).__name__}")
+    return value
+
+
+class _ScopeChoice(ui.Choice):
+    """The preset apply scope; the zh UI's values (callers built for the
+    Gradio panel) are accepted as their English choices."""
+
+    def coerce(self, value, ctx):
+        return super().coerce(PRESET_SCOPE_ALIASES.get(value, value) if isinstance(value, str) else value, ctx)
+
+
+def _tab_params(adapter_kind: str) -> ui.Tab:
+    """One adapter tab; its inputs are named ``<kind>_<TAB_ARGS name>``."""
+
+    def name(arg):
+        return f"{adapter_kind}_{arg}"
+
+    noun = "LoRA" if adapter_kind == "lora" else "LoKR"
+    block_props = {
+        "mode": "blocks",
+        "layouts": [28, 40, 52],
+        "mappings": {str(target): list(mapping) for (source, target), mapping in ANIMA_BLOCK_MAPPINGS.items() if source == 28},
+        "bands": [{"label": label, "start": start, "end": end} for label, start, end in BLOCK_BANDS],
+        "presets": _grid_presets(),
+        "placeholder": "Example: 0-5=0.6, 6-20=1.0, 21-27=0.8",
+    }
+    return ui.Tab(
+        noun,
+        ui.Toggle(name("enabled"), False, label=f"Enable {noun} layer weights"),
+        ui.Text(
+            name("target_loras"),
+            "",
+            label=f"Target {noun}",
+            placeholder=f"Empty = all Anima {noun}s; file name or alias = only the listed {noun}s",
+        ),
+        ui.Row(
+            ui.Toggle(name("block_enabled"), True, label="Anima block weights"),
+            ui.Toggle(name("module_enabled"), False, label="Module weights"),
+            ui.Toggle(name("text_layer_enabled"), False, label="Qwen text-encoder layer weights"),
+        ),
+        ui.Custom(name("block_weights"), "block-weight-grid", DEFAULT_BLOCK_WEIGHTS, block_props, label="Anima block weights", validate=_text_value, visible_if=ui.param(name("block_enabled"))),
+        ui.Custom(
+            name("module_weights"),
+            "block-weight-grid",
+            DEFAULT_MODULE_WEIGHTS,
+            {"mode": "modules", "modules": list(MODULES), "placeholder": "self_attn/cross_attn/mlp/adaln/norm"},
+            label="Module weights",
+            validate=_text_value,
+            visible_if=ui.param(name("module_enabled")),
+        ),
+        ui.Custom(
+            name("text_layer_weights"),
+            "block-weight-grid",
+            "",
+            {"mode": "layers", "count": QWEN_LAYERS, "placeholder": "Empty = keep text encoder unchanged; example: 0-31=1.0"},
+            label="Qwen text-encoder layer weights",
+            validate=_text_value,
+            visible_if=ui.param(name("text_layer_enabled")),
+        ),
+        ui.Group(
+            "Prompt presets",
+            # Kept for API callers' argument slots; presets only rewrite the prompt
+            ui.Toggle(name("preset_enabled"), False, label="Enable preset", hidden=True),
+            ui.Row(
+                ui.Choice(name("preset_name"), _preset_choices(DEFAULT_PRESETS_TEXT), "平衡", label="Preset name", allow_custom=True),
+                _ScopeChoice(name("preset_scope"), [PRESET_SCOPE_ALL_EN, PRESET_SCOPE_TARGETS_EN], PRESET_SCOPE_ALL_EN, label="Preset apply scope"),
+            ),
+            ui.Text(
+                name("preset_text"),
+                DEFAULT_PRESETS_TEXT,
+                lines=5,
+                label="Custom presets",
+                placeholder="One preset per line: name=blocks=...;modules=...",
+                on_change=f"{adapter_kind}_presets_changed",
+            ),
+            ui.Button("Apply preset to prompt", f"{adapter_kind}_apply_preset", "primary"),
+            open=False,
+        ),
+        value=adapter_kind,
     )
-    preset_scope = gr.Dropdown(
-        label=_t("preset_scope"),
-        choices=[scope_all, scope_targets],
-        value=scope_all,
-        interactive=True,
-        elem_id=elem_id(f"{adapter_kind}_preset_scope"),
-    )
-    preset_text = gr.Textbox(
-        label=_t("custom_presets"),
-        value=DEFAULT_PRESETS_TEXT,
-        lines=5,
-        placeholder=_t("preset_placeholder"),
-        elem_id=elem_id(f"{adapter_kind}_preset_text"),
-    )
-    preset_apply = gr.Button(_t("apply_preset"), variant="primary", elem_id=elem_id(f"{adapter_kind}_preset_apply"))
-    preset_text.change(fn=_preset_dropdown_update, inputs=[preset_text, preset_name], outputs=[preset_name])
-    gr.Textbox(label=_t(f"{adapter_kind}_usage"), value=_usage_text(), lines=12, interactive=False, elem_id=elem_id(f"{adapter_kind}_usage"))
-    # Each control is the local variable named in TAB_ARGS
-    controls = locals()
-    return {name: controls[name] for name in TAB_ARG_NAMES}, preset_apply
+
+
+def _param_rows():
+    """``table_params`` rows: SCRIPT_ARG_NAMES with each recorded control's
+    infotext key, which also pastes it (``_paste_key``), and the switches'
+    preset fields."""
+    for kind in ADAPTER_KINDS:
+        for arg, field, _switch_field in TAB_ARGS:
+            yield f"{kind}_{arg}", None if field is None else _paste_key(kind, field), f"lora_layer.{kind}_enabled" if arg == "enabled" else None
 
 
 class Script(scripts.Script):
-    def __init__(self):
-        self._prompt_component = None
-        self._preset_apply_bindings = []
-        self._bound_preset_apply_ids = set()
-
     def title(self):
-        return _t("title")
+        return TITLE
 
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def _bind_preset_apply_button(self, button, target_loras, preset_name, preset_scope, preset_text, adapter_kind: str):
-        binding = (button, target_loras, preset_name, preset_scope, preset_text, adapter_kind)
-        self._preset_apply_bindings.append(binding)
-        self._bind_preset_apply_binding(binding)
-
-    def _bind_preset_apply_binding(self, binding):
-        if self._prompt_component is None:
-            return
-
-        button, target_loras, preset_name, preset_scope, preset_text, adapter_kind = binding
-        binding_id = getattr(button, "elem_id", None) or id(button)
-        if binding_id in self._bound_preset_apply_ids:
-            return
-
-        def apply_preset(prompt, target_loras_value, preset_name_value, preset_scope_value, preset_text_value):
-            return _apply_preset_to_prompt_text(
-                prompt,
-                target_loras_value,
-                adapter_kind,
-                preset_name_value,
-                preset_scope_value,
-                preset_text_value,
-            )
-
-        button.click(
-            fn=apply_preset,
-            inputs=[self._prompt_component, target_loras, preset_name, preset_scope, preset_text],
-            outputs=[self._prompt_component],
-            queue=False,
-            show_progress=False,
+    def params(self, is_img2img):
+        root = ui.Section(
+            "Anima LoRA/LoKR Layer Weight",
+            ui.Markdown(INTRO),
+            ui.Tabs(*(_tab_params(kind) for kind in ADAPTER_KINDS)),
+            ui.Group("Usage guide", ui.Markdown(USAGE_TEXT_EN), open=False),
         )
-        self._bound_preset_apply_ids.add(binding_id)
+        self.param_order = table_params(_param_rows(), root)
+        return root
 
-    def after_component(self, component, **kwargs):
-        if getattr(component, "elem_id", None) in {"txt2img_prompt", "img2img_prompt"}:
-            self._prompt_component = component
-            for binding in self._preset_apply_bindings:
-                self._bind_preset_apply_binding(binding)
+    def _apply_preset(self, ctx, values, adapter_kind: str):
+        def value(arg):
+            return values.get(f"{adapter_kind}_{arg}")
 
-    def ui(self, is_img2img):
-        with gr.Accordion(_t("accordion"), open=False, elem_id=self.elem_id("accordion")):
-            intro_block(self.elem_id, INTRO_EN, INTRO_ZH, LANGUAGE_OPTION)
-            with gr.Tabs(elem_id=self.elem_id("tabs")):
-                tabs, preset_apply = {}, {}
-                for kind, label in zip(ADAPTER_KINDS, ("LoRA", "LoKR"), strict=True):
-                    with gr.TabItem(label):
-                        tabs[kind], preset_apply[kind] = _lora_tab(kind, self.elem_id)
+        prompt = str(ctx.core.get("prompt") or "")
+        rewritten = _apply_preset_to_prompt_text(prompt, value("target_loras"), adapter_kind, value("preset_name"), value("preset_scope"), value("preset_text"))
+        if rewritten == prompt:
+            return ui.toast(TOAST_NO_MATCH, "info")
+        return {"core.prompt": ui.update(value=rewritten), **ui.toast(TOAST_APPLIED, "success")}
 
-        for kind, controls in tabs.items():
-            self._bind_preset_apply_button(preset_apply[kind], controls["target_loras"], controls["preset_name"], controls["preset_scope"], controls["preset_text"], kind)
-        for kind, controls in tabs.items():
-            register_preset_control(self.tabname, f"lora_layer.{kind}_enabled", controls["enabled"])
+    @ui.action("lora_apply_preset")
+    def lora_apply_preset(self, ctx, values):
+        return self._apply_preset(ctx, values, "lora")
 
-        # Imported here: infotext_utils needs the full WebUI, and CPU tests
-        # (tests/test_anima_lora_patches.py) load this module without it
-        from modules.infotext_utils import PasteField
+    @ui.action("lokr_apply_preset")
+    def lokr_apply_preset(self, ctx, values):
+        return self._apply_preset(ctx, values, "lokr")
 
-        self.infotext_fields = [PasteField(tabs[kind][name], _paste_key(kind, field)) for kind in ADAPTER_KINDS for name, field, _ in TAB_ARGS if field is not None]
-        self.paste_field_names = list(INFOTEXT_KEYS)
-        # In the order of SCRIPT_ARG_NAMES
-        return [tabs[kind][name] for kind in ADAPTER_KINDS for name in TAB_ARG_NAMES]
+    @ui.action("lora_presets_changed")
+    def lora_presets_changed(self, ctx, values):
+        return {"lora_preset_name": _preset_name_patch(values.get("lora_preset_text", ""), values.get("lora_preset_name", ""))}
+
+    @ui.action("lokr_presets_changed")
+    def lokr_presets_changed(self, ctx, values):
+        return {"lokr_preset_name": _preset_name_patch(values.get("lokr_preset_text", ""), values.get("lokr_preset_name", ""))}
 
     def before_process_batch(self, p, *args, **kwargs):
         global _ACTIVE_RULE

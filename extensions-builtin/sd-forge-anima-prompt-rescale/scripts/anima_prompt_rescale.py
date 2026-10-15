@@ -23,10 +23,8 @@ from __future__ import annotations
 import os
 import sys
 
-import gradio as gr
-
 from modules import prompt_rewrites, scripts, shared
-from modules.anima_presets import register_preset_control
+from remi import ui
 
 _EXT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _EXT_ROOT not in sys.path:
@@ -52,10 +50,55 @@ _AUTO_INFO = (
 )
 
 
+def manual_rescale(prompt, source_steps, target_steps, denoise, as_fraction) -> str:
+    """The manual tool's result: ``prompt``'s schedules rescaled for a pass
+    of ``target_steps`` at ``denoise`` (all of them with img2img fix steps)."""
+
+    fixed_steps = bool(getattr(shared.opts, "img2img_fix_steps", False))
+    return rescale_prompt_schedule(
+        prompt or "",
+        int(source_steps),
+        int(target_steps),
+        float(denoise),
+        as_fraction=bool(as_fraction),
+        executed_steps_override=int(target_steps) if fixed_steps else None,
+    )
+
+
+def manual_tool() -> ui.Group:
+    """The manual tool's inputs, buttons and result line."""
+
+    return ui.Group(
+        "Manual rescale tool",
+        ui.Text("manual_prompt", "", label="Prompt with schedule", placeholder="[@guweiz:@wlop:15], masterpiece, (detailed:1.2)", lines=3),
+        ui.Row(
+            ui.Slider("manual_source", 1, 150, 35, 1, label="Source steps (authored for)"),
+            ui.Slider("manual_target", 1, 150, 35, 1, label="Target steps (this pass)"),
+        ),
+        ui.Row(
+            ui.Slider("manual_denoise", 0.05, 1.0, 0.5, 0.01, label="Denoise (this pass)"),
+            ui.Toggle("manual_fraction", False, label="Output as fractions (portable across step counts)"),
+        ),
+        ui.Row(
+            ui.Button("Rescale schedule", "rescale", "primary"),
+            ui.Button("Use as prompt", "use_as_prompt"),
+        ),
+        ui.Output("rescaled", "text", label="Rescaled prompt"),
+        open=True,
+    )
+
+
+# The auto-apply settings (the processing arguments), then the manual tool's
+# inputs: the tool runs as an action and process() ignores them.
+AUTO_PARAMS = ("auto_enable", "auto_source", "auto_fraction")
+MANUAL_PARAMS = ("manual_prompt", "manual_source", "manual_target", "manual_denoise", "manual_fraction")
+
+
 class AnimaPromptRescaleScript(scripts.Script):
     section = "accordions"
     create_group = False
     sorting_priority = 17
+    param_order = AUTO_PARAMS + MANUAL_PARAMS
 
     def __init__(self):
         super().__init__()
@@ -67,79 +110,45 @@ class AnimaPromptRescaleScript(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def ui(self, is_img2img):
+    def params(self, is_img2img):
         self.is_img2img = bool(is_img2img)
-
-        with gr.Accordion(label=self.title(), open=False):
-            gr.Markdown(_INTRO)
-
-            # --- Manual tool -------------------------------------------------
-            with gr.Accordion(label="Manual rescale tool", open=True):
-                src_in = gr.Textbox(
-                    label="Prompt with schedule",
-                    placeholder="[@guweiz:@wlop:15], masterpiece, (detailed:1.2)",
-                    lines=3,
-                )
-                with gr.Row():
-                    man_source = gr.Slider(minimum=1, maximum=150, step=1, value=35,
-                                           label="Source steps (authored for)")
-                    man_target = gr.Slider(minimum=1, maximum=150, step=1, value=35,
-                                           label="Target steps (this pass)")
-                with gr.Row():
-                    man_denoise = gr.Slider(minimum=0.05, maximum=1.0, step=0.01, value=0.5,
-                                            label="Denoise (this pass)")
-                    man_fraction = gr.Checkbox(
-                        value=False,
-                        label="Output as fractions (portable across step counts)",
-                    )
-                man_btn = gr.Button("Rescale schedule", variant="primary")
-                man_out = gr.Textbox(label="Rescaled prompt", lines=3,
-                                     show_copy_button=True)
-
-                def _do_manual(prompt, s, t, d, frac):
-                    fixed_steps = bool(getattr(shared.opts, "img2img_fix_steps", False))
-                    return rescale_prompt_schedule(
-                        prompt or "",
-                        int(s),
-                        int(t),
-                        float(d),
-                        as_fraction=bool(frac),
-                        executed_steps_override=int(t) if fixed_steps else None,
-                    )
-
-                man_btn.click(
-                    fn=_do_manual,
-                    inputs=[src_in, man_source, man_target, man_denoise, man_fraction],
-                    outputs=[man_out],
-                )
-
-            # --- Auto-apply (img2img) ---------------------------------------
-            auto_enable = gr.Checkbox(
-                value=False,
-                label="Auto-rescale this img2img generation's schedules",
-                visible=self.is_img2img,
-            )
-            auto_source = gr.Slider(
-                minimum=1, maximum=150, step=1, value=35,
+        # Auto-apply rewrites img2img runs only; txt2img keeps the (hidden) params
+        txt2img = not self.is_img2img
+        return ui.Section(
+            self.title(),
+            ui.Markdown(_INTRO),
+            manual_tool(),
+            ui.Toggle("auto_enable", False, label="Auto-rescale this img2img generation's schedules", preset="prompt_rescale.enabled", hidden=txt2img),
+            ui.Slider(
+                "auto_source",
+                1,
+                150,
+                35,
+                1,
                 label="Source steps (txt2img steps the schedule was authored for)",
-                visible=self.is_img2img,
-            )
-            auto_fraction = gr.Checkbox(
-                value=False,
-                label="Rewrite as fractions",
-                visible=self.is_img2img,
-            )
-            if self.is_img2img:
-                gr.Markdown(_AUTO_INFO)
+                preset="prompt_rescale.source_steps",
+                hidden=txt2img,
+            ),
+            ui.Toggle("auto_fraction", False, label="Rewrite as fractions", preset="prompt_rescale.fractions", hidden=txt2img),
+            None if txt2img else ui.Markdown(_AUTO_INFO),
+        )
 
-        # Only these three feed process(); the manual tool is self-contained.
-        for name, component in {
-            "prompt_rescale.enabled": auto_enable,
-            "prompt_rescale.source_steps": auto_source,
-            "prompt_rescale.fractions": auto_fraction,
-        }.items():
-            register_preset_control(self.tabname, name, component)
-        return [auto_enable, auto_source, auto_fraction]
+    @staticmethod
+    def _manual_result(values: dict) -> str:
+        current = ui.ScriptLayout(manual_tool(), owner="manual_tool").coerce(values, unknown="ignore")
+        return manual_rescale(*(current[name] for name in MANUAL_PARAMS))
+
+    @ui.action("rescale")
+    def rescale(self, ctx: ui.ActionContext, values: dict) -> dict:
+        return {"__outputs__": {"rescaled": self._manual_result(values)}}
+
+    @ui.action("use_as_prompt")
+    def use_as_prompt(self, ctx: ui.ActionContext, values: dict) -> dict:
+        """The tool's result written into the tab's prompt box (the legacy
+        result box's copy button)."""
+
+        result = self._manual_result(values)
+        return {"core.prompt": {"value": result}, "__outputs__": {"rescaled": result}}
 
     # The same p is run again by img2img batch, Loopback and SD upscale:
     # undo this script's rewrite before the next run rebuilds the prompts.
@@ -147,7 +156,7 @@ class AnimaPromptRescaleScript(scripts.Script):
     def before_process(self, p, *args):
         prompt_rewrites.restore(p)
 
-    def process(self, p, auto_enable=False, auto_source=35, auto_fraction=False):
+    def process(self, p, auto_enable=False, auto_source=35, auto_fraction=False, *_manual_tool):
         # Never touch txt2img, and never act unless explicitly enabled.
         if not self.is_img2img or not auto_enable:
             return

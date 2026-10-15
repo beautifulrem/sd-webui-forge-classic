@@ -1,0 +1,80 @@
+[
+ {
+  "kind": "toggle",
+  "label": "Dynamic Shift",
+  "default": false,
+  "infotext": null,
+  "paste": true,
+  "preset": "dynamic_shift.enabled"
+ },
+ {
+  "kind": "slider",
+  "label": "Shift @ first step",
+  "default": 5.0,
+  "minimum": 0.1,
+  "maximum": 12.0,
+  "step": 0.05,
+  "infotext": "DynShift start",
+  "paste": false,
+  "preset": "dynamic_shift.start"
+ },
+ {
+  "kind": "slider",
+  "label": "Shift @ last step",
+  "default": 1.5,
+  "minimum": 0.1,
+  "maximum": 12.0,
+  "step": 0.05,
+  "infotext": "DynShift end",
+  "paste": false,
+  "preset": "dynamic_shift.end"
+ },
+ {
+  "kind": "choice",
+  "label": "Curve",
+  "default": "Cosine",
+  "choices": [
+   "Linear",
+   "Cosine",
+   "Exponential"
+  ],
+  "infotext": "DynShift curve",
+  "paste": false,
+  "preset": "dynamic_shift.curve"
+ },
+ {
+  "kind": "choice",
+  "label": "#4",
+  "default": "Same as first pass",
+  "choices": [
+   "Same as first pass",
+   "Custom",
+   "Static (built-in shift)"
+  ],
+  "infotext": "DynShift hires mode",
+  "paste": false,
+  "preset": "dynamic_shift.hires_mode"
+ },
+ {
+  "kind": "slider",
+  "label": "#5",
+  "default": 3.0,
+  "minimum": 0,
+  "maximum": 100,
+  "step": 1,
+  "infotext": "DynShift hires start",
+  "paste": false,
+  "preset": "dynamic_shift.hires_start"
+ },
+ {
+  "kind": "slider",
+  "label": "#6",
+  "default": 1.5,
+  "minimum": 0,
+  "maximum": 100,
+  "step": 1,
+  "infotext": "DynShift hires end",
+  "paste": false,
+  "preset": "dynamic_shift.hires_end"
+ }
+]

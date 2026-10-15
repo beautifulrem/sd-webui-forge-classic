@@ -6,6 +6,8 @@ from __future__ import annotations
 import asyncio
 import datetime
 import os
+import threading
+import uuid
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket
@@ -118,9 +120,17 @@ async def websocket(websocket: WebSocket) -> None:
 # region /internal
 
 
-@internal.get("/ping", summary="Answers once the server is up (polled after a reload)")
-def ping() -> dict[str, Any]:
-    return {}
+_instance_lock = threading.Lock()
+
+
+@internal.get("/ping", summary="Answers once the server is up (polled after a reload); `instance` differs for every app (it changes with a reload or restart)")
+def ping(request: Request) -> dict[str, Any]:
+    state = request.app.state
+    with _instance_lock:
+        instance = getattr(state, "instance", None)
+        if instance is None:
+            instance = state.instance = uuid.uuid4().hex
+    return {"instance": instance}
 
 
 @internal.get("/quicksettings-hint")

@@ -1,0 +1,20 @@
+[
+ {
+  "kind": "choice",
+  "label": "Preset",
+  "default": "Automatic",
+  "choices": [
+   "Automatic",
+   "Disable",
+   "Anima per-block",
+   "guard_filter_fn",
+   "dynamic",
+   "max-autotune",
+   "max-autotune-no-cudagraphs",
+   "reduce-overhead"
+  ],
+  "infotext": null,
+  "paste": false,
+  "preset": "compile.preset"
+ }
+]

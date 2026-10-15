@@ -56,7 +56,7 @@ class Services:
         queue_options.setdefault("executor", run_job)
         queue_options.setdefault("dispatch", run_on_main_thread)
         queue = JobQueue(store, files, bus, **queue_options)
-        return cls(root, bus, files, store, queue, NetworkIndex(files), state=queue_options.get("state"), realtime=realtime, housekeeping_enabled=housekeeping)
+        return cls(root, bus, files, store, queue, NetworkIndex(files, on_change=lambda kind: bus.publish("networks.changed", **({"kind": kind} if kind else {}))), state=queue_options.get("state"), realtime=realtime, housekeeping_enabled=housekeeping)
 
     def start(self) -> None:
         """Start the worker (and the progress/preview threads); idempotent."""
@@ -96,8 +96,8 @@ class Services:
         self.store.close()
 
     def housekeeping(self) -> None:
-        """Prune old uploads and unsaved outputs, and index outputs saved
-        outside the queue (at start, then hourly)."""
+        """Prune old uploads, unsaved outputs and gallery zips, and index
+        outputs saved outside the queue (at start, then hourly)."""
 
         from remi.server.settings import option
 
@@ -111,6 +111,12 @@ class Services:
                 log.info("Removed %d old unsaved output(s)", removed)
         except Exception:
             log.exception("pruning uploads")
+        try:
+            from remi.library import gallery_for
+
+            gallery_for(self.files).prune_exports()
+        except Exception:
+            log.exception("pruning gallery exports")
         try:
             added = self.files.scan_outputs(output_dirs())
             if added:

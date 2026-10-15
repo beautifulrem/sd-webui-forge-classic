@@ -1,0 +1,34 @@
+[
+ {
+  "kind": "toggle",
+  "label": "Anchor prompt (prepended to positive prompt at generation)",
+  "default": true,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "text",
+  "label": "#1",
+  "default": "",
+  "infotext": null,
+  "paste": true,
+  "preset": null
+ },
+ {
+  "kind": "text",
+  "label": "Separator between anchor and main prompt",
+  "default": ", ",
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "json",
+  "label": "#3",
+  "default": "−",
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ }
+]

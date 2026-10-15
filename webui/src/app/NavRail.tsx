@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { useProgress } from "@/api/progress"
+import { useQueuedCount } from "@/features/queue/status"
 import { isActive, preloadRoute, type NavItem } from "./routes"
 import { type Route, routeHref } from "./router"
 
@@ -25,15 +26,17 @@ function Logo() {
 function RailLink({ item, active }: { item: NavItem; active: boolean }) {
   const { t } = useTranslation()
   const busy = useProgress((s) => item.id === "queue" && s.running !== null)
+  const queued = useQueuedCount(item.id === "queue")
   const Icon = item.icon
   const label = t(item.label)
+  const described = queued > 0 ? t("{{label}}, {{count}} waiting", { label, count: queued }) : label
   return (
     <Tooltip>
       <TooltipTrigger
         render={
           <a
             href={routeHref(item.route)}
-            aria-label={label}
+            aria-label={described}
             aria-current={active ? "page" : undefined}
             onPointerEnter={() => preloadRoute(item.route)}
             onFocus={() => preloadRoute(item.route)}
@@ -53,12 +56,22 @@ function RailLink({ item, active }: { item: NavItem; active: boolean }) {
           )}
         />
         <Icon className="size-[1.15rem]" strokeWidth={active ? 2.2 : 1.8} aria-hidden />
-        {busy ? (
+        {queued > 0 ? (
+          <span
+            aria-hidden
+            className={cn(
+              "absolute top-0.5 right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[0.6rem] leading-none font-semibold text-primary-foreground tabular-nums ring-2 ring-sidebar",
+              busy && "animate-pulse",
+            )}
+          >
+            {queued > 99 ? "99+" : queued}
+          </span>
+        ) : busy ? (
           <span aria-hidden className="absolute top-2 right-2 size-1.5 animate-pulse rounded-full bg-primary" />
         ) : null}
       </TooltipTrigger>
       <TooltipContent side="right" sideOffset={8}>
-        {label}
+        {described}
       </TooltipContent>
     </Tooltip>
   )

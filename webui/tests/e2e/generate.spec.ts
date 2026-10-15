@@ -53,7 +53,7 @@ test.describe("generate", () => {
     await open(page)
     await page.getByRole("navigation", { name: "Mode" }).getByRole("link", { name: "img2img" }).click()
     await expect(page).toHaveURL(/#\/img2img$/)
-    await expect(page.getByRole("region", { name: "Source image" })).toBeVisible()
+    await expect(page.getByRole("region", { name: "Source", exact: true })).toBeVisible()
     await page.getByRole("navigation", { name: "Mode" }).getByRole("link", { name: "txt2img" }).click()
     await expect(page).toHaveURL(/#\/txt2img$/)
   })
@@ -78,8 +78,9 @@ test.describe("generate", () => {
     await page.getByRole("menuitem", { name: "img2img", exact: true }).click()
     await expect(page).toHaveURL(/#\/img2img$/)
     await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toHaveText("a red fox")
-    // The source image is set (the upload field offers to replace / remove it).
-    await expect(page.getByRole("region", { name: "Source image" }).getByRole("button", { name: /^Remove/ })).toBeVisible()
+    // The source image is set (its line offers to replace / remove it) and the stage shows it in the editor.
+    await expect(page.getByRole("region", { name: "Source", exact: true }).getByRole("button", { name: /^Remove/ })).toBeVisible()
+    await expect(page.getByRole("img", { name: /^Image editor, / })).toBeVisible()
   })
 
   test("phone layout stacks the panes with the run controls at the bottom @phone", async ({ page }) => {

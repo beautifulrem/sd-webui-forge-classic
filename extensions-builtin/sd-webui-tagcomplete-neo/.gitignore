@@ -1,15 +1,4 @@
-tags/temp/
 __pycache__/
+# the legacy usage database (imported once) and temporary files of the old extension
 tags/tag_frequency.db
-
-# ============================================
-# Documentação privada de contexto para IA
-# ============================================
-.github/copilot-instructions.md
-AGENTS.md
-AGENTS.local.md
-docs/
-.specstory/
-
-# IDE
-.vscode/
+tags/temp/

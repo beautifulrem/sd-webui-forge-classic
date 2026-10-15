@@ -1,13 +1,12 @@
 import logging
 import math
 
-import gradio as gr
-
 import modules.scripts as scripts
 from backend.logging import setup_logger
 from modules import images
 from modules.processing import fix_seed, process_images
 from modules.shared import opts, state
+from remi import ui
 
 logger = logging.getLogger("PromptMatrix")
 setup_logger(logger)
@@ -41,21 +40,24 @@ def draw_xy_grid(xs, ys, x_label, y_label, cell):
 
 
 class PromptMatrix(scripts.Script):
+    # Visual order differs from the argument order (the margin sits with the toggles)
+    param_order = ("put_at_start", "different_seeds", "prompt_type", "variations_delimiter", "margin_size")
+
     def title(self):
         return "Prompt Matrix"
 
-    def ui(self, is_img2img):
-        gr.HTML("<br>")
-        with gr.Row():
-            with gr.Column():
-                put_at_start = gr.Checkbox(value=False, label="Put the variable parts at the start of prompt", elem_id=self.elem_id("put_at_start"))
-                different_seeds = gr.Checkbox(value=False, label="Use different seeds for each image", elem_id=self.elem_id("different_seeds"))
-                margin_size = gr.Slider(value=0, label="Grid Margins (px)", minimum=0, maximum=256, step=2, elem_id=self.elem_id("margin_size"))
-            with gr.Column():
-                prompt_type = gr.Radio(value="positive", label="Prompt", choices=("positive", "negative"), elem_id=self.elem_id("prompt_type"))
-                variations_delimiter = gr.Radio(value="comma", label="Joining Char.", choices=("comma", "space"), elem_id=self.elem_id("variations_delimiter"))
-
-        return [put_at_start, different_seeds, prompt_type, variations_delimiter, margin_size]
+    def params(self, is_img2img):
+        return ui.Row(
+            ui.Column(
+                ui.Toggle("put_at_start", False, label="Put the variable parts at the start of prompt"),
+                ui.Toggle("different_seeds", False, label="Use different seeds for each image"),
+                ui.Slider("margin_size", 0, 256, 0, 2, label="Grid Margins (px)"),
+            ),
+            ui.Column(
+                ui.Choice("prompt_type", ("positive", "negative"), "positive", style="radio", label="Prompt"),
+                ui.Choice("variations_delimiter", ("comma", "space"), "comma", style="radio", label="Joining Char."),
+            ),
+        )
 
     def run(self, p, put_at_start: bool, different_seeds: bool, prompt_type: str, variations_delimiter: str, margin_size: int):
         fix_seed(p)

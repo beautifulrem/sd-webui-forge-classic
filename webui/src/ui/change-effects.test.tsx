@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { keys, queryClient } from "@/api/queries"
 import type { Bootstrap } from "@/api/types"
-import { actionRequest, resetOwners, runAction } from "./actions"
+import { actionRequest, resetOwners, runAction, runBulkChangeEffects } from "./actions"
 import { createFormStore, type FormStore } from "./form-store"
 import { TabForm } from "./SchemaForm"
 import type { TabSchema } from "./schema"
@@ -176,6 +176,45 @@ describe("on_change", () => {
     act(() => resetOwners({ store, tab: "txt2img" }, ["core", "sampler"]))
     await waitFor(() => expect(calls.filter((c) => c.path.endsWith("__conflicts__"))).toHaveLength(1))
     expect(calls.find((c) => c.path.endsWith("__conflicts__"))!.body.selected).toBeUndefined()
+  })
+})
+
+describe("on_input", () => {
+  const schema: TabSchema = {
+    ...SCHEMA,
+    scripts: [
+      {
+        ...SCHEMA.scripts[0]!,
+        layout: {
+          type: "choice",
+          name: "sampler_name",
+          label: "Sampler",
+          style: "radio",
+          choices: [
+            { value: "Euler", label: "Euler" },
+            { value: "LCM", label: "LCM" },
+          ],
+          on_input: "sampler_picked",
+        },
+      },
+    ],
+    conflict_params: [],
+  }
+
+  it("runs after a user edit only, not after pastes or bulk changes", async () => {
+    const calls = mockServer()
+    const store = renderForm(schema)
+    act(() => {
+      store.getState().setValue("sampler", "sampler_name", "LCM")
+      runBulkChangeEffects({ store, tab: "txt2img" }, [{ owner: "sampler", names: ["sampler_name"] }])
+    })
+    act(() => resetOwners({ store, tab: "txt2img" }, ["sampler"]))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(calls).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole("radio", { name: "LCM" }))
+    await waitFor(() => expect(calls.map((c) => c.path)).toEqual(["/actions/sampler/sampler_picked"]))
+    expect(calls[0]!.body.values).toEqual({ sampler_name: "LCM" })
   })
 })
 

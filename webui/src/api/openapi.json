@@ -846,6 +846,62 @@
               "title": "Status"
             },
             "description": "comma-separated statuses"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "every word must appear in the prompt, infotext or parameters",
+              "title": "Q"
+            },
+            "description": "every word must appear in the prompt, infotext or parameters"
+          },
+          {
+            "name": "starred",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Starred"
+            }
+          },
+          {
+            "name": "tab",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "txt2img",
+                    "img2img",
+                    "extras"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tab"
+            }
           }
         ],
         "responses": {
@@ -1886,7 +1942,7 @@
     },
     "/api/v2/networks": {
       "get": {
-        "summary": "Network kinds",
+        "summary": "Network kinds (built-in and extension pages), in display order",
         "operationId": "kinds_api_v2_networks_get",
         "responses": {
           "200": {
@@ -1895,7 +1951,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "type": "string"
+                    "$ref": "#/components/schemas/NetworkKind"
                   },
                   "type": "array",
                   "title": "Response Kinds Api V2 Networks Get"
@@ -1906,9 +1962,27 @@
         }
       }
     },
+    "/api/v2/networks/refresh": {
+      "post": {
+        "summary": "Re-scan every kind (and prune the preview caches)",
+        "operationId": "refresh_all_api_v2_networks_refresh_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/networks/{kind}": {
       "get": {
-        "summary": "Search a kind (all terms must match); `sort` is name, path or mtime",
+        "summary": "Search, filter, sort and page a kind (every search term must match)",
         "operationId": "search_api_v2_networks__kind__get",
         "parameters": [
           {
@@ -1919,6 +1993,57 @@
               "type": "string",
               "title": "Kind"
             }
+          },
+          {
+            "name": "folder",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only items in this folder (relative path) and its subfolders",
+              "title": "Folder"
+            },
+            "description": "only items in this folder (relative path) and its subfolders"
+          },
+          {
+            "name": "arch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "architecture names (``unknown``: items without one); any of them",
+              "title": "Arch"
+            },
+            "description": "architecture names (``unknown``: items without one); any of them"
+          },
+          {
+            "name": "compatible",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "only items for the current UI preset's architecture (or unknown)",
+              "default": false,
+              "title": "Compatible"
+            },
+            "description": "only items for the current UI preset's architecture (or unknown)"
           },
           {
             "name": "q",
@@ -1953,6 +2078,25 @@
             }
           },
           {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "start at this match (instead of ``cursor``: clients jump straight to the window they show)",
+              "title": "Offset"
+            },
+            "description": "start at this match (instead of ``cursor``: clients jump straight to the window they show)"
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -1970,10 +2114,12 @@
             "required": false,
             "schema": {
               "type": "string",
-              "pattern": "^(name|path|mtime)$",
+              "pattern": "^(name|date|created|size|path|mtime)$",
+              "description": "``date``: modified, ``created``: added; ``mtime`` is ``date``",
               "default": "name",
               "title": "Sort"
-            }
+            },
+            "description": "``date``: modified, ``created``: added; ``mtime`` is ``date``"
           },
           {
             "name": "order",
@@ -1994,6 +2140,122 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Page_NetworkItem_"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/networks/{kind}/facets": {
+      "get": {
+        "summary": "Folder tree and architecture counts for the filters",
+        "operationId": "facets_api_v2_networks__kind__facets_get",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "folder",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only items in this folder (relative path) and its subfolders",
+              "title": "Folder"
+            },
+            "description": "only items in this folder (relative path) and its subfolders"
+          },
+          {
+            "name": "arch",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "architecture names (``unknown``: items without one); any of them",
+              "title": "Arch"
+            },
+            "description": "architecture names (``unknown``: items without one); any of them"
+          },
+          {
+            "name": "compatible",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "only items for the current UI preset's architecture (or unknown)",
+              "default": false,
+              "title": "Compatible"
+            },
+            "description": "only items for the current UI preset's architecture (or unknown)"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkFacets"
                 }
               }
             }
@@ -2072,7 +2334,7 @@
     },
     "/api/v2/networks/{kind}/{name}/meta": {
       "get": {
-        "summary": "An item with its file metadata and user metadata",
+        "summary": "An item with its file metadata, training facts and dataset tags, and user metadata",
         "operationId": "meta_api_v2_networks__kind___name__meta_get",
         "parameters": [
           {
@@ -2128,7 +2390,7 @@
         }
       },
       "patch": {
-        "summary": "Edit the user metadata (description, activation text, preferred weight, ...)",
+        "summary": "Edit the user metadata (the `<model>.json` sidecar)",
         "operationId": "edit_meta_api_v2_networks__kind___name__meta_patch",
         "parameters": [
           {
@@ -2180,6 +2442,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "description": "the item has no model file to write next to",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -2249,6 +2521,94 @@
             },
             "description": "Not Found"
           },
+          "409": {
+            "description": "the item has no model file to write next to",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v2/networks/{kind}/{name}/open-folder": {
+      "post": {
+        "summary": "Open the item's folder in the file manager of the WebUI machine",
+        "operationId": "open_folder_api_v2_networks__kind___name__open_folder_post",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "the item has no model file to write next to",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -2280,7 +2640,7 @@
         }
       },
       "patch": {
-        "summary": "Enable/disable extensions (applies after a restart)",
+        "summary": "Enable/disable extensions (loaded with the next reload)",
         "operationId": "configure_api_v2_extensions_patch",
         "requestBody": {
           "content": {
@@ -2308,7 +2668,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Detail"
+                  "$ref": "#/components/schemas/AdminErrorBody"
                 }
               }
             }
@@ -2318,7 +2678,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Detail"
+                  "$ref": "#/components/schemas/AdminErrorBody"
                 }
               }
             }
@@ -2328,7 +2688,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Detail"
+                  "$ref": "#/components/schemas/AdminErrorBody"
                 }
               }
             }
@@ -2338,8 +2698,25 @@
     },
     "/api/v2/extensions/check-updates": {
       "post": {
-        "summary": "Fetch the remotes of the enabled extensions and report which can update",
+        "summary": "Fetch the remotes of extensions (default: every enabled one) and report which can update",
         "operationId": "check_updates_api_v2_extensions_check_updates_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ExtensionCheckRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2356,7 +2733,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Detail"
+                  "$ref": "#/components/schemas/AdminErrorBody"
                 }
               }
             }
@@ -2366,7 +2743,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Detail"
+                  "$ref": "#/components/schemas/AdminErrorBody"
                 }
               }
             }
@@ -2376,7 +2753,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Detail"
+                  "$ref": "#/components/schemas/AdminErrorBody"
                 }
               }
             }
@@ -2384,9 +2761,68 @@
         }
       }
     },
+    "/api/v2/extensions/{name}/check": {
+      "post": {
+        "summary": "Check one extension for updates (clients check one at a time to show progress; a failed fetch is the status \"unknown (remote error)\")",
+        "operationId": "check_one_api_v2_extensions__name__check_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtensionInfo"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
     "/api/v2/extensions/update": {
       "post": {
-        "summary": "Update extensions to their remote's latest commit (backs up the config state first; applies after a restart)",
+        "summary": "Update extensions to their remote's latest commit (backs up the config state first; loaded with the next reload; 502 names those git could not update)",
         "operationId": "update_api_v2_extensions_update_post",
         "requestBody": {
           "content": {
@@ -2414,7 +2850,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Detail"
+                  "$ref": "#/components/schemas/AdminErrorBody"
                 }
               }
             }
@@ -2424,7 +2860,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Detail"
+                  "$ref": "#/components/schemas/AdminErrorBody"
                 }
               }
             }
@@ -2434,7 +2870,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Detail"
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
                 }
               }
             }
@@ -2444,7 +2890,7 @@
     },
     "/api/v2/extensions/install": {
       "post": {
-        "summary": "Install an extension from a git URL (runs its install.py; loads after a restart)",
+        "summary": "Install an extension from a git URL (runs its install.py; loaded with the next reload; 502 when git cannot clone it)",
         "operationId": "install_api_v2_extensions_install_post",
         "requestBody": {
           "content": {
@@ -2472,7 +2918,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Detail"
+                  "$ref": "#/components/schemas/AdminErrorBody"
                 }
               }
             }
@@ -2482,7 +2928,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Detail"
+                  "$ref": "#/components/schemas/AdminErrorBody"
                 }
               }
             }
@@ -2492,7 +2938,17 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Detail"
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
                 }
               }
             }
@@ -2502,10 +2958,404 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Detail"
+                  "$ref": "#/components/schemas/AdminErrorBody"
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v2/extensions/{name}": {
+      "delete": {
+        "summary": "Uninstall an extension (deletes its folder; built-in ones cannot be removed)",
+        "operationId": "uninstall_api_v2_extensions__name__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v2/extensions/index": {
+      "get": {
+        "summary": "The extension index (cached for 10 minutes; `refresh` reloads it)",
+        "operationId": "extension_index_api_v2_extensions_index_get",
+        "parameters": [
+          {
+            "name": "url",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Url"
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtensionIndex"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        }
+      }
+    },
+    "/api/v2/extensions/config-states": {
+      "get": {
+        "summary": "Saved config states (backups of the WebUI and extension commits), newest first",
+        "operationId": "config_states_api_v2_extensions_config_states_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ConfigStateInfo"
+                  },
+                  "type": "array",
+                  "title": "Response Config States Api V2 Extensions Config States Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Back up the current WebUI and extension commits",
+        "operationId": "save_config_state_api_v2_extensions_config_states_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigStateSave"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigStateInfo"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/extensions/config-states/{state_id}": {
+      "get": {
+        "summary": "A backup compared with the current state",
+        "operationId": "config_state_api_v2_extensions_config_states__state_id__get",
+        "parameters": [
+          {
+            "name": "state_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "State Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigStateDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a backup",
+        "operationId": "delete_config_state_api_v2_extensions_config_states__state_id__delete",
+        "parameters": [
+          {
+            "name": "state_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "State Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v2/extensions/config-states/{state_id}/restore": {
+      "post": {
+        "summary": "Restore the extensions of a backup (each is reset to its recorded commit while the next Reload UI runs; the WebUI checkout is never reset)",
+        "operationId": "restore_config_state_api_v2_extensions_config_states__state_id__restore_post",
+        "parameters": [
+          {
+            "name": "state_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "State Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigStateRestore"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoreResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
           }
         }
       }
@@ -2701,9 +3551,2533 @@
         }
       }
     },
+    "/api/v2/server/status": {
+      "get": {
+        "summary": "What the server allows (restart, extension access, settings changes) and the loaded model",
+        "operationId": "server_status_api_v2_server_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/models/reload": {
+      "post": {
+        "summary": "Load the selected model now (behind generation; also after an unload; `force` loads it again)",
+        "operationId": "reload_model_api_v2_models_reload_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ModelReloadRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/models/loaded": {
+      "get": {
+        "summary": "The checkpoint and the weights in memory (UNet, VAE, text encoders) with their size and device",
+        "operationId": "loaded_models_api_v2_models_loaded_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoadedModels"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/models/hashes": {
+      "get": {
+        "summary": "Progress of hashing every checkpoint",
+        "operationId": "hash_status_api_v2_models_hashes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HashProgress"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Hash every checkpoint (sha256, in the background; poll GET for progress)",
+        "operationId": "hash_checkpoints_api_v2_models_hashes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/HashRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HashProgress"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/licenses": {
+      "get": {
+        "summary": "Third-party code and its licenses (from html/licenses.html)",
+        "operationId": "licenses_api_v2_licenses_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Licenses"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/sysinfo/check": {
+      "post": {
+        "summary": "Whether a sysinfo file is unmodified (its checksum matches)",
+        "operationId": "check_sysinfo_api_v2_sysinfo_check_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SysinfoCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SysinfoCheck"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/options/validate": {
+      "post": {
+        "summary": "Validate setting values without applying them (422 lists every rejected value)",
+        "operationId": "validate_options_api_v2_options_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "title": "Values"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/jobs/{job_id}/duplicate": {
+      "post": {
+        "summary": "Queue a copy of a job (right after it while it is queued)",
+        "operationId": "duplicate_job_api_v2_jobs__job_id__duplicate_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCreated"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v2/jobs/{job_id}/params": {
+      "put": {
+        "summary": "Replace a queued job's parameters (validated)",
+        "operationId": "update_job_params_api_v2_jobs__job_id__params_put",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobParams"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v2/queue/move": {
+      "post": {
+        "summary": "Move a queued job next to another (and into its priority group)",
+        "operationId": "move_job_api_v2_queue_move_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/jobs/star": {
+      "post": {
+        "summary": "Star or unstar jobs (starred jobs survive clearing the history)",
+        "operationId": "star_jobs_api_v2_jobs_star_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StarRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCount"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/jobs/clear-history": {
+      "post": {
+        "summary": "Delete finished jobs (their images stay in the gallery)",
+        "operationId": "clear_history_api_v2_jobs_clear_history_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClearHistoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCount"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/queue/import": {
+      "get": {
+        "summary": "Queues of replaced extensions found on this machine",
+        "operationId": "import_sources_api_v2_queue_import_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ImportSourceInfo"
+                  },
+                  "type": "array",
+                  "title": "Response Import Sources Api V2 Queue Import Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/queue/import/{source}": {
+      "post": {
+        "summary": "Import a replaced extension's queue and history (idempotent)",
+        "operationId": "import_queue_api_v2_queue_import__source__post",
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "agent-scheduler",
+                "prompt-queue"
+              ],
+              "type": "string",
+              "title": "Source"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReport"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v2/gallery": {
+      "get": {
+        "summary": "Outputs for the gallery, filtered and sorted",
+        "operationId": "gallery_api_v2_gallery_get",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "every word must appear in the infotext, the file name or the model",
+              "title": "Q"
+            },
+            "description": "every word must appear in the infotext, the file name or the model"
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "txt2img",
+                    "img2img",
+                    "extras",
+                    "grids",
+                    "saved",
+                    "other"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO date-time (inclusive)",
+              "title": "Since"
+            },
+            "description": "ISO date-time (inclusive)"
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO date-time (exclusive)",
+              "title": "Until"
+            },
+            "description": "ISO date-time (exclusive)"
+          },
+          {
+            "name": "starred",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Starred"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "newest",
+                "oldest",
+                "name",
+                "largest"
+              ],
+              "type": "string",
+              "default": "newest",
+              "title": "Sort"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_GalleryItem_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/gallery/facets": {
+      "get": {
+        "summary": "Filter values: models, categories, date bounds",
+        "operationId": "gallery_facets_api_v2_gallery_facets_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryFacets"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/gallery/{file_id}": {
+      "get": {
+        "summary": "One output",
+        "operationId": "gallery_item_api_v2_gallery__file_id__get",
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "File Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryItem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/gallery/star": {
+      "post": {
+        "summary": "Star or unstar outputs",
+        "operationId": "star_outputs_api_v2_gallery_star_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StarOutputsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputCount"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/gallery/delete": {
+      "post": {
+        "summary": "Remove outputs from the gallery (and from disk with `delete_files`)",
+        "operationId": "delete_outputs_api_v2_gallery_delete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteOutputsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutputCount"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/gallery/zip": {
+      "post": {
+        "summary": "Pack outputs into a zip to download (kept for an hour)",
+        "operationId": "zip_outputs_api_v2_gallery_zip_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZipResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/gallery/{file_id}/reveal": {
+      "post": {
+        "summary": "Show an output in the file manager of the WebUI machine (local clients only)",
+        "operationId": "reveal_output_api_v2_gallery__file_id__reveal_post",
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "File Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/pnginfo": {
+      "post": {
+        "summary": "All metadata of an uploaded or generated image (PNG Info)",
+        "operationId": "png_info_api_v2_pnginfo_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MetadataRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageMetadata"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/config": {
+      "get": {
+        "summary": "What is enabled and how completions are inserted",
+        "operationId": "config_api_v2_prompt_tools_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptToolsConfig"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/complete": {
+      "get": {
+        "summary": "Completions for the word being typed",
+        "operationId": "complete_api_v2_prompt_tools_complete_get",
+        "parameters": [
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "tag",
+                "lora",
+                "embedding",
+                "chant",
+                "network",
+                "wildcard",
+                "wildcard-value"
+              ],
+              "type": "string",
+              "default": "tag",
+              "title": "Mode"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "negative",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Negative"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 100,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "wildcard",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "mode wildcard-value: the wildcard's name",
+              "title": "Wildcard"
+            },
+            "description": "mode wildcard-value: the wildcard's name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptCompletionList"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/usage": {
+      "post": {
+        "summary": "Count an accepted completion (frequency ranking)",
+        "operationId": "record_usage_api_v2_prompt_tools_usage_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptUsageRecord"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Forget the usage of a completion",
+        "operationId": "reset_usage_api_v2_prompt_tools_usage_delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "title": "Name"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "tag",
+                "extra",
+                "lora",
+                "embedding",
+                "chant",
+                "wildcard",
+                "wildcard-value"
+              ],
+              "type": "string",
+              "default": "tag",
+              "title": "Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/lookup": {
+      "post": {
+        "summary": "Category, post count and translation of known tags",
+        "operationId": "lookup_api_v2_prompt_tools_lookup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptTagLookupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptTagLookup"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/refresh": {
+      "post": {
+        "summary": "Reload the tag lists, wildcards and chants",
+        "operationId": "refresh_api_v2_prompt_tools_refresh_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/translate": {
+      "post": {
+        "summary": "Translate prompt pieces with the configured provider",
+        "operationId": "translate_api_v2_prompt_tools_translate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptTranslateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptTranslation"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Content Too Large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/translation-key": {
+      "put": {
+        "summary": "Store (or, empty, forget) the translation API key; it is never sent back",
+        "operationId": "set_translation_key_api_v2_prompt_tools_translation_key_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptTranslationKey"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptTranslationKeyState"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/groups": {
+      "get": {
+        "summary": "Quick tag groups in a language",
+        "operationId": "groups_api_v2_prompt_tools_groups_get",
+        "parameters": [
+          {
+            "name": "locale",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 16
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Locale"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptTagGroups"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/history": {
+      "get": {
+        "summary": "Prompt history, newest first (every term must match)",
+        "operationId": "history_api_v2_prompt_tools_history_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "prompt",
+                    "negative"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "one item per distinct prompt / negative prompt",
+              "title": "Field"
+            },
+            "description": "one item per distinct prompt / negative prompt"
+          },
+          {
+            "name": "tab",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tab"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_PromptHistoryItem_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Add prompts to the history",
+        "operationId": "add_history_api_v2_prompt_tools_history_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptHistoryCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptHistoryItem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Clear the history",
+        "operationId": "clear_history_api_v2_prompt_tools_history_delete",
+        "parameters": [
+          {
+            "name": "keep_named",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Keep Named"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptHistoryCleared"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/history/{entry_id}": {
+      "patch": {
+        "summary": "Name a history entry, or its group (named entries are kept)",
+        "operationId": "rename_history_api_v2_prompt_tools_history__entry_id__patch",
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Entry Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptHistoryPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptHistoryItem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Remove a history entry, or its group",
+        "operationId": "delete_history_api_v2_prompt_tools_history__entry_id__delete",
+        "parameters": [
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Entry Id"
+            }
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "prompt",
+                    "negative"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "remove every entry with this entry's prompt / negative prompt (a grouped list)",
+              "title": "Field"
+            },
+            "description": "remove every entry with this entry's prompt / negative prompt (a grouped list)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptHistoryRemoved"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/collections": {
+      "get": {
+        "summary": "Favorite collections (the first is the unsorted favorites)",
+        "operationId": "collections_api_v2_prompt_tools_collections_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PromptCollection"
+                  },
+                  "type": "array",
+                  "title": "Response Collections Api V2 Prompt Tools Collections Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a collection",
+        "operationId": "create_collection_api_v2_prompt_tools_collections_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptCollectionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptCollection"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/collections/{collection_id}": {
+      "patch": {
+        "summary": "Rename a collection",
+        "operationId": "rename_collection_api_v2_prompt_tools_collections__collection_id__patch",
+        "parameters": [
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptCollectionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a collection and its favorites",
+        "operationId": "delete_collection_api_v2_prompt_tools_collections__collection_id__delete",
+        "parameters": [
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Collection Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/favorites": {
+      "get": {
+        "summary": "A page of favorites in their order (`collection` empty: unsorted; absent: all)",
+        "operationId": "favorites_api_v2_prompt_tools_favorites_get",
+        "parameters": [
+          {
+            "name": "collection",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Collection"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "enum": [
+                      "prompt",
+                      "negative",
+                      "tags"
+                    ],
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "any of these kinds (repeat the parameter); absent: every kind",
+              "title": "Kind"
+            },
+            "description": "any of these kinds (repeat the parameter); absent: every kind"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_PromptFavorite_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Save a prompt or tags as a favorite",
+        "operationId": "add_favorite_api_v2_prompt_tools_favorites_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptFavoriteCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptFavorite"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/favorites/{favorite_id}": {
+      "patch": {
+        "summary": "Rename, edit, move or reorder a favorite",
+        "operationId": "update_favorite_api_v2_prompt_tools_favorites__favorite_id__patch",
+        "parameters": [
+          {
+            "name": "favorite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Favorite Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptFavoritePatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptFavorite"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Remove a favorite",
+        "operationId": "delete_favorite_api_v2_prompt_tools_favorites__favorite_id__delete",
+        "parameters": [
+          {
+            "name": "favorite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Favorite Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/favorites-export": {
+      "get": {
+        "summary": "Every favorite with its collection name (JSON download)",
+        "operationId": "export_favorites_api_v2_prompt_tools_favorites_export_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptFavoritesExport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/prompt-tools/favorites-import": {
+      "post": {
+        "summary": "Add the favorites of an export (duplicates are skipped)",
+        "operationId": "import_favorites_api_v2_prompt_tools_favorites_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptFavoritesExport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptFavoritesImported"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Content Too Large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/ping": {
       "get": {
-        "summary": "Answers once the server is up (polled after a reload)",
+        "summary": "Answers once the server is up (polled after a reload); `instance` differs for every app (it changes with a reload or restart)",
         "operationId": "ping_internal_ping_get",
         "responses": {
           "200": {
@@ -2901,6 +6275,60 @@
         "title": "ActionRequest",
         "description": "The calling owner's ``values``, the generation form (``core``) and\nthe other owners' values (``scripts``); extra keys are the action's own\narguments (``selected``, ``label``, ``preset``, ...)."
       },
+      "AdminErrorBody": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "description": "the message in English"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template",
+            "description": "the message's translatable text with {{name}} placeholders"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Params",
+            "description": "the placeholders' values",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "AdminErrorBody",
+        "description": "A refused or failed extensions/system operation."
+      },
+      "ArchCount": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "count"
+        ],
+        "title": "ArchCount"
+      },
       "AuthStatus": {
         "properties": {
           "required": {
@@ -3015,6 +6443,246 @@
         ],
         "title": "Bootstrap"
       },
+      "ClearHistoryRequest": {
+        "properties": {
+          "keep_starred": {
+            "type": "boolean",
+            "title": "Keep Starred",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "ClearHistoryRequest"
+      },
+      "ConfigStateDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "the backup's file name in config_states/"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "webui_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webui Commit"
+          },
+          "extensions": {
+            "type": "integer",
+            "title": "Extensions",
+            "description": "number of extensions recorded",
+            "default": 0
+          },
+          "webui": {
+            "$ref": "#/components/schemas/ConfigStateWebui"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigStateExtension"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "webui",
+          "items"
+        ],
+        "title": "ConfigStateDetail"
+      },
+      "ConfigStateExtension": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "builtin": {
+            "type": "boolean",
+            "title": "Builtin",
+            "default": false
+          },
+          "saved": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExtensionRepoState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null: not in the backup"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExtensionRepoState"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null: not installed now"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ConfigStateExtension"
+      },
+      "ConfigStateInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "the backup's file name in config_states/"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "webui_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webui Commit"
+          },
+          "extensions": {
+            "type": "integer",
+            "title": "Extensions",
+            "description": "number of extensions recorded",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ConfigStateInfo"
+      },
+      "ConfigStateRestore": {
+        "properties": {
+          "what": {
+            "type": "string",
+            "const": "extensions",
+            "title": "What",
+            "description": "only the extensions are restored; the WebUI checkout is never reset",
+            "default": "extensions"
+          }
+        },
+        "type": "object",
+        "title": "ConfigStateRestore"
+      },
+      "ConfigStateSave": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Name",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ConfigStateSave"
+      },
+      "ConfigStateWebui": {
+        "properties": {
+          "saved": {
+            "$ref": "#/components/schemas/RepoState"
+          },
+          "current": {
+            "$ref": "#/components/schemas/RepoState"
+          }
+        },
+        "type": "object",
+        "required": [
+          "saved",
+          "current"
+        ],
+        "title": "ConfigStateWebui"
+      },
+      "DatasetTag": {
+        "properties": {
+          "tag": {
+            "type": "string",
+            "title": "Tag"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tag",
+          "count"
+        ],
+        "title": "DatasetTag"
+      },
+      "DeleteOutputsRequest": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 2000,
+            "minItems": 1,
+            "title": "Ids"
+          },
+          "delete_files": {
+            "type": "boolean",
+            "title": "Delete Files",
+            "description": "also delete the files on disk (else the folder scan skips them from now on)",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "title": "DeleteOutputsRequest"
+      },
       "Detail": {
         "properties": {
           "detail": {
@@ -3063,6 +6731,70 @@
         ],
         "title": "ErrorItem"
       },
+      "ExtensionCheckRequest": {
+        "properties": {
+          "names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Names",
+            "description": "default: every enabled extension with a remote"
+          }
+        },
+        "type": "object",
+        "title": "ExtensionCheckRequest"
+      },
+      "ExtensionIndex": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IndexEntry"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "tags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Tags",
+            "description": "tag → description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url",
+          "items",
+          "tags"
+        ],
+        "title": "ExtensionIndex",
+        "description": "An extension index (``index.json`` of the A1111 extensions list)."
+      },
       "ExtensionInfo": {
         "properties": {
           "name": {
@@ -3086,7 +6818,20 @@
                 "type": "null"
               }
             ],
-            "title": "Remote"
+            "title": "Remote",
+            "description": "the git remote (a browsable URL when it is one, credentials removed)"
+          },
+          "remote_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Url",
+            "description": "https URL of the repository, when known"
           },
           "branch": {
             "anyOf": [
@@ -3108,7 +6853,31 @@
                 "type": "null"
               }
             ],
-            "title": "Version"
+            "title": "Version",
+            "description": "short commit hash"
+          },
+          "commit_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Hash"
+          },
+          "commit_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Url",
+            "description": "link to the commit on its forge (GitHub, GitLab, Codeberg)"
           },
           "commit_date": {
             "anyOf": [
@@ -3131,7 +6900,7 @@
               }
             ],
             "title": "Status",
-            "description": "after a check: \"latest\", \"new commits\", \"behind HEAD\", ..."
+            "description": "after a check: \"latest\", \"new commits\", \"behind HEAD\", \"unknown (remote error)\", ..."
           },
           "can_update": {
             "type": "boolean",
@@ -3158,7 +6927,8 @@
           "branch": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               {
                 "type": "null"
@@ -3169,7 +6939,8 @@
           "dirname": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 100
               },
               {
                 "type": "null"
@@ -3214,6 +6985,30 @@
             "type": "boolean",
             "title": "Access",
             "description": "whether this server allows installing, updating and toggling extensions"
+          },
+          "restartable": {
+            "type": "boolean",
+            "title": "Restartable",
+            "description": "whether /server/restart can restart the process",
+            "default": false
+          },
+          "disabled_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled By",
+            "description": "why extensions are not loaded: \"all\", \"extra\" (the option) or a command-line flag"
+          },
+          "index_url": {
+            "type": "string",
+            "title": "Index Url",
+            "description": "the default extension index URL",
+            "default": ""
           }
         },
         "type": "object",
@@ -3223,6 +7018,72 @@
           "access"
         ],
         "title": "ExtensionList"
+      },
+      "ExtensionRepoState": {
+        "properties": {
+          "remote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "commit_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Hash"
+          },
+          "commit_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Url"
+          },
+          "commit_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Date"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "ExtensionRepoState"
       },
       "ExtensionUpdateRequest": {
         "properties": {
@@ -3279,6 +7140,197 @@
         "type": "object",
         "title": "ExtensionsPatch"
       },
+      "FacetCount": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "count"
+        ],
+        "title": "FacetCount"
+      },
+      "GalleryFacets": {
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/FacetCount"
+            },
+            "type": "array",
+            "title": "Models"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/FacetCount"
+            },
+            "type": "array",
+            "title": "Categories"
+          },
+          "oldest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest"
+          },
+          "newest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newest"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "starred": {
+            "type": "integer",
+            "title": "Starred"
+          }
+        },
+        "type": "object",
+        "required": [
+          "models",
+          "categories",
+          "total",
+          "starred"
+        ],
+        "title": "GalleryFacets"
+      },
+      "GalleryItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "mime": {
+            "type": "string",
+            "title": "Mime"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "tab": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tab"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "txt2img",
+              "img2img",
+              "extras",
+              "grids",
+              "saved",
+              "other"
+            ],
+            "title": "Category"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "starred": {
+            "type": "boolean",
+            "title": "Starred",
+            "default": false
+          },
+          "infotext": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Infotext"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "size",
+          "mime",
+          "created_at",
+          "category"
+        ],
+        "title": "GalleryItem"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3291,6 +7343,89 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HashProgress": {
+        "properties": {
+          "running": {
+            "type": "boolean",
+            "title": "Running"
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done",
+            "default": 0
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "failed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Failed",
+            "default": []
+          },
+          "current": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Current",
+            "description": "checkpoints being hashed",
+            "default": []
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "running"
+        ],
+        "title": "HashProgress"
+      },
+      "HashRequest": {
+        "properties": {
+          "threads": {
+            "type": "integer",
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Threads",
+            "description": "checkpoints hashed at once",
+            "default": 1
+          }
+        },
+        "type": "object",
+        "title": "HashRequest"
+      },
+      "IdsRequest": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 2000,
+            "minItems": 1,
+            "title": "Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "title": "IdsRequest"
       },
       "ImageInfo": {
         "properties": {
@@ -3356,6 +7491,342 @@
           "file_id"
         ],
         "title": "ImageInfoRequest"
+      },
+      "ImageMetadata": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "infotext": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Infotext"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Params",
+            "description": "the parsed generation parameters (display strings)",
+            "default": {}
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/MetadataEntry"
+            },
+            "type": "array",
+            "title": "Entries"
+          },
+          "chunks": {
+            "items": {
+              "$ref": "#/components/schemas/PngChunk"
+            },
+            "type": "array",
+            "title": "Chunks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "mode",
+          "width",
+          "height",
+          "size",
+          "entries",
+          "chunks"
+        ],
+        "title": "ImageMetadata"
+      },
+      "ImportItem": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "history",
+              "refused",
+              "invalid",
+              "skipped",
+              "error"
+            ],
+            "title": "Outcome"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/Note"
+            },
+            "type": "array",
+            "title": "Notes",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "title",
+          "outcome"
+        ],
+        "title": "ImportItem"
+      },
+      "ImportReport": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "agent-scheduler",
+              "prompt-queue"
+            ],
+            "title": "Source"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path",
+            "description": "the file imported (not under --hide-ui-dir-config)"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "queued": {
+            "type": "integer",
+            "title": "Queued"
+          },
+          "history": {
+            "type": "integer",
+            "title": "History"
+          },
+          "refused": {
+            "type": "integer",
+            "title": "Refused",
+            "description": "pending tasks with arguments that cannot be mapped: kept in the history, not replayable"
+          },
+          "invalid": {
+            "type": "integer",
+            "title": "Invalid",
+            "description": "pending tasks whose values the current form rejects: kept in the history to edit"
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped",
+            "description": "imported before (or finished prompts)"
+          },
+          "errors": {
+            "type": "integer",
+            "title": "Errors"
+          },
+          "paused": {
+            "type": "boolean",
+            "title": "Paused",
+            "description": "the queue was paused so the imported jobs can be reviewed"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImportItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "total",
+          "queued",
+          "history",
+          "refused",
+          "invalid",
+          "skipped",
+          "errors",
+          "paused",
+          "items"
+        ],
+        "title": "ImportReport"
+      },
+      "ImportSourceInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "agent-scheduler",
+              "prompt-queue"
+            ],
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count",
+            "description": "records found (pending prompts for the Prompt Queue)",
+            "default": 0
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path",
+            "description": "where it was found (not under --hide-ui-dir-config)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "available"
+        ],
+        "title": "ImportSourceInfo"
+      },
+      "IndexEntry": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "default": []
+          },
+          "added": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "commit_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Time"
+          },
+          "stars": {
+            "type": "integer",
+            "title": "Stars",
+            "default": 0
+          },
+          "order": {
+            "type": "integer",
+            "title": "Order",
+            "description": "position in the index (its own order)",
+            "default": 0
+          },
+          "installed": {
+            "type": "boolean",
+            "title": "Installed",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "url"
+        ],
+        "title": "IndexEntry"
       },
       "InfotextParsed": {
         "properties": {
@@ -3581,6 +8052,50 @@
               }
             ],
             "title": "Infotext"
+          },
+          "starred": {
+            "type": "boolean",
+            "title": "Starred",
+            "default": false
+          },
+          "replayable": {
+            "type": "boolean",
+            "title": "Replayable",
+            "description": "false: imported with arguments that do not map to the current parameters (never run or retried as is)",
+            "default": true
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "a name the job was given (imported tasks)"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source",
+            "description": "the importer that brought the job in (\"agent-scheduler\", \"prompt-queue\")"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/Note"
+            },
+            "type": "array",
+            "title": "Notes",
+            "description": "what an importer could not map exactly",
+            "default": []
           }
         },
         "type": "object",
@@ -3592,6 +8107,19 @@
           "created_at"
         ],
         "title": "Job"
+      },
+      "JobCount": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count"
+        ],
+        "title": "JobCount"
       },
       "JobCreated": {
         "properties": {
@@ -3762,6 +8290,50 @@
             ],
             "title": "Infotext"
           },
+          "starred": {
+            "type": "boolean",
+            "title": "Starred",
+            "default": false
+          },
+          "replayable": {
+            "type": "boolean",
+            "title": "Replayable",
+            "description": "false: imported with arguments that do not map to the current parameters (never run or retried as is)",
+            "default": true
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "a name the job was given (imported tasks)"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source",
+            "description": "the importer that brought the job in (\"agent-scheduler\", \"prompt-queue\")"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/Note"
+            },
+            "type": "array",
+            "title": "Notes",
+            "description": "what an importer could not map exactly",
+            "default": []
+          },
           "core": {
             "type": "object",
             "title": "Core"
@@ -3777,6 +8349,16 @@
           "schema_version": {
             "type": "integer",
             "title": "Schema Version"
+          },
+          "opaque": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OpaqueArgs"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -3850,6 +8432,22 @@
           "id"
         ],
         "title": "JobOutput"
+      },
+      "JobParams": {
+        "properties": {
+          "core": {
+            "type": "object",
+            "title": "Core",
+            "default": {}
+          },
+          "scripts": {
+            "type": "object",
+            "title": "Scripts",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "title": "JobParams"
       },
       "JobPatch": {
         "properties": {
@@ -3989,6 +8587,154 @@
         ],
         "title": "JobRequest"
       },
+      "LicenseEntry": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "license_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Url",
+            "description": "raw text of the license (fetched by the browser)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "LicenseEntry"
+      },
+      "LicenseGroup": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LicenseEntry"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "items"
+        ],
+        "title": "LicenseGroup"
+      },
+      "Licenses": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/LicenseGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          }
+        },
+        "type": "object",
+        "required": [
+          "groups"
+        ],
+        "title": "Licenses"
+      },
+      "LoadedModels": {
+        "properties": {
+          "checkpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint",
+            "description": "the checkpoint in memory, if any"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LoadedWeights"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "LoadedModels"
+      },
+      "LoadedWeights": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "the model's class (UNet, VAE, text encoder, ...)"
+          },
+          "memory_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Mb",
+            "description": "memory it holds on its device, in MiB"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "LoadedWeights"
+      },
       "LocaleInfo": {
         "properties": {
           "id": {
@@ -4024,6 +8770,53 @@
           "password"
         ],
         "title": "LoginRequest"
+      },
+      "MetadataEntry": {
+        "properties": {
+          "group": {
+            "type": "string",
+            "title": "Group",
+            "description": "\"Image\", \"Metadata\" (PNG text, comments, ...), \"EXIF\", \"EXIF Exif\", \"EXIF GPS\", ..."
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "text",
+              "number",
+              "binary"
+            ],
+            "title": "Kind",
+            "default": "text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group",
+          "key",
+          "value"
+        ],
+        "title": "MetadataEntry"
+      },
+      "MetadataRequest": {
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "title": "File Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file_id"
+        ],
+        "title": "MetadataRequest"
       },
       "ModelRef": {
         "properties": {
@@ -4081,6 +8874,18 @@
           "name"
         ],
         "title": "ModelRef"
+      },
+      "ModelReloadRequest": {
+        "properties": {
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "description": "load again even when the selected model is already loaded",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "ModelReloadRequest"
       },
       "Models": {
         "properties": {
@@ -4236,6 +9041,143 @@
         "type": "object",
         "title": "ModelsSummary"
       },
+      "MoveRequest": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After",
+            "description": "the queued job it now follows (same priority group)"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before",
+            "description": "the queued job it now precedes, used when `after` is not given or not queued any more"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000.0,
+                "minimum": -1000.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority",
+            "description": "its new priority (the group of its neighbours)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "MoveRequest"
+      },
+      "NetworkFacets": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "folder_total": {
+            "type": "integer",
+            "title": "Folder Total",
+            "default": 0
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "folders": {
+            "items": {
+              "$ref": "#/components/schemas/NetworkFolder"
+            },
+            "type": "array",
+            "title": "Folders"
+          },
+          "archs": {
+            "items": {
+              "$ref": "#/components/schemas/ArchCount"
+            },
+            "type": "array",
+            "title": "Archs"
+          },
+          "current_arch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Arch"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "total",
+          "count",
+          "folders",
+          "archs"
+        ],
+        "title": "NetworkFacets"
+      },
+      "NetworkFolder": {
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "Path"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/NetworkFolder"
+            },
+            "type": "array",
+            "title": "Children",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "path",
+          "name",
+          "count"
+        ],
+        "title": "NetworkFolder"
+      },
       "NetworkItem": {
         "properties": {
           "name": {
@@ -4254,6 +9196,11 @@
             "type": "string",
             "title": "Path"
           },
+          "folder": {
+            "type": "string",
+            "title": "Folder",
+            "default": ""
+          },
           "preview": {
             "anyOf": [
               {
@@ -4264,6 +9211,32 @@
               }
             ],
             "title": "Preview"
+          },
+          "preview_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "image",
+                  "video"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Type"
+          },
+          "placeholder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placeholder"
           },
           "description": {
             "anyOf": [
@@ -4297,6 +9270,47 @@
               }
             ],
             "title": "Negative Prompt"
+          },
+          "activation_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activation Text"
+          },
+          "preferred_weight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferred Weight"
+          },
+          "negative_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Negative Text"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "default": []
           },
           "search_terms": {
             "items": {
@@ -4339,6 +9353,39 @@
             ],
             "title": "Sd Version"
           },
+          "arch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arch"
+          },
+          "subtype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtype"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
           "mtime": {
             "anyOf": [
               {
@@ -4350,6 +9397,17 @@
             ],
             "title": "Mtime"
           },
+          "created": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created"
+          },
           "size": {
             "anyOf": [
               {
@@ -4360,6 +9418,16 @@
               }
             ],
             "title": "Size"
+          },
+          "editable": {
+            "type": "boolean",
+            "title": "Editable",
+            "default": true
+          },
+          "hidden": {
+            "type": "boolean",
+            "title": "Hidden",
+            "default": false
           }
         },
         "type": "object",
@@ -4370,6 +9438,53 @@
           "path"
         ],
         "title": "NetworkItem"
+      },
+      "NetworkKind": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "prompt",
+              "checkpoint",
+              "module",
+              "none"
+            ],
+            "title": "Action",
+            "default": "prompt"
+          },
+          "negative": {
+            "type": "boolean",
+            "title": "Negative",
+            "default": false
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Fields",
+            "default": []
+          },
+          "builtin": {
+            "type": "boolean",
+            "title": "Builtin",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "NetworkKind"
       },
       "NetworkMeta": {
         "properties": {
@@ -4389,6 +9504,11 @@
             "type": "string",
             "title": "Path"
           },
+          "folder": {
+            "type": "string",
+            "title": "Folder",
+            "default": ""
+          },
           "preview": {
             "anyOf": [
               {
@@ -4399,6 +9519,32 @@
               }
             ],
             "title": "Preview"
+          },
+          "preview_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "image",
+                  "video"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Type"
+          },
+          "placeholder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placeholder"
           },
           "description": {
             "anyOf": [
@@ -4432,6 +9578,47 @@
               }
             ],
             "title": "Negative Prompt"
+          },
+          "activation_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activation Text"
+          },
+          "preferred_weight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferred Weight"
+          },
+          "negative_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Negative Text"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags",
+            "default": []
           },
           "search_terms": {
             "items": {
@@ -4474,6 +9661,39 @@
             ],
             "title": "Sd Version"
           },
+          "arch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arch"
+          },
+          "subtype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtype"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
           "mtime": {
             "anyOf": [
               {
@@ -4484,6 +9704,17 @@
               }
             ],
             "title": "Mtime"
+          },
+          "created": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created"
           },
           "size": {
             "anyOf": [
@@ -4496,6 +9727,16 @@
             ],
             "title": "Size"
           },
+          "editable": {
+            "type": "boolean",
+            "title": "Editable",
+            "default": true
+          },
+          "hidden": {
+            "type": "boolean",
+            "title": "Hidden",
+            "default": false
+          },
           "metadata": {
             "type": "object",
             "title": "Metadata",
@@ -4505,6 +9746,19 @@
             "type": "object",
             "title": "User Metadata",
             "default": {}
+          },
+          "training": {
+            "type": "object",
+            "title": "Training",
+            "default": {}
+          },
+          "dataset_tags": {
+            "items": {
+              "$ref": "#/components/schemas/DatasetTag"
+            },
+            "type": "array",
+            "title": "Dataset Tags",
+            "default": []
           }
         },
         "type": "object",
@@ -4587,6 +9841,35 @@
         "title": "NotPorted",
         "description": "A script, Extras operation or extension tab not on ``params()`` yet."
       },
+      "Note": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "values": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Values",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "Note",
+        "description": "A translatable note: an English message with ``{{name}}`` placeholders and their values."
+      },
       "Ok": {
         "properties": {
           "ok": {
@@ -4609,6 +9892,28 @@
         "type": "object",
         "title": "Ok"
       },
+      "OpaqueArgs": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "preview": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Preview",
+            "description": "short descriptions of the unmapped arguments",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "count"
+        ],
+        "title": "OpaqueArgs"
+      },
       "OpenFolderRequest": {
         "properties": {
           "folder": {
@@ -4628,6 +9933,19 @@
           "folder"
         ],
         "title": "OpenFolderRequest"
+      },
+      "OutputCount": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count"
+        ],
+        "title": "OutputCount"
       },
       "OutputItem": {
         "properties": {
@@ -4825,6 +10143,44 @@
         "title": "PageSchema",
         "description": "``GET /pages/{id}`` (schema-format.md §8)."
       },
+      "Page_GalleryItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GalleryItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "Page[GalleryItem]"
+      },
       "Page_Job_": {
         "properties": {
           "items": {
@@ -4939,6 +10295,118 @@
         ],
         "title": "Page[OutputItem]"
       },
+      "Page_PromptFavorite_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PromptFavorite"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "Page[PromptFavorite]"
+      },
+      "Page_PromptHistoryItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PromptHistoryItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "Page[PromptHistoryItem]"
+      },
+      "PngChunk": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "length": {
+            "type": "integer",
+            "title": "Length"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count",
+            "description": "consecutive IDAT chunks are merged",
+            "default": 1
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key",
+            "description": "keyword of a text chunk"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "length"
+        ],
+        "title": "PngChunk"
+      },
       "PresetList": {
         "properties": {
           "anima": {
@@ -4978,7 +10446,8 @@
         "properties": {
           "file_id": {
             "type": "string",
-            "title": "File Id"
+            "title": "File Id",
+            "description": "an uploaded or generated image"
           }
         },
         "type": "object",
@@ -5092,6 +10561,563 @@
         ],
         "title": "ProgressResponse"
       },
+      "PromptCollection": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id",
+            "description": "null: the favorites outside any collection"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "created": {
+            "type": "number",
+            "title": "Created"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created",
+          "count"
+        ],
+        "title": "PromptCollection"
+      },
+      "PromptCollectionCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "PromptCollectionCreate"
+      },
+      "PromptCompletionItem": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "tag",
+              "extra",
+              "lora",
+              "embedding",
+              "chant",
+              "wildcard",
+              "wildcard-value"
+            ],
+            "title": "Type"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "what is inserted: tag, LoRA alias, embedding, chant content, wildcard name or value"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "alias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alias",
+            "description": "the alias the query matched"
+          },
+          "translation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translation"
+          },
+          "meta": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Meta"
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight"
+          },
+          "keywords": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keywords",
+            "description": "a LoRA's activation text"
+          },
+          "preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview",
+            "description": "file id of a preview image"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "uses": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uses"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "text"
+        ],
+        "title": "PromptCompletionItem"
+      },
+      "PromptCompletionList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PromptCompletionItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "PromptCompletionList"
+      },
+      "PromptFavorite": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "collection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "prompt",
+              "negative",
+              "tags"
+            ],
+            "title": "Kind"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "created": {
+            "type": "number",
+            "title": "Created"
+          },
+          "position": {
+            "type": "number",
+            "title": "Position"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "collection_id",
+          "kind",
+          "text",
+          "name",
+          "created",
+          "position"
+        ],
+        "title": "PromptFavorite"
+      },
+      "PromptFavoriteCreate": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Text"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "prompt",
+              "negative",
+              "tags"
+            ],
+            "title": "Kind",
+            "default": "prompt"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Name",
+            "default": ""
+          },
+          "collection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "PromptFavoriteCreate"
+      },
+      "PromptFavoritePatch": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "collection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection Id",
+            "description": "move to this collection (null: none); only when given"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before",
+            "description": "move in front of this favorite (null with `collection_id` given: to the end)"
+          }
+        },
+        "type": "object",
+        "title": "PromptFavoritePatch"
+      },
+      "PromptFavoritesExport": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
+          "favorites": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Favorites"
+          }
+        },
+        "type": "object",
+        "required": [
+          "favorites"
+        ],
+        "title": "PromptFavoritesExport"
+      },
+      "PromptFavoritesImported": {
+        "properties": {
+          "added": {
+            "type": "integer",
+            "title": "Added"
+          }
+        },
+        "type": "object",
+        "required": [
+          "added"
+        ],
+        "title": "PromptFavoritesImported"
+      },
+      "PromptGroupTag": {
+        "properties": {
+          "tag": {
+            "type": "string",
+            "title": "Tag"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tag"
+        ],
+        "title": "PromptGroupTag"
+      },
+      "PromptHistoryCleared": {
+        "properties": {
+          "removed": {
+            "type": "integer",
+            "title": "Removed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "removed"
+        ],
+        "title": "PromptHistoryCleared"
+      },
+      "PromptHistoryCreate": {
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "title": "Prompt",
+            "default": ""
+          },
+          "negative_prompt": {
+            "type": "string",
+            "title": "Negative Prompt",
+            "default": ""
+          },
+          "tab": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Tab",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "PromptHistoryCreate"
+      },
+      "PromptHistoryItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "tab": {
+            "type": "string",
+            "title": "Tab"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "negative_prompt": {
+            "type": "string",
+            "title": "Negative Prompt"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "created": {
+            "type": "number",
+            "title": "Created"
+          },
+          "last_used": {
+            "type": "number",
+            "title": "Last Used"
+          },
+          "uses": {
+            "type": "integer",
+            "title": "Uses"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tab",
+          "prompt",
+          "negative_prompt",
+          "name",
+          "created",
+          "last_used",
+          "uses"
+        ],
+        "title": "PromptHistoryItem"
+      },
+      "PromptHistoryPatch": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Name"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "prompt",
+                  "negative"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field",
+            "description": "name every entry with this entry's prompt / negative prompt (a grouped list)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "PromptHistoryPatch"
+      },
+      "PromptHistoryRemoved": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok",
+            "default": true
+          },
+          "removed": {
+            "type": "integer",
+            "title": "Removed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "removed"
+        ],
+        "title": "PromptHistoryRemoved"
+      },
       "PromptStyle": {
         "properties": {
           "name": {
@@ -5114,6 +11140,468 @@
           "name"
         ],
         "title": "PromptStyle"
+      },
+      "PromptTagCategory": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/PromptTagGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "groups"
+        ],
+        "title": "PromptTagCategory"
+      },
+      "PromptTagGroup": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/PromptGroupTag"
+            },
+            "type": "array",
+            "title": "Tags"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "tags"
+        ],
+        "title": "PromptTagGroup"
+      },
+      "PromptTagGroups": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/PromptTagCategory"
+            },
+            "type": "array",
+            "title": "Categories"
+          }
+        },
+        "type": "object",
+        "required": [
+          "categories"
+        ],
+        "title": "PromptTagGroups"
+      },
+      "PromptTagInfo": {
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          },
+          "translation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translation"
+          }
+        },
+        "type": "object",
+        "title": "PromptTagInfo"
+      },
+      "PromptTagLookup": {
+        "properties": {
+          "tags": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PromptTagInfo"
+            },
+            "type": "object",
+            "title": "Tags"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tags"
+        ],
+        "title": "PromptTagLookup"
+      },
+      "PromptTagLookupRequest": {
+        "properties": {
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Tags"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tags"
+        ],
+        "title": "PromptTagLookupRequest"
+      },
+      "PromptToolsConfig": {
+        "properties": {
+          "tags": {
+            "$ref": "#/components/schemas/PromptToolsTagSettings"
+          },
+          "tools": {
+            "$ref": "#/components/schemas/PromptToolsToolSettings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tags",
+          "tools"
+        ],
+        "title": "PromptToolsConfig"
+      },
+      "PromptToolsTagSettings": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "negative": {
+            "type": "boolean",
+            "title": "Negative"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "tag list family for category colours: danbooru, e621, derpibooru or merged"
+          },
+          "max_results": {
+            "type": "integer",
+            "title": "Max Results"
+          },
+          "loras": {
+            "type": "boolean",
+            "title": "Loras"
+          },
+          "embeddings": {
+            "type": "boolean",
+            "title": "Embeddings"
+          },
+          "chants": {
+            "type": "boolean",
+            "title": "Chants"
+          },
+          "wildcards": {
+            "type": "boolean",
+            "title": "Wildcards"
+          },
+          "wildcard_mode": {
+            "type": "string",
+            "title": "Wildcard Mode"
+          },
+          "replace_underscores": {
+            "type": "boolean",
+            "title": "Replace Underscores"
+          },
+          "underscore_exclusions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Underscore Exclusions"
+          },
+          "escape_parentheses": {
+            "type": "boolean",
+            "title": "Escape Parentheses"
+          },
+          "append_comma": {
+            "type": "boolean",
+            "title": "Append Comma"
+          },
+          "append_space": {
+            "type": "boolean",
+            "title": "Append Space"
+          },
+          "always_space_at_end": {
+            "type": "boolean",
+            "title": "Always Space At End"
+          },
+          "keywords": {
+            "type": "boolean",
+            "title": "Keywords"
+          },
+          "keyword_location": {
+            "type": "string",
+            "title": "Keyword Location"
+          },
+          "artist_prefix": {
+            "type": "boolean",
+            "title": "Artist Prefix"
+          },
+          "previews": {
+            "type": "boolean",
+            "title": "Previews"
+          },
+          "wiki_links": {
+            "type": "boolean",
+            "title": "Wiki Links"
+          },
+          "network_separator": {
+            "type": "string",
+            "title": "Network Separator"
+          },
+          "default_weight": {
+            "type": "number",
+            "title": "Default Weight"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "negative",
+          "source",
+          "max_results",
+          "loras",
+          "embeddings",
+          "chants",
+          "wildcards",
+          "wildcard_mode",
+          "replace_underscores",
+          "underscore_exclusions",
+          "escape_parentheses",
+          "append_comma",
+          "append_space",
+          "always_space_at_end",
+          "keywords",
+          "keyword_location",
+          "artist_prefix",
+          "previews",
+          "wiki_links",
+          "network_separator",
+          "default_weight"
+        ],
+        "title": "PromptToolsTagSettings"
+      },
+      "PromptToolsToolSettings": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "history": {
+            "type": "boolean",
+            "title": "History"
+          },
+          "groups": {
+            "type": "boolean",
+            "title": "Groups"
+          },
+          "translation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Translation",
+            "description": "the usable provider; null: translation is off"
+          },
+          "translation_provider": {
+            "type": "string",
+            "title": "Translation Provider",
+            "description": "the chosen provider, usable or not (a network provider may still need its API key)",
+            "default": "none"
+          },
+          "translation_key": {
+            "type": "boolean",
+            "title": "Translation Key",
+            "description": "an API key is stored (it is never sent back)",
+            "default": false
+          },
+          "language": {
+            "type": "string",
+            "title": "Language"
+          },
+          "comments": {
+            "type": "boolean",
+            "title": "Comments",
+            "description": "prompt comments are stripped (disabled chips are written as /* … */)"
+          },
+          "toolbar": {
+            "type": "string",
+            "enum": [
+              "All prompt fields",
+              "Main prompts only"
+            ],
+            "title": "Toolbar",
+            "description": "which prompt fields get the tools bar",
+            "default": "All prompt fields"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "history",
+          "groups",
+          "language",
+          "comments"
+        ],
+        "title": "PromptToolsToolSettings"
+      },
+      "PromptTranslateRequest": {
+        "properties": {
+          "texts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Texts"
+          },
+          "target": {
+            "type": "string",
+            "pattern": "^[A-Za-z]{2,3}(?:_[A-Za-z]{2,4})?$",
+            "title": "Target",
+            "description": "`en`, or a display language such as `zh_CN`",
+            "default": "en"
+          }
+        },
+        "type": "object",
+        "required": [
+          "texts"
+        ],
+        "title": "PromptTranslateRequest"
+      },
+      "PromptTranslation": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "translations": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Translations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "translations"
+        ],
+        "title": "PromptTranslation"
+      },
+      "PromptTranslationKey": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 4096,
+            "title": "Key",
+            "description": "the provider's API key; empty: forget it"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "title": "PromptTranslationKey"
+      },
+      "PromptTranslationKeyState": {
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured"
+        ],
+        "title": "PromptTranslationKeyState"
+      },
+      "PromptUsageRecord": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "tag",
+              "extra",
+              "lora",
+              "embedding",
+              "chant",
+              "wildcard",
+              "wildcard-value"
+            ],
+            "title": "Type",
+            "default": "tag"
+          },
+          "negative": {
+            "type": "boolean",
+            "title": "Negative",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "PromptUsageRecord"
       },
       "QueueStatus": {
         "properties": {
@@ -5161,6 +11649,81 @@
           "order"
         ],
         "title": "ReorderRequest"
+      },
+      "RepoState": {
+        "properties": {
+          "remote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "commit_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Hash"
+          },
+          "commit_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Url"
+          },
+          "commit_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Date"
+          }
+        },
+        "type": "object",
+        "title": "RepoState"
+      },
+      "RestoreResult": {
+        "properties": {
+          "reload": {
+            "type": "boolean",
+            "title": "Reload",
+            "description": "apply with /server/reload (extension commits are restored while reloading)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reload"
+        ],
+        "title": "RestoreResult"
       },
       "RulesRequest": {
         "properties": {
@@ -5312,6 +11875,48 @@
         ],
         "title": "SchedulerInfo"
       },
+      "ServerStatus": {
+        "properties": {
+          "restartable": {
+            "type": "boolean",
+            "title": "Restartable",
+            "description": "whether /server/restart can restart the process"
+          },
+          "extension_access": {
+            "type": "boolean",
+            "title": "Extension Access"
+          },
+          "settings_frozen": {
+            "type": "boolean",
+            "title": "Settings Frozen",
+            "description": "--freeze-settings: PATCH /options refuses every change"
+          },
+          "model_loaded": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Loaded",
+            "description": "the checkpoint in memory, if any"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "restartable",
+          "extension_access",
+          "settings_frozen",
+          "version"
+        ],
+        "title": "ServerStatus"
+      },
       "SettingsSchema": {
         "properties": {
           "version": {
@@ -5335,6 +11940,12 @@
           "values": {
             "type": "object",
             "title": "Values"
+          },
+          "defaults": {
+            "type": "object",
+            "title": "Defaults",
+            "description": "each stored setting's built-in default (reset to default)",
+            "default": {}
           }
         },
         "type": "object",
@@ -5346,6 +11957,52 @@
         ],
         "title": "SettingsSchema",
         "description": "``GET/PATCH /options`` (schema-format.md §6)."
+      },
+      "StarOutputsRequest": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 2000,
+            "minItems": 1,
+            "title": "Ids"
+          },
+          "starred": {
+            "type": "boolean",
+            "title": "Starred",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "title": "StarOutputsRequest"
+      },
+      "StarRequest": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Ids"
+          },
+          "starred": {
+            "type": "boolean",
+            "title": "Starred",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "title": "StarRequest"
       },
       "StyleBody": {
         "properties": {
@@ -5404,6 +12061,33 @@
         },
         "type": "object",
         "title": "StylesApplyRequest"
+      },
+      "SysinfoCheck": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid"
+        ],
+        "title": "SysinfoCheck"
+      },
+      "SysinfoCheckRequest": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 33554432,
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "SysinfoCheckRequest"
       },
       "TabSchema": {
         "properties": {
@@ -5596,7 +12280,7 @@
           "user_metadata"
         ],
         "title": "UserMetadataPatch",
-        "description": "Keys to set (``null`` removes one); ``replace`` drops the others."
+        "description": "Keys to set (``null`` removes one); ``replace`` drops the others.\nKnown keys are checked: ``description``, ``activation text``,\n``negative text``, ``notes`` (text), ``preferred weight`` (number),\n``sd version`` (``Unknown`` or an architecture), ``tags`` (list)."
       },
       "ValidationError": {
         "properties": {
@@ -5647,6 +12331,30 @@
         ],
         "title": "ValidationErrorBody",
         "description": "A rejected request (schema-format.md §3)."
+      },
+      "ZipResult": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "file id of the zip (download with /files/{id}?download=1)"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "count"
+        ],
+        "title": "ZipResult"
       }
     }
   }

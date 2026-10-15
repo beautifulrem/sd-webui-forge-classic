@@ -1,0 +1,21 @@
+{
+  "Detail Daemon": "Detail Daemon（细节调节）",
+  "Daemon": "Daemon",
+  "Active": "启用",
+  "Hires Pass": "高分辨率修复阶段",
+  "Smooth": "平滑",
+  "Mode": "模式",
+  "both": "两者",
+  "cond": "正向（cond）",
+  "uncond": "负向（uncond）",
+  "Amount": "数量",
+  "Start Offset": "起始偏移",
+  "End Offset": "结束偏移",
+  "Start": "起始",
+  "End": "结束",
+  "Bias": "偏向",
+  "Exponent": "指数",
+  "Fade": "淡化",
+  "Daemon count": "Daemon 数量",
+  "Verbose": "详细日志"
+}

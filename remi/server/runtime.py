@@ -46,8 +46,20 @@ def prepare(*, models: bool = True) -> None:
     register_options()
     shared.tab_names[:] = [title for _id, title in BUILTIN_TABS]
     initialize_runners()
+    shared.tab_names.extend(_page_titles())  # extension pages, as their tabs were
     if models:
         initialize_model_selection()
+
+
+def _page_titles() -> list[str]:
+    """Registered extension pages' titles (their scripts are loaded by now)."""
+
+    try:
+        from remi import pages
+    except ImportError:
+        return []
+    builtin = {title for _id, title in BUILTIN_TABS}
+    return [title for title in dict.fromkeys(pages.tab_titles()) if title not in builtin]
 
 
 def initialize_runners() -> None:
@@ -174,6 +186,18 @@ def _main_entry() -> Any:
     from modules_forge import main_entry
 
     return main_entry
+
+
+def load_selected_model(*, force: bool = False) -> None:
+    """Load the selected checkpoint, modules and dtype now (call on the
+    worker). ``force``: load again even when they are already loaded."""
+
+    from modules import sd_models
+
+    _main_entry().refresh_model_loading_parameters()
+    if force:
+        sd_models.model_data.forge_hash = ""
+    sd_models.forge_model_reload()
 
 
 def unet_dtypes() -> list[str]:

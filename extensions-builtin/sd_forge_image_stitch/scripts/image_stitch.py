@@ -1,4 +1,3 @@
-import gradio as gr
 import numpy as np
 import torch
 from PIL import Image
@@ -9,19 +8,15 @@ from modules.api import api
 from modules.processing import StableDiffusionProcessing, StableDiffusionProcessingTxt2Img, logger
 from modules.sd_samplers_common import images_tensor_to_samples
 from modules.shared import device, opts
-from modules.ui_components import FormRow, InputAccordion
+from remi import ui
 
-t2i_info = """
-For <b>Flux.1-Kontext</b> / <b>Flux.2-Klein</b> / <b>Qwen-Image-Edit</b> / <b>Anima Edit</b> / <b>Krea2 Edit</b>: Use in <b>txt2img</b> to achieve the effect of empty latent with custom resolution<br>
-For <b>Wan 2.2 I2V</b>: Use in <b>txt2img</b> to set as the Last Frame to achieve LastFrameToVideo<br>
-<b>Note:</b> This doesn't actually stitch the images ; <b>Tip:</b> Use the "Image to Upload" to paste images
-"""
+T2I_INFO = """For **Flux.1-Kontext** / **Flux.2-Klein** / **Qwen-Image-Edit** / **Anima Edit** / **Krea2 Edit**: Use in **txt2img** to achieve the effect of empty latent with custom resolution\\
+For **Wan 2.2 I2V**: Use in **txt2img** to set as the Last Frame to achieve LastFrameToVideo\\
+**Note:** This doesn't actually stitch the images; **Tip:** paste images straight into the list"""
 
-i2i_info = """
-For <b>Flux.1-Kontext</b> / <b>Flux.2-Klein</b> / <b>Qwen-Image-Edit</b> / <b>Anima Edit</b> / <b>Krea2 Edit</b>: Use in <b>img2img</b> to achieve the effect of multiple input images<br>
-For <b>Wan 2.2 I2V</b>: Use in <b>img2img</b> to set as the Last Frame to achieve FirstLastFrameToVideo<br>
-<b>Note:</b> This doesn't actually stitch the images ; <b>Tip:</b> Use the "Image to Upload" to paste images
-"""
+I2I_INFO = """For **Flux.1-Kontext** / **Flux.2-Klein** / **Qwen-Image-Edit** / **Anima Edit** / **Krea2 Edit**: Use in **img2img** to achieve the effect of multiple input images\\
+For **Wan 2.2 I2V**: Use in **img2img** to set as the Last Frame to achieve FirstLastFrameToVideo\\
+**Note:** This doesn't actually stitch the images; **Tip:** paste images straight into the list"""
 
 
 class ImageStitch(scripts.Script):
@@ -34,117 +29,25 @@ class ImageStitch(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def ui(self, is_img2img):
-        with InputAccordion(value=False, label=self.title()) as enable:
-            gr.HTML(i2i_info if is_img2img else t2i_info)
-            references = gr.Gallery(
-                value=None,
-                type="pil",
-                interactive=True,
-                show_label=False,
-                container=False,
-                show_download_button=False,
-                show_share_button=False,
-                label="Reference Image(s)",
-                min_width=512,
-                height=384,
-                columns=3,
-                rows=1,
-                allow_preview=False,
-                object_fit="contain",
-                elem_id=self.elem_id("ref_latent"),
-            )
-
-            select_index = gr.State(-1)
-
-            def on_select(evt: gr.SelectData) -> int:
-                return evt.index
-
-            references.select(
-                fn=on_select,
-                outputs=[select_index],
-                queue=False,
-                show_progress=False,
-            )
-
-            with FormRow():
-                upload = gr.Image(
-                    height=225,
-                    width=225,
-                    sources="upload",
-                    type="pil",
-                    label="Image to Upload",
-                    show_download_button=False,
-                    show_share_button=False,
-                )
-                with gr.Column():
-                    btn_upload = gr.Button("Append Pasted Image")
-                    btn_replace = gr.Button("Replace Selected Image")
-                    btn_delete = gr.Button("Delete Selected Image", variant="stop")
-                    btn_clear = gr.Button("Clear All References", variant="stop")
-
-            max_dim = gr.Slider(
-                minimum=0,
-                maximum=2048,
-                value=1024,
-                step=256,
-                label="Maximum Side Length",
-                info="reduce VRAM usage during encoding ; apply to all reference images ; set to 0 for no limit",
-            )
-
-        def _upload(gallery: list[tuple[Image.Image, str]], image: Image.Image):
-            if not image:
-                return [gr.skip(), gr.skip()]
-            elif not gallery:
-                gallery = [(image, None)]
-            else:
-                gallery.append((image, None))
-            return [gr.update(value=gallery), gr.update(value=None)]
-
-        def _replace(index: int, gallery: list[tuple[Image.Image, str]], image: Image.Image):
-            if not image or not gallery or index < 0 or index >= len(gallery):
-                return [-1, gr.skip(), gr.skip()]
-            gallery[index] = (image, None)
-            return [-1, gr.update(value=gallery), gr.update(value=None)]
-
-        def _delete(index: int, gallery: list[tuple[Image.Image, str]]):
-            if not gallery or index < 0 or index >= len(gallery):
-                return [-1, gr.skip()]
-            gallery.pop(index)
-            return [-1, gr.update(value=gallery)]
-
-        btn_upload.click(
-            fn=_upload,
-            inputs=[references, upload],
-            outputs=[references, upload],
-            queue=False,
-            show_progress=False,
+    def params(self, is_img2img):
+        return ui.Section(
+            self.title(),
+            enable=ui.Toggle("enable", False, label=self.title()),
+            children=[
+                ui.Markdown(I2I_INFO if is_img2img else T2I_INFO),
+                # Uploads (never restored from drafts) edited by the image-list widget: select, replace, remove, reorder
+                ui.ImageList("references", label="Reference Image(s)", widget="image-list", props={"columns": 3}),
+                ui.Slider(
+                    "max_dim",
+                    0,
+                    2048,
+                    1024,
+                    256,
+                    label="Maximum Side Length",
+                    info="reduce VRAM usage during encoding ; apply to all reference images ; set to 0 for no limit",
+                ),
+            ],
         )
-
-        btn_replace.click(
-            fn=_replace,
-            inputs=[select_index, references, upload],
-            outputs=[select_index, references, upload],
-            queue=False,
-            show_progress=False,
-        )
-
-        btn_delete.click(
-            fn=_delete,
-            inputs=[select_index, references],
-            outputs=[select_index, references],
-            queue=False,
-            show_progress=False,
-        )
-
-        btn_clear.click(
-            fn=lambda: [-1, gr.update(value=[])],
-            outputs=[select_index, references],
-            queue=False,
-            show_progress=False,
-        )
-
-        return [enable, references, max_dim]
 
     @staticmethod
     def reset_references(p: StableDiffusionProcessing):
@@ -152,7 +55,7 @@ class ImageStitch(scripts.Script):
         p.clear_prompt_cache()
         p.sd_model.clear_references()
 
-    def process(self, p: StableDiffusionProcessing, enable: bool, references: list[str | tuple[Image.Image, str]], max_dim: int):
+    def process(self, p: StableDiffusionProcessing, enable: bool, references: list[str | Image.Image | tuple[Image.Image, str]], max_dim: int):
         if not (enable and references and dynamic_args.can_reference()):
             if ImageStitch.cached_parameters is None:
                 return
@@ -205,10 +108,17 @@ class ImageStitch(scripts.Script):
         dynamic_args.is_referencing = False
 
     @staticmethod
-    def extract_images(gallery: list[str | tuple[Image.Image, str]]) -> list[Image.Image]:
-        if isinstance(gallery[0], str):
-            return [api.decode_base64_to_image(img) for img in gallery]
-        return [img for (img, _) in gallery]
+    def extract_images(gallery: list[str | Image.Image | tuple[Image.Image, str]]) -> list[Image.Image]:
+        """PIL images from the form (resolved uploads), base64 strings (API
+        clients) or ``(image, caption)`` gallery pairs."""
+        images = []
+        for item in gallery:
+            if isinstance(item, str):
+                item = api.decode_base64_to_image(item)
+            elif isinstance(item, (tuple, list)):
+                item = item[0]
+            images.append(item)
+        return images
 
     @staticmethod
     def preprocess(img: Image.Image, limit: int) -> Image.Image:

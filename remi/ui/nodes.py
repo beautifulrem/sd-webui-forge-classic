@@ -160,7 +160,13 @@ class Input(Node):
     paste; ``None`` skips), ``preset`` (Anima preset field, or ``(field,
     value)`` when this control's preset value differs from the table's),
     ``exclusive=(group, member)`` (``Toggle`` only), ``on_change`` (action
-    name), ``width`` and ``hidden`` (submitted but not rendered)."""
+    run after any change by the user, a paste or a bulk reset),
+    ``on_input`` (action run after a user edit of this control only, like
+    Gradio's ``.input``: not after pastes, presets or action patches),
+    ``width``, ``hidden`` (submitted but not rendered), ``persist``
+    (``False``: kept out of browser drafts, so every page load starts from the
+    current default) and ``submit`` (``False``: the form holds the value for
+    actions but never sends it with a job; processing gets the default)."""
 
     nullable: ClassVar[bool] = False
     """Whether ``None`` is a regular value (images, files, JSON)."""
@@ -179,8 +185,11 @@ class Input(Node):
         preset: str | tuple[str, Any] | None = None,
         exclusive: tuple[str, str] | None = None,
         on_change: str | None = None,
+        on_input: str | None = None,
         width: str | int | None = None,
         hidden: bool = False,
+        persist: bool = True,
+        submit: bool = True,
     ):
         super().__init__(visible_if=visible_if, enabled_if=enabled_if)
         if not isinstance(name, str) or not NAME_RE.fullmatch(name):
@@ -200,8 +209,11 @@ class Input(Node):
         if exclusive is not None:
             self.set_exclusive(exclusive)
         self.on_change = on_change
+        self.on_input = on_input
         self.width = self._width(width)
         self.hidden = bool(hidden)
+        self.persist = bool(persist)
+        self.submit = bool(submit)
 
     def _preset(self, preset: str | tuple[str, Any] | None) -> tuple[str | None, Any]:
         if preset is None:
@@ -276,10 +288,16 @@ class Input(Node):
         data.update(self._input_schema(ctx))
         if self.on_change:
             data["on_change"] = self.on_change
+        if self.on_input:
+            data["on_input"] = self.on_input
         if self.width is not None:
             data["width"] = self.width
         if self.hidden:
             data["hidden"] = True
+        if not self.persist:
+            data["persist"] = False
+        if not self.submit:
+            data["submit"] = False
         if self.infotext:
             data["infotext"] = self.infotext
         if self.preset_key:
@@ -301,10 +319,21 @@ _NO_VALUE = object()  # ``preset="field"``: the preset table's value applies
 
 
 class Toggle(Input):
+    """A boolean. ``locks="owner.param"`` (a bare name is this owner's)
+    protects that param while the toggle is on: pasted parameters, "Send to",
+    reused jobs, presets and action patches leave it alone; editing it by
+    hand still works."""
+
     type = "toggle"
 
-    def __init__(self, name: str, default: bool = False, **common):
+    def __init__(self, name: str, default: bool = False, *, locks: str | None = None, **common):
+        if locks is not None and not (isinstance(locks, str) and locks.strip(".") and ".." not in locks):
+            raise SchemaError(f"{name}: locks is a param name or 'owner.param'")
+        self.locks = locks
         super().__init__(name, default, **common)
+
+    def _input_schema(self, ctx: Context) -> dict[str, Any]:
+        return {"locks": self.locks} if self.locks else {}
 
     def coerce(self, value: Any, ctx: Context) -> bool:
         if value is None:
@@ -694,13 +723,24 @@ def mask_channel(mask: Any) -> Any:
 
 
 class ImageList(_UploadInput):
-    """Several uploaded images (batch inputs)."""
+    """Several uploaded images (batch inputs). ``widget`` names a frontend
+    widget that edits the list instead of the stock control (its value is
+    still the list of upload ids, ``props`` go to the widget)."""
 
     type = "image_list"
     nullable = False
 
-    def __init__(self, name: str, **common):
+    def __init__(self, name: str, *, widget: str | None = None, props: Mapping[str, Any] | Callable[[], Mapping[str, Any]] | None = None, **common):
+        if widget is not None and not (isinstance(widget, str) and widget):
+            raise SchemaError(f"{name}: widget is the registered widget name")
+        self.widget = widget
+        self.props = props if props is not None else {}
         super().__init__(name, [], **common)
+
+    def _input_schema(self, ctx: Context) -> dict[str, Any]:
+        if not self.widget:
+            return {}
+        return {"widget": self.widget, "props": dict(ctx.resolve(self, "props", self.props) or {})}
 
     def coerce(self, value: Any, ctx: Context) -> list[Any]:
         if value is None:
@@ -777,6 +817,53 @@ class Custom(Json):
 
     def _input_schema(self, ctx: Context) -> dict[str, Any]:
         return {"widget": self.widget, "props": dict(ctx.resolve(self, "props", self.props) or {})}
+
+
+class RangeSlider(Custom):
+    """A ``[low, high]`` pair inside ``[minimum, maximum]``, edited by the
+    shared ``range-slider`` widget (Gradio's RangeSlider). Like ``Slider``:
+    integer-valued when the bounds, the step and a static default are all
+    ``int`` (override with ``integer=``); values are clamped (and ordered).
+    The default is the full range when omitted. Infotext pastes ``"a, b"``,
+    ``"(a, b)"``, ``"[a, b]"`` or a pair. The processing argument is the
+    ``[low, high]`` list."""
+
+    def __init__(self, name: str, minimum: float = 0.0, maximum: float = 1.0, default: Sequence[float] | Callable[[], Sequence[float]] | None = None, step: float = 0.01, *, integer: bool | None = None, **common):
+        minimum, maximum, step = (_finite(value, f"{name}: {what}") for value, what in ((minimum, "minimum"), (maximum, "maximum"), (step, "step")))
+        if minimum > maximum:
+            raise SchemaError(f"{name}: minimum {minimum} exceeds maximum {maximum}")
+        if step <= 0:
+            raise SchemaError(f"{name}: step must be positive")
+        if default is None:
+            default = (minimum, maximum)
+        if not callable(default):
+            if isinstance(default, (str, Mapping)) or not isinstance(default, Sequence) or len(default) != 2 or not all(_is_number(value) for value in default):
+                raise SchemaError(f"{name}: default is a (low, high) pair, got {default!r}")
+            default = list(default)
+        if integer is None:
+            static_default = () if callable(default) else default
+            integer = all(_is_int(value) for value in (minimum, maximum, step, *static_default))
+        self.minimum, self.maximum, self.step, self.integer = minimum, maximum, step, bool(integer)
+        if "validate" in common:
+            raise SchemaError(f"{name}: a RangeSlider validates its own value")
+        super().__init__(name, "range-slider", default, props={"minimum": minimum, "maximum": maximum, "step": step}, **common)
+
+    def coerce(self, value: Any, ctx: Context) -> list[int | float]:
+        if isinstance(value, (str, Mapping)) or not isinstance(value, Sequence) or len(value) != 2:
+            raise ParamError(f"expected [low, high], got {value!r}")
+        ends = sorted(min(max(to_number(item), self.minimum), self.maximum) for item in value)
+        return [_as_int(end) if self.integer else float(end) for end in ends]
+
+    def from_paste(self, raw: Any, ctx: Context) -> list[int | float]:
+        if isinstance(raw, str):
+            text = raw.strip()
+            if text[:1] + text[-1:] in ("()", "[]"):
+                text = text[1:-1]
+            raw = [part.strip() for part in text.split(",")]
+        return self.coerce(raw, ctx)
+
+    def from_arg(self, arg: Any, ctx: Context) -> Any:
+        return list(arg) if isinstance(arg, tuple) else arg
 
 
 class State(Json):
@@ -929,10 +1016,11 @@ class Separator(Node):
 
 
 class Button(Node):
-    """Calls the owner's action ``action`` with the owner's current values."""
+    """Calls the owner's action ``action`` with the owner's current values.
+    ``variant="danger"`` marks a destructive action (delete, reset)."""
 
     type = "button"
-    variants = ("primary", "secondary", "ghost", "tool")
+    variants = ("primary", "secondary", "ghost", "tool", "danger")
 
     def __init__(self, label: str, action: str, variant: str = "secondary", *, visible_if=None, enabled_if=None):
         super().__init__(visible_if=visible_if, enabled_if=enabled_if)

@@ -8,6 +8,7 @@ import type { ReactNode } from "react"
 import { useId } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { Img2imgSourcePanel } from "@/canvas"
 import { OwnerProvider } from "@/ui/context"
 import { RenderNode } from "@/ui/Renderer"
 import type { Node } from "@/ui/schema"
@@ -80,21 +81,19 @@ export function CoreForm({ curated }: { curated: CuratedForm }) {
 }
 
 /**
- * img2img source: the mode strip, source image and mask/sketch layers, and
- * the inpaint options. The canvas editor (wave 3) replaces this component;
- * until then images are uploaded with the renderer's image inputs.
+ * img2img source: the mode picker, the source image and mask lines and the
+ * mode's options (`canvas/img2img/SourcePanel`); the image is edited on the
+ * stage.
  */
 export function SourceSlot({ curated }: { curated: CuratedForm }) {
   const { t } = useTranslation()
   const nodes = curated.blocks.filter((block) => block.kind === "source").map((block) => block.node)
   if (nodes.length === 0) return null
   return (
-    <OwnerProvider owner="core">
-      <Card title={t("Source image")} className="border-primary/25" >
-        <div data-slot="img2img-source" className="flex flex-col gap-3">
-          <Blocks nodes={nodes} />
-        </div>
-      </Card>
-    </OwnerProvider>
+    <Card title={t("Source")}>
+      <div data-slot="img2img-source">
+        <Img2imgSourcePanel nodes={nodes} />
+      </div>
+    </Card>
   )
 }

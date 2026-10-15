@@ -21,6 +21,12 @@ describe("splitResponse", () => {
     expect(split.settings).toEqual({ sd_vae: "Automatic" })
   })
 
+  it("takes a toast message with params (remi.ui.message)", () => {
+    const message = { text: "Saved template: {{name}}", params: { name: "mine" } }
+    expect(splitResponse("x", { __toast__: { level: "success", message } }).toast).toEqual({ level: "success", message })
+    expect(splitResponse("x", { __toast__: { message: { text: 3 } } }).toast).toBeUndefined()
+  })
+
   it("tolerates empty and malformed responses", () => {
     expect(splitResponse("x", null)).toEqual({ params: [] })
     expect(splitResponse("x", { __toast__: { message: 3 } })).toEqual({ params: [] })

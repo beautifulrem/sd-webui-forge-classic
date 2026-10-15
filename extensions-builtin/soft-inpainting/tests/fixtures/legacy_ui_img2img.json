@@ -1,0 +1,76 @@
+[
+ {
+  "kind": "toggle",
+  "label": "Soft inpainting",
+  "default": false,
+  "infotext": "Soft inpainting enabled",
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Schedule bias",
+  "default": 1.0,
+  "minimum": 0,
+  "maximum": 8,
+  "step": 0.1,
+  "infotext": "Soft inpainting schedule bias",
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Preservation strength",
+  "default": 0.5,
+  "minimum": 0,
+  "maximum": 8,
+  "step": 0.05,
+  "infotext": "Soft inpainting preservation strength",
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Transition contrast boost",
+  "default": 4.0,
+  "minimum": 1,
+  "maximum": 32,
+  "step": 0.5,
+  "infotext": "Soft inpainting transition contrast boost",
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Mask influence",
+  "default": 0.0,
+  "minimum": 0,
+  "maximum": 1,
+  "step": 0.05,
+  "infotext": "Soft inpainting mask influence",
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Difference threshold",
+  "default": 0.5,
+  "minimum": 0,
+  "maximum": 8,
+  "step": 0.25,
+  "infotext": "Soft inpainting difference threshold",
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Difference contrast",
+  "default": 2.0,
+  "minimum": 0,
+  "maximum": 8,
+  "step": 0.25,
+  "infotext": "Soft inpainting difference contrast",
+  "paste": false,
+  "preset": null
+ }
+]

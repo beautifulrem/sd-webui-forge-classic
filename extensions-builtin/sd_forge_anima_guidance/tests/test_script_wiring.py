@@ -7,6 +7,7 @@ import types
 from pathlib import Path
 
 import pytest
+import remi_script_harness as harness
 import torch
 
 from lib_anima_guidance.advanced import APGState, CFGZeroStarState
@@ -27,7 +28,7 @@ SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_guidance.py"
 
 
 def _load_script():
-    # sys.argv and modules.infotext_utils: set up by conftest.py for the whole session
+    # sys.argv and sys.path: set up by conftest.py for the whole session
     spec = importlib.util.spec_from_file_location("anima_guidance_under_test", SCRIPT)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -627,13 +628,9 @@ def test_dcw_drops_itself_when_the_denoiser_has_a_mask():
 
 def test_positional_script_args_follow_the_table():
     names = SCRIPT_MODULE.SCRIPT_ARG_NAMES
-    # ui() returns the locals named in the table, in its order.
-    import ast
-
-    tree = ast.parse(SCRIPT.read_text(encoding="utf-8"))
-    ui = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "ui")
-    assigned = {node.id for node in ast.walk(ui) if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)}
-    assert set(names) <= assigned
+    # params() names its inputs as the table does, and the table orders them.
+    for tab in ("txt2img", "img2img"):
+        assert tuple(harness.script_layout(SCRIPT_MODULE.AnimaGuidanceScript(), tab).names) == names
 
     # An argument list stored before the later controls were added (the
     # values of the first 34 args only: the rest take their defaults) plus
@@ -854,11 +851,24 @@ def test_process_prefetches_the_cns_gamma_table_before_sampling(monkeypatch, sam
     assert fetched == ([p] if expected else [])
 
 
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        (dict(enable=True, nag_enable=True), True),
+        (dict(enable=True, nag_enable=False), False),
+        (dict(enable=False, nag_enable=True), False),
+    ],
+)
+def test_process_keeps_the_negative_prompt_for_nag_at_cfg_1(overrides, expected):
+    # NAG stashes the negative context from the CFG callback, which Forge
+    # leaves empty at CFG 1 unless the process keeps the negative conds.
+    p = FakeProcess()
+    p.sampler_name = "Euler"
+    SCRIPT_MODULE.AnimaGuidanceScript().process(p, *_positional(**overrides))
+    assert getattr(p, "keep_negative_conds", False) is expected
+
+
 # --- Infotext round trip ----------------------------------------------------
-# Shared with the other panels' suites, loaded by path (see its docstring)
-_spec = importlib.util.spec_from_file_location("extension_script_harness", Path(__file__).parents[3] / "tests" / "extension_script_harness.py")
-harness = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(harness)
 
 
 # The panel a PNG is pasted into: every sub-feature on, every setting off its default.
@@ -892,7 +902,7 @@ def _settings(p):
 
 def test_everything_on_panel_sets_every_argument():
     assert set(EVERYTHING_ON) == set(SCRIPT_MODULE.SCRIPT_ARG_NAMES)
-    defaults = dict(zip(SCRIPT_MODULE.SCRIPT_ARG_NAMES, (c.value for c in harness.build_ui(SCRIPT_MODULE.AnimaGuidanceScript()))))
+    defaults = harness.script_layout(SCRIPT_MODULE.AnimaGuidanceScript()).defaults()
     same = [name for name, value in EVERYTHING_ON.items() if value == defaults[name] and name != "enable"]
     assert same == []
 
@@ -903,14 +913,11 @@ def test_pasted_infotext_reruns_the_same_generation(monkeypatch, name, path):
     """Record -> paste (UI: onto a panel with every sub-feature on; API: onto
     the defaults) -> re-run: the same arguments take effect."""
 
-    script = SCRIPT_MODULE.AnimaGuidanceScript()
-    controls = harness.build_ui(script)
+    layout = harness.script_layout(SCRIPT_MODULE.AnimaGuidanceScript())
     original = _config_run(monkeypatch, name)
     params = dict(original.extra_generation_params)
-    if path == "ui":
-        args = harness.pasted_args(script, controls, params, start=[EVERYTHING_ON[arg] for arg in SCRIPT_MODULE.SCRIPT_ARG_NAMES])
-    else:
-        args = harness.api_replay(script, controls, params)
+    # The paste onto the panel's current values; the API's infotext replay onto the defaults
+    args = harness.replayed_args(layout, params, start=EVERYTHING_ON if path == "ui" else None)
     pasted = dict(zip(SCRIPT_MODULE.SCRIPT_ARG_NAMES, args, strict=True))
     rerun = _config_run(monkeypatch, name, **pasted)
     assert _settings(rerun) == _settings(original)

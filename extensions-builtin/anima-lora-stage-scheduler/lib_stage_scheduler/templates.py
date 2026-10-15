@@ -26,6 +26,7 @@ from lib_stage_scheduler.options import (
     STAGE_DEFAULT_CURVES,
     STAGE_STYLE,
     _selector_names,
+    _msg,
     _t,
 )
 
@@ -177,11 +178,11 @@ def _parts_from_presets(presets) -> tuple[list[dict], str | None]:
     for preset in selected:
         part = _normalize_template_part(preset)
         if part is None:
-            return [], _t("unknown_preset").format(preset=preset)
+            return [], _msg("unknown_preset", preset=preset)
         stage_modes = stages.setdefault(part["stage"], set())
         opposite = PART_BAN if part["mode"] == PART_ALLOW else PART_ALLOW
         if opposite in stage_modes:
-            return [], _t("preset_conflict").format(stage=part["stage"])
+            return [], _msg("preset_conflict", stage=part["stage"])
         stage_modes.add(part["mode"])
         parts.append(part)
 

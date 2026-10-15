@@ -475,6 +475,11 @@ class StableDiffusionProcessing:
         cache[0] = cached_params
         return cache[1]
 
+    def skips_negative_conds(self, cfg_scale) -> bool:
+        """CFG 1 needs no negative prompt, unless a script reads it without an
+        unconditional pass (``keep_negative_conds``, set by Anima NAG)."""
+        return cfg_scale == 1 and not getattr(self, "keep_negative_conds", False)
+
     def setup_conds(self):
         prompts = prompt_parser.SdConditioning(self.prompts, width=self.width, height=self.height, distilled_cfg_scale=self.distilled_cfg_scale)
         negative_prompts = prompt_parser.SdConditioning(self.negative_prompts, width=self.width, height=self.height, is_negative_prompt=True, distilled_cfg_scale=self.distilled_cfg_scale)
@@ -484,7 +489,7 @@ class StableDiffusionProcessing:
         self.step_multiplier = total_steps // self.steps
         self.firstpass_steps = total_steps
 
-        if self.cfg_scale == 1:
+        if self.skips_negative_conds(self.cfg_scale):
             self.uc = None
             logger.info("Negative Prompts are Ignored when CFG = 1.0")
         else:
@@ -1615,7 +1620,7 @@ class StableDiffusionProcessingTxt2Img(StableDiffusionProcessing):
         steps = self.hr_second_pass_steps or self.steps
         total_steps = sampler_config.total_steps(steps) if sampler_config else steps
 
-        if self.hr_cfg == 1:
+        if self.skips_negative_conds(self.hr_cfg):
             self.hr_uc = None
             logger.info("Negative Prompts are Ignored when CFG = 1.0")
         else:

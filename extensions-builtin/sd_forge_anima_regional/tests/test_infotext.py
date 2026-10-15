@@ -11,7 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 # Shared with the other panels' suites, loaded by path (see its docstring)
-_spec = importlib.util.spec_from_file_location("extension_script_harness", ROOT.parents[1] / "tests" / "extension_script_harness.py")
+_spec = importlib.util.spec_from_file_location("remi_panel_harness", ROOT.parents[1] / "tests" / "remi_panel_harness.py")
 harness = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(harness)
 
@@ -52,10 +52,10 @@ def _recorder(regional):
 
 @pytest.mark.parametrize("regions", [REGION_ONE_OFF, REGION_THREE_OFF], ids=["region-1-off", "region-3-off"])
 def test_the_infotext_replays_into_the_same_script_args(regional, regions):
-    script = regional.AnimaRegionalScript()
-    controls = harness.build_ui(script)
-    defaults = [control.value for control in controls]
-    args = SETTINGS + [value for region in regions for value in region]
+    layout = harness.script_layout(regional.AnimaRegionalScript())
+    defaults = layout.values_to_args({})
+    # The region editor's value (last) is never read: it stays at its default
+    args = SETTINGS + [value for region in regions for value in region] + [None]
     expected = list(args)
     for index, region in enumerate(regions):
         if not region[0]:
@@ -63,7 +63,7 @@ def test_the_infotext_replays_into_the_same_script_args(regional, regions):
             expected[start + 1 : start + len(region)] = defaults[start + 1 : start + len(region)]
     assert all(value != default for value, default in zip(SETTINGS, defaults))
 
-    params = harness.assert_infotext_round_trip(script, controls, args, _recorder(regional), expected)
+    params = harness.assert_infotext_round_trip(layout, args, _recorder(regional), expected)
     off = 1 if regions is REGION_ONE_OFF else 3
     # The recorded "False" of the inactive region replays as False
     assert params[f"Anima region {off} active"] is False
@@ -71,10 +71,9 @@ def test_the_infotext_replays_into_the_same_script_args(regional, regions):
 
 
 def test_an_off_panel_records_nothing_and_replays_its_defaults(regional):
-    script = regional.AnimaRegionalScript()
-    controls = harness.build_ui(script)
-    args = [False, *SETTINGS[1:]] + [value for region in REGION_ONE_OFF for value in region]
-    harness.assert_infotext_round_trip(script, controls, args, _recorder(regional), [control.value for control in controls])
+    layout = harness.script_layout(regional.AnimaRegionalScript())
+    args = [False, *SETTINGS[1:]] + [value for region in REGION_ONE_OFF for value in region] + [None]
+    harness.assert_infotext_round_trip(layout, args, _recorder(regional), layout.values_to_args({}))
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")], ids=repr)

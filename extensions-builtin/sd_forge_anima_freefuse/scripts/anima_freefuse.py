@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 from types import SimpleNamespace
 
-import gradio as gr
-
 from backend.logging import setup_logger
 from lib_anima_freefuse import (
     AdapterSpec,
@@ -22,15 +20,15 @@ from modules.anima_online_lora import acquire_online_lora, release_online_lora
 from modules.anima_feature_conflicts import (
     ARTIST_MIXER,
     FREEFUSE,
+    SPATIAL_GROUP,
     is_feature_active,
     record_conflict_resolution,
-    register_exclusive_component,
     resolve_freefuse_refiner_conflicts,
     set_feature_active,
 )
-from modules.anima_support import effective_prompt_batch, is_anima_engine, prompt_schedule, register_table_fields, schedule_steps, script_arguments
+from modules.anima_support import effective_prompt_batch, is_anima_engine, prompt_schedule, schedule_steps, script_arguments, table_params
 from modules.prompt_parser import get_multicond_prompt_list
-from modules.ui_components import InputAccordion
+from remi import ui
 
 logger = logging.getLogger("AnimaFreeFuse")
 setup_logger(logger)
@@ -42,9 +40,8 @@ SUBJECTS = range(1, 4)
 # One subject's controls: (name suffix, infotext field, type written to infotext)
 _SUBJECT_FIELDS = (("active", "active", bool), ("selector", "LoRA", str), ("concept", "concept", str))
 
-# One row per script argument, in the order ui() returns the components (the
-# API's positional order): (name of the control, infotext key, preset name or
-# None, type written to infotext). The subject LoRAs, trigger phrases and the
+# One row per script argument, in positional order (the API's): (param name,
+# infotext key, preset field or None, type written to infotext). The subject LoRAs, trigger phrases and the
 # background phrase are user content, which presets leave alone.
 SCRIPT_ARGS = (
     ("enable", "Anima FreeFuse enabled", "freefuse.enabled", bool),
@@ -117,191 +114,85 @@ class AnimaFreeFuseScript(scripts.Script):
     # below Spectrum, Regional and Guidance, whose options conflict with it.
     sorting_priority = 2040
 
-    def __init__(self):
-        self._refiner_enable_component = None
-        self._refiner_checkpoint_component = None
-
     def title(self):
         return "Anima FreeFuse (multi-LoRA)"
 
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def after_component(self, component, **kwargs):
-        elem_id = getattr(component, "elem_id", None)
-        if elem_id == f"{self.tabname}_enable-checkbox":
-            self._refiner_enable_component = component
-        elif elem_id == f"{self.tabname}_checkpoint":
-            self._refiner_checkpoint_component = component
-
-    def ui(self, *args, **kwargs):
-        with InputAccordion(False, label=self.title()) as enable:
-            gr.Markdown(
-                "Two-pass, same-noise FreeFuse for **2–3 Anima subject LoRAs**. "
-                "Enabling it selects `Anima FreeFuse Euler`; each trigger phrase must "
-                "appear verbatim in the positive prompt. FreeFuse, Regional Conditioning, "
-                "and Artist Mixer are one-of-three; the active choice locks the others."
+    def params(self, is_img2img):
+        # The Refiner lock is the core conflict rule of the "freefuse.enabled"
+        # preset field (anima_feature_conflicts.resolve_conflict_locks): the
+        # client runs it after either side changes and shows its message.
+        subjects = [
+            ui.Row(
+                ui.Toggle(f"subject{index}_active", index <= 2, label=f"Subject {index}"),
+                ui.Text(
+                    f"subject{index}_selector",
+                    "",
+                    label=f"LoRA {index} name",
+                    placeholder="Filename/stem as used by <lora:name:weight>",
+                    enabled_if=ui.param(f"subject{index}_active"),
+                ),
+                ui.Text(
+                    f"subject{index}_concept",
+                    "",
+                    label=f"Trigger phrase {index}",
+                    placeholder="Must occur verbatim in the main prompt",
+                    enabled_if=ui.param(f"subject{index}_active"),
+                ),
             )
-            refiner_conflict_status = gr.Markdown("")
-            subject_controls = {}
-            defaults = [
-                (True, "", ""),
-                (True, "", ""),
-                (False, "", ""),
-            ]
-            for index, (active_default, selector_default, concept_default) in enumerate(
-                defaults, start=1
-            ):
-                with gr.Row():
-                    active = gr.Checkbox(active_default, label=f"Subject {index}")
-                    selector = gr.Textbox(
-                        selector_default,
-                        label=f"LoRA {index} name",
-                        placeholder="Filename/stem as used by <lora:name:weight>",
-                    )
-                    concept = gr.Textbox(
-                        concept_default,
-                        label=f"Trigger phrase {index}",
-                        placeholder="Must occur verbatim in the main prompt",
-                    )
-                subject_controls.update(
-                    {f"subject{index}_active": active, f"subject{index}_selector": selector, f"subject{index}_concept": concept}
-                )
-
-            with gr.Accordion("Phase 1: automatic mask collection", open=True):
-                with gr.Row():
-                    collect_step = gr.Slider(
-                        0, 12, value=3, step=1, label="Collect step"
-                    )
-                    collect_block = gr.Slider(
-                        0,
-                        27,
-                        value=18,
-                        step=1,
-                        label="Collect block",
-                        info="In the 28-block layout; mapped to the same block on 40/52-block Anima.",
-                    )
-                    top_k = gr.Slider(
-                        0.01,
-                        0.50,
-                        value=0.10,
-                        step=0.01,
-                        label="Core-token top-k ratio",
-                    )
-                    temperature = gr.Slider(
-                        10, 2000, value=300, step=10, label="Self-concept temperature"
-                    )
-                with gr.Row():
-                    background = gr.Textbox(
-                        "",
-                        label="Background phrase (optional)",
-                        placeholder="Empty uses Anima's T5 EOS token",
-                    )
-                    bg_scale = gr.Slider(
-                        0.0, 2.0, value=0.95, step=0.05, label="Background scale"
-                    )
-                    balance_iterations = gr.Slider(
-                        1, 50, value=15, step=1, label="Balance iterations"
-                    )
-                    feather = gr.Slider(
-                        0, 8, value=1, step=1, label="Mask feather radius"
-                    )
-
-            with gr.Accordion(
-                "Phase 2: LoRA routing and attention isolation", open=True
-            ):
-                with gr.Row():
-                    routing_strength = gr.Slider(
-                        0.0, 1.0, value=1.0, step=0.05, label="Spatial routing strength"
-                    )
-                    routing_end = gr.Slider(
-                        0.0, 1.0, value=1.0, step=0.05, label="Routing end progress"
-                    )
-                    bias_scale = gr.Slider(
-                        0.0,
-                        20.0,
-                        value=6.0,
-                        step=0.5,
-                        label="Wrong-concept suppression",
-                    )
-                    positive_bias = gr.Slider(
-                        0.0, 10.0, value=1.0, step=0.25, label="Own-concept boost"
-                    )
-                bias_blocks = gr.Textbox(
-                    "0-27",
-                    label="Attention-bias blocks",
-                    info="Written in the 2B (28-block) layout: on 40/52-block models each block also selects its inserted copies, so the default covers every block of any Anima model. LoRA output routing applies to all spatial LoRA layers.",
-                )
-
-        register_exclusive_component(
-            tab=self.tabname,
-            group="anima_spatial_conditioning",
-            names=("freefuse", "regional", "artist"),
-            name="freefuse",
-            component=enable,
+            for index in SUBJECTS
+        ]
+        collection = ui.Group(
+            "Phase 1: automatic mask collection",
+            ui.Row(
+                ui.Slider("collect_step", 0, 12, 3, 1, label="Collect step"),
+                ui.Slider("collect_block", 0, 27, 18, 1, label="Collect block", info="In the 28-block layout; mapped to the same block on 40/52-block Anima."),
+                ui.Slider("top_k", 0.01, 0.50, 0.10, 0.01, label="Core-token top-k ratio"),
+                ui.Slider("temperature", 10, 2000, 300, 10, label="Self-concept temperature"),
+            ),
+            ui.Row(
+                ui.Text("background", "", label="Background phrase (optional)", placeholder="Empty uses Anima's T5 EOS token"),
+                ui.Slider("bg_scale", 0.0, 2.0, 0.95, 0.05, label="Background scale"),
+                ui.Slider("balance_iterations", 1, 50, 15, 1, label="Balance iterations"),
+                ui.Slider("feather", 0, 8, 1, 1, label="Mask feather radius"),
+            ),
+            open=True,
         )
-
-        if (
-            self._refiner_enable_component is not None
-            and self._refiner_checkpoint_component is not None
-        ):
-            conflict_inputs = [
-                enable,
-                self._refiner_enable_component,
-                self._refiner_checkpoint_component,
-            ]
-            conflict_outputs = [
-                enable,
-                self._refiner_enable_component,
-                self._refiner_checkpoint_component,
-                refiner_conflict_status,
-            ]
-
-            def update_refiner_conflict(selected, freefuse, refiner, checkpoint):
-                state = resolve_freefuse_refiner_conflicts(
-                    freefuse=bool(freefuse),
-                    refiner=bool(refiner),
-                    checkpoint=checkpoint,
-                    selected=selected,
-                )
-                status = (
-                    "**Compatibility:** " + "; ".join(state.messages)
-                    if state.messages
-                    else ""
-                )
-                return (
-                    gr.update(
-                        value=state.freefuse,
-                        interactive=state.freefuse_interactive,
-                    ),
-                    gr.update(
-                        value=state.refiner,
-                        interactive=state.refiner_interactive,
-                    ),
-                    gr.update(
-                        value=state.checkpoint,
-                        interactive=state.checkpoint_interactive,
-                    ),
-                    gr.update(value=status),
-                )
-
-            for selected, component in (
-                ("freefuse", enable),
-                ("refiner", self._refiner_enable_component),
-                ("checkpoint", self._refiner_checkpoint_component),
-            ):
-                component.change(
-                    fn=lambda freefuse, refiner, checkpoint, selected=selected: update_refiner_conflict(
-                        selected, freefuse, refiner, checkpoint
-                    ),
-                    inputs=conflict_inputs,
-                    outputs=conflict_outputs,
-                    queue=False,
-                    show_progress=False,
-                )
-
-        # Each control is the local variable or subject control named in SCRIPT_ARGS.
-        return register_table_fields(self, SCRIPT_ARGS, {**locals(), **subject_controls})
+        routing = ui.Group(
+            "Phase 2: LoRA routing and attention isolation",
+            ui.Row(
+                ui.Slider("routing_strength", 0.0, 1.0, 1.0, 0.05, label="Spatial routing strength"),
+                ui.Slider("routing_end", 0.0, 1.0, 1.0, 0.05, label="Routing end progress"),
+                ui.Slider("bias_scale", 0.0, 20.0, 6.0, 0.5, label="Wrong-concept suppression"),
+                ui.Slider("positive_bias", 0.0, 10.0, 1.0, 0.25, label="Own-concept boost"),
+            ),
+            ui.Text(
+                "bias_blocks",
+                "0-27",
+                label="Attention-bias blocks",
+                info="Written in the 2B (28-block) layout: on 40/52-block models each block also selects its inserted copies, so the default covers every block of any Anima model. LoRA output routing applies to all spatial LoRA layers.",
+            ),
+            open=True,
+        )
+        root = ui.Section(
+            self.title(),
+            enable=ui.Toggle("enable", False, label=self.title(), exclusive=(SPATIAL_GROUP, "freefuse")),
+            children=[
+                ui.Markdown(
+                    "Two-pass, same-noise FreeFuse for **2–3 Anima subject LoRAs**. "
+                    "Enabling it selects `Anima FreeFuse Euler`; each trigger phrase must "
+                    "appear verbatim in the positive prompt. FreeFuse, Regional Conditioning, "
+                    "and Artist Mixer are one-of-three; the active choice locks the others."
+                ),
+                *subjects,
+                collection,
+                routing,
+            ],
+        )
+        self.param_order = table_params(SCRIPT_ARGS, root)
+        return root
 
     def process(self, p, enable, *values, **kwargs):
         # A wrong argument count is refused before the sampler or the online-LoRA lease changes.
@@ -476,7 +367,7 @@ class AnimaFreeFuseScript(scripts.Script):
         p.extra_generation_params["Anima FreeFuse bias"] = (
             f"negative {float(args.bias_scale):.2f}, positive {float(args.positive_bias):.2f}, blocks {args.bias_blocks}"
         )
-        # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
+        # Keys are the params' infotext keys, so pasted parameters restore the panel.
         p.extra_generation_params.update(generation_params(args))
 
     @staticmethod

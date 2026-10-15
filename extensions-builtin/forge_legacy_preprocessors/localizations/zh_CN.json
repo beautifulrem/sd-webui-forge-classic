@@ -1,0 +1,13 @@
+{
+  "Binarization Threshold": "二值化阈值",
+  "MLSD Distance Threshold": "MLSD 距离阈值",
+  "MLSD Value Threshold": "MLSD 强度阈值",
+  "Max Faces": "最大人脸数",
+  "Min Face Confidence": "最低人脸置信度",
+  "Normal Background Threshold": "法线背景阈值",
+  "Remove Background %": "移除背景 %",
+  "Remove Near %": "移除近景 %",
+  "Safe Steps": "安全步数",
+  "Sigma": "Sigma",
+  "XDoG Threshold": "XDoG 阈值"
+}

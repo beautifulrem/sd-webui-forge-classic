@@ -68,7 +68,10 @@ After installation you can find the extension in your txt2img and img2img tabs.
 ### Sliders:
 The sliders (and that one checkbox) set the amount of adjustment (positive values → add detail, negative values → remove detail) and the sampling steps during which it is applied (i.e. the schedule). So the X axis of the graph is your sampling steps, normalized to the (0,1) range, and the Y axis is the amount of adjustment. The rest is pretty self-explanatory I think. Just drag things and look at the graph for changes.
 ### Numbers:
-The three number inputs at the buttom are provided because sometimes the slider max/mins are too limiting.
+Amount, Start Offset and End Offset are number fields (no slider bounds), because sometimes the slider max/mins are too limiting.
+
+### In Remi
+The panel is declared with `params()`: the schedule graph above the daemon tabs is the `sigma-curve` widget, which computes the same schedule as `make_schedule` in the browser (no server round trip), with one thumbnail per daemon that selects its tab. `webui/src/widgets/sigma-curve/schedule.fixture.json` holds this extension's output for a set of inputs; the Python and frontend tests check both sides against it.
 ### Modes:
 The `cond` and `uncond` modes affect only their respective latents, while `both` affects both (duh!). The `cond` and `uncond` modes are less intense and also allow changes to be applied at earlier steps without diverging too far from the original generation, since the other latent stays intact. 
 

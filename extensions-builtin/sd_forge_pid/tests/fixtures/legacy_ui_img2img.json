@@ -1,0 +1,64 @@
+[
+ {
+  "kind": "toggle",
+  "label": "PiD Integrated",
+  "default": false,
+  "infotext": null,
+  "paste": false,
+  "preset": "pid.enabled"
+ },
+ {
+  "kind": "text",
+  "label": "Prompt",
+  "default": "",
+  "infotext": "pid_prompt",
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "choice",
+  "label": "PiD",
+  "default": null,
+  "choices": [],
+  "infotext": "pid_ckpt",
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "choice",
+  "label": "VAE",
+  "default": null,
+  "choices": [],
+  "infotext": "pid_vae",
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "choice",
+  "label": "Gemma2 2B IT ELM",
+  "default": null,
+  "choices": [],
+  "infotext": "pid_tec",
+  "paste": false,
+  "preset": null
+ },
+ {
+  "kind": "slider",
+  "label": "Degrade Sigma",
+  "default": 0.0,
+  "minimum": 0.0,
+  "maximum": 1.0,
+  "step": 0.05,
+  "infotext": "degrade_sigma",
+  "paste": false,
+  "preset": "pid.degrade_sigma"
+ },
+ {
+  "kind": "toggle",
+  "label": "Color Correction",
+  "default": true,
+  "infotext": null,
+  "paste": false,
+  "preset": "pid.color_correction"
+ }
+]

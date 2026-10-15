@@ -21,6 +21,7 @@ import { useIsDesktop, useMediaQuery } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
 import { selectedItem, useSession } from "@/features/gallery/session-store"
 import type { GenerateTab } from "@/features/progress/run-controller"
+import { NetworksDrawerHost } from "@/features/networks/NetworksDrawerHost"
 import { GenerateBar } from "./GenerateBar"
 import { HistoryPane } from "./HistoryPane"
 import { useOwnRunningJob } from "./hooks"
@@ -190,12 +191,14 @@ function DesktopLayout({ tab, openViewer, wide }: { tab: GenerateTab; openViewer
       <ResizableHandle withHandle />
       <ResizablePanel id="stage" minSize={320}>
         <div className="flex h-full flex-col gap-2 p-3">
-          <div className="flex items-center gap-1">
-            <PaneToggle side="left" collapsed={paramsCollapsed} onToggle={() => toggle(paramsRef)} />
-            {paramsCollapsed ? <GenerateBar tab={tab} className="min-w-0 flex-1" /> : <div className="flex-1" />}
-            {wide ? <PaneToggle side="right" collapsed={historyCollapsed} onToggle={() => toggle(historyRef)} /> : null}
-          </div>
-          <Stage tab={tab} onOpenViewer={() => openViewer()} className="min-h-0 flex-1" />
+          <Stage
+            tab={tab}
+            onOpenViewer={() => openViewer()}
+            className="min-h-0 flex-1"
+            leading={<PaneToggle side="left" collapsed={paramsCollapsed} onToggle={() => toggle(paramsRef)} />}
+            trailing={wide ? <PaneToggle side="right" collapsed={historyCollapsed} onToggle={() => toggle(historyRef)} /> : null}
+            toolbar={paramsCollapsed ? <GenerateBar tab={tab} className="min-w-0 flex-1" /> : null}
+          />
           {wide ? null : <HistoryPane onOpen={openViewer} orientation="strip" />}
         </div>
       </ResizablePanel>
@@ -240,6 +243,7 @@ export default function GeneratePage({ route }: { route: Extract<Route, { name: 
       <HeaderSlot>
         <ModeSwitch tab={tab} />
       </HeaderSlot>
+      <NetworksDrawerHost tab={tab} />
       {desktop ? (
         <DesktopLayout key={wide ? "wide" : "medium"} tab={tab} openViewer={openViewer} wide={wide} />
       ) : (

@@ -4,7 +4,7 @@
  * lazily on first use; there is no central list to edit.
  */
 import { type ComponentType, lazy, type LazyExoticComponent } from "react"
-import type { CustomNode, Json } from "./schema"
+import type { Json, WidgetNode } from "./schema"
 
 export type WidgetProps<V = Json, P extends Record<string, unknown> = Record<string, Json>> = {
   /** Current value (JSON). */
@@ -13,7 +13,7 @@ export type WidgetProps<V = Json, P extends Record<string, unknown> = Record<str
   onChange: (value: V) => void
   /** `props` from the schema node. */
   props: P
-  node: CustomNode
+  node: WidgetNode
   disabled: boolean
   /** DOM id the field label points at; put it on the primary focusable element. */
   id: string

@@ -30,6 +30,7 @@ class NodeSchema(TypedDict, total=False):
     info: str
     default: Any
     on_change: str
+    on_input: str
     width: str | int
     hidden: bool
     infotext: str
@@ -53,6 +54,9 @@ class NodeSchema(TypedDict, total=False):
     accept: str
     widget: str
     props: dict[str, Any]
+    persist: bool
+    submit: bool
+    locks: str
     # layout / display
     title: str
     open: bool

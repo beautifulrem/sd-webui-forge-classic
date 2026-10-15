@@ -6,14 +6,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from backend.patcher.unet import UnetPatcher
 
-import gradio as gr
 import torch
 import torch.nn.functional as F
 from lib_radial.attn_mask import RADIAL_ENABLE
 
 from backend.nn import wan
 from modules import scripts
-from modules.ui_components import InputAccordion
+from remi import ui
 
 ORIG_ATTENTION = wan.attention
 
@@ -137,22 +136,28 @@ class RadialAttentionForForge(scripts.ScriptBuiltinUI):
     def show(self, is_img2img):
         return scripts.AlwaysVisible if RADIAL_ENABLE else None
 
-    def ui(self, *args, **kwargs):
-        with InputAccordion(False, label=self.title()) as enable:
-            with gr.Row():
-                dense_block = gr.Slider(minimum=0, maximum=40, value=1, step=1, label="Dense Block", info="Number of first few Blocks to bypass RadialAttention")
-                decay_factor = gr.Slider(minimum=0.0, maximum=1.0, value=0.2, step=0.1, label="Decay Factor", info="Lower is Faster ; Higher is more Accurate")
-            with gr.Row():
-                dense_timestep = gr.Slider(minimum=0, maximum=100, value=1, step=1, label="Dense Timestep", info="Number of first few Steps to bypass RadialAttention")
-                last_dense_timestep = gr.Slider(minimum=0, maximum=100, value=1, step=1, label="Last Dense Timestep", info="Number of last few Steps to bypass RadialAttention")
-            with gr.Row():
-                block_size = gr.Radio(choices=[64, 128], value=128, label="Block Size")
-                allow_compile = gr.Checkbox(False, label="Allow Torch.Compile")
+    # The processing order, which differs from the panel's
+    param_order = ("enable", "dense_block", "dense_timestep", "last_dense_timestep", "block_size", "decay_factor", "allow_compile")
 
-        for comp in (comps := (enable, dense_block, dense_timestep, last_dense_timestep, block_size, decay_factor, allow_compile)):
-            comp.do_not_save_to_config = True
-
-        return comps
+    def params(self, is_img2img):
+        return ui.Section(
+            self.title(),
+            enable=ui.Toggle("enable", False, label=self.title()),
+            children=[
+                ui.Row(
+                    ui.Slider("dense_block", 0, 40, 1, 1, label="Dense Block", info="Number of first few Blocks to bypass RadialAttention"),
+                    ui.Slider("decay_factor", 0.0, 1.0, 0.2, 0.1, label="Decay Factor", info="Lower is Faster ; Higher is more Accurate"),
+                ),
+                ui.Row(
+                    ui.Slider("dense_timestep", 0, 100, 1, 1, label="Dense Timestep", info="Number of first few Steps to bypass RadialAttention"),
+                    ui.Slider("last_dense_timestep", 0, 100, 1, 1, label="Last Dense Timestep", info="Number of last few Steps to bypass RadialAttention"),
+                ),
+                ui.Row(
+                    ui.Choice("block_size", [64, 128], 128, style="radio", label="Block Size"),
+                    ui.Toggle("allow_compile", False, label="Allow Torch.Compile"),
+                ),
+            ],
+        )
 
     def process_before_every_sampling(self, p, enable: bool, *args, **kwargs):
         if not enable:

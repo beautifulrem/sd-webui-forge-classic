@@ -1,0 +1,10 @@
+{
+  "Anima DAVE Diversity": "Anima DAVE 多样性",
+  "Adds same-prompt layout diversity across seeds by removing part of the spatial mean (DC) of early-mid Anima block outputs during the first steps (DAVE, ICML 2026). Window width hurts text and hands more than strength: keep tau at or below 0.10.": "在最初几步中去除 Anima 前中段块输出的一部分空间均值（DC），让同一提示词在不同种子间得到更多样的构图（DAVE，ICML 2026）。窗口宽度比强度更容易损伤文字和手部：请将 Tau 保持在 0.10 及以下。",
+  "Strength": "强度",
+  "Fraction of the DC removed per block; diversity often peaks low (0.05-0.2).": "每个块去除的 DC 比例；多样性通常在较低值时最高（0.05-0.2）。",
+  "Tau": "Tau",
+  "Leading fraction of the schedule DAVE runs on.": "DAVE 生效的调度前段比例。",
+  "Blocks (2B layout)": "块（2B 布局）",
+  "28-block indices; mapped onto the original blocks of 40/52-block models.": "28 块布局的索引；在 40/52 块模型上映射到对应的原始块。"
+}

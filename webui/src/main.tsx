@@ -6,6 +6,7 @@ import { queryClient } from "@/api/queries"
 import { App } from "@/app/App"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { activateLocale, i18n, initialLocale } from "@/i18n"
+import "@/features/prompt-tools/register"
 import "./index.css"
 
 // A tab opened before the WebUI was updated asks for chunk names the new

@@ -22,9 +22,14 @@ class Context:
     Callables given as ``choices`` or ``default`` are evaluated once per
     context (one request), so one schema export or one job submission sees a
     consistent checkpoint/sampler list. Without ``resolve_upload`` upload ids
-    pass through unchanged (tests, schema export)."""
+    pass through unchanged (tests, schema export).
+
+    ``store_upload`` (PIL image -> upload id) lets ``from_arg`` turn images
+    nested in a processing argument (e.g. a JSON value's pictures) into
+    uploads, as job importers need; without it they are dropped."""
 
     resolve_upload: UploadResolver | None = None
+    store_upload: Callable[[Any], str] | None = None
     cache: dict[tuple[int, str], tuple[Any, Any]] = field(default_factory=dict)
 
     def resolve(self, node: Any, slot: str, value: Any) -> Any:

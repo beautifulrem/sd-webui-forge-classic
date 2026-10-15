@@ -1,3 +1,4 @@
+import copy
 import json
 import logging
 import uuid
@@ -5,8 +6,6 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from functools import lru_cache, partial
 from pathlib import Path
-
-import gradio as gr
 
 from lib_artist_mixer.runtime import (
     BASE_CONTEXT_FUSIONS,
@@ -31,18 +30,17 @@ from lib_artist_mixer.schedule import (
     CURVE_HOLD,
     CURVE_SMOOTH,
     CURVE_TRIANGLE,
+    _CURVE_SHAPES,
     parse_inline_weight as _parse_inline_weight,
     parse_blocks as _parse_blocks,
 )
-from modules import script_callbacks, scripts, shared
-from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
+from modules import scripts, shared
+from modules.anima_feature_conflicts import ARTIST_MIXER, FREEFUSE, REGIONAL, SPATIAL_GROUP, is_feature_active, set_feature_active
 from modules.anima_lora_support import model_block_set, stage_window_of
-from modules.anima_lora_ui import intro_block, register_language_option, ui_language, ui_text
 from modules.anima_user_data import TemplateStore, UnreadableDataFile, data_file, read_json_object, write_json_atomic
-from modules.anima_presets import register_preset_control
 from modules.anima_support import PasteKey, clamp as _clamp, effective_prompt_batch, process_ref, prompt_schedule, prompt_step, register_negpip_prompts, schedule_steps, script_arguments, to_float as _to_float
-from modules.infotext_utils import PasteField
 from modules.prompt_parser import get_multicond_prompt_list
+from remi import ui
 
 
 logger = logging.getLogger("anima_artist_scheduled_mixer")
@@ -74,8 +72,6 @@ def _current_settings_file(tab):
 
 REFERENCE_URL = "https://github.com/An1X3R/Anima-Artist-Mixer"
 
-LANGUAGE_OPTION = "anima_artist_scheduled_mixer_language"
-
 
 PRESET_CUSTOM = "Custom"
 PRESET_COMPOSITION = "Composition"
@@ -105,21 +101,22 @@ TABLE_HEADERS = [
     "Stage",
     "Auto Shift",
 ]
-# Components per artist row; a panel (base or hires) has MAX_ARTIST_ROWS rows
+# Values per artist row; a chain (base or hires) has at most MAX_ARTIST_ROWS rows
 ROW_WIDTH = len(TABLE_HEADERS)
-# The row chains ui() returns after the header, in order
+# The keys of a row of the artist-mix-table widget's value, in TABLE_HEADERS order
+ROW_KEYS = tuple(header.lower().replace(" ", "_") for header in TABLE_HEADERS)
+# The row chains, in argument order
 ROW_CHAINS = ("base", "hires")
-# One script-arg name per row component, as its elem_id: "base_artist_0", ...
-ROW_ARGS = tuple(
-    f"{chain}_{header.lower().replace(' ', '_')}_{index}" for chain in ROW_CHAINS for index in range(MAX_ARTIST_ROWS) for header in TABLE_HEADERS
-)
+# The Gradio panel's argument per row value: "base_artist_0", ...
+ROW_ARGS = tuple(f"{chain}_{key}_{index}" for chain in ROW_CHAINS for index in range(MAX_ARTIST_ROWS) for key in ROW_KEYS)
 SCRIPT_ARGS_OWNER = "Anima Artist Scheduled Mixer"
 
 
 @dataclass(frozen=True)
 class _MixerArgs:
-    """The script args: the HEADER_ARGS controls ui() returns first, then the
-    base and the hires row components (``component_values``, ROW_ARGS)."""
+    """What a run reads from the script args: the HEADER_ARGS controls, then
+    the base and the hires row values (``component_values``, the layout of
+    the Gradio panel's ROW_ARGS: MAX_ARTIST_ROWS rows of ROW_WIDTH each)."""
 
     enable: object
     base_row_count: object
@@ -137,24 +134,62 @@ class _MixerArgs:
     component_values: tuple = ()
 
     @classmethod
-    def from_args(cls, args):
-        """The panel's positional script args, checked by ``script_arguments``:
-        a list that is not exactly SCRIPT_ARG_NAMES long raises TypeError. No
-        default fills a short list: the layout has not changed since the
-        panel's first version, so there is no older, shorter list to replay,
-        and a control added later would shift every row after it."""
-        named = script_arguments(SCRIPT_ARGS_OWNER, SCRIPT_ARG_NAMES, args)
-        return cls(**{name: getattr(named, name) for name in HEADER_ARGS}, component_values=tuple(getattr(named, name) for name in ROW_ARGS))
+    def from_args(cls, args, p=None):
+        """The script args, checked by ``script_arguments`` (a wrong count
+        raises TypeError): the params() arguments (PARAM_NAMES; each chain's
+        rows one table value, the trailing template controls optional), or
+        the Gradio panel's whole SCRIPT_ARG_NAMES list (a caller handing
+        process() the 653 values itself). The API gives a script only its
+        params() slots, so an API request must use the params() layout: a
+        Gradio-layout list cut to those slots is refused (TypeError) by its
+        table slots. The params() layout has no Shift copies: they are
+        ``p``'s Shifts (3.0 without ``p``)."""
+        args = tuple(args)
+        if len(args) == len(SCRIPT_ARG_NAMES):
+            named = script_arguments(SCRIPT_ARGS_OWNER, SCRIPT_ARG_NAMES, args)
+            return cls(**{name: getattr(named, name) for name in HEADER_ARGS}, component_values=tuple(getattr(named, name) for name in ROW_ARGS))
+        # The template controls may be left out (API callers); nothing else
+        defaults = dict.fromkeys(TEMPLATE_ARGS) if len(args) == len(PARAM_NAMES) - len(TEMPLATE_ARGS) else None
+        named = script_arguments(SCRIPT_ARGS_OWNER, PARAM_NAMES, args, defaults=defaults)
+        for name in TABLE_ARGS:
+            value = getattr(named, name)
+            if value is not None and not isinstance(value, (list, tuple, dict)):  # dict: a {"data": rows} table
+                raise TypeError(
+                    f"{SCRIPT_ARGS_OWNER}: argument {PARAM_NAMES.index(name)} ({name}) is a list of artist rows, got {type(value).__name__}; "
+                    f"send the {len(PARAM_NAMES)} params() arguments ({', '.join(PARAM_NAMES)}), not the Gradio panel's {len(SCRIPT_ARG_NAMES)}"
+                )
+        tables = {chain: _rows_of_table(getattr(named, f"{chain}_rows")) for chain in ROW_CHAINS}
+        values = []
+        for chain in ROW_CHAINS:
+            for index in range(MAX_ARTIST_ROWS):
+                values.extend(tables[chain][index] if index < len(tables[chain]) else [None] * ROW_WIDTH)
+        base_shift = _runtime_shift_from_processing(p, 3.0, False) if p is not None else 3.0
+        hires_shift = _runtime_shift_from_processing(p, base_shift, True) if p is not None else base_shift
+        return cls(
+            **{name: getattr(named, name) for name in COMPACT_HEADER_ARGS},
+            base_row_count=len(tables["base"]) or 1,
+            hires_row_count=len(tables["hires"]) or 1,
+            runtime_base_shift=base_shift,
+            runtime_hires_shift=hires_shift,
+            component_values=tuple(values),
+        )
 
     def row_values(self, hires):
-        """Component values of the base or the ``hires`` rows."""
+        """Row values of the base or the ``hires`` rows."""
         size = MAX_ARTIST_ROWS * ROW_WIDTH
         return self.component_values[size : size * 2] if hires else self.component_values[:size]
 
 
 HEADER_ARGS = tuple(name for name in _MixerArgs.__dataclass_fields__ if name != "component_values")
-# Every script arg, in the order ui() returns its controls
+# Every argument of the Gradio panel, in the order its ui() returned them
 SCRIPT_ARG_NAMES = (*HEADER_ARGS, *ROW_ARGS)
+# The params() arguments: the header controls that are not derived (no row
+# counts, no Shift copies), the two artist tables, then the template
+# controls (UI only: the run ignores them)
+COMPACT_HEADER_ARGS = ("enable", "hires_independent", "disable_hires_mixing", "global_strength", "optimization", "combine_mode", "fusion_mode", "apply_uncond", "enable_cache")
+TABLE_ARGS = ("base_rows", "hires_rows")
+TEMPLATE_ARGS = ("template", "template_target", "template_name", "rename_to")
+PARAM_NAMES = (*COMPACT_HEADER_ARGS, *TABLE_ARGS, *TEMPLATE_ARGS)
 
 
 OPTION_LABELS = {
@@ -230,103 +265,25 @@ TABLE_HEADER_LABELS = OrderedDict(
 )
 
 
-LANG = {
-    "zh": {
-        "title": "Anima 画师串调度混合",
-        "accordion": "Anima 画师串调度混合",
-        "settings_label": "Anima 画师串调度混合界面语言",
-        "enable": "启用画师串混合",
-        "base_tab": "底图",
-        "hires_tab": "高分修复",
-        "base_panel": "底图画师",
-        "hires_panel": "高分辨率修复画师",
-        "hires_independent": "高分辨率修复使用独立画师串；关闭时继承底图设置",
-        "disable_hires_mixing": "高分辨率修复不启用画师串混合",
-        "row_count": "画师行数",
-        "hr_row_count": "高分画师行数",
-        "shift_runtime_hint": "阶段/自动偏移读取生成参数区当前 Shift；生成时会再次读取实际底图/高分 Shift。",
-        "artist_table": "画师设置",
-        "global_strength": "全局画师强度",
-        "optimization": "优化预设",
-        "combine": "组合模式",
-        "fusion": "融合模式",
-        "apply_uncond": "同时作用于负条件",
-        "cache": "启用文本编码缓存",
-        "template": "模板",
-        "template_name": "模板名称",
-        "save_base_template": "保存底图画师串设置",
-        "save_hires_template": "保存高分辨率修复模板",
-        "hires_template_disabled": "请先开启“高分辨率修复使用独立画师串”，再保存高分辨率修复模板。",
-        "rename_to": "重命名为",
-        "rename_template": "重命名模板",
-        "delete_template": "删除模板",
-        "reset_defaults": "全部恢复默认",
-        "apply_target": "模板应用目标",
-        "apply_template": "应用模板",
-        "normalize_rows": "刷新阶段预设",
-        "help": "说明",
-        "status": "状态",
-        "empty_template_name": "模板名称为空。",
-        "saved_base_template": "已保存底图画师串模板：{name}",
-        "saved_hires_template": "已保存高分辨率修复模板：{name}",
-        "no_template_selected": "未选择模板。",
-        "new_template_name_empty": "新模板名称为空。",
-        "renamed_template": "已重命名模板为：{name}",
-        "deleted_template": "已删除模板：{name}",
-        "no_template_deleted": "没有删除任何模板。",
-        "template_exists": "已存在同名模板：{name}",
-        "template_file_unreadable": "模板文件无法读取，未做修改：{error}",
-        "applied_template": "已将模板 `{name}` 应用到{target}。",
-        "defaults_restored": "已恢复全部默认设置。",
-    },
-    "en": {
-        "title": "Anima Artist Scheduled Mixer",
-        "accordion": "Anima Artist Scheduled Mixer",
-        "settings_label": "Anima Artist Scheduled Mixer UI language",
-        "enable": "Enable artist mixing",
-        "base_tab": "Base",
-        "hires_tab": "Hires. fix",
-        "base_panel": "Base artists",
-        "hires_panel": "Hires. fix artists",
-        "hires_independent": "Use independent Hires. fix artist chain; disabled = inherit base settings",
-        "disable_hires_mixing": "Disable artist mixing during Hires. fix",
-        "row_count": "Artist rows",
-        "hr_row_count": "Hires artist rows",
-        "shift_runtime_hint": "Stage/Auto Shift reads the current Shift from the generation panel; sampling reads the actual Base/Hires Shift again.",
-        "artist_table": "Artist settings",
-        "global_strength": "Global artist strength",
-        "optimization": "Optimization preset",
-        "combine": "Combine mode",
-        "fusion": "Fusion mode",
-        "apply_uncond": "Apply to unconditional rows",
-        "cache": "Enable text-encoding cache",
-        "template": "Template",
-        "template_name": "Template name",
-        "save_base_template": "Save base artist-chain settings",
-        "save_hires_template": "Save Hires. fix template",
-        "hires_template_disabled": "Enable independent Hires. fix artist chain before saving a Hires. fix template.",
-        "rename_to": "Rename to",
-        "rename_template": "Rename template",
-        "delete_template": "Delete template",
-        "reset_defaults": "Reset all to defaults",
-        "apply_target": "Apply target",
-        "apply_template": "Apply template",
-        "normalize_rows": "Refresh stage presets",
-        "help": "Guide",
-        "status": "Status",
-        "empty_template_name": "Template name is empty.",
-        "saved_base_template": "Saved base artist-chain template: {name}",
-        "saved_hires_template": "Saved Hires. fix template: {name}",
-        "no_template_selected": "No template selected.",
-        "new_template_name_empty": "New template name is empty.",
-        "renamed_template": "Renamed template to: {name}",
-        "deleted_template": "Deleted template: {name}",
-        "no_template_deleted": "No template deleted.",
-        "template_exists": "A template with that name already exists: {name}",
-        "template_file_unreadable": "The template file cannot be read; nothing was changed: {error}",
-        "applied_template": "Applied template `{name}` to {target}.",
-        "defaults_restored": "Restored all settings to defaults.",
-    },
+# The panel's messages (English catalog keys with {{name}} placeholders: the
+# SPA translates them, and the labels, through localizations/zh_CN.json)
+TEXT = {
+    "title": "Anima Artist Scheduled Mixer",
+    "empty_template_name": "Template name is empty.",
+    "saved_base_template": "Saved base artist-chain template: {{name}}",
+    "saved_hires_template": "Saved Hires. fix template: {{name}}",
+    "hires_template_disabled": "Enable independent Hires. fix artist chain before saving a Hires. fix template.",
+    "no_template_selected": "No template selected.",
+    "new_template_name_empty": "New template name is empty.",
+    "renamed_template": "Renamed template to: {{name}}",
+    "deleted_template": "Deleted template: {{name}}",
+    "no_template_deleted": "No template deleted.",
+    "template_exists": "A template with that name already exists: {{name}}",
+    "template_file_unreadable": "The template file cannot be read; nothing was changed: {{error}}",
+    "applied_template_Base": "Applied template `{{name}}` to Base.",
+    "applied_template_Hires": "Applied template `{{name}}` to Hires. fix.",
+    "applied_template_Both": "Applied template `{{name}}` to Base and Hires. fix.",
+    "defaults_restored": "Restored all settings to defaults.",
 }
 
 
@@ -334,18 +291,14 @@ INTRO_EN = f"""
 Independent artist encoding and scheduled cross-attention mixing for Anima.
 Each artist row is encoded separately as `artist + base prompt`, then mixed inside Anima cross-attention. The default `Output average + Interpolate` path follows the stronger reference behavior from [{REFERENCE_URL}]({REFERENCE_URL}); `Quality-safe delta` is still available when you want a more conservative Forge-friendly blend.
 
-The option labels follow the selected UI language, while templates keep stable internal values. Old templates that stored English, Chinese, or raw values should still load correctly after switching languages.
+Templates keep stable internal values, so templates saved with English, Chinese, or raw option values all load.
 
 Thanks to **An1X3R/Anima-Artist-Mixer** and **汐浮尘/utowo** for the original split-and-encode/cross-attention design.
-"""
+""".strip()
 
-INTRO_ZH = f"""
-面向 Anima 的独立画师编码与按阶段 cross-attention 混合。每个画师会单独按 `画师 + 主提示词` 编码，再在 Anima 的 cross-attention 内混合。默认的“输出平均 + 插值融合”沿用 [{REFERENCE_URL}]({REFERENCE_URL}) 的强混合路线；需要更保守的 Forge 友好混合时，也可以手动切到“保真增量”。
+COMPATIBILITY_NOTE = "Compatibility: Artist Mixer, FreeFuse, and Regional Conditioning are one-of-three; the active choice locks the others."
 
-面板选项会跟随界面语言显示，模板内部使用稳定值保存。旧模板即使保存过英文、中文或原始值，切换语言后也会尽量自动识别并回显。
-
-感谢 **An1X3R/Anima-Artist-Mixer** 与 **汐浮尘/utowo** 的原始独立编码和 cross-attention 混合设计。
-"""
+SHIFT_HINT = "Stage/Auto Shift reads the current Shift from the generation panel; sampling reads the actual Base/Hires Shift again."
 
 HELP_EN = """
 **Columns**
@@ -374,51 +327,23 @@ Output average runs each artist branch separately, then averages the artist outp
 
 Interpolate blends between the base prompt output and the artist branch output. It is the strongest and most reference-compatible default. Concat with base lets attention see base tokens and artist tokens together before blending. Quality-safe delta keeps the base output and adds a norm-limited artist difference, which is steadier but can look much weaker.
 
-The UI localizes option labels. Templates are saved with stable internal values, so English/Chinese/raw values can be applied across language modes.
-"""
-
-HELP_ZH = """
-**列说明**
-
-`画师` 每行建议填一个画师提示词。可以直接写行内倍率，例如 `(wlop:1.2)`、`[wlop:0.8]` 或 `wlop:1.2`；最终强度是 `权重 x 行内倍率`。为了迁移旧画师串，逗号分隔仍可用，但每行一个画师最方便单独控制。
-
-`权重` 控制该画师的相对比例，也会在总权重低于 1 时降低实际介入。`层数` 支持 `0-51`、`0,3,5-12`，也支持 `-1` 这种倒数索引，始终按 28 层（2B）布局填写：在 2.9B/3.8B 模型上每层也覆盖它复制插入的层，大于 27 的索引会被忽略，所以 `0-51` 即全部层。`开始` 和 `结束` 是 0 到 1 的采样进度：按采样步数计的比例（高分修复和图生图从中途开始），不是按 sigma 计。`峰值` 表示这一行在窗口内达到满强度的位置，对平滑和三角峰曲线最明显。
-
-`曲线` 决定窗口内强度怎样变化。保持会在整个窗口内满强度。平滑会围绕峰值淡入淡出。三角峰会线性升到峰值再线性降下。前段强化是一开始更强、后面变弱；后段强化则相反。
-
-`阶段` 是时间预设。自定义会保留你手动填写的值。构图偏前段，人物偏中段，画风偏后段。选择自定义之外的阶段时，界面会立即刷新开始、结束和峰值，并为这一行打开自动偏移。自动偏移会跟随 Forge 生成参数区的 Shift；如果之后想微调数字，再把自动偏移关掉即可。
-
-**强度**
-
-全局画师强度用于控制画师分支往原始提示词 cross-attention 输出里注入多少。单行权重决定画师占比；当活跃权重总和低于 1 时，也会降低整体介入。例如 `画师=(wlop:1.2)，权重=0.5`，最终该行画师权重相当于 `0.6`。
-
-**优化预设**
-
-性能会收窄默认层数范围，并降低可同时参与的画师上限，生成更省。平衡保留更接近参考插件的默认范围，同时允许较多画师。质量保留宽层数范围，并提高画师上限，适合更重的混合。
-
-**组合模式**
-
-输出平均会让每个画师分支分别跑 attention，再按权重平均输出，是最稳定、也最接近参考推荐的方式。token拼接会先把多个画师上下文拼在一起再送入 attention，适合更紧凑的混合，但画师之间会更容易互相影响。
-
-**融合模式**
-
-插值融合会在主提示词输出和画师分支输出之间做插值，是最强、也最接近参考插件默认效果的方式。拼接底图条件会先让 attention 同时看到底图 token 和画师 token，再进行混合。保真增量会保留底图输出，只加入有范数限制的画师差值，更稳但也可能明显偏弱。
-
-面板会按语言汉化选项。模板保存稳定内部值，因此中文、英文或旧 raw 值模板都可以跨语言应用。
-"""
-
-
-def _language():
-    return ui_language(LANGUAGE_OPTION)
+Templates are saved with stable internal values, so English/Chinese/raw values can be applied.
+""".strip()
 
 
 def _t(key):
-    return ui_text(LANG, LANGUAGE_OPTION, key)
+    return TEXT.get(key, key)
 
 
-def _bool_label(value, language=None):
-    language = language or _language()
-    return ("是" if _to_bool(value, True) else "否") if language == "zh" else ("Yes" if _to_bool(value, True) else "No")
+def _msg(key, **params):
+    """A message of TEXT for a toast: translated by the SPA, then ``params`` filled."""
+    return ui.message(_t(key), **params) if params else _t(key)
+
+
+def _bool_label(value, language="en"):
+    if language == "zh":
+        return "是" if _to_bool(value, True) else "否"
+    return "Yes" if _to_bool(value, True) else "No"
 
 
 def _option_key(group, value, fallback=None):
@@ -439,33 +364,15 @@ def _option_key(group, value, fallback=None):
     return fallback
 
 
-def _option_label(group, value, language=None):
-    language = language or _language()
+def _option_label(group, value, language="en"):
     key = _option_key(group, value)
     labels = OPTION_LABELS.get(group, {}).get(key, {})
     return labels.get(language) or labels.get("en") or str(value or "")
 
 
-def _option_choices(group, language=None):
-    language = language or _language()
-    return [_option_label(group, key, language) for key in OPTION_LABELS.get(group, {})]
-
-
-def _row_component_headers(language=None):
-    language = language or _language()
-    headers = TABLE_HEADER_LABELS
-    return {
-        "enabled": headers["Enabled"].get(language, "Enabled"),
-        "artist": headers["Artist"].get(language, "Artist"),
-        "weight": headers["Weight"].get(language, "Weight"),
-        "blocks": headers["Blocks"].get(language, "Blocks"),
-        "start": headers["Start"].get(language, "Start"),
-        "end": headers["End"].get(language, "End"),
-        "peak": headers["Peak"].get(language, "Peak"),
-        "curve": headers["Curve"].get(language, "Curve"),
-        "stage": headers["Stage"].get(language, "Stage"),
-        "auto_shift": headers["Auto Shift"].get(language, "Auto Shift"),
-    }
+def _option_choices(group):
+    """``(English label, internal value)`` pairs of an option group."""
+    return [(labels["en"], key) for key, labels in OPTION_LABELS.get(group, {}).items()]
 
 
 def _header_key(value):
@@ -474,14 +381,14 @@ def _header_key(value):
         return text
     folded = text.casefold()
     for key, labels in TABLE_HEADER_LABELS.items():
-        candidates = [key, labels.get("en", ""), labels.get("zh", "")]
+        candidates = [key, labels.get("en", ""), labels.get("zh", ""), key.lower().replace(" ", "_")]
         if folded in {str(item).strip().casefold() for item in candidates if item is not None}:
             return key
     return text
 
 
 def _row_count(value, fallback=1):
-    """A row count from the UI, clamped to 1..MAX_ARTIST_ROWS."""
+    """A row count, clamped to 1..MAX_ARTIST_ROWS."""
     return max(1, min(MAX_ARTIST_ROWS, int(_to_float(value, fallback))))
 
 
@@ -495,93 +402,11 @@ def _rows_from_components(*values):
     return rows
 
 
-def _component_values_from_rows(rows, shift=3.0, optimization=OPT_BALANCE, count=None, columns=None):
-    """Updates of every row component: all columns, showing the first ``count``
-    rows and hiding the rest; or only ``columns`` of the shown rows."""
-    normalized = _normalize_rows(rows, MAX_ARTIST_ROWS, shift, optimization, display=True)
-    if count is None:
-        count = len(_coerce_table(rows)) or 1
-    count = _row_count(count)
-    updates = []
-    for index, row in enumerate(normalized):
-        if columns is None:
-            updates.extend(gr.update(value=value, visible=index < count, interactive=True) for value in row)
-        elif index < count:
-            updates.extend(gr.update(value=row[column], interactive=True) for column in columns)
-        else:
-            updates.extend(gr.update() for _ in columns)
-    return updates
-
-
-def _resize_row_components(count, shift, optimization, *values):
-    rows = _rows_from_components(*values)
-    count = _row_count(count, len(rows) or 1)
-    return _component_values_from_rows(rows, shift, optimization, count)
-
-
-def _apply_shift_to_timing_components(count, shift, optimization, *values):
-    rows = _rows_from_components(*values)
-    count = _row_count(count, len(rows) or 1)
-    return _component_values_from_rows(rows, shift, optimization, count, columns=(4, 5, 6))
-
-
 def _default_blocks_for_optimization(optimization):
     optimization = _option_key("optimization", optimization, OPT_BALANCE)
     if optimization == OPT_PERFORMANCE:
         return "10-18"
     return "0-51"
-
-
-def _apply_optimization_to_block_timing_components(count, shift, optimization, *values):
-    rows = _rows_from_components(*values)
-    count = _row_count(count, len(rows) or 1)
-    blocks = _default_blocks_for_optimization(optimization)
-    for index in range(min(count, len(rows))):
-        row = list(rows[index])
-        row += [None] * (ROW_WIDTH - len(row))
-        row[3] = blocks
-        if _to_bool(row[9], True) and _option_key("stage", row[8], PRESET_CUSTOM) != PRESET_CUSTOM:
-            row[4], row[5], row[6] = _auto_stage_values(row[8], shift)
-        rows[index] = row
-    return _component_values_from_rows(rows, shift, optimization, count, columns=(3, 4, 5, 6))
-
-
-def _apply_stage_to_row_components(row_index, count, shift, optimization, *values):
-    rows = _rows_from_components(*values)
-    count = _row_count(count, len(rows) or 1)
-    if 0 <= row_index < len(rows):
-        row = list(rows[row_index])
-        row += [None] * (ROW_WIDTH - len(row))
-        stage = _option_key("stage", row[8], PRESET_CUSTOM)
-        if stage == PRESET_CUSTOM:
-            row[9] = False
-        else:
-            start, end, peak = _auto_stage_values(stage, shift)
-            row[4], row[5], row[6] = start, end, peak
-            row[9] = True
-        normalized = _normalize_rows([row], 1, shift, optimization, display=True)[0]
-        return [
-            gr.update(value=normalized[4], interactive=True),
-            gr.update(value=normalized[5], interactive=True),
-            gr.update(value=normalized[6], interactive=True),
-            gr.update(value=normalized[9], interactive=True),
-        ]
-    return [gr.update(), gr.update(), gr.update(), gr.update()]
-
-
-def _apply_auto_shift_to_row_components(row_index, count, shift, optimization, *values):
-    rows = _rows_from_components(*values)
-    count = _row_count(count, len(rows) or 1)
-    if not (0 <= row_index < min(count, len(rows))):
-        return [gr.update(), gr.update(), gr.update()]
-    row = list(rows[row_index])
-    row += [None] * (ROW_WIDTH - len(row))
-    normalized = _normalize_rows([row], 1, shift, optimization, display=True)[0]
-    return [
-        gr.update(value=normalized[4], interactive=True),
-        gr.update(value=normalized[5], interactive=True),
-        gr.update(value=normalized[6], interactive=True),
-    ]
 
 
 def _active_rows_from_components(count, shift, optimization, *values, display=False):
@@ -594,45 +419,6 @@ def _runtime_shift_from_processing(p, fallback=3.0, hires=None):
     if getattr(p, "is_hr_pass", False) if hires is None else hires:
         return _clamp(_to_float(getattr(p, "hr_distilled_cfg", None), fallback), 1.0, 24.0)
     return _clamp(_to_float(getattr(p, "distilled_cfg_scale", None), fallback), 1.0, 24.0)
-
-
-def _create_artist_row_controls(prefix, lang, defaults, elem_id_func):
-    labels = _row_component_headers(lang)
-    components = []
-    bool_choices = [_bool_label(True, lang), _bool_label(False, lang)]
-    curve_choices = _option_choices("curve", lang)
-    stage_choices = _option_choices("stage", lang)
-    for index in range(MAX_ARTIST_ROWS):
-        row = defaults[index] if index < len(defaults) else _normalize_rows([_default_rows(1, 3.0, OPT_BALANCE)[0]], 1, 3.0, OPT_BALANCE)[0]
-        visible = index < len(defaults)
-        with gr.Row(elem_id=elem_id_func(f"{prefix}_artist_row_{index}")):
-            enabled = gr.Dropdown(label=labels["enabled"], choices=bool_choices, value=row[0], allow_custom_value=False, min_width=82, visible=visible, elem_id=elem_id_func(f"{prefix}_enabled_{index}"))
-            artist = gr.Textbox(label=labels["artist"], value=row[1], lines=1, min_width=190, visible=visible, elem_id=elem_id_func(f"{prefix}_artist_{index}"))
-            weight = gr.Number(label=labels["weight"], value=row[2], precision=4, min_width=92, visible=visible, elem_id=elem_id_func(f"{prefix}_weight_{index}"))
-            blocks = gr.Textbox(label=labels["blocks"], value=row[3], lines=1, min_width=116, visible=visible, elem_id=elem_id_func(f"{prefix}_blocks_{index}"))
-            start = gr.Number(label=labels["start"], value=row[4], precision=4, min_width=86, visible=visible, elem_id=elem_id_func(f"{prefix}_start_{index}"))
-            end = gr.Number(label=labels["end"], value=row[5], precision=4, min_width=86, visible=visible, elem_id=elem_id_func(f"{prefix}_end_{index}"))
-            peak = gr.Number(label=labels["peak"], value=row[6], precision=4, min_width=86, visible=visible, elem_id=elem_id_func(f"{prefix}_peak_{index}"))
-            curve = gr.Dropdown(label=labels["curve"], choices=curve_choices, value=row[7], allow_custom_value=False, min_width=130, visible=visible, elem_id=elem_id_func(f"{prefix}_curve_{index}"))
-            stage = gr.Dropdown(label=labels["stage"], choices=stage_choices, value=row[8], allow_custom_value=False, min_width=130, visible=visible, elem_id=elem_id_func(f"{prefix}_stage_{index}"))
-            auto_shift = gr.Dropdown(label=labels["auto_shift"], choices=bool_choices, value=row[9], allow_custom_value=False, min_width=112, visible=visible, elem_id=elem_id_func(f"{prefix}_auto_shift_{index}"))
-        components.extend([enabled, artist, weight, blocks, start, end, peak, curve, stage, auto_shift])
-    return components
-
-
-def _row_outputs(row_components, offsets):
-    return [row_components[index + offset] for index in range(0, len(row_components), ROW_WIDTH) for offset in offsets]
-
-
-def _register_ui_settings():
-    register_language_option(
-        LANGUAGE_OPTION,
-        "Anima Artist Scheduled Mixer language / Anima 画师串调度混合语言",
-        ("anima-artist-scheduled-mixer", "Anima Artist Scheduled Mixer"),
-    )
-
-
-script_callbacks.on_ui_settings(_register_ui_settings)
 
 
 def _to_bool(value, fallback=False):
@@ -731,20 +517,63 @@ def _normalize_rows(value, row_count=None, shift=3.0, optimization=OPT_BALANCE, 
     return normalized
 
 
+# region Artist tables (the artist-mix-table widget's value)
+
+
+def _table(rows):
+    """Rows (lists in TABLE_HEADERS order) as the widget's value: one object
+    per row keyed by ROW_KEYS."""
+    return [dict(zip(ROW_KEYS, row)) for row in rows]
+
+
+def _rows_of_table(value):
+    """A table value's rows as lists in TABLE_HEADERS order, at most
+    MAX_ARTIST_ROWS (objects keyed by ROW_KEYS or the headers, or lists)."""
+    return _coerce_table(value)[:MAX_ARTIST_ROWS]
+
+
+def _table_value(value):
+    """Validate a table param: a list of at most MAX_ARTIST_ROWS rows, each
+    an object or a list; the rows come back as objects keyed by ROW_KEYS
+    (values as given: a run normalizes them)."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"an artist table is a list of rows, got {type(value).__name__}")
+    if len(value) > MAX_ARTIST_ROWS:
+        raise ValueError(f"an artist table has at most {MAX_ARTIST_ROWS} rows, got {len(value)}")
+    if not all(isinstance(row, (dict, list)) for row in value):
+        raise ValueError("each artist row is an object or a list")
+    return _table(_coerce_table(value))
+
+
+def _normalized_table(rows, count=None, shift=3.0, optimization=OPT_BALANCE):
+    """``rows`` normalized (internal values, auto rows timed at ``shift``) as a table value."""
+    return _table(_normalize_rows(rows, count, shift, optimization, display=False))
+
+
+def _retimed_blocks_table(table, shift, optimization):
+    """What choosing the optimization preset does to a chain: every row on
+    its default Blocks, the auto-shifted stage rows re-timed."""
+    blocks = _default_blocks_for_optimization(optimization)
+    rows = []
+    for row in _rows_of_table(table):
+        row = list(row)
+        row[3] = blocks
+        if _to_bool(row[9], True) and _option_key("stage", row[8], PRESET_CUSTOM) != PRESET_CUSTOM:
+            row[4], row[5], row[6] = (round(value, 4) for value in _auto_stage_values(row[8], shift))
+        rows.append(row)
+    return _table(rows)
+
+
+# endregion
+
+# region Templates
+
+
 def _template_data():
     """Templates for display; an unreadable file reads as empty and is left alone."""
     return _TEMPLATES.load()
-
-
-def _edit_templates(edit):
-    """Apply ``edit(data)``, which returns ``(template to select, status)``, to
-    the saved templates; then the dropdown (built from the file as written)
-    and the status. An unreadable file is never replaced."""
-    try:
-        value, status = _TEMPLATES.edit(edit)
-    except UnreadableDataFile as error:
-        return _template_dropdown_update(), _t("template_file_unreadable").format(error=error)
-    return _template_dropdown_update(value), status
 
 
 def _template_choices():
@@ -759,158 +588,141 @@ def _resolve_template_name(value=None, choices=None):
     return choices[0] if choices else None
 
 
-def _template_dropdown_update(value=None):
-    choices = _template_choices()
-    value = _resolve_template_name(value, choices)
-    return gr.update(choices=choices, value=value)
+class _Refused(Exception):
+    """A refused template edit; the store is left as it was."""
 
 
-def _save_template_record(
-    name,
-    row_key,
-    rows,
-    row_count,
-    shift,
-    disable_hires_mixing,
-    global_strength,
-    optimization,
-    combine_mode,
-    fusion_mode,
-    apply_uncond,
-    enable_cache,
-    status_key,
-):
+def _edit_templates(edit):
+    """Apply ``edit(data)``, which returns ``(template to select, status)``
+    or raises ``_Refused(status)``, to the saved templates: ``(template to
+    select, status, done)``. An unreadable file is never replaced."""
+    try:
+        value, status = _TEMPLATES.edit(edit)
+    except UnreadableDataFile as error:
+        return None, _msg("template_file_unreadable", error=str(error)), False
+    except _Refused as refused:
+        return refused.args[1] if len(refused.args) > 1 else None, refused.args[0], False
+    return value, status, True
+
+
+def _template_record(chain, values, shift):
+    """The template of a chain (``base`` / ``hires``) and the global controls,
+    from the panel's named ``values``."""
+    optimization = _option_key("optimization", values.get("optimization"), OPT_BALANCE)
+    rows = _rows_of_table(values.get(f"{chain}_rows"))
+    return {
+        f"{chain}_rows": _normalize_rows(rows, _row_count(len(rows) or 1), _to_float(shift, 3.0), optimization, display=False),
+        "hires_independent": chain == "hires",
+        "disable_hires_mixing": bool(values.get("disable_hires_mixing")),
+        "global_strength": _to_float(values.get("global_strength"), 0.7),
+        "optimization": optimization,
+        "combine_mode": _option_key("combine", values.get("combine_mode"), COMBINE_OUTPUT_AVG),
+        "fusion_mode": _option_key("fusion", values.get("fusion_mode"), FUSION_INTERPOLATE),
+        "apply_uncond": bool(values.get("apply_uncond")),
+        "enable_cache": bool(values.get("enable_cache", True)),
+    }
+
+
+def _save_template(name, chain, values, shift):
+    """Save ``chain`` of the panel ``values`` as template ``name``:
+    ``(template to select, status, saved)``."""
     name = str(name or "").strip()
     if not name:
-        return _template_dropdown_update(), _t("empty_template_name")
-    optimization_key = _option_key("optimization", optimization, OPT_BALANCE)
-    combine_key = _option_key("combine", combine_mode, COMBINE_OUTPUT_AVG)
-    fusion_key = _option_key("fusion", fusion_mode, FUSION_INTERPOLATE)
-    row_count = _row_count(row_count, len(_coerce_table(rows)) or 1)
-    shift = _to_float(shift, 3.0)
-    record = {
-        row_key: _normalize_rows(rows, row_count, shift, optimization_key, display=False),
-        "hires_independent": row_key == "hires_rows",
-        "disable_hires_mixing": bool(disable_hires_mixing),
-        "global_strength": _to_float(global_strength, 0.7),
-        "optimization": optimization_key,
-        "combine_mode": combine_key,
-        "fusion_mode": fusion_key,
-        "apply_uncond": bool(apply_uncond),
-        "enable_cache": bool(enable_cache),
-    }
+        return None, _t("empty_template_name"), False
+    if chain == "hires" and not _to_bool(values.get("hires_independent"), False):
+        return None, _t("hires_template_disabled"), False
+    record = _template_record(chain, values, shift)
 
     def save(data):
         data[name] = record
-        return name, _t(status_key).format(name=name)
+        return name, _msg(f"saved_{chain}_template", name=name)
 
     return _edit_templates(save)
 
 
-def _save_base_template_ui(name, base_row_count, base_shift, disable_hires_mixing, global_strength, optimization, combine_mode, fusion_mode, apply_uncond, enable_cache, *base_values):
-    base_rows = _rows_from_components(*base_values)
-    return _save_template_record(
-        name,
-        "base_rows",
-        base_rows,
-        base_row_count,
-        base_shift,
-        disable_hires_mixing,
-        global_strength,
-        optimization,
-        combine_mode,
-        fusion_mode,
-        apply_uncond,
-        enable_cache,
-        "saved_base_template",
-    )
-
-
-def _save_hires_template_ui(name, hires_independent, hires_row_count, hires_shift, disable_hires_mixing, global_strength, optimization, combine_mode, fusion_mode, apply_uncond, enable_cache, *hires_values):
-    if not _to_bool(hires_independent, False):
-        return _template_dropdown_update(), _t("hires_template_disabled")
-    hires_rows = _rows_from_components(*hires_values)
-    return _save_template_record(
-        name,
-        "hires_rows",
-        hires_rows,
-        hires_row_count,
-        hires_shift,
-        disable_hires_mixing,
-        global_strength,
-        optimization,
-        combine_mode,
-        fusion_mode,
-        apply_uncond,
-        enable_cache,
-        "saved_hires_template",
-    )
-
-
-def _rename_template_ui(old_name, new_name):
+def _rename_template(old_name, new_name):
     old_name = str(old_name or "").strip()
     new_name = str(new_name or "").strip()
 
     def rename(data):
         if not old_name or old_name not in data:
-            return None, _t("no_template_selected")
+            raise _Refused(_t("no_template_selected"))
         if not new_name:
-            return old_name, _t("new_template_name_empty")
+            raise _Refused(_t("new_template_name_empty"), old_name)
         if new_name != old_name and new_name in data:
-            return old_name, _t("template_exists").format(name=new_name)
+            raise _Refused(_msg("template_exists", name=new_name), old_name)
         data[new_name] = data.pop(old_name)
-        return new_name, _t("renamed_template").format(name=new_name)
+        return new_name, _msg("renamed_template", name=new_name)
 
     return _edit_templates(rename)
 
 
-def _delete_template_ui(name):
+def _delete_template(name):
     name = str(name or "").strip()
 
     def delete(data):
         if data.pop(name, None) is None:
-            return None, _t("no_template_deleted")
-        return None, _t("deleted_template").format(name=name)
+            raise _Refused(_t("no_template_deleted"))
+        return None, _msg("deleted_template", name=name)
 
     return _edit_templates(delete)
 
 
-def _builtin_default_ui_state(lang):
-    enable = False
-    base_shift = 3.0
-    hires_shift = 3.0
-    base_count = DEFAULT_ARTIST_ROWS
-    hires_count = DEFAULT_ARTIST_ROWS
-    optimization_key = OPT_BALANCE
-    combine_key = COMBINE_OUTPUT_AVG
-    fusion_key = FUSION_INTERPOLATE
-    apply_target_key = APPLY_BASE
-    global_strength = 0.7
-    hires_independent = False
-    disable_hires_mixing = False
-    apply_uncond = False
-    enable_cache = True
-    template_name = None
+def _applied_template(name, target, values, base_shift, hires_shift):
+    """The named values applying template ``name`` to ``target`` (Base,
+    Hires or Both) gives the panel ``values``; None for no such template."""
+    tpl = _template_data().get(_resolve_template_name(name))
+    if not isinstance(tpl, dict):
+        return None
+    optimization_key = _option_key("optimization", tpl.get("optimization"), OPT_BALANCE)
+    has_rows = bool(tpl.get("base_rows")) or bool(tpl.get("hires_rows"))
+    optimization = optimization_key if has_rows else _option_key("optimization", values.get("optimization"), OPT_BALANCE)
+    target = _option_key("apply_target", target, APPLY_BASE)
+    applied = {
+        "global_strength": _clamp(_to_float(tpl.get("global_strength", 0.7), 0.7), 0.0, 2.0),
+        "optimization": optimization_key,
+        "combine_mode": _option_key("combine", tpl.get("combine_mode"), COMBINE_OUTPUT_AVG),
+        "fusion_mode": _option_key("fusion", tpl.get("fusion_mode"), FUSION_INTERPOLATE),
+        "apply_uncond": _to_bool(tpl.get("apply_uncond"), False),
+        "enable_cache": _to_bool(tpl.get("enable_cache"), True),
+    }
+    if target in {APPLY_BASE, APPLY_BOTH}:
+        rows = tpl.get("base_rows") or tpl.get("hires_rows") or _rows_of_table(values.get("base_rows"))
+        applied["base_rows"] = _normalized_table(rows, None, base_shift, optimization)
+    if target in {APPLY_HIRES, APPLY_BOTH}:
+        rows = tpl.get("hires_rows") or tpl.get("base_rows") or _rows_of_table(values.get("hires_rows"))
+        applied["hires_rows"] = _normalized_table(rows, None, hires_shift, optimization)
+        # The Hires switches are the Hires tab's: a Base template applied to
+        # the base rows leaves them as they are
+        applied["hires_independent"] = _to_bool(tpl.get("hires_independent"), False)
+        applied["disable_hires_mixing"] = _to_bool(tpl.get("disable_hires_mixing"), False)
+    return applied
 
-    base_rows = _normalize_rows(_default_rows(base_count, base_shift, optimization_key), base_count, base_shift, optimization_key)
-    hires_rows = _normalize_rows(_default_rows(hires_count, hires_shift, optimization_key), hires_count, hires_shift, optimization_key)
 
+# endregion
+
+# region Remembered panel (per tab, in the extension's data folder)
+
+
+def _builtin_defaults():
+    """The panel's values on a fresh install, by param name."""
+    rows = _normalized_table(_default_rows(DEFAULT_ARTIST_ROWS), DEFAULT_ARTIST_ROWS)
     return {
-        "enable": enable,
-        "template_name": template_name,
-        "template_target": _option_label("apply_target", apply_target_key, lang),
-        "base_count": base_count,
-        "hires_count": hires_count,
-        "base_rows": base_rows,
-        "hires_rows": hires_rows,
-        "hires_independent": hires_independent,
-        "disable_hires_mixing": disable_hires_mixing,
-        "global_strength": global_strength,
-        "optimization": _option_label("optimization", optimization_key, lang),
-        "combine": _option_label("combine", combine_key, lang),
-        "fusion": _option_label("fusion", fusion_key, lang),
-        "apply_uncond": apply_uncond,
-        "enable_cache": enable_cache,
+        "enable": False,
+        "hires_independent": False,
+        "disable_hires_mixing": False,
+        "global_strength": 0.7,
+        "optimization": OPT_BALANCE,
+        "combine_mode": COMBINE_OUTPUT_AVG,
+        "fusion_mode": FUSION_INTERPOLATE,
+        "apply_uncond": False,
+        "enable_cache": True,
+        "base_rows": rows,
+        "hires_rows": [dict(row) for row in rows],
+        "template": _resolve_template_name(None),
+        "template_target": APPLY_BASE,
+        "template_name": "",
+        "rename_to": "",
     }
 
 
@@ -920,6 +732,64 @@ def _current_settings_data(tab):
     except UnreadableDataFile:
         logger.exception("Failed to load Anima artist mixer current settings")
         return None
+
+
+def _remembered_defaults(data):
+    """The panel's values from a remembered panel ``data`` (None: the built-in defaults)."""
+    if not isinstance(data, dict):
+        return _builtin_defaults()
+    optimization_key = _option_key("optimization", data.get("optimization"), OPT_BALANCE)
+    base_shift = _to_float(data.get("base_shift"), 3.0)
+    hires_shift = _to_float(data.get("hires_shift"), 3.0)
+    template_name = str(data.get("template_name") or "").strip()
+    return {
+        "enable": bool(data.get("enable", False)),
+        "hires_independent": bool(data.get("hires_independent", False)),
+        "disable_hires_mixing": bool(data.get("disable_hires_mixing", False)),
+        "global_strength": _clamp(_to_float(data.get("global_strength"), 0.7), 0.0, 2.0),
+        "optimization": optimization_key,
+        "combine_mode": _option_key("combine", data.get("combine_mode"), COMBINE_OUTPUT_AVG),
+        "fusion_mode": _option_key("fusion", data.get("fusion_mode"), FUSION_INTERPOLATE),
+        "apply_uncond": bool(data.get("apply_uncond", False)),
+        "enable_cache": bool(data.get("enable_cache", True)),
+        "base_rows": _normalized_table(data.get("base_rows"), _row_count(data.get("base_count"), DEFAULT_ARTIST_ROWS), base_shift, optimization_key),
+        "hires_rows": _normalized_table(data.get("hires_rows"), _row_count(data.get("hires_count"), DEFAULT_ARTIST_ROWS), hires_shift, optimization_key),
+        "template": _resolve_template_name(template_name),
+        "template_target": _option_key("apply_target", data.get("template_target"), APPLY_BASE),
+        "template_name": "",
+        "rename_to": "",
+    }
+
+
+def _initial_defaults(tab):
+    """The panel a tab starts with: what it last generated with (remembered
+    by every generation from the UI), else the built-in defaults."""
+    return _remembered_defaults(_current_settings_data(tab))
+
+
+def _file_stamp(path):
+    """What changes when ``path`` is written (atomic writes replace it)."""
+    try:
+        stat = path.stat()
+    except OSError:
+        return str(path), None
+    return str(path), stat.st_mtime_ns, stat.st_size, stat.st_ino
+
+
+# Per tab: (stamps of its settings file and the templates file, its _initial_defaults)
+_DEFAULTS_CACHE = {}
+
+
+def _panel_defaults(tab):
+    """:func:`_initial_defaults` of ``tab``, read once per version of the
+    files it comes from: a schema build resolves every param's default from
+    one read, and a generation, a reset or a template edit is seen by the next build."""
+    tab = _settings_tab(tab)
+    stamp = (_file_stamp(_current_settings_file(tab)), _file_stamp(_TEMPLATES.path()))
+    cached = _DEFAULTS_CACHE.get(tab)
+    if cached is None or cached[0] != stamp:
+        cached = _DEFAULTS_CACHE[tab] = (stamp, _initial_defaults(tab))
+    return cached[1]
 
 
 # Per tab, the payload last written to its current-settings file (missing:
@@ -947,46 +817,6 @@ def _delete_current_settings_data(tab):
         write_json_atomic(_current_settings_file(tab), {})
     except Exception:
         logger.exception("Failed to delete Anima artist mixer current settings")
-
-
-def _state_from_current_settings(data, lang):
-    if not isinstance(data, dict):
-        return None
-    optimization_key = _option_key("optimization", data.get("optimization"), OPT_BALANCE)
-    combine_key = _option_key("combine", data.get("combine_mode"), COMBINE_OUTPUT_AVG)
-    fusion_key = _option_key("fusion", data.get("fusion_mode"), FUSION_INTERPOLATE)
-    apply_target_key = _option_key("apply_target", data.get("template_target"), APPLY_BASE)
-    base_shift = _to_float(data.get("base_shift"), 3.0)
-    hires_shift = _to_float(data.get("hires_shift"), 3.0)
-    base_count = _row_count(data.get("base_count"), DEFAULT_ARTIST_ROWS)
-    hires_count = _row_count(data.get("hires_count"), DEFAULT_ARTIST_ROWS)
-    base_rows = _normalize_rows(data.get("base_rows"), base_count, base_shift, optimization_key)
-    hires_rows = _normalize_rows(data.get("hires_rows"), hires_count, hires_shift, optimization_key)
-    template_name = str(data.get("template_name") or "").strip()
-    if template_name and template_name not in _template_data():
-        template_name = None
-    return {
-        "enable": bool(data.get("enable", False)),
-        "template_name": template_name,
-        "template_target": _option_label("apply_target", apply_target_key, lang),
-        "base_count": base_count,
-        "hires_count": hires_count,
-        "base_rows": base_rows,
-        "hires_rows": hires_rows,
-        "hires_independent": bool(data.get("hires_independent", False)),
-        "disable_hires_mixing": bool(data.get("disable_hires_mixing", False)),
-        "global_strength": _to_float(data.get("global_strength"), 0.7),
-        "optimization": _option_label("optimization", optimization_key, lang),
-        "combine": _option_label("combine", combine_key, lang),
-        "fusion": _option_label("fusion", fusion_key, lang),
-        "apply_uncond": bool(data.get("apply_uncond", False)),
-        "enable_cache": bool(data.get("enable_cache", True)),
-    }
-
-
-def _initial_ui_defaults(tab, lang):
-    current = _state_from_current_settings(_current_settings_data(tab), lang)
-    return current if current is not None else _builtin_default_ui_state(lang)
 
 
 def _current_settings_payload(
@@ -1036,16 +866,6 @@ def _current_settings_payload(
     }
 
 
-def _save_current_settings_ui(tab, *values):
-    payload = _current_settings_payload(*values)
-    if payload != _LAST_REMEMBERED_SETTINGS.get(_settings_tab(tab)):
-        _save_current_settings_data(tab, payload)
-
-
-def _same_value(value):
-    return value
-
-
 def _should_remember_settings(p) -> bool:
     """Remember the panel as the user last generated with: once per
     processing run from the UI, not for API calls, hires passes or later
@@ -1083,8 +903,7 @@ def _save_runtime_current_settings(tab, args):
             args.enable_cache,
             *args.component_values,
         )
-        # A generation does not know the template dropdown: keep the one the
-        # user saved with "Save current settings".
+        # A generation does not know the template dropdown: keep the one saved last
         last = _LAST_REMEMBERED_SETTINGS.get(tab)
         saved = last or _current_settings_data(tab)
         if isinstance(saved, dict):
@@ -1099,151 +918,7 @@ def _save_runtime_current_settings(tab, args):
         logger.exception("Failed to save Anima artist mixer runtime settings")
 
 
-def _do_not_save_to_ui_config(*components):
-    for component in components:
-        setattr(component, "do_not_save_to_config", True)
-
-
-def _autosave_triggers(components):
-    """Events that save the panel: a textbox's .change fires per keystroke,
-    so it saves when its edit is done (blur, Enter). The other controls
-    change in discrete steps: a Number field's few characters (Gradio 4.40
-    has no Number.blur) and the timings the Shift and Stage handlers write."""
-    triggers = []
-    for component in components:
-        if isinstance(component, gr.Textbox):
-            triggers.extend((component.blur, component.submit))
-        else:
-            triggers.append(component.change)
-    return triggers
-
-
-def _internal_event_kwargs():
-    return {"api_name": False, "show_api": False}
-
-
-def _default_state_updates(lang=None, status_text=None):
-    lang = lang or _language()
-    state = _builtin_default_ui_state(lang)
-    base_updates = _component_values_from_rows(state["base_rows"], 3.0, state["optimization"], state["base_count"])
-    hires_updates = _component_values_from_rows(state["hires_rows"], 3.0, state["optimization"], state["hires_count"])
-    return (
-        gr.update(value=state["enable"], interactive=True),
-        _template_dropdown_update(state["template_name"]),
-        gr.update(value=state["template_target"]),
-        gr.update(value=state["base_count"], interactive=True),
-        gr.update(value=state["hires_count"], interactive=True),
-        gr.update(value=state["hires_independent"], interactive=True),
-        gr.update(value=state["disable_hires_mixing"], interactive=True),
-        gr.update(),  # the Shift copies follow the generation panel
-        gr.update(),
-        gr.update(value=state["global_strength"], interactive=True),
-        gr.update(value=state["optimization"], interactive=True),
-        gr.update(value=state["combine"], interactive=True),
-        gr.update(value=state["fusion"], interactive=True),
-        gr.update(value=state["apply_uncond"], interactive=True),
-        gr.update(value=state["enable_cache"], interactive=True),
-        _t("defaults_restored") if status_text is None else status_text,
-        *base_updates,
-        *hires_updates,
-    )
-
-
-def _reset_all_defaults_ui(tab):
-    _delete_current_settings_data(tab)
-    return _default_state_updates()
-
-
-def _apply_template_updates(name, target, base_row_count, hires_row_count, current_base_shift, current_hires_shift, current_optimization, component_values, status_text=None):
-    base_values = component_values[: MAX_ARTIST_ROWS * ROW_WIDTH]
-    hires_values = component_values[MAX_ARTIST_ROWS * ROW_WIDTH : MAX_ARTIST_ROWS * ROW_WIDTH * 2]
-    base_current = _rows_from_components(*base_values)
-    hires_current = _rows_from_components(*hires_values)
-    no_selection = (
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        gr.update(),
-        _t("no_template_selected"),
-        *[gr.update() for _ in range(MAX_ARTIST_ROWS * ROW_WIDTH * 2)],
-    )
-    data = _template_data()
-    name = _resolve_template_name(name, sorted(data.keys()))
-    tpl = data.get(name)
-    if not isinstance(tpl, dict):
-        return no_selection
-    optimization_key = _option_key("optimization", tpl.get("optimization"), OPT_BALANCE)
-    base_shift = _to_float(current_base_shift, _to_float(tpl.get("base_shift", 3.0), 3.0))
-    hires_shift = _to_float(current_hires_shift, _to_float(tpl.get("hires_shift", base_shift), base_shift))
-    has_base_rows = bool(tpl.get("base_rows"))
-    has_hires_rows = bool(tpl.get("hires_rows"))
-    fallback_optimization = _option_key("optimization", current_optimization, OPT_BALANCE)
-    base_tpl = _normalize_rows(
-        tpl.get("base_rows") or tpl.get("hires_rows") or base_current,
-        None,
-        base_shift,
-        optimization_key if has_base_rows or has_hires_rows else fallback_optimization,
-    )
-    hires_tpl = _normalize_rows(
-        tpl.get("hires_rows") or tpl.get("base_rows") or hires_current,
-        None,
-        hires_shift,
-        optimization_key if has_hires_rows or has_base_rows else fallback_optimization,
-    )
-    target = _option_key("apply_target", target, APPLY_BASE)
-    base_count_value = max(1, len(base_tpl)) if target in {APPLY_BASE, APPLY_BOTH} else max(1, int(_to_float(base_row_count, 1)))
-    hires_count_value = max(1, len(hires_tpl)) if target in {APPLY_HIRES, APPLY_BOTH} else max(1, int(_to_float(hires_row_count, 1)))
-    base_updates = [gr.update() for _ in range(MAX_ARTIST_ROWS * ROW_WIDTH)]
-    hires_updates = [gr.update() for _ in range(MAX_ARTIST_ROWS * ROW_WIDTH)]
-    # The Hires switches are the Hires tab's: a Base template (saved with
-    # hires_independent off) applied to the base rows leaves them as they are.
-    hires_switches = (gr.update(), gr.update())
-    if target in {APPLY_HIRES, APPLY_BOTH}:
-        hires_switches = (
-            gr.update(value=tpl.get("hires_independent", False), interactive=True),
-            gr.update(value=tpl.get("disable_hires_mixing", False), interactive=True),
-        )
-    if target in {APPLY_BASE, APPLY_BOTH}:
-        base_updates = _component_values_from_rows(base_tpl, base_shift, optimization_key, base_count_value)
-    if target in {APPLY_HIRES, APPLY_BOTH}:
-        hires_updates = _component_values_from_rows(hires_tpl, hires_shift, optimization_key, hires_count_value)
-    return (
-        gr.update(value=base_count_value, interactive=True),
-        gr.update(value=hires_count_value, interactive=True),
-        *hires_switches,
-        gr.update(),
-        gr.update(),
-        gr.update(value=tpl.get("global_strength", 0.7), interactive=True),
-        gr.update(value=_option_label("optimization", optimization_key), interactive=True),
-        gr.update(value=_option_label("combine", tpl.get("combine_mode", COMBINE_OUTPUT_AVG)), interactive=True),
-        gr.update(value=_option_label("fusion", tpl.get("fusion_mode", FUSION_INTERPOLATE)), interactive=True),
-        gr.update(value=tpl.get("apply_uncond", False), interactive=True),
-        gr.update(value=tpl.get("enable_cache", True), interactive=True),
-        status_text if status_text is not None else _t("applied_template").format(name=name, target=_option_label("apply_target", target)),
-        *base_updates,
-        *hires_updates,
-    )
-
-
-def _apply_template_ui(name, target, base_row_count, hires_row_count, current_base_shift, current_hires_shift, current_optimization, *component_values):
-    return _apply_template_updates(
-        name,
-        target,
-        base_row_count,
-        hires_row_count,
-        current_base_shift,
-        current_hires_shift,
-        current_optimization,
-        component_values,
-    )
+# endregion
 
 
 def _artist_entries(rows, shift, optimization, num_blocks, report=False):
@@ -1432,34 +1107,31 @@ def _json_value(text, kind):
 
 
 @lru_cache(maxsize=4)
-def _paste_plan(options_text, base_text, hires_text, base_shift, hires_shift, language):
-    """Control name -> update (a tuple of updates for "base_rows" and
-    "hires_rows") restoring the panel an infotext records; empty for an
-    infotext without it, e.g. the summary alone earlier versions wrote.
-    ``language`` is the UI language the labels are in (a cache key)."""
+def _paste_plan(options_text, base_text, hires_text, base_shift, hires_shift):
+    """Param name -> value restoring the panel an infotext records; empty for
+    an infotext without it, e.g. the summary alone earlier versions wrote.
+    The text-encoding cache is a preference, not part of the image: never pasted."""
     options = _json_value(options_text, dict)
     chains = {"base": _json_value(base_text, list), "hires": _json_value(hires_text, list)}
     if options is None and chains["base"] is None and chains["hires"] is None:
         return {}
     options = options or {}
     optimization = _option_key("optimization", options.get("optimization"), OPT_BALANCE)
-    plan = {"enable": gr.update(value=True)}
+    plan = {"enable": True}
     if "strength" in options:
-        plan["global_strength"] = gr.update(value=_clamp(_to_float(options["strength"], 0.7), 0.0, 2.0))
+        plan["global_strength"] = _clamp(_to_float(options["strength"], 0.7), 0.0, 2.0)
     for name, group, fallback in (("optimization", "optimization", OPT_BALANCE), ("combine_mode", "combine", COMBINE_OUTPUT_AVG), ("fusion_mode", "fusion", FUSION_INTERPOLATE)):
         key = name.removesuffix("_mode")
         if key in options:
-            plan[name] = gr.update(value=_option_label(group, _option_key(group, options[key], fallback)))
+            plan[name] = _option_key(group, options[key], fallback)
     for name in ("apply_uncond", "hires_independent", "disable_hires_mixing"):
         if name in options:
-            plan[name] = gr.update(value=_to_bool(options[name]))
+            plan[name] = _to_bool(options[name])
     for prefix, shift in (("base", base_shift), ("hires", hires_shift)):
         if chains[prefix] is None:
             continue
         rows = [[True, *row] for row in chains[prefix] if isinstance(row, (list, tuple))]
-        count = _row_count(len(rows))
-        plan[f"{prefix}_row_count"] = gr.update(value=count)
-        plan[f"{prefix}_rows"] = tuple(_component_values_from_rows(rows, shift, optimization, count))
+        plan[f"{prefix}_rows"] = _normalized_table(rows, _row_count(len(rows)), shift, optimization)
     return plan
 
 
@@ -1468,59 +1140,133 @@ def _pasted_plan(params):
     base_shift = _to_float(params.get("Distilled CFG Scale"), 3.0)
     hires_shift = _to_float(params.get("Hires Distilled CFG Scale"), base_shift)
     texts = (params.get(key) for key in INFOTEXT_KEYS)
-    return _paste_plan(*(text if isinstance(text, str) else None for text in texts), base_shift, hires_shift, _language())
+    return _paste_plan(*(text if isinstance(text, str) else None for text in texts), base_shift, hires_shift)
 
 
-def _pasted_update(name, params, index=None):
-    """The update pasting ``params`` makes to control ``name`` (to its
-    ``index``-th row component for "base_rows"/"hires_rows"); None leaves it."""
-    update = _pasted_plan(params).get(name)
-    if update is not None and index is not None:
-        update = update[index]
-    return None if update is None else dict(update)
+def _pasted_value(name, params):
+    """The value pasting ``params`` gives param ``name``; None leaves it."""
+    value = _pasted_plan(params).get(name)
+    return copy.deepcopy(value) if isinstance(value, list) else value
 
 
-def _pasted_marker(params):
-    """A fresh value when ``params`` restores the panel: its change saves the
-    pasted panel like an edit, also when only the textboxes (which save on
-    blur) changed."""
-    return gr.update(value=uuid.uuid4().hex) if _pasted_plan(params) else None
+def _paste(name, key=None):
+    """``paste=`` of a param: its value in the recorded panel (``key``: the
+    infotext key it is bound to, which also names it as a paste source)."""
+    function = partial(_pasted_value, name)
+    return {"paste": function} if key is None else {"infotext": key, "paste": PasteKey(key, function)}
 
 
-def _paste_fields(header, base_rows, hires_rows, marker):
-    """``infotext_fields`` of the panel: the ``header`` controls (name ->
-    component, as ui() returns them), the base and hires row components and
-    the autosave ``marker``."""
-    keys = {"base_row_count": INFOTEXT_BASE, "hires_row_count": INFOTEXT_HIRES}
-    fields = [
-        PasteField(component, PasteKey(keys.get(name, INFOTEXT_OPTIONS), partial(_pasted_update, name)))
-        for name, component in header.items()
-        if name in {"enable", "base_row_count", "hires_row_count", "hires_independent", "disable_hires_mixing", "global_strength", "optimization", "combine_mode", "fusion_mode", "apply_uncond"}
-    ]
-    for name, key, components in (("base_rows", INFOTEXT_BASE, base_rows), ("hires_rows", INFOTEXT_HIRES, hires_rows)):
-        fields.extend(PasteField(component, PasteKey(key, partial(_pasted_update, name, index=index))) for index, component in enumerate(components))
-    fields.append(PasteField(marker, _pasted_marker))
-    return fields
+# region Layout
 
 
-# Generation-panel Shift sliders: (elem_id, attribute the Script keeps it in)
-_SHIFT_SOURCES = (
-    ("txt2img_distilled_cfg_scale", "base_shift_component"),
-    ("txt2img_hr_distilled_cfg", "hires_shift_component"),
-    ("img2img_distilled_cfg_scale", "base_shift_component"),
-)
+STAGE_KINDS = {PRESET_COMPOSITION: "composition", PRESET_CHARACTER: "character", PRESET_STYLE: "style"}
+SHIFT_PARAMS = {"base": ["core.distilled_cfg_scale"], "hires": ["core.hr_distilled_cfg", "core.distilled_cfg_scale"]}
+STEP_PARAMS = {"base": ["sampler.steps"], "hires": ["core.hr_second_pass_steps", "sampler.steps"]}
+
+
+def _table_props(chain):
+    """Props of a chain's artist-mix-table widget."""
+    return {
+        "chain": chain,
+        "shift": SHIFT_PARAMS[chain],
+        "steps": STEP_PARAMS[chain],
+        "max_rows": MAX_ARTIST_ROWS,
+        "optimization_param": "optimization",
+        "default_blocks": {key: _default_blocks_for_optimization(key) for key in OPTION_LABELS["optimization"]},
+        "max_artists": dict(_MAX_ARTISTS),
+        # A curve's shape as lib_artist_mixer.schedule.curve_factor draws it (front / back keep a quarter)
+        "curves": [{"value": key, "label": labels["en"], "shape": _CURVE_SHAPES.get(key, "smooth")} for key, labels in OPTION_LABELS["curve"].items()],
+        "curve_floor": 0.25,
+        "stages": [{"value": key, "label": labels["en"], **({"kind": STAGE_KINDS[key]} if key in STAGE_KINDS else {})} for key, labels in OPTION_LABELS["stage"].items()],
+    }
+
+
+def _params(tab):
+    """The panel of ``tab``; each input starts on the tab's remembered panel."""
+
+    def default(name):
+        return lambda: copy.deepcopy(_panel_defaults(tab)[name])
+
+    hires = ui.param("hires_independent")
+    return ui.Section(
+        "Anima Artist Scheduled Mixer",
+        ui.Markdown(INTRO_EN),
+        ui.Markdown(COMPATIBILITY_NOTE),
+        ui.Row(
+            ui.Choice("optimization", _option_choices("optimization"), default("optimization"), label="Optimization preset", preset="artist.optimization", on_input="optimization_changed", **_paste("optimization")),
+            ui.Slider("global_strength", 0.0, 2.0, default("global_strength"), 0.01, label="Global artist strength", preset="artist.global_strength", **_paste("global_strength")),
+            ui.Toggle("enable_cache", default("enable_cache"), label="Enable text-encoding cache", preset="artist.cache"),
+        ),
+        ui.Row(
+            ui.Choice("combine_mode", _option_choices("combine"), default("combine_mode"), label="Combine mode", preset=("artist.combine", COMBINE_OUTPUT_AVG), **_paste("combine_mode")),
+            ui.Choice("fusion_mode", _option_choices("fusion"), default("fusion_mode"), label="Fusion mode", preset=("artist.fusion", FUSION_INTERPOLATE), **_paste("fusion_mode")),
+            ui.Toggle("apply_uncond", default("apply_uncond"), label="Apply to unconditional rows", preset="artist.apply_uncond", **_paste("apply_uncond")),
+        ),
+        ui.Tabs(
+            ui.Tab(
+                "Base",
+                ui.Markdown(SHIFT_HINT),
+                ui.Custom("base_rows", "artist-mix-table", default("base_rows"), partial(_table_props, "base"), label="Base artists", validate=_table_value, **_paste("base_rows", INFOTEXT_BASE)),
+            ),
+            ui.Tab(
+                "Hires. fix",
+                ui.Toggle("hires_independent", default("hires_independent"), label="Use independent Hires. fix artist chain; disabled = inherit base settings", **_paste("hires_independent")),
+                ui.Toggle("disable_hires_mixing", default("disable_hires_mixing"), label="Disable artist mixing during Hires. fix", **_paste("disable_hires_mixing")),
+                ui.Markdown(SHIFT_HINT, visible_if=hires),
+                ui.Custom("hires_rows", "artist-mix-table", default("hires_rows"), partial(_table_props, "hires"), label="Hires. fix artists", validate=_table_value, visible_if=hires, **_paste("hires_rows", INFOTEXT_HIRES)),
+            ),
+            ui.Tab(
+                "Template",
+                ui.Row(
+                    _TemplateChoice("template", _template_choices, default("template"), label="Template"),
+                    ui.Choice("template_target", _option_choices("apply_target"), default("template_target"), label="Apply target"),
+                    ui.Button("Apply template", "template_apply", "primary"),
+                ),
+                ui.Row(
+                    ui.Text("template_name", "", label="Template name"),
+                    ui.Button("Save base artist-chain settings", "template_save_base"),
+                    ui.Button("Save Hires. fix template", "template_save_hires", enabled_if=hires),
+                ),
+                ui.Row(
+                    ui.Text("rename_to", "", label="Rename to"),
+                    ui.Button("Rename template", "template_rename"),
+                    ui.Button("Delete template", "template_delete"),
+                ),
+                ui.Button("Reset all to defaults", "reset_defaults", "ghost"),
+            ),
+            ui.Tab("Guide", ui.Markdown(HELP_EN)),
+        ),
+        enable=ui.Toggle("enable", default("enable"), label="Enable artist mixing", preset="artist.enabled", **_paste("enable", INFOTEXT_OPTIONS)),
+        exclusive=(SPATIAL_GROUP, "artist"),
+    )
+
+
+class _TemplateChoice(ui.Choice):
+    """The template dropdown. Templates are shared by both tabs, and a
+    delete or rename refreshes the calling form only: a name that is gone
+    reads as the first template (None without any) rather than failing the
+    job; the run ignores this control."""
+
+    def coerce(self, value, ctx):
+        return super().coerce(_resolve_template_name(value, self.values(ctx)), ctx)
+
+
+def _shifts(ctx):
+    """The generation form's base and Hires Shift (an action's ``ctx.core``)."""
+
+    def number(name, fallback):
+        value = ctx.core.get(name)
+        return _clamp(float(value), 1.0, 24.0) if isinstance(value, (int, float)) and not isinstance(value, bool) else fallback
+
+    base = number("distilled_cfg_scale", 3.0)
+    return base, number("hr_distilled_cfg", base)
+
+
+# endregion
 
 
 class Script(scripts.Script):
-    def __init__(self):
-        # Built before the script panels; each tab's runner only reports its own.
-        self.base_shift_component = None
-        self.hires_shift_component = None
-        for elem_id, name in _SHIFT_SOURCES:
-            self.on_after_component(partial(self._keep_shift_component, name), elem_id=elem_id)
-
-    def _keep_shift_component(self, name, event):
-        setattr(self, name, event.component)
+    param_order = PARAM_NAMES
 
     def title(self):
         return _t("title")
@@ -1528,378 +1274,67 @@ class Script(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def ui(self, is_img2img):
-        lang = _language()
-        defaults = _initial_ui_defaults(self.tabname, lang)
-        table_css = f"""
-        <style>
-        #{self.elem_id("accordion")} [data-testid="sort-button"],
-        #{self.elem_id("accordion")} .sort-button,
-        #{self.elem_id("accordion")} button[aria-label*="Sort"],
-        #{self.elem_id("accordion")} button[title*="Sort"] {{
-            display: none !important;
-        }}
-        </style>
-        """
-        with gr.Accordion(_t("accordion"), open=False, elem_id=self.elem_id("accordion")):
-            gr.HTML(table_css)
-            intro_block(self.elem_id, INTRO_EN, INTRO_ZH, LANGUAGE_OPTION)
+    def params(self, is_img2img):
+        return _params(self.tabname)
 
-            # The generation panel's Shift sliders drive the stage timings; the
-            # hidden copies carry their values into the script args.
-            base_shift_input = self.base_shift_component
-            hires_shift_input = self.hires_shift_component or base_shift_input
-            runtime_base_shift = gr.Number(value=getattr(base_shift_input, "value", 3.0), visible=False, elem_id=self.elem_id("runtime_base_shift"))
-            runtime_hires_shift = gr.Number(value=getattr(hires_shift_input, "value", 3.0), visible=False, elem_id=self.elem_id("runtime_hires_shift"))
-            base_shift_input = base_shift_input or runtime_base_shift
-            hires_shift_input = hires_shift_input or runtime_hires_shift
-            # Changed by pasting an infotext that records the panel: saves it
-            paste_marker = gr.Textbox(value="", visible=False, elem_id=self.elem_id("paste_marker"))
-            enable = gr.Checkbox(label=_t("enable"), value=defaults["enable"], elem_id=self.elem_id("enable"))
-            gr.Markdown(
-                "Compatibility: Artist Mixer, FreeFuse, and Regional Conditioning are "
-                "one-of-three; the active choice locks the others."
-            )
-            register_exclusive_component(
-                tab=self.tabname,
-                group="anima_spatial_conditioning",
-                names=("freefuse", "regional", "artist"),
-                name="artist",
-                component=enable,
-            )
-            with gr.Row():
-                optimization = gr.Dropdown(label=_t("optimization"), choices=_option_choices("optimization", lang), value=defaults["optimization"], elem_id=self.elem_id("optimization"))
-                global_strength = gr.Slider(label=_t("global_strength"), minimum=0.0, maximum=2.0, step=0.01, value=defaults["global_strength"], elem_id=self.elem_id("global_strength"))
-                enable_cache = gr.Checkbox(label=_t("cache"), value=defaults["enable_cache"], elem_id=self.elem_id("enable_cache"))
-            with gr.Row():
-                combine_mode = gr.Dropdown(label=_t("combine"), choices=_option_choices("combine", lang), value=defaults["combine"], elem_id=self.elem_id("combine_mode"))
-                fusion_mode = gr.Dropdown(label=_t("fusion"), choices=_option_choices("fusion", lang), value=defaults["fusion"], elem_id=self.elem_id("fusion_mode"))
-                apply_uncond = gr.Checkbox(label=_t("apply_uncond"), value=defaults["apply_uncond"], elem_id=self.elem_id("apply_uncond"))
+    # region Actions
 
-            with gr.Tab(_t("base_tab")):
-                with gr.Row():
-                    base_row_count = gr.Number(label=_t("row_count"), value=defaults["base_count"], precision=0, elem_id=self.elem_id("base_row_count"))
-                    base_apply_presets = gr.Button(_t("normalize_rows"), elem_id=self.elem_id("base_apply_presets"))
-                gr.Markdown(value=_t("shift_runtime_hint"))
-                gr.Markdown(value=f"**{_t('artist_table')}**")
-                base_row_components = _create_artist_row_controls("base", lang, defaults["base_rows"], self.elem_id)
+    @ui.action("optimization_changed")
+    def optimization_changed(self, ctx, values):
+        """Choosing an optimization preset puts every row on its Blocks and
+        re-times the auto-shifted stage rows."""
+        shifts = dict(zip(ROW_CHAINS, _shifts(ctx)))
+        optimization = values.get("optimization")
+        return {f"{chain}_rows": ui.update(value=_retimed_blocks_table(values.get(f"{chain}_rows"), shifts[chain], optimization)) for chain in ROW_CHAINS}
 
-            with gr.Tab(_t("hires_tab")):
-                hires_independent = gr.Checkbox(label=_t("hires_independent"), value=defaults["hires_independent"], elem_id=self.elem_id("hires_independent"))
-                disable_hires_mixing = gr.Checkbox(label=_t("disable_hires_mixing"), value=defaults["disable_hires_mixing"], elem_id=self.elem_id("disable_hires_mixing"))
-                with gr.Row():
-                    hires_row_count = gr.Number(label=_t("hr_row_count"), value=defaults["hires_count"], precision=0, elem_id=self.elem_id("hires_row_count"))
-                    hires_apply_presets = gr.Button(_t("normalize_rows"), elem_id=self.elem_id("hires_apply_presets"))
-                gr.Markdown(value=_t("shift_runtime_hint"))
-                gr.Markdown(value=f"**{_t('artist_table')}**")
-                hires_row_components = _create_artist_row_controls("hires", lang, defaults["hires_rows"], self.elem_id)
+    @ui.action("template_apply")
+    def template_apply(self, ctx, values):
+        target = _option_key("apply_target", values.get("template_target"), APPLY_BASE)
+        applied = _applied_template(values.get("template"), target, values, *_shifts(ctx))
+        if applied is None:
+            return ui.toast(_t("no_template_selected"), "warning")
+        message = _msg(f"applied_template_{target}", name=_resolve_template_name(values.get("template")))
+        return {**{name: ui.update(value=value) for name, value in applied.items()}, **ui.toast(message, "success")}
 
-            with gr.Tab(_t("template")):
-                with gr.Row():
-                    template_choices = _template_choices()
-                    template_dropdown = gr.Dropdown(label=_t("template"), choices=template_choices, value=_resolve_template_name(defaults["template_name"], template_choices), allow_custom_value=False, elem_id=self.elem_id("template_dropdown"))
-                    template_apply_target = gr.Dropdown(label=_t("apply_target"), choices=_option_choices("apply_target", lang), value=defaults["template_target"], elem_id=self.elem_id("template_apply_target"))
-                    template_apply = gr.Button(_t("apply_template"), variant="primary", elem_id=self.elem_id("template_apply"))
-                with gr.Row():
-                    template_name = gr.Textbox(label=_t("template_name"), value="", elem_id=self.elem_id("template_name"))
-                    template_save_base = gr.Button(_t("save_base_template"), elem_id=self.elem_id("template_save_base"))
-                    template_save_hires = gr.Button(_t("save_hires_template"), elem_id=self.elem_id("template_save_hires"))
-                with gr.Row():
-                    rename_to = gr.Textbox(label=_t("rename_to"), value="", elem_id=self.elem_id("rename_to"))
-                    rename_button = gr.Button(_t("rename_template"), elem_id=self.elem_id("rename_button"))
-                    delete_button = gr.Button(_t("delete_template"), elem_id=self.elem_id("delete_button"))
-                    reset_defaults_button = gr.Button(_t("reset_defaults"), elem_id=self.elem_id("reset_defaults_button"))
-                template_status = gr.Markdown(value="", elem_id=self.elem_id("template_status"))
+    def _template_edit(self, edit):
+        selected, status, done = edit
+        choices = _template_choices()
+        patch = {"template": ui.update(choices=choices, value=_resolve_template_name(selected, choices))}
+        if done:
+            patch["template_name"] = ui.update(value="")
+            patch["rename_to"] = ui.update(value="")
+        return {**patch, **ui.toast(status, "success" if done else "warning")}
 
-            with gr.Tab(_t("help")):
-                gr.Markdown(value=HELP_ZH if _language() == "zh" else HELP_EN)
+    @ui.action("template_save_base")
+    def template_save_base(self, ctx, values):
+        return self._template_edit(_save_template(values.get("template_name"), "base", values, _shifts(ctx)[0]))
 
-        base_row_count.change(
-            fn=_resize_row_components,
-            inputs=[base_row_count, base_shift_input, optimization, *base_row_components],
-            outputs=base_row_components,
-            queue=False,
-            show_progress=False,
-            **_internal_event_kwargs(),
-        )
-        hires_row_count.change(
-            fn=_resize_row_components,
-            inputs=[hires_row_count, hires_shift_input, optimization, *hires_row_components],
-            outputs=hires_row_components,
-            queue=False,
-            show_progress=False,
-            **_internal_event_kwargs(),
-        )
-        for source, runtime_shift in ((self.base_shift_component, runtime_base_shift), (self.hires_shift_component or self.base_shift_component, runtime_hires_shift)):
-            if source is not None:
-                source.change(fn=_same_value, inputs=[source], outputs=[runtime_shift], queue=False, show_progress=False, **_internal_event_kwargs())
-        base_shift_input.change(
-            fn=_apply_shift_to_timing_components,
-            inputs=[base_row_count, base_shift_input, optimization, *base_row_components],
-            outputs=_row_outputs(base_row_components, (4, 5, 6)),
-            queue=False,
-            show_progress=False,
-            **_internal_event_kwargs(),
-        )
-        hires_shift_input.change(
-            fn=_apply_shift_to_timing_components,
-            inputs=[hires_row_count, hires_shift_input, optimization, *hires_row_components],
-            outputs=_row_outputs(hires_row_components, (4, 5, 6)),
-            queue=False,
-            show_progress=False,
-            **_internal_event_kwargs(),
-        )
-        base_apply_presets.click(
-            fn=_resize_row_components,
-            inputs=[base_row_count, base_shift_input, optimization, *base_row_components],
-            outputs=base_row_components,
-            queue=False,
-            show_progress=False,
-            **_internal_event_kwargs(),
-        )
-        hires_apply_presets.click(
-            fn=_resize_row_components,
-            inputs=[hires_row_count, hires_shift_input, optimization, *hires_row_components],
-            outputs=hires_row_components,
-            queue=False,
-            show_progress=False,
-            **_internal_event_kwargs(),
-        )
-        # User edits only (.input): a template or a reset writing these
-        # controls brings its own rows, which .change would rewrite.
-        # Handlers writing the Artist/Blocks textboxes: the autosave follows them.
-        text_writers = [
-            optimization.input(
-                fn=_apply_optimization_to_block_timing_components,
-                inputs=[row_count, shift_input, optimization, *row_components],
-                outputs=_row_outputs(row_components, (3, 4, 5, 6)),
-                queue=False,
-                show_progress=False,
-                **_internal_event_kwargs(),
-            )
-            for row_count, shift_input, row_components in (
-                (base_row_count, base_shift_input, base_row_components),
-                (hires_row_count, hires_shift_input, hires_row_components),
-            )
-        ]
-        for row_components, row_count, runtime_shift in (
-            (base_row_components, base_row_count, base_shift_input),
-            (hires_row_components, hires_row_count, hires_shift_input),
-        ):
-            for offset in range(0, len(row_components), ROW_WIDTH):
-                row_components[offset + 8].input(
-                    fn=partial(_apply_stage_to_row_components, offset // ROW_WIDTH),
-                    inputs=[row_count, runtime_shift, optimization, *row_components],
-                    outputs=[
-                        row_components[offset + 4],
-                        row_components[offset + 5],
-                        row_components[offset + 6],
-                        row_components[offset + 9],
-                    ],
-                    queue=False,
-                    show_progress=False,
-                    **_internal_event_kwargs(),
-                )
-                row_components[offset + 9].input(
-                    fn=partial(_apply_auto_shift_to_row_components, offset // ROW_WIDTH),
-                    inputs=[row_count, runtime_shift, optimization, *row_components],
-                    outputs=[
-                        row_components[offset + 4],
-                        row_components[offset + 5],
-                        row_components[offset + 6],
-                    ],
-                    queue=False,
-                    show_progress=False,
-                    **_internal_event_kwargs(),
-                )
-        template_save_base.click(
-            fn=_save_base_template_ui,
-            inputs=[
-                template_name,
-                base_row_count,
-                base_shift_input,
-                disable_hires_mixing,
-                global_strength,
-                optimization,
-                combine_mode,
-                fusion_mode,
-                apply_uncond,
-                enable_cache,
-                *base_row_components,
-            ],
-            outputs=[template_dropdown, template_status],
-            queue=False,
-            show_progress=False,
-            **_internal_event_kwargs(),
-        )
-        template_save_hires.click(
-            fn=_save_hires_template_ui,
-            inputs=[
-                template_name,
-                hires_independent,
-                hires_row_count,
-                hires_shift_input,
-                disable_hires_mixing,
-                global_strength,
-                optimization,
-                combine_mode,
-                fusion_mode,
-                apply_uncond,
-                enable_cache,
-                *hires_row_components,
-            ],
-            outputs=[template_dropdown, template_status],
-            queue=False,
-            show_progress=False,
-            **_internal_event_kwargs(),
-        )
-        rename_button.click(fn=_rename_template_ui, inputs=[template_dropdown, rename_to], outputs=[template_dropdown, template_status], queue=False, show_progress=False, **_internal_event_kwargs())
-        delete_button.click(fn=_delete_template_ui, inputs=[template_dropdown], outputs=[template_dropdown, template_status], queue=False, show_progress=False, **_internal_event_kwargs())
-        apply_template = template_apply.click(
-            fn=_apply_template_ui,
-            inputs=[template_dropdown, template_apply_target, base_row_count, hires_row_count, base_shift_input, hires_shift_input, optimization, *base_row_components, *hires_row_components],
-            outputs=[
-                base_row_count,
-                hires_row_count,
-                hires_independent,
-                disable_hires_mixing,
-                runtime_base_shift,
-                runtime_hires_shift,
-                global_strength,
-                optimization,
-                combine_mode,
-                fusion_mode,
-                apply_uncond,
-                enable_cache,
-                template_status,
-                *base_row_components,
-                *hires_row_components,
-            ],
-            queue=False,
-            show_progress=False,
-            **_internal_event_kwargs(),
-        )
-        text_writers.append(apply_template)
-        # A reset needs no save: the emptied file already restores the defaults.
-        reset_defaults_button.click(
-            fn=partial(_reset_all_defaults_ui, self.tabname),
-            inputs=[],
-            outputs=[
-                enable,
-                template_dropdown,
-                template_apply_target,
-                base_row_count,
-                hires_row_count,
-                hires_independent,
-                disable_hires_mixing,
-                runtime_base_shift,
-                runtime_hires_shift,
-                global_strength,
-                optimization,
-                combine_mode,
-                fusion_mode,
-                apply_uncond,
-                enable_cache,
-                template_status,
-                *base_row_components,
-                *hires_row_components,
-            ],
-            queue=False,
-            show_progress=False,
-            **_internal_event_kwargs(),
-        )
-        current_settings_inputs = [
-            enable,
-            template_dropdown,
-            template_apply_target,
-            base_row_count,
-            hires_row_count,
-            hires_independent,
-            disable_hires_mixing,
-            runtime_base_shift,
-            runtime_hires_shift,
-            global_strength,
-            optimization,
-            combine_mode,
-            fusion_mode,
-            apply_uncond,
-            enable_cache,
-            *base_row_components,
-            *hires_row_components,
-        ]
-        _do_not_save_to_ui_config(*current_settings_inputs, paste_marker)
-        # Remember this tab's panel as it is edited; "always_last" folds a
-        # burst of changes (applying a template, pasting an infotext) into one
-        # final save. A textbox saves once its edit is done (blur, Enter), not
-        # per keystroke; handlers writing the textboxes save after they finish,
-        # and a paste through the marker.
-        autosave = {
-            "fn": partial(_save_current_settings_ui, self.tabname),
-            "inputs": current_settings_inputs,
-            "outputs": None,
-            "queue": False,
-            "show_progress": "hidden",
-            **_internal_event_kwargs(),
-        }
-        gr.on(
-            triggers=[*_autosave_triggers(current_settings_inputs), paste_marker.change],
-            trigger_mode="always_last",
-            **autosave,
-        )
-        for writer in text_writers:
-            writer.then(**autosave)
+    @ui.action("template_save_hires")
+    def template_save_hires(self, ctx, values):
+        return self._template_edit(_save_template(values.get("template_name"), "hires", values, _shifts(ctx)[1]))
 
-        register_preset_control(self.tabname, "artist.enabled", enable)
-        register_preset_control(self.tabname, "artist.global_strength", global_strength)
-        register_preset_control(
-            self.tabname,
-            "artist.optimization",
-            optimization,
-            _option_label("optimization", OPT_BALANCE, lang),
-        )
-        register_preset_control(
-            self.tabname,
-            "artist.combine",
-            combine_mode,
-            _option_label("combine", COMBINE_OUTPUT_AVG, lang),
-        )
-        register_preset_control(
-            self.tabname,
-            "artist.fusion",
-            fusion_mode,
-            _option_label("fusion", FUSION_INTERPOLATE, lang),
-        )
-        register_preset_control(self.tabname, "artist.apply_uncond", apply_uncond)
-        register_preset_control(self.tabname, "artist.cache", enable_cache)
+    @ui.action("template_rename")
+    def template_rename(self, ctx, values):
+        return self._template_edit(_rename_template(values.get("template"), values.get("rename_to")))
 
-        # In the order _MixerArgs.from_args reads them back
-        header = {
-            "enable": enable,
-            "base_row_count": base_row_count,
-            "hires_row_count": hires_row_count,
-            "hires_independent": hires_independent,
-            "disable_hires_mixing": disable_hires_mixing,
-            "runtime_base_shift": runtime_base_shift,
-            "runtime_hires_shift": runtime_hires_shift,
-            "global_strength": global_strength,
-            "optimization": optimization,
-            "combine_mode": combine_mode,
-            "fusion_mode": fusion_mode,
-            "apply_uncond": apply_uncond,
-            "enable_cache": enable_cache,
-        }
-        # Pasting an infotext that records the panel restores it (not the
-        # cache switch, which does not change the output); the summary alone
-        # of earlier versions leaves the panel as it is.
-        self.infotext_fields = _paste_fields(header, base_row_components, hires_row_components, paste_marker)
-        self.paste_field_names = list(INFOTEXT_KEYS)
-        return [*(header[name] for name in HEADER_ARGS), *base_row_components, *hires_row_components]
+    @ui.action("template_delete")
+    def template_delete(self, ctx, values):
+        return self._template_edit(_delete_template(values.get("template")))
+
+    @ui.action("reset_defaults")
+    def reset_defaults(self, ctx, values):
+        """Forget the tab's remembered panel and restore the built-in defaults."""
+        _delete_current_settings_data(self.tabname)
+        defaults = _builtin_defaults()
+        return {**{name: ui.update(value=value) for name, value in defaults.items()}, **ui.toast(_t("defaults_restored"), "success")}
+
+    # endregion
 
     def process(self, p, *args, **kwargs):
         # Runs before NegPiP's process_batch: let a negative weight in an
         # artist name that will actually be encoded enable NegPiP. Same
         # gating and rows as process_before_every_sampling, for each pass.
-        mixer_args = _MixerArgs.from_args(args)  # a wrong count raises before anything changes
+        mixer_args = _MixerArgs.from_args(args, p)  # a wrong count raises before anything changes
         names = []
         passes = [False]
         if getattr(p, "enable_hr", False) and mixer_args.hires_independent:  # hires rows of its own
@@ -1913,7 +1348,7 @@ class Script(scripts.Script):
         register_negpip_prompts(p, ARTIST_MIXER, names)
 
     def process_before_every_sampling(self, p, *args, **kwargs):
-        mixer_args = _MixerArgs.from_args(args)  # a wrong count raises before anything changes
+        mixer_args = _MixerArgs.from_args(args, p)  # a wrong count raises before anything changes
         if _should_remember_settings(p):
             _save_runtime_current_settings(self.tabname, mixer_args)
 

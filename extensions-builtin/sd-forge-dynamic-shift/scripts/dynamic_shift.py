@@ -16,16 +16,13 @@ import logging
 import sys
 from pathlib import Path
 
-import gradio as gr
-
 from backend.logging import setup_logger
 from modules import script_callbacks, scripts
-from modules.anima_feature_conflicts import resolve_schedule_conflicts
-from modules.anima_presets import register_preset_control
-from modules.ui_components import InputAccordion
+from modules.anima_feature_conflicts import FLOW_SAMPLERS, resolve_schedule_conflicts
+from remi import ui
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from lib_dynshift.schedule import CURVES, compute_sigmas, preview_svg  # noqa: E402
+from lib_dynshift.schedule import CURVES, compute_sigmas  # noqa: E402
 
 NAME = "Dynamic Shift"
 logger = logging.getLogger("DynamicShift")
@@ -42,15 +39,28 @@ K_HR_END = "DynShift hires end"
 
 HR_MODES = ["Same as first pass", "Custom", "Static (built-in shift)"]
 
+# The Sampler script's params (owner "sampler") the panel reads
+SAMPLER_PARAM = "sampler.sampler_name"
+STEPS_PARAM = "sampler.steps"
+
+NOTE_FLOW_SAMPLER = "**Compatibility:** this sampler locks its scheduler, so Dynamic Shift is unavailable."
+NOTE_SCHEDULE = "**Compatibility:** Dynamic Shift controls the schedule; Schedule Type stays Automatic while it is on."
+
+
+def _shift(name, default, label, infotext, preset, *, hidden=False):
+    return ui.Slider(name, 0.1, 12.0, default, 0.05, label=label, infotext=infotext, preset=preset, hidden=hidden)
+
+
+def _curve(value):
+    # An unknown curve (old preset, infotext, API value) runs as "Linear",
+    # as process() always treated it; the form then shows what will run
+    return value if value in CURVES else "Linear"
+
 
 class DynamicShiftScript(scripts.Script):
     section = "sampler"
     create_group = False
     sorting_priority = 5
-
-    def __init__(self):
-        self._sampler_component = None
-        self._scheduler_component = None
 
     def title(self):
         return NAME
@@ -58,126 +68,47 @@ class DynamicShiftScript(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def after_component(self, component, **kwargs):
-        elem_id = getattr(component, "elem_id", None)
-        if elem_id == f"{self.tabname}_sampling":
-            self._sampler_component = component
-        elif elem_id == f"{self.tabname}_scheduler":
-            self._scheduler_component = component
-
-    def ui(self, is_img2img):
-        # InputAccordion makes the native accordion header itself the enable
-        # control, matching Forge's Hires Fix / Refiner UI pattern.
-        with InputAccordion(False, label=NAME) as enabled:
-            conflict_status = gr.Markdown("")
-            with gr.Row():
-                curve = gr.Dropdown(label="Curve", choices=CURVES, value="Cosine")
-            with gr.Row():
-                shift_start = gr.Slider(
-                    label="Shift @ first step", minimum=0.1, maximum=12.0, step=0.05, value=5.0,
-                )
-                shift_end = gr.Slider(
-                    label="Shift @ last step", minimum=0.1, maximum=12.0, step=0.05, value=1.5,
-                )
-            preview = gr.HTML(value=preview_svg(30, 5.0, 1.5, "Cosine"))
-
-            if not is_img2img:
-                with gr.Row():
-                    hr_mode = gr.Dropdown(label="Hires fix", choices=HR_MODES, value=HR_MODES[0])
-                with gr.Row():
-                    hr_start = gr.Slider(
-                        label="Hires shift @ first step", minimum=0.1, maximum=12.0, step=0.05, value=3.0, visible=False,
-                    )
-                    hr_end = gr.Slider(
-                        label="Hires shift @ last step", minimum=0.1, maximum=12.0, step=0.05, value=1.5, visible=False,
-                    )
-
-                def _toggle_hr(mode):
-                    vis = mode == "Custom"
-                    return gr.update(visible=vis), gr.update(visible=vis)
-
-                hr_mode.change(_toggle_hr, inputs=[hr_mode], outputs=[hr_start, hr_end], show_progress=False)
-            else:
-                hr_mode = gr.Dropdown(value=HR_MODES[0], visible=False, choices=HR_MODES)
-                hr_start = gr.Slider(value=3.0, visible=False)
-                hr_end = gr.Slider(value=1.5, visible=False)
-
-            def _update_preview(s0, s1, c):
-                return preview_svg(30, s0, s1, c)
-
-            for comp in (shift_start, shift_end, curve):
-                comp.change(_update_preview, inputs=[shift_start, shift_end, curve], outputs=[preview], show_progress=False)
-
-        if self._sampler_component is not None and self._scheduler_component is not None:
-            conflict_inputs = [
-                self._sampler_component,
-                self._scheduler_component,
-                enabled,
-            ]
-            conflict_outputs = [self._scheduler_component, enabled, conflict_status]
-
-            def update_conflicts(selected, sampler, scheduler, dynamic_shift):
-                state = resolve_schedule_conflicts(
-                    sampler=str(sampler),
-                    scheduler=str(scheduler),
-                    dynamic_shift=bool(dynamic_shift),
-                    selected=selected,
-                )
-                status = (
-                    "**Compatibility:** " + "; ".join(state.messages)
-                    if state.messages
-                    else ""
-                )
-                return (
-                    gr.update(
-                        value=state.scheduler,
-                        interactive=state.scheduler_interactive,
-                    ),
-                    gr.update(
-                        value=state.dynamic_shift,
-                        interactive=state.dynamic_shift_interactive,
-                    ),
-                    gr.update(value=status),
-                )
-
-            for selected, component in (
-                ("sampler", self._sampler_component),
-                ("scheduler", self._scheduler_component),
-                ("dynamic_shift", enabled),
-            ):
-                component.change(
-                    fn=lambda sampler, scheduler, dynamic_shift, selected=selected: update_conflicts(
-                        selected, sampler, scheduler, dynamic_shift
-                    ),
-                    inputs=conflict_inputs,
-                    outputs=conflict_outputs,
-                    queue=False,
-                    show_progress=False,
-                )
-
-        self.infotext_fields = [
-            (enabled, lambda d: str(d.get(K_ENABLED, False)) == "True"),
-            (shift_start, K_START),
-            (shift_end, K_END),
-            (curve, K_CURVE),
-            (hr_mode, K_HR_MODE),
-            (hr_start, K_HR_START),
-            (hr_end, K_HR_END),
-        ]
-        self.paste_field_names = [K_ENABLED, K_START, K_END, K_CURVE, K_HR_MODE, K_HR_START, K_HR_END]
-
-        for name, component in {
-            "dynamic_shift.enabled": enabled,
-            "dynamic_shift.start": shift_start,
-            "dynamic_shift.end": shift_end,
-            "dynamic_shift.curve": curve,
-            "dynamic_shift.hires_mode": hr_mode,
-            "dynamic_shift.hires_start": hr_start,
-            "dynamic_shift.hires_end": hr_end,
-        }.items():
-            register_preset_control(self.tabname, name, component)
-
-        return [enabled, shift_start, shift_end, curve, hr_mode, hr_start, hr_end]
+    def params(self, is_img2img):
+        # Sampler / scheduler compatibility is resolved by the core conflict
+        # locks (the enable switch is the "dynamic_shift.enabled" role); the
+        # notes explain the lock the user sees.
+        flow_sampler = ui.param(SAMPLER_PARAM, in_=sorted(FLOW_SAMPLERS))
+        # img2img has no Hires. fix: its hires params keep their defaults, unrendered
+        hidden = is_img2img
+        return ui.Section(
+            NAME,
+            enable=ui.Toggle(
+                "enabled",
+                False,
+                label=NAME,
+                paste=lambda d: str(d.get(K_ENABLED, False)) == "True",
+                preset="dynamic_shift.enabled",
+            ),
+            children=[
+                ui.Markdown(NOTE_FLOW_SAMPLER, visible_if=flow_sampler),
+                ui.Markdown(NOTE_SCHEDULE, visible_if=ui.all_of(ui.param("enabled"), ui.not_(flow_sampler))),
+                ui.Row(
+                    _shift("shift_start", 5.0, "Shift @ first step", K_START, "dynamic_shift.start"),
+                    _shift("shift_end", 1.5, "Shift @ last step", K_END, "dynamic_shift.end"),
+                ),
+                ui.Custom(
+                    "curve",
+                    "shift-curve",
+                    "Cosine",
+                    props={"choices": CURVES, "start": "shift_start", "end": "shift_end", "steps": STEPS_PARAM},
+                    label="Curve",
+                    infotext=K_CURVE,
+                    preset="dynamic_shift.curve",
+                    validate=_curve,
+                ),
+                ui.Choice("hr_mode", HR_MODES, HR_MODES[0], label="Hires fix", infotext=K_HR_MODE, preset="dynamic_shift.hires_mode", hidden=hidden),
+                ui.Row(
+                    _shift("hr_start", 3.0, "Hires shift @ first step", K_HR_START, "dynamic_shift.hires_start", hidden=hidden),
+                    _shift("hr_end", 1.5, "Hires shift @ last step", K_HR_END, "dynamic_shift.hires_end", hidden=hidden),
+                    visible_if=None if hidden else ui.param("hr_mode", eq="Custom"),
+                ),
+            ],
+        )
 
     def process(self, p, enabled, shift_start, shift_end, curve, hr_mode, hr_start, hr_end):
         # XYZ grid (or API) overrides, set as attributes on p

@@ -246,28 +246,37 @@ def test_the_legacy_gradio_ui_renders_ported_scripts_in_place(webui):
 # region Unported scripts and failures
 
 
-def _xyz_plot():
-    import importlib.util
-    import sys
-    from pathlib import Path
+def _legacy_plot():
+    """An unported selectable script shaped like the old X/Y/Z plot's ``ui()``
+    (the plot itself is ported): a ``type="index"`` dropdown, a textbox, a
+    multiselect, a checkbox and a slider."""
 
     from modules import scripts
 
-    path = Path(__file__).parents[1] / "scripts" / "xyz_grid.py"
-    module = sys.modules.get("remi_tests_xyz_grid")
-    if module is None:
-        spec = importlib.util.spec_from_file_location("remi_tests_xyz_grid", path)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
-    return scripts.ScriptClassData(module.Script, str(path), str(path.parents[1]), module)
+    class LegacyPlot(scripts.Script):
+        def title(self):
+            return "X/Y/Z plot"
+
+        def ui(self, is_img2img):
+            return [
+                gr.Dropdown(label="X type", choices=["Nothing", "Seed", "Steps"], value="Seed", type="index"),
+                gr.Textbox(label="X values", lines=1),
+                gr.Dropdown(label="X values", multiselect=True, choices=[], visible=False),
+                gr.Checkbox(label="Draw legend", value=True),
+                gr.Slider(label="Grid Margins", minimum=0, maximum=500, value=0, step=2),
+            ]
+
+        def run(self, p, *args):
+            return args
+
+    return scripts.ScriptClassData(LegacyPlot, "legacy_plot.py", "", None)
 
 
 def test_unported_scripts_get_what_gradio_passed():
-    """X/Y/Z plot (``type="index"`` dropdowns, checkboxes, numbers) keeps its
-    ``ui()``: its params are typed, and it receives indices, not labels."""
+    """A script on ``ui()`` (``type="index"`` dropdowns, checkboxes, numbers):
+    its params are typed, and it receives indices, not labels."""
 
-    with webui_state(script_classes=[_xyz_plot()]) as state:
+    with webui_state(script_classes=[_legacy_plot()]) as state:
         runner = state.txt2img
         xyz = runner.by_id["x_y_z_plot"]
         layout = runner.layout_for(xyz)

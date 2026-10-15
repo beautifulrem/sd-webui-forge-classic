@@ -1,4 +1,4 @@
-"""The panels' language, choices, script-argument table and input parsing."""
+"""The panels' texts, choices, script-argument tables and input parsing."""
 
 import logging
 from dataclasses import dataclass, field
@@ -14,202 +14,63 @@ from modules.anima_lora_support import (
     split_weight_sections,
     lora_key_factor,
 )
-from modules.anima_lora_ui import ui_language, ui_text
-from modules.anima_support import plain_number as _plain_number, script_arguments, to_float as _to_float
+from modules.anima_support import clamp as _clamp, plain_number as _plain_number, script_arguments, to_float as _to_float
+from remi import ui
 
 
 logger = logging.getLogger("anima_lora_stage_scheduler")
-LANGUAGE_OPTION = "anima_lora_stage_scheduler_language"
-LANG = {
-    "zh": {
-        "settings_label": "Anima LoRA 阶段介入界面语言",
-        "title": "Anima LoRA 阶段介入",
-        "enable": "启用阶段介入控制",
-        "base_panel": "底图阶段",
-        "hires_panel": "高分辨率修复阶段",
-        "hires_lora_panel": "高分辨率修复 LoRA 阶段",
-        "target_scope": "目标范围",
-        "panel_weight": "面板权重，0=使用提示词/分层插件",
-        "panel_weight_placeholder": "0.8 或 0-18=1,19-27=0.2 或 blocks=0-18=1,19-27=0.2;modules=mlp=0.8",
-        "target_lora": "目标 LoRA",
-        "target_lora_placeholder": "目标范围为“仅目标列表”时填写，多个用逗号或换行分隔",
-        "template": "模板",
-        "copy": "复制",
-        "builder": "组合预设",
-        "auto_timing": "根据 Shift 自动设置介入时间",
-        "single_lora_template": "单 LoRA 模板",
-        "single_lora_template_placeholder": "每行一个：LoRA名=模板名\n也支持：<lora:name:0.8>=仅人物特征阶段介入\n未填写的 LoRA 使用上方模板",
-        "start": "开始比例",
-        "end": "结束比例",
-        "peak": "峰值比例",
-        "strength": "阶段强度倍率",
-        "curve": "强度曲线",
-        "hr_independent": "高分辨率修复使用独立面板；关闭时继承底图设置，但按 Hires Shift 自动设置时间",
-        "hr_disable": "高分辨率修复时禁用 LoRA",
-        "hr_disable_tags": "禁用指定完整 LoRA 标签",
-        "template_manager": "模板管理",
-        "existing_template": "已有模板",
-        "rename_to": "重命名为",
-        "rename_template": "重命名模板",
-        "delete_template": "删除模板",
-        "new_template_name": "新模板名称",
-        "save_auto_template": "保存为自动时间模板",
-        "save_current_base": "保存当前底图面板为模板",
-        "template_help": "### 模板教程",
-        "close": "关闭",
-        "combo_title": "### 组合预设",
-        "template_name": "模板名称",
-        "base_preset_combo": "基础预设组合",
-        "preview_shift": "预览 Shift",
-        "save_combo": "保存组合模板",
-        "combo_current": "当前组合：",
-        "intervention_preview": "介入时间预览",
-        "table_preset": "基础预设",
-        "table_action": "行为",
-        "table_start": "开始",
-        "table_end": "结束",
-        "table_peak": "峰值",
-        "table_strength": "强度",
-        "table_curve": "曲线",
-        "allow_action": "介入",
-        "ban_action": "禁止",
-        "zero_in_window": "窗口内 0",
-        "help_title": "### Anima LoRA 阶段介入教程",
-        "current_template": "当前模板",
-        "current_shift": "当前 Shift",
-        "template_parts": "当前模板组成：",
-        "help_parts": "- 模板由基础预设组合而成；“介入”表示 LoRA 只在该阶段生效，“禁止”表示 LoRA 在该阶段强制为 0。",
-        "help_auto": "- 开启“根据 Shift 自动设置介入时间”时，每个基础预设都会按当前 Shift 自动移动开始、结束、峰值比例。",
-        "help_combo": "- 组合模板可混合多个阶段，但同一阶段不能同时选择“介入”和“禁止”。",
-        "help_ratios": "- 开始比例/结束比例是采样进度 0-1；峰值比例是介入曲线最强的位置；阶段强度倍率会乘到最终 LoRA 强度上。",
-        "help_part": "- `{name}`：{stage} {action}，自动窗口 {start} - {end}，峰值 {peak}，强度 {strength}",
-        "templates_unreadable": "模板文件无法读取，未做修改：{error}",
-        "no_presets": "请选择至少一个基础预设。",
-        "unknown_preset": "未知基础预设：{preset}",
-        "preset_conflict": "组合冲突：{stage} 同时选择了介入和禁止，无法保存。",
-        "empty_template_name": "模板名称不能为空。",
-        "builtin_template_kept": "内置模板不能覆盖，请换一个名称。",
-        "builtin_preset_kept": "内置基础预设不能覆盖，请换一个名称。",
-        "template_saved": "已保存模板：{name}",
-        "combo_saved": "已保存组合模板：{name} = {presets}\n\n{preview}",
-        "no_template_selected": "没有选择模板。",
-        "builtin_not_renamed": "内置模板不能重命名。",
-        "empty_new_name": "新名称不能为空。",
-        "builtin_name_taken": "不能重命名为内置模板名称。",
-        "same_name": "新旧名称相同，无需重命名。",
-        "rename_missing": "找不到要重命名的模板。",
-        "rename_taken": "目标名称已存在。",
-        "template_renamed": "已重命名模板：{old} → {new}",
-        "builtin_not_deleted": "内置模板不能删除。",
-        "template_deleted": "已删除模板：{name}",
-    },
-    "en": {
-        "settings_label": "Anima LoRA Stage Scheduler UI language",
-        "title": "Anima LoRA Stage Scheduler",
-        "enable": "Enable stage scheduling",
-        "base_panel": "Base pass",
-        "hires_panel": "Hires. fix stage",
-        "hires_lora_panel": "Hires. fix LoRA stage",
-        "target_scope": "Target scope",
-        "panel_weight": "Panel weight, 0 = use prompt / layer-weight plugin",
-        "panel_weight_placeholder": "0.8 or 0-18=1,19-27=0.2 or blocks=0-18=1,19-27=0.2;modules=mlp=0.8",
-        "target_lora": "Target LoRA",
-        "target_lora_placeholder": "Fill only when target scope is target list; separate multiple names with commas or new lines",
-        "template": "Template",
-        "copy": "Copy",
-        "builder": "Preset combo",
-        "auto_timing": "Auto timing from Shift",
-        "single_lora_template": "Per-LoRA templates",
-        "single_lora_template_placeholder": "One per line: LoRA name=template name\nAlso supports: <lora:name:0.8>=仅人物特征阶段介入\nEmpty entries use the template above",
-        "start": "Start ratio",
-        "end": "End ratio",
-        "peak": "Peak ratio",
-        "strength": "Stage strength multiplier",
-        "curve": "Strength curve",
-        "hr_independent": "Use independent Hires. fix panel; disabled = inherit base settings with Hires Shift timing",
-        "hr_disable": "Disable LoRA during Hires. fix",
-        "hr_disable_tags": "Full LoRA tags to disable",
-        "template_manager": "Template management",
-        "existing_template": "Existing template",
-        "rename_to": "Rename to",
-        "rename_template": "Rename template",
-        "delete_template": "Delete template",
-        "new_template_name": "New template name",
-        "save_auto_template": "Save as auto-timing template",
-        "save_current_base": "Save current base panel as template",
-        "template_help": "### Template Guide",
-        "close": "Close",
-        "combo_title": "### Preset Combo",
-        "template_name": "Template name",
-        "base_preset_combo": "Base preset combo",
-        "preview_shift": "Preview Shift",
-        "save_combo": "Save combo template",
-        "combo_current": "Current combo: ",
-        "intervention_preview": "Timing preview",
-        "table_preset": "Base preset",
-        "table_action": "Action",
-        "table_start": "Start",
-        "table_end": "End",
-        "table_peak": "Peak",
-        "table_strength": "Strength",
-        "table_curve": "Curve",
-        "allow_action": "Apply",
-        "ban_action": "Block",
-        "zero_in_window": "0 in window",
-        "help_title": "### Anima LoRA Stage Scheduler Guide",
-        "current_template": "Current template",
-        "current_shift": "Current Shift",
-        "template_parts": "Template parts:",
-        "help_parts": "- Templates are built from base presets. Apply means the LoRA is active only in that stage; Block forces it to 0 in that stage.",
-        "help_auto": "- When auto timing from Shift is enabled, every base preset moves its start, end, and peak ratios from the current Shift value.",
-        "help_combo": "- Combo templates can mix stages, but the same stage cannot be both Apply and Block.",
-        "help_ratios": "- Start/end are sampling progress ratios from 0 to 1; peak is the strongest point of the curve; stage strength multiplies the final LoRA strength.",
-        "help_part": "- `{name}`: {stage} {action}, auto window {start} - {end}, peak {peak}, strength {strength}",
-        "templates_unreadable": "The template file cannot be read; nothing was changed: {error}",
-        "no_presets": "Select at least one base preset.",
-        "unknown_preset": "Unknown base preset: {preset}",
-        "preset_conflict": "Conflicting combo: {stage} is selected as both Apply and Block; not saved.",
-        "empty_template_name": "The template name cannot be empty.",
-        "builtin_template_kept": "Built-in templates cannot be overwritten; choose another name.",
-        "builtin_preset_kept": "Built-in base presets cannot be overwritten; choose another name.",
-        "template_saved": "Saved template: {name}",
-        "combo_saved": "Saved combo template: {name} = {presets}\n\n{preview}",
-        "no_template_selected": "No template selected.",
-        "builtin_not_renamed": "Built-in templates cannot be renamed.",
-        "empty_new_name": "The new name cannot be empty.",
-        "builtin_name_taken": "Cannot rename to a built-in template name.",
-        "same_name": "The new name is the same as the old one; nothing to rename.",
-        "rename_missing": "The template to rename was not found.",
-        "rename_taken": "The target name already exists.",
-        "template_renamed": "Renamed template: {old} → {new}",
-        "builtin_not_deleted": "Built-in templates cannot be deleted.",
-        "template_deleted": "Deleted template: {name}",
-    },
+
+# Messages of the template actions (English catalog keys with {{name}}
+# placeholders: the SPA translates them, and the panel's labels, through
+# localizations/zh_CN.json)
+TEXT = {
+    "title": "Anima LoRA Stage Scheduler",
+    "templates_unreadable": "The template file cannot be read; nothing was changed: {{error}}",
+    "no_presets": "Select at least one base preset.",
+    "unknown_preset": "Unknown base preset: {{preset}}",
+    "preset_conflict": "Conflicting combo: {{stage}} is selected as both Apply and Block; not saved.",
+    "empty_template_name": "The template name cannot be empty.",
+    "builtin_template_kept": "Built-in templates cannot be overwritten; choose another name.",
+    "builtin_preset_kept": "Built-in base presets cannot be overwritten; choose another name.",
+    "template_saved": "Saved template: {{name}}",
+    "combo_saved": "Saved combo template: {{name}} = {{presets}}",
+    "no_template_selected": "No template selected.",
+    "builtin_not_renamed": "Built-in templates cannot be renamed.",
+    "empty_new_name": "The new name cannot be empty.",
+    "builtin_name_taken": "Cannot rename to a built-in template name.",
+    "same_name": "The new name is the same as the old one; nothing to rename.",
+    "rename_missing": "The template to rename was not found.",
+    "rename_taken": "The target name already exists.",
+    "template_renamed": "Renamed template: {{old}} → {{new}}",
+    "builtin_not_deleted": "Built-in templates cannot be deleted.",
+    "template_deleted": "Deleted template: {{name}}",
 }
 
 
-def _language():
-    return ui_language(LANGUAGE_OPTION)
-
-
 def _t(key):
-    return ui_text(LANG, LANGUAGE_OPTION, key)
+    return TEXT.get(key, key)
+
+
+def _msg(key, **params):
+    """A message of TEXT for a toast (a dict with ``params``): the SPA
+    translates it, then fills the placeholders."""
+    return ui.message(_t(key), **{name: str(value) for name, value in params.items()}) if params else _t(key)
 
 
 INTRO_EN = (
     "Schedule when Anima LoRAs affect sampling: use composition, character, "
     "style, or custom timing windows, with separate base and Hires. fix controls."
 )
-INTRO_ZH = "控制 Anima LoRA 在采样中的介入时间：可使用构图、人物、画风或自定义时间窗口，并可分别设置底图和高分辨率修复阶段。"
 
 
 def _target_mode_choices():
-    return [TARGET_MODE_EN[item] for item in TARGET_MODE_CHOICES] if _language() == "en" else TARGET_MODE_CHOICES
+    """``(label, value)`` pairs: the English label of each canonical choice."""
+    return [(TARGET_MODE_EN[item], item) for item in TARGET_MODE_CHOICES]
 
 
 def _display_target_mode(value):
-    canonical = _normalize_target_mode(value)
-    return TARGET_MODE_EN.get(canonical, canonical) if _language() == "en" else canonical
+    """The control value of a target scope given as its choice, code or label."""
+    return _normalize_target_mode(value)
 
 
 def _lookup_choice(value, codes, aliases=None):
@@ -230,12 +91,11 @@ def _normalize_target_mode(value):
 
 
 def _disable_choices():
-    return [DISABLE_EN[item] for item in DISABLE_CHOICES] if _language() == "en" else DISABLE_CHOICES
+    return [(DISABLE_EN[item], item) for item in DISABLE_CHOICES]
 
 
 def _display_disable_mode(value):
-    canonical = _normalize_disable_mode(value)
-    return DISABLE_EN.get(canonical, canonical) if _language() == "en" else canonical
+    return _normalize_disable_mode(value)
 
 
 def _normalize_disable_mode(value):
@@ -281,6 +141,17 @@ BUILDER_PRESET_LABELS = {
 }
 BUILDER_PRESET_CHOICES = list(BUILDER_PRESET_LABELS.values())
 BUILDER_PRESET_NAMES = {value: key for key, value in BUILDER_PRESET_LABELS.items()}
+# English labels of the canonical values the panels keep (template names,
+# stages, curves stay what infotext and templates.json record)
+TEMPLATE_LABELS_EN = {
+    PRESET_STYLE_ALLOW: "Style stage only",
+    PRESET_COMPOSITION_ALLOW: "Composition stage only",
+    PRESET_CHARACTER_ALLOW: "Character stage only",
+    PRESET_STYLE_BAN: "Block the style stage",
+    PRESET_COMPOSITION_BAN: "Block the composition stage",
+    PRESET_CHARACTER_BAN: "Block the character stage",
+}
+STAGE_LABELS_EN = {STAGE_COMPOSITION: "Composition stage", STAGE_CHARACTER: "Character stage", STAGE_STYLE: "Style stage"}
 
 CURVE_HOLD = "保持"
 CURVE_SMOOTH = "平滑淡入淡出"
@@ -290,6 +161,7 @@ CURVE_BACK = "后强前弱"
 CURVE_CHOICES = [CURVE_SMOOTH, CURVE_HOLD, CURVE_TRIANGLE, CURVE_FRONT, CURVE_BACK]
 # Each curve's window_curve_factor shape, also its value in infotext
 CURVE_CODES = {CURVE_SMOOTH: "smooth", CURVE_HOLD: "hold", CURVE_TRIANGLE: "triangle", CURVE_FRONT: "front", CURVE_BACK: "back"}
+CURVE_LABELS_EN = {CURVE_SMOOTH: "Smooth fade in/out", CURVE_HOLD: "Hold", CURVE_TRIANGLE: "Linear triangle", CURVE_FRONT: "Strong early, fading", CURVE_BACK: "Rising, strong late"}
 
 DISABLE_NONE = "不禁用"
 DISABLE_ALL = "禁用全部 LoRA"
@@ -351,10 +223,89 @@ SCRIPT_ARG_NAMES = tuple(row[0] for row in SCRIPT_ARGS)
 INFOTEXT_KEYS = tuple(row[1] for row in SCRIPT_ARGS)
 
 
-def _arguments(values) -> SimpleNamespace:
-    """The script args, one attribute per SCRIPT_ARGS name."""
+# A panel's timing controls (PANEL_ARGS names), edited together by the
+# stage-timeline widget as one value: {"auto", "start", "end", "peak",
+# "strength", "curve"}
+TIMING_ARGS = ("auto", "start", "end", "peak", "stage_strength", "curve")
+TIMING_KEYS = ("auto", "start", "end", "peak", "strength", "curve")
 
-    return script_arguments("Anima LoRA stage scheduler", SCRIPT_ARG_NAMES, values)
+
+def _panel_param_names(prefix: str) -> tuple[str, ...]:
+    names = [f"{prefix}_{name}" for name, _ in PANEL_ARGS if name not in TIMING_ARGS]
+    return (*names, f"{prefix}_timing")
+
+
+# The params() inputs, in argument order: SCRIPT_ARGS with each panel's
+# timing controls folded into its ``<prefix>_timing``
+PARAM_NAMES = (
+    "enabled",
+    *_panel_param_names("base"),
+    "hr_independent",
+    *_panel_param_names("hr"),
+    "hr_disable_mode",
+    "hr_disable_tags",
+)
+
+
+SCRIPT_OWNER = "Anima LoRA stage scheduler"
+
+
+def _arguments(values) -> SimpleNamespace:
+    """The script args, one attribute per SCRIPT_ARGS name: from the
+    params() arguments (PARAM_NAMES, each panel's timing one object), or
+    from the Gradio panel's whole list of 26 (a caller handing process() all
+    of them itself). The API gives a script only its params() slots, so an
+    API request must use the params() layout: a Gradio-layout list cut to
+    those slots is refused (TypeError) by its timing slots."""
+
+    values = tuple(values)
+    if len(values) == len(SCRIPT_ARG_NAMES):
+        return script_arguments(SCRIPT_OWNER, SCRIPT_ARG_NAMES, values)
+    given = script_arguments(SCRIPT_OWNER, PARAM_NAMES, values)
+    for prefix in ("base", "hr"):
+        timing = getattr(given, f"{prefix}_timing")
+        if timing is not None and not isinstance(timing, dict):
+            raise TypeError(
+                f"{SCRIPT_OWNER}: argument {PARAM_NAMES.index(f'{prefix}_timing')} ({prefix}_timing) is a timing object, got {type(timing).__name__}; "
+                f"send the {len(PARAM_NAMES)} params() arguments ({', '.join(PARAM_NAMES)}), not the Gradio panel's {len(SCRIPT_ARG_NAMES)}"
+            )
+    named = {}
+    for name in SCRIPT_ARG_NAMES:
+        prefix, _, arg = name.partition("_")
+        if arg in TIMING_ARGS and prefix in ("base", "hr"):
+            timing = _timing_value(getattr(given, f"{prefix}_timing"))
+            named[name] = timing[TIMING_KEYS[TIMING_ARGS.index(arg)]]
+        else:
+            named[name] = getattr(given, name)
+    return SimpleNamespace(**named)
+
+
+def _timing_value(value) -> dict:
+    """A panel's timing value with every key, bounded like the sliders it
+    replaces (an unknown curve reads as smooth, codes as their curve)."""
+
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise ValueError(f"a stage timing is an object, got {type(value).__name__}")
+    default = _default_timing()
+    auto = value.get("auto", default["auto"])
+    if isinstance(auto, str):
+        auto = auto.strip().lower() not in {"", "false", "0", "no", "off", "none"}
+    timing = {"auto": bool(auto)}
+    for key, high in (("start", 1.0), ("end", 1.0), ("peak", 1.0), ("strength", 4.0)):
+        timing[key] = round(_clamp(_to_float(value.get(key), default[key]), 0.0, high), 4)
+    timing["curve"] = _normalize_curve(value.get("curve", default["curve"]))
+    return timing
+
+
+def _default_timing(template_name: str | None = None) -> dict:
+    """The timing a panel starts with: auto timing on the default
+    template's stage window, as the sliders started."""
+
+    stage = BUILTIN_TEMPLATES.get(template_name or next(iter(BUILTIN_TEMPLATES)), {}).get("stage", STAGE_CHARACTER)
+    start, end, peak = STAGE_DEFAULT_TIMINGS[stage]
+    return {"auto": True, "start": start, "end": end, "peak": peak, "strength": 1.0, "curve": CURVE_SMOOTH}
 
 
 STAGE_DEFAULT_CURVES = {

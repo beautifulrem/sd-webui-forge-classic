@@ -1,0 +1,20 @@
+{
+ "shown": true,
+ "script": "AnimaRandomizeResolutionScript",
+ "inputs": [
+  {
+   "kind": "toggle",
+   "label": "Randomize resolution each generation (standard preset list)",
+   "default": false,
+   "infotext": null,
+   "preset": "resolution.random_standard"
+  },
+  {
+   "kind": "toggle",
+   "label": "Randomize high-res resolution each generation (high-res preset list; both on = combined pool)",
+   "default": false,
+   "infotext": null,
+   "preset": "resolution.random_highres"
+  }
+ ]
+}

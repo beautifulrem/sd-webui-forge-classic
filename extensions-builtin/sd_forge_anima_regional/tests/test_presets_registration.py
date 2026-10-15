@@ -11,8 +11,8 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-# Shared with the DAVE / Cross-Attention Boost suites, loaded by path (see its docstring)
-_spec = importlib.util.spec_from_file_location("extension_script_harness", ROOT.parents[1] / "tests" / "extension_script_harness.py")
+# Shared with the other ported panels' suites, loaded by path (see its docstring)
+_spec = importlib.util.spec_from_file_location("remi_panel_harness", ROOT.parents[1] / "tests" / "remi_panel_harness.py")
 harness = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(harness)
 
@@ -23,9 +23,10 @@ def regional():
 
 
 def test_apply_preset_turns_the_panel_off_at_its_defaults(regional):
-    # Region prompts are user content: the preset leaves them alone
+    # Region prompts are user content and the region editor holds no setting: the preset leaves them alone
+    unowned = ("region1_prompt", "region2_prompt", "region3_prompt", "region_editor")
     for tab in ("txt2img", "img2img"):
-        harness.assert_registers_preset(regional.AnimaRegionalScript(), "regional", tab, unowned_labels=("Regional prompt",))
+        harness.assert_preset_fields(harness.script_layout(regional.AnimaRegionalScript(), tab), "regional", unowned)
 
 
 SETTINGS = (True, "2-20", 0.1, 0.6, 0.05, 0.2)
@@ -62,16 +63,20 @@ def test_the_hooks_name_the_settings_in_script_arg_order(regional):
         assert list(inspect.signature(hook).parameters)[2 : 2 + len(settings)] == settings  # after self, p
 
 
-def test_written_infotext_restores_the_panel_controls(sampling):
+def test_written_infotext_restores_the_panel_params(sampling):
     args = (*SETTINGS, *(value for region in REGIONS for value in region))
-    harness.assert_infotext_restores_controls(sampling.AnimaRegionalScript(), args, dict(zip(sampling.INFOTEXT_KEYS, args)))
+    p, _ = harness.make_process()
+    sampling.AnimaRegionalScript().process_before_every_sampling(p, *args)
+    written = p.extra_generation_params
+    assert written == dict(zip(sampling.INFOTEXT_KEYS, args))
+    harness.assert_infotext_restores_params(harness.script_layout(sampling.AnimaRegionalScript()), args, written)
 
 
 def test_an_inactive_region_writes_only_its_switch(sampling):
     script = sampling.AnimaRegionalScript()
-    controls = harness.build_ui(script)
-    fields = {key: component for component, key in script.infotext_fields}
-    assert list(fields) == script.paste_field_names == list(sampling.INFOTEXT_KEYS)
+    layout = harness.script_layout(script)
+    keys = [node.infotext for node in layout.inputs if node.infotext]
+    assert keys == list(sampling.INFOTEXT_KEYS)
     args = (*SETTINGS, *REGIONS[0], False, *REGIONS[1][1:], *REGIONS[2])
     p, _ = harness.make_process()
 
@@ -80,10 +85,8 @@ def test_an_inactive_region_writes_only_its_switch(sampling):
     written = p.extra_generation_params
     assert written["Anima region 2 active"] is False
     assert not any(key.startswith("Anima region 2 ") and key != "Anima region 2 active" for key in written)
-    assert len(written) == len(fields) - 6
-    for key, value in written.items():
-        index = next(number for number, control in enumerate(controls) if control is fields[key])
-        assert value == args[index], key
+    assert len(written) == len(keys) - 6
+    harness.assert_infotext_restores_params(layout, args, written)
 
 
 @pytest.mark.parametrize(
@@ -102,7 +105,7 @@ def test_a_wrong_argument_count_installs_nothing(sampling, monkeypatch, args):
     built = []
     monkeypatch.setattr(sampling, "_region", lambda *region: built.append(region))
     p, unet = harness.make_process()
-    count = len(sampling.SCRIPT_ARGS)
+    count = len(sampling.SCRIPT_ARGS) + 1  # and the region editor
     for hook in (sampling.AnimaRegionalScript().process, sampling.AnimaRegionalScript().process_before_every_sampling):
         with pytest.raises(TypeError, match=f"Anima Regional Conditioning takes {count} script arguments, got {len(args)}"):
             hook(p, *args)

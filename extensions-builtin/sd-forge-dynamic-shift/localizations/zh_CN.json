@@ -1,0 +1,20 @@
+{
+  "Dynamic Shift": "动态 Shift",
+  "**Compatibility:** this sampler locks its scheduler, so Dynamic Shift is unavailable.": "**兼容性：** 此采样器锁定了自己的调度器，因此无法使用动态 Shift。",
+  "**Compatibility:** Dynamic Shift controls the schedule; Schedule Type stays Automatic while it is on.": "**兼容性：** 动态 Shift 接管了调度；开启期间调度类型保持为 Automatic。",
+  "Shift @ first step": "首步 Shift",
+  "Shift @ last step": "末步 Shift",
+  "Curve": "曲线",
+  "Linear": "线性",
+  "Cosine": "余弦",
+  "Exponential": "指数",
+  "Hires fix": "高分辨率修复",
+  "Same as first pass": "与第一遍相同",
+  "Custom": "自定义",
+  "Static (built-in shift)": "静态（内置 Shift）",
+  "Hires shift @ first step": "高分修复首步 Shift",
+  "Hires shift @ last step": "高分修复末步 Shift",
+  "[DynShift] Start": "[动态 Shift] 起始",
+  "[DynShift] End": "[动态 Shift] 结束",
+  "[DynShift] Curve": "[动态 Shift] 曲线"
+}

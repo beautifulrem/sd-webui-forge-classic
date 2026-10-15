@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import functools
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from remi.ui import nodes
@@ -161,8 +161,12 @@ def _setting_extras(info) -> dict:
     return data
 
 
-def settings_schema(opts, ctx: Context | None = None, *, categories=None, quicksettings: list[str] | None = None) -> dict:
-    """The settings page: categories -> sections -> items, plus values."""
+def settings_schema(opts, ctx: Context | None = None, *, categories=None, quicksettings: list[str] | None = None, locked: Callable[[str], str | None] | None = None) -> dict:
+    """The settings page: categories -> sections -> items, plus values.
+
+    ``locked(key)``: why the server refuses changes to ``key`` (None: it
+    accepts them); a locked setting is ``enabled_if: false`` with ``locked``
+    set to that reason."""
 
     from modules import options as options_module
 
@@ -206,15 +210,20 @@ def settings_schema(opts, ctx: Context | None = None, *, categories=None, quicks
         if isinstance(node, nodes.Input):
             data["default"] = jsonable(value)
             data.update(_setting_extras(info))
+            reason = locked(key) if locked is not None else None
+            if reason:
+                data["enabled_if"] = False
+                data["locked"] = reason
         target = open_rows[section]["children"] if open_rows[section] is not None else items
         target.append(data)
 
-    values = {key: jsonable(opts.data.get(key, info.default)) for key, info in opts.data_labels.items() if not getattr(info, "do_not_save", False)}
+    stored = {key: info for key, info in opts.data_labels.items() if not getattr(info, "do_not_save", False)}
     return {
         "version": SCHEMA_VERSION,
         "categories": result_categories,
         "quicksettings": list(quicksettings if quicksettings is not None else getattr(opts, "quicksettings_list", []) or []),
-        "values": values,
+        "values": {key: jsonable(opts.data.get(key, info.default)) for key, info in stored.items()},
+        "defaults": {key: jsonable(info.default) for key, info in stored.items()},
     }
 
 

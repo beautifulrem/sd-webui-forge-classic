@@ -35,13 +35,18 @@ def job_json(job: Job, *, detail: bool = False, running: bool = False) -> dict[s
         "forever": job.forever,
         "retry_of": job.retry_of,
         "infotext": job.infotext,
+        "starred": job.starred,
+        "replayable": job.replayable,
+        "name": job.meta.get("name"),
+        "source": job.meta.get("source"),
+        "notes": [entry if isinstance(entry, dict) else {"message": str(entry), "values": {}} for entry in job.meta.get("notes") or []],
     }
     if running and job.status == RUNNING:
         from modules import shared
 
         data["progress"] = progress_snapshot(shared.state)
     if detail:
-        data.update(core=job.core, scripts=job.scripts, layout_hash=job.layout_hash, schema_version=job.schema_version)
+        data.update(core=job.core, scripts=job.scripts, layout_hash=job.layout_hash, schema_version=job.schema_version, opaque=job.meta.get("opaque"))
     return data
 
 
@@ -52,8 +57,16 @@ def create_job(body: m.JobRequest, services: ServicesDep, user: UserDep) -> dict
 
 
 @router.get("/jobs", response_model=m.Page[m.Job], summary="Queue and history, newest first")
-def list_jobs(services: ServicesDep, cursor: str | None = None, limit: int = Query(50, ge=1, le=200), status: str | None = Query(None, description="comma-separated statuses")) -> dict[str, Any]:
-    jobs, next_cursor, total = services.store.history(cursor=cursor, limit=limit, status=status)
+def list_jobs(
+    services: ServicesDep,
+    cursor: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    status: str | None = Query(None, description="comma-separated statuses"),
+    q: str | None = Query(None, max_length=500, description="every word must appear in the prompt, infotext or parameters"),
+    starred: bool | None = None,
+    tab: m.FormTab | None = None,
+) -> dict[str, Any]:
+    jobs, next_cursor, total = services.store.history(cursor=cursor, limit=limit, status=status, query=q, starred=starred, tab=tab)
     return {"items": [job_json(job, running=True) for job in jobs], "next_cursor": next_cursor, "total": total}
 
 

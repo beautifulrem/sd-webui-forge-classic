@@ -1,0 +1,17 @@
+{
+ "Anima Prompt-Schedule Rescaler": "Anima 提示词调度重缩放",
+ "Rewrites prompt-editing schedules (`[from:to:when]`) so a switch authored for one pass lands at the **same relative point within the executed img2img window**. img2img with denoise `d` only runs the last ~`d` of the schedule, so a `when` set during a txt2img pass otherwise fires too early (or never). Alternation `[a|b]` and attention weights `(x:1.3)` are left untouched.": "改写提示词编辑调度（`[from:to:when]`），让为某一轮编写的切换点落在**实际执行的图生图窗口中的相同相对位置**。重绘幅度为 `d` 的图生图只执行调度的最后约 `d` 部分，因此在文生图中设定的 `when` 否则会过早触发（或根本不触发）。交替语法 `[a|b]` 和注意力权重 `(x:1.3)` 保持不变。",
+ "Manual rescale tool": "手动重缩放工具",
+ "Prompt with schedule": "带调度的提示词",
+ "Source steps (authored for)": "源步数（编写时）",
+ "Target steps (this pass)": "目标步数（本轮）",
+ "Denoise (this pass)": "重绘幅度（本轮）",
+ "Output as fractions (portable across step counts)": "以小数输出（可跨步数通用）",
+ "Rescale schedule": "重缩放调度",
+ "Use as prompt": "用作提示词",
+ "Rescaled prompt": "重缩放后的提示词",
+ "Auto-rescale this img2img generation's schedules": "自动重缩放本次图生图的调度",
+ "Source steps (txt2img steps the schedule was authored for)": "源步数（编写调度时的文生图步数）",
+ "Rewrite as fractions": "改写为小数",
+ "When on, the schedules in this img2img generation's prompt **and** negative prompt are rescaled for this run only, using the live **Steps** slider as the target and **Denoising strength** as the window. Set **Source steps** to the step count the schedule was originally written for (your txt2img steps). Safe: any parse problem falls back to the original prompt.": "开启后，本次图生图的正向提示词**和**负向提示词中的调度仅在本次运行中被重缩放：以当前的**迭代步数**为目标、以**重绘幅度**为窗口。请将**源步数**设为调度最初编写时的步数（你的文生图步数）。安全：任何解析问题都会回退到原始提示词。"
+}

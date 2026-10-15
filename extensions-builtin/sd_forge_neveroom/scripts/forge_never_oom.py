@@ -1,8 +1,7 @@
-import gradio as gr
-
 from backend import memory_management
 from backend.patcher.unet import UnetPatcher
 from modules import scripts
+from remi import ui
 
 
 class NeverOOMForForge(scripts.Script):
@@ -17,12 +16,12 @@ class NeverOOMForForge(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def ui(self, *args, **kwargs):
-        with gr.Accordion(open=False, label=self.title()):
-            unet_enabled = gr.Checkbox(False, label="Enabled for UNet (always offload)")
-            vae_enabled = gr.Checkbox(False, label="Enabled for VAE (always tiled)")
-
-        return [unet_enabled, vae_enabled]
+    def params(self, is_img2img):
+        return ui.Section(
+            self.title(),
+            ui.Toggle("unet_enabled", False, label="Enabled for UNet (always offload)"),
+            ui.Toggle("vae_enabled", False, label="Enabled for VAE (always tiled)"),
+        )
 
     def setup(self, p, unet_enabled: bool, vae_enabled: bool):
 

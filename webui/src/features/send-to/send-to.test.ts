@@ -41,8 +41,9 @@ describe("deliver", () => {
     const store = getFormStore("img2img")
     store.getState().setValues("core", { init_img: "old", mask: "old-mask" })
     const count = await deliver("img2img", [imageEntry("inpaint", "new")!])
-    expect(count).toBe(3)
-    expect(store.getState().values.core).toMatchObject({ init_img: "new", mode: "Inpaint", mask: null })
+    // init_img, mode and the two layers painted over it (the uploaded mask is not).
+    expect(count).toBe(4)
+    expect(store.getState().values.core).toMatchObject({ init_img: "new", mode: "Inpaint", mask: null, sketch: null })
     // Layers sent along with the image are kept.
     await deliver("img2img", [{ owner: "core", values: { init_img: "newer", mask: "its-mask" } }])
     expect(store.getState().values.core).toMatchObject({ init_img: "newer", mask: "its-mask" })
@@ -66,8 +67,8 @@ describe("deliver", () => {
     const pending = deliver("img2img", [{ owner: "core", values: { init_img: "upload-9", mode: "Inpaint", prompt: "later" } }])
     expect(location.hash).toBe("#/img2img")
     load("img2img")
-    // init_img, mode, prompt and the cleared mask.
-    expect(await pending).toBe(4)
+    // init_img, mode, prompt and the cleared mask and sketch.
+    expect(await pending).toBe(5)
     expect(getFormStore("img2img").getState().values.core).toMatchObject({ init_img: "upload-9", mode: "Inpaint", prompt: "later" })
   })
 })

@@ -1,12 +1,11 @@
 import copy
 import shlex
 
-import gradio as gr
-
 import modules.scripts as scripts
 from modules import errors, sd_models, sd_samplers
 from modules.processing import Processed, fix_seed, process_images
 from modules.shared import state
+from remi import ui
 
 
 def process_model_tag(tag):
@@ -97,30 +96,35 @@ def cmdargs(line):
     return res
 
 
-def load_prompt_file(file):
-    if file is None:
-        return None, gr.skip()
-    else:
-        lines = [x.strip() for x in file.decode("utf8", errors="ignore").split("\n")]
-        return None, gr.update(value="\n".join(lines), lines=7)
+def prompt_text(value) -> str:
+    """The prompt list (the ``text-file`` widget's value: a string)."""
+
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError("expected text")
+    return value
 
 
 class PromptsFromTexts(scripts.Script):
     def title(self):
         return "Prompts from File or Textbox"
 
-    def ui(self, is_img2img):
-        checkbox_iterate = gr.Checkbox(value=False, label="Iterate seed every line", elem_id=self.elem_id("checkbox_iterate"))
-        checkbox_iterate_batch = gr.Checkbox(value=False, label="Use same random seed for all lines", elem_id=self.elem_id("checkbox_iterate_batch"))
-        prompt_position = gr.Radio(label="Insert prompts at the", choices=("start", "end"), value="start", elem_id=self.elem_id("prompt_position"))
-
-        prompt_txt = gr.Textbox(label="List of prompt inputs", lines=2, elem_id=self.elem_id("prompt_txt"))
-        file = gr.File(label="Upload prompt inputs", type="binary", elem_id=self.elem_id("file"))
-
-        prompt_txt.change(lambda tb: gr.update(lines=7) if ("\n" in tb) else gr.update(lines=2), inputs=[prompt_txt], outputs=[prompt_txt], show_progress=False)
-        file.change(fn=load_prompt_file, inputs=[file], outputs=[file, prompt_txt], show_progress=False)
-
-        return [checkbox_iterate, checkbox_iterate_batch, prompt_position, prompt_txt]
+    def params(self, is_img2img):
+        return ui.Column(
+            ui.Toggle("checkbox_iterate", False, label="Iterate seed every line"),
+            ui.Toggle("checkbox_iterate_batch", False, label="Use same random seed for all lines"),
+            ui.Choice("prompt_position", ("start", "end"), "start", style="radio", label="Insert prompts at the"),
+            # A text area that also loads a file of any type, as the old upload did (read in the browser as UTF-8, each line stripped)
+            ui.Custom(
+                "prompt_txt",
+                "text-file",
+                "",
+                props={"lines": 2, "max_lines": 20},
+                label="List of prompt inputs",
+                validate=prompt_text,
+            ),
+        )
 
     def run(self, p, checkbox_iterate: bool, checkbox_iterate_batch: bool, prompt_position: str, prompt_txt: str):
         lines = [x for x in (x.strip() for x in prompt_txt.splitlines()) if x]

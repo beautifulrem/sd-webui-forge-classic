@@ -1,15 +1,11 @@
 import re
 
-import gradio as gr
 import numpy as np
 from PIL import Image
 
 from modules import scripts_postprocessing, shared
-from modules.modelloader import load_upscalers
 from modules.processing import apply_color_correction, setup_color_correction
-from modules.ui import switch_values_symbol
-from modules.ui_common import create_refresh_button
-from modules.ui_components import FormRow, InputAccordion, ToolButton
+from remi import ui
 
 upscale_cache = {}
 
@@ -25,75 +21,92 @@ def limit_size_by_one_dimension(w: int, h: int, limit: int) -> tuple[int, int]:
     return (int(w), int(h))
 
 
+def upscaler_names() -> list[str]:
+    return [x.name for x in shared.sd_upscalers]
+
+
+def scale_from_name(name: str) -> int | None:
+    """The scale an upscaler's name states (``4x-UltraSharp``, ``RealESRGAN_x2``)."""
+
+    match = re.search(r"(\d)[xX]|[xX](\d)", name or "")
+    return int(match.group(1) or match.group(2)) if match else None
+
+
 class ScriptPostprocessingUpscale(scripts_postprocessing.ScriptPostprocessing):
     name = "Upscale"
     order = 1000
 
-    def ui(self):
-        selected_tab = gr.Number(value=0, visible=False)
-
-        with InputAccordion(True, label="Upscale", elem_id="extras_upscale") as upscale_enabled:
-            with FormRow():
-                with gr.Tabs(elem_id="extras_resize_mode"):
-                    with gr.Tab("Scale by", elem_id="extras_scale_by_tab") as tab_scale_by:
-                        with gr.Column():
-                            upscaling_resize = gr.Slider(minimum=1.0, maximum=8.0, step=0.05, label="Resize", value=4, elem_id="extras_upscaling_resize")
-                            max_side_length = gr.Slider(minimum=0, maximum=8192, step=8, label="Max Side Length", value=0, elem_id="extras_upscale_max_side_length")
-
-                    with gr.Tab("Scale to", elem_id="extras_scale_to_tab") as tab_scale_to:
-                        with FormRow():
-                            with gr.Column(elem_id="upscaling_column_size", scale=4):
-                                upscaling_resize_w = gr.Slider(minimum=64, maximum=8192, step=8, label="Width", value=1024, elem_id="extras_upscaling_resize_w")
-                                upscaling_resize_h = gr.Slider(minimum=64, maximum=8192, step=8, label="Height", value=1024, elem_id="extras_upscaling_resize_h")
-                            with gr.Column(elem_id="upscaling_dimensions_row", scale=1, elem_classes="dimensions-tools"):
-                                upscaling_res_switch_btn = ToolButton(value=switch_values_symbol, elem_id="upscaling_res_switch_btn", tooltip="Switch width/height")
-                                upscaling_crop = gr.Checkbox(label="Crop to fit", value=True, elem_id="extras_upscaling_crop")
-
-            with FormRow():
-                extras_upscaler_1 = gr.Dropdown(label="Upscaler 1", elem_id="extras_upscaler_1", choices=[x.name for x in shared.sd_upscalers], value=shared.sd_upscalers[0].name)
-                extras_upscaler_2 = gr.Dropdown(label="Upscaler 2", elem_id="extras_upscaler_2", choices=[x.name for x in shared.sd_upscalers], value=shared.sd_upscalers[0].name)
-                create_refresh_button([extras_upscaler_1, extras_upscaler_2], load_upscalers, lambda: {"choices": [x.name for x in shared.sd_upscalers]}, "refresh_upscaler")
-
-            with FormRow():
-                extras_color_correction = gr.Checkbox(label="Color Correction", elem_id="extras_color_correction", value=False)
-                extras_upscaler_2_visibility = gr.Slider(minimum=0.0, maximum=1.0, step=0.05, label="Upscaler 2 visibility", value=0.0, elem_id="extras_upscaler_2_visibility")
-
-        upscaling_res_switch_btn.click(lambda w, h: (h, w), inputs=[upscaling_resize_w, upscaling_resize_h], outputs=[upscaling_resize_w, upscaling_resize_h], show_progress="hidden")
-        tab_scale_by.select(fn=lambda: 0, outputs=[selected_tab])
-        tab_scale_to.select(fn=lambda: 1, outputs=[selected_tab])
-
-        extras_upscaler_2_visibility.change(
-            fn=lambda vis: gr.update(interactive=(vis > 0.04)),
-            inputs=[extras_upscaler_2_visibility],
-            outputs=[extras_upscaler_2],
-            show_progress="hidden",
-            queue=False,
+    def params(self):
+        # A None default is the first upscaler
+        return ui.Section(
+            "Upscale",
+            enable=ui.Toggle("upscale_enabled", True, label="Upscale"),
+            open=True,
+            children=[
+                # The selected tab: 0 = scale by, 1 = scale to (Gradio kept it in a hidden number)
+                ui.Choice("upscale_mode", [("Scale by", 0), ("Scale to", 1)], 0, label="Resize mode", hidden=True),
+                ui.Tabs(
+                    ui.Tab(
+                        "Scale by",
+                        ui.Slider("upscale_by", 1.0, 8.0, 4.0, 0.05, label="Resize"),
+                        ui.Slider("max_side_length", 0, 8192, 0, 8, label="Max Side Length"),
+                        value=0,
+                    ),
+                    ui.Tab(
+                        "Scale to",
+                        ui.Row(
+                            ui.Column(
+                                ui.Slider("upscale_to_width", 64, 8192, 1024, 8, label="Width"),
+                                ui.Slider("upscale_to_height", 64, 8192, 1024, 8, label="Height"),
+                                width=9,
+                            ),
+                            ui.Column(
+                                ui.Button("Switch width/height", "swap_size", "tool"),
+                                ui.Toggle("upscale_crop", True, label="Crop to fit"),
+                                width=3,
+                            ),
+                        ),
+                        value=1,
+                    ),
+                    bind="upscale_mode",
+                ),
+                ui.Row(
+                    ui.Choice("upscaler_1_name", upscaler_names, None, label="Upscaler 1", on_change="upscaler_scale"),
+                    ui.Choice(
+                        "upscaler_2_name",
+                        upscaler_names,
+                        None,
+                        label="Upscaler 2",
+                        enabled_if={"param": "upscaler_2_visibility", "gt": 0.04},
+                    ),
+                    ui.Button("Refresh", "refresh_upscalers", "tool"),
+                ),
+                ui.Row(
+                    ui.Toggle("upscale_cc", False, label="Color Correction"),
+                    ui.Slider("upscaler_2_visibility", 0.0, 1.0, 0.0, 0.05, label="Upscaler 2 visibility"),
+                ),
+            ],
         )
 
-        if shared.opts.set_scale_by_when_changing_upscaler:
+    @ui.action
+    def swap_size(self, ctx, values):
+        width, height = values.get("upscale_to_width", 1024), values.get("upscale_to_height", 1024)
+        return {"upscale_to_width": ui.update(value=height), "upscale_to_height": ui.update(value=width)}
 
-            def on_selected_upscale_method(upscale_method: str) -> int | None:
-                match = re.search(r"(\d)[xX]|[xX](\d)", upscale_method)
-                if not match:
-                    return gr.skip()
+    @ui.action
+    def refresh_upscalers(self, ctx, values):
+        from modules.modelloader import load_upscalers
 
-                return gr.update(value=int(match.group(1) or match.group(2)))
+        load_upscalers()
+        choices = upscaler_names()
+        return {"upscaler_1_name": ui.update(choices=choices), "upscaler_2_name": ui.update(choices=choices)}
 
-            extras_upscaler_1.change(on_selected_upscale_method, inputs=[extras_upscaler_1], outputs=[upscaling_resize], show_progress="hidden")
+    @ui.action
+    def upscaler_scale(self, ctx, values):
+        """With ``set_scale_by_when_changing_upscaler``, "Resize" follows the scale in the upscaler's name."""
 
-        return {
-            "upscale_enabled": upscale_enabled,
-            "upscale_cc": extras_color_correction,
-            "upscale_mode": selected_tab,
-            "upscale_by": upscaling_resize,
-            "max_side_length": max_side_length,
-            "upscale_to_width": upscaling_resize_w,
-            "upscale_to_height": upscaling_resize_h,
-            "upscale_crop": upscaling_crop,
-            "upscaler_1_name": extras_upscaler_1,
-            "upscaler_2_name": extras_upscaler_2,
-            "upscaler_2_visibility": extras_upscaler_2_visibility,
-        }
+        scale = scale_from_name(values.get("upscaler_1_name")) if shared.opts.set_scale_by_when_changing_upscaler else None
+        return {} if scale is None else {"upscale_by": ui.update(value=scale)}
 
     def _upscale(
         self,

@@ -1,45 +1,64 @@
-from ast import literal_eval
+"""ADetailer's parameters as a ``remi.ui`` layout.
+
+The panel holds the main toggle, "Skip img2img" and one tab per model
+(setting ``ad_max_models``) with that model's detector, prompts, detection,
+mask, inpaint and ControlNet params. Each tab's params are named after the
+``ALL_ARGS`` attributes with the tab's suffix (``ad_model``, ``ad_model_2nd``,
+...) and written to / read from the same infotext keys as before.
+
+Positionally (``param_order``) the script receives ``ad_enable``,
+``ad_skip_img2img``, every tab's params in ``ALL_ARGS`` order, then one hidden
+UI-only flag per tab (:data:`WORLD_FLAG`); :func:`pack_args` turns them back
+into the one dict per model that ``AfterDetailerScript`` has always processed
+(and that A1111 API clients still send through ``alwayson_scripts``).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from functools import partial
-from types import SimpleNamespace
 from typing import Any
 
-import gradio as gr
-from gradio_rangeslider import RangeSlider
-
 from modules.launch_utils import is_installed
-from modules.ui_components import FormColumn, FormRow, InputAccordion
+from remi import ui
 
 from . import __version__
 from .args import ALL_ARGS, MASK_MERGE_INVERT
 from .controlnet import CNET_AVAILABLE, get_cn_models, get_cn_modules
 
+MAX_MODELS = 8
+"""Upper bound of the ``ad_max_models`` setting."""
 
-class Widgets(SimpleNamespace):
-    def tolist(self):
-        return [getattr(self, attr) for attr in ALL_ARGS.attrs]
+REFRESH_ACTION = "refresh_models"
+MODEL_CHANGED_ACTION = "ad_model_changed"
+WORLD_FLAG = "ad_model_is_world"
+"""Per-tab hidden flag: the tab's detector is a YOLO-World model (shows
+"Detector Classes"); set by :data:`MODEL_CHANGED_ACTION`, never processed."""
+SAME_SAMPLER = "Use same sampler"
+SAME_SCHEDULER = "Use same scheduler"
+
+ListSource = Callable[[], Sequence[str]]
 
 
 @dataclass
 class WebuiInfo:
-    ad_model_list: list[str]
-    sampler_names: list[str]
-    scheduler_names: list[str]
-    t2i_button: gr.Button
-    i2i_button: gr.Button
-    checkpoints_list: list[str]
-    vae_list: list[str]
+    """Where the choice lists come from; read whenever a schema or a job is
+    resolved, so the lists follow the server state."""
+
+    ad_model_list: ListSource
+    sampler_names: ListSource
+    scheduler_names: ListSource
+    checkpoints_list: ListSource
+    vae_list: ListSource
 
     @property
     def checkpoint_default(self) -> str | None:
-        return next(iter(self.checkpoints_list), None)
+        """The checkpoint dropdown's default: the first one (none when empty)."""
+
+        return next(iter(self.checkpoints_list()), None)
 
 
 # region Utils
-
-
-def gr_interactive(value: bool) -> gr.update:
-    return gr.update(visible=value, interactive=value)
 
 
 def ordinal(n: int) -> str:
@@ -51,542 +70,277 @@ def suffix(n: int, c: str = " ") -> str:
     return "" if n == 0 else c + ordinal(n + 1)
 
 
-def on_widget_change(state: dict, value: Any, *, attr: str):
-    if "is_api" in state:
-        state = state.copy()
-        state.pop("is_api")
-    state[attr] = value
-    return state
+def param_name(attr: str, n: int) -> str:
+    """The param of ``attr`` in tab ``n`` (the legacy elem_id suffix)."""
+
+    return attr + suffix(n, "_")
 
 
-def on_generate(state: dict, *values: Any):
-    for attr, value in zip(ALL_ARGS.attrs, values):
-        state[attr] = value
-    state["is_api"] = ()
-    return state
+def infotext_key(attr: str, n: int) -> str:
+    return ALL_ARGS_NAMES[attr] + suffix(n)
 
 
-def elem_id(item_id: str, n: int, is_img2img: bool) -> str:
-    tab = "img2img" if is_img2img else "txt2img"
-    suf = "" if n is None else suffix(n, "_")
-    return f"script_{tab}_adetailer_{item_id}{suf}"
+ALL_ARGS_NAMES: dict[str, str] = dict(ALL_ARGS)
+MAIN_PARAMS = ("ad_enable", "ad_skip_img2img")
 
 
-def state_init(w: Widgets) -> dict[str, Any]:
-    return {attr: getattr(w, attr).value for attr in ALL_ARGS.attrs}
+def is_world_model(model: Any) -> bool:
+    """YOLO-World detectors take class names (the legacy ``"-world"`` test)."""
+
+    return isinstance(model, str) and "-world" in model
 
 
-# region UI
+def world_flags(values: Mapping[str, Any], num_models: int) -> dict[str, dict]:
+    """Patch entries setting the :data:`WORLD_FLAG` of each tab whose detector
+    is in ``values``."""
+
+    models = {n: values[param_name("ad_model", n)] for n in range(num_models) if param_name("ad_model", n) in values}
+    return {param_name(WORLD_FLAG, n): {"value": is_world_model(model)} for n, model in models.items()}
 
 
-def adui(num_models: int, is_img2img: bool, webui_info: WebuiInfo):
-    states = []
-    infotext_fields = []
-    eid = partial(elem_id, n=None, is_img2img=is_img2img)
+def param_order(num_models: int) -> tuple[str, ...]:
+    """The positional order :func:`pack_args` reads."""
 
-    with InputAccordion(
-        value=False, label="ADetailer", elem_id=eid("ad_main_accordion")
-    ) as ad_enable:
-        with gr.Row():
-            with gr.Column(scale=10):
-                ad_skip_img2img = gr.Checkbox(
-                    value=False,
-                    label="Skip img2img",
-                    visible=is_img2img,
-                    elem_id=eid("ad_skip_img2img"),
-                )
-            with gr.Column(scale=1, min_width=80):
-                gr.Markdown(
-                    f"ver. {__version__}",
-                    elem_id=eid("ad_version"),
-                )
-
-        infotext_fields.append((ad_enable, "ADetailer enable"))
-        infotext_fields.append((ad_skip_img2img, "ADetailer skip img2img"))
-
-        with gr.Tabs():
-            for n in range(num_models):
-                with gr.Tab(label=ordinal(n + 1)):
-                    state, infofields = _ui_group(
-                        n=n,
-                        is_img2img=is_img2img,
-                        webui_info=webui_info,
-                    )
-
-                states.append(state)
-                infotext_fields.extend(infofields)
-
-    components = [ad_enable, ad_skip_img2img, *states]
-    return components, infotext_fields
-
-
-def _ui_group(n: int, is_img2img: bool, webui_info: WebuiInfo):
-    w = Widgets()
-    eid = partial(elem_id, n=n, is_img2img=is_img2img)
-
-    w.ad_tab_enable = gr.Checkbox(
-        value=(n == 0),
-        label=f"Enable {ordinal(n + 1)} Tab",
-        elem_id=eid("ad_tab_enable"),
+    return (
+        *MAIN_PARAMS,
+        *(param_name(attr, n) for n in range(num_models) for attr in ALL_ARGS.attrs),
+        *(param_name(WORLD_FLAG, n) for n in range(num_models)),
     )
 
-    with FormColumn():
-        w.ad_model = gr.Dropdown(
-            label="ADetailer Detector" + suffix(n),
-            choices=["None", *webui_info.ad_model_list],
-            value="None",
-            type="value",
-            elem_id=eid("ad_model"),
-        )
-        w.ad_model_classes = gr.Textbox(
-            label="Detector Classes" + suffix(n),
-            value="",
-            visible=False,
-            interactive=is_installed("clip"),
-            placeholder=(
-                'Comma-separated class names to detect (e.g. "person,cat" ; default: COCO 80 classes)'
-                if is_installed("clip")
-                else "Detector Classes require Clip to be installed (https://github.com/ultralytics/CLIP.git)"
+
+def pack_args(args: Sequence[Any]) -> tuple:
+    """``(enable, skip_img2img, *model dicts)`` from the script's arguments.
+
+    The form sends every tab's params as scalars (:func:`param_order`); these
+    become one dict per tab and the trailing UI-only flags are dropped (scalars
+    without the flags are accepted too). Arguments that already hold dicts (the
+    A1111 API's ``alwayson_scripts``, scripts calling ADetailer) are kept as
+    they are: the form params left at their defaults around them are not read."""
+
+    args = tuple(args)
+    if any(isinstance(arg, dict) for arg in args):
+        return args
+    width = len(ALL_ARGS)
+    head, flat = args[: len(MAIN_PARAMS)], args[len(MAIN_PARAMS) :]
+    # ALL_ARGS is longer than MAX_MODELS, so the two lengths never coincide
+    count, rest = divmod(len(flat), width + 1)
+    if not count or rest:
+        count, rest = divmod(len(flat), width)
+        if not count or rest:
+            return args
+    units = (dict(zip(ALL_ARGS.attrs, flat[start : start + width])) for start in range(0, count * width, width))
+    return (*head, *units)
+
+
+def _paste_enable(params: Mapping[str, Any]) -> Any:
+    # Pasting a generation that used ADetailer switches it on (its infotext
+    # has the models' keys, never "ADetailer enable")
+    value = params.get("ADetailer enable")
+    if value is not None:
+        return value
+    return True if any(infotext_key("ad_model", n) in params for n in range(MAX_MODELS)) else None
+
+
+def _paste_tab_enable(n: int) -> Callable[[Mapping[str, Any]], Any]:
+    # An ADetailer infotext lists every tab it ran: the others are switched
+    # off so the pasted generation runs exactly those passes
+    def paste(params: Mapping[str, Any]) -> Any:
+        value = params.get(infotext_key("ad_tab_enable", n))
+        if value is not None:
+            return value
+        if infotext_key("ad_model", n) in params:
+            return True
+        return False if any(infotext_key("ad_model", m) in params for m in range(MAX_MODELS)) else None
+
+    return paste
+
+
+# endregion
+
+# region Layout
+
+
+def adui(num_models: int, is_img2img: bool, webui_info: WebuiInfo) -> ui.Node:
+    """The whole panel."""
+
+    return ui.Section(
+        "ADetailer",
+        enable=ui.Toggle("ad_enable", False, label="ADetailer", infotext="ADetailer enable", paste=_paste_enable),
+        children=[
+            ui.Row(
+                ui.Toggle("ad_skip_img2img", False, label="Skip img2img", infotext="ADetailer skip img2img", hidden=not is_img2img, width="fill"),
+                ui.Markdown(f"ver. {__version__}"),
             ),
+            ui.Tabs(*(ui.Tab(ordinal(n + 1), _ui_group(n, webui_info)) for n in range(num_models))),
+        ],
+    )
+
+
+class _Tab:
+    """Names, infotext keys and conditions of one model tab."""
+
+    def __init__(self, n: int):
+        self.n = n
+
+    def __call__(self, attr: str) -> dict[str, Any]:
+        """The common keyword arguments of ``attr``'s input (after its name)."""
+
+        return {"infotext": infotext_key(attr, self.n)}
+
+    def name(self, attr: str) -> str:
+        return param_name(attr, self.n)
+
+    def on(self, attr: str) -> dict:
+        return ui.param(self.name(attr))
+
+
+def _ui_group(n: int, webui_info: WebuiInfo) -> list[ui.Node]:
+    t = _Tab(n)
+    name = t.name
+    clip = is_installed("clip")
+
+    return [
+        ui.Toggle(name("ad_tab_enable"), n == 0, label=f"Enable {ordinal(n + 1)} Tab", paste=_paste_tab_enable(n), **t("ad_tab_enable")),
+        ui.Row(
+            ui.Choice(name("ad_model"), lambda: ["None", *webui_info.ad_model_list()], "None", label="ADetailer Detector", width="fill", on_change=MODEL_CHANGED_ACTION, **t("ad_model")),
+            ui.Button("Refresh models", REFRESH_ACTION, "tool"),
+        ),
+        # Follows the selected detector (also one found by Refresh later)
+        ui.State(name(WORLD_FLAG), False, label="", submit=False),
+        ui.Text(
+            name("ad_model_classes"),
+            "",
+            label="Detector Classes",
+            placeholder='Comma-separated class names to detect (e.g. "person,cat" ; default: COCO 80 classes)' if clip else "Detector Classes require Clip to be installed (https://github.com/ultralytics/CLIP.git)",
             lines=1,
             max_lines=1,
-            elem_id=eid("ad_model_classes"),
-        )
-
-        w.ad_model.change(
-            fn=lambda model: gr.update(visible="-world" in model),
-            inputs=[w.ad_model],
-            outputs=[w.ad_model_classes],
-            queue=False,
-            show_progress=False,
-        )
-
-        with FormColumn():
-            with gr.Row(elem_id=eid("ad_toprow_prompt")):
-                w.ad_prompt = gr.Textbox(
-                    value="",
-                    label="ad_prompt" + suffix(n),
-                    show_label=False,
-                    lines=3,
-                    max_lines=6,
-                    placeholder=f"ADetailer Prompt{suffix(n)}"
-                    + "\n(if blank, the original prompt is used)",
-                    elem_id=eid("ad_prompt"),
-                )
-            with gr.Row(elem_id=eid("ad_toprow_negative_prompt")):
-                w.ad_negative_prompt = gr.Textbox(
-                    value="",
-                    label="ad_negative_prompt" + suffix(n),
-                    show_label=False,
-                    lines=3,
-                    max_lines=6,
-                    placeholder=f"ADetailer Negative Prompt{suffix(n)}"
-                    + "\n(if blank, the original negative prompt is used)",
-                    elem_id=eid("ad_negative_prompt"),
-                )
-
-    with gr.Column(variant="compact"):
-        with gr.Accordion("Detection", open=False):
-            detection(w, n, is_img2img)
-        with gr.Accordion("Mask Preprocessing", open=False):
-            mask_preprocessing(w, n, is_img2img)
-        with gr.Accordion("Inpaint Parameters", open=False):
-            inpainting(w, n, is_img2img, webui_info)
-        with gr.Accordion("ControlNet", open=False, visible=CNET_AVAILABLE):
-            controlnet(w, n, is_img2img)
-
-    state = gr.State(lambda: state_init(w))
-
-    for attr in ALL_ARGS.attrs:
-        widget = getattr(w, attr)
-        on_change = partial(on_widget_change, attr=attr)
-        widget.change(fn=on_change, inputs=[state, widget], outputs=state, queue=False)
-
-    all_inputs = [state, *w.tolist()]
-    target_button = webui_info.i2i_button if is_img2img else webui_info.t2i_button
-    target_button.click(fn=on_generate, inputs=all_inputs, outputs=state, queue=False)
-
-    infotext_fields: list[tuple[str, str]] = []
-
-    def _parse(d: dict):
-        v = d.get("ADetailer ControlNet guidance start/end" + suffix(n), None)
-        return gr.skip() if v is None else gr.update(value=literal_eval(v))
-
-    for attr, name in ALL_ARGS:
-        if name == "ADetailer ControlNet guidance start/end":
-            infotext_fields.append((getattr(w, attr), _parse))
-        else:
-            infotext_fields.append((getattr(w, attr), name + suffix(n)))
-
-    return state, infotext_fields
+            visible_if=ui.param(name(WORLD_FLAG)),
+            enabled_if=None if clip else False,
+            **t("ad_model_classes"),
+        ),
+        ui.Text(
+            name("ad_prompt"),
+            "",
+            label="ADetailer Prompt",
+            lines=3,
+            max_lines=6,
+            placeholder="If blank, the original prompt is used",
+            prompt=True,
+            **t("ad_prompt"),
+        ),
+        ui.Text(
+            name("ad_negative_prompt"),
+            "",
+            label="ADetailer Negative Prompt",
+            lines=3,
+            max_lines=6,
+            placeholder="If blank, the original negative prompt is used",
+            prompt=True,
+            **t("ad_negative_prompt"),
+        ),
+        ui.Group("Detection", _detection(t), open=False),
+        ui.Group("Mask Preprocessing", _mask_preprocessing(t), open=False),
+        ui.Group("Inpaint Parameters", _inpainting(t, webui_info), open=False),
+        ui.Group("ControlNet", _controlnet(t), open=False, visible_if=None if CNET_AVAILABLE else False),
+    ]
 
 
-# region SubGroups
+def _detection(t: _Tab) -> list[ui.Node]:
+    name = t.name
+    return [
+        ui.Slider(name("ad_confidence"), 0.0, 1.0, 0.3, 0.05, label="Confidence Threshold", **t("ad_confidence")),
+        ui.Row(
+            ui.Slider(name("ad_mask_min_ratio"), 0.0, 1.0, 0.0, 0.05, label="Min Area Ratio", **t("ad_mask_min_ratio")),
+            ui.Slider(name("ad_mask_max_ratio"), 0.0, 1.0, 1.0, 0.05, label="Max Area Ratio", **t("ad_mask_max_ratio")),
+        ),
+        ui.Row(
+            ui.Slider(name("ad_mask_k"), 0, 10, 0, 1, label="Keep only the top n masks", info="0 for unlimited", **t("ad_mask_k")),
+            ui.Choice(name("ad_mask_filter_method"), ["Area", "Confidence"], "Area", style="radio", label="Filter Method", **t("ad_mask_filter_method")),
+        ),
+    ]
 
 
-def detection(w: Widgets, n: int, is_img2img: bool):
-    eid = partial(elem_id, n=n, is_img2img=is_img2img)
-
-    with FormColumn():
-        w.ad_confidence = gr.Slider(
-            label="Confidence Threshold",
-            minimum=0.0,
-            maximum=1.0,
-            step=0.05,
-            value=0.3,
-            elem_id=eid("ad_confidence"),
-        )
-
-        with FormRow():
-            w.ad_mask_min_ratio = gr.Slider(
-                label="Min Area Ratio",
-                minimum=0.0,
-                maximum=1.0,
-                step=0.05,
-                value=0.0,
-                elem_id=eid("ad_mask_min_ratio"),
-            )
-            w.ad_mask_max_ratio = gr.Slider(
-                label="Max Area Ratio",
-                minimum=0.0,
-                maximum=1.0,
-                step=0.05,
-                value=1.0,
-                elem_id=eid("ad_mask_max_ratio"),
-            )
-
-        with FormRow():
-            w.ad_mask_k = gr.Slider(
-                label="Keep only the top n masks",
-                info="0 for unlimited",
-                minimum=0,
-                maximum=10,
-                step=1,
-                value=0,
-                elem_id=eid("ad_mask_k"),
-            )
-            w.ad_mask_filter_method = gr.Radio(
-                label="Filter Method",
-                choices=("Area", "Confidence"),
-                value="Area",
-                elem_id=eid("ad_mask_filter_method"),
-            )
+def _mask_preprocessing(t: _Tab) -> list[ui.Node]:
+    name = t.name
+    return [
+        ui.Row(
+            ui.Slider(name("ad_x_offset"), -256, 256, 0, 4, label="Offset: Right (+) / Left(-)", **t("ad_x_offset")),
+            ui.Slider(name("ad_y_offset"), -256, 256, 0, 4, label="Offset: Up (+) / Down (-)", **t("ad_y_offset")),
+            ui.Slider(name("ad_dilate_erode"), -256, 256, 4, 4, label="Mask: Dilation (+) / Erosion (-)", **t("ad_dilate_erode")),
+        ),
+        ui.Choice(name("ad_mask_merge_invert"), MASK_MERGE_INVERT, "None", style="radio", label="Masks Merge Mode", **t("ad_mask_merge_invert")),
+    ]
 
 
-def mask_preprocessing(w: Widgets, n: int, is_img2img: bool):
-    eid = partial(elem_id, n=n, is_img2img=is_img2img)
-
-    with FormColumn():
-        with FormRow():
-            w.ad_x_offset = gr.Slider(
-                label="Offset: Right (+) / Left(-)",
-                minimum=-256,
-                maximum=256,
-                step=4,
-                value=0,
-                elem_id=eid("ad_x_offset"),
-            )
-            w.ad_y_offset = gr.Slider(
-                label="Offset: Up (+) / Down (-)",
-                minimum=-256,
-                maximum=256,
-                step=4,
-                value=0,
-                elem_id=eid("ad_y_offset"),
-            )
-            w.ad_dilate_erode = gr.Slider(
-                label="Mask: Dilation (+) / Erosion (-)",
-                minimum=-256,
-                maximum=256,
-                step=4,
-                value=4,
-                elem_id=eid("ad_dilate_erode"),
-            )
-
-        w.ad_mask_merge_invert = gr.Radio(
-            label="Masks Merge Mode",
-            choices=MASK_MERGE_INVERT,
-            value="None",
-            elem_id=eid("ad_mask_merge_invert"),
-        )
-
-
-def inpainting(w: Widgets, n: int, is_img2img: bool, webui_info: WebuiInfo):
-    eid = partial(elem_id, n=n, is_img2img=is_img2img)
-
-    with FormColumn():
-        w.ad_mask_blur = gr.Slider(
-            label="Inpaint Mask Blur",
-            minimum=0,
-            maximum=64,
-            step=4,
-            value=4,
-            elem_id=eid("ad_mask_blur"),
-        )
-
-        with FormRow():
-            with gr.Column(variant="compact"):
-                w.ad_inpaint_only_masked = gr.Checkbox(
-                    value=True,
-                    label="Inpaint Only Masked",
-                    elem_id=eid("ad_inpaint_only_masked"),
-                )
-                w.ad_inpaint_only_masked_padding = gr.Slider(
-                    label="Only masked padding, pixels",
-                    minimum=0,
-                    maximum=256,
-                    step=4,
-                    value=32,
-                    visible=True,
-                    elem_id=eid("ad_inpaint_only_masked_padding"),
-                )
-
-                w.ad_inpaint_only_masked.change(
-                    fn=gr_interactive,
-                    inputs=[w.ad_inpaint_only_masked],
-                    outputs=[w.ad_inpaint_only_masked_padding],
-                    queue=False,
-                    show_progress=False,
-                )
-
-            with gr.Column(variant="compact"):
-                w.ad_use_noise_multiplier = gr.Checkbox(
-                    value=False,
-                    label="Use separate Noise Multiplier",
-                    elem_id=eid("ad_use_noise_multiplier"),
-                )
-                w.ad_noise_multiplier = gr.Slider(
-                    label="Adetailer Noise Multiplier",
-                    minimum=0.5,
-                    maximum=1.5,
-                    step=0.05,
-                    value=1.0,
-                    visible=False,
-                    elem_id=eid("ad_noise_multiplier"),
-                )
-
-                w.ad_use_noise_multiplier.change(
-                    fn=gr_interactive,
-                    inputs=[w.ad_use_noise_multiplier],
-                    outputs=[w.ad_noise_multiplier],
-                    queue=False,
-                    show_progress=False,
-                )
-
-        with gr.Column(variant="compact"):
-            w.ad_use_sampler = gr.Checkbox(
-                value=False,
-                label="Use different Sampler/Scheduler",
-                elem_id=eid("ad_use_sampler"),
-            )
-
-            sampler_names = ["Use same sampler", *webui_info.sampler_names]
-            scheduler_names = ["Use same scheduler", *webui_info.scheduler_names]
-
-            with FormRow():
-                w.ad_sampler = gr.Dropdown(
-                    label="ADetailer Sampler",
-                    choices=sampler_names,
-                    value=sampler_names[0],
-                    visible=False,
-                    elem_id=eid("ad_sampler"),
-                )
-                w.ad_scheduler = gr.Dropdown(
-                    label="ADetailer Scheduler",
-                    choices=scheduler_names,
-                    value=scheduler_names[0],
-                    visible=False,
-                    elem_id=eid("ad_scheduler"),
-                )
-
-                w.ad_use_sampler.change(
-                    fn=lambda value: (gr_interactive(value), gr_interactive(value)),
-                    inputs=[w.ad_use_sampler],
-                    outputs=[w.ad_sampler, w.ad_scheduler],
-                    queue=False,
-                    show_progress=False,
-                )
-
-        with gr.Column(variant="compact"):
-            w.ad_use_inpaint_width_height = gr.Checkbox(
-                value=False,
-                label="Use separate Width/Height",
-                elem_id=eid("ad_use_inpaint_width_height"),
-            )
-
-            with FormRow():
-                w.ad_inpaint_width = gr.Slider(
-                    label="Inpaint Width",
-                    minimum=64,
-                    maximum=2048,
-                    step=64,
-                    value=512,
-                    visible=False,
-                    elem_id=eid("ad_inpaint_width"),
-                )
-                w.ad_inpaint_height = gr.Slider(
-                    label="Inpaint Height",
-                    minimum=64,
-                    maximum=2048,
-                    step=64,
-                    value=512,
-                    visible=False,
-                    elem_id=eid("ad_inpaint_height"),
-                )
-
-                w.ad_use_inpaint_width_height.change(
-                    fn=lambda value: (gr_interactive(value), gr_interactive(value)),
-                    inputs=[w.ad_use_inpaint_width_height],
-                    outputs=[w.ad_inpaint_width, w.ad_inpaint_height],
-                    queue=False,
-                    show_progress=False,
-                )
-
-        with FormRow():
-            with gr.Column(variant="compact"):
-                w.ad_use_steps = gr.Checkbox(
-                    value=False,
-                    label="Use separate Steps",
-                    elem_id=eid("ad_use_steps"),
-                )
-                w.ad_steps = gr.Slider(
-                    label="ADetailer Steps",
-                    minimum=1,
-                    maximum=150,
-                    step=1,
-                    value=20,
-                    visible=False,
-                    elem_id=eid("ad_steps"),
-                )
-
-                w.ad_use_steps.change(
-                    fn=gr_interactive,
-                    inputs=[w.ad_use_steps],
-                    outputs=[w.ad_steps],
-                    queue=False,
-                    show_progress=False,
-                )
-
-            with gr.Column(variant="compact"):
-                w.ad_use_cfg_scale = gr.Checkbox(
-                    value=False,
-                    label="Use separate CFG Scale",
-                    elem_id=eid("ad_use_cfg_scale"),
-                )
-                w.ad_cfg_scale = gr.Slider(
-                    label="ADetailer CFG Scale",
-                    minimum=1.0,
-                    maximum=24.0,
-                    step=0.5,
-                    value=4.0,
-                    visible=False,
-                    elem_id=eid("ad_cfg_scale"),
-                )
-
-                w.ad_use_cfg_scale.change(
-                    fn=gr_interactive,
-                    inputs=[w.ad_use_cfg_scale],
-                    outputs=[w.ad_cfg_scale],
-                    queue=False,
-                    show_progress=False,
-                )
-
-        with FormRow():
-            with gr.Column(variant="compact"):
-                w.ad_use_checkpoint = gr.Checkbox(
-                    value=False,
-                    label="Use separate Checkpoint",
-                    elem_id=eid("ad_use_checkpoint"),
-                )
-                w.ad_checkpoint = gr.Dropdown(
-                    label="ADetailer Checkpoint",
-                    choices=webui_info.checkpoints_list,
-                    value=webui_info.checkpoint_default,
-                    visible=False,
-                    elem_id=eid("ad_checkpoint"),
-                )
-
-                w.ad_use_checkpoint.change(
-                    fn=gr_interactive,
-                    inputs=[w.ad_use_checkpoint],
-                    outputs=[w.ad_checkpoint],
-                    queue=False,
-                    show_progress=False,
-                )
-
-            with gr.Column(variant="compact"):
-                w.ad_use_vae = gr.Checkbox(
-                    value=False,
-                    label="Use separate VAE",
-                    elem_id=eid("ad_use_vae"),
-                )
-                w.ad_vae = gr.Dropdown(
-                    label="ADetailer VAE",
-                    choices=webui_info.vae_list,
-                    value=webui_info.vae_list[0],
-                    visible=False,
-                    elem_id=eid("ad_vae"),
-                )
-
-                w.ad_use_vae.change(
-                    fn=gr_interactive,
-                    inputs=[w.ad_use_vae],
-                    outputs=[w.ad_vae],
-                    queue=False,
-                    show_progress=False,
-                )
-
-        with FormRow():
-            w.ad_restore_face = gr.Checkbox(
-                value=False,
-                label="Restore Faces after ADetailer",
-                elem_id=eid("ad_restore_face"),
-            )
-
-            w.ad_denoising_strength = gr.Slider(
-                label="Inpaint Denoising Strength",
-                minimum=0.0,
-                maximum=1.0,
-                step=0.05,
-                value=0.5,
-                elem_id=eid("ad_denoising_strength"),
-            )
+def _inpainting(t: _Tab, webui_info: WebuiInfo) -> list[ui.Node]:
+    name = t.name
+    return [
+        ui.Slider(name("ad_mask_blur"), 0, 64, 4, 4, label="Inpaint Mask Blur", **t("ad_mask_blur")),
+        ui.Row(
+            ui.Column(
+                ui.Toggle(name("ad_inpaint_only_masked"), True, label="Inpaint Only Masked", **t("ad_inpaint_only_masked")),
+                ui.Slider(name("ad_inpaint_only_masked_padding"), 0, 256, 32, 4, label="Only masked padding, pixels", visible_if=t.on("ad_inpaint_only_masked"), **t("ad_inpaint_only_masked_padding")),
+            ),
+            ui.Column(
+                ui.Toggle(name("ad_use_noise_multiplier"), False, label="Use separate Noise Multiplier", **t("ad_use_noise_multiplier")),
+                ui.Slider(name("ad_noise_multiplier"), 0.5, 1.5, 1.0, 0.05, label="Adetailer Noise Multiplier", visible_if=t.on("ad_use_noise_multiplier"), **t("ad_noise_multiplier")),
+            ),
+        ),
+        ui.Column(
+            ui.Toggle(name("ad_use_sampler"), False, label="Use different Sampler/Scheduler", **t("ad_use_sampler")),
+            ui.Row(
+                ui.Choice(name("ad_sampler"), lambda: [SAME_SAMPLER, *webui_info.sampler_names()], SAME_SAMPLER, label="ADetailer Sampler", **t("ad_sampler")),
+                ui.Choice(name("ad_scheduler"), lambda: [SAME_SCHEDULER, *webui_info.scheduler_names()], SAME_SCHEDULER, label="ADetailer Scheduler", **t("ad_scheduler")),
+                visible_if=t.on("ad_use_sampler"),
+            ),
+        ),
+        ui.Column(
+            ui.Toggle(name("ad_use_inpaint_width_height"), False, label="Use separate Width/Height", **t("ad_use_inpaint_width_height")),
+            ui.Row(
+                ui.Slider(name("ad_inpaint_width"), 64, 2048, 512, 64, label="Inpaint Width", **t("ad_inpaint_width")),
+                ui.Slider(name("ad_inpaint_height"), 64, 2048, 512, 64, label="Inpaint Height", **t("ad_inpaint_height")),
+                visible_if=t.on("ad_use_inpaint_width_height"),
+            ),
+        ),
+        ui.Row(
+            ui.Column(
+                ui.Toggle(name("ad_use_steps"), False, label="Use separate Steps", **t("ad_use_steps")),
+                ui.Slider(name("ad_steps"), 1, 150, 20, 1, label="ADetailer Steps", visible_if=t.on("ad_use_steps"), **t("ad_steps")),
+            ),
+            ui.Column(
+                ui.Toggle(name("ad_use_cfg_scale"), False, label="Use separate CFG Scale", **t("ad_use_cfg_scale")),
+                ui.Slider(name("ad_cfg_scale"), 1.0, 24.0, 4.0, 0.5, label="ADetailer CFG Scale", visible_if=t.on("ad_use_cfg_scale"), **t("ad_cfg_scale")),
+            ),
+        ),
+        ui.Row(
+            ui.Column(
+                ui.Toggle(name("ad_use_checkpoint"), False, label="Use separate Checkpoint", **t("ad_use_checkpoint")),
+                ui.Choice(name("ad_checkpoint"), lambda: list(webui_info.checkpoints_list()), lambda: webui_info.checkpoint_default, label="ADetailer Checkpoint", visible_if=t.on("ad_use_checkpoint"), **t("ad_checkpoint")),
+            ),
+            ui.Column(
+                ui.Toggle(name("ad_use_vae"), False, label="Use separate VAE", **t("ad_use_vae")),
+                ui.Choice(name("ad_vae"), lambda: list(webui_info.vae_list()), "None", label="ADetailer VAE", visible_if=t.on("ad_use_vae"), **t("ad_vae")),
+            ),
+        ),
+        ui.Row(
+            ui.Toggle(name("ad_restore_face"), False, label="Restore Faces after ADetailer", **t("ad_restore_face")),
+            ui.Slider(name("ad_denoising_strength"), 0.0, 1.0, 0.5, 0.05, label="Inpaint Denoising Strength", width="fill", **t("ad_denoising_strength")),
+        ),
+    ]
 
 
-def controlnet(w: Widgets, n: int, is_img2img: bool):
-    eid = partial(elem_id, n=n, is_img2img=is_img2img)
+def _controlnet(t: _Tab) -> list[ui.Node]:
+    name = t.name
+    return [
+        ui.Row(
+            ui.Choice(name("ad_controlnet_module"), get_cn_modules, "None", label="ControlNet Module", **t("ad_controlnet_module")),
+            ui.Choice(name("ad_controlnet_model"), get_cn_models, "None", label="ControlNet Model", **t("ad_controlnet_model")),
+        ),
+        ui.Row(
+            ui.Slider(name("ad_controlnet_weight"), 0.0, 1.0, 1.0, 0.05, label="ControlNet Weight", **t("ad_controlnet_weight")),
+            ui.RangeSlider(name("ad_controlnet_guidance_start_end"), 0.0, 1.0, (0.0, 1.0), 0.05, label="ControlNet Guidance Start/End", **t("ad_controlnet_guidance_start_end")),
+        ),
+    ]
 
-    with FormColumn():
-        with FormRow():
-            w.ad_controlnet_module = gr.Dropdown(
-                label="ControlNet Module",
-                choices=get_cn_modules(),
-                value="None",
-                type="value",
-                elem_id=eid("ad_controlnet_module"),
-            )
-            w.ad_controlnet_model = gr.Dropdown(
-                label="ControlNet Model",
-                choices=get_cn_models(),
-                value="None",
-                type="value",
-                elem_id=eid("ad_controlnet_model"),
-            )
 
-        with FormRow():
-            w.ad_controlnet_weight = gr.Slider(
-                label="ControlNet Weight",
-                minimum=0.0,
-                maximum=1.0,
-                step=0.05,
-                value=1.0,
-                elem_id=eid("ad_controlnet_weight"),
-            )
-            w.ad_controlnet_guidance_start_end = RangeSlider(
-                label="ControlNet Guidance Start/End",
-                minimum=0.0,
-                maximum=1.0,
-                step=0.05,
-                value=(0.0, 1.0),
-                elem_id=eid("ad_controlnet_guidance_start_end"),
-            )
+# endregion

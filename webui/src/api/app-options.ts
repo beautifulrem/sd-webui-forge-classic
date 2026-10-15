@@ -31,6 +31,12 @@ export const CLIENT_OPTION_DEFAULTS = {
   send_size: true,
   disable_token_counters: false,
   include_styles_into_token_counters: true,
+  // Image editor (src/canvas)
+  forge_canvas_consistent_brush: false,
+  forge_canvas_plain: false,
+  forge_canvas_plain_color: "#808080",
+  forge_canvas_height: 512,
+  forge_canvas_toolbar_always: false,
 }
 
 export type ClientOptions = typeof CLIENT_OPTION_DEFAULTS

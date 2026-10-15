@@ -679,10 +679,27 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Network kinds */
+        /** Network kinds (built-in and extension pages), in display order */
         get: operations["kinds_api_v2_networks_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/networks/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-scan every kind (and prune the preview caches) */
+        post: operations["refresh_all_api_v2_networks_refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -696,8 +713,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Search a kind (all terms must match); `sort` is name, path or mtime */
+        /** Search, filter, sort and page a kind (every search term must match) */
         get: operations["search_api_v2_networks__kind__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/networks/{kind}/facets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Folder tree and architecture counts for the filters */
+        get: operations["facets_api_v2_networks__kind__facets_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -730,14 +764,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** An item with its file metadata and user metadata */
+        /** An item with its file metadata, training facts and dataset tags, and user metadata */
         get: operations["meta_api_v2_networks__kind___name__meta_get"];
         put?: never;
         post?: never;
         delete?: never;
         options?: never;
         head?: never;
-        /** Edit the user metadata (description, activation text, preferred weight, ...) */
+        /** Edit the user metadata (the `<model>.json` sidecar) */
         patch: operations["edit_meta_api_v2_networks__kind___name__meta_patch"];
         trace?: never;
     };
@@ -758,6 +792,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/networks/{kind}/{name}/open-folder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open the item's folder in the file manager of the WebUI machine */
+        post: operations["open_folder_api_v2_networks__kind___name__open_folder_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/extensions": {
         parameters: {
             query?: never;
@@ -772,7 +823,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Enable/disable extensions (applies after a restart) */
+        /** Enable/disable extensions (loaded with the next reload) */
         patch: operations["configure_api_v2_extensions_patch"];
         trace?: never;
     };
@@ -785,8 +836,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Fetch the remotes of the enabled extensions and report which can update */
+        /** Fetch the remotes of extensions (default: every enabled one) and report which can update */
         post: operations["check_updates_api_v2_extensions_check_updates_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/extensions/{name}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check one extension for updates (clients check one at a time to show progress; a failed fetch is the status "unknown (remote error)") */
+        post: operations["check_one_api_v2_extensions__name__check_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -802,7 +870,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Update extensions to their remote's latest commit (backs up the config state first; applies after a restart) */
+        /** Update extensions to their remote's latest commit (backs up the config state first; loaded with the next reload; 502 names those git could not update) */
         post: operations["update_api_v2_extensions_update_post"];
         delete?: never;
         options?: never;
@@ -819,8 +887,95 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Install an extension from a git URL (runs its install.py; loads after a restart) */
+        /** Install an extension from a git URL (runs its install.py; loaded with the next reload; 502 when git cannot clone it) */
         post: operations["install_api_v2_extensions_install_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/extensions/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Uninstall an extension (deletes its folder; built-in ones cannot be removed) */
+        delete: operations["uninstall_api_v2_extensions__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/extensions/index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The extension index (cached for 10 minutes; `refresh` reloads it) */
+        get: operations["extension_index_api_v2_extensions_index_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/extensions/config-states": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Saved config states (backups of the WebUI and extension commits), newest first */
+        get: operations["config_states_api_v2_extensions_config_states_get"];
+        put?: never;
+        /** Back up the current WebUI and extension commits */
+        post: operations["save_config_state_api_v2_extensions_config_states_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/extensions/config-states/{state_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A backup compared with the current state */
+        get: operations["config_state_api_v2_extensions_config_states__state_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete a backup */
+        delete: operations["delete_config_state_api_v2_extensions_config_states__state_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/extensions/config-states/{state_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore the extensions of a backup (each is reset to its recorded commit while the next Reload UI runs; the WebUI checkout is never reset) */
+        post: operations["restore_config_state_api_v2_extensions_config_states__state_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -946,6 +1101,661 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/server/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the server allows (restart, extension access, settings changes) and the loaded model */
+        get: operations["server_status_api_v2_server_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/models/reload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Load the selected model now (behind generation; also after an unload; `force` loads it again) */
+        post: operations["reload_model_api_v2_models_reload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/models/loaded": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The checkpoint and the weights in memory (UNet, VAE, text encoders) with their size and device */
+        get: operations["loaded_models_api_v2_models_loaded_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/models/hashes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Progress of hashing every checkpoint */
+        get: operations["hash_status_api_v2_models_hashes_get"];
+        put?: never;
+        /** Hash every checkpoint (sha256, in the background; poll GET for progress) */
+        post: operations["hash_checkpoints_api_v2_models_hashes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/licenses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Third-party code and its licenses (from html/licenses.html) */
+        get: operations["licenses_api_v2_licenses_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/sysinfo/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Whether a sysinfo file is unmodified (its checksum matches) */
+        post: operations["check_sysinfo_api_v2_sysinfo_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/options/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Validate setting values without applying them (422 lists every rejected value) */
+        post: operations["validate_options_api_v2_options_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/jobs/{job_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Queue a copy of a job (right after it while it is queued) */
+        post: operations["duplicate_job_api_v2_jobs__job_id__duplicate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/jobs/{job_id}/params": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a queued job's parameters (validated) */
+        put: operations["update_job_params_api_v2_jobs__job_id__params_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/queue/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move a queued job next to another (and into its priority group) */
+        post: operations["move_job_api_v2_queue_move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/jobs/star": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Star or unstar jobs (starred jobs survive clearing the history) */
+        post: operations["star_jobs_api_v2_jobs_star_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/jobs/clear-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Delete finished jobs (their images stay in the gallery) */
+        post: operations["clear_history_api_v2_jobs_clear_history_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/queue/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Queues of replaced extensions found on this machine */
+        get: operations["import_sources_api_v2_queue_import_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/queue/import/{source}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import a replaced extension's queue and history (idempotent) */
+        post: operations["import_queue_api_v2_queue_import__source__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/gallery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Outputs for the gallery, filtered and sorted */
+        get: operations["gallery_api_v2_gallery_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/gallery/facets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Filter values: models, categories, date bounds */
+        get: operations["gallery_facets_api_v2_gallery_facets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/gallery/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One output */
+        get: operations["gallery_item_api_v2_gallery__file_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/gallery/star": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Star or unstar outputs */
+        post: operations["star_outputs_api_v2_gallery_star_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/gallery/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remove outputs from the gallery (and from disk with `delete_files`) */
+        post: operations["delete_outputs_api_v2_gallery_delete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/gallery/zip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pack outputs into a zip to download (kept for an hour) */
+        post: operations["zip_outputs_api_v2_gallery_zip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/gallery/{file_id}/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Show an output in the file manager of the WebUI machine (local clients only) */
+        post: operations["reveal_output_api_v2_gallery__file_id__reveal_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/pnginfo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** All metadata of an uploaded or generated image (PNG Info) */
+        post: operations["png_info_api_v2_pnginfo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What is enabled and how completions are inserted */
+        get: operations["config_api_v2_prompt_tools_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Completions for the word being typed */
+        get: operations["complete_api_v2_prompt_tools_complete_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Count an accepted completion (frequency ranking) */
+        post: operations["record_usage_api_v2_prompt_tools_usage_post"];
+        /** Forget the usage of a completion */
+        delete: operations["reset_usage_api_v2_prompt_tools_usage_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Category, post count and translation of known tags */
+        post: operations["lookup_api_v2_prompt_tools_lookup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reload the tag lists, wildcards and chants */
+        post: operations["refresh_api_v2_prompt_tools_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/translate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Translate prompt pieces with the configured provider */
+        post: operations["translate_api_v2_prompt_tools_translate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/translation-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Store (or, empty, forget) the translation API key; it is never sent back */
+        put: operations["set_translation_key_api_v2_prompt_tools_translation_key_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Quick tag groups in a language */
+        get: operations["groups_api_v2_prompt_tools_groups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Prompt history, newest first (every term must match) */
+        get: operations["history_api_v2_prompt_tools_history_get"];
+        put?: never;
+        /** Add prompts to the history */
+        post: operations["add_history_api_v2_prompt_tools_history_post"];
+        /** Clear the history */
+        delete: operations["clear_history_api_v2_prompt_tools_history_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/history/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a history entry, or its group */
+        delete: operations["delete_history_api_v2_prompt_tools_history__entry_id__delete"];
+        options?: never;
+        head?: never;
+        /** Name a history entry, or its group (named entries are kept) */
+        patch: operations["rename_history_api_v2_prompt_tools_history__entry_id__patch"];
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Favorite collections (the first is the unsorted favorites) */
+        get: operations["collections_api_v2_prompt_tools_collections_get"];
+        put?: never;
+        /** Create a collection */
+        post: operations["create_collection_api_v2_prompt_tools_collections_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/collections/{collection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a collection and its favorites */
+        delete: operations["delete_collection_api_v2_prompt_tools_collections__collection_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename a collection */
+        patch: operations["rename_collection_api_v2_prompt_tools_collections__collection_id__patch"];
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/favorites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A page of favorites in their order (`collection` empty: unsorted; absent: all) */
+        get: operations["favorites_api_v2_prompt_tools_favorites_get"];
+        put?: never;
+        /** Save a prompt or tags as a favorite */
+        post: operations["add_favorite_api_v2_prompt_tools_favorites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/favorites/{favorite_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a favorite */
+        delete: operations["delete_favorite_api_v2_prompt_tools_favorites__favorite_id__delete"];
+        options?: never;
+        head?: never;
+        /** Rename, edit, move or reorder a favorite */
+        patch: operations["update_favorite_api_v2_prompt_tools_favorites__favorite_id__patch"];
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/favorites-export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every favorite with its collection name (JSON download) */
+        get: operations["export_favorites_api_v2_prompt_tools_favorites_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/prompt-tools/favorites-import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add the favorites of an export (duplicates are skipped) */
+        post: operations["import_favorites_api_v2_prompt_tools_favorites_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal/ping": {
         parameters: {
             query?: never;
@@ -953,7 +1763,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Answers once the server is up (polled after a reload) */
+        /** Answers once the server is up (polled after a reload); `instance` differs for every app (it changes with a reload or restart) */
         get: operations["ping_internal_ping_get"];
         put?: never;
         post?: never;
@@ -1092,6 +1902,37 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * AdminErrorBody
+         * @description A refused or failed extensions/system operation.
+         */
+        AdminErrorBody: {
+            /**
+             * Detail
+             * @description the message in English
+             */
+            detail: string;
+            /**
+             * Template
+             * @description the message's translatable text with {{name}} placeholders
+             */
+            template?: string | null;
+            /**
+             * Params
+             * @description the placeholders' values
+             * @default {}
+             */
+            params: {
+                [key: string]: string;
+            };
+        };
+        /** ArchCount */
+        ArchCount: {
+            /** Id */
+            id: string;
+            /** Count */
+            count: number;
+        };
         /** AuthStatus */
         AuthStatus: {
             /** Required */
@@ -1130,6 +1971,112 @@ export interface components {
              */
             user_assets: string[];
         };
+        /** ClearHistoryRequest */
+        ClearHistoryRequest: {
+            /**
+             * Keep Starred
+             * @default true
+             */
+            keep_starred: boolean;
+        };
+        /** ConfigStateDetail */
+        ConfigStateDetail: {
+            /**
+             * Id
+             * @description the backup's file name in config_states/
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Webui Commit */
+            webui_commit?: string | null;
+            /**
+             * Extensions
+             * @description number of extensions recorded
+             * @default 0
+             */
+            extensions: number;
+            webui: components["schemas"]["ConfigStateWebui"];
+            /** Items */
+            items: components["schemas"]["ConfigStateExtension"][];
+        };
+        /** ConfigStateExtension */
+        ConfigStateExtension: {
+            /** Name */
+            name: string;
+            /**
+             * Builtin
+             * @default false
+             */
+            builtin: boolean;
+            /** @description null: not in the backup */
+            saved?: components["schemas"]["ExtensionRepoState"] | null;
+            /** @description null: not installed now */
+            current?: components["schemas"]["ExtensionRepoState"] | null;
+        };
+        /** ConfigStateInfo */
+        ConfigStateInfo: {
+            /**
+             * Id
+             * @description the backup's file name in config_states/
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Webui Commit */
+            webui_commit?: string | null;
+            /**
+             * Extensions
+             * @description number of extensions recorded
+             * @default 0
+             */
+            extensions: number;
+        };
+        /** ConfigStateRestore */
+        ConfigStateRestore: {
+            /**
+             * What
+             * @description only the extensions are restored; the WebUI checkout is never reset
+             * @default extensions
+             * @constant
+             */
+            what: "extensions";
+        };
+        /** ConfigStateSave */
+        ConfigStateSave: {
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+        };
+        /** ConfigStateWebui */
+        ConfigStateWebui: {
+            saved: components["schemas"]["RepoState"];
+            current: components["schemas"]["RepoState"];
+        };
+        /** DatasetTag */
+        DatasetTag: {
+            /** Tag */
+            tag: string;
+            /** Count */
+            count: number;
+        };
+        /** DeleteOutputsRequest */
+        DeleteOutputsRequest: {
+            /** Ids */
+            ids: string[];
+            /**
+             * Delete Files
+             * @description also delete the files on disk (else the folder scan skips them from now on)
+             * @default false
+             */
+            delete_files: boolean;
+        };
         /** Detail */
         Detail: {
             /** Detail */
@@ -1144,6 +2091,33 @@ export interface components {
             /** Message */
             message: string;
         };
+        /** ExtensionCheckRequest */
+        ExtensionCheckRequest: {
+            /**
+             * Names
+             * @description default: every enabled extension with a remote
+             */
+            names?: string[] | null;
+        };
+        /**
+         * ExtensionIndex
+         * @description An extension index (``index.json`` of the A1111 extensions list).
+         */
+        ExtensionIndex: {
+            /** Url */
+            url: string;
+            /** Fetched At */
+            fetched_at?: string | null;
+            /** Items */
+            items: components["schemas"]["IndexEntry"][];
+            /**
+             * Tags
+             * @description tag → description
+             */
+            tags: {
+                [key: string]: string;
+            };
+        };
         /** ExtensionInfo */
         ExtensionInfo: {
             /** Name */
@@ -1152,17 +2126,35 @@ export interface components {
             enabled: boolean;
             /** Builtin */
             builtin: boolean;
-            /** Remote */
+            /**
+             * Remote
+             * @description the git remote (a browsable URL when it is one, credentials removed)
+             */
             remote?: string | null;
+            /**
+             * Remote Url
+             * @description https URL of the repository, when known
+             */
+            remote_url?: string | null;
             /** Branch */
             branch?: string | null;
-            /** Version */
+            /**
+             * Version
+             * @description short commit hash
+             */
             version?: string | null;
+            /** Commit Hash */
+            commit_hash?: string | null;
+            /**
+             * Commit Url
+             * @description link to the commit on its forge (GitHub, GitLab, Codeberg)
+             */
+            commit_url?: string | null;
             /** Commit Date */
             commit_date?: string | null;
             /**
              * Status
-             * @description after a check: "latest", "new commits", "behind HEAD", ...
+             * @description after a check: "latest", "new commits", "behind HEAD", "unknown (remote error)", ...
              */
             status?: string | null;
             /**
@@ -1194,6 +2186,41 @@ export interface components {
              * @description whether this server allows installing, updating and toggling extensions
              */
             access: boolean;
+            /**
+             * Restartable
+             * @description whether /server/restart can restart the process
+             * @default false
+             */
+            restartable: boolean;
+            /**
+             * Disabled By
+             * @description why extensions are not loaded: "all", "extra" (the option) or a command-line flag
+             */
+            disabled_by?: string | null;
+            /**
+             * Index Url
+             * @description the default extension index URL
+             * @default
+             */
+            index_url: string;
+        };
+        /** ExtensionRepoState */
+        ExtensionRepoState: {
+            /** Remote */
+            remote?: string | null;
+            /** Branch */
+            branch?: string | null;
+            /** Commit Hash */
+            commit_hash?: string | null;
+            /** Commit Url */
+            commit_url?: string | null;
+            /** Commit Date */
+            commit_date?: string | null;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
         };
         /** ExtensionUpdateRequest */
         ExtensionUpdateRequest: {
@@ -1210,10 +2237,109 @@ export interface components {
             /** Disable All */
             disable_all?: ("none" | "extra" | "all") | null;
         };
+        /** FacetCount */
+        FacetCount: {
+            /** Name */
+            name: string;
+            /** Count */
+            count: number;
+        };
+        /** GalleryFacets */
+        GalleryFacets: {
+            /** Models */
+            models: components["schemas"]["FacetCount"][];
+            /** Categories */
+            categories: components["schemas"]["FacetCount"][];
+            /** Oldest */
+            oldest?: string | null;
+            /** Newest */
+            newest?: string | null;
+            /** Total */
+            total: number;
+            /** Starred */
+            starred: number;
+        };
+        /** GalleryItem */
+        GalleryItem: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Width */
+            width?: number | null;
+            /** Height */
+            height?: number | null;
+            /** Size */
+            size: number;
+            /** Mime */
+            mime: string;
+            /** Created At */
+            created_at: string;
+            /** Job Id */
+            job_id?: string | null;
+            /** Tab */
+            tab?: string | null;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "txt2img" | "img2img" | "extras" | "grids" | "saved" | "other";
+            /** Model */
+            model?: string | null;
+            /**
+             * Starred
+             * @default false
+             */
+            starred: boolean;
+            /** Infotext */
+            infotext?: string | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HashProgress */
+        HashProgress: {
+            /** Running */
+            running: boolean;
+            /**
+             * Done
+             * @default 0
+             */
+            done: number;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /**
+             * Failed
+             * @default []
+             */
+            failed: string[];
+            /**
+             * Current
+             * @description checkpoints being hashed
+             * @default []
+             */
+            current: string[];
+            /** Finished At */
+            finished_at?: string | null;
+        };
+        /** HashRequest */
+        HashRequest: {
+            /**
+             * Threads
+             * @description checkpoints hashed at once
+             * @default 1
+             */
+            threads: number;
+        };
+        /** IdsRequest */
+        IdsRequest: {
+            /** Ids */
+            ids: string[];
         };
         /**
          * ImageInfo
@@ -1237,6 +2363,159 @@ export interface components {
             file_id: string;
             /** Tab */
             tab?: ("txt2img" | "img2img" | "extras") | null;
+        };
+        /** ImageMetadata */
+        ImageMetadata: {
+            /** Name */
+            name: string;
+            /** Format */
+            format?: string | null;
+            /** Mode */
+            mode: string;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /** Size */
+            size: number;
+            /** Infotext */
+            infotext?: string | null;
+            /**
+             * Params
+             * @description the parsed generation parameters (display strings)
+             * @default {}
+             */
+            params: {
+                [key: string]: string;
+            };
+            /** Entries */
+            entries: components["schemas"]["MetadataEntry"][];
+            /** Chunks */
+            chunks: components["schemas"]["PngChunk"][];
+        };
+        /** ImportItem */
+        ImportItem: {
+            /** Source Id */
+            source_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "queued" | "history" | "refused" | "invalid" | "skipped" | "error";
+            /** Job Id */
+            job_id?: string | null;
+            /**
+             * Notes
+             * @default []
+             */
+            notes: components["schemas"]["Note"][];
+        };
+        /** ImportReport */
+        ImportReport: {
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "agent-scheduler" | "prompt-queue";
+            /**
+             * Path
+             * @description the file imported (not under --hide-ui-dir-config)
+             */
+            path?: string | null;
+            /** Total */
+            total: number;
+            /** Queued */
+            queued: number;
+            /** History */
+            history: number;
+            /**
+             * Refused
+             * @description pending tasks with arguments that cannot be mapped: kept in the history, not replayable
+             */
+            refused: number;
+            /**
+             * Invalid
+             * @description pending tasks whose values the current form rejects: kept in the history to edit
+             */
+            invalid: number;
+            /**
+             * Skipped
+             * @description imported before (or finished prompts)
+             */
+            skipped: number;
+            /** Errors */
+            errors: number;
+            /**
+             * Paused
+             * @description the queue was paused so the imported jobs can be reviewed
+             */
+            paused: boolean;
+            /** Items */
+            items: components["schemas"]["ImportItem"][];
+        };
+        /** ImportSourceInfo */
+        ImportSourceInfo: {
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "agent-scheduler" | "prompt-queue";
+            /** Label */
+            label: string;
+            /** Available */
+            available: boolean;
+            /**
+             * Count
+             * @description records found (pending prompts for the Prompt Queue)
+             * @default 0
+             */
+            count: number;
+            /**
+             * Path
+             * @description where it was found (not under --hide-ui-dir-config)
+             */
+            path?: string | null;
+        };
+        /** IndexEntry */
+        IndexEntry: {
+            /** Name */
+            name: string;
+            /** Url */
+            url: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
+            /** Added */
+            added?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Commit Time */
+            commit_time?: string | null;
+            /**
+             * Stars
+             * @default 0
+             */
+            stars: number;
+            /**
+             * Order
+             * @description position in the index (its own order)
+             * @default 0
+             */
+            order: number;
+            /**
+             * Installed
+             * @default false
+             */
+            installed: boolean;
         };
         /** InfotextParsed */
         InfotextParsed: {
@@ -1328,6 +2607,38 @@ export interface components {
             retry_of?: string | null;
             /** Infotext */
             infotext?: string | null;
+            /**
+             * Starred
+             * @default false
+             */
+            starred: boolean;
+            /**
+             * Replayable
+             * @description false: imported with arguments that do not map to the current parameters (never run or retried as is)
+             * @default true
+             */
+            replayable: boolean;
+            /**
+             * Name
+             * @description a name the job was given (imported tasks)
+             */
+            name?: string | null;
+            /**
+             * Source
+             * @description the importer that brought the job in ("agent-scheduler", "prompt-queue")
+             */
+            source?: string | null;
+            /**
+             * Notes
+             * @description what an importer could not map exactly
+             * @default []
+             */
+            notes: components["schemas"]["Note"][];
+        };
+        /** JobCount */
+        JobCount: {
+            /** Count */
+            count: number;
         };
         /** JobCreated */
         JobCreated: {
@@ -1386,6 +2697,33 @@ export interface components {
             retry_of?: string | null;
             /** Infotext */
             infotext?: string | null;
+            /**
+             * Starred
+             * @default false
+             */
+            starred: boolean;
+            /**
+             * Replayable
+             * @description false: imported with arguments that do not map to the current parameters (never run or retried as is)
+             * @default true
+             */
+            replayable: boolean;
+            /**
+             * Name
+             * @description a name the job was given (imported tasks)
+             */
+            name?: string | null;
+            /**
+             * Source
+             * @description the importer that brought the job in ("agent-scheduler", "prompt-queue")
+             */
+            source?: string | null;
+            /**
+             * Notes
+             * @description what an importer could not map exactly
+             * @default []
+             */
+            notes: components["schemas"]["Note"][];
             /** Core */
             core: Record<string, unknown>;
             /** Scripts */
@@ -1394,6 +2732,7 @@ export interface components {
             layout_hash: string;
             /** Schema Version */
             schema_version: number;
+            opaque?: components["schemas"]["OpaqueArgs"] | null;
         };
         /** JobOutput */
         JobOutput: {
@@ -1411,6 +2750,19 @@ export interface components {
             height?: number | null;
             /** Infotext */
             infotext?: string | null;
+        };
+        /** JobParams */
+        JobParams: {
+            /**
+             * Core
+             * @default {}
+             */
+            core: Record<string, unknown>;
+            /**
+             * Scripts
+             * @default {}
+             */
+            scripts: Record<string, unknown>;
         };
         /** JobPatch */
         JobPatch: {
@@ -1475,6 +2827,62 @@ export interface components {
              */
             forever: boolean;
         };
+        /** LicenseEntry */
+        LicenseEntry: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Url */
+            url?: string | null;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * License Url
+             * @description raw text of the license (fetched by the browser)
+             */
+            license_url?: string | null;
+        };
+        /** LicenseGroup */
+        LicenseGroup: {
+            /** Title */
+            title: string;
+            /** Items */
+            items: components["schemas"]["LicenseEntry"][];
+        };
+        /** Licenses */
+        Licenses: {
+            /** Groups */
+            groups: components["schemas"]["LicenseGroup"][];
+        };
+        /** LoadedModels */
+        LoadedModels: {
+            /**
+             * Checkpoint
+             * @description the checkpoint in memory, if any
+             */
+            checkpoint?: string | null;
+            /** Items */
+            items: components["schemas"]["LoadedWeights"][];
+        };
+        /** LoadedWeights */
+        LoadedWeights: {
+            /**
+             * Name
+             * @description the model's class (UNet, VAE, text encoder, ...)
+             */
+            name: string;
+            /**
+             * Memory Mb
+             * @description memory it holds on its device, in MiB
+             */
+            memory_mb?: number | null;
+            /** Device */
+            device?: string | null;
+        };
         /** LocaleInfo */
         LocaleInfo: {
             /** Id */
@@ -1489,6 +2897,29 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** MetadataEntry */
+        MetadataEntry: {
+            /**
+             * Group
+             * @description "Image", "Metadata" (PNG text, comments, ...), "EXIF", "EXIF Exif", "EXIF GPS", ...
+             */
+            group: string;
+            /** Key */
+            key: string;
+            /** Value */
+            value: string;
+            /**
+             * Kind
+             * @default text
+             * @enum {string}
+             */
+            kind: "text" | "number" | "binary";
+        };
+        /** MetadataRequest */
+        MetadataRequest: {
+            /** File Id */
+            file_id: string;
+        };
         /** ModelRef */
         ModelRef: {
             /** Name */
@@ -1501,6 +2932,15 @@ export interface components {
             arch?: string | null;
             /** Size */
             size?: number | null;
+        };
+        /** ModelReloadRequest */
+        ModelReloadRequest: {
+            /**
+             * Force
+             * @description load again even when the selected model is already loaded
+             * @default false
+             */
+            force: boolean;
         };
         /** Models */
         Models: {
@@ -1546,6 +2986,60 @@ export interface components {
             /** Unet Dtype */
             unet_dtype?: string | null;
         };
+        /** MoveRequest */
+        MoveRequest: {
+            /** Id */
+            id: string;
+            /**
+             * After
+             * @description the queued job it now follows (same priority group)
+             */
+            after?: string | null;
+            /**
+             * Before
+             * @description the queued job it now precedes, used when `after` is not given or not queued any more
+             */
+            before?: string | null;
+            /**
+             * Priority
+             * @description its new priority (the group of its neighbours)
+             */
+            priority?: number | null;
+        };
+        /** NetworkFacets */
+        NetworkFacets: {
+            /** Kind */
+            kind: string;
+            /** Total */
+            total: number;
+            /**
+             * Folder Total
+             * @default 0
+             */
+            folder_total: number;
+            /** Count */
+            count: number;
+            /** Folders */
+            folders: components["schemas"]["NetworkFolder"][];
+            /** Archs */
+            archs: components["schemas"]["ArchCount"][];
+            /** Current Arch */
+            current_arch?: string | null;
+        };
+        /** NetworkFolder */
+        NetworkFolder: {
+            /** Path */
+            path: string;
+            /** Name */
+            name: string;
+            /** Count */
+            count: number;
+            /**
+             * Children
+             * @default []
+             */
+            children: components["schemas"]["NetworkFolder"][];
+        };
         /** NetworkItem */
         NetworkItem: {
             /** Name */
@@ -1556,14 +3050,34 @@ export interface components {
             kind: string;
             /** Path */
             path: string;
+            /**
+             * Folder
+             * @default
+             */
+            folder: string;
             /** Preview */
             preview?: string | null;
+            /** Preview Type */
+            preview_type?: ("image" | "video") | null;
+            /** Placeholder */
+            placeholder?: string | null;
             /** Description */
             description?: string | null;
             /** Prompt */
             prompt?: string | null;
             /** Negative Prompt */
             negative_prompt?: string | null;
+            /** Activation Text */
+            activation_text?: string | null;
+            /** Preferred Weight */
+            preferred_weight?: number | null;
+            /** Negative Text */
+            negative_text?: string | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
             /**
              * Search Terms
              * @default []
@@ -1575,10 +3089,56 @@ export interface components {
             alias?: string | null;
             /** Sd Version */
             sd_version?: string | null;
+            /** Arch */
+            arch?: string | null;
+            /** Subtype */
+            subtype?: string | null;
+            /** Value */
+            value?: string | null;
             /** Mtime */
             mtime?: number | null;
+            /** Created */
+            created?: number | null;
             /** Size */
             size?: number | null;
+            /**
+             * Editable
+             * @default true
+             */
+            editable: boolean;
+            /**
+             * Hidden
+             * @default false
+             */
+            hidden: boolean;
+        };
+        /** NetworkKind */
+        NetworkKind: {
+            /** Id */
+            id: string;
+            /** Title */
+            title: string;
+            /**
+             * Action
+             * @default prompt
+             * @enum {string}
+             */
+            action: "prompt" | "checkpoint" | "module" | "none";
+            /**
+             * Negative
+             * @default false
+             */
+            negative: boolean;
+            /**
+             * Fields
+             * @default []
+             */
+            fields: string[];
+            /**
+             * Builtin
+             * @default false
+             */
+            builtin: boolean;
         };
         /** NetworkMeta */
         NetworkMeta: {
@@ -1590,14 +3150,34 @@ export interface components {
             kind: string;
             /** Path */
             path: string;
+            /**
+             * Folder
+             * @default
+             */
+            folder: string;
             /** Preview */
             preview?: string | null;
+            /** Preview Type */
+            preview_type?: ("image" | "video") | null;
+            /** Placeholder */
+            placeholder?: string | null;
             /** Description */
             description?: string | null;
             /** Prompt */
             prompt?: string | null;
             /** Negative Prompt */
             negative_prompt?: string | null;
+            /** Activation Text */
+            activation_text?: string | null;
+            /** Preferred Weight */
+            preferred_weight?: number | null;
+            /** Negative Text */
+            negative_text?: string | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: string[];
             /**
              * Search Terms
              * @default []
@@ -1609,10 +3189,28 @@ export interface components {
             alias?: string | null;
             /** Sd Version */
             sd_version?: string | null;
+            /** Arch */
+            arch?: string | null;
+            /** Subtype */
+            subtype?: string | null;
+            /** Value */
+            value?: string | null;
             /** Mtime */
             mtime?: number | null;
+            /** Created */
+            created?: number | null;
             /** Size */
             size?: number | null;
+            /**
+             * Editable
+             * @default true
+             */
+            editable: boolean;
+            /**
+             * Hidden
+             * @default false
+             */
+            hidden: boolean;
             /**
              * Metadata
              * @default {}
@@ -1623,6 +3221,16 @@ export interface components {
              * @default {}
              */
             user_metadata: Record<string, unknown>;
+            /**
+             * Training
+             * @default {}
+             */
+            training: Record<string, unknown>;
+            /**
+             * Dataset Tags
+             * @default []
+             */
+            dataset_tags: components["schemas"]["DatasetTag"][];
         };
         /**
          * NotPorted
@@ -1651,6 +3259,21 @@ export interface components {
             /** Reason */
             reason?: string | null;
         };
+        /**
+         * Note
+         * @description A translatable note: an English message with ``{{name}}`` placeholders and their values.
+         */
+        Note: {
+            /** Message */
+            message: string;
+            /**
+             * Values
+             * @default {}
+             */
+            values: {
+                [key: string]: string | number;
+            };
+        };
         /** Ok */
         Ok: {
             /**
@@ -1661,6 +3284,17 @@ export interface components {
             /** Message */
             message?: string | null;
         };
+        /** OpaqueArgs */
+        OpaqueArgs: {
+            /** Count */
+            count: number;
+            /**
+             * Preview
+             * @description short descriptions of the unmapped arguments
+             * @default []
+             */
+            preview: string[];
+        };
         /** OpenFolderRequest */
         OpenFolderRequest: {
             /**
@@ -1668,6 +3302,11 @@ export interface components {
              * @enum {string}
              */
             folder: "txt2img" | "img2img" | "extras" | "grids" | "save";
+        };
+        /** OutputCount */
+        OutputCount: {
+            /** Count */
+            count: number;
         };
         /** OutputItem */
         OutputItem: {
@@ -1732,6 +3371,15 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** Page[GalleryItem] */
+        Page_GalleryItem_: {
+            /** Items */
+            items: components["schemas"]["GalleryItem"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
         /** Page[Job] */
         Page_Job_: {
             /** Items */
@@ -1759,6 +3407,42 @@ export interface components {
             /** Total */
             total?: number | null;
         };
+        /** Page[PromptFavorite] */
+        Page_PromptFavorite_: {
+            /** Items */
+            items: components["schemas"]["PromptFavorite"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
+        /** Page[PromptHistoryItem] */
+        Page_PromptHistoryItem_: {
+            /** Items */
+            items: components["schemas"]["PromptHistoryItem"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total */
+            total?: number | null;
+        };
+        /** PngChunk */
+        PngChunk: {
+            /** Type */
+            type: string;
+            /** Length */
+            length: number;
+            /**
+             * Count
+             * @description consecutive IDAT chunks are merged
+             * @default 1
+             */
+            count: number;
+            /**
+             * Key
+             * @description keyword of a text chunk
+             */
+            key?: string | null;
+        };
         /** PresetList */
         PresetList: {
             /** Anima */
@@ -1770,7 +3454,10 @@ export interface components {
         };
         /** PreviewRequest */
         PreviewRequest: {
-            /** File Id */
+            /**
+             * File Id
+             * @description an uploaded or generated image
+             */
             file_id: string;
         };
         /** ProgressRequest */
@@ -1824,6 +3511,213 @@ export interface components {
              */
             textinfo?: string | null;
         };
+        /** PromptCollection */
+        PromptCollection: {
+            /**
+             * Id
+             * @description null: the favorites outside any collection
+             */
+            id: string | null;
+            /** Name */
+            name: string;
+            /** Created */
+            created: number;
+            /** Count */
+            count: number;
+        };
+        /** PromptCollectionCreate */
+        PromptCollectionCreate: {
+            /** Name */
+            name: string;
+        };
+        /** PromptCompletionItem */
+        PromptCompletionItem: {
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "tag" | "extra" | "lora" | "embedding" | "chant" | "wildcard" | "wildcard-value";
+            /**
+             * Text
+             * @description what is inserted: tag, LoRA alias, embedding, chant content, wildcard name or value
+             */
+            text: string;
+            /** Label */
+            label?: string | null;
+            /** Category */
+            category?: number | null;
+            /** Count */
+            count?: number | null;
+            /**
+             * Alias
+             * @description the alias the query matched
+             */
+            alias?: string | null;
+            /** Translation */
+            translation?: string | null;
+            /** Meta */
+            meta?: string | null;
+            /** Weight */
+            weight?: number | null;
+            /**
+             * Keywords
+             * @description a LoRA's activation text
+             */
+            keywords?: string | null;
+            /**
+             * Preview
+             * @description file id of a preview image
+             */
+            preview?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Uses */
+            uses?: number | null;
+        };
+        /** PromptCompletionList */
+        PromptCompletionList: {
+            /** Items */
+            items: components["schemas"]["PromptCompletionItem"][];
+        };
+        /** PromptFavorite */
+        PromptFavorite: {
+            /** Id */
+            id: string;
+            /** Collection Id */
+            collection_id: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "prompt" | "negative" | "tags";
+            /** Text */
+            text: string;
+            /** Name */
+            name: string;
+            /** Created */
+            created: number;
+            /** Position */
+            position: number;
+        };
+        /** PromptFavoriteCreate */
+        PromptFavoriteCreate: {
+            /** Text */
+            text: string;
+            /**
+             * Kind
+             * @default prompt
+             * @enum {string}
+             */
+            kind: "prompt" | "negative" | "tags";
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /** Collection Id */
+            collection_id?: string | null;
+        };
+        /** PromptFavoritePatch */
+        PromptFavoritePatch: {
+            /** Name */
+            name?: string | null;
+            /** Text */
+            text?: string | null;
+            /**
+             * Collection Id
+             * @description move to this collection (null: none); only when given
+             */
+            collection_id?: string | null;
+            /**
+             * Before
+             * @description move in front of this favorite (null with `collection_id` given: to the end)
+             */
+            before?: string | null;
+        };
+        /** PromptFavoritesExport */
+        PromptFavoritesExport: {
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /** Favorites */
+            favorites: Record<string, unknown>[];
+        };
+        /** PromptFavoritesImported */
+        PromptFavoritesImported: {
+            /** Added */
+            added: number;
+        };
+        /** PromptGroupTag */
+        PromptGroupTag: {
+            /** Tag */
+            tag: string;
+            /** Label */
+            label?: string | null;
+        };
+        /** PromptHistoryCleared */
+        PromptHistoryCleared: {
+            /** Removed */
+            removed: number;
+        };
+        /** PromptHistoryCreate */
+        PromptHistoryCreate: {
+            /**
+             * Prompt
+             * @default
+             */
+            prompt: string;
+            /**
+             * Negative Prompt
+             * @default
+             */
+            negative_prompt: string;
+            /**
+             * Tab
+             * @default
+             */
+            tab: string;
+        };
+        /** PromptHistoryItem */
+        PromptHistoryItem: {
+            /** Id */
+            id: string;
+            /** Tab */
+            tab: string;
+            /** Prompt */
+            prompt: string;
+            /** Negative Prompt */
+            negative_prompt: string;
+            /** Name */
+            name: string;
+            /** Created */
+            created: number;
+            /** Last Used */
+            last_used: number;
+            /** Uses */
+            uses: number;
+        };
+        /** PromptHistoryPatch */
+        PromptHistoryPatch: {
+            /** Name */
+            name: string;
+            /**
+             * Field
+             * @description name every entry with this entry's prompt / negative prompt (a grouped list)
+             */
+            field?: ("prompt" | "negative") | null;
+        };
+        /** PromptHistoryRemoved */
+        PromptHistoryRemoved: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /** Removed */
+            removed: number;
+        };
         /** PromptStyle */
         PromptStyle: {
             /** Name */
@@ -1838,6 +3732,190 @@ export interface components {
              * @default
              */
             negative_prompt: string;
+        };
+        /** PromptTagCategory */
+        PromptTagCategory: {
+            /** Name */
+            name: string;
+            /** Groups */
+            groups: components["schemas"]["PromptTagGroup"][];
+        };
+        /** PromptTagGroup */
+        PromptTagGroup: {
+            /** Name */
+            name: string;
+            /** Color */
+            color?: string | null;
+            /** Tags */
+            tags: components["schemas"]["PromptGroupTag"][];
+        };
+        /** PromptTagGroups */
+        PromptTagGroups: {
+            /** Categories */
+            categories: components["schemas"]["PromptTagCategory"][];
+        };
+        /** PromptTagInfo */
+        PromptTagInfo: {
+            /** Category */
+            category?: number | null;
+            /** Count */
+            count?: number | null;
+            /** Translation */
+            translation?: string | null;
+        };
+        /** PromptTagLookup */
+        PromptTagLookup: {
+            /** Tags */
+            tags: {
+                [key: string]: components["schemas"]["PromptTagInfo"];
+            };
+        };
+        /** PromptTagLookupRequest */
+        PromptTagLookupRequest: {
+            /** Tags */
+            tags: string[];
+        };
+        /** PromptToolsConfig */
+        PromptToolsConfig: {
+            tags: components["schemas"]["PromptToolsTagSettings"];
+            tools: components["schemas"]["PromptToolsToolSettings"];
+        };
+        /** PromptToolsTagSettings */
+        PromptToolsTagSettings: {
+            /** Enabled */
+            enabled: boolean;
+            /** Negative */
+            negative: boolean;
+            /**
+             * Source
+             * @description tag list family for category colours: danbooru, e621, derpibooru or merged
+             */
+            source: string;
+            /** Max Results */
+            max_results: number;
+            /** Loras */
+            loras: boolean;
+            /** Embeddings */
+            embeddings: boolean;
+            /** Chants */
+            chants: boolean;
+            /** Wildcards */
+            wildcards: boolean;
+            /** Wildcard Mode */
+            wildcard_mode: string;
+            /** Replace Underscores */
+            replace_underscores: boolean;
+            /** Underscore Exclusions */
+            underscore_exclusions: string[];
+            /** Escape Parentheses */
+            escape_parentheses: boolean;
+            /** Append Comma */
+            append_comma: boolean;
+            /** Append Space */
+            append_space: boolean;
+            /** Always Space At End */
+            always_space_at_end: boolean;
+            /** Keywords */
+            keywords: boolean;
+            /** Keyword Location */
+            keyword_location: string;
+            /** Artist Prefix */
+            artist_prefix: boolean;
+            /** Previews */
+            previews: boolean;
+            /** Wiki Links */
+            wiki_links: boolean;
+            /** Network Separator */
+            network_separator: string;
+            /** Default Weight */
+            default_weight: number;
+        };
+        /** PromptToolsToolSettings */
+        PromptToolsToolSettings: {
+            /** Enabled */
+            enabled: boolean;
+            /** History */
+            history: boolean;
+            /** Groups */
+            groups: boolean;
+            /**
+             * Translation
+             * @description the usable provider; null: translation is off
+             */
+            translation?: string | null;
+            /**
+             * Translation Provider
+             * @description the chosen provider, usable or not (a network provider may still need its API key)
+             * @default none
+             */
+            translation_provider: string;
+            /**
+             * Translation Key
+             * @description an API key is stored (it is never sent back)
+             * @default false
+             */
+            translation_key: boolean;
+            /** Language */
+            language: string;
+            /**
+             * Comments
+             * @description prompt comments are stripped (disabled chips are written as /* … *\/)
+             */
+            comments: boolean;
+            /**
+             * Toolbar
+             * @description which prompt fields get the tools bar
+             * @default All prompt fields
+             * @enum {string}
+             */
+            toolbar: "All prompt fields" | "Main prompts only";
+        };
+        /** PromptTranslateRequest */
+        PromptTranslateRequest: {
+            /** Texts */
+            texts: string[];
+            /**
+             * Target
+             * @description `en`, or a display language such as `zh_CN`
+             * @default en
+             */
+            target: string;
+        };
+        /** PromptTranslation */
+        PromptTranslation: {
+            /** Provider */
+            provider: string;
+            /** Translations */
+            translations: (string | null)[];
+        };
+        /** PromptTranslationKey */
+        PromptTranslationKey: {
+            /**
+             * Key
+             * @description the provider's API key; empty: forget it
+             */
+            key: string;
+        };
+        /** PromptTranslationKeyState */
+        PromptTranslationKeyState: {
+            /** Configured */
+            configured: boolean;
+        };
+        /** PromptUsageRecord */
+        PromptUsageRecord: {
+            /** Name */
+            name: string;
+            /**
+             * Type
+             * @default tag
+             * @enum {string}
+             */
+            type: "tag" | "extra" | "lora" | "embedding" | "chant" | "wildcard" | "wildcard-value";
+            /**
+             * Negative
+             * @default false
+             */
+            negative: boolean;
         };
         /** QueueStatus */
         QueueStatus: {
@@ -1855,6 +3933,27 @@ export interface components {
              * @description queued job ids in their new order; jobs keep their priority, so the order applies within each priority
              */
             order: string[];
+        };
+        /** RepoState */
+        RepoState: {
+            /** Remote */
+            remote?: string | null;
+            /** Branch */
+            branch?: string | null;
+            /** Commit Hash */
+            commit_hash?: string | null;
+            /** Commit Url */
+            commit_url?: string | null;
+            /** Commit Date */
+            commit_date?: string | null;
+        };
+        /** RestoreResult */
+        RestoreResult: {
+            /**
+             * Reload
+             * @description apply with /server/reload (extension commits are restored while reloading)
+             */
+            reload: boolean;
         };
         /** RulesRequest */
         RulesRequest: {
@@ -1927,6 +4026,28 @@ export interface components {
             /** Label */
             label?: string | null;
         };
+        /** ServerStatus */
+        ServerStatus: {
+            /**
+             * Restartable
+             * @description whether /server/restart can restart the process
+             */
+            restartable: boolean;
+            /** Extension Access */
+            extension_access: boolean;
+            /**
+             * Settings Frozen
+             * @description --freeze-settings: PATCH /options refuses every change
+             */
+            settings_frozen: boolean;
+            /**
+             * Model Loaded
+             * @description the checkpoint in memory, if any
+             */
+            model_loaded?: string | null;
+            /** Version */
+            version: string;
+        };
         /**
          * SettingsSchema
          * @description ``GET/PATCH /options`` (schema-format.md §6).
@@ -1940,6 +4061,32 @@ export interface components {
             quicksettings: string[];
             /** Values */
             values: Record<string, unknown>;
+            /**
+             * Defaults
+             * @description each stored setting's built-in default (reset to default)
+             * @default {}
+             */
+            defaults: Record<string, unknown>;
+        };
+        /** StarOutputsRequest */
+        StarOutputsRequest: {
+            /** Ids */
+            ids: string[];
+            /**
+             * Starred
+             * @default true
+             */
+            starred: boolean;
+        };
+        /** StarRequest */
+        StarRequest: {
+            /** Ids */
+            ids: string[];
+            /**
+             * Starred
+             * @default true
+             */
+            starred: boolean;
         };
         /** StyleBody */
         StyleBody: {
@@ -1978,6 +4125,16 @@ export interface components {
              * @default []
              */
             styles: string[];
+        };
+        /** SysinfoCheck */
+        SysinfoCheck: {
+            /** Valid */
+            valid: boolean;
+        };
+        /** SysinfoCheckRequest */
+        SysinfoCheckRequest: {
+            /** Text */
+            text: string;
         };
         /**
          * TabSchema
@@ -2053,6 +4210,9 @@ export interface components {
         /**
          * UserMetadataPatch
          * @description Keys to set (``null`` removes one); ``replace`` drops the others.
+         *     Known keys are checked: ``description``, ``activation text``,
+         *     ``negative text``, ``notes`` (text), ``preferred weight`` (number),
+         *     ``sd version`` (``Unknown`` or an architecture), ``tags`` (list).
          */
         UserMetadataPatch: {
             /** User Metadata */
@@ -2079,6 +4239,18 @@ export interface components {
         ValidationErrorBody: {
             /** Errors */
             errors: components["schemas"]["ErrorItem"][];
+        };
+        /** ZipResult */
+        ZipResult: {
+            /**
+             * Id
+             * @description file id of the zip (download with /files/{id}?download=1)
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Count */
+            count: number;
         };
     };
     responses: never;
@@ -2720,6 +4892,10 @@ export interface operations {
                 limit?: number;
                 /** @description comma-separated statuses */
                 status?: string | null;
+                /** @description every word must appear in the prompt, infotext or parameters */
+                q?: string | null;
+                starred?: boolean | null;
+                tab?: ("txt2img" | "img2img" | "extras") | null;
             };
             header?: never;
             path?: never;
@@ -3598,7 +5774,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": string[];
+                    "application/json": components["schemas"]["NetworkKind"][];
+                };
+            };
+        };
+    };
+    refresh_all_api_v2_networks_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ok"];
                 };
             };
         };
@@ -3606,9 +5802,18 @@ export interface operations {
     search_api_v2_networks__kind__get: {
         parameters: {
             query?: {
+                /** @description only items in this folder (relative path) and its subfolders */
+                folder?: string | null;
+                /** @description architecture names (``unknown``: items without one); any of them */
+                arch?: string[] | null;
+                /** @description only items for the current UI preset's architecture (or unknown) */
+                compatible?: boolean;
                 q?: string | null;
                 cursor?: string | null;
+                /** @description start at this match (instead of ``cursor``: clients jump straight to the window they show) */
+                offset?: number | null;
                 limit?: number;
+                /** @description ``date``: modified, ``created``: added; ``mtime`` is ``date`` */
                 sort?: string;
                 order?: string;
             };
@@ -3627,6 +5832,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_NetworkItem_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    facets_api_v2_networks__kind__facets_get: {
+        parameters: {
+            query?: {
+                /** @description only items in this folder (relative path) and its subfolders */
+                folder?: string | null;
+                /** @description architecture names (``unknown``: items without one); any of them */
+                arch?: string[] | null;
+                /** @description only items for the current UI preset's architecture (or unknown) */
+                compatible?: boolean;
+                q?: string | null;
+            };
+            header?: never;
+            path: {
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NetworkFacets"];
                 };
             };
             /** @description Not Found */
@@ -3764,6 +6017,15 @@ export interface operations {
                     "application/json": components["schemas"]["Detail"];
                 };
             };
+            /** @description the item has no model file to write next to */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
             /** @description Unprocessable Content */
             422: {
                 headers: {
@@ -3802,6 +6064,74 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description the item has no model file to write next to */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    open_folder_api_v2_networks__kind___name__open_folder_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ok"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description the item has no model file to write next to */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3868,7 +6198,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Detail"];
+                    "application/json": components["schemas"]["AdminErrorBody"];
                 };
             };
             /** @description Not Found */
@@ -3877,7 +6207,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Detail"];
+                    "application/json": components["schemas"]["AdminErrorBody"];
                 };
             };
             /** @description Unprocessable Content */
@@ -3886,7 +6216,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Detail"];
+                    "application/json": components["schemas"]["AdminErrorBody"];
                 };
             };
         };
@@ -3898,7 +6228,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ExtensionCheckRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -3915,7 +6249,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Detail"];
+                    "application/json": components["schemas"]["AdminErrorBody"];
                 };
             };
             /** @description Not Found */
@@ -3924,7 +6258,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Detail"];
+                    "application/json": components["schemas"]["AdminErrorBody"];
                 };
             };
             /** @description Unprocessable Content */
@@ -3933,7 +6267,56 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Detail"];
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+        };
+    };
+    check_one_api_v2_extensions__name__check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtensionInfo"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
                 };
             };
         };
@@ -3966,7 +6349,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Detail"];
+                    "application/json": components["schemas"]["AdminErrorBody"];
                 };
             };
             /** @description Not Found */
@@ -3975,7 +6358,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Detail"];
+                    "application/json": components["schemas"]["AdminErrorBody"];
                 };
             };
             /** @description Unprocessable Content */
@@ -3984,7 +6367,16 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Detail"];
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
                 };
             };
         };
@@ -4017,7 +6409,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Detail"];
+                    "application/json": components["schemas"]["AdminErrorBody"];
                 };
             };
             /** @description Not Found */
@@ -4026,7 +6418,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Detail"];
+                    "application/json": components["schemas"]["AdminErrorBody"];
                 };
             };
             /** @description Conflict */
@@ -4035,7 +6427,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Detail"];
+                    "application/json": components["schemas"]["AdminErrorBody"];
                 };
             };
             /** @description Unprocessable Content */
@@ -4044,7 +6436,342 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Detail"];
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+        };
+    };
+    uninstall_api_v2_extensions__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+        };
+    };
+    extension_index_api_v2_extensions_index_get: {
+        parameters: {
+            query?: {
+                url?: string | null;
+                refresh?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtensionIndex"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+        };
+    };
+    config_states_api_v2_extensions_config_states_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigStateInfo"][];
+                };
+            };
+        };
+    };
+    save_config_state_api_v2_extensions_config_states_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigStateSave"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigStateInfo"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+        };
+    };
+    config_state_api_v2_extensions_config_states__state_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                state_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigStateDetail"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+        };
+    };
+    delete_config_state_api_v2_extensions_config_states__state_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                state_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+        };
+    };
+    restore_config_state_api_v2_extensions_config_states__state_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                state_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigStateRestore"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoreResult"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminErrorBody"];
                 };
             };
         };
@@ -4242,6 +6969,1842 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, unknown>;
+                };
+            };
+        };
+    };
+    server_status_api_v2_server_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerStatus"];
+                };
+            };
+        };
+    };
+    reload_model_api_v2_models_reload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ModelReloadRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ok"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    loaded_models_api_v2_models_loaded_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoadedModels"];
+                };
+            };
+        };
+    };
+    hash_status_api_v2_models_hashes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HashProgress"];
+                };
+            };
+        };
+    };
+    hash_checkpoints_api_v2_models_hashes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["HashRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HashProgress"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    licenses_api_v2_licenses_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Licenses"];
+                };
+            };
+        };
+    };
+    check_sysinfo_api_v2_sysinfo_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SysinfoCheckRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SysinfoCheck"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validate_options_api_v2_options_validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, unknown>;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ok"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorBody"];
+                };
+            };
+        };
+    };
+    duplicate_job_api_v2_jobs__job_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCreated"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorBody"];
+                };
+            };
+        };
+    };
+    update_job_params_api_v2_jobs__job_id__params_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobParams"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationErrorBody"];
+                };
+            };
+        };
+    };
+    move_job_api_v2_queue_move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueStatus"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    star_jobs_api_v2_jobs_star_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StarRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCount"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_history_api_v2_jobs_clear_history_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClearHistoryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCount"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_sources_api_v2_queue_import_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportSourceInfo"][];
+                };
+            };
+        };
+    };
+    import_queue_api_v2_queue_import__source__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source: "agent-scheduler" | "prompt-queue";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportReport"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    gallery_api_v2_gallery_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+                /** @description every word must appear in the infotext, the file name or the model */
+                q?: string | null;
+                category?: ("txt2img" | "img2img" | "extras" | "grids" | "saved" | "other") | null;
+                model?: string | null;
+                /** @description ISO date-time (inclusive) */
+                since?: string | null;
+                /** @description ISO date-time (exclusive) */
+                until?: string | null;
+                starred?: boolean | null;
+                sort?: "newest" | "oldest" | "name" | "largest";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_GalleryItem_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    gallery_facets_api_v2_gallery_facets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GalleryFacets"];
+                };
+            };
+        };
+    };
+    gallery_item_api_v2_gallery__file_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GalleryItem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    star_outputs_api_v2_gallery_star_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StarOutputsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputCount"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_outputs_api_v2_gallery_delete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteOutputsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutputCount"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    zip_outputs_api_v2_gallery_zip_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ZipResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reveal_output_api_v2_gallery__file_id__reveal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ok"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    png_info_api_v2_pnginfo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MetadataRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageMetadata"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unsupported Media Type */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    config_api_v2_prompt_tools_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptToolsConfig"];
+                };
+            };
+        };
+    };
+    complete_api_v2_prompt_tools_complete_get: {
+        parameters: {
+            query?: {
+                mode?: "tag" | "lora" | "embedding" | "chant" | "network" | "wildcard" | "wildcard-value";
+                q?: string;
+                negative?: boolean;
+                limit?: number | null;
+                /** @description mode wildcard-value: the wildcard's name */
+                wildcard?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptCompletionList"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    record_usage_api_v2_prompt_tools_usage_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptUsageRecord"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ok"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    reset_usage_api_v2_prompt_tools_usage_delete: {
+        parameters: {
+            query: {
+                name: string;
+                type?: "tag" | "extra" | "lora" | "embedding" | "chant" | "wildcard" | "wildcard-value";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ok"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lookup_api_v2_prompt_tools_lookup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptTagLookupRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptTagLookup"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_api_v2_prompt_tools_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ok"];
+                };
+            };
+        };
+    };
+    translate_api_v2_prompt_tools_translate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptTranslateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptTranslation"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    set_translation_key_api_v2_prompt_tools_translation_key_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptTranslationKey"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptTranslationKeyState"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    groups_api_v2_prompt_tools_groups_get: {
+        parameters: {
+            query?: {
+                locale?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptTagGroups"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    history_api_v2_prompt_tools_history_get: {
+        parameters: {
+            query?: {
+                q?: string | null;
+                /** @description one item per distinct prompt / negative prompt */
+                field?: ("prompt" | "negative") | null;
+                tab?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_PromptHistoryItem_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_history_api_v2_prompt_tools_history_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptHistoryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptHistoryItem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    clear_history_api_v2_prompt_tools_history_delete: {
+        parameters: {
+            query?: {
+                keep_named?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptHistoryCleared"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_history_api_v2_prompt_tools_history__entry_id__delete: {
+        parameters: {
+            query?: {
+                /** @description remove every entry with this entry's prompt / negative prompt (a grouped list) */
+                field?: ("prompt" | "negative") | null;
+            };
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptHistoryRemoved"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    rename_history_api_v2_prompt_tools_history__entry_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptHistoryPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptHistoryItem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    collections_api_v2_prompt_tools_collections_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptCollection"][];
+                };
+            };
+        };
+    };
+    create_collection_api_v2_prompt_tools_collections_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptCollectionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptCollection"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    delete_collection_api_v2_prompt_tools_collections__collection_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ok"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    rename_collection_api_v2_prompt_tools_collections__collection_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptCollectionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ok"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    favorites_api_v2_prompt_tools_favorites_get: {
+        parameters: {
+            query?: {
+                collection?: string | null;
+                /** @description any of these kinds (repeat the parameter); absent: every kind */
+                kind?: ("prompt" | "negative" | "tags")[] | null;
+                q?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_PromptFavorite_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_favorite_api_v2_prompt_tools_favorites_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptFavoriteCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptFavorite"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    delete_favorite_api_v2_prompt_tools_favorites__favorite_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                favorite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Ok"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    update_favorite_api_v2_prompt_tools_favorites__favorite_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                favorite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptFavoritePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptFavorite"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    export_favorites_api_v2_prompt_tools_favorites_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptFavoritesExport"];
+                };
+            };
+        };
+    };
+    import_favorites_api_v2_prompt_tools_favorites_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptFavoritesExport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptFavoritesImported"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
                 };
             };
         };

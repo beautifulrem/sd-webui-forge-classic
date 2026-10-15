@@ -10,6 +10,7 @@ const VARIANT = {
   secondary: { variant: "secondary", size: "default" },
   ghost: { variant: "ghost", size: "default" },
   tool: { variant: "outline", size: "sm" },
+  danger: { variant: "destructive", size: "default" },
 } as const
 
 /** Calls the owner's action with the owner's current values. */

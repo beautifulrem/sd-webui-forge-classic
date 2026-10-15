@@ -1,97 +1,49 @@
 """
-sd-webui-joycaption — adds a "JoyCaption" tab to Forge / A1111-style WebUIs
-for captioning images locally with the JoyCaption Beta One Llava model.
+sd-webui-joycaption — a "JoyCaption" page (``remi.pages``) for captioning
+images locally with the JoyCaption Beta One Llava model.
 
-This script registers the tab via `script_callbacks.on_ui_tabs`. All the
-heavy lifting (model loading, prompt construction) lives in the sibling
-modules `joycaption_prompts` and `joycaption_model`.
+The page keeps the former Gradio tab's controls, in the same order: model
+precision and loading, caption settings, extra options, the caption type
+editor, then "Single image" and "Batch (folder)". Model loads, captions and
+folder runs are page tasks (behind generation, with progress and Cancel).
+PNG Info offers "Send to JoyCaption" (the page's ``send_to``), and the Prompt
+Workshop hands its downloaded post image over the same way. The heavy
+lifting (model loading, prompt construction) lives in ``joycaption_lib``.
 """
 
 from __future__ import annotations
 
-import importlib
-import os
-import re
+import math
 import sys
 import traceback
 from pathlib import Path
 
-import gradio as gr
-
-# Forge already adds the extension's root dir to sys.path before loading
-# scripts/, so `joycaption_lib` (sitting at the extension root) is
-# importable from here. Be defensive in case something changes.
+# Forge puts the extension's root on sys.path before loading scripts/; be
+# defensive in case something changes.
 _EXT_ROOT = Path(__file__).resolve().parents[1]
 if str(_EXT_ROOT) not in sys.path:
     sys.path.insert(0, str(_EXT_ROOT))
 
-from joycaption_lib import prompts as jcp  # noqa: E402
-from joycaption_lib import model as jcm    # noqa: E402
+from joycaption_lib import model as jcm  # noqa: E402
 from joycaption_lib import pnginfo as jcpi  # noqa: E402
+from joycaption_lib import prompts as jcp  # noqa: E402
 
-from modules import script_callbacks  # noqa: E402
+from remi import pages, ui  # noqa: E402
 
-# Forge Neo renamed `generation_parameters_copypaste` to `infotext_utils`.
-# The new name is canonical in current Forge; the old name is still aliased
-# in upstream A1111. Try the new name first and fall back so the extension
-# keeps working across forks.
-try:
-    from modules import infotext_utils as _infotext  # type: ignore
-except Exception:  # pragma: no cover - older webuis
-    try:
-        from modules import generation_parameters_copypaste as _infotext  # type: ignore
-    except Exception:
-        _infotext = None  # type: ignore
-
-
-# ---------------------------------------------------------------------------
-# Bridge: shared temp folder for images dropped in by the Prompt Workshop
-# ---------------------------------------------------------------------------
-# When the Workshop's "Send Image to JoyCaption" button fires, it downloads
-# the booru image into this folder and the JoyCaption tab picks it up. The
-# folder is wiped on extension load (i.e. every webui startup) so it never
-# accumulates -- it's just a handoff scratchpad, not a cache.
-
-import shutil  # noqa: E402
-import tempfile  # noqa: E402
-
-_BRIDGE_TMP_DIR = Path(tempfile.gettempdir()) / "joycaption_bridge"
-try:
-    if _BRIDGE_TMP_DIR.exists():
-        shutil.rmtree(_BRIDGE_TMP_DIR, ignore_errors=True)
-    _BRIDGE_TMP_DIR.mkdir(parents=True, exist_ok=True)
-except Exception:
-    # Non-fatal: bridge will just fail later with a clear error.
-    traceback.print_exc()
-
-
-def bridge_tmp_dir() -> Path:
-    """Shared temp folder used by the Workshop -> JoyCaption image handoff.
-    Created once at module load and wiped on every webui startup."""
-    return _BRIDGE_TMP_DIR
-
+PAGE_ID = "joycaption"
 
 # ---------------------------------------------------------------------------
 # Capability checks
 # ---------------------------------------------------------------------------
 
+
 def _has_bitsandbytes() -> bool:
     try:
         import bitsandbytes  # noqa: F401
+
         return True
     except Exception:
         return False
-
-
-def _available_quantizations() -> list[str]:
-    """bf16 always available; 4/8-bit only if bitsandbytes is installed."""
-    quants = ["bf16 (best quality, ~17 GB VRAM)"]
-    if _has_bitsandbytes():
-        quants += [
-            "int8 (~10 GB VRAM)",
-            "nf4 (~6 GB VRAM)",
-        ]
-    return quants
 
 
 _QUANT_TO_KEY = {
@@ -99,174 +51,122 @@ _QUANT_TO_KEY = {
     "int8 (~10 GB VRAM)": "int8",
     "nf4 (~6 GB VRAM)": "nf4",
 }
+_BF16 = "bf16 (best quality, ~17 GB VRAM)"
+
+
+def _available_quantizations() -> list[str]:
+    """bf16 always available; 4/8-bit only if bitsandbytes is installed."""
+    if _has_bitsandbytes():
+        return list(_QUANT_TO_KEY)
+    return [_BF16]
 
 
 # ---------------------------------------------------------------------------
 # Pre-caption downscale
 # ---------------------------------------------------------------------------
-# JoyCaption's vision tower internally resizes everything to a fixed (small)
-# resolution anyway, so feeding it the original 3000x4000 booru download
-# just burns time on the upload + processor preprocessing without changing
-# the caption. We downscale to roughly 1 megapixel (1024 * 1024 total
-# pixels) BEFORE handing the image to the engine. Aspect ratio is
-# preserved; only the total pixel count is targeted. Images already at or
-# below the target are left alone -- we never upscale.
-#
-# This applies only to the captioning path. The single-image preview, the
-# bridge-folder copy on disk, and anything the Workshop downloads stay at
-# original resolution.
+# JoyCaption's vision tower resizes everything to a small fixed resolution
+# anyway, so a 3000x4000 download only burns time in preprocessing. Images
+# are brought down to about 1 megapixel (aspect kept, never upscaled) before
+# captioning; the files themselves are untouched.
 
 _CAPTION_TARGET_PIXELS = 1024 * 1024  # ~1 MP
 
 
 def _downscale_for_caption(image):
-    """Return a copy of `image` whose total pixel count is <=
-    _CAPTION_TARGET_PIXELS, preserving aspect ratio. Returns `image`
-    unchanged if it is already at or below the target, or if anything
-    goes wrong (we'd rather caption a too-large image than crash)."""
+    """A copy of ``image`` with at most _CAPTION_TARGET_PIXELS pixels (the
+    image itself when already small enough, or if anything goes wrong)."""
     try:
         if image is None:
             return image
         w, h = image.size
-        if w <= 0 or h <= 0:
+        if w <= 0 or h <= 0 or w * h <= _CAPTION_TARGET_PIXELS:
             return image
-        cur = w * h
-        if cur <= _CAPTION_TARGET_PIXELS:
-            return image
-        import math
         from PIL import Image as _PILImage
-        scale = math.sqrt(_CAPTION_TARGET_PIXELS / cur)
-        new_w = max(1, int(round(w * scale)))
-        new_h = max(1, int(round(h * scale)))
-        # LANCZOS is the highest-quality downscale filter PIL offers.
-        return image.resize((new_w, new_h), _PILImage.LANCZOS)
+
+        scale = math.sqrt(_CAPTION_TARGET_PIXELS / (w * h))
+        return image.resize((max(1, int(round(w * scale))), max(1, int(round(h * scale)))), _PILImage.LANCZOS)
     except Exception:
         traceback.print_exc()
         return image
 
 
 # ---------------------------------------------------------------------------
-# UI callbacks
+# Texts
 # ---------------------------------------------------------------------------
 
-def _gpu_lock():
-    """Forge's queue_lock serializes all GPU work (txt2img, img2img, etc.).
-    Acquiring it here means JoyCaption never fights an in-flight generation
-    for VRAM — if the user clicks Load/Caption mid-generation, we queue."""
-    try:
-        from modules.call_queue import queue_lock
-        return queue_lock
-    except Exception:
-        return None
 
-
-def _load_model(quant_label: str, progress=gr.Progress(track_tqdm=True)):
-    lock = _gpu_lock()
-    held = False
-    if lock is not None:
-        if not lock.acquire(blocking=False):
-            yield "🟡 Queued — waiting for current GPU task to finish…"
-            lock.acquire()  # blocks until txt2img/img2img/etc. releases
-        held = True
-    try:
-        progress(0.0, desc="Loading…")
-        eng = jcm.get_engine()
-        eng.load(_QUANT_TO_KEY[quant_label])
-        progress(1.0, desc="Loaded")
-        yield _status_text()
-    except Exception as e:
-        traceback.print_exc()
-        yield f"❌ Failed to load: {e}"
-    finally:
-        if held:
-            lock.release()
-
-
-def _unload_model():
-    try:
-        jcm.get_engine().unload()
-        return _status_text()
-    except Exception as e:
-        return f"❌ Failed to unload: {e}"
-
-
-def _status_text() -> str:
+def _status() -> dict:
+    """The model status line, as a translatable message."""
     eng = jcm.get_engine()
     if eng.is_loaded():
-        return f"✅ Model loaded ({eng.loaded_quant}) — ready"
+        return ui.message("✅ Model loaded ({{quant}}): ready", quant=eng.loaded_quant)
     if jcm.is_model_downloaded():
-        return "⚪ Weights present, model not loaded"
-    return f"⚪ Weights not downloaded yet (~17 GB will be fetched on first use → {jcm.model_local_path()})"
+        return ui.message("⚪ Weights present, model not loaded")
+    return ui.message("⚪ Weights not downloaded yet (~17 GB are fetched on first use into {{path}})", path=str(jcm.model_local_path()))
 
 
-def _build_prompt(caption_type, caption_length, extra_options, name_input, use_custom, custom_prompt) -> str:
-    if use_custom and custom_prompt.strip():
-        return custom_prompt.strip()
-    return jcp.build_prompt(caption_type, caption_length, extra_options or [], name_input or "")
+def _build_prompt(values: dict) -> str:
+    if values["use_custom"] and values["custom_prompt"].strip():
+        return values["custom_prompt"].strip()
+    return jcp.build_prompt(values["caption_type"], values["caption_length"], values["extra_options"] or [], values["name_input"] or "")
 
 
-def _caption_single(
-    image,
-    caption_type, caption_length, extra_options, name_input,
-    use_custom, custom_prompt, system_prompt, use_system_prompt,
-    max_new_tokens, temperature, top_p, top_k,
-    quant_label,
-    keep_loaded,
-    progress=gr.Progress(track_tqdm=True),
-):
-    if image is None:
-        yield "", "", "❗ No image provided."
+def _system_prompt(values: dict) -> str:
+    return (values["system_prompt"] or jcp.DEFAULT_SYSTEM_PROMPT) if values["use_system_prompt"] else ""
+
+
+def _join_caption(base: str, caption: str) -> str:
+    """``caption`` after ``base`` (the image's prompt): ", " between them, or
+    a space after a trailing comma."""
+    cap = (caption or "").strip()
+    base = (base or "").rstrip()
+    if not cap:
+        return base
+    if not base:
+        return cap
+    return f"{base} {cap}" if base.endswith(",") else f"{base}, {cap}"
+
+
+def _type_names() -> list[str]:
+    return list(jcp.all_caption_types())
+
+
+def _default_type(names: list[str]) -> str | None:
+    return "Descriptive (Formal)" if "Descriptive (Formal)" in names else (names[0] if names else None)
+
+
+def _editable_types() -> list:
+    return [("Select a caption type", "")] + [name for name in _type_names() if name != jcp.NONE_CAPTION_TYPE]
+
+
+# ---------------------------------------------------------------------------
+# Model work (page tasks hold the generation lock: never fights a generation for VRAM)
+# ---------------------------------------------------------------------------
+
+
+def _ensure_loaded(task: pages.Task, quant_label: str) -> None:
+    eng = jcm.get_engine()
+    key = _QUANT_TO_KEY.get(quant_label, "bf16")
+    if eng.is_loaded() and eng.loaded_quant == key:
         return
-
-    # Downscale to ~1 MP before captioning. Saves significant time on
-    # large booru downloads / hi-res screenshots without changing what
-    # JoyCaption sees (its vision tower resizes internally anyway).
-    # See _downscale_for_caption() for details.
-    image = _downscale_for_caption(image)
-
-    lock = _gpu_lock()
-    held = False
-    if lock is not None:
-        if not lock.acquire(blocking=False):
-            yield "", "", "🟡 Queued — waiting for current GPU task to finish…"
-            lock.acquire()
-        held = True
-
-    try:
-        # Ensure loaded
-        eng = jcm.get_engine()
-        if not eng.is_loaded() or eng.loaded_quant != _QUANT_TO_KEY[quant_label]:
-            progress(0.0, desc="Loading model…")
-            eng.load(_QUANT_TO_KEY[quant_label])
-
-        prompt = _build_prompt(caption_type, caption_length, extra_options, name_input, use_custom, custom_prompt)
-        progress(0.5, desc="Generating…")
-        caption = eng.generate(
-            image=image,
-            prompt=prompt,
-            system_prompt=(system_prompt or jcp.DEFAULT_SYSTEM_PROMPT) if use_system_prompt else "",
-            max_new_tokens=int(max_new_tokens),
-            temperature=float(temperature),
-            top_p=float(top_p),
-            top_k=int(top_k),
-        )
-        progress(1.0, desc="Done")
-
-        if not keep_loaded:
-            eng.unload()
-
-        yield caption, prompt, _status_text()
-    except Exception as e:
-        traceback.print_exc()
-        yield "", "", f"❌ {e}"
-    finally:
-        if held:
-            lock.release()
+    if jcm.is_model_downloaded():
+        task.progress(None, "Loading the model…")
+    else:
+        task.progress(None, "Downloading the model weights (~17 GB, first use only)…")
+    eng.load(key)
 
 
-# ---------------------------------------------------------------------------
-# Batch
-# ---------------------------------------------------------------------------
+def _caption(eng, image, prompt: str, values: dict) -> str:
+    return eng.generate(
+        image=_downscale_for_caption(image),
+        prompt=prompt,
+        system_prompt=_system_prompt(values),
+        max_new_tokens=int(values["max_new_tokens"]),
+        temperature=float(values["temperature"]),
+        top_p=float(values["top_p"]),
+        top_k=int(values["top_k"]),
+    )
+
 
 _IMG_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tiff", ".jxl", ".avif", ".heif"}
 
@@ -275,671 +175,374 @@ def _scan_images(folder: str, recursive: bool) -> list[Path]:
     p = Path(folder).expanduser()
     if not p.is_dir():
         return []
-    it = p.rglob("*") if recursive else p.glob("*")
-    return sorted([f for f in it if f.suffix.lower() in _IMG_EXTS and f.is_file()])
+    found = p.rglob("*") if recursive else p.glob("*")
+    return sorted(f for f in found if f.suffix.lower() in _IMG_EXTS and f.is_file())
 
 
-def _caption_batch(
-    folder, recursive, overwrite, prefix, suffix, save_ext,
-    caption_type, caption_length, extra_options, name_input,
-    use_custom, custom_prompt, system_prompt, use_system_prompt,
-    max_new_tokens, temperature, top_p, top_k,
-    quant_label,
-    keep_loaded,
-    progress=gr.Progress(track_tqdm=True),
-):
-    from PIL import Image
-
-    if not folder:
-        yield "", "❗ Please provide a folder path."
-        return
-
-    images = _scan_images(folder, recursive)
-    if not images:
-        yield "", f"❗ No images found in: {folder}"
-        return
-
-    lock = _gpu_lock()
-    held = False
-    if lock is not None:
-        if not lock.acquire(blocking=False):
-            yield "⏳ Queued — waiting for current GPU task to finish…", "🟡 Queued"
-            lock.acquire()
-        held = True
-
+def _image_prompt(ctx, file_id) -> str:
+    """The positive prompt recorded in an uploaded / generated image (WebUI
+    PNG info, EXIF or stealth info), or ""."""
+    store = pages.file_store(ctx)
+    record = store.get(file_id) if store is not None and isinstance(file_id, str) and file_id else None
+    if record is None or not record.is_image:
+        return ""
     try:
-        # Load model once
-        eng = jcm.get_engine()
-        if not eng.is_loaded() or eng.loaded_quant != _QUANT_TO_KEY[quant_label]:
-            progress(0.0, desc="Loading model…")
-            eng.load(_QUANT_TO_KEY[quant_label])
+        from PIL import Image
 
-        prompt = _build_prompt(caption_type, caption_length, extra_options, name_input, use_custom, custom_prompt)
-        log_lines: list[str] = [f"Found {len(images)} image(s). Prompt:\n{prompt}\n"]
-        yield "\n".join(log_lines), _status_text()
+        from modules import images
 
-        done = 0
-        skipped = 0
-        errors = 0
-        for i, img_path in enumerate(images):
-            progress(i / len(images), desc=f"{i+1}/{len(images)}  {img_path.name}")
-            out_path = img_path.with_suffix(save_ext if save_ext.startswith(".") else f".{save_ext}")
+        with Image.open(record.path) as image:
+            infotext, _ = images.read_info_from_image(image)
+            return jcpi.extract_positive_prompt_from_text(infotext or "") or jcpi.extract_positive_prompt(image)
+    except Exception:
+        traceback.print_exc()
+        return ""
 
-            if out_path.exists() and not overwrite:
-                log_lines.append(f"⏭  {img_path.name} — skipped (caption exists)")
-                skipped += 1
-                yield "\n".join(log_lines[-200:]), _status_text()
-                continue
 
-            try:
-                with Image.open(img_path) as im:
-                    # Match the single-image path: downscale to ~1 MP
-                    # before captioning so a folder full of 4K images
-                    # doesn't take forever. Files on disk are untouched.
-                    im_for_caption = _downscale_for_caption(im)
-                    caption = eng.generate(
-                        image=im_for_caption,
-                        prompt=prompt,
-                        system_prompt=(system_prompt or jcp.DEFAULT_SYSTEM_PROMPT) if use_system_prompt else "",
-                        max_new_tokens=int(max_new_tokens),
-                        temperature=float(temperature),
-                        top_p=float(top_p),
-                        top_k=int(top_k),
-                    )
-                text = f"{prefix}{caption}{suffix}"
-                out_path.write_text(text, encoding="utf-8")
-                log_lines.append(f"✅ {img_path.name}\n     → {out_path.name}")
-                done += 1
-            except Exception as e:
-                log_lines.append(f"❌ {img_path.name} — {e}")
-                errors += 1
+def _folders_hidden() -> bool:
+    try:
+        from modules import shared
 
-            yield "\n".join(log_lines[-200:]), _status_text()
-
-        if not keep_loaded:
-            eng.unload()
-
-        log_lines.append("")
-        log_lines.append(f"Done. Captioned {done}, skipped {skipped}, errors {errors}.")
-        yield "\n".join(log_lines[-400:]), _status_text()
-    finally:
-        if held:
-            lock.release()
+        return bool(getattr(shared.cmd_opts, "hide_ui_dir_config", False))
+    except Exception:
+        return False
 
 
 # ---------------------------------------------------------------------------
-# UI definition
+# The page
 # ---------------------------------------------------------------------------
 
-def _build_ui() -> gr.Blocks:
-    quant_choices = _available_quantizations()
-    bnb_warn = "" if _has_bitsandbytes() else (
-        "*Note: `bitsandbytes` not installed — only bf16 available. "
-        "Launch Forge with `--bnb` (or `pip install bitsandbytes`) to enable 4-bit / 8-bit.*"
-    )
 
-    css = """
-    #joycaption-extras-scroll {
-        max-height: 300px !important;
-        overflow-y: auto !important;
-        overflow-x: hidden;
-        padding: 6px 10px 6px 8px;
-        border: 1px solid var(--border-color-primary, #444);
-        border-radius: 6px;
-        background: var(--background-fill-secondary, transparent);
-    }
-    /* Tighten the checkbox layout so 81 fit comfortably */
-    #joycaption-extras-scroll label {
-        padding: 2px 4px !important;
-        margin: 0 !important;
-        font-size: 0.85em;
-        line-height: 1.25;
-    }
-    #joycaption-extras-scroll .wrap {
-        gap: 0 !important;
-    }
-    #joycaption-extras-scroll::-webkit-scrollbar { width: 10px; }
-    #joycaption-extras-scroll::-webkit-scrollbar-thumb {
-        background: var(--border-color-accent, #666);
-        border-radius: 5px;
-    }
-    """
-
-    with gr.Blocks(analytics_enabled=False, css=css) as ui:
-        gr.Markdown("## JoyCaption — local image captioning")
-        gr.Markdown(
-            "Captions images using "
-            "[fancyfeast/llama-joycaption-beta-one-hf-llava](https://huggingface.co/fancyfeast/llama-joycaption-beta-one-hf-llava). "
-            "Weights download automatically to `models/joycaption/` on first use (~17 GB)."
-        )
-
-        # ---- Model status / loading ----
-        with gr.Row():
-            status = gr.Markdown(_status_text())
-        with gr.Row():
-            quant = gr.Dropdown(label="Precision", choices=quant_choices, value=quant_choices[0])
-            keep_loaded = gr.Checkbox(label="Keep model loaded after captioning", value=True)
-            load_btn = gr.Button("Load model", variant="primary")
-            unload_btn = gr.Button("Unload (free VRAM)")
-        if bnb_warn:
-            gr.Markdown(bnb_warn)
-
-        load_btn.click(_load_model, inputs=[quant], outputs=[status])
-        unload_btn.click(_unload_model, outputs=[status])
-
-        # ---- Shared caption settings ----
-        with gr.Accordion("Caption settings", open=True):
-            with gr.Row():
-                _initial_types = list(jcp.all_caption_types().keys())
-                caption_type = gr.Dropdown(
-                    label="Caption type",
-                    choices=_initial_types,
-                    value="Descriptive (Formal)" if "Descriptive (Formal)" in _initial_types else _initial_types[0],
-                )
-                caption_length = gr.Dropdown(
-                    label="Caption length",
-                    choices=jcp.CAPTION_LENGTH_CHOICES,
-                    value="long",
-                )
-            name_input = gr.Textbox(
-                label="{name} replacement (used only if the {name} extra option is selected)",
-                value="",
-            )
-
-            with gr.Accordion("Custom prompt (overrides everything above)", open=False):
-                use_custom = gr.Checkbox(label="Use custom prompt", value=False)
-                custom_prompt = gr.Textbox(label="Custom prompt", lines=3, value="")
-
-            with gr.Accordion("Advanced generation settings", open=False):
-                use_system_prompt = gr.Checkbox(
-                    label="Use system prompt (uncheck to send only the caption-type prompt)",
-                    value=True,
-                )
-                system_prompt = gr.Textbox(
-                    label="System prompt",
-                    value=jcp.DEFAULT_SYSTEM_PROMPT,
-                    lines=8,
-                    elem_id="joycaption-system-prompt-v2",
-                )
-                sysprompt_reset = gr.Button("Reset system prompt to default", size="sm")
-                sysprompt_reset.click(
-                    fn=lambda: jcp.DEFAULT_SYSTEM_PROMPT,
-                    outputs=[system_prompt],
-                )
-                with gr.Row():
-                    max_new_tokens = gr.Slider(64, 2048, value=512, step=16, label="Max new tokens")
-                    temperature = gr.Slider(0.0, 2.0, value=0.6, step=0.05, label="Temperature")
-                with gr.Row():
-                    top_p = gr.Slider(0.0, 1.0, value=0.9, step=0.05, label="Top-p")
-                    top_k = gr.Slider(0, 200, value=0, step=1, label="Top-k (0 = disabled)")
-
-        # ---- Extra options (separate accordion, closed by default) ----
-        with gr.Accordion(f"Extra options ({len(jcp.EXTRA_OPTIONS)} available)", open=False):
-            with gr.Column(elem_id="joycaption-extras-scroll"):
-                extra_options = gr.CheckboxGroup(
-                    show_label=False,
-                    choices=jcp.EXTRA_OPTIONS,
-                    value=[],
-                    container=False,
-                )
-
-        # ---- Caption type editor (closed by default) ----
-        with gr.Accordion("Edit / add caption types", open=False):
-            gr.Markdown(
-                "Load an existing type into the editor to modify it (saves a user override), "
-                "or type a new name to create one. User-saved types persist in "
-                "`models/joycaption/user_caption_types.json` and override built-ins of the same name. "
-                "Use `{length}` and `{word_count}` placeholders for length-aware variants; `{name}` for the name field."
-            )
-            with gr.Row():
-                edit_select = gr.Dropdown(
-                    label="Load existing into editor",
-                    choices=[k for k in _initial_types if k != jcp.NONE_CAPTION_TYPE],
-                    value=None,
-                )
-                edit_load_btn = gr.Button("Load")
-            edit_name = gr.Textbox(label="Name", value="")
-            edit_any = gr.Textbox(label='Prompt — "any" length', lines=3, value="")
-            edit_word = gr.Textbox(label='Prompt — when a {word_count} is given (use the placeholder)', lines=3, value="")
-            edit_length = gr.Textbox(label='Prompt — when a named {length} bucket is given (use the placeholder)', lines=3, value="")
-            with gr.Row():
-                edit_save_btn = gr.Button("Save", variant="primary")
-                edit_delete_btn = gr.Button("Delete user override")
-            edit_status = gr.Markdown("")
-
-        # --- Editor handlers ---
-        def _do_load_type(name):
-            if not name:
-                return "", "", "", ""
-            types = jcp.all_caption_types()
-            if name not in types:
-                return name, "", "", ""
-            a, w, lng = types[name]
-            return name, a, w, lng
-
-        def _do_save_type(name, p_any, p_word, p_length):
-            name = (name or "").strip()
-            if not name:
-                return gr.update(), gr.update(), "❗ Name is required"
-            if name == jcp.NONE_CAPTION_TYPE:
-                return gr.update(), gr.update(), f"❗ '{name}' is reserved"
-            user = jcp.load_user_caption_types()
-            user[name] = [p_any or "", p_word or "", p_length or ""]
-            jcp.save_user_caption_types(user)
-            all_keys = list(jcp.all_caption_types().keys())
-            edit_keys = [k for k in all_keys if k != jcp.NONE_CAPTION_TYPE]
-            return (
-                gr.update(choices=all_keys, value=name),
-                gr.update(choices=edit_keys, value=name),
-                f"✅ Saved '{name}'",
-            )
-
-        def _do_delete_type(name):
-            name = (name or "").strip()
-            user = jcp.load_user_caption_types()
-            if not name:
-                msg = "❗ Nothing selected"
-            elif name in user:
-                del user[name]
-                jcp.save_user_caption_types(user)
-                msg = f"✅ Deleted user override '{name}'" + (
-                    " (built-in restored)" if name in jcp.CAPTION_TYPE_MAP else ""
-                )
-            elif name in jcp.CAPTION_TYPE_MAP:
-                msg = f"❗ '{name}' is built-in. Delete only removes user overrides."
-            else:
-                msg = f"❗ '{name}' not found"
-            all_keys = list(jcp.all_caption_types().keys())
-            edit_keys = [k for k in all_keys if k != jcp.NONE_CAPTION_TYPE]
-            new_val = "Descriptive (Formal)" if "Descriptive (Formal)" in all_keys else (all_keys[0] if all_keys else None)
-            return gr.update(choices=all_keys, value=new_val), gr.update(choices=edit_keys, value=None), msg
-
-        edit_load_btn.click(
-            _do_load_type,
-            inputs=[edit_select],
-            outputs=[edit_name, edit_any, edit_word, edit_length],
-        )
-        edit_save_btn.click(
-            _do_save_type,
-            inputs=[edit_name, edit_any, edit_word, edit_length],
-            outputs=[caption_type, edit_select, edit_status],
-        )
-        edit_delete_btn.click(
-            _do_delete_type,
-            inputs=[edit_name],
-            outputs=[caption_type, edit_select, edit_status],
-        )
-
-        # ---- Tabs: Single vs Batch ----
-        with gr.Tabs():
-            with gr.TabItem("Single image"):
-                with gr.Row():
-                    with gr.Column():
-                        image_in = gr.Image(
-                            label="Image",
-                            type="pil",
-                            height=480,
-                            elem_id="joycaption_single_image",
-                        )
-                        run_btn = gr.Button("Caption image", variant="primary")
-                    with gr.Column():
-                        caption_out = gr.Textbox(label="Caption", lines=10, show_copy_button=True)
-                        prompt_out = gr.Textbox(label="Prompt used", lines=3, show_copy_button=True)
-
-                # ---- Bridge: txt2img prompt + caption combo box ----------
-                # Auto-populated when an image is loaded: if the image has
-                # webui PNG-info metadata, the positive prompt goes here.
-                # After captioning, the generated caption is *appended* to
-                # whatever's already in this box. The user can edit it
-                # freely before sending it back to txt2img.
-                txt2img_combined = gr.Textbox(
-                    label="txt2img prompt + caption (editable; sent to txt2img below)",
-                    lines=4,
-                    interactive=True,
-                    show_copy_button=True,
-                    elem_id="joycaption_txt2img_combined",
-                    placeholder=(
-                        "Auto-fills from the image's PNG-info prompt (if any) when you "
-                        "load an image, then appends the generated caption."
+class JoyCaptionPage(pages.Page):
+    def params(self):
+        quants = _available_quantizations()
+        types = _type_names()
+        return ui.Column(
+            ui.Markdown(
+                "Captions images using "
+                "[fancyfeast/llama-joycaption-beta-one-hf-llava](https://huggingface.co/fancyfeast/llama-joycaption-beta-one-hf-llava). "
+                "Weights download automatically to `models/joycaption/` on first use (~17 GB)."
+            ),
+            ui.Output("status", kind="text"),
+            ui.Row(
+                ui.Choice("quant", quants, quants[0], label="Precision"),
+                ui.Toggle("keep_loaded", True, label="Keep model loaded after captioning"),
+                ui.Custom("load", "task-runner", None, props={"action": "load", "label": "Load model"}, label="", persist=False, submit=False),
+                ui.Button("Unload (free VRAM)", "unload"),
+            ),
+            None
+            if _has_bitsandbytes()
+            else ui.Markdown(
+                "*Note: `bitsandbytes` not installed — only bf16 available. "
+                "Launch Forge with `--bnb` (or `pip install bitsandbytes`) to enable 4-bit / 8-bit.*"
+            ),
+            ui.Section(
+                "Caption settings",
+                open=True,
+                children=[
+                    ui.Row(
+                        ui.Choice("caption_type", lambda: _type_names(), _default_type(types), label="Caption type"),
+                        ui.Choice("caption_length", jcp.CAPTION_LENGTH_CHOICES, "long", label="Caption length"),
                     ),
-                )
-                with gr.Row():
-                    send_to_t2i_btn = gr.Button(
-                        "→ Append to txt2img Prompt (does not replace)",
-                        elem_id="joycaption_send_to_t2i",
-                        variant="primary",
-                    )
-                    # Sibling action: replace the txt2img prompt entirely
-                    # rather than appending. Wired purely in JS (see
-                    # javascript/joycaption.js) to match the append
-                    # button's flow. Especially useful in combination
-                    # with the sd-webui-prompt-anchor extension: with
-                    # your style/quality foundation parked in the
-                    # anchor box, the main txt2img prompt becomes pure
-                    # subject-of-this-image content -- so REPLACING it
-                    # with a fresh JoyCaption result (which describes
-                    # exactly the subject) is exactly what you want,
-                    # rather than appending the caption to whatever
-                    # subject the previous image had. Without the
-                    # anchor extension this button is still useful for
-                    # quick "swap the prompt" workflows.
-                    #
-                    # Styled as "secondary" (vs the primary Append
-                    # button) so the destructive option doesn't visually
-                    # dominate the safer one.
-                    replace_t2i_btn = gr.Button(
-                        "↻ Replace txt2img Prompt (overwrites existing)",
-                        elem_id="joycaption_replace_t2i",
-                        variant="secondary",
-                    )
-
-                # When a new image is dropped/uploaded, refresh the combined
-                # box with just the image's positive prompt (or empty it if
-                # the image has no webui metadata). We use `.upload()` and
-                # `.clear()` rather than `.change()` because `.change()`
-                # fires every time Gradio re-renders the component (e.g.
-                # right after captioning, which would wipe our appended
-                # caption).
-                def _on_image_loaded(img):
-                    return jcpi.extract_positive_prompt(img)
-
-                image_in.upload(
-                    fn=_on_image_loaded,
-                    inputs=[image_in],
-                    outputs=[txt2img_combined],
-                )
-                image_in.clear(
-                    fn=lambda: "",
-                    inputs=[],
-                    outputs=[txt2img_combined],
-                )
-
-                # Caption flow: run the model, then append the caption to
-                # the combined box. We chain via `.then(...)` so the second
-                # step has access to whatever the user (or _on_image_loaded)
-                # put in the combined box before clicking.
-                def _append_caption_to_combined(caption: str, existing: str) -> str:
-                    cap = (caption or "").strip()
-                    if not cap:
-                        return existing
-                    base = (existing or "").rstrip()
-                    if not base:
-                        return cap
-                    # If base ends with a comma already, just add a space;
-                    # otherwise insert ", " separator. Mirrors the same
-                    # joining behaviour the Workshop's JS uses.
-                    if base.endswith(","):
-                        return base + " " + cap
-                    return base + ", " + cap
-
-                # On each caption run we REBUILD the combined box from
-                # scratch: positive prompt extracted from the current
-                # image (if any) + the freshly generated caption. This
-                # way captioning a second image overwrites whatever the
-                # first image left behind, instead of accumulating.
-                # User edits to the combined box between caption runs
-                # are intentionally discarded -- if they want to preserve
-                # them, they can hit "Append to txt2img Prompt" first.
-                def _rebuild_combined(image, caption):
-                    base = jcpi.extract_positive_prompt(image) if image is not None else ""
-                    cap = (caption or "").strip()
-                    if not cap:
-                        return base
-                    if not base:
-                        return cap
-                    if base.rstrip().endswith(","):
-                        return base.rstrip() + " " + cap
-                    return base.rstrip() + ", " + cap
-
-                run_btn.click(
-                    _caption_single,
-                    inputs=[
-                        image_in,
-                        caption_type, caption_length, extra_options, name_input,
-                        use_custom, custom_prompt, system_prompt, use_system_prompt,
-                        max_new_tokens, temperature, top_p, top_k,
-                        quant, keep_loaded,
+                    ui.Text("name_input", "", label="{name} replacement (used only if the {name} extra option is selected)"),
+                    ui.Section(
+                        "Custom prompt (overrides everything above)",
+                        open=False,
+                        children=[
+                            ui.Toggle("use_custom", False, label="Use custom prompt"),
+                            ui.Text("custom_prompt", "", lines=3, label="Custom prompt"),
+                        ],
+                    ),
+                    ui.Section(
+                        "Advanced generation settings",
+                        open=False,
+                        children=[
+                            ui.Toggle("use_system_prompt", True, label="Use system prompt (uncheck to send only the caption-type prompt)"),
+                            ui.Text("system_prompt", jcp.DEFAULT_SYSTEM_PROMPT, lines=8, label="System prompt"),
+                            ui.Button("Reset system prompt to default", "reset_system_prompt", "tool"),
+                            ui.Row(
+                                ui.Slider("max_new_tokens", 64, 2048, 512, 16, label="Max new tokens"),
+                                ui.Slider("temperature", 0.0, 2.0, 0.6, 0.05, label="Temperature"),
+                            ),
+                            ui.Row(
+                                ui.Slider("top_p", 0.0, 1.0, 0.9, 0.05, label="Top-p"),
+                                ui.Slider("top_k", 0, 200, 0, 1, label="Top-k (0 = disabled)"),
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            ui.Section(
+                f"Extra options ({len(jcp.EXTRA_OPTIONS)} available)",
+                open=False,
+                children=[ui.MultiChoice("extra_options", jcp.EXTRA_OPTIONS, (), style="checkboxes", label="")],
+            ),
+            ui.Section(
+                "Edit / add caption types",
+                open=False,
+                children=[
+                    ui.Markdown(
+                        "Load an existing type into the editor to modify it (saves a user override), "
+                        "or type a new name to create one. User-saved types persist in "
+                        "`models/joycaption/user_caption_types.json` and override built-ins of the same name. "
+                        "Use `{length}` and `{word_count}` placeholders for length-aware variants; `{name}` for the name field."
+                    ),
+                    ui.Row(
+                        ui.Choice("edit_select", lambda: _editable_types(), "", label="Load existing into editor", width="fill"),
+                        ui.Button("Load", "load_type"),
+                    ),
+                    ui.Text("edit_name", "", label="Name"),
+                    ui.Text("edit_any", "", lines=3, label='Prompt — "any" length'),
+                    ui.Text("edit_word", "", lines=3, label="Prompt — when a {word_count} is given (use the placeholder)"),
+                    ui.Text("edit_length", "", lines=3, label="Prompt — when a named {length} bucket is given (use the placeholder)"),
+                    ui.Row(
+                        ui.Button("Save", "save_type", "primary"),
+                        ui.Button("Delete user override", "delete_type", "danger"),
+                    ),
+                    ui.Output("edit_status", kind="text"),
+                ],
+            ),
+            ui.Tabs(
+                ui.Tab(
+                    "Single image",
+                    children=[
+                        ui.Row(
+                            ui.Column(
+                                ui.Image("image", label="Image", on_change="image_changed"),
+                                ui.Custom("caption", "task-runner", None, props={"action": "caption", "label": "Caption image"}, label="", persist=False, submit=False),
+                            ),
+                            ui.Column(
+                                ui.Text("caption_out", "", lines=10, label="Caption"),
+                                ui.Text("prompt_out", "", lines=3, label="Prompt used"),
+                            ),
+                        ),
+                        ui.Text(
+                            "combined",
+                            "",
+                            lines=4,
+                            prompt=True,
+                            label="txt2img prompt + caption (editable; sent to txt2img below)",
+                            placeholder="Auto-fills from the image's PNG-info prompt (if any) when you load an image, then appends the generated caption.",
+                        ),
+                        ui.Row(
+                            ui.Custom(
+                                "send_append",
+                                "send-button",
+                                None,
+                                props={"to": "prompt", "source": "combined", "target": "txt2img", "mode": "append", "label": "→ Append to txt2img Prompt (does not replace)", "variant": "primary"},
+                                label="",
+                                persist=False,
+                                submit=False,
+                            ),
+                            ui.Custom(
+                                "send_replace",
+                                "send-button",
+                                None,
+                                props={"to": "prompt", "source": "combined", "target": "txt2img", "mode": "replace", "label": "↻ Replace txt2img Prompt (overwrites existing)"},
+                                label="",
+                                persist=False,
+                                submit=False,
+                            ),
+                        ),
                     ],
-                    outputs=[caption_out, prompt_out, status],
-                ).then(
-                    fn=_rebuild_combined,
-                    inputs=[image_in, caption_out],
-                    outputs=[txt2img_combined],
-                )
-
-                # The "Send to txt2img" button is wired up in
-                # javascript/joycaption.js -- it needs to reach into a
-                # different tab's textarea, which is awkward via Gradio.
-
-            with gr.TabItem("Batch (folder)"):
-                gr.Markdown(
-                    "Captions every image in a folder. Captions are saved as "
-                    "`<imagename>.<ext>` text files next to each image (ready for LoRA training)."
-                )
-                with gr.Row():
-                    folder = gr.Textbox(
-                        label="Folder path (absolute)",
-                        placeholder=r"e.g. C:\training\anima-lora\1_subject",
-                        scale=4,
-                    )
-                    recursive = gr.Checkbox(label="Recursive", value=False)
-                    overwrite = gr.Checkbox(label="Overwrite existing", value=False)
-                with gr.Row():
-                    prefix = gr.Textbox(label="Prefix (optional)", value="", scale=2)
-                    suffix = gr.Textbox(label="Suffix (optional)", value="", scale=2)
-                    save_ext = gr.Dropdown(
-                        label="Save as",
-                        choices=[".txt", ".caption", ".tags"],
-                        value=".txt",
-                    )
-                batch_btn = gr.Button("Run batch", variant="primary")
-                log_out = gr.Textbox(label="Log", lines=20, max_lines=50)
-
-                batch_btn.click(
-                    _caption_batch,
-                    inputs=[
-                        folder, recursive, overwrite, prefix, suffix, save_ext,
-                        caption_type, caption_length, extra_options, name_input,
-                        use_custom, custom_prompt, system_prompt, use_system_prompt,
-                        max_new_tokens, temperature, top_p, top_k,
-                        quant, keep_loaded,
+                ),
+                ui.Tab(
+                    "Batch (folder)",
+                    children=[
+                        ui.Markdown("Captions every image in a folder. Captions are saved as `<imagename>.<ext>` text files next to each image (ready for LoRA training)."),
+                        ui.Row(
+                            ui.Text("folder", "", label="Folder path (absolute)", placeholder=r"e.g. C:\training\anima-lora\1_subject", width="fill"),
+                            ui.Toggle("recursive", False, label="Recursive"),
+                            ui.Toggle("overwrite", False, label="Overwrite existing"),
+                        ),
+                        ui.Row(
+                            ui.Text("prefix", "", label="Prefix (optional)"),
+                            ui.Text("suffix", "", label="Suffix (optional)"),
+                            ui.Choice("save_ext", [".txt", ".caption", ".tags"], ".txt", label="Save as"),
+                        ),
+                        ui.Custom("batch", "task-runner", None, props={"action": "batch", "label": "Run batch"}, label="", persist=False, submit=False),
+                        ui.Output("log", kind="text", label="Log"),
                     ],
-                    outputs=[log_out, status],
-                )
+                ),
+            ),
+        )
 
-        # ---- Bridge: register JoyCaption as a paste destination ----------
-        # This is what makes the PNG-info "Send to JoyCaption" button work
-        # for the *image* part of the hand-off. We deliberately pass an
-        # empty fields list because the standard paste-fields machinery
-        # ends up stringifying gr.update() dicts into our combined-prompt
-        # textbox in this particular Gradio version (4.40 inside forge
-        # Neo) -- the value that reaches the textbox is literally
-        # "[{'value': '...', '__type__': 'update'}]" rather than the
-        # prompt string. Instead, the text half of the hand-off is wired
-        # by hand below: we attach a second .click() to the PNG-info
-        # button that pulls the positive prompt out of the text component
-        # ourselves and writes a plain string into txt2img_combined.
-        if _infotext is not None:
+    # ---- Model status / loading -------------------------------------------
+
+    @ui.action("status")
+    def status(self, ctx, values):
+        return {"__outputs__": {"status": _status()}}
+
+    @ui.action("load")
+    def load(self, ctx, values):
+        resolved = self.values(ctx, values, uploads=False)
+
+        def work(task):
+            _ensure_loaded(task, resolved["quant"])
+            return {"__outputs__": {"status": _status()}, **ui.toast("JoyCaption model loaded", "success")}
+
+        return self.start_task(ctx, "load", work, gpu=True)
+
+    @ui.action("unload")
+    def unload(self, ctx, values):
+        # Not while the page's tasks use the model (of any user): a batch
+        # would fail half-way, and the engine lock would hold this request.
+        if self.busy("load", "caption", "batch"):
+            return ui.toast("Wait for the running JoyCaption task to finish (or cancel it) before unloading", "warning")
+        try:
+            jcm.get_engine().unload()
+        except Exception as e:
+            return {"__outputs__": {"status": ui.message("❌ Failed to unload: {{error}}", error=str(e))}}
+        return {"__outputs__": {"status": _status()}}
+
+    @ui.action("reset_system_prompt")
+    def reset_system_prompt(self, ctx, values):
+        return {"system_prompt": {"value": jcp.DEFAULT_SYSTEM_PROMPT}}
+
+    # ---- Caption type editor ----------------------------------------------
+
+    @ui.action("load_type")
+    def load_type(self, ctx, values):
+        name = values.get("edit_select") or ""
+        types = jcp.all_caption_types()
+        prompts = types.get(name, ["", "", ""]) if name else ["", "", ""]
+        return {
+            "edit_name": {"value": name},
+            "edit_any": {"value": prompts[0]},
+            "edit_word": {"value": prompts[1]},
+            "edit_length": {"value": prompts[2]},
+        }
+
+    def _types_patch(self, caption_type, edit_select, status) -> dict:
+        names = _type_names()
+        return {
+            "caption_type": {"choices": names, "value": caption_type},
+            "edit_select": {"choices": _editable_types(), "value": edit_select},
+            "__outputs__": {"edit_status": status},
+        }
+
+    @ui.action("save_type")
+    def save_type(self, ctx, values):
+        name = str(values.get("edit_name") or "").strip()
+        if not name:
+            return {"__outputs__": {"edit_status": ui.message("❗ Name is required")}}
+        if name == jcp.NONE_CAPTION_TYPE:
+            return {"__outputs__": {"edit_status": ui.message("❗ '{{name}}' is reserved", name=name)}}
+        user = jcp.load_user_caption_types()
+        user[name] = [str(values.get(key) or "") for key in ("edit_any", "edit_word", "edit_length")]
+        jcp.save_user_caption_types(user)
+        return self._types_patch(name, name, ui.message("✅ Saved '{{name}}'", name=name))
+
+    @ui.action("delete_type")
+    def delete_type(self, ctx, values):
+        name = str(values.get("edit_name") or "").strip()
+        user = jcp.load_user_caption_types()
+        if not name:
+            status = ui.message("❗ Nothing selected")
+        elif name in user:
+            del user[name]
+            jcp.save_user_caption_types(user)
+            if name in jcp.CAPTION_TYPE_MAP:
+                status = ui.message("✅ Deleted user override '{{name}}' (built-in restored)", name=name)
+            else:
+                status = ui.message("✅ Deleted user override '{{name}}'", name=name)
+        elif name in jcp.CAPTION_TYPE_MAP:
+            status = ui.message("❗ '{{name}}' is built-in. Delete only removes user overrides.", name=name)
+        else:
+            status = ui.message("❗ '{{name}}' not found", name=name)
+        return self._types_patch(_default_type(_type_names()), "", status)
+
+    # ---- Single image ---------------------------------------------------------
+
+    @ui.action("image_changed")
+    def image_changed(self, ctx, values):
+        """A new image (upload, PNG Info, Prompt Workshop) fills the combined
+        box with its PNG-info prompt; removing it empties the box."""
+        return {"combined": {"value": _image_prompt(ctx, values.get("image"))}}
+
+    @ui.action("caption")
+    def caption(self, ctx, values):
+        resolved = self.values(ctx, values)
+        image = resolved["image"]
+        if image is None:
+            return ui.toast("❗ No image provided.", "warning")
+        image_prompt = _image_prompt(ctx, values.get("image"))
+
+        def work(task):
+            _ensure_loaded(task, resolved["quant"])
+            eng = jcm.get_engine()
+            prompt = _build_prompt(resolved)
+            task.check()
+            task.progress(0.5, "Generating…")
+            caption = _caption(eng, image, prompt, resolved)
+            if not resolved["keep_loaded"]:
+                eng.unload()
+            # The combined box is rebuilt from scratch on each caption: the
+            # image's own prompt, then the new caption.
+            return {
+                "caption_out": {"value": caption},
+                "prompt_out": {"value": prompt},
+                "combined": {"value": _join_caption(image_prompt, caption)},
+                "__outputs__": {"status": _status()},
+            }
+
+        return self.start_task(ctx, "caption", work, gpu=True)
+
+    # ---- Batch ------------------------------------------------------------------
+
+    @ui.action("batch")
+    def batch(self, ctx, values):
+        resolved = self.values(ctx, values, uploads=False)
+        if _folders_hidden():
+            return ui.toast("Folder captioning is disabled on this server (--hide-ui-dir-config).", "error")
+        folder = resolved["folder"].strip()
+        if not folder:
+            return ui.toast("❗ Please provide a folder path.", "warning")
+        images = _scan_images(folder, resolved["recursive"])
+        if not images:
+            return ui.toast(ui.message("❗ No images found in: {{folder}}", folder=folder), "warning")
+
+        def work(task):
+            from PIL import Image
+
+            _ensure_loaded(task, resolved["quant"])
+            eng = jcm.get_engine()
+            prompt = _build_prompt(resolved)
+            log_lines = [f"Found {len(images)} image(s). Prompt:\n{prompt}\n"]
+            task.publish(log="\n".join(log_lines))
+            done = skipped = errors = 0
+            ext = resolved["save_ext"] if resolved["save_ext"].startswith(".") else f".{resolved['save_ext']}"
             try:
-                _infotext.add_paste_fields("joycaption", image_in, [])
-            except Exception:
-                traceback.print_exc()
+                for i, img_path in enumerate(images):
+                    task.check()
+                    task.progress(i / len(images), "{{index}}/{{total}}  {{name}}", index=i + 1, total=len(images), name=img_path.name)
+                    out_path = img_path.with_suffix(ext)
+                    if out_path.exists() and not resolved["overwrite"]:
+                        log_lines.append(f"⏭  {img_path.name} — skipped (caption exists)")
+                        skipped += 1
+                    else:
+                        try:
+                            with Image.open(img_path) as im:
+                                caption = _caption(eng, im, prompt, resolved)
+                            out_path.write_text(f"{resolved['prefix']}{caption}{resolved['suffix']}", encoding="utf-8")
+                            log_lines.append(f"✅ {img_path.name}\n     → {out_path.name}")
+                            done += 1
+                        except Exception as e:
+                            log_lines.append(f"❌ {img_path.name} — {e}")
+                            errors += 1
+                    task.publish(log="\n".join(log_lines[-200:]))
+            except pages.TaskCancelled:
+                log_lines.append("")
+                log_lines.append(f"Cancelled. Captioned {done}, skipped {skipped}, errors {errors}.")
+                return {"__outputs__": {"log": "\n".join(log_lines[-400:]), "status": _status()}, **ui.toast("Cancelled", "info")}
+            if not resolved["keep_loaded"]:
+                eng.unload()
+            log_lines.append("")
+            log_lines.append(f"Done. Captioned {done}, skipped {skipped}, errors {errors}.")
+            summary = ui.message("Done. Captioned {{done}}, skipped {{skipped}}, errors {{errors}}.", done=done, skipped=skipped, errors=errors)
+            return {"__outputs__": {"log": "\n".join(log_lines[-400:]), "status": _status()}, **ui.toast(summary, "success" if not errors else "warning")}
 
-        # Stash handles so the on_after_component hook (registered at
-        # module load, below) can wire up the PNG-info button against
-        # this tab's actual gradio components.
-        global _JC_IMAGE_IN, _JC_COMBINED
-        _JC_IMAGE_IN = image_in
-        _JC_COMBINED = txt2img_combined
-
-        # If the PNG-info "Send to JoyCaption" button was created before
-        # this UI was built (which it always is -- built-in tabs come
-        # first), wire its text-extraction click here. The button's
-        # standard image-copy click was registered at button-creation
-        # time; we chain a SECOND click handler that does the text part.
-        # Multiple .click() listeners on one button are allowed -- they
-        # fire as independent event chains.
-        #
-        # _PNGINFO_CLICK_WIRED guards against attaching duplicate
-        # listeners if _build_ui ends up running more than once (which
-        # can happen on some UI-reload paths). Without this guard a
-        # second invocation would chain a second copy of the text
-        # extractor onto the (still-the-same) button.
-        global _PNGINFO_CLICK_WIRED
-        if (_PNGINFO_SEND_BTN is not None and _PNGINFO_TEXT is not None
-                and not _PNGINFO_CLICK_WIRED):
-            try:
-                def _extract_prompt_for_jc(infotext_str):
-                    # Plain string in, plain string out. No gr.update
-                    # wrapping anywhere in the chain.
-                    return jcpi.extract_positive_prompt_from_text(infotext_str or "")
-
-                _PNGINFO_SEND_BTN.click(
-                    fn=_extract_prompt_for_jc,
-                    inputs=[_PNGINFO_TEXT],
-                    outputs=[txt2img_combined],
-                    show_progress=False,
-                )
-                # Also switch to the JoyCaption tab so the user sees the
-                # image + prompt land. The standard ParamBinding flow
-                # tries to call switch_to_<tabname> in JS, but that
-                # helper is only auto-generated for the four built-in
-                # tabs; for our custom tab we need to do the switch
-                # explicitly via a small JS shim defined in
-                # javascript/joycaption.js.
-                _PNGINFO_SEND_BTN.click(
-                    fn=None,
-                    inputs=None,
-                    outputs=None,
-                    _js="joycaption_switch_to_tab",
-                )
-                _PNGINFO_CLICK_WIRED = True
-            except Exception:
-                traceback.print_exc()
-
-    return ui
+        return self.start_task(ctx, "batch", work, gpu=True)
 
 
-# ---------------------------------------------------------------------------
-# Tab registration
-# ---------------------------------------------------------------------------
-
-# Handles to the JoyCaption tab's image and combined-prompt components.
-# Populated by _build_ui() the first time the UI is constructed; consumed
-# by the on_after_component hook below when the PNG-info tab is built.
-_JC_IMAGE_IN = None
-_JC_COMBINED = None
-
-# PNG-info components we need to bind against. We watch for them via
-# on_after_component because they live in a different tab built by the
-# WebUI itself -- we have no direct gradio reference. Populated as the
-# UI is constructed.
-_PNGINFO_IMAGE = None
-_PNGINFO_TEXT = None
-_PNGINFO_SEND_BTN = None  # the "Send to JoyCaption" button we inject
-_PNGINFO_BTN_REGISTERED = False
-_PNGINFO_CLICK_WIRED = False  # second-click (text + tab-switch) wired?
-
-
-def on_ui_tabs():
-    try:
-        ui = _build_ui()
-        return [(ui, "JoyCaption", "joycaption")]
-    except Exception:
-        traceback.print_exc()
-        return []
-
-
-def _on_after_component(component, **kwargs):
-    """Watches the rest of the UI being built and injects a 'Send to
-    JoyCaption' button into the PNG-info tab once we've seen both its
-    image input (elem_id='pnginfo_image') and its parsed-text display
-    (elem_id='pnginfo_generation_info', 'html2', or 'html_info_pnginfo'
-    depending on webui version).
-
-    Crucial timing detail: built-in tabs (txt2img, ..., PNG info) are
-    constructed BEFORE on_ui_tabs callbacks fire, so by the time our
-    JoyCaption tab is being built the PNG-info Blocks context is closed
-    and we can no longer add buttons to it. This function therefore
-    creates the button *during* PNG-info construction, while that
-    context is still open. The ParamBinding we register doesn't need
-    JoyCaption to exist yet -- it just appends to a list that
-    connect_paste_params_buttons() walks at the very end of UI setup,
-    by which time both tabs are registered and the wiring can resolve.
-    """
-    global _PNGINFO_IMAGE, _PNGINFO_TEXT, _PNGINFO_SEND_BTN, _PNGINFO_BTN_REGISTERED
-
-    if _infotext is None or _PNGINFO_BTN_REGISTERED:
-        return
-
-    elem_id = kwargs.get("elem_id") or getattr(component, "elem_id", None)
-    if not elem_id:
-        return
-
-    if elem_id == "pnginfo_image":
-        _PNGINFO_IMAGE = component
-    # Different webui versions use different elem_ids for the metadata
-    # display. We accept the first one that shows up.
-    elif elem_id in ("pnginfo_generation_info", "html2", "html_info_pnginfo"):
-        if _PNGINFO_TEXT is None:
-            _PNGINFO_TEXT = component
-
-    if _PNGINFO_IMAGE is None or _PNGINFO_TEXT is None:
-        return
-
-    # Skip our own button if we see it bouncing back through the
-    # callback. (Creating gr.Button below re-fires after_component_callback
-    # for the new button, which re-enters this function. The guard further
-    # down -- set BEFORE the button is constructed -- catches that case;
-    # this elem_id check is belt-and-braces in case any later edits move
-    # the guard.)
-    if elem_id == "pnginfo_send_to_joycaption":
-        return
-
-    # Both PNG-info components seen. The on_after_component callback is
-    # firing inside the PNG-info Blocks context (i.e. right after the
-    # component we just received was constructed). Adding a gr.Button
-    # here drops it into the PNG-info tab next to the existing Send-to-X
-    # buttons. The ParamBinding registers tabname="joycaption" -- when
-    # JoyCaption later calls add_paste_fields("joycaption", ...), the
-    # framework resolves the link.
-    #
-    # CRITICAL: set the guard BEFORE creating the button. Constructing a
-    # gradio component inside an after_component_callback re-fires that
-    # same callback for the new component, which re-enters this function.
-    # If we don't flip the guard first, every re-entry creates another
-    # button (and another, and another -- it doesn't truly recurse
-    # forever because forge eventually hits a different RecursionError
-    # in its own error reporting path, but we still pile up dozens of
-    # ghost buttons on the PNG-info tab before that happens).
-    _PNGINFO_BTN_REGISTERED = True
-    try:
-        btn = gr.Button("Send to JoyCaption", elem_id="pnginfo_send_to_joycaption")
-        _infotext.register_paste_params_button(_infotext.ParamBinding(
-            paste_button=btn,
-            tabname="joycaption",
-            source_image_component=_PNGINFO_IMAGE,
-            # source_text_component intentionally omitted -- we wire the
-            # text-extraction half ourselves in _build_ui (see the
-            # add_paste_fields call there), bypassing the standard
-            # paste_fields machinery which stringifies gr.update() dicts
-            # into our textbox in this Gradio version.
-        ))
-        _PNGINFO_SEND_BTN = btn
-        print("[joycaption] registered 'Send to JoyCaption' button on PNG-info tab")
-    except Exception:
-        # If button creation failed, allow another attempt later -- a
-        # subsequent component might still trigger a successful retry.
-        _PNGINFO_BTN_REGISTERED = False
-        traceback.print_exc()
-
-
-# Register hooks. The on_after_component hook is what wires the PNG-info
-# button; we also need on_ui_tabs to build the JoyCaption tab itself.
-script_callbacks.on_ui_tabs(on_ui_tabs)
-try:
-    script_callbacks.on_after_component(_on_after_component)
-except Exception:
-    # Older WebUIs might not expose this; the PNG-info button just
-    # won't be created. The JoyCaption tab still works.
-    traceback.print_exc()
+pages.register(JoyCaptionPage(PAGE_ID, "JoyCaption", "camera", on_load="status", send_to=[pages.SendTarget("image", "JoyCaption")]))

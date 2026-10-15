@@ -1,0 +1,321 @@
+{
+ "inputs": [
+  {
+   "kind": "text",
+   "label": "Consolidated Prompt — copy this into txt2img",
+   "default": "",
+   "elem_id": "pw_consolidated"
+  },
+  {
+   "kind": "text",
+   "label": "1. Quality / Meta / Year / Safety",
+   "default": "",
+   "elem_id": "pw_quality"
+  },
+  {
+   "kind": "text",
+   "label": "2. Subject Count   (1girl / 1boy / 1other / 2girls / solo / ...)",
+   "default": "",
+   "elem_id": "pw_subject"
+  },
+  {
+   "kind": "text",
+   "label": "3. Character(s)",
+   "default": "",
+   "elem_id": "pw_character"
+  },
+  {
+   "kind": "text",
+   "label": "4. Series",
+   "default": "",
+   "elem_id": "pw_series"
+  },
+  {
+   "kind": "text",
+   "label": "5. Artist   (@ will be auto-prepended)",
+   "default": "",
+   "elem_id": "pw_artist"
+  },
+  {
+   "kind": "text",
+   "label": "6. General Tags",
+   "default": "",
+   "elem_id": "pw_general"
+  },
+  {
+   "kind": "text",
+   "label": "Composition / Framing",
+   "default": "",
+   "elem_id": "pw_composition"
+  },
+  {
+   "kind": "text",
+   "label": "Pose / Action / Expression",
+   "default": "",
+   "elem_id": "pw_pose"
+  },
+  {
+   "kind": "text",
+   "label": "Clothing / Attire",
+   "default": "",
+   "elem_id": "pw_clothing"
+  },
+  {
+   "kind": "text",
+   "label": "Setting / Background",
+   "default": "",
+   "elem_id": "pw_setting"
+  },
+  {
+   "kind": "text",
+   "label": "Lighting / Atmosphere / Effects",
+   "default": "",
+   "elem_id": "pw_lighting"
+  },
+  {
+   "kind": "text",
+   "label": "Physical Features",
+   "default": "",
+   "elem_id": "pw_features"
+  },
+  {
+   "kind": "text",
+   "label": "Style / Aesthetic",
+   "default": "",
+   "elem_id": "pw_style"
+  },
+  {
+   "kind": "text",
+   "label": "Content / NSFW",
+   "default": "",
+   "elem_id": "pw_content"
+  },
+  {
+   "kind": "text",
+   "label": "api_key",
+   "default": "",
+   "elem_id": "pw_gel_api_key"
+  },
+  {
+   "kind": "text",
+   "label": "user_id",
+   "default": "",
+   "elem_id": "pw_gel_user_id"
+  },
+  {
+   "kind": "text",
+   "label": "api_key",
+   "default": "",
+   "elem_id": "pw_r34_api_key"
+  },
+  {
+   "kind": "text",
+   "label": "user_id",
+   "default": "",
+   "elem_id": "pw_r34_user_id"
+  },
+  {
+   "kind": "choice",
+   "label": "Source",
+   "default": "Danbooru",
+   "choices": [
+    "Danbooru",
+    "Aibooru",
+    "Gelbooru",
+    "Rule34"
+   ],
+   "elem_id": "pw_source"
+  },
+  {
+   "kind": "choice",
+   "label": "Rating filter",
+   "default": "All ratings",
+   "choices": [
+    "All ratings",
+    "Safe / General",
+    "Sensitive",
+    "Questionable",
+    "Explicit"
+   ],
+   "elem_id": "pw_rating"
+  },
+  {
+   "kind": "text",
+   "label": "Search tag(s) — find a random post with these tags (empty = any post)",
+   "default": "",
+   "elem_id": "pw_search_tag"
+  },
+  {
+   "kind": "text",
+   "label": "Blacklist tags — won't appear in grabbed output",
+   "default": "",
+   "elem_id": "pw_blacklist_tags"
+  },
+  {
+   "kind": "multichoice",
+   "label": "Blacklist categories — whole sections dropped",
+   "default": [],
+   "choices": [
+    "Quality/Meta/Safety",
+    "Subject",
+    "Character",
+    "Series",
+    "Artist",
+    "General"
+   ],
+   "elem_id": "pw_blacklist_cats"
+  },
+  {
+   "kind": "toggle",
+   "label": "Filter tags by post count",
+   "default": false,
+   "elem_id": "pw_count_filter_enabled"
+  },
+  {
+   "kind": "choice",
+   "label": "Comparator",
+   "default": "≥",
+   "choices": [
+    "≥",
+    "≤",
+    "=",
+    "between",
+    "not between"
+   ],
+   "elem_id": "pw_count_filter_op"
+  },
+  {
+   "kind": "number",
+   "label": "Min / value",
+   "default": 50,
+   "minimum": 0,
+   "maximum": null,
+   "step": 1,
+   "elem_id": "pw_count_filter_threshold"
+  },
+  {
+   "kind": "number",
+   "label": "Max (range only)",
+   "default": 100,
+   "minimum": 0,
+   "maximum": null,
+   "step": 1,
+   "elem_id": "pw_count_filter_threshold_high"
+  },
+  {
+   "kind": "toggle",
+   "label": "Hunt mode (Danbooru/Aibooru only)",
+   "default": false,
+   "elem_id": "pw_hunt_mode"
+  },
+  {
+   "kind": "multichoice",
+   "label": "Apply count filter only to these categories (empty = all)",
+   "default": [],
+   "choices": [
+    "Quality/Meta/Safety",
+    "Subject",
+    "Character",
+    "Series",
+    "Artist",
+    "General"
+   ],
+   "elem_id": "pw_count_filter_targets"
+  },
+  {
+   "kind": "text",
+   "label": "Post URL",
+   "default": "",
+   "elem_id": "pw_post_url"
+  },
+  {
+   "kind": "image",
+   "label": "Preview (downloaded post image — also used as source for 'Send to JoyCaption')",
+   "default": null,
+   "elem_id": "pw_preview_image"
+  },
+  {
+   "kind": "text",
+   "label": "Grabbed from",
+   "default": "",
+   "elem_id": "pw_info"
+  },
+  {
+   "kind": "text",
+   "label": "Grabbed Tags (Anima-formatted, copyable)",
+   "default": "",
+   "elem_id": "pw_grabbed"
+  },
+  {
+   "kind": "text",
+   "label": "Post ID",
+   "default": "",
+   "elem_id": "pw_post_id"
+  },
+  {
+   "kind": "state",
+   "label": "",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "state",
+   "label": "",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "state",
+   "label": "",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "state",
+   "label": "",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "state",
+   "label": "",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "state",
+   "label": "",
+   "default": "",
+   "elem_id": null
+  },
+  {
+   "kind": "state",
+   "label": "",
+   "default": "",
+   "elem_id": null
+  }
+ ],
+ "buttons": [
+  "Build Prompt",
+  "Send to txt2img Prompt",
+  "Replace txt2img Prompt",
+  "Clear All Fields",
+  "→ 1. Quality",
+  "→ 2. Subject",
+  "→ 3. Character",
+  "→ 4. Series",
+  "→ 5. Artist",
+  "→ 6. General",
+  "Save",
+  "Save",
+  "Grab Random Tags",
+  "🔗 Open Post in New Tab",
+  "📷 Send Image to JoyCaption",
+  "🖼 Download for Preview",
+  "📤 Send Previewed Image to JoyCaption",
+  "(internal) paste to JoyCaption",
+  "↑ Send Grabbed Tags into Category Fields Above",
+  "Grab from ID"
+ ],
+ "title": "Prompt Workshop"
+}

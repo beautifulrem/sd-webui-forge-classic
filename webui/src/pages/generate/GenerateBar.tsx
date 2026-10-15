@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils"
 import { formatEta, notificationsAvailable } from "@/features/progress/effects"
 import { dispatchRun, type GenerateTab, useRuns } from "@/features/progress/run-controller"
 import { phaseOf } from "@/features/progress/run-machine"
+import { EnqueueButton, QueueEditBanner } from "@/features/queue/FormQueueControls"
 import { requestReset } from "./reset-request"
 import { jobsAhead } from "./run-helpers"
 
@@ -156,6 +157,7 @@ export function GenerateBar({ tab, className }: { tab: GenerateTab; className?: 
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
+      <QueueEditBanner tab={tab} />
       <div className="flex items-center gap-1.5">
         <div className="flex min-w-0 flex-1">
           <Button
@@ -209,6 +211,7 @@ export function GenerateBar({ tab, className }: { tab: GenerateTab; className?: 
           </DropdownMenu>
         </div>
         <RepeatPopover tab={tab} disabled={phase === "submitting"} />
+        <EnqueueButton tab={tab} />
         {running ? (
           <>
             <Button

@@ -1,0 +1,10 @@
+{
+  "PiD Integrated": "PiD 集成",
+  "Optional 4x pixel-diffusion postprocessor (4 LCM steps). It cannot be combined with Hires fix. PiD weights are limited to non-commercial research/evaluation; review the model license before use.": "可选的 4 倍像素扩散后处理（4 步 LCM）。不能与高分辨率修复同时使用。PiD 权重仅限非商业研究 / 评估用途；使用前请查看模型许可。",
+  "(leave empty to use main prompt)": "（留空则使用主提示词）",
+  "PiD": "PiD",
+  "Gemma2 2B IT ELM": "Gemma2 2B IT ELM",
+  "Degrade Sigma": "退化 Sigma",
+  "(denoising strength)": "（重绘幅度）",
+  "(fix discoloration issue)": "（修复偏色问题）"
+}

@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import logging
 
-import gradio as gr
-
 from backend.logging import setup_logger
 from lib_anima_dave.dave import DEFAULT_BLOCKS, DEFAULT_STRENGTH, DEFAULT_TAU, DaveState, apply_dave_patch, model_blocks
 from modules import scripts
 from modules.anima_support import AnimaPatchPanel, clamp, is_anima_engine, require_finite, to_float
-from modules.ui_components import InputAccordion
+from remi import ui
 
 logger = logging.getLogger("AnimaDAVE")
 setup_logger(logger)
 
-# Infotext keys, in the order of the controls returned by ``ui``
+# Infotext keys, in script argument order
 INFOTEXT_KEYS = ("Anima DAVE enabled", "Anima DAVE strength", "Anima DAVE tau", "Anima DAVE blocks")
 # Anima preset fields, in the same order
 PRESET_FIELDS = ("dave.enabled", "dave.strength", "dave.tau", "dave.blocks")
@@ -35,23 +33,25 @@ class AnimaDaveScript(AnimaPatchPanel, scripts.Script):
     def title(self):
         return "Anima DAVE Diversity"
 
-    def ui(self, *args, **kwargs):
-        with InputAccordion(False, label=self.title()) as enable:
-            gr.Markdown(
-                "Adds same-prompt layout diversity across seeds by removing part of the spatial mean (DC) "
-                "of early-mid Anima block outputs during the first steps (DAVE, ICML 2026). "
-                "Window width hurts text and hands more than strength: keep tau at or below 0.10."
+    def params(self, is_img2img):
+        return self.panel_params(
+            ui.Section(
+                self.title(),
+                enable=ui.Toggle("enabled", False, label=self.title()),
+                children=[
+                    ui.Markdown(
+                        "Adds same-prompt layout diversity across seeds by removing part of the spatial mean (DC) "
+                        "of early-mid Anima block outputs during the first steps (DAVE, ICML 2026). "
+                        "Window width hurts text and hands more than strength: keep tau at or below 0.10."
+                    ),
+                    ui.Row(
+                        ui.Slider("strength", 0.0, 1.0, DEFAULT_STRENGTH, 0.01, label="Strength", info="Fraction of the DC removed per block; diversity often peaks low (0.05-0.2)."),
+                        ui.Slider("tau", 0.01, 1.0, DEFAULT_TAU, 0.01, label="Tau", info="Leading fraction of the schedule DAVE runs on."),
+                        ui.Text("blocks", DEFAULT_BLOCKS, label="Blocks (2B layout)", info="28-block indices; mapped onto the original blocks of 40/52-block models."),
+                    ),
+                ],
             )
-            with gr.Row():
-                strength = gr.Slider(0.0, 1.0, value=DEFAULT_STRENGTH, step=0.01, label="Strength", info="Fraction of the DC removed per block; diversity often peaks low (0.05-0.2).")
-                tau = gr.Slider(0.01, 1.0, value=DEFAULT_TAU, step=0.01, label="Tau", info="Leading fraction of the schedule DAVE runs on.")
-                blocks = gr.Textbox(
-                    DEFAULT_BLOCKS,
-                    label="Blocks (2B layout)",
-                    info="28-block indices; mapped onto the original blocks of 40/52-block models.",
-                )
-        controls = self.register_paste_fields([enable, strength, tau, blocks])
-        return controls
+        )
 
     def process_before_every_sampling(self, p, enable, strength, tau, blocks, **kwargs):
         # Before anything is installed: a NaN tau aborts the job mid-sampling

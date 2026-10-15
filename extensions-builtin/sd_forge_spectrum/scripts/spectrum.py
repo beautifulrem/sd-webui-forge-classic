@@ -1,19 +1,25 @@
 import os
 
-import gradio as gr
 from lib_spectrum import logger
 from lib_spectrum.forecaster import SpectrumNode
 from lib_spectrum.pass_context import resolve_pass_context
 from lib_spectrum.presets import CONTROLS, DEFAULT, ENABLE_KEY, INFOTEXT_KEYS, PresetManager
 
 from modules import paths, scripts, shared
-from modules.anima_support import register_table_fields, script_arguments
-from modules.ui_components import InputAccordion
+from modules.anima_support import script_arguments, table_params
+from remi import ui
 
 PresetManager.load_presets()
 
-# The script arguments: the switch, then the settings in CONTROLS order.
-SCRIPT_ARG_NAMES = ("enable", *INFOTEXT_KEYS)
+# The params() names of the settings, in CONTROLS order: their preset fields' last parts.
+PARAM_NAMES = tuple(name.rsplit(".", 1)[-1] for _, name, _, _ in CONTROLS)
+# The script arguments: the switch, the settings in CONTROLS order, then the
+# name in the Presets box (UI only; ignored by processing).
+SCRIPT_ARG_NAMES = ("enable", *INFOTEXT_KEYS, "preset_name")
+_ARG_DEFAULTS = {**DEFAULT, "preset_name": ""}
+# (param name, infotext key, preset field): infotext without ENABLE_KEY (older
+# images, Spectrum off) leaves the switch alone.
+ROWS = (("enable", ENABLE_KEY, "spectrum.enabled"), *((param, key, name) for param, (key, name, _, _) in zip(PARAM_NAMES, CONTROLS)), ("preset_name", None, None))
 # Positions in the script arguments after ``enable`` (CONTROLS order).
 _DEGREE = INFOTEXT_KEYS.index("spec_m")
 _HISTORY = INFOTEXT_KEYS.index("spec_history_size")
@@ -21,6 +27,7 @@ _HISTORY = INFOTEXT_KEYS.index("spec_history_size")
 
 class SpectrumForForge(scripts.Script):
     sorting_priority = 2026
+    param_order = tuple(name for name, *_ in ROWS)
 
     def title(self):
         return "Spectrum Integrated"
@@ -28,157 +35,100 @@ class SpectrumForForge(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def ui(self, *args, **kwargs):
-        with InputAccordion(False, label=self.title()) as enable:
-            with gr.Row():
-                w = gr.Slider(
-                    minimum=0.0,
-                    maximum=1.0,
-                    value=DEFAULT["spec_w"],
-                    step=0.05,
-                    label="Prediction Weighting",
-                    info="higher = long-term trend ; lower = short-term changes",
-                )
-                m = gr.Slider(
-                    minimum=1,
-                    maximum=8,
-                    value=DEFAULT["spec_m"],
-                    step=1,
-                    label="Polynomial Degree",
-                    info="higher = complex & subtle patterns ; lower = stable & faster",
-                )
-            with gr.Row():
-                lam = gr.Slider(
-                    minimum=0.0,
-                    maximum=2.0,
-                    value=DEFAULT["spec_lam"],
-                    step=0.05,
-                    label="Regularization",
-                    info="higher = reduce overfitting ; lower = fit more data",
-                )
-                window_size = gr.Slider(
-                    minimum=1,
-                    maximum=10,
-                    value=DEFAULT["spec_window_size"],
-                    step=1,
-                    label="Cache Window",
-                    info="higher = skip more steps ; lower = slower but more accurate",
-                )
-            flex_window = gr.Slider(
-                minimum=0.0,
-                maximum=2.0,
-                value=DEFAULT["spec_flex_window"],
-                step=0.05,
-                label="Window Growth",
-                info="higher = more speed & less accurate ; lower = more consistent accuracy but less speed gain",
-            )
-            with gr.Row():
-                warmup_steps = gr.Slider(
-                    minimum=0,
-                    maximum=20,
-                    value=DEFAULT["spec_warmup_steps"],
-                    step=1,
-                    label="Warmup Steps",
-                    info="Run the full model before caching starts",
-                )
-                stop_caching_step = gr.Slider(
-                    minimum=0.0,
-                    maximum=1.0,
-                    value=DEFAULT["spec_stop_caching_step"],
-                    step=0.05,
-                    label="Stop Caching Step",
-                    info="Run the full model for the last few steps",
-                )
-            with gr.Row():
-                tail_actual_steps = gr.Slider(
-                    minimum=0,
-                    maximum=12,
-                    value=DEFAULT["spec_tail_actual_steps"],
-                    step=1,
-                    label="Minimum Tail Actual Steps",
-                    info="Always run at least this many final DiT steps; combined with Stop Caching Step using the safer value.",
-                )
-                history_size = gr.Slider(
-                    minimum=3,
-                    maximum=32,
-                    value=DEFAULT["spec_history_size"],
-                    step=1,
-                    label="Feature History",
-                    info="Must be at least Polynomial Degree + 2. Larger values use more VRAM.",
-                )
+    def params(self, is_img2img):
+        root = ui.Section(
+            self.title(),
+            enable=ui.Toggle("enable", False, label=self.title()),
+            children=[
+                ui.Row(
+                    ui.Slider("weight", 0.0, 1.0, DEFAULT["spec_w"], 0.05, label="Prediction Weighting", info="higher = long-term trend ; lower = short-term changes"),
+                    ui.Slider("degree", 1, 8, DEFAULT["spec_m"], 1, label="Polynomial Degree", info="higher = complex & subtle patterns ; lower = stable & faster"),
+                ),
+                ui.Row(
+                    ui.Slider("regularization", 0.0, 2.0, DEFAULT["spec_lam"], 0.05, label="Regularization", info="higher = reduce overfitting ; lower = fit more data"),
+                    ui.Slider("window", 1, 10, DEFAULT["spec_window_size"], 1, label="Cache Window", info="higher = skip more steps ; lower = slower but more accurate"),
+                ),
+                ui.Slider("window_growth", 0.0, 2.0, DEFAULT["spec_flex_window"], 0.05, label="Window Growth", info="higher = more speed & less accurate ; lower = more consistent accuracy but less speed gain"),
+                ui.Row(
+                    ui.Slider("warmup", 0, 20, DEFAULT["spec_warmup_steps"], 1, label="Warmup Steps", info="Run the full model before caching starts"),
+                    ui.Slider("stop", 0.0, 1.0, DEFAULT["spec_stop_caching_step"], 0.05, label="Stop Caching Step", info="Run the full model for the last few steps"),
+                ),
+                ui.Row(
+                    ui.Slider("tail_actual", 0, 12, DEFAULT["spec_tail_actual_steps"], 1, label="Minimum Tail Actual Steps", info="Always run at least this many final DiT steps; combined with Stop Caching Step using the safer value."),
+                    ui.Slider("history", 3, 32, DEFAULT["spec_history_size"], 1, label="Feature History", info="Must be at least Polynomial Degree + 2. Larger values use more VRAM."),
+                ),
+                ui.Group(
+                    "Schedule & compatibility",
+                    ui.Row(
+                        ui.Choice("schedule", ["Window", "SEA (auto-calibrated)"], DEFAULT["spec_schedule"], label="Refresh Schedule", info="SEA learns a content-aware threshold on the first matching run, then reuses it."),
+                        ui.Slider("refresh_ratio", 0.0, 1.0, DEFAULT["spec_refresh_ratio"], 0.01, label="SEA Refresh Ratio", info="0 matches the Window schedule's compute budget automatically; otherwise sets the target actual-forward fraction."),
+                        ui.Slider("sea_beta", 0.5, 4.0, DEFAULT["spec_sea_beta"], 0.1, label="SEA Spectral Beta", info="Natural-image spectral slope used only for SEA decisions."),
+                    ),
+                    ui.Choice(
+                        "policy",
+                        ["Conservative", "Strict", "Legacy / fastest"],
+                        DEFAULT["spec_compat_policy"],
+                        label="Compatibility Policy",
+                        info="Conservative caches only simple Forge CFG batches and cache-safe wrapper chains. Strict runs every step actual (Spectrum off) because Forge has no stable branch UUIDs.",
+                    ),
+                    ui.Toggle("verbose", DEFAULT["spec_verbose"], label="Verbose Spectrum decisions"),
+                    open=False,
+                ),
+                ui.Group(
+                    "Presets",
+                    ui.Choice("preset_name", PresetManager.list_preset, "", allow_custom=True, label="Preset Name"),
+                    ui.Row(
+                        ui.Button("Apply Preset", "apply_preset", "secondary"),
+                        ui.Button("Save Preset", "save_preset", "primary"),
+                        ui.Button("Delete Preset", "delete_preset", "danger"),
+                    ),
+                    open=False,
+                ),
+            ],
+        )
+        table_params(ROWS, root)  # infotext keys and preset fields
+        return root
 
-            with gr.Accordion("Schedule & compatibility", open=False):
-                with gr.Row():
-                    schedule = gr.Dropdown(
-                        ["Window", "SEA (auto-calibrated)"],
-                        value=DEFAULT["spec_schedule"],
-                        label="Refresh Schedule",
-                        info="SEA learns a content-aware threshold on the first matching run, then reuses it.",
-                    )
-                    refresh_ratio = gr.Slider(
-                        minimum=0.0,
-                        maximum=1.0,
-                        value=DEFAULT["spec_refresh_ratio"],
-                        step=0.01,
-                        label="SEA Refresh Ratio",
-                        info="0 matches the Window schedule's compute budget automatically; otherwise sets the target actual-forward fraction.",
-                    )
-                    sea_beta = gr.Slider(
-                        minimum=0.5,
-                        maximum=4.0,
-                        value=DEFAULT["spec_sea_beta"],
-                        step=0.1,
-                        label="SEA Spectral Beta",
-                        info="Natural-image spectral slope used only for SEA decisions.",
-                    )
-                compat_policy = gr.Dropdown(
-                    ["Conservative", "Strict", "Legacy / fastest"],
-                    value=DEFAULT["spec_compat_policy"],
-                    label="Compatibility Policy",
-                    info="Conservative caches only simple Forge CFG batches and cache-safe wrapper chains. Strict runs every step actual (Spectrum off) because Forge has no stable branch UUIDs.",
-                )
-                verbose = gr.Checkbox(DEFAULT["spec_verbose"], label="Verbose Spectrum decisions")
+    def _settings(self, values: dict) -> dict:
+        """The owner's current values, validated (an action's ``values`` are raw)."""
 
-            with gr.Accordion("Presets", open=False):
-                _preset = gr.Dropdown(
-                    value=None,
-                    label="Preset Name",
-                    choices=PresetManager.list_preset(),
-                    allow_custom_value=True,
-                )
-                with gr.Row():
-                    _load = gr.Button("Apply Preset", variant="secondary")
-                    _save = gr.Button("Save Preset", variant="primary")
-                    _del = gr.Button("Delete Preset", variant="stop")
+        layout = self.layout if self.layout is not None else ui.ScriptLayout(self.params(bool(getattr(self, "is_img2img", False))), owner="spectrum", order=self.param_order)
+        return layout.coerce(values, unknown="ignore")
 
-                for comp in (_preset, _load, _save, _del):
-                    comp.do_not_save_to_config = True
+    @staticmethod
+    def _preset_name(values: dict) -> str:
+        name = values.get("preset_name")
+        return name if isinstance(name, str) else ""
 
-                # The script arguments after ``enable``, in CONTROLS order.
-                controls = [w, m, lam, window_size, flex_window, warmup_steps, stop_caching_step, tail_actual_steps, history_size, schedule, refresh_ratio, sea_beta, compat_policy, verbose]
+    @ui.action("apply_preset")
+    def apply_preset(self, ctx: ui.ActionContext, values: dict) -> dict:
+        name = self._preset_name(values)
+        try:
+            settings = PresetManager.get_preset(name)
+            if settings is None:
+                return ui.toast(f'Preset "{name}" was not found', "error")
+            # A hand-edited presets.json must not put values the form rejects
+            coerced = self._settings(dict(zip(PARAM_NAMES, settings)))
+        except ValueError as error:  # ValidationError included
+            return ui.toast(f'Preset "{name}" is invalid: {error}', "error")
+        return {param: {"value": coerced[param]} for param in PARAM_NAMES}
 
-                _load.click(
-                    fn=lambda name: PresetManager.get_preset(name),
-                    inputs=[_preset],
-                    outputs=controls,
-                    queue=False,
-                )
-                _save.click(
-                    fn=lambda *args: PresetManager.save_preset(*args),
-                    inputs=[_preset, *controls],
-                    outputs=[_preset],
-                    queue=False,
-                )
-                _del.click(
-                    fn=lambda name: PresetManager.delete_preset(name),
-                    inputs=[_preset],
-                    outputs=[_preset],
-                    queue=False,
-                )
+    @ui.action("save_preset")
+    def save_preset(self, ctx: ui.ActionContext, values: dict) -> dict:
+        current = self._settings(values)
+        name = self._preset_name(current).strip()
+        names = PresetManager.save_preset(name, *(current[param] for param in PARAM_NAMES))
+        if names is None:
+            return ui.toast("Enter a preset name", "error")
+        return {"preset_name": {"choices": names, "value": name}, **ui.toast(f'Preset "{name}" saved', "success")}
 
-        # Infotext without ENABLE_KEY (older images, Spectrum off) leaves the switch alone.
-        rows = [("enable", ENABLE_KEY, "spectrum.enabled"), *((key, key, name) for key, name, _, _ in CONTROLS)]
-        return register_table_fields(self, rows, [enable, *controls])
+    @ui.action("delete_preset")
+    def delete_preset(self, ctx: ui.ActionContext, values: dict) -> dict:
+        name = self._preset_name(values)
+        names = PresetManager.delete_preset(name)
+        if names is None:
+            return ui.toast(f'Preset "{name}" was not found', "error")
+        return {"preset_name": {"choices": names, "value": ""}, **ui.toast(f'Preset "{name}" deleted', "success")}
 
     def cleanup(self, p, *args, **kwargs):
         # The wrapper (and its GPU feature history) stays on forge_objects
@@ -191,7 +141,7 @@ class SpectrumForForge(scripts.Script):
         # An argument list stored before the newer controls were added (e.g. a
         # UI task Agent Scheduler queued earlier) gets their defaults, as
         # saved presets do; one with extra values is refused.
-        named = script_arguments("Spectrum", SCRIPT_ARG_NAMES, (enable, *args), defaults=DEFAULT)
+        named = script_arguments("Spectrum", SCRIPT_ARG_NAMES, (enable, *args), defaults=_ARG_DEFAULTS)
         if not named.enable:
             return
 

@@ -5,12 +5,17 @@
  *
  * Values, open sections and selected tabs persist as drafts in localStorage
  * (`remi-form:<formId>`), written at most every 300 ms and on page hide.
+ * Uploads, hidden server state and `persist: false` inputs are not drafted.
+ *
+ * Programmatic writes (`setValues`, `applyPatches`) skip params locked by a
+ * toggle's `locks` (see locks.ts); `setValue` and `reset` are user edits.
  */
 import { createStore, type StoreApi } from "zustand/vanilla"
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware"
 import type { ParamPatch } from "@/api/types"
 import { jsonEqual } from "./conditions"
 import { buildIndex, defaultOf, type FormIndex, type OwnerSpec } from "./form-index"
+import { collectLocks, lockedNames, type ParamLock } from "./locks"
 import type { ChoiceOption, ValidationError } from "./schema"
 import { isPersisted, restoreValue } from "./values"
 
@@ -43,6 +48,8 @@ export type FormState = {
   /** `"owner.param"` refs whose changes run `core.__conflicts__` (tab schemas). */
   conflictParams: ReadonlySet<string>
   index: FormIndex
+  /** Toggles that protect another param from programmatic writes while on. */
+  locks: readonly ParamLock[]
   /** Bumped by `load`; lets consumers know the schema changed. */
   revision: number
 }
@@ -51,10 +58,11 @@ export type FormActions = {
   /** (Re)initialises from schema owners, keeping compatible draft values. */
   load: (owners: readonly OwnerSpec[], options?: { conflictParams?: readonly string[] }) => void
   setValue: (owner: string, name: string, value: unknown) => void
+  /** A programmatic write (paste, send-to, widgets): locked params are skipped. */
   setValues: (owner: string, values: OwnerValues) => void
   /** Resets the given names (all of the owner's when omitted) to their defaults. */
   reset: (owner: string, names?: readonly string[]) => void
-  /** Applies param patches `[owner, name, patch]` from an action. */
+  /** Applies param patches `[owner, name, patch]` from an action (locked params keep their value). */
   applyPatches: (patches: readonly [string, string, ParamPatch][]) => void
   setOutputs: (owner: string, outputs: Record<string, unknown>) => void
   /** Shows server validation errors on their fields and opens what hides them. */
@@ -141,10 +149,13 @@ export function createFormStore(formId: string, { persistDrafts = true } = {}): 
     errors: {},
     conflictParams: new Set(),
     index: emptyIndex(),
+    locks: [],
     revision: 0,
 
     load(owners, options = {}) {
       const index = buildIndex(owners)
+      // Before the first load the values are the drafts hydrated from localStorage
+      const hydrated = get().revision === 0
       const drafts = get().values
       const values: Record<string, OwnerValues> = {}
       const defaults: Record<string, OwnerValues> = {}
@@ -159,7 +170,8 @@ export function createFormStore(formId: string, { persistDrafts = true } = {}): 
         for (const [name, node] of index.inputs.get(spec.owner) ?? []) {
           const fallback = defaultOf(spec, node)
           ownerDefaults[name] = fallback
-          ownerValues[name] = restoreValue(node, drafts[spec.owner]?.[name], fallback)
+          const draft = hydrated && node.persist === false ? undefined : drafts[spec.owner]?.[name]
+          ownerValues[name] = restoreValue(node, draft, fallback)
         }
         values[spec.owner] = ownerValues
         defaults[spec.owner] = ownerDefaults
@@ -168,6 +180,7 @@ export function createFormStore(formId: string, { persistDrafts = true } = {}): 
         values,
         defaults,
         index,
+        locks: collectLocks(index),
         overrides: {},
         outputs: {},
         errors: {},
@@ -184,10 +197,14 @@ export function createFormStore(formId: string, { persistDrafts = true } = {}): 
     },
 
     setValues(owner, partial) {
-      set((s) => ({
-        values: { ...s.values, [owner]: { ...s.values[owner], ...partial } },
-        errors: withoutErrors(s.errors, owner, Object.keys(partial)),
-      }))
+      set((s) => {
+        const locked = lockedNames(s.locks, s.values, owner)
+        const kept = locked.size === 0 ? partial : Object.fromEntries(Object.entries(partial).filter(([name]) => !locked.has(name)))
+        return {
+          values: { ...s.values, [owner]: { ...s.values[owner], ...kept } },
+          errors: withoutErrors(s.errors, owner, Object.keys(kept)),
+        }
+      })
     },
 
     reset(owner, names) {
@@ -205,9 +222,14 @@ export function createFormStore(formId: string, { persistDrafts = true } = {}): 
         const values = { ...s.values }
         const overrides = { ...s.overrides }
         let errors = s.errors
+        const locked = new Map<string, Set<string>>()
+        const isLocked = (owner: string, name: string) => {
+          if (!locked.has(owner)) locked.set(owner, lockedNames(s.locks, s.values, owner))
+          return locked.get(owner)!.has(name)
+        }
         for (const [owner, name, patch] of patches) {
           const { value, ...display } = patch
-          if ("value" in patch) {
+          if ("value" in patch && !isLocked(owner, name)) {
             values[owner] = { ...values[owner], [name]: value }
             errors = withoutErrors(errors, owner, [name])
           }
@@ -269,7 +291,7 @@ export function createFormStore(formId: string, { persistDrafts = true } = {}): 
   return store
 }
 
-/** Values minus kinds that must not be restored (uploads, hidden server state). */
+/** Values minus what must not be restored: uploads, hidden server state, `persist: false` inputs. */
 function persistableValues(s: FormState): Record<string, OwnerValues> {
   const out: Record<string, OwnerValues> = {}
   for (const [owner, values] of Object.entries(s.values)) {
@@ -277,7 +299,7 @@ function persistableValues(s: FormState): Record<string, OwnerValues> {
     const kept: OwnerValues = {}
     for (const [name, value] of Object.entries(values)) {
       const node = nodes?.get(name)
-      if (!node || isPersisted(node)) kept[name] = value
+      if (!node || (isPersisted(node) && node.persist !== false)) kept[name] = value
     }
     out[owner] = kept
   }

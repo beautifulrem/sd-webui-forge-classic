@@ -1,61 +1,42 @@
 import math
 import re
 
-import gradio as gr
 from PIL import Image
 
 import modules.scripts as scripts
 from modules import devices, images, processing, shared
 from modules.processing import Processed
 from modules.shared import opts, state
+from remi import ui
+
+
+def upscaler_names() -> list[str]:
+    return [x.name for x in shared.sd_upscalers]
 
 
 class SDUpscale(scripts.Script):
+    # The tile overlap comes first in the arguments, after the upscaler in the layout
+    param_order = ("overlap", "upscaler_index", "scale_factor", "override")
+
     def title(self):
         return "SD Upscale"
 
     def show(self, is_img2img):
         return is_img2img
 
-    def ui(self, is_img2img):
-        gr.HTML(
-            """<p align="center">Upscale the image by the selected <b>Scale Factor</b>;
-            use the <b>Width</b> and <b>Height</b> to set the tile size</p>"""
+    def params(self, is_img2img):
+        return ui.Column(
+            ui.Markdown("Upscale the image by the selected **Scale Factor**; use the **Width** and **Height** to set the tile size"),
+            ui.Row(
+                # The script receives the index (Gradio's type="index"); a None default is the first upscaler
+                ui.Choice("upscaler_index", upscaler_names, None, type="index", label="Upscaler"),
+                ui.Slider("scale_factor", 1.0, 8.0, 2.0, 0.05, label="Scale Factor"),
+            ),
+            ui.Row(
+                ui.Slider("overlap", 0, 256, 64, 16, label="Tile Overlap"),
+                ui.Toggle("override", False, label="Save to Extras folder instead"),
+            ),
         )
-
-        with gr.Row():
-            upscaler_index = gr.Dropdown(
-                label="Upscaler",
-                choices=[x.name for x in shared.sd_upscalers],
-                value=shared.sd_upscalers[0].name,
-                type="index",
-                elem_id=self.elem_id("upscaler_index"),
-            )
-            scale_factor = gr.Slider(
-                label="Scale Factor",
-                value=2.0,
-                minimum=1.0,
-                maximum=8.0,
-                step=0.05,
-                elem_id=self.elem_id("scale_factor"),
-            )
-
-        with gr.Row():
-            overlap = gr.Slider(
-                label="Tile Overlap",
-                value=64,
-                minimum=0,
-                maximum=256,
-                step=16,
-                elem_id=self.elem_id("overlap"),
-            )
-            override = gr.Checkbox(
-                label="Save to Extras folder instead",
-                value=False,
-                elem_id=self.elem_id("override"),
-            )
-
-        return [overlap, upscaler_index, scale_factor, override]
 
     def run(self, p, overlap: int, upscaler_index: str | int, scale_factor: float, override: bool):
         if isinstance(upscaler_index, str):

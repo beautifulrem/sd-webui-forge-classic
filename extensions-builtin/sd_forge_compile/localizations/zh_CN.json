@@ -1,0 +1,14 @@
+{
+  "Torch Compile Integrated": "Torch Compile 集成",
+  "Preset": "预设",
+  "\"Automatic\" maintains the current compile status": "\"Automatic\" 保持当前编译状态",
+  "Automatic": "自动",
+  "Disable": "禁用",
+  "Anima per-block": "Anima 逐块编译",
+  "guard_filter_fn": "guard_filter_fn",
+  "dynamic": "dynamic",
+  "max-autotune": "max-autotune",
+  "max-autotune-no-cudagraphs": "max-autotune-no-cudagraphs",
+  "reduce-overhead": "reduce-overhead",
+  "**torch.compile** speeds up the inference by compiling the model ahead of time\n- **guard_filter_fn:** Compile the Fastest ; Require recompilation if Resolution / Batch Size is changed\n- **dynamic:** Support any Resolution / Batch Size ; Slower to Compile\n- **max-autotune:** Best Runtime Speed ; Require recompilation if Resolution / Batch Size is changed ; Does not work with --cuda-malloc\n- **max-autotune-no-cudagraphs:** Support any Resolution / Batch Size ; Faster than **dynamic** ; Even Slower to Compile\n- **reduce-overhead:** Similar to **max-autotune** ; Require recompilation if Resolution / Batch Size is changed ; Does not work with --cuda-malloc\n- **Anima per-block:** Compile each Anima transformer block separately; a changed Resolution / Batch Size recompiles once into a dynamic-shape graph, but Batch Size 1 (CFG 1, or steps outside the CFG range) and reference images still compile graphs of their own ; lower graph-break risk than whole-model compile": "**torch.compile** 预先编译模型以加快推理\n- **guard_filter_fn：** 编译最快；分辨率 / 批量大小改变时需要重新编译\n- **dynamic：** 支持任意分辨率 / 批量大小；编译较慢\n- **max-autotune：** 运行速度最快；分辨率 / 批量大小改变时需要重新编译；不支持 --cuda-malloc\n- **max-autotune-no-cudagraphs：** 支持任意分辨率 / 批量大小；比 **dynamic** 更快；编译更慢\n- **reduce-overhead：** 与 **max-autotune** 类似；分辨率 / 批量大小改变时需要重新编译；不支持 --cuda-malloc\n- **Anima per-block：** 逐个编译 Anima Transformer 块；分辨率 / 批量大小改变时只重新编译一次为动态形状图，但批量大小 1（CFG 1，或 CFG 范围外的步数）与参考图仍会编译各自的图；图中断风险低于整模型编译"
+}

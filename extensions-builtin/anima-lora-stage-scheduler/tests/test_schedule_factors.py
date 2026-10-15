@@ -254,8 +254,8 @@ def test_stage_strength_scales_auto_timed_templates():
     assert _factors(ban, (0, 90)) == [0.5, 0.0]
 
     # Moving the timing with Shift keeps the slider's multiplier
-    *_, strength = ui._auto_timing_ui(options.PRESET_CHARACTER_ALLOW, 5.0, True, 0.2, 0.74, 0.47, 0.5)
-    assert strength["value"] == 0.5
+    timing = ui.auto_timing(options.PRESET_CHARACTER_ALLOW, 5.0, {"auto": True, "start": 0.2, "end": 0.74, "peak": 0.47, "strength": 0.5})
+    assert timing["strength"] == 0.5 and timing["start"] != 0.2
 
 
 def test_progress_is_the_position_in_the_full_sigma_schedule():
@@ -353,94 +353,104 @@ def test_auto_detect_schedules_anima_lokrs_too(tmp_path):
     assert not config.file_matches(str(sdxl), frozenset())
 
 
+def _ctx(base=3.0, hires=5.0):
+    from remi import ui as remi_ui
+
+    return remi_ui.ActionContext(tab="txt2img", core={"distilled_cfg_scale": base, "hr_distilled_cfg": hires})
+
+
+def _choices(entry):
+    return [choice["value"] for choice in entry["choices"]]
+
+
 def test_template_dropdowns_show_the_templates_as_saved():
+    from lib_stage_scheduler.params import templates_patch
+
     builtins = list(options.BUILTIN_TEMPLATES)
+    panels = {"base_template": builtins[0], "hr_template": builtins[0]}
 
-    *dropdowns, status = ui._save_template_ui("mine", True, builtins[0], 0.0, 1.0, 0.5, 1.0, options.CURVE_SMOOTH)
-    assert status == "已保存模板：mine" and len(dropdowns) == 3
-    assert all("mine" in dropdown["choices"] for dropdown in dropdowns) and dropdowns[2]["value"] == "mine"
+    edit = ui.save_template("mine", True, builtins[0], {"start": 0.0, "end": 1.0, "peak": 0.5})
+    assert edit.ok and edit.status == {"text": "Saved template: {{name}}", "params": {"name": "mine"}}
+    patch = templates_patch(_ctx(), panels)
+    assert all("mine" in _choices(patch[name]) for name in panels)
+    assert "mine" in patch["__outputs__"]["templates"]
 
-    *dropdowns, status = ui._rename_template_ui("mine", "renamed")
-    assert all("renamed" in dropdown["choices"] and "mine" not in dropdown["choices"] for dropdown in dropdowns)
-    assert dropdowns[2]["value"] == "renamed"
+    edit = ui.rename_template("mine", "renamed")
+    patch = templates_patch(_ctx(), panels, edit.renamed)
+    assert all("renamed" in _choices(patch[name]) and "mine" not in _choices(patch[name]) for name in panels)
 
-    *dropdowns, status = ui._delete_template_ui("renamed")
-    assert status == "已删除模板：renamed"
-    assert all("renamed" not in dropdown["choices"] for dropdown in dropdowns)
+    edit = ui.delete_template("renamed")
+    assert edit.status == {"text": "Deleted template: {{name}}", "params": {"name": "renamed"}}
+    assert all("renamed" not in _choices(entry) for entry in templates_patch(_ctx(), panels).values() if "choices" in entry)
     assert "renamed" not in templates._load_custom_templates()
 
 
-def test_template_management_leaves_the_panels_selections_alone():
+def test_template_management_moves_only_the_panels_on_a_changed_template():
     # Selecting a panel template re-applies its timing and strength to that
-    # panel: only the manager's dropdown follows the managed template.
-    builtin = list(options.BUILTIN_TEMPLATES)[1]
+    # panel: a panel whose template is renamed or deleted moves with it.
+    from lib_stage_scheduler.params import templates_patch
 
-    base, hires, manager, _ = ui._save_template_ui("mine", True, builtin, 0.0, 1.0, 0.5, 1.0, options.CURVE_SMOOTH, builtin, builtin)
-    assert "value" not in base and "value" not in hires and "mine" in base["choices"] and "mine" in hires["choices"]
-    assert manager["value"] == "mine"
-    base, hires, manager, _ = ui._save_preset_combo_template_ui("combo", [options.PRESET_STYLE_ALLOW], 3.0, "mine", builtin)
-    assert "value" not in base and "value" not in hires and manager["value"] == "combo"
+    builtin = list(options.BUILTIN_TEMPLATES)[1]
+    ui.save_template("mine", True, builtin, {"start": 0.0, "end": 1.0, "peak": 0.5})
+    ui.save_preset_combo_template("combo", [options.PRESET_STYLE_ALLOW])
+    patch = templates_patch(_ctx(), {"base_template": "mine", "hr_template": builtin})
+    assert "value" not in patch["base_template"] and "value" not in patch["hr_template"]
+    assert "base_timing" not in patch and "hr_timing" not in patch
 
     # A panel on the renamed template follows it; the other keeps its own
-    base, hires, manager, _ = ui._rename_template_ui("mine", "renamed", "mine", builtin)
-    assert base["value"] == "renamed" and "value" not in hires and manager["value"] == "renamed"
+    edit = ui.rename_template("mine", "renamed")
+    patch = templates_patch(_ctx(), {"base_template": "mine", "hr_template": builtin}, edit.renamed)
+    assert patch["base_template"]["value"] == "renamed" and "value" not in patch["hr_template"]
+    assert patch["base_timing"]["value"] == ui.apply_template("renamed", 3.0) and "hr_timing" not in patch
 
-    # A panel on the deleted template falls back; the other keeps its own
-    base, hires, manager, _ = ui._delete_template_ui("renamed", builtin, "renamed")
-    assert "value" not in base and hires["value"] == base["choices"][0]
-    assert "renamed" not in hires["choices"]
+    # A panel on the deleted template falls back (at its pass's Shift); the other keeps its own
+    ui.delete_template("renamed")
+    patch = templates_patch(_ctx(), {"base_template": builtin, "hr_template": "renamed"})
+    first = _choices(patch["hr_template"])[0]
+    assert "value" not in patch["base_template"] and patch["hr_template"]["value"] == first
+    assert patch["hr_timing"]["value"] == ui.apply_template(first, 5.0)
+    assert "renamed" not in _choices(patch["hr_template"])
 
 
 def test_combo_templates_take_their_window_from_shift_when_applied():
     # Auto timing recomputes the window from Shift: a combo stores none
-    ui._save_preset_combo_template_ui("combo", [options.PRESET_STYLE_ALLOW], 5.0)
+    ui.save_preset_combo_template("combo", [options.PRESET_STYLE_ALLOW])
     saved = templates._load_custom_templates()["combo"]
     assert saved["auto"] is True and not {"start", "end", "peak"} & set(saved)
 
     # Templates saved with a window (older versions) still apply from Shift
     templates._TEMPLATES.edit(lambda data: (data.update(old={**saved, "start": 0.9, "end": 0.95, "peak": 0.9}), ("old", "")))
     for name in ("combo", "old"):
-        _, start, end, peak, strength, _ = ui._apply_template_ui(name, 5.0)
+        timing = ui.apply_template(name, 5.0)
         window = templates._auto_stage_values(options.STAGE_STYLE, 5.0)[:3]
-        assert (start["value"], end["value"], peak["value"]) == tuple(round(value, 4) for value in window), name
-        assert strength["value"] == 1.0
+        assert (timing["start"], timing["end"], timing["peak"]) == tuple(round(value, 4) for value in window), name
+        assert timing["strength"] == 1.0
         config = runtime._build_pass_config(options.MODE_PROMPT_ALL, "", "", name, "", True, None, 0.2, 0.8, 0.5, 1.0, options.CURVE_SMOOTH, 5.0)
         assert (config.start, config.end, config.peak) == window, name
 
 
-def test_template_messages_follow_the_ui_language(monkeypatch):
-    from modules import shared
-
+def test_template_messages():
     builtin = next(iter(options.BUILTIN_TEMPLATES))
-    assert set(options.LANG["zh"]) == set(options.LANG["en"])
-
-    monkeypatch.setattr(shared, "opts", SimpleNamespace(**{options.LANGUAGE_OPTION: "zh"}), raising=False)
-    assert ui._save_template_ui("", True, builtin, 0.0, 1.0, 0.5, 1.0, options.CURVE_SMOOTH)[-1] == "模板名称不能为空。"
-    assert templates._parts_from_presets(["x"])[1] == "未知基础预设：x"
-    assert ui._rename_template_ui("a", "a")[-1] == "新旧名称相同，无需重命名。"
-
-    monkeypatch.setattr(shared, "opts", SimpleNamespace(**{options.LANGUAGE_OPTION: "en"}), raising=False)
-    assert ui._save_template_ui("", True, builtin, 0.0, 1.0, 0.5, 1.0, options.CURVE_SMOOTH)[-1] == "The template name cannot be empty."
-    assert templates._parts_from_presets(["x"])[1] == "Unknown base preset: x"
-    assert ui._delete_template_ui(builtin)[-1] == "Built-in templates cannot be deleted."
+    assert ui.save_template("", True, builtin, None).status == "The template name cannot be empty."
+    assert templates._parts_from_presets(["x"])[1] == {"text": "Unknown base preset: {{preset}}", "params": {"preset": "x"}}
+    assert ui.rename_template("a", "a").status == "The new name is the same as the old one; nothing to rename."
+    assert ui.delete_template(builtin).status == "Built-in templates cannot be deleted."
     conflict = [options.PRESET_STYLE_ALLOW, options.PRESET_STYLE_BAN]
-    assert templates._parts_from_presets(conflict)[1] == f"Conflicting combo: {options.STAGE_STYLE} is selected as both Apply and Block; not saved."
-    help_text = ui._template_help_ui(builtin, 3.0)["value"]
-    assert "Templates are built from base presets" in help_text and "auto window" in help_text
+    assert templates._parts_from_presets(conflict)[1] == {"text": "Conflicting combo: {{stage}} is selected as both Apply and Block; not saved.", "params": {"stage": options.STAGE_STYLE}}
 
 
-def test_template_help_shows_each_parts_own_strength(monkeypatch):
-    from modules import shared
-
-    monkeypatch.setattr(shared, "opts", SimpleNamespace(**{options.LANGUAGE_OPTION: "en"}), raising=False)
+def test_the_widgets_template_data_shows_each_parts_own_strength():
     parts = [
         {"stage": options.STAGE_CHARACTER, "mode": options.PART_ALLOW, "strength": 0.5},
         {"stage": options.STAGE_STYLE, "mode": options.PART_BAN, "strength": 1.0},
     ]
     templates._TEMPLATES.edit(lambda data: (data.update(halved={"auto": True, "parts": parts}), ("halved", "")))
 
-    help_text = ui._template_help_ui("halved", 3.0)["value"]
-    assert "strength 0.5" in help_text and "strength 0 in window" in help_text and "strength 1" not in help_text
+    halved = ui.templates_payload()["halved"]
+    assert [(part["stage"], part["mode"], part["strength"]) for part in halved["parts"]] == [(options.STAGE_CHARACTER, options.PART_ALLOW, 0.5), (options.STAGE_STYLE, options.PART_BAN, 1.0)]
+    assert halved["stage"] == options.STAGE_CHARACTER and halved["builtin"] is False and halved["label"] == "halved"
+    builtin = ui.templates_payload()[options.PRESET_STYLE_ALLOW]
+    assert builtin["builtin"] and builtin["label"] == "Style stage only" and builtin["parts"][0]["mode"] == options.PART_ALLOW
 
 
 def test_per_lora_templates_resolve_their_stage_and_curve_like_the_panel():

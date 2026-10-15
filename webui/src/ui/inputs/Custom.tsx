@@ -4,11 +4,12 @@ import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useParam } from "../hooks"
 import { Field } from "../Field"
-import type { CustomNode, Json } from "../schema"
+import type { Json, WidgetNode } from "../schema"
 import { getWidget } from "../widgets"
+import { ImageListInput } from "./Image"
 import { JsonInput } from "./Json"
 
-export function Custom({ node }: { node: CustomNode }) {
+export function Custom({ node }: { node: WidgetNode }) {
   const { t } = useTranslation()
   const id = useId()
   const param = useParam<Json>(node)
@@ -17,6 +18,7 @@ export function Custom({ node }: { node: CustomNode }) {
 
   if (!Widget) {
     // Unknown widget: still editable, so the value is never lost.
+    if (node.type === "image_list") return <ImageListInput node={node} />
     if (import.meta.env.DEV) console.warn(`[ui] no widget named "${node.widget}" in src/widgets`)
     return <JsonInput node={node} />
   }

@@ -50,7 +50,7 @@ Inputs (each has a `name` unique within its script; that name is the param id):
 | `Seed(name, default=-1)` | int | dice / recycle buttons; `-1` or `0 … 2^63-1` |
 | `Color(name, default="#000000")` | str | |
 | `Image(name, kind="image" or "mask" or "sketch", source=..., mode=None)` | upload id → PIL at the script | images are uploaded once (`POST /api/v2/uploads`); `source` names the image a mask/sketch layer is painted over (a mask without `source` is an uploaded mask image); masks are alpha-coded with a luminance fallback (`nodes.mask_channel`, schema-format.md §1.3); `mode` converts (e.g. `"RGBA"`) |
-| `ImageList(name)` | list of upload ids → list of PIL | batch inputs |
+| `ImageList(name, widget=None, props={})` | list of upload ids → list of PIL | batch inputs; `widget` names a frontend widget that edits the list (e.g. `image-list`: select, replace, remove, reorder) |
 | `File(name, accept=...)` | upload id → path | |
 | `Json(name, default)` | any JSON | escape hatch for structured widgets |
 | `Custom(name, widget, default, props={})` | JSON | a frontend widget registered in `webui/src/widgets` (stage timeline, block-weight grid, ControlNet unit, …) |
@@ -59,8 +59,17 @@ Inputs (each has a `name` unique within its script; that name is the param id):
 Common keyword arguments for inputs: `label`, `info`, `visible_if`, `enabled_if`,
 `infotext` (infotext key), `paste` (callable `params -> value` for derived
 paste), `preset` (Anima preset key), `exclusive=(group, member)` (Toggle only),
-`on_change="action"`, `width` (`"auto"`, `"fill"`, or a 1–12 column span),
-`hidden=True` (submitted, never rendered: e.g. the choice a `Tabs` is bound to).
+`on_change="action"` (after any change: edits, pastes, bulk resets),
+`on_input="action"` (after the user's own edit of the control only, like Gradio's
+`.input`: for derived updates a pasted infotext already records), `width` (`"auto"`, `"fill"`, or a 1–12 column span),
+`hidden=True` (submitted, never rendered: e.g. the choice a `Tabs` is bound to),
+`persist=False` (kept out of browser drafts: every page load starts from the
+current default, e.g. a copy of a setting) and `submit=False` (the form holds
+it for actions only; jobs never carry it, processing gets the default).
+`Toggle(locks="owner.param")` protects that param from programmatic writes
+(paste, Send to, reused jobs, presets, action patches) while it is on.
+Action status texts are translated by the client: return `ui.message(text,
+**params)` (catalog key with `{{name}}` placeholders) for dynamic ones.
 Sliders clamp; `Number` rejects out-of-range values; NaN/Infinity are always
 rejected, also inside `Json`/`Custom`/`State` values; toggles take booleans,
 `0`/`1` and `"true"`/`"false"` only (see schema-format.md §3). A request body
@@ -102,8 +111,8 @@ optionally with `{"__toast__": {"level", "message"}}`,
 (settings the action already changed on the server; the client only
 refreshes its copy).
 `remi.ui.call_action(owner, name, ActionContext(...), values)` runs and checks
-one. Buttons call actions, and `on_change`
-triggers them. Actions run outside the generation lock unless declared
+one. Buttons call actions, and `on_change` / `on_input`
+trigger them. Actions run outside the generation lock unless declared
 `gpu=True`, in which case they queue behind generation.
 
 ### Scripts
@@ -164,9 +173,40 @@ unported extensions.
 
 ### Pages (former `on_ui_tabs`)
 
-`remi.pages.register(Page(id, title, icon, params=..., actions=..., widget=None))`.
-A page is either schema-rendered or a dedicated frontend view
-(`widget="agent-scheduler"`), which is implemented in `webui/src/pages/`. Its schema (`GET /api/v2/pages/{id}`) is schema-format.md §8.
+`remi.pages.register(Page(id, title, icon, params=..., actions=..., widget=None,
+send_to=[SendTarget(param, label)], on_load=None))`, called when the
+extension's script is imported (`remi/pages`). A page is either
+schema-rendered or a dedicated frontend view (a `widget` name), which is
+implemented in `webui/src/pages/custom/`. `params` is a layout node or a
+callable building one per schema request (choices read from files);
+subclasses may override `params()` and declare `@ui.action` methods, or
+pass `actions=` (an object or module whose actions become the page's). The
+owner id is `page:<id>`; `Page.values(ctx, values)` validates an action's
+values and resolves uploads (images → PIL, files → paths) through the
+server's file store. `on_load` names an action the SPA runs each time the
+page is shown; `send_to` declares what other views can send here (PNG Info
+offers "Send to <label>" for image targets). The server reads
+`registered()`, `get(id)` and `page_schema(id)` (`GET /api/v2/pages/{id}`,
+schema-format.md §8). `registered()` lists the pages as the navigation shows
+them: in the "UI Tab Order" setting's order, without those in "Hide UI Tabs"
+(both store page titles, like the built-in tabs'; `include_hidden=True`:
+all). Page titles join `shared.tab_names` (those settings' choices) when the
+runtime is prepared. A page is dropped when its scripts are unloaded
+("Reload UI"), so disabling an extension removes its page.
+
+Long work runs as a page **task**: `Page.start_task(ctx, name, work,
+gpu=False)` answers the task's status at once (`__outputs__["task:<name>"]`)
+and runs `work(task)` on a thread (`gpu=True`: holding the generation lock,
+so it queues behind generation); `task.progress(fraction, text, **params)`,
+`task.publish(**outputs)` (partial outputs, e.g. a log), `task.check()`
+(raises once cancelled). Every page has the actions `__task__` (`{task, id?,
+resume?}` → status, plus the work's result patch for the poll naming the
+finished task's `id`, or for a `resume` while no view has received it, e.g.
+after a reload) and `__cancel__` (`{task}`); one task per page, name and user
+runs at a time; `Page.busy(*names)` tells whether any user's task of the page
+is queued or running (JoyCaption refuses "Unload" then). The `task-runner` widget starts and follows them.
+The built-in pages: JoyCaption (`sd-webui-joycaption-modified`) and Prompt
+Workshop (`sd-forge-prompt-workshop`).
 
 ### Settings
 
@@ -220,8 +260,8 @@ params they read), `__conflicts__` (`remi.core.conflicts.conflict_patch`: the
 exclusive groups first, then the pure
 `anima_feature_conflicts.resolve_conflict_locks` over roles found by preset
 field, repeated while a rule switches a group member off; one merged entry
-per control), `__preset__` (Anima preset patch, unlocking the conflict
-controls) and `__forge_preset__` (`gpu=True`: `presets.apply_forge_preset`
+per control), `__preset__` (Anima preset patch over the sent form values,
+with `conflict_patch` run again on the result: locks, mode choices) and `__forge_preset__` (`gpu=True`: `presets.apply_forge_preset`
 switches checkpoint, modules and dtype through `main_entry` as the old preset
 radio did, then the form patch of `forge_preset_patch` plus `__settings__`).
 
@@ -249,31 +289,47 @@ schema-format.md §3 body; other errors `{"detail": str}`.
 | POST | `/rules/derive` | `{tab, core, scripts, selected?}` → the core `__conflicts__` patch (Anima conflict locks) |
 | GET | `/presets`, `/presets/{name}?tab=` | Anima and UI preset names; an Anima preset's form patch |
 | POST | `/jobs` | `{tab, core, scripts, priority?, repeat? (1–100 copies), forever?}` → `{job_id, job_ids, seq}` (201); validated first |
-| GET | `/jobs?cursor=&limit=&status=` | history and queue, newest first: `{items, next_cursor, total}` |
+| GET | `/jobs?cursor=&limit=&status=&q=&starred=&tab=` | history and queue, newest first by submission time (imported jobs keep theirs, so old Agent Scheduler history sorts below recent jobs): `{items, next_cursor, total}`; `q`: every word in the prompt summary, infotext, parameters or import notes. A job carries `starred`, `replayable`, `name`, `source` (importer) and `notes` |
 | GET / PATCH / DELETE | `/jobs/{id}` | detail (incl. `core`, `scripts`, `layout_hash`); `{priority?, forever?}`; cancel a running job or remove a queued/finished one |
 | POST | `/jobs/{id}/interrupt`, `/skip`, `/retry` | interrupt keeps the results (`interrupted`) or cancels a queued job; retry queues a copy |
+| POST / PUT | `/jobs/{id}/duplicate`, `/jobs/{id}/params` | queue a copy (right after the job while it is queued, same priority; else at the end); replace a queued job's `{core, scripts}` (validated like `POST /jobs`; 409 once it started). Both 409 for a job that is not `replayable` (`remi/server/routes/queue_tools.py`) |
+| POST | `/jobs/star`, `/jobs/clear-history` | `{ids, starred}`; delete finished jobs (`{keep_starred}`, default true; their images stay) |
+| POST | `/queue/move` | `{id, after?, before?, priority?}`: put a queued job right after `after` (else right before `before`) in its (new) priority group; neighbours that are no longer queued are ignored. O(1) whatever the queue length (the SPA's drag / keyboard / "move to top" use it); 409 when the job is not queued any more |
+| GET / POST | `/queue/import`, `/queue/import/{agent-scheduler\|prompt-queue}` | sources found on this machine (`{id, label, available, count, path}`; `path` is null under `--hide-ui-dir-config`); import one (`remi/jobs/importers.py`, idempotent, read-only on the source): Agent Scheduler tasks (pending → queued, finished → history with their images, bookmarks → stars; core args renamed to the core params; positional script args named through the current `ScriptLayout`s, signed or not, read with an allow-list unpickler; arguments past the last slot are kept as `opaque` and the job is stored `replayable: false`, never run, retried or duplicated; values the form rejects → `cancelled` with the errors, to edit), Prompt Queue pending prompts (form defaults + prompt); task images are indexed only when they are image files inside the configured output folders that were not removed from the gallery. The queue is paused when something was queued. Answer: a report with counts and per-task outcomes and notes |
 | GET / POST | `/queue`, `/queue/items`, `/queue/reorder`, `/queue/pause`, `/queue/resume`, `/queue/stop-forever` | queue state (`{size, paused, running}`), queued jobs in run order, ordering (within each priority; at most 500 ids), pause (persisted), generate-forever off |
 | POST | `/interrupt` | interrupt whatever generates (also `/sdapi`); `{clear_queue?}` |
 | POST | `/uploads` | multipart `file` → `{id, width, height, name, mime, size}` (201); content-sniffed, size-limited while the body streams in (also chunked bodies; setting `remi_upload_max_mb`, live), deduplicated |
 | GET | `/files/{id}?download=`, `/thumbs/{id}?w=` | files and WebP thumbnails by opaque id only (ETag; uploads and outputs immutable for a year, network previews revalidated: their id changes with the file) |
 | GET / DELETE / POST | `/outputs?cursor=&q=&tab=`, `/outputs/{id}`, `/outputs/refresh` | gallery (search: every term in the infotext or name), remove (`delete_file`; without it the file stays and the folder scan skips it from then on), index the output folders |
-| GET | `/networks`, `/networks/{kind}?q=&cursor=&sort=&order=` | kinds (`lora`, `embeddings`, `checkpoints`, `vae`, `text_encoders`) and items (paths relative to their folder, preview file id) |
-| GET / PATCH | `/networks/{kind}/{name}/meta` | file + user metadata; edit the user metadata (`<name>.json`) |
-| PUT / POST | `/networks/{kind}/{name}/preview`, `/networks/{kind}/refresh` | preview from a file id; re-scan |
-| GET / PATCH | `/options` | settings schema and values; PATCH validates every value first (any invalid: 422 lists them all, nothing applied), then applies them, running `onchange`; an `onchange` that fails leaves its key unchanged while the others stay applied (saved, broadcast) and the answer is 422 listing the failures; model keys go through the model manager |
+| GET | `/networks` | kinds in display order: `{id, title, action (prompt / checkpoint / module / none), negative, fields (user-metadata keys the editor offers), builtin}`; built-ins `lora` (incl. LyCORIS), `embeddings`, `checkpoints`, `vae`, `text_encoders`, plus every extension `ExtraNetworksPage` (generic adapter of `list_items()`; Gradio-free registration with `remi.networks.register_extra_page`) |
+| GET | `/networks/{kind}?q=&folder=&arch=&compatible=&sort=&order=&offset=&cursor=&limit=` | items (`remi.networks`): search (every word in name, path, alias, hash, description, activation text, tags), folder (and subfolders), architectures (`unknown` included), `compatible` (the UI preset's architecture or unknown — the *effective* architecture: the user's `sd version`, else the one detected from the header; upstream only used the user's choice), items in "."-folders as `extra_networks_hidden_models` says (Always / When searched: a search of ≥ 4 characters / Never), sort `name`/`path`/`created`/`date` (modified)/`size`, windows of ≤ 500 from `offset` (or the opaque `cursor`). An item: name, title, path/folder (relative), preview file id + `preview_type` (`image`, or `video` for `.preview.mp4` / `.webm`, served by `/files` only) + blurred `placeholder` (16 px WebP data URI of image previews, computed in the background, `<remi-data>/networks/placeholders.json`, pruned with the extracted covers on a full rescan), description, `prompt` / `negative_prompt` (LoRA: preferred weight or the default multiplier, activation text), activation text, preferred weight, negative text, tags, hash, alias, `sd_version`, `arch` (user choice, else the `modelspec` / kohya header), `subtype` (LoRA / LyCORIS / DoRA), `value` (checkpoint title, module file), mtime, created, size, `editable` (false for extension items without a model file: no sidecar, preview or folder), `hidden` |
+| GET | `/networks/{kind}/facets?q=&folder=&arch=&compatible=` | folder tree with counts (no "."-folders when `extra_networks_show_hidden_directories` is off) and architecture counts (each facet ignores its own filter), `folder_total` (the tree's "All": every filter but the folder), current architecture |
+| GET / PATCH | `/networks/{kind}/{name}/meta` | file header (embedded images left out), `training` facts, `dataset_tags` (kohya `ss_tag_frequency`), user metadata; edit the `<model>.json` sidecar (sd_forge_lora's format; known keys type-checked, 422) |
+| PUT / POST | `/networks/{kind}/{name}/preview`, `/networks/{kind}/{name}/open-folder`, `/networks/{kind}/refresh`, `/networks/refresh` | preview from an upload / output file id (`<model>.preview.png`; 404 for a missing or non-image file, 422 for one that cannot be decoded); open the folder on the WebUI machine (403 with `--hide-ui-dir-config`; bootstrap lists the `folders.open` feature when allowed); re-scan (`/sdapi/v1/refresh-loras` also tells clients: `networks.changed`). Edits, previews and folders of items without a model file answer 409. `name` may contain `/`. Embedded `ssmd_cover_images` become previews (extracted to `<remi-data>/networks/covers`) |
+| GET / PATCH | `/options` | settings schema, values and built-in `defaults`; PATCH validates every value first (any invalid: 422 lists them all, nothing applied), then applies them, running `onchange`; an `onchange` that fails leaves its key unchanged while the others stay applied (saved, broadcast) and the answer is 422 listing the failures; model keys go through the model manager |
 | POST | `/infotext/parse`, `/infotext/image` | infotext (or an uploaded/generated image's PNG info) → named values (schema-format.md §7) |
 | GET | `/i18n/{locale}` | merged locale catalog (`zh-CN` or `zh_CN`; ETag) |
-| GET / POST | `/models`, `/models/refresh`, `/models/unload` | checkpoints, VAE/TE modules, samplers, schedulers, upscalers, styles, low-bits dtypes, UI presets |
+| GET / POST | `/models`, `/models/refresh`, `/models/unload`, `/models/reload` | checkpoints, VAE/TE modules, samplers, schedulers, upscalers, styles, low-bits dtypes, UI presets; unload / load the selected model now (behind generation; `/models/reload` `{force?}` loads again even when loaded, emits `model.loading` / `model.loaded`) |
+| GET / POST | `/models/loaded`, `/models/hashes` | the weights the memory manager holds (`{checkpoint, items: [{name, memory_mb, device}]}`); hash every checkpoint in the background (`POST {threads}` → 202, 409 while running; `GET` = progress `{running, done, total, failed, current, finished_at}`) |
 | GET / PUT / DELETE / POST | `/styles`, `/styles/{name}`, `/styles/apply` | prompt styles CRUD; write styles into prompts |
+| GET | `/gallery?cursor=&limit=&q=&category=&model=&since=&until=&starred=&sort=`, `/gallery/facets`, `/gallery/{id}` | the Gallery (`remi/library.py`, side table `gallery_meta` in `files.db`, filled lazily: model from the infotext, category `txt2img`/`img2img`/`extras`/`grids`/`saved`/`other` from the job or the output folder, star): every word of `q` in the infotext, file name or model; ISO `since` (inclusive) / `until` (exclusive); sort `newest`/`oldest`/`name`/`largest`; facets = models and categories with counts, date bounds, totals. `total` is counted for the first page only (no `cursor`). Items whose file cannot be found are left out of the page but stay indexed (an unmounted drive keeps its images and stars); only when the file's folder exists (the file was deleted) is the row dropped, without marking the path removed. The side table is synced only after `files.db` changed (`PRAGMA data_version`) |
+| POST | `/gallery/star`, `/gallery/delete`, `/gallery/zip`, `/gallery/{id}/reveal` | star (`{ids ≤ 2000, starred}`); remove from the gallery (`delete_files` also deletes the files); pack originals into a zip (file id, kept an hour); show the file in the file manager of the WebUI machine (loopback clients that came through no proxy — any `X-Forwarded-*` / `Forwarded` / `X-Real-IP` header refuses; a same-machine tunnel that adds none passes as local, so use `--hide-ui-dir-config` when sharing that way; 403 with `--hide-ui-dir-config`). Zips skip files deleted meanwhile; zips older than an hour and their file rows are pruned by the hourly housekeeping. Changes emit `outputs.changed{ids}` (the SPA patches its cached pages; ids it changed itself are not refetched) |
+| POST | `/pnginfo` | `{file_id}` (upload or output) → PNG Info: `infotext`, parsed `params`, format / mode / size, `entries` (text chunks, comments, stealth info, every EXIF tag incl. the Exif / GPS / Interop IFDs, binary values as `<N bytes>`), `chunks` (PNG chunk list, IDAT runs merged, text keywords) (`remi/image_meta.py`) |
 | POST | `/outputs/save`, `/outputs/open-folder` | gallery "Save" / "Save zip" (`{ids, zip}` → copies in `outdir_save` through the save path, `log.csv`, zip as a file id); open an output folder on the WebUI machine (403 with `--hide-ui-dir-config`) |
-| GET / PATCH / POST | `/extensions`, `/extensions/check-updates`, `/extensions/update`, `/extensions/install` | installed extensions; enable/disable (`{disabled?, disable_all?}`), check for / apply updates (config-state backup first), install from a git URL; writes refused (403) when extension access is disabled; changes apply after `/server/restart` |
+| GET / PATCH / POST / DELETE | `/extensions`, `/extensions/check-updates`, `/extensions/{name}/check`, `/extensions/update`, `/extensions/install`, `/extensions/{name}` | installed extensions (`remote` without credentials, `remote_url`, `commit_url`, `restartable`, `disabled_by`, `index_url`); enable/disable (`{disabled?, disable_all?}`), check for updates (all, or one at a time for progress; a failed fetch is the status `unknown (remote error)`), apply updates (config-state backup first; 502 names those git could not update), install from a git URL (502 when git cannot clone), uninstall (not built-in ones); logic in `remi/extensions_admin.py`; git never prompts (`GIT_TERMINAL_PROMPT=0`, ssh `BatchMode=yes`, no terminal) and is bounded by timeouts; one git operation per repository at a time; writes refused (403) when extension access is disabled; changes load with `/server/reload`. Errors are `{detail, template, params}`: `template` is the English message with `{{name}}` placeholders, the key clients translate |
+| GET | `/extensions/index?url=&refresh=` | an extension index (default `WEBUI_EXTENSIONS_INDEX` or the A1111 list; fetched by the server, cached 10 min; 403 without extension access, 502 when unreachable): entries with `installed`, tag descriptions |
+| GET / POST / DELETE | `/extensions/config-states`, `/extensions/config-states/{id}`, `/extensions/config-states/{id}/restore` | config-state backups (`config_states/*.json`): list, save `{name}`, detail (each extension saved vs. now; the WebUI commit for reference), delete, restore `{what: "extensions"}` → `{reload}` (each extension is reset to its commit during the next reload). The WebUI checkout is never reset: old backups point at upstream commits and `git reset --hard` would drop the working tree |
 | GET | `/user-assets/{name}` | `user.css` (data folder) and `notification.mp3` (WebUI folder) when present; bootstrap `user_assets` lists them |
 | POST | `/prompt/tokens` | token count of one prompt (`null` without a model; not queued) |
+| GET / POST / PUT / PATCH / DELETE | `/prompt-tools/config`, `/complete`, `/usage`, `/lookup`, `/translate`, `/translation-key`, `/groups`, `/refresh`, `/history[/{id}]`, `/collections[/{id}]`, `/favorites[/{id}]`, `/favorites-export`, `/favorites-import` | prompt tools (`remi/prompt_tools`, frontend.md "Prompt tools"): tag completion, usage ranking, chip lookups, translation through a configured provider (its API key write-only, kept in the prompt tools store), quick tag groups, prompt history (recorded from `job.queued`), favorites (paged) |
 | GET / POST | `/auth/status`, `/auth/login`, `/auth/logout` | login (session cookie) |
 | POST | `/server/reload`, `/server/restart` | rebuild the app in-process ("Reload UI"); restart the process (when the launcher can; answers first, then the serve loop stops the server, interrupts the running job and exits) |
-| GET | `/sysinfo` | system information |
+| GET / POST | `/sysinfo`, `/sysinfo/check` | system information; whether a sysinfo file's checksum matches (`{text}` → `{valid}`) |
+| GET | `/server/status` | `{restartable, extension_access, settings_frozen, model_loaded, version}` |
+| GET | `/licenses` | `html/licenses.html` as data (groups of `{id, name, url, description, license_url}`; the SPA fetches license texts itself) |
+| POST | `/options/validate` | setting values checked like `PATCH /options` but not applied (settings import) |
 
-`/internal/{ping,progress,pending-tasks,quicksettings-hint,profile-startup,sysinfo,sysinfo-download}`
+`/internal/{ping,progress,pending-tasks,quicksettings-hint,profile-startup,sysinfo,sysinfo-download}` (`ping` answers `{instance}`, an id that differs for every app: it changes with each reload or restart)
 stay for API clients; queued jobs appear in `/internal/progress` as
 `task(remi-<job id>)`. `/sdapi/v1` (`modules/api/api.py`, with `--api` or
 `--nowebui`) is mounted on the same app; it reads default script arguments
@@ -288,7 +344,8 @@ of a running job); `job.queued{job_id, seq, tab, position}`,
 eta, job_no (0-based), job_count, progress, text}`, `job.completed{job_id, seq,
 tab, status ("completed"|"interrupted"|"cancelled"), outputs, infotext}`,
 `job.failed{job_id, seq, tab, status, error, errors?}`, `queue.changed{size,
-paused, running}`, `options.changed{keys}`, `networks.changed{kind}`, `toast`,
+paused, running}`, `options.changed{keys}`, `networks.changed{kind}`,
+`outputs.changed{ids}` (gallery stars / removals), `toast`,
 `model.loading{stage, model}`, `model.loaded{model, error?}`, `pong`,
 `resync{dropped}` (the client's queue overflowed: the backlog is replaced by a
 fresh snapshot, `queue.changed` and the running job; the client refetches
@@ -389,4 +446,22 @@ Each extension: replace `ui()` with `params()` (same input order), delete its
 (`params()` arg count and order equal the processing signature). Extensions
 whose UI was JavaScript-only (tag completion, prompt-all-in-one, agent
 scheduler, mobile, bracket checker, lock-img2img-steps, prompt queue, repeat
-generate) become core SPA features or dedicated pages.
+generate) become core SPA features or dedicated pages. The Agent Scheduler,
+Prompt Queue and Repeat Generate are the core Queue (`/jobs`, the Queue page,
+"Add to queue" next to Generate, client-driven forever / repeat N): their
+folders are gone except `agent-scheduler/preload.py` (its command-line flags,
+so launch commands keep working; `--agent-scheduler-sqlite-file` tells the
+importer where the database is), and their data comes over with
+`POST /queue/import/{source}`.
+
+**Decision: their HTTP APIs are not kept.** The inventory listed the 34
+`/agent-scheduler/v1/*` routes and the 8 `/prompt-queue/*` routes to keep;
+no compatibility shim is provided. Agent Scheduler's API queued Gradio
+handler calls (positional `fn_inputs`, a `task_id` hijacked from
+`randomId`) and its callbacks; Prompt Queue's was the state of a
+client-side loop that clicked Generate. Neither maps onto `/jobs` without
+re-creating the positional coupling Remi removes, and no extension in this
+repository calls them. Scripts and tools use `POST /api/v2/jobs` (named
+`core` / `scripts` params, `priority`, `repeat`, `forever`), `/queue/*`
+and the `job.*` WebSocket events instead; the A1111 `/sdapi/v1` API stays
+for clients written against it.

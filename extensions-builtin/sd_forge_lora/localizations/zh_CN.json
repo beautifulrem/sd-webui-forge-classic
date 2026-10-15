@@ -1,0 +1,9 @@
+{
+    "Add network to prompt": "将网络添加到提示词",
+    "When adding to prompt, refer to Lora by": "添加到提示词时，LoRA 的引用方式",
+    "Alias from file": "文件内的别名",
+    "Filename": "文件名",
+    "Add Lora hashes to infotext": "在生成信息中写入 LoRA 哈希值",
+    "Filter Lora based on selected Preset": "按所选预设筛选 LoRA",
+    "the network browser starts with its \"compatible\" filter on": "网络浏览器默认开启“兼容”筛选"
+}

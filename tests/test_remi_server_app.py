@@ -131,13 +131,18 @@ def test_options_patch_rejects_everything_when_one_value_is_bad(server, webui, m
     assert webui.opts.jpeg_quality == 80
 
 
-def test_frozen_and_restricted_settings_are_refused(server, webui, monkeypatch):
+def test_frozen_settings_are_refused_and_locked_in_the_schema(server, webui, monkeypatch):
     from modules import shared
 
     monkeypatch.setattr(shared.cmd_opts, "freeze_specific_settings", "jpeg_quality")
     assert server.client.patch("/api/v2/options", json={"jpeg_quality": 70}).status_code == 422
+    nodes = {node["name"]: node for category in server.client.get("/api/v2/options").json()["categories"] for section in category["sections"] for item in section["items"] for node in item.get("children", [item]) if "name" in node}
+    assert nodes["jpeg_quality"]["enabled_if"] is False and nodes["jpeg_quality"]["locked"] == "this setting is frozen"
+    assert "locked" not in nodes["samples_save"]
+    # restrict_api guards /sdapi/v1 only: the WebUI's own API may change them
     restricted = next(key for key, info in webui.opts.data_labels.items() if info.restrict_api)
-    assert server.client.patch("/api/v2/options", json={restricted: webui.opts.data.get(restricted)}).status_code == 422
+    assert server.client.patch("/api/v2/options", json={restricted: webui.opts.data.get(restricted, webui.opts.data_labels[restricted].default)}).status_code == 200
+    assert "locked" not in nodes[restricted] and nodes[restricted]["restricted"] is True
     assert server.client.patch("/api/v2/options", json=[1, 2]).status_code == 422
 
 
@@ -241,7 +246,8 @@ def test_token_count(server, monkeypatch):
 
 
 def test_internal_routes(server):
-    assert server.client.get("/internal/ping").json() == {}
+    instance = server.client.get("/internal/ping").json()["instance"]
+    assert len(instance) == 32 and server.client.get("/internal/ping").json() == {"instance": instance}
     progress = server.client.post("/internal/progress", json={"id_task": "task(nope)"}).json()
     assert progress["active"] is False and progress["textinfo"] == "Waiting..."
     assert server.client.get("/internal/pending-tasks").json() == {"size": 0, "tasks": []}

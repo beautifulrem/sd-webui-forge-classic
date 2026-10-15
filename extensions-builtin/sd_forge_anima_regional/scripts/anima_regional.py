@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from functools import partial
 from types import SimpleNamespace
-
-import gradio as gr
 
 from backend.logging import setup_logger
 from lib_anima_regional.regional import Region, RegionalState, apply_regional_patch
 from modules import scripts
-from modules.anima_feature_conflicts import FREEFUSE, REGIONAL, is_feature_active, register_exclusive_component, set_feature_active
+from modules.anima_feature_conflicts import FREEFUSE, REGIONAL, SPATIAL_GROUP, is_feature_active, set_feature_active
 from modules.anima_lora_support import model_block_set
 from modules.anima_support import (
     conditioning_cache_key,
@@ -21,11 +20,11 @@ from modules.anima_support import (
     prompt_schedule,
     prompt_step,
     register_negpip_prompts,
-    register_table_fields,
     schedule_steps,
     script_arguments,
+    table_params,
 )
-from modules.ui_components import InputAccordion
+from remi import ui
 
 logger = logging.getLogger("AnimaRegional")
 setup_logger(logger)
@@ -34,13 +33,12 @@ REGIONS = range(1, 4)
 # One region's controls: (field, type written to infotext)
 _REGION_FIELDS = (("active", bool), ("prompt", str), ("x", float), ("y", float), ("width", float), ("height", float), ("strength", float))
 
-# One row per script argument, in the order ui() returns the components (the
-# API's positional order): (name of the control, infotext key, preset name or
-# None, type written to infotext). Region prompts are user content, which
-# presets leave alone. process() and process_before_every_sampling() name the
-# rows before the regions as parameters (Agent Scheduler stores a queued API
-# task's script args by process()'s parameter names) and check the whole list
-# with _arguments.
+# One row per script argument, in positional order (the API's): (param name,
+# infotext key, preset field or None, type written to infotext). Region
+# prompts are user content, which presets leave alone. process() and
+# process_before_every_sampling() name the rows before the regions as
+# parameters (Agent Scheduler stores a queued API task's script args by
+# process()'s parameter names) and check the whole list with _arguments.
 SCRIPT_ARGS = (
     ("enable", "Anima regional enabled", "regional.enabled", bool),
     ("blocks", "Anima regional blocks", "regional.blocks", str),
@@ -56,6 +54,23 @@ SCRIPT_ARGS = (
 )
 SCRIPT_ARG_NAMES = tuple(row[0] for row in SCRIPT_ARGS)
 INFOTEXT_KEYS = tuple(row[1] for row in SCRIPT_ARGS)
+# The region editor (the "region-boxes" widget) is the last argument: it
+# draws and edits the region params above, which stay the source of truth;
+# its own value is never read. Argument lists without it (API clients and
+# queued tasks from before it existed) are accepted.
+EDITOR = "region_editor"
+PARAM_ROWS = (*SCRIPT_ARGS, (EDITOR, None, None, None))
+# Each region's defaults, in _REGION_FIELDS order (the Anima preset's regional.* values)
+REGION_DEFAULTS = (
+    (True, "", 0.0, 0.0, 0.5, 1.0, 1.0),
+    (True, "", 0.5, 0.0, 0.5, 1.0, 1.0),
+    (False, "", 0.25, 0.25, 0.5, 0.5, 1.0),
+)
+_STRENGTH_INFO = (
+    "Blend opacity inside the rectangle (1 = fully regional, less Base preserve). "
+    "Above 1 is not stronger: it only brings the feathered edge to full opacity sooner "
+    "and outweighs weaker regions where rectangles overlap."
+)
 _PROGRESS_INFO = (
     "A fraction of model time (sigma through the model's Shift), not of the sampling steps: "
     "the two agree only for evenly spaced schedules such as Simple."
@@ -65,7 +80,13 @@ _PROGRESS_INFO = (
 def _arguments(values) -> SimpleNamespace:
     """The script args, ``enable`` first, one attribute per SCRIPT_ARGS name."""
 
-    return script_arguments("Anima Regional Conditioning", SCRIPT_ARG_NAMES, values)
+    args = script_arguments("Anima Regional Conditioning", (*SCRIPT_ARG_NAMES, EDITOR), values, defaults={EDITOR: None})
+    # The editor's value is null (a client may send a JSON object): a scalar
+    # there is the stray value of a misaligned list, refused like a wrong count.
+    editor = getattr(args, EDITOR)
+    if editor is not None and not isinstance(editor, Mapping):
+        raise TypeError(f"Anima Regional Conditioning: the region editor argument is None or an object, got {editor!r} (misaligned script arguments)")
+    return args
 
 
 def generation_params(args: SimpleNamespace) -> dict:
@@ -135,68 +156,75 @@ class AnimaRegionalScript(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def ui(self, *args, **kwargs):
-        with InputAccordion(False, label=self.title()) as enable:
-            gr.Markdown(
-                "Routes independently encoded prompts into feathered rectangular regions at selected "
-                "Anima cross-attention blocks. Regional, FreeFuse, and Artist Mixer are one-of-three; "
-                "the active choice locks the others."
-            )
-            with gr.Row():
-                blocks = gr.Textbox(
-                    "0-27",
-                    label="Anima blocks",
-                    info="Written in the 2B (28-block) layout: on 40/52-block models each block also selects its inserted copies, so the default covers every block of any Anima model.",
-                )
-                start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="Start progress", info=_PROGRESS_INFO)
-                end = gr.Slider(0.0, 1.0, value=0.65, step=0.01, label="End progress", info=_PROGRESS_INFO)
-                feather = gr.Slider(
-                    0.0,
-                    0.25,
-                    value=0.03,
-                    step=0.005,
-                    label="Edge feather",
-                    info="Fades a region's edges inside the image, centred on the edge, so regions that share an edge "
-                    "meet without a gap; edges on the canvas border are not feathered.",
-                )
-                base_preserve = gr.Slider(0.0, 1.0, value=0.15, step=0.01, label="Base preserve")
-            region_controls = {}
-            defaults = [
-                (True, "", 0.0, 0.0, 0.5, 1.0, 1.0),
-                (True, "", 0.5, 0.0, 0.5, 1.0, 1.0),
-                (False, "", 0.25, 0.25, 0.5, 0.5, 1.0),
-            ]
-            for index, values in enumerate(defaults, start=1):
-                with gr.Accordion(f"Region {index}", open=index <= 2):
-                    with gr.Row():
-                        active = gr.Checkbox(values[0], label="Active")
-                        prompt = gr.Textbox(values[1], label="Regional prompt")
-                        strength = gr.Slider(
-                            0.0,
-                            2.0,
-                            value=values[6],
-                            step=0.05,
-                            label="Strength",
-                            info="Blend opacity inside the rectangle (1 = fully regional, less Base preserve). "
-                            "Above 1 is not stronger: it only brings the feathered edge to full opacity sooner "
-                            "and outweighs weaker regions where rectangles overlap.",
-                        )
-                    with gr.Row():
-                        x = gr.Slider(0.0, 1.0, value=values[2], step=0.01, label="X")
-                        y = gr.Slider(0.0, 1.0, value=values[3], step=0.01, label="Y")
-                        width = gr.Slider(0.0, 1.0, value=values[4], step=0.01, label="Width")
-                        height = gr.Slider(0.0, 1.0, value=values[5], step=0.01, label="Height")
-                    row = {"active": active, "prompt": prompt, "x": x, "y": y, "width": width, "height": height, "strength": strength}
-                    region_controls.update({f"region{index}_{field}": component for field, component in row.items()})
-        register_exclusive_component(
-            tab=self.tabname,
-            group="anima_spatial_conditioning",
-            names=("freefuse", "regional", "artist"),
-            name="regional",
-            component=enable,
+    def params(self, is_img2img):
+        settings = ui.Row(
+            ui.Text(
+                "blocks",
+                "0-27",
+                label="Anima blocks",
+                info="Written in the 2B (28-block) layout: on 40/52-block models each block also selects its inserted copies, so the default covers every block of any Anima model.",
+            ),
+            ui.Slider("start", 0.0, 1.0, 0.0, 0.01, label="Start progress", info=_PROGRESS_INFO),
+            ui.Slider("end", 0.0, 1.0, 0.65, 0.01, label="End progress", info=_PROGRESS_INFO),
+            ui.Slider(
+                "feather",
+                0.0,
+                0.25,
+                0.03,
+                0.005,
+                label="Edge feather",
+                info="Fades a region's edges inside the image, centred on the edge, so regions that share an edge "
+                "meet without a gap; edges on the canvas border are not feathered.",
+            ),
+            ui.Slider("base_preserve", 0.0, 1.0, 0.15, 0.01, label="Base preserve"),
         )
-        # Each control is the local variable or region control named in SCRIPT_ARGS.
-        return register_table_fields(self, SCRIPT_ARGS, {**locals(), **region_controls})
+        editor = ui.Custom(
+            EDITOR,
+            "region-boxes",
+            None,
+            props={"regions": [f"region{index}" for index in REGIONS]},
+            label="",
+            info=(
+                "Drag a region to move it, and its corners or edges to resize it; Shift turns edge snapping off. "
+                "Arrow keys move the selected region and Shift+arrow keys resize it; with Alt, in steps of ten."
+            ),
+        )
+        root = ui.Section(
+            self.title(),
+            enable=ui.Toggle("enable", False, label=self.title(), exclusive=(SPATIAL_GROUP, "regional")),
+            children=[
+                ui.Markdown(
+                    "Routes independently encoded prompts into feathered rectangular regions at selected "
+                    "Anima cross-attention blocks. Regional, FreeFuse, and Artist Mixer are one-of-three; "
+                    "the active choice locks the others."
+                ),
+                settings,
+                editor,
+                *(self._region_group(index, defaults) for index, defaults in zip(REGIONS, REGION_DEFAULTS)),
+            ],
+        )
+        self.param_order = table_params(PARAM_ROWS, root)
+        return root
+
+    @staticmethod
+    def _region_group(index: int, defaults: tuple):
+        active, prompt, x, y, width, height, strength = defaults
+        name = f"region{index}"
+        return ui.Group(
+            f"Region {index}",
+            ui.Row(
+                ui.Toggle(f"{name}_active", active, label="Active"),
+                ui.Text(f"{name}_prompt", prompt, label="Regional prompt", prompt=True, width="fill"),
+                ui.Slider(f"{name}_strength", 0.0, 2.0, strength, 0.05, label="Strength", info=_STRENGTH_INFO),
+            ),
+            ui.Row(
+                ui.Slider(f"{name}_x", 0.0, 1.0, x, 0.01, label="X"),
+                ui.Slider(f"{name}_y", 0.0, 1.0, y, 0.01, label="Y"),
+                ui.Slider(f"{name}_width", 0.0, 1.0, width, 0.01, label="Width"),
+                ui.Slider(f"{name}_height", 0.0, 1.0, height, 0.01, label="Height"),
+            ),
+            open=index <= 2,
+        )
 
     def process(self, p, enable, blocks, start, end, feather, base_preserve, *region_values, **kwargs):
         args = _arguments((enable, blocks, start, end, feather, base_preserve, *region_values))
@@ -249,5 +277,5 @@ class AnimaRegionalScript(scripts.Script):
             step_of=partial(prompt_step, process_ref(p)),
         )
         p.sd_model.forge_objects.unet = apply_regional_patch(unet, state)
-        # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
+        # Keys are the params' infotext keys, so pasted parameters restore the panel.
         p.extra_generation_params.update(generation_params(args))

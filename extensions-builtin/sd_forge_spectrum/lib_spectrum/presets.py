@@ -1,8 +1,7 @@
 import os.path
+import threading
 from json import dump, load
 from typing import Final
-
-import gradio as gr
 
 from lib_spectrum import logger
 
@@ -33,6 +32,8 @@ INFOTEXT_KEYS: Final[tuple[str, ...]] = tuple(control[0] for control in CONTROLS
 PARAMS: Final[list[type]] = [control[2] for control in CONTROLS]
 DEFAULTS: Final[list] = [control[3] for control in CONTROLS]
 DEFAULT: Final[dict] = dict(zip(INFOTEXT_KEYS, DEFAULTS))
+# Save / Delete are server actions run in a thread pool: one writer at a time.
+_WRITE_LOCK = threading.Lock()
 
 
 class PresetManager:
@@ -65,39 +66,56 @@ class PresetManager:
         return list(cls.presets.keys())
 
     @classmethod
-    def get_preset(cls, preset_name: str) -> list[float]:
+    def get_preset(cls, preset_name: str) -> list | None:
+        """The settings saved as ``preset_name`` in CONTROLS order (None when
+        there is no such preset)."""
+
         if (preset := cls.presets.get(preset_name, None)) is None:
             logger.error(f'Preset "{preset_name}" was not found...')
-            return [gr.skip()] * len(PARAMS)
+            return None
 
         # Presets from the previous seven-control Spectrum UI remain valid.
-        values = [*preset, *DEFAULTS[len(preset) :]]
-        return [gr.update(value=obj(val)) for obj, val in zip(PARAMS, values)]
+        # A hand-edited entry that does not convert raises ValueError.
+        try:
+            values = [*preset, *DEFAULTS[len(preset) :]]
+            return [obj(val) for obj, val in zip(PARAMS, values)]
+        except (TypeError, ValueError) as error:
+            raise ValueError(f'Preset "{preset_name}" is invalid: {error}') from None
 
     @classmethod
-    def save_preset(cls, preset_name: str, *args: float) -> list[str]:
+    def save_preset(cls, preset_name: str, *args) -> list[str] | None:
+        """Save the settings ``args`` (CONTROLS order); returns the preset
+        names, or None for an empty name."""
+
         if preset_name is None or not preset_name.strip():
             logger.error("Invalid Preset Name...")
-            return gr.skip()
+            return None
 
-        cls.presets.update({preset_name: [*args]})
-
-        with open(PRESET_FILE, "w", encoding="utf-8") as json_file:
-            dump(cls.presets, json_file)
+        with _WRITE_LOCK:
+            cls.presets.update({preset_name: [*args]})
+            cls._write()
+            names = cls.list_preset()
 
         logger.info(f'Preset "{preset_name}" Saved!')
-        return gr.update(choices=cls.list_preset())
+        return names
 
     @classmethod
-    def delete_preset(cls, preset_name: str) -> list[str]:
-        if preset_name not in cls.presets:
-            logger.error(f'Preset "{preset_name}" was not found...')
-            return gr.skip()
+    def delete_preset(cls, preset_name: str) -> list[str] | None:
+        """Delete ``preset_name``; returns the remaining preset names, or None
+        when there is no such preset."""
 
-        del cls.presets[preset_name]
-
-        with open(PRESET_FILE, "w", encoding="utf-8") as json_file:
-            dump(cls.presets, json_file)
+        with _WRITE_LOCK:
+            if preset_name not in cls.presets:
+                logger.error(f'Preset "{preset_name}" was not found...')
+                return None
+            del cls.presets[preset_name]
+            cls._write()
+            names = cls.list_preset()
 
         logger.info(f'Preset "{preset_name}" Deleted!')
-        return gr.update(value=None, choices=cls.list_preset())
+        return names
+
+    @classmethod
+    def _write(cls) -> None:
+        with open(PRESET_FILE, "w", encoding="utf-8") as json_file:
+            dump(cls.presets, json_file)

@@ -96,9 +96,6 @@ class NegPiP(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def ui(self, is_img2img):
-        return None
-
     def process_batch(self, p: "StableDiffusionProcessing", *args, **kwargs):
         self.reset()
 

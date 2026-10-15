@@ -37,6 +37,19 @@ describe("ws-bridge", () => {
     hook.unmount()
   })
 
+  it("refetches the network lists when an option they follow changes", async () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue()
+    const { hook, send } = await connected()
+    const networks = () => invalidate.mock.calls.filter(([filters]) => filters?.queryKey?.[0] === "networks").length
+    send({ type: "options.changed", keys: ["ui_reorder_list"] })
+    expect(networks()).toBe(0)
+    send({ type: "options.changed", keys: ["forge_preset"] })
+    expect(networks()).toBe(1)
+    send({ type: "options.changed", keys: ["extra_networks_default_multiplier", "samples_format"] })
+    expect(networks()).toBe(2)
+    hook.unmount()
+  })
+
   it("refetches networks on a rescan and everything after a resync", async () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue()
     const { hook, send } = await connected()

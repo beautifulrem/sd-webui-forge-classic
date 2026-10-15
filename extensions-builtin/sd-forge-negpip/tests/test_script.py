@@ -1,18 +1,14 @@
-import importlib.util
 import sys
 import types
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import remi_port_harness as harness
 import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-# Shared with the DAVE / Cross-Attention Boost suites, loaded by path (see its docstring)
-_spec = importlib.util.spec_from_file_location("extension_script_harness", ROOT.parents[1] / "tests" / "extension_script_harness.py")
-harness = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(harness)
 
 negpip = harness.load_script(ROOT / "scripts" / "negpip.py", "negpip_under_test")
 

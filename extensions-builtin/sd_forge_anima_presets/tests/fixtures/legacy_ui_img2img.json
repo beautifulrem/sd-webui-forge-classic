@@ -1,0 +1,35 @@
+{
+ "script": "AnimaRemiPresetScript",
+ "title": "Anima Remi Presets",
+ "tab": "img2img",
+ "shown": true,
+ "inputs": [],
+ "non_arg_controls": [
+  {
+   "gradio": "Dropdown",
+   "label": "Preset",
+   "value": "Official Base/Aesthetic — Safe (Recommended)"
+  },
+  {
+   "gradio": "Markdown",
+   "label": null,
+   "value": "**Base / Aesthetic:** ER SDE · 36 steps · CFG 4.5 · Automatic scheduler."
+  },
+  {
+   "gradio": "Markdown",
+   "label": null,
+   "value": "Optional guidance, DAVE, Cross-Attention Boost, cache, spatial, Hires, Refiner and post-processing stacks start disabled. Applying a preset preserves prompt text, model paths and LoRA/artist names."
+  },
+  {
+   "gradio": "Button",
+   "label": null,
+   "value": "Apply preset"
+  },
+  {
+   "gradio": "Markdown",
+   "label": null,
+   "value": ""
+  }
+ ],
+ "paste_field_names": []
+}

@@ -1,49 +1,40 @@
-# Very-early diagnostic. If you don't see this line in your console at startup,
-# Forge isn't finding the file (folder structure wrong, or extension disabled).
-print("[prompt-workshop] script file is being imported")
-
 """
 prompt_workshop.py
 ------------------
-sd-webui-forge-classic / Forge Neo extension.
-
-Adds a top-level "Prompt Workshop" tab that helps structure prompts for the
-Anima model (https://huggingface.co/circlestone-labs/Anima), which follows
-a specific tag order:
+The "Prompt Workshop" page (``remi.pages``): structure prompts for the Anima
+model (https://huggingface.co/circlestone-labs/Anima), which follows a
+specific tag order:
 
     [quality/meta/year/safety] [1girl/1boy/1other] [character] [series] [artist] [general]
 
-The tab has:
-  - One textbox per tag-order category (no real-time updates).
-  - A "Build Prompt" button that consolidates them in order into a copyable box.
-  - A Booru random tag grabber (Danbooru or Gelbooru) that fetches a random
-    post, normalises its tags into Anima format (lowercase, spaces, @ on
-    artists, score_N preserved with underscore), and either dumps the result
-    into a copyable box or pushes the tags into the categorised fields above.
+The page has:
+  - One text box per tag-order category (plus eight manual extra categories).
+  - "Build Prompt", which consolidates them in order into a copyable box,
+    and buttons that append it to (or replace) the txt2img prompt.
+  - A Booru random tag grabber (Danbooru, Aibooru, Gelbooru, Rule34) that
+    fetches a random post (or one by id), normalises its tags into Anima
+    format (lowercase, spaces, @ on artists, score_N kept with underscore) and
+    either shows the result or pushes the tags into the category fields.
+    Booru requests are only made when the user clicks a grab / download
+    button.
+  - A hand-off of the post image to the JoyCaption page.
 """
 
+import io
+import ipaddress
 import json
 import os
 import re
 import shutil
+import socket
+import threading
 from typing import Tuple, List, Dict
+from urllib.parse import urljoin, urlparse
 
-import gradio as gr
 import requests
 
-from modules import paths_internal, script_callbacks
-
-# Forge Neo: `generation_parameters_copypaste` was renamed to
-# `infotext_utils`. We try the new name first and fall back. Used to
-# register a ParamBinding that ships the downloaded post image into
-# JoyCaption's image input.
-try:
-    from modules import infotext_utils as _infotext  # type: ignore
-except Exception:
-    try:
-        from modules import generation_parameters_copypaste as _infotext  # type: ignore
-    except Exception:
-        _infotext = None  # type: ignore
+from modules import paths_internal
+from remi import pages, ui
 
 EXT_TAG = "[prompt-workshop]"
 
@@ -73,6 +64,25 @@ _SUBJECT_TAG_RE = re.compile(
 USER_AGENT = "sd-forge-prompt-workshop/1.0 (https://github.com/)"
 MAX_IMAGE_DOWNLOAD_BYTES = 64 * 1024 * 1024
 IMAGE_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+MAX_IMAGE_REDIRECTS = 5
+
+
+class _GrabCancelled(BaseException):
+    """Raised by :func:`_http_get` once the grab task was cancelled. Not an
+    ``Exception``: the grabbers' ``except Exception`` handlers let it through."""
+
+
+# The grab task running on this thread (see PromptWorkshopPage._start_grab)
+_grab_thread = threading.local()
+
+
+def _http_get(*args, **kwargs):
+    """``requests.get`` for the grabbers: stops before each request once the
+    user cancelled the grab (hunt mode makes many)."""
+    task = getattr(_grab_thread, "task", None)
+    if task is not None and task.cancelled:
+        raise _GrabCancelled()
+    return requests.get(*args, **kwargs)
 
 # Maps the UI checkbox labels for "block these categories from grabs" onto
 # the internal bucket keys used inside the grab functions. Single source of
@@ -299,6 +309,7 @@ _BOORU_SOURCES = {
         "family":    "danbooru",
         "api_base":  "https://danbooru.donmai.us",
         "post_url":  lambda pid: f"https://danbooru.donmai.us/posts/{pid}",
+        "image_hosts": ("donmai.us",),  # cdn.donmai.us
         "creds_key": None,            # no credentials needed
         "anon_tag_limit": 2,          # 2 tags including rating filter
     },
@@ -306,6 +317,7 @@ _BOORU_SOURCES = {
         "family":    "danbooru",
         "api_base":  "https://aibooru.online",
         "post_url":  lambda pid: f"https://aibooru.online/posts/{pid}",
+        "image_hosts": ("aibooru.online", "aibooru.download"),  # cdn.aibooru.download
         "creds_key": None,
         "anon_tag_limit": 2,          # Aibooru is a Danbooru fork
     },
@@ -313,6 +325,7 @@ _BOORU_SOURCES = {
         "family":    "gelbooru",
         "api_base":  "https://gelbooru.com/index.php",
         "post_url":  lambda pid: f"https://gelbooru.com/index.php?page=post&s=view&id={pid}",
+        "image_hosts": ("gelbooru.com",),  # img*.gelbooru.com
         "creds_key": "gelbooru",
         "anon_tag_limit": None,       # no documented limit when authed
     },
@@ -322,6 +335,7 @@ _BOORU_SOURCES = {
         "family":    "gelbooru",
         "api_base":  "https://api.rule34.xxx/index.php",
         "post_url":  lambda pid: f"https://rule34.xxx/index.php?page=post&s=view&id={pid}",
+        "image_hosts": ("rule34.xxx",),  # api-cdn.rule34.xxx, wimg.rule34.xxx
         "creds_key": "rule34",
         "anon_tag_limit": None,
     },
@@ -846,8 +860,8 @@ def grab_danbooru_family(source: str,
         params["tags"] = " ".join(query_tags)
 
     try:
-        r = requests.get(url, params=params,
-                         headers={"User-Agent": USER_AGENT}, timeout=20)
+        r = _http_get(url, params=params,
+                      headers={"User-Agent": USER_AGENT}, timeout=20)
         r.raise_for_status()
         post = r.json()
     except Exception as e:
@@ -891,7 +905,7 @@ def grab_danbooru_family_by_id(source: str,
     cfg = _BOORU_SOURCES[source]
     url = f"{cfg['api_base'].rstrip('/')}/posts/{pid}.json"
     try:
-        r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
+        r = _http_get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
         if r.status_code == 404:
             return (f"[{source} post #{pid} not found]",
                     "", "", "", "", "", "", "", "")
@@ -1011,9 +1025,9 @@ def _hunt_danbooru_family(source: str,
                 "limit": "1000",
             }
             try:
-                r = requests.get(tag_url, params=params,
-                                 headers={"User-Agent": USER_AGENT},
-                                 timeout=20)
+                r = _http_get(tag_url, params=params,
+                              headers={"User-Agent": USER_AGENT},
+                              timeout=20)
                 r.raise_for_status()
                 data = r.json()
             except Exception as e:
@@ -1061,8 +1075,8 @@ def _hunt_danbooru_family(source: str,
 
         url = f"{api_base.rstrip('/')}/posts/random.json"
         try:
-            r = requests.get(url, params={"tags": " ".join(query_tags)},
-                             headers={"User-Agent": USER_AGENT}, timeout=20)
+            r = _http_get(url, params={"tags": " ".join(query_tags)},
+                          headers={"User-Agent": USER_AGENT}, timeout=20)
             r.raise_for_status()
             post = r.json()
         except Exception as e:
@@ -1204,7 +1218,7 @@ def _rule34_scrape_tag_categories(post_id: str
     """
     url = f"https://rule34.xxx/index.php?page=post&s=view&id={post_id}"
     try:
-        r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
+        r = _http_get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
         r.raise_for_status()
     except Exception as e:
         # Quiet failure: caller will fall through to "all general" defaults.
@@ -1257,8 +1271,8 @@ def _danbooru_lookup_tag_counts(tag_names: List[str],
             "limit": str(len(chunk)),
         }
         try:
-            r = requests.get(url, params=params,
-                             headers={"User-Agent": USER_AGENT}, timeout=20)
+            r = _http_get(url, params=params,
+                          headers={"User-Agent": USER_AGENT}, timeout=20)
             r.raise_for_status()
             data = r.json()
         except Exception as e:
@@ -1298,8 +1312,8 @@ def _gelbooru_request(url: str, params: Dict[str, str], timeout: int = 20,
     the "no results" check fires correctly.
     """
     try:
-        r = requests.get(url, params=params,
-                         headers={"User-Agent": USER_AGENT}, timeout=timeout)
+        r = _http_get(url, params=params,
+                      headers={"User-Agent": USER_AGENT}, timeout=timeout)
     except requests.RequestException as e:
         raise RuntimeError(f"network error: {e}") from e
 
@@ -1890,41 +1904,38 @@ def grab_by_id(source: str,
 
 
 # ----------------------------------------------------------------------------
-# JoyCaption bridge
+# Post image download (the preview, and the hand-off to JoyCaption)
 # ----------------------------------------------------------------------------
-# These helpers download the booru image of the most recently grabbed post
-# into the JoyCaption extension's shared temp folder, so the user can hop
-# straight from "grab tags" to "caption the picture those tags came from"
-# without re-uploading anything.
-#
-# Why it lives here, not in JoyCaption: the URL is *known* to the Workshop
-# (it's in grabbed_info); JoyCaption has no idea the Workshop exists. So
-# Workshop owns the download + handoff, JoyCaption owns the temp folder.
-#
-# Robust to JoyCaption not being installed -- we import lazily and fall
-# back to a plain tempdir if its bridge helper isn't reachable.
-
-import tempfile as _pw_tempfile
-from pathlib import Path as _pw_Path
+# A grab names the post's image on the "Image: <url>" line of its info. The
+# server remembers that URL per user (the grabbed info shown in the page is
+# never trusted), and downloads only over https from the source's own image
+# hosts, re-checking every redirect. Downloads are stored in the server's
+# upload store (pruned like any upload), so the preview and the JoyCaption
+# page share one file id.
 
 # Captures the "Image: <url>" line of grabbed_info. Both grab paths
-# (danbooru/aibooru and gelbooru/rule34) write this line in the same
-# format, so a single regex covers everything.
+# (danbooru/aibooru and gelbooru/rule34) write this line in the same format.
 _IMAGE_URL_RE = re.compile(r"^Image:\s*(\S+)", re.MULTILINE)
 
+# user -> (source, image URL, post id hint) of the user's last grab
+_last_grabs: Dict[object, Tuple[str, str, str]] = {}
+_last_grabs_lock = threading.Lock()
 
-def _joycaption_bridge_dir() -> _pw_Path:
-    """Return the shared Workshop -> JoyCaption handoff directory.
 
-    Do not import JoyCaption's WebUI script here. Forge loads extension scripts
-    with a file-based module name and does not register that first load as the
-    importable ``joycaption`` module; importing it again can therefore execute
-    the script twice and duplicate its UI callbacks. Both built-ins instead
-    share this small, deterministic temp-directory contract.
-    """
-    p = _pw_Path(_pw_tempfile.gettempdir()) / "joycaption_bridge"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+def _remember_grab(user, source: str, info: str) -> None:
+    """Keep the image URL of ``user``'s last grab (a grab without one, e.g.
+    an error, forgets the previous)."""
+    url, pid_hint = _parse_image_url_from_info(info)
+    with _last_grabs_lock:
+        if url:
+            _last_grabs[user] = (source, url, pid_hint or "")
+        else:
+            _last_grabs.pop(user, None)
+
+
+def _last_grab(user):
+    with _last_grabs_lock:
+        return _last_grabs.get(user)
 
 
 def _safe_image_filename(url: str, post_id_hint: str = "") -> str:
@@ -1951,114 +1962,124 @@ def _safe_image_filename(url: str, post_id_hint: str = "") -> str:
     return base
 
 
-def _download_url_to_pil_and_disk(url: str, pid_hint: str = ""):
-    """Internal: fetch `url`, save to the JoyCaption bridge folder for
-    posterity, AND return the loaded PIL image. The bridge-folder copy
-    is kept around so the file is reachable on disk if anything else
-    wants it; the in-memory PIL object is what gets handed to Gradio
-    components (avoiding the forge/gradio 4.40 `save_pil_to_file()` /
-    `name=` kwarg incompatibility that breaks the filepath round-trip).
+def _resolve_host(host: str):
+    """The addresses ``host`` resolves to (a seam for tests)."""
+    return {
+        ipaddress.ip_address(info[4][0].split("%", 1)[0])
+        for info in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    }
 
-    Returns (PIL.Image | None, filename | None, error_str | None).
-    """
-    import io
-    from urllib.parse import urlparse
+
+def _image_url_problem(url: str, hosts) -> str:
+    """Why ``url`` may not be fetched ("" when it may): https only, on one
+    of ``hosts`` (or a subdomain), default port, public addresses only."""
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return "not a valid URL"
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if parsed.scheme != "https" or not host:
+        return "not an https URL"
+    if parsed.username or parsed.password or port not in (None, 443):
+        return "unexpected credentials or port in the URL"
+    if not any(host == allowed or host.endswith("." + allowed) for allowed in hosts):
+        return f"{host} is not an image host of this booru"
+    try:
+        addresses = _resolve_host(host)
+    except (OSError, ValueError) as e:
+        return f"cannot resolve {host}: {e}"
+    for address in addresses:
+        mapped = getattr(address, "ipv4_mapped", None)
+        if not (mapped or address).is_global:
+            return f"{host} resolves to a non-public address"
+    return "" if addresses else f"cannot resolve {host}"
+
+
+def _read_image_body(r, fname):
+    """The response body, bounded by MAX_IMAGE_DOWNLOAD_BYTES: (bytes, error)."""
+    declared = r.headers.get("Content-Length")
+    if declared:
+        try:
+            if int(declared) > MAX_IMAGE_DOWNLOAD_BYTES:
+                return None, (
+                    "Download rejected: server reports an image larger than "
+                    f"{MAX_IMAGE_DOWNLOAD_BYTES // (1024 * 1024)} MiB."
+                )
+        except ValueError:
+            pass
+    data = bytearray()
+    for chunk in r.iter_content(chunk_size=IMAGE_DOWNLOAD_CHUNK_BYTES):
+        if not chunk:
+            continue
+        if len(data) + len(chunk) > MAX_IMAGE_DOWNLOAD_BYTES:
+            return None, (
+                "Download rejected: image exceeded the "
+                f"{MAX_IMAGE_DOWNLOAD_BYTES // (1024 * 1024)} MiB limit."
+            )
+        data.extend(chunk)
+    return bytes(data), None
+
+
+def _download_image(url: str, pid_hint: str = "", hosts=()):
+    """Fetch the post image ``url`` from one of ``hosts`` (see
+    :func:`_image_url_problem`; redirects are followed by hand and checked
+    hop by hop) and check that PIL can decode it. Returns
+    (bytes | None, filename | None, error | None); errors never quote the
+    response."""
     from PIL import Image as _PILImage, UnidentifiedImageError
 
-    out_dir = _joycaption_bridge_dir()
     fname = _safe_image_filename(url, pid_hint)
-    out_path = out_dir / fname
-
-    # Some boorus (notably gelbooru) deny hot-linking unless the
-    # request looks like it came from a page on their own domain.
-    # Pointing Referer at the site root is enough -- they don't
-    # validate the path. For everything else this header is harmless.
-    try:
-        host = urlparse(url).netloc
-        referer = f"https://{host}/" if host else None
-    except Exception:
-        referer = None
-
     headers = {"User-Agent": USER_AGENT}
-    if referer:
-        headers["Referer"] = referer
+    # Some boorus (notably gelbooru) deny hot-linking unless the request
+    # looks like it came from a page on their own domain. Pointing Referer
+    # at the site root is enough; for everything else it is harmless.
+    host = urlparse(url).hostname if url else None
+    if host:
+        headers["Referer"] = f"https://{host}/"
 
-    # Keep the validated bytes in memory for PIL/Gradio, but stream the HTTP
-    # response into a bounded buffer. Booru originals are normally far below
-    # this ceiling; the cap prevents a bad server or response from exhausting
-    # the long-running Forge process.
+    current = url
+    data = None
     try:
-        with requests.get(url, headers=headers, timeout=30, stream=True) as r:
-            r.raise_for_status()
-            declared = r.headers.get("Content-Length")
-            if declared:
-                try:
-                    if int(declared) > MAX_IMAGE_DOWNLOAD_BYTES:
-                        return None, fname, (
-                            "Download rejected: server reports an image larger than "
-                            f"{MAX_IMAGE_DOWNLOAD_BYTES // (1024 * 1024)} MiB."
-                        )
-                except ValueError:
-                    pass
-
-            data = bytearray()
-            for chunk in r.iter_content(chunk_size=IMAGE_DOWNLOAD_CHUNK_BYTES):
-                if not chunk:
+        for _hop in range(MAX_IMAGE_REDIRECTS + 1):
+            problem = _image_url_problem(current, hosts)
+            if problem:
+                return None, None, f"Download refused: {problem}"
+            with requests.get(current, headers=headers, timeout=30, stream=True, allow_redirects=False) as r:
+                if r.is_redirect:
+                    current = urljoin(current, r.headers.get("Location", ""))
                     continue
-                if len(data) + len(chunk) > MAX_IMAGE_DOWNLOAD_BYTES:
-                    return None, fname, (
-                        "Download rejected: image exceeded the "
-                        f"{MAX_IMAGE_DOWNLOAD_BYTES // (1024 * 1024)} MiB limit."
-                    )
-                data.extend(chunk)
+                r.raise_for_status()
+                data, error = _read_image_body(r, fname)
+                if error:
+                    return None, fname, error
+            break
+        else:
+            return None, None, "Download failed: too many redirects"
     except Exception as e:
         return None, None, f"Download failed: {e}"
 
     if not data:
         return None, fname, "Download failed: empty response"
 
-    # Cheap sniff: if the first few bytes look like text (HTML/JSON),
-    # the server very likely returned an error or anti-hotlink page
-    # instead of an image. PIL would just say "cannot identify image
-    # file" which doesn't help the user figure out what went wrong.
-    head = data[:16].lstrip()
-    if head[:1] in (b"<", b"{"):
-        snippet = data[:120].decode("utf-8", errors="replace").strip()
-        return None, fname, (
-            "Server returned non-image content (likely a block or error "
-            f"page). First bytes: {snippet!r}"
-        )
+    # Text (HTML/JSON) instead of an image is an error or anti-hotlink page;
+    # PIL would only say "cannot identify image file".
+    if data[:16].lstrip()[:1] in (b"<", b"{"):
+        return None, fname, "Server returned non-image content (likely a block or error page)."
 
-    # Open from the bytes buffer first -- this is the operation that
-    # decides whether PIL can decode this format at all. If it can,
-    # we ALSO write the bytes out to disk so the JoyCaption bridge
-    # folder has a copy.
     try:
-        img = _PILImage.open(io.BytesIO(data))
-        img.load()  # force full decode while the BytesIO is alive
+        with _PILImage.open(io.BytesIO(data)) as img:
+            img.load()  # full decode: can PIL read this format at all?
     except UnidentifiedImageError:
-        # PIL didn't recognise the file. Salvage info for the user:
-        # report the magic number, which usually tells us the real
-        # format (so they can install a missing plugin or report it).
-        magic = data[:8].hex()
         return None, fname, (
-            f"PIL can't identify this image (magic bytes: {magic}). "
-            f"Server may have sent an unsupported format -- if the URL "
-            f"ends in .jxl/.avif/.heif your Pillow build may lack support."
+            "PIL can't identify this image. Server may have sent an "
+            "unsupported format -- if the URL ends in .jxl/.avif/.heif "
+            "your Pillow build may lack support."
         )
     except Exception as e:
         return None, fname, f"Decode failed: {e}"
 
-    # Best-effort write of the source bytes to disk. We don't fail
-    # the whole download if the disk write fails (e.g. permissions);
-    # the in-memory PIL is already usable for Gradio.
-    try:
-        with open(out_path, "wb") as fh:
-            fh.write(data)
-    except Exception:
-        pass
-
-    return img, fname, None
+    return data, fname, None
 
 
 def _parse_image_url_from_info(grabbed_info_text: str):
@@ -2075,754 +2096,417 @@ def _parse_image_url_from_info(grabbed_info_text: str):
     return url, (pid_match.group(1) if pid_match else "")
 
 
-def download_post_image_for_joycaption(grabbed_info_text: str, cached_url: str):
-    """Combined download-and-hand-off path.
-
-    If `cached_url` matches the URL on the current grabbed post, we
-    skip the download and just hand back gr.update() for the preview
-    (i.e. leave it unchanged). Otherwise we fetch the image fresh.
-
-    Returns 3-tuple:
-        (preview_image, status_message, new_cached_url)
-
-    `preview_image` is a PIL.Image on a fresh download, gr.update()
-    on a cache hit (so Gradio doesn't re-render unnecessarily), or
-    gr.update() on error. The status message tells the user which
-    of those three things happened.
-    """
-    url, pid_hint = _parse_image_url_from_info(grabbed_info_text)
-    if url is None:
-        return (
-            gr.update(),
-            "❗ No image URL on the most recent grab — click 'Grab Random Tags' first.",
-            cached_url or "",
-        )
-
-    # Cache hit: same URL as the current preview. Don't re-fetch.
-    if cached_url and cached_url == url:
-        return (
-            gr.update(),
-            "✅ Reusing already-downloaded preview (no re-fetch).",
-            cached_url,
-        )
-
-    img, fname, err = _download_url_to_pil_and_disk(url, pid_hint)
-    if err:
-        return gr.update(), f"❌ {err}", cached_url or ""
-
-    return img, f"✅ Image downloaded ({fname}).", url
-
-
-def download_post_image_preview_only(grabbed_info_text: str, cached_url: str):
-    """Same as download_post_image_for_joycaption but used by the
-    'Download for Preview' button. Behaves identically -- the only
-    difference is in what the UI chain does AFTER the download (no
-    JoyCaption hand-off on this path). Splitting the two makes the
-    Python <-> JS contract for each button explicit.
-    """
-    return download_post_image_for_joycaption(grabbed_info_text, cached_url)
-
-
 # ----------------------------------------------------------------------------
-# UI
+# The page
 # ----------------------------------------------------------------------------
 
-# elem_id of the tab's outer Blocks. Used by the accompanying JS to find and
-# reorder the tab to between img2img and Extras.
-TAB_ELEM_ID = "prompt_workshop_tab"
+PAGE_ID = "prompt-workshop"
+
+# The fourteen category boxes, in Build Prompt order: the six Anima
+# tag-order sections, then the eight manual extras appended after General.
+CORE_FIELDS = ("quality", "subject", "character", "series", "artist", "general")
+EXTRA_FIELDS = ("composition", "pose", "clothing", "setting", "lighting", "features", "style", "content")
+GRAB_STATES = tuple(f"grab_{name}" for name in CORE_FIELDS)
+
+_EXTRA_BOXES = (
+    ("composition", "7. Composition / Framing", "Composition / Framing", "cowboy shot, from above, close-up, upper body, from behind, pov"),
+    ("pose", "8. Pose / Action / Expression", "Pose / Action / Expression", "sitting, arms up, hand on hip, looking at viewer, smile, open mouth"),
+    ("clothing", "9. Clothing / Attire", "Clothing / Attire", "school uniform, dress, thighhighs, gloves, hat, glasses, jewelry"),
+    ("setting", "10. Setting / Background", "Setting / Background", "outdoors, classroom, night, city, simple background, white background"),
+    ("lighting", "11. Lighting / Atmosphere / Effects", "Lighting / Atmosphere / Effects", "cinematic lighting, backlighting, rim light, bloom, depth of field, petals"),
+    ("features", "12. Physical Features", "Physical Features", "blue eyes, long hair, twintails, animal ears, freckles"),
+    ("style", "13. Style / Aesthetic", "Style / Aesthetic", "retro artstyle, sketch, watercolor, flat color, 1990s (style)"),
+    ("content", "14. Content / NSFW", "Content / NSFW", "explicit content tags kept separate from the rest"),
+)
+
+_SEND_CATEGORY = (
+    ("quality", "→ 1. Quality"),
+    ("subject", "→ 2. Subject"),
+    ("character", "→ 3. Character"),
+    ("series", "→ 4. Series"),
+    ("artist", "→ 5. Artist"),
+    ("general", "→ 6. General"),
+)
+
+# Values "Clear All Fields" resets (credentials are persistent setup, and
+# the preview image stays, as before).
+_CLEARED = {
+    "consolidated": "",
+    **{name: "" for name in CORE_FIELDS + EXTRA_FIELDS},
+    "search_tag": "",
+    "blacklist_tags": "",
+    "blacklist_cats": [],
+    "grabbed": "",
+    "grabbed_info": "",
+    "post_url": "",
+    "source": "Danbooru",
+    "rating": "All ratings",
+    "post_id": "",
+    "count_filter_enabled": False,
+    "count_filter_op": "≥",
+    "count_filter_threshold": 50,
+    "count_filter_threshold_high": 100,
+    "count_filter_targets": [],
+    "hunt_mode": False,
+    **{name: "" for name in GRAB_STATES},
+}
+
+_PRETTY = {"gelbooru": "Gelbooru", "rule34": "Rule34"}
 
 
-def on_ui_tabs():
-    with gr.Blocks(analytics_enabled=False) as ui_component:
-        gr.Markdown(
-            "## Anima Workshop\n"
-            "Build prompts in the Anima tag order: "
-            "`[quality / meta / year / safety]  [1girl / 1boy / ...]  "
-            "[character]  [series]  [artist]  [general]`. Fill the boxes "
-            "below in any order then click **Build Prompt**, or use the "
-            "**Booru Random Tag Grabber** at the bottom to pull tags from "
-            "a Danbooru / Aibooru / Gelbooru / Rule34 post automatically."
-        )
+def _creds_status(source_key: str):
+    api_key, user_id = _get_credentials(source_key)
+    if api_key and user_id:
+        return ui.message("✓ {{source}} credentials set.", source=_PRETTY[source_key])
+    return ui.message("⚠ Not set — {{source}} grabs return 401.", source=_PRETTY[source_key])
 
-        with gr.Row():
-            consolidated_box = gr.Textbox(
-                label="Consolidated Prompt — copy this into txt2img",
+
+def _creds_set(source_key: str) -> bool:
+    return all(_get_credentials(source_key))
+
+
+def _send(name: str, label: str, props: dict, **kwargs):
+    return ui.Custom(name, "send-button", None, props={"label": label, **props}, label="", persist=False, submit=False, **kwargs)
+
+
+def _task_button(action: str, label: str):
+    """A button running ``action`` as a page task (progress, Cancel)."""
+    return ui.Custom(action, "task-runner", None, props={"action": action, "label": label}, label="", persist=False, submit=False)
+
+
+def _credentials_section(source_key: str, title: str, help_text: str):
+    prefix = "gel" if source_key == "gelbooru" else "r34"
+    return ui.Section(
+        title,
+        open=not _creds_set(source_key),
+        children=[
+            ui.Markdown(help_text),
+            ui.Row(
+                ui.Custom(f"{prefix}_api_key", "secret-text", "", props={"placeholder": "Saved keys are not shown; leave empty to keep"}, label="api_key", persist=False, submit=False),
+                ui.Text(f"{prefix}_user_id", lambda: _get_credentials(source_key)[1], label="user_id", persist=False, submit=False),
+            ),
+            ui.Row(
+                ui.Button("Save", f"save_{source_key}", "primary"),
+                ui.Button("Clear", f"clear_{source_key}", "danger"),
+            ),
+            ui.Output(f"{prefix}_status", kind="text"),
+        ],
+    )
+
+
+class PromptWorkshopPage(pages.Page):
+    def params(self):
+        return ui.Column(
+            ui.Markdown(
+                "Build prompts in the Anima tag order: "
+                "`[quality / meta / year / safety]  [1girl / 1boy / ...]  "
+                "[character]  [series]  [artist]  [general]`. Fill the boxes "
+                "below in any order then click **Build Prompt**, or use the "
+                "**Booru Random Tag Grabber** at the bottom to pull tags from "
+                "a Danbooru / Aibooru / Gelbooru / Rule34 post automatically."
+            ),
+            ui.Text(
+                "consolidated",
+                "",
                 lines=4,
-                interactive=True,
+                prompt=True,
+                label="Consolidated Prompt — copy this into txt2img",
                 placeholder="Click 'Build Prompt' after filling in the category boxes below.",
-                elem_id="pw_consolidated",
-                show_copy_button=True,
-            )
-
-        with gr.Row():
-            build_btn = gr.Button("Build Prompt", variant="primary")
-            # These buttons are wired up in JS (see prompt_workshop.js); the JS
-            # finds them by elem_id, so we don't need to keep the Python handle.
-            # "Send" appends to the txt2img prompt; "Replace" overwrites it.
-            gr.Button("Send to txt2img Prompt", elem_id="pw_send_to_t2i")
-            gr.Button("Replace txt2img Prompt", elem_id="pw_replace_t2i")
-            clear_btn = gr.Button("Clear All Fields")
-
-        gr.Markdown("---\n### Tag Categories (in Anima tag order)")
-
-        with gr.Row():
-            with gr.Column():
-                quality_box = gr.Textbox(
-                    label="1. Quality / Meta / Year / Safety",
-                    placeholder="masterpiece, best quality, score_7, highres, year 2024, newest, safe",
-                    lines=2,
-                    elem_id="pw_quality",
-                )
-                subject_box = gr.Textbox(
-                    label="2. Subject Count   (1girl / 1boy / 1other / 2girls / solo / ...)",
-                    placeholder="1girl, solo",
-                    lines=1,
-                    elem_id="pw_subject",
-                )
-                character_box = gr.Textbox(
-                    label="3. Character(s)",
-                    placeholder="oomuro sakurako",
-                    lines=1,
-                    elem_id="pw_character",
-                )
-            with gr.Column():
-                series_box = gr.Textbox(
-                    label="4. Series",
-                    placeholder="yuru yuri",
-                    lines=1,
-                    elem_id="pw_series",
-                )
-                artist_box = gr.Textbox(
-                    label="5. Artist   (@ will be auto-prepended)",
-                    placeholder="nnn yryr   →   will become   @nnn yryr",
-                    lines=1,
-                    elem_id="pw_artist",
-                )
-                general_box = gr.Textbox(
-                    label="6. General Tags",
-                    placeholder="smile, brown hair, hat, long hair, looking at viewer, ...",
-                    lines=4,
-                    elem_id="pw_general",
-                )
-
-        # Per-category Send buttons. Each button's elem_id maps to one of the
-        # six category textboxes; the JS finds them by id and appends just
-        # that one box's contents to the txt2img positive prompt. No tab
-        # switch on per-category sends (you might want to send several in a
-        # row), unlike the main "Send to txt2img Prompt" button.
-        gr.Markdown("**Send a single category to txt2img:**")
-        with gr.Row():
-            gr.Button("→ 1. Quality",   elem_id="pw_send_quality")
-            gr.Button("→ 2. Subject",   elem_id="pw_send_subject")
-            gr.Button("→ 3. Character", elem_id="pw_send_character")
-            gr.Button("→ 4. Series",    elem_id="pw_send_series")
-            gr.Button("→ 5. Artist",    elem_id="pw_send_artist")
-            gr.Button("→ 6. General",   elem_id="pw_send_general")
-
-        # --------------------------------------------------------------
-        # Manual extra categories.
-        #
-        # These are NOT part of the Anima tag order and are NOT wired into
-        # the grabber / blacklist / count filter. They exist purely so the
-        # user can organise manual prompt-building into meaningful buckets.
-        # build_prompt() appends them, in this order, AFTER the General box,
-        # so the core Anima priority ordering is never disturbed.
-        #
-        # Each one lives in its own collapsed Accordion to keep the tab
-        # tidy now that there are fourteen boxes total. They're collapsed by
-        # default; the user opens only the ones they want. Their elem_ids are
-        # registered directly by the bundled TagComplete Neo integration so
-        # autocomplete binds to them exactly like the six core boxes.
-        gr.Markdown(
-            "---\n### Additional Categories (manual)\n"
-            "Optional buckets for organising your own tags. They're appended "
-            "**after General** when you click *Build Prompt*, and support tag "
-            "autocomplete. They are not touched by the grabber, blacklist, or "
-            "count filter. Collapsed by default — open only what you need."
-        )
-
-        with gr.Accordion("7. Composition / Framing", open=False):
-            composition_box = gr.Textbox(
-                label="Composition / Framing",
-                placeholder="cowboy shot, from above, close-up, upper body, from behind, pov",
-                lines=2,
-                elem_id="pw_composition",
-                show_label=False,
-            )
-        with gr.Accordion("8. Pose / Action / Expression", open=False):
-            pose_box = gr.Textbox(
-                label="Pose / Action / Expression",
-                placeholder="sitting, arms up, hand on hip, looking at viewer, smile, open mouth",
-                lines=2,
-                elem_id="pw_pose",
-                show_label=False,
-            )
-        with gr.Accordion("9. Clothing / Attire", open=False):
-            clothing_box = gr.Textbox(
-                label="Clothing / Attire",
-                placeholder="school uniform, dress, thighhighs, gloves, hat, glasses, jewelry",
-                lines=2,
-                elem_id="pw_clothing",
-                show_label=False,
-            )
-        with gr.Accordion("10. Setting / Background", open=False):
-            setting_box = gr.Textbox(
-                label="Setting / Background",
-                placeholder="outdoors, classroom, night, city, simple background, white background",
-                lines=2,
-                elem_id="pw_setting",
-                show_label=False,
-            )
-        with gr.Accordion("11. Lighting / Atmosphere / Effects", open=False):
-            lighting_box = gr.Textbox(
-                label="Lighting / Atmosphere / Effects",
-                placeholder="cinematic lighting, backlighting, rim light, bloom, depth of field, petals",
-                lines=2,
-                elem_id="pw_lighting",
-                show_label=False,
-            )
-        with gr.Accordion("12. Physical Features", open=False):
-            features_box = gr.Textbox(
-                label="Physical Features",
-                placeholder="blue eyes, long hair, twintails, animal ears, freckles",
-                lines=2,
-                elem_id="pw_features",
-                show_label=False,
-            )
-        with gr.Accordion("13. Style / Aesthetic", open=False):
-            style_box = gr.Textbox(
-                label="Style / Aesthetic",
-                placeholder="retro artstyle, sketch, watercolor, flat color, 1990s (style)",
-                lines=2,
-                elem_id="pw_style",
-                show_label=False,
-            )
-        with gr.Accordion("14. Content / NSFW", open=False):
-            content_box = gr.Textbox(
-                label="Content / NSFW",
-                placeholder="explicit content tags kept separate from the rest",
-                lines=2,
-                elem_id="pw_content",
-                show_label=False,
-            )
-
-        gr.Markdown(
-            "---\n### Booru Random Tag Grabber\n"
-            "Pulls a random image from **Danbooru**, **Aibooru**, **Gelbooru**, "
-            "or **Rule34** and rewrites its tags into Anima format. "
-            "Gelbooru and Rule34 each require their own `api_key` + `user_id` "
-            "(set them in the credentials sections below)."
-        )
-
-        # Gelbooru requires api_key + user_id for ALL API calls (since
-        # mid-2022); Rule34 since August 2025. Two side-by-side accordions,
-        # each closed by default once creds are set so they stop taking
-        # vertical space.
-        _api_key_init, _user_id_init = _get_credentials("gelbooru")
-        _creds_status_init = (
-            "✓ Gelbooru credentials set."
-            if (_api_key_init and _user_id_init)
-            else "⚠ Not set — Gelbooru grabs return 401."
-        )
-        _r34_api_key_init, _r34_user_id_init = _get_credentials("rule34")
-        _r34_creds_status_init = (
-            "✓ Rule34 credentials set."
-            if (_r34_api_key_init and _r34_user_id_init)
-            else "⚠ Not set — Rule34 grabs return 401."
-        )
-        with gr.Row():
-            with gr.Column():
-                with gr.Accordion("Gelbooru API credentials",
-                                  open=not (_api_key_init and _user_id_init)):
-                    gr.Markdown(
+            ),
+            ui.Row(
+                ui.Button("Build Prompt", "build", "primary"),
+                _send("send_consolidated", "Send to txt2img Prompt", {"to": "prompt", "source": "consolidated", "mode": "append"}),
+                _send("replace_consolidated", "Replace txt2img Prompt", {"to": "prompt", "source": "consolidated", "mode": "replace"}),
+                ui.Button("Clear All Fields", "clear_all", "danger"),
+            ),
+            ui.Separator(),
+            ui.Markdown("### Tag Categories (in Anima tag order)"),
+            ui.Row(
+                ui.Column(
+                    ui.Text("quality", "", lines=2, prompt=True, label="1. Quality / Meta / Year / Safety", placeholder="masterpiece, best quality, score_7, highres, year 2024, newest, safe"),
+                    ui.Text("subject", "", prompt=True, label="2. Subject Count   (1girl / 1boy / 1other / 2girls / solo / ...)", placeholder="1girl, solo"),
+                    ui.Text("character", "", prompt=True, label="3. Character(s)", placeholder="oomuro sakurako"),
+                ),
+                ui.Column(
+                    ui.Text("series", "", prompt=True, label="4. Series", placeholder="yuru yuri"),
+                    ui.Text("artist", "", prompt=True, label="5. Artist   (@ will be auto-prepended)", placeholder="nnn yryr   →   will become   @nnn yryr"),
+                    ui.Text("general", "", lines=4, prompt=True, label="6. General Tags", placeholder="smile, brown hair, hat, long hair, looking at viewer, ..."),
+                ),
+            ),
+            # Per-category sends append one box to the txt2img prompt and stay
+            # here (you might send several in a row).
+            ui.Markdown("**Send a single category to txt2img:**"),
+            ui.Row(*(_send(f"send_{name}", label, {"to": "prompt", "source": name, "mode": "append", "navigate": False}) for name, label in _SEND_CATEGORY)),
+            ui.Separator(),
+            ui.Markdown(
+                "### Additional Categories (manual)\n"
+                "Optional buckets for organising your own tags. They're appended "
+                "**after General** when you click *Build Prompt*, and support tag "
+                "autocomplete. They are not touched by the grabber, blacklist, or "
+                "count filter. Collapsed by default — open only what you need."
+            ),
+            *(ui.Section(title, open=False, children=[ui.Text(name, "", lines=2, prompt=True, label=label, placeholder=placeholder)]) for name, title, label, placeholder in _EXTRA_BOXES),
+            ui.Separator(),
+            ui.Markdown(
+                "### Booru Random Tag Grabber\n"
+                "Pulls a random image from **Danbooru**, **Aibooru**, **Gelbooru**, "
+                "or **Rule34** and rewrites its tags into Anima format. "
+                "Gelbooru and Rule34 each require their own `api_key` + `user_id` "
+                "(set them in the credentials sections below)."
+            ),
+            ui.Row(
+                ui.Column(
+                    _credentials_section(
+                        "gelbooru",
+                        "Gelbooru API credentials",
                         "Free — get them from "
                         "**[Account → Options](https://gelbooru.com/index.php?page=account&s=options)** "
                         "(*API Access Credentials* section). Stored locally; "
-                        "sent only to Gelbooru. Does **not** authenticate Rule34."
+                        "sent only to Gelbooru. Does **not** authenticate Rule34.",
                     )
-                    with gr.Row():
-                        gel_api_key_box = gr.Textbox(
-                            label="api_key", value=_api_key_init,
-                            type="password", elem_id="pw_gel_api_key",
-                        )
-                        gel_user_id_box = gr.Textbox(
-                            label="user_id", value=_user_id_init,
-                            elem_id="pw_gel_user_id",
-                        )
-                    with gr.Row():
-                        gel_save_btn = gr.Button("Save", variant="primary",
-                                                 scale=0)
-                        gel_creds_status = gr.Markdown(_creds_status_init)
-            with gr.Column():
-                with gr.Accordion("Rule34 API credentials",
-                                  open=not (_r34_api_key_init and _r34_user_id_init)):
-                    gr.Markdown(
+                ),
+                ui.Column(
+                    _credentials_section(
+                        "rule34",
+                        "Rule34 API credentials",
                         "Required since **August 2025**. Free — get them at "
                         "**[api.rule34.xxx](https://api.rule34.xxx/)**. Stored "
-                        "locally under separate keys from Gelbooru."
+                        "locally under separate keys from Gelbooru.",
                     )
-                    with gr.Row():
-                        r34_api_key_box = gr.Textbox(
-                            label="api_key", value=_r34_api_key_init,
-                            type="password", elem_id="pw_r34_api_key",
-                        )
-                        r34_user_id_box = gr.Textbox(
-                            label="user_id", value=_r34_user_id_init,
-                            elem_id="pw_r34_user_id",
-                        )
-                    with gr.Row():
-                        r34_save_btn = gr.Button("Save", variant="primary",
-                                                 scale=0)
-                        r34_creds_status = gr.Markdown(_r34_creds_status_init)
-
-        with gr.Row():
-            source_radio = gr.Radio(
-                choices=_SOURCE_CHOICES,
-                value="Danbooru",
-                label="Source",
-                elem_id="pw_source",
-            )
-            rating_radio = gr.Radio(
-                choices=_RATING_CHOICES,
-                value="All ratings",
-                label="Rating filter",
-                elem_id="pw_rating",
-            )
-
-        # Search-tag input. Accepts Anima-format (spaces, lowercase) or booru
-        # format -- it's normalised either way before being sent to the API.
-        # Multiple tags work as an AND filter; on Danbooru/Aibooru anonymously
-        # this is capped at 2 total (including the rating tag).
-        search_tag_box = gr.Textbox(
-            label="Search tag(s) — find a random post with these tags (empty = any post)",
-            placeholder="long hair · long hair, blue eyes · Danbooru/Aibooru anon: 2 tags total incl. rating",
-            lines=1,
-            elem_id="pw_search_tag",
+                ),
+            ),
+            ui.Row(
+                ui.Choice("source", _SOURCE_CHOICES, "Danbooru", style="radio", label="Booru source"),
+                ui.Choice("rating", _RATING_CHOICES, "All ratings", style="radio", label="Rating filter"),
+            ),
+            # Anima-format (spaces, lowercase) or booru format; several tags
+            # are an AND filter (Danbooru/Aibooru anonymously: 2 incl. rating).
+            ui.Text(
+                "search_tag",
+                "",
+                label="Search tag(s) — find a random post with these tags (empty = any post)",
+                placeholder="long hair · long hair, blue eyes · Danbooru/Aibooru anon: 2 tags total incl. rating",
+            ),
+            ui.Row(
+                ui.Text("blacklist_tags", "", lines=2, label="Blacklist tags — won't appear in grabbed output", placeholder="e.g. lowres, jpeg artifacts, watermark, blurry", width=6),
+                ui.MultiChoice("blacklist_cats", _CATEGORY_LABELS, (), style="checkboxes", label="Blacklist categories — whole sections dropped", width=6),
+            ),
+            ui.Row(
+                ui.Toggle("count_filter_enabled", False, label="Filter tags by post count"),
+                ui.Choice("count_filter_op", _COUNT_OP_CHOICES, "≥", label="Comparator"),
+                ui.Number("count_filter_threshold", 50, minimum=0, step=1, precision=0, label="Min / value"),
+                ui.Number("count_filter_threshold_high", 100, minimum=0, step=1, precision=0, label="Max (range only)"),
+                ui.Toggle("hunt_mode", False, label="Hunt mode (Danbooru/Aibooru only)"),
+            ),
+            ui.MultiChoice("count_filter_targets", _CATEGORY_LABELS, (), style="checkboxes", label="Apply count filter only to these categories (empty = all)"),
+            ui.Section(
+                "ℹ How the count filter and hunt mode work",
+                open=False,
+                children=[
+                    ui.Markdown(
+                        "**Comparators.** `≥` / `≤` / `=` use only the Min/value box. "
+                        "`between` keeps tags whose count is inside `[low, high]` "
+                        "(inclusive). `not between` drops tags inside that range — "
+                        "useful for *omit if greater than 50 but less than 100*-style "
+                        "filters.\n\n"
+                        "**Scope.** By default the filter applies to every tag in the "
+                        "grabbed post. Tick boxes under *Apply count filter only to "
+                        "these categories* to scope it (e.g. only Artist). Rating text "
+                        "is always exempt; tags the booru doesn't recognise count as 0.\n\n"
+                        "**Hunt mode** (Danbooru and Aibooru only) actively searches "
+                        "for a post that has at least one tag in the target category "
+                        "meeting the count criteria, instead of grabbing randomly and "
+                        "hoping. It uses Danbooru's `/tags.json` endpoint, which is "
+                        "fast and precise. Requires the count filter on and at least "
+                        "one target category. Not available for Gelbooru / Rule34 "
+                        "because those sites don't expose a comparable endpoint."
+                    )
+                ],
+            ),
+            _task_button("grab", "Grab Random Tags"),
+            ui.Row(
+                _send("open_post", "🔗 Open Post in New Tab", {"to": "url", "source": "post_url", "variant": "outline"}),
+                _send("send_image", "📷 Send Image to JoyCaption", {"to": "page", "page": "joycaption", "param": "image", "source": "preview_image", "action": "download", "variant": "outline"}),
+                ui.Button("🖼 Download for Preview", "download"),
+                # Shown, never edited (as before): the server keeps what a grab found
+                ui.Text("post_url", "", label="Post URL", width="fill", enabled_if=False),
+            ),
+            ui.Output("handoff_status", kind="text"),
+            ui.Image("preview_image", label="Preview (downloaded post image — also used as source for 'Send to JoyCaption')"),
+            _send("send_preview", "📤 Send Previewed Image to JoyCaption", {"to": "page", "page": "joycaption", "param": "image", "source": "preview_image", "variant": "outline"}),
+            ui.Text("grabbed_info", "", lines=2, label="Grabbed from", enabled_if=False),
+            ui.Text("grabbed", "", lines=4, prompt=True, label="Grabbed Tags (Anima-formatted, copyable)"),
+            ui.Button("↑ Send Grabbed Tags into Category Fields Above", "send_grabbed"),
+            ui.Section(
+                "Grab from specific post ID",
+                open=False,
+                children=[
+                    ui.Markdown(
+                        "Paste a post ID (the number in the URL of a post page on "
+                        "Danbooru, Aibooru, Gelbooru, or Rule34) to pull tags from "
+                        "that exact post. Uses whichever **Source** is selected above. "
+                        "Blacklists and the count filter apply; rating filter, search "
+                        "tag, and hunt mode don't (you've already picked the post)."
+                    ),
+                    ui.Row(
+                        ui.Text("post_id", "", label="Post ID", placeholder="e.g. 1234567", width="fill"),
+                        _task_button("grab_by_id", "Grab from ID"),
+                    ),
+                ],
+            ),
+            # The last grab's per-category breakdown, for "Send Grabbed Tags
+            # into Category Fields Above", and the URL the preview shows.
+            *(ui.State(name, "", label="") for name in GRAB_STATES),
+            ui.State("preview_url", "", label=""),
         )
 
-        # Two blacklists, side by side:
-        #   - tags: drop these specific tags from the grabbed result
-        #   - categories: drop these whole sections from the grabbed result
-        with gr.Row():
-            blacklist_tags_box = gr.Textbox(
-                label="Blacklist tags — won't appear in grabbed output",
-                placeholder="e.g. lowres, jpeg artifacts, watermark, blurry",
-                lines=2,
-                elem_id="pw_blacklist_tags",
-                scale=2,
-            )
-            blacklist_cats_check = gr.CheckboxGroup(
-                choices=_CATEGORY_LABELS,
-                value=[],
-                label="Blacklist categories — whole sections dropped",
-                elem_id="pw_blacklist_cats",
-                scale=2,
-            )
+    # ---- Prompt building ----------------------------------------------------
 
-        # Post-count filter — single dense row of controls, with a second row
-        # for the target-categories checkbox group (which needs full width)
-        # and the hunt-mode toggle. The long explanation goes in a closed
-        # accordion below so it doesn't take vertical space.
-        #
-        # Five comparators: ≥, ≤, =, between (inclusive), not between.
-        # Range ops use both thresholds; single-threshold ops only use lo.
-        # `Apply count filter to` empty = all categories (back-compat).
-        # Hunt mode is Danbooru/Aibooru-only; ignored on Gelbooru/Rule34
-        # because those sites don't support server-side tag-by-count search,
-        # and the client-side scan workaround is too slow / unreliable.
-        with gr.Row():
-            count_filter_enabled = gr.Checkbox(
-                label="Filter tags by post count",
-                value=False,
-                elem_id="pw_count_filter_enabled",
-                scale=2,
-            )
-            count_filter_op = gr.Dropdown(
-                choices=_COUNT_OP_CHOICES,
-                value="≥",
-                label="Comparator",
-                elem_id="pw_count_filter_op",
-                scale=2,
-            )
-            count_filter_threshold = gr.Number(
-                label="Min / value",
-                value=50,
-                precision=0,
-                minimum=0,
-                elem_id="pw_count_filter_threshold",
-                scale=1,
-            )
-            count_filter_threshold_high = gr.Number(
-                label="Max (range only)",
-                value=100,
-                precision=0,
-                minimum=0,
-                elem_id="pw_count_filter_threshold_high",
-                scale=1,
-            )
-            hunt_mode_check = gr.Checkbox(
-                label="Hunt mode (Danbooru/Aibooru only)",
-                value=False,
-                elem_id="pw_hunt_mode",
-                scale=2,
-            )
-        count_filter_targets = gr.CheckboxGroup(
-            choices=_CATEGORY_LABELS,
-            value=[],
-            label="Apply count filter only to these categories (empty = all)",
-            elem_id="pw_count_filter_targets",
-        )
-        with gr.Accordion("ℹ How the count filter and hunt mode work",
-                          open=False):
-            gr.Markdown(
-                "**Comparators.** `≥` / `≤` / `=` use only the Min/value box. "
-                "`between` keeps tags whose count is inside `[low, high]` "
-                "(inclusive). `not between` drops tags inside that range — "
-                "useful for *omit if greater than 50 but less than 100*-style "
-                "filters.\n\n"
-                "**Scope.** By default the filter applies to every tag in the "
-                "grabbed post. Tick boxes under *Apply count filter only to "
-                "these categories* to scope it (e.g. only Artist). Rating text "
-                "is always exempt; tags the booru doesn't recognise count as 0.\n\n"
-                "**Hunt mode** (Danbooru and Aibooru only) actively searches "
-                "for a post that has at least one tag in the target category "
-                "meeting the count criteria, instead of grabbing randomly and "
-                "hoping. It uses Danbooru's `/tags.json` endpoint, which is "
-                "fast and precise. Requires the count filter on and at least "
-                "one target category. Not available for Gelbooru / Rule34 "
-                "because those sites don't expose a comparable endpoint."
-            )
+    @ui.action("refresh")
+    def refresh(self, ctx, values):
+        """On load: the credential status lines (local config only, no network)."""
+        return {"__outputs__": {"gel_status": _creds_status("gelbooru"), "r34_status": _creds_status("rule34")}}
 
-        with gr.Row():
-            grab_btn = gr.Button("Grab Random Tags", variant="primary")
+    @ui.action("build")
+    def build(self, ctx, values):
+        resolved = self.values(ctx, values, uploads=False)
+        return {"consolidated": {"value": build_prompt(*(resolved[name] for name in CORE_FIELDS + EXTRA_FIELDS))}}
 
-        # Open-post button + post URL display sit on one row above the
-        # grabbed-info area. The URL textbox is the source of truth -- the JS
-        # button reads from it and does window.open() in a new tab.
-        with gr.Row():
-            gr.Button("🔗 Open Post in New Tab",
-                      elem_id="pw_open_post", scale=0)
-            send_image_to_jc_btn = gr.Button("📷 Send Image to JoyCaption",
-                                             elem_id="pw_send_image_to_jc",
-                                             scale=0)
-            download_preview_btn = gr.Button("🖼 Download for Preview",
-                                             elem_id="pw_download_preview",
-                                             scale=0)
-            post_url_box = gr.Textbox(
-                label="Post URL",
-                interactive=False,
-                lines=1,
-                max_lines=1,
-                elem_id="pw_post_url",
-                scale=4,
-            )
+    @ui.action("clear_all")
+    def clear_all(self, ctx, values):
+        _remember_grab(ctx.user, "", "")  # the grabbed info is cleared: nothing left to download
+        return {name: {"value": value} for name, value in _CLEARED.items()}
 
-        # Small status row for the JoyCaption hand-off: download success,
-        # missing URL, JoyCaption not installed, etc. One line, plain
-        # markdown, hidden until the button fires.
-        jc_handoff_status = gr.Markdown("", elem_id="pw_jc_handoff_status")
+    # ---- Credentials ----------------------------------------------------------
 
-        # Preview image: shows the most recently downloaded post image
-        # and acts as the source for the JoyCaption hand-off. Visible by
-        # default so the user can verify what they're about to caption,
-        # and so that "Download for Preview" has somewhere to display
-        # its result.
-        #
-        # The `type="pil"` is important here -- using "filepath" trips a
-        # forge / Gradio 4.40 monkey-patch incompatibility where
-        # `save_pil_to_file()` is called with an unsupported `name=`
-        # kwarg during preprocess of the cross-tab image copy. PIL
-        # objects pass straight through `register_paste_params_button`'s
-        # image dispatcher without ever being serialised to disk.
-        preview_image = gr.Image(
-            label="Preview (downloaded post image — also used as source for 'Send to JoyCaption')",
-            type="pil",
-            interactive=False,
-            elem_id="pw_preview_image",
-            show_download_button=True,
-            height=300,
+    def _save(self, source_key: str, prefix: str, values) -> dict:
+        api_key = str(values.get(f"{prefix}_api_key") or "").strip()
+        user_id = str(values.get(f"{prefix}_user_id") or "").strip()
+        saved_key, _ = _get_credentials(source_key)
+        save_credentials(source_key, api_key or saved_key, user_id)
+        status = _creds_status(source_key)
+        return {f"{prefix}_api_key": {"value": ""}, "__outputs__": {f"{prefix}_status": status}}
+
+    def _clear(self, source_key: str, prefix: str) -> dict:
+        save_credentials(source_key, "", "")
+        return {f"{prefix}_api_key": {"value": ""}, f"{prefix}_user_id": {"value": ""}, "__outputs__": {f"{prefix}_status": _creds_status(source_key)}}
+
+    @ui.action("save_gelbooru")
+    def save_gelbooru(self, ctx, values):
+        return self._save("gelbooru", "gel", values)
+
+    @ui.action("save_rule34")
+    def save_rule34(self, ctx, values):
+        return self._save("rule34", "r34", values)
+
+    @ui.action("clear_gelbooru")
+    def clear_gelbooru(self, ctx, values):
+        return self._clear("gelbooru", "gel")
+
+    @ui.action("clear_rule34")
+    def clear_rule34(self, ctx, values):
+        return self._clear("rule34", "r34")
+
+    # ---- Grabbing (outbound HTTP, on the user's click only) --------------------
+
+    @staticmethod
+    def _grab_patch(result) -> dict:
+        grabbed, *categories, info, post_url = result
+        patch = {"grabbed": {"value": grabbed}, "grabbed_info": {"value": info}, "post_url": {"value": post_url}}
+        patch.update({name: {"value": value} for name, value in zip(GRAB_STATES, categories)})
+        return patch
+
+    def _filters(self, resolved) -> tuple:
+        return (
+            resolved["blacklist_tags"],
+            resolved["blacklist_cats"],
+            resolved["count_filter_enabled"],
+            resolved["count_filter_op"],
+            int(resolved["count_filter_threshold"]),
+            int(resolved["count_filter_threshold_high"]),
+            resolved["count_filter_targets"],
         )
 
-        # Secondary hand-off button beneath the preview. The user can
-        # use this *after* clicking "Download for Preview" to ship the
-        # already-downloaded image to JoyCaption without re-fetching it.
-        # If the preview is empty, this button no-ops with a status
-        # message rather than silently doing nothing.
-        with gr.Row():
-            send_preview_to_jc_btn = gr.Button(
-                "📤 Send Previewed Image to JoyCaption",
-                elem_id="pw_send_preview_to_jc",
-                scale=0,
-            )
+    def _start_grab(self, ctx, name: str, source: str, grab, progress) -> dict:
+        """Run ``grab()`` as a page task (no GPU): requests can take long
+        (hunt mode makes many), so the page shows progress and can cancel."""
+        user = ctx.user
 
-        # Hidden paste button that ParamBinding wires to JoyCaption's
-        # image input. Both the main "Send Image to JoyCaption" button
-        # and the "Send Previewed Image to JoyCaption" button end their
-        # event chains by clicking this hidden button (via JS), which
-        # is what actually fires the cross-tab image copy.
-        jc_handoff_paste_btn = gr.Button(
-            "(internal) paste to JoyCaption",
-            visible=False,
-            elem_id="pw_jc_handoff_paste",
-        )
-
-        grabbed_info = gr.Textbox(
-            label="Grabbed from",
-            lines=2,
-            interactive=False,
-            elem_id="pw_info",
-        )
-        grabbed_box = gr.Textbox(
-            label="Grabbed Tags (Anima-formatted, copyable)",
-            lines=4,
-            interactive=True,
-            elem_id="pw_grabbed",
-            show_copy_button=True,
-        )
-        with gr.Row():
-            send_grabbed_btn = gr.Button(
-                "↑ Send Grabbed Tags into Category Fields Above",
-                elem_id="pw_send_grabbed",
-            )
-
-        # ---- Grab from specific post ID ----------------------------------
-        # Useful when you find a particular Danbooru/Gelbooru post whose
-        # tagging you want to study or copy verbatim. Same source radio as
-        # the random grab; rating filter and search tag don't apply (you've
-        # already specified the exact post you want).
-        with gr.Accordion("Grab from specific post ID", open=False):
-            gr.Markdown(
-                "Paste a post ID (the number in the URL of a post page on "
-                "Danbooru, Aibooru, Gelbooru, or Rule34) to pull tags from "
-                "that exact post. Uses whichever **Source** is selected above. "
-                "Blacklists and the count filter apply; rating filter, search "
-                "tag, and hunt mode don't (you've already picked the post)."
-            )
-            with gr.Row():
-                post_id_box = gr.Textbox(
-                    label="Post ID",
-                    placeholder="e.g. 1234567",
-                    lines=1,
-                    elem_id="pw_post_id",
-                )
-                grab_by_id_btn = gr.Button("Grab from ID", variant="primary")
-
-        # ---- Hidden state: per-category breakdown of the last grab. ----
-        # The grab function returns 8 values; the consolidated string goes into
-        # the visible textbox, and the six category strings are stashed here so
-        # the "Send to fields above" button can read them later. (Gradio state
-        # is per-session so multiple users don't stomp each other.)
-        grab_quality_state   = gr.State("")
-        grab_subject_state   = gr.State("")
-        grab_character_state = gr.State("")
-        grab_series_state    = gr.State("")
-        grab_artist_state    = gr.State("")
-        grab_general_state   = gr.State("")
-
-        # ---- Event wiring ----
-
-        build_btn.click(
-            fn=build_prompt,
-            inputs=[quality_box, subject_box, character_box,
-                    series_box,  artist_box,  general_box,
-                    # manual extra categories, appended after General
-                    composition_box, pose_box, clothing_box, setting_box,
-                    lighting_box, features_box, style_box, content_box],
-            outputs=[consolidated_box],
-        )
-
-        # Clear-All now also wipes the grabber state (per user request):
-        # search tag, blacklists, grabbed box, info, post URL, hidden states.
-        # Source/rating reset to defaults. Credentials are NOT cleared --
-        # they're persistent setup, not transient state.
-        def _clear_all():
-            return (
-                "",                 # consolidated_box
-                "", "", "", "", "", "",  # 6 core category boxes
-                "", "", "", "", "", "", "", "",  # 8 manual extra category boxes
-                "",                 # search_tag_box
-                "",                 # blacklist_tags_box
-                [],                 # blacklist_cats_check
-                "",                 # grabbed_box
-                "",                 # grabbed_info
-                "",                 # post_url_box
-                "Danbooru",         # source_radio
-                "All ratings",      # rating_radio
-                "",                 # post_id_box
-                False,              # count_filter_enabled
-                "≥",                # count_filter_op
-                50,                 # count_filter_threshold
-                100,                # count_filter_threshold_high
-                [],                 # count_filter_targets
-                False,              # hunt_mode_check
-                # six hidden states for the grabbed per-category breakdown
-                "", "", "", "", "", "",
-            )
-
-        clear_btn.click(
-            fn=_clear_all,
-            inputs=[],
-            outputs=[
-                consolidated_box,
-                quality_box, subject_box, character_box,
-                series_box,  artist_box,  general_box,
-                composition_box, pose_box, clothing_box, setting_box,
-                lighting_box, features_box, style_box, content_box,
-                search_tag_box,
-                blacklist_tags_box,
-                blacklist_cats_check,
-                grabbed_box,
-                grabbed_info,
-                post_url_box,
-                source_radio,
-                rating_radio,
-                post_id_box,
-                count_filter_enabled,
-                count_filter_op,
-                count_filter_threshold,
-                count_filter_threshold_high,
-                count_filter_targets,
-                hunt_mode_check,
-                grab_quality_state, grab_subject_state, grab_character_state,
-                grab_series_state,  grab_artist_state,  grab_general_state,
-            ],
-        )
-
-        grab_btn.click(
-            fn=grab_random,
-            inputs=[source_radio, rating_radio, search_tag_box,
-                    blacklist_tags_box, blacklist_cats_check,
-                    count_filter_enabled, count_filter_op,
-                    count_filter_threshold, count_filter_threshold_high,
-                    count_filter_targets, hunt_mode_check],
-            outputs=[
-                grabbed_box,           # consolidated
-                grab_quality_state,    # quality / meta / safety
-                grab_subject_state,    # 1girl/1boy/...
-                grab_character_state,
-                grab_series_state,
-                grab_artist_state,
-                grab_general_state,
-                grabbed_info,          # post URL + image URL
-                post_url_box,          # bare post URL for the open-post JS
-            ],
-        )
-
-        grab_by_id_btn.click(
-            fn=grab_by_id,
-            inputs=[source_radio, post_id_box,
-                    blacklist_tags_box, blacklist_cats_check,
-                    count_filter_enabled, count_filter_op,
-                    count_filter_threshold, count_filter_threshold_high,
-                    count_filter_targets],
-            outputs=[
-                grabbed_box,
-                grab_quality_state,
-                grab_subject_state,
-                grab_character_state,
-                grab_series_state,
-                grab_artist_state,
-                grab_general_state,
-                grabbed_info,
-                post_url_box,
-            ],
-        )
-
-        gel_save_btn.click(
-            fn=save_gelbooru_credentials,
-            inputs=[gel_api_key_box, gel_user_id_box],
-            outputs=[gel_creds_status],
-        )
-
-        r34_save_btn.click(
-            fn=save_rule34_credentials,
-            inputs=[r34_api_key_box, r34_user_id_box],
-            outputs=[r34_creds_status],
-        )
-
-        send_grabbed_btn.click(
-            fn=lambda q, s, c, ser, a, g: (q, s, c, ser, a, g),
-            inputs=[grab_quality_state, grab_subject_state, grab_character_state,
-                    grab_series_state,  grab_artist_state,  grab_general_state],
-            outputs=[quality_box, subject_box, character_box,
-                     series_box,  artist_box,  general_box],
-        )
-
-        # "Send to txt2img Prompt" is wired up entirely in JS (see
-        # javascript/prompt_workshop.js) because it needs to reach into a
-        # different tab's textarea, which is awkward to do via Gradio.
-
-        # ---- JoyCaption hand-off wiring ---------------------------------
-        # Three visible buttons share one preview Image and one hidden
-        # paste button:
-        #
-        #   "Send Image to JoyCaption" (main)        -> download (cache-aware), then push to JC
-        #   "Download for Preview"                   -> download (cache-aware), preview only
-        #   "Send Previewed Image to JoyCaption"     -> push existing preview to JC (no download)
-        #
-        # The "no duplicate download" guarantee is implemented via a
-        # gr.State that remembers which URL is currently shown in
-        # preview_image. download_post_image_for_joycaption() returns
-        # gr.update() (no change) when called with the same URL it
-        # already cached, so flipping between "Download for Preview"
-        # and "Send Image to JoyCaption" within one grab never refetches.
-
-        # State: the URL of the image currently shown in preview_image.
-        # Empty string means "no preview yet". per-session, per-user.
-        jc_preview_url_state = gr.State("")
-
-        # Main button: download (or reuse), then trigger the hidden
-        # paste button + tab switch via JS.
-        send_image_to_jc_btn.click(
-            fn=download_post_image_for_joycaption,
-            inputs=[grabbed_info, jc_preview_url_state],
-            outputs=[preview_image, jc_handoff_status, jc_preview_url_state],
-        ).then(
-            fn=None,
-            inputs=None,
-            outputs=None,
-            _js="pw_trigger_jc_handoff",
-        )
-
-        # Download-only button: same download function, no JC hand-off.
-        download_preview_btn.click(
-            fn=download_post_image_preview_only,
-            inputs=[grabbed_info, jc_preview_url_state],
-            outputs=[preview_image, jc_handoff_status, jc_preview_url_state],
-        )
-
-        # Send-preview button: skip download entirely, just trigger the
-        # hidden paste. JS-side helper verifies the preview is non-empty
-        # before clicking the paste button.
-        send_preview_to_jc_btn.click(
-            fn=None,
-            inputs=None,
-            outputs=None,
-            _js="pw_trigger_jc_handoff_no_download",
-        )
-
-        # Register the hidden paste button against the JoyCaption tab.
-        # connect_paste_params_buttons() (called once after all on_ui_tabs
-        # callbacks finish) sees this binding, finds JoyCaption's
-        # add_paste_fields("joycaption", image_in, ...) registration, and
-        # wires the click event to copy the preview image -> JoyCaption's
-        # image input. If JoyCaption isn't installed, this binding just
-        # has no effect and the visible buttons degrade gracefully.
-        if _infotext is not None:
+        def work(task):
+            progress(task)
+            _grab_thread.task = task
             try:
-                _infotext.register_paste_params_button(_infotext.ParamBinding(
-                    paste_button=jc_handoff_paste_btn,
-                    tabname="joycaption",
-                    source_image_component=preview_image,
-                ))
-            except Exception:
-                # Non-fatal: log and continue. The Workshop still works.
-                import traceback as _tb
-                _tb.print_exc()
+                result = grab()
+            except _GrabCancelled:
+                raise pages.TaskCancelled() from None
+            finally:
+                _grab_thread.task = None
+            _remember_grab(user, source, result[-2])
+            return self._grab_patch(result)
 
-    print(f"{EXT_TAG} UI tab built")
-    return [(ui_component, "Prompt Workshop", TAB_ELEM_ID)]
+        return self.start_task(ctx, name, work)
+
+    @ui.action("grab")
+    def grab(self, ctx, values):
+        resolved = self.values(ctx, values, uploads=False)
+        blacklist_tags, blacklist_cats, *count = self._filters(resolved)
+        source, hunt = resolved["source"], resolved["hunt_mode"]
+
+        def progress(task):
+            if hunt:
+                task.progress(None, "Hunting for a post that passes the count filter…")
+            else:
+                task.progress(None, "Grabbing a random post…")
+
+        return self._start_grab(
+            ctx, "grab", source,
+            lambda: grab_random(source, resolved["rating"], resolved["search_tag"], blacklist_tags, blacklist_cats, *count, hunt),
+            progress,
+        )
+
+    @ui.action("grab_by_id")
+    def grab_by_id(self, ctx, values):
+        resolved = self.values(ctx, values, uploads=False)
+        source, post_id = resolved["source"], resolved["post_id"]
+        return self._start_grab(
+            ctx, "grab_by_id", source,
+            lambda: grab_by_id(source, post_id, *self._filters(resolved)),
+            lambda task: task.progress(None, "Fetching post #{{id}}…", id=post_id.strip()),
+        )
+
+    @ui.action("send_grabbed")
+    def send_grabbed(self, ctx, values):
+        return {name: {"value": str(values.get(state) or "")} for name, state in zip(CORE_FIELDS, GRAB_STATES)}
+
+    @ui.action("download")
+    def download(self, ctx, values):
+        """Download the image of this user's last grab (remembered by the
+        server, never read from the page) into the preview (an upload); a
+        preview of the same URL is reused, not fetched again. A failure
+        clears the preview, so nothing stale is sent to JoyCaption."""
+        grabbed = _last_grab(ctx.user)
+        if grabbed is None:
+            status = ui.message("❗ No image URL on the most recent grab — click 'Grab Random Tags' first.")
+            return {"__outputs__": {"handoff_status": status}, **ui.toast(status, "warning")}
+        source, url, pid_hint = grabbed
+        if url == values.get("preview_url") and values.get("preview_image"):
+            return {"__outputs__": {"handoff_status": ui.message("✅ Reusing already-downloaded preview (no re-fetch).")}}
+        data, fname, err = _download_image(url, pid_hint, _BOORU_SOURCES[source]["image_hosts"])
+        store = pages.file_store(ctx)
+        if err or data is None or store is None:
+            status = ui.message("❌ {{error}}", error=err or "the server's file store is unavailable")
+            return {
+                "preview_image": {"value": None},
+                "preview_url": {"value": ""},
+                "__outputs__": {"handoff_status": status},
+                **ui.toast(status, "error"),
+            }
+        record = store.add_upload_bytes(data, fname)
+        return {
+            "preview_image": {"value": record.id},
+            "preview_url": {"value": url},
+            "__outputs__": {"handoff_status": ui.message("✅ Image downloaded ({{name}}).", name=fname)},
+        }
 
 
-script_callbacks.on_ui_tabs(on_ui_tabs)
-print(f"{EXT_TAG} on_ui_tabs callback registered")
+pages.register(PromptWorkshopPage(PAGE_ID, "Prompt Workshop", "wand", on_load="refresh"))

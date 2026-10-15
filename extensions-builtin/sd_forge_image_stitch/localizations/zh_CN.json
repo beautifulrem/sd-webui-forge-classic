@@ -1,0 +1,8 @@
+{
+  "ImageStitch Integrated": "ImageStitch 集成",
+  "For **Flux.1-Kontext** / **Flux.2-Klein** / **Qwen-Image-Edit** / **Anima Edit** / **Krea2 Edit**: Use in **txt2img** to achieve the effect of empty latent with custom resolution\\\nFor **Wan 2.2 I2V**: Use in **txt2img** to set as the Last Frame to achieve LastFrameToVideo\\\n**Note:** This doesn't actually stitch the images; **Tip:** paste images straight into the list": "对于 **Flux.1-Kontext** / **Flux.2-Klein** / **Qwen-Image-Edit** / **Anima Edit** / **Krea2 Edit**：在 **txt2img** 中使用，可实现自定义分辨率的空潜空间效果\\\n对于 **Wan 2.2 I2V**：在 **txt2img** 中使用，可设为最后一帧以实现 LastFrameToVideo\\\n**注意：** 这并不会真正拼接图像；**提示：** 可直接将图像粘贴到列表中",
+  "For **Flux.1-Kontext** / **Flux.2-Klein** / **Qwen-Image-Edit** / **Anima Edit** / **Krea2 Edit**: Use in **img2img** to achieve the effect of multiple input images\\\nFor **Wan 2.2 I2V**: Use in **img2img** to set as the Last Frame to achieve FirstLastFrameToVideo\\\n**Note:** This doesn't actually stitch the images; **Tip:** paste images straight into the list": "对于 **Flux.1-Kontext** / **Flux.2-Klein** / **Qwen-Image-Edit** / **Anima Edit** / **Krea2 Edit**：在 **img2img** 中使用，可实现多张输入图像的效果\\\n对于 **Wan 2.2 I2V**：在 **img2img** 中使用，可设为最后一帧以实现 FirstLastFrameToVideo\\\n**注意：** 这并不会真正拼接图像；**提示：** 可直接将图像粘贴到列表中",
+  "Reference Image(s)": "参考图像",
+  "Maximum Side Length": "最大边长",
+  "reduce VRAM usage during encoding ; apply to all reference images ; set to 0 for no limit": "在编码期间减少 VRAM 使用 ;应用于所有参考图像 ;设为 0 表示无限制"
+}

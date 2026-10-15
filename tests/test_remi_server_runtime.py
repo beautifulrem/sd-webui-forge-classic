@@ -183,8 +183,8 @@ def test_the_server_thread_serves_and_stops(webui_tmp):
             assert thread.url == f"http://127.0.0.1:{port}/sub/"
             with httpx.Client(trust_env=False, timeout=5) as client:  # no proxy for loopback
                 # behind a proxy that keeps the prefix, and one that strips it
-                assert client.get(f"http://127.0.0.1:{port}/sub/internal/ping").json() == {}
-                assert client.get(f"http://127.0.0.1:{port}/internal/ping").json() == {}
+                assert set(client.get(f"http://127.0.0.1:{port}/sub/internal/ping").json()) == {"instance"}
+                assert set(client.get(f"http://127.0.0.1:{port}/internal/ping").json()) == {"instance"}
                 assert client.get(f"http://127.0.0.1:{port}/sub/api/v2/queue").status_code == 200
         finally:
             thread.stop()

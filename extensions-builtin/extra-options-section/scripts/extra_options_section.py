@@ -1,16 +1,40 @@
-from modules import errors, scripts, shared, ui_components, ui_settings, infotext_utils
-from modules.ui_components import FormColumn
+"""Extra options: chosen settings shown inside txt2img / img2img.
 
-import gradio as gr
-import math
+Each setting listed in ``extra_options_txt2img`` / ``extra_options_img2img``
+becomes one input of this script, rendered with the settings page's widget
+for it (``remi.ui.settings.setting_node``) and defaulting to the setting's
+current value. As Gradio's page-load refresh did, every page load starts
+from the current settings: the inputs are kept out of form drafts
+(``persist=False``), so a setting changed on the Settings page is not
+overridden by an old copy. ``before_process`` applies the values as
+``p.override_settings`` unless the request already overrides that setting.
+"""
+
+from modules import errors, scripts, shared
+from remi import ui
+from remi.ui.settings import setting_node
+
+# Settings that must not be overridden per generation (model selection)
+NOT_ALLOWED = ("sd_model_checkpoint", "sd_vae", "CLIP_stop_at_last_layers", "forge_additional_modules")
+
+
+def _current(key: str):
+    return lambda: getattr(shared.opts, key)
+
+
+def _infotext_keys() -> dict[str, str]:
+    """setting -> infotext key, from the paste mapping the Gradio panel used."""
+
+    from modules import infotext_utils
+
+    return {setting: key for key, setting in infotext_utils.INFOTEXT_TO_SETTING}
 
 
 class ExtraOptionsSection(scripts.Script):
     section = "extra_options"
 
     def __init__(self):
-        self.comps = None
-        self.setting_names = None
+        self.setting_names = []
 
     def title(self):
         return "Extra options"
@@ -18,55 +42,38 @@ class ExtraOptionsSection(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def ui(self, is_img2img):
-        self.comps = []
+    def params(self, is_img2img):
+        opts = shared.opts
+        extra_options = opts.extra_options_img2img if is_img2img else opts.extra_options_txt2img
+        infotext_keys = _infotext_keys()
+
         self.setting_names = []
-        self.infotext_fields = []
-        extra_options = shared.opts.extra_options_img2img if is_img2img else shared.opts.extra_options_txt2img
-        elem_id_tabname = "extra_options_" + ("img2img" if is_img2img else "txt2img")
+        inputs = []
+        for key in extra_options or ():
+            if key in NOT_ALLOWED or key in self.setting_names:
+                continue
+            info = opts.data_labels.get(key)
+            try:
+                if info is None:
+                    raise KeyError(key)
+                node = setting_node(key, info, _current(key))
+                if not isinstance(node, ui.Input):
+                    raise TypeError(f"{key} has no value")
+            except Exception:
+                errors.report(f"Can't add extra options for {key} in ui", exc_info=True)
+                continue
+            node.infotext = infotext_keys.get(key)
+            node.persist = False
+            inputs.append(node)
+            self.setting_names.append(key)
 
-        not_allowed = ("sd_model_checkpoint", "sd_vae", "CLIP_stop_at_last_layers", "forge_additional_modules")
-        for na in not_allowed:
-            if na in extra_options:
-                extra_options.remove(na)
-
-        mapping = {k: v for v, k in infotext_utils.INFOTEXT_TO_SETTING}
-
-        with gr.Blocks() as interface:
-            with gr.Accordion("Options", open=False, elem_id=elem_id_tabname) if shared.opts.extra_options_accordion and extra_options else gr.Group(elem_id=elem_id_tabname):
-
-                row_count = math.ceil(len(extra_options) / shared.opts.extra_options_cols)
-
-                for row in range(row_count):
-                    with gr.Row():
-                        for col in range(shared.opts.extra_options_cols):
-                            index = row * shared.opts.extra_options_cols + col
-                            if index >= len(extra_options):
-                                break
-
-                            setting_name = extra_options[index]
-
-                            with FormColumn():
-                                try:
-                                    comp = ui_settings.create_setting_component(setting_name)
-                                except KeyError:
-                                    errors.report(f"Can't add extra options for {setting_name} in ui")
-                                    continue
-
-                            self.comps.append(comp)
-                            self.setting_names.append(setting_name)
-
-                            setting_infotext_name = mapping.get(setting_name)
-                            if setting_infotext_name is not None:
-                                self.infotext_fields.append((comp, setting_infotext_name))
-
-        def get_settings_values():
-            res = [ui_settings.get_value_for_setting(key) for key in self.setting_names]
-            return res[0] if len(res) == 1 else res
-
-        interface.load(fn=get_settings_values, inputs=[], outputs=self.comps, queue=False, show_progress=False)
-
-        return self.comps
+        if not inputs:
+            return None
+        columns = max(1, int(opts.extra_options_cols))
+        rows = [ui.Row(inputs[start : start + columns]) for start in range(0, len(inputs), columns)]
+        if opts.extra_options_accordion:
+            return ui.Section("Options", children=rows, open=False)
+        return ui.Group(children=rows)
 
     def before_process(self, p, *args):
         for name, value in zip(self.setting_names, args):
@@ -82,7 +89,7 @@ shared.options_templates.update(
             "extra_options_txt2img": shared.OptionInfo(
                 [],
                 "Settings for txt2img",
-                ui_components.DropdownMulti,
+                ui.MultiChoice,
                 lambda: {"choices": list(shared.opts.data_labels.keys())},
             )
             .js("info", "settingsHintsShowQuicksettings")
@@ -91,7 +98,7 @@ shared.options_templates.update(
             "extra_options_img2img": shared.OptionInfo(
                 [],
                 "Settings for img2img",
-                ui_components.DropdownMulti,
+                ui.MultiChoice,
                 lambda: {"choices": list(shared.opts.data_labels.keys())},
             )
             .js("info", "settingsHintsShowQuicksettings")
@@ -100,7 +107,7 @@ shared.options_templates.update(
             "extra_options_cols": shared.OptionInfo(
                 1,
                 "Number of columns for added settings",
-                gr.Slider,
+                ui.Slider,
                 {"step": 1, "minimum": 1, "maximum": 20},
             )
             .info("displayed amount will depend on the actual browser window width")

@@ -161,11 +161,15 @@ class PresetConsistencyTests(unittest.TestCase):
         # test_script.py); this catches a whole panel that registers nothing.
         # Each extension's scripts and lib_* packages (where its field names may live)
         sources = ["\n".join(path.read_text(encoding="utf-8") for path in sorted(extension.glob("*/*.py")) if path.parent.name == "scripts" or path.parent.name.startswith("lib_")) for extension in BUILTIN.iterdir()]
+        # The native fields are bound by the core forms and the built-in processing scripts
+        root = BUILTIN.parent
+        sources += [path.read_text(encoding="utf-8") for folder in ("remi/core", "modules/processing_scripts") for path in sorted((root / folder).glob("*.py"))]
         registering = [
             source
             for source in sources
-            # Direct calls, a SCRIPT_ARGS table's, or an AnimaPatchPanel's PRESET_FIELDS
-            if any(call in source for call in ("register_preset_control(", "register_table_fields(", "PRESET_FIELDS = ("))
+            # Gradio registration (direct calls, a SCRIPT_ARGS table's, an AnimaPatchPanel's
+            # PRESET_FIELDS) or the declarative params() bindings (preset=, table_params)
+            if any(call in source for call in ("register_preset_control(", "register_table_fields(", "PRESET_FIELDS = (", "table_params(", "preset="))
         ]
         for feature in sorted({name.split(".", 1)[0] for name in SAFE_BASE_AESTHETIC_PRESET}):
             with self.subTest(feature):

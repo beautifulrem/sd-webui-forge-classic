@@ -9,6 +9,8 @@ import { Field } from "../Field"
 import type { ImageListNode, ImageNode } from "../schema"
 import { imageFiles, releaseUpload, useUploader, useUploadInfo } from "../uploads"
 import { DropZone } from "./DropZone"
+import { useImageRole } from "@/canvas/form/image-role"
+import { SchemaImageEditor } from "@/canvas/form/SchemaImageEditor"
 
 function Thumb({ id, className }: { id: string; className?: string }) {
   const info = useUploadInfo(id)
@@ -32,11 +34,20 @@ function UploadHint({ id, busy, multiple }: { id: string; busy: boolean; multipl
 }
 
 /**
- * Single image input. `mask` / `sketch` kinds are uploaded the same way for
- * now; the Konva editor (src/canvas) replaces the preview in a later wave.
- * The drop zone is named by the field label and described by its action.
+ * Single image input. An image with `sketch` / `mask` layers painted over it
+ * (their `source`) is the image editor (src/canvas), and those layers render
+ * nothing here; any other image, and a `mask` without `source`, is an upload
+ * field (`UploadImageInput`).
  */
 export function ImageInput({ node }: { node: ImageNode }) {
+  const role = useImageRole(node)
+  if (role === "editor") return <SchemaImageEditor node={node} />
+  if (role === "layer") return null
+  return <UploadImageInput node={node} />
+}
+
+/** An image upload field: the drop zone is named by the field label and described by its action. */
+function UploadImageInput({ node }: { node: ImageNode }) {
   const { t } = useTranslation()
   const id = useId()
   const hintId = `${id}-hint`

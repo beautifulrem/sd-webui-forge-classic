@@ -64,6 +64,12 @@ A scheduled image's infotext (PNG parameters) records every panel setting the ru
 - Custom templates are recorded by name. A template missing on the pasting install leaves the template dropdown unchanged, with a warning in the console.
 - Images made before this change carry only a one-line `Anima LoRA Stage Scheduler` summary; pasting them leaves the panel unchanged.
 
+## API
+
+`alwayson_scripts` args follow the panel's params: `enabled`, then for the base panel `base_target_mode`, `base_target_loras`, `base_panel_weight`, `base_template`, `base_lora_templates`, `base_timing`, then `hr_independent`, the same six `hr_` args, `hr_disable_mode` and `hr_disable_tags` (16 args). A `*_timing` arg is one object: `{"auto", "start", "end", "peak", "strength", "curve"}` (missing keys take the defaults).
+
+The Gradio panel's 26 positional args (each timing control on its own) are no longer accepted through the API: the API keeps only the script's 16 slots, and a request in the old layout is refused with an error naming the expected args.
+
 ## Language Setting
 
 Open **Settings**, find **Anima LoRA Stage Scheduler**, and set the language to `zh` or `en`. Reload UI after changing the option.

@@ -7,8 +7,6 @@ import os
 import logging
 from types import SimpleNamespace
 
-import gradio as gr
-
 from backend import memory_management
 from backend.logging import setup_logger
 from lib_anima_guidance.modulation import (
@@ -64,8 +62,8 @@ from modules.anima_feature_conflicts import (
     record_conflict_resolution,
     resolve_guidance_conflicts,
 )
-from modules.anima_support import clamp, effective_prompt_batch, is_anima_auxiliary_denoiser, is_anima_engine, process_ref, register_table_fields, schedule_steps, script_arguments, to_float
-from modules.ui_components import InputAccordion
+from modules.anima_support import clamp, effective_prompt_batch, is_anima_auxiliary_denoiser, is_anima_engine, process_ref, schedule_steps, script_arguments, table_params, to_float
+from remi import ui
 
 logger = logging.getLogger("AnimaGuidance")
 setup_logger(logger)
@@ -73,8 +71,8 @@ setup_logger(logger)
 
 _REQUIRED = object()
 
-# One row per script argument, in the order ui() returns the components (the
-# API's positional order): (name of the control and parameter, infotext key
+# One row per script argument, in the positional order of params() (the
+# API's positional order, see table_params): (name of the control and parameter, infotext key
 # or None, preset name or None, default for an argument list stored before the
 # control was added, see script_arguments, or _REQUIRED). The local
 # modulation file paths have no key: they are never written to infotext, and
@@ -148,7 +146,7 @@ MODEL_TIME_INFO = (
 def _record(p, name: str, value, *, unless_recorded: bool = False) -> None:
     """Write ``value`` to infotext under the key SCRIPT_ARGS gives control ``name``.
 
-    The key is the one ``infotext_fields`` pastes back into that control.
+    The key is the one the ``params()`` input ``name`` pastes back from.
     ``unless_recorded`` keeps a value an earlier pass of the job wrote.
     """
 
@@ -581,11 +579,252 @@ def _record_skim(p, args: SimpleNamespace) -> None:
     _record(p, "flip_percent", float(args.flip_percent))
 
 
+LOCAL_FILE = "Local file"
+ARTIFACT_MODES = ("Auto-download pinned", LOCAL_FILE)
+
+# What the panel says about the combination the conflict locks left (the
+# messages of an actual resolution come as the __conflicts__ toast).
+COMPATIBILITY_FDG = "**Compatibility:** FDG owns CFG combine; Momentum and DCW are locked."
+COMPATIBILITY_MOMENTUM = "**Compatibility:** Momentum requires Standard CFG guidance."
+COMPATIBILITY_DCW = "**Compatibility:** DCW is active, so FDG is unavailable."
+
+
+def _mode_is(mode: str):
+    return ui.param("guidance_mode", eq=mode)
+
+
+def guidance_params(title: str, *, hide_local_paths: bool) -> ui.Section:
+    """The panel's ``params()`` tree. Inputs are named as in SCRIPT_ARGS
+    (whose order is the positional one); settings of a switch or a CFG mode
+    are shown only while it is selected."""
+
+    fdg = _mode_is(FDG_GUIDANCE)
+    momentum_on = ui.all_of(ui.param("momentum_enable"), ui.not_(fdg))
+    dcw_on = ui.all_of(ui.param("dcw_enable"), ui.not_(ui.param("momentum_enable")), ui.not_(fdg))
+    return ui.Section(
+        title,
+        enable=ui.Toggle("enable", False, label=title),
+        children=[
+            ui.Markdown(
+                "Only applies to Anima. Guidance patches are installed on a cloned "
+                "model for the current generation and recorded in PNG metadata."
+            ),
+            ui.Markdown(COMPATIBILITY_FDG, visible_if=fdg),
+            ui.Markdown(COMPATIBILITY_MOMENTUM, visible_if=momentum_on),
+            ui.Markdown(COMPATIBILITY_DCW, visible_if=dcw_on),
+            ui.Choice(
+                "guidance_mode",
+                list(GUIDANCE_MODES),
+                STANDARD_GUIDANCE,
+                label="CFG guidance mode",
+                info="SMC-CFG, CFG-Zero*, APG, TCFG and FDG are mutually exclusive combine modes. Skimmed CFG is applied before the selected combine. TCFG has no settings: it drops the part of the negative prediction that does not lie along the direction it shares with the positive one.",
+            ),
+            ui.Row(
+                ui.Slider("smc_alpha", 0.0, 1.0, 0.2, 0.01, label="SMC adaptive alpha", info="Switching gain = alpha x mean absolute conditional residual."),
+                ui.Slider("smc_lambda", 0.0, 10.0, 5.0, 0.1, label="SMC surface lambda"),
+                visible_if=_mode_is(SMC_GUIDANCE),
+            ),
+            ui.Slider(
+                "cfg_zero_init_steps",
+                0,
+                10,
+                1,
+                1,
+                label="CFG-Zero* zero-init steps",
+                info="Used only by CFG-Zero*. The first N sampler steps output zero velocity (the latent is left unchanged) when the pass starts from pure noise; hires and img2img passes are not zeroed. 0 keeps only the optimized scale.",
+                visible_if=_mode_is(CFG_ZERO_STAR_GUIDANCE),
+            ),
+            ui.Row(
+                ui.Slider("apg_eta", 0.0, 1.0, 0.0, 0.01, label="APG eta", info="Used only by APG. Weight of the guidance part parallel to the prediction (the oversaturating part); 1 keeps it like CFG."),
+                ui.Slider("apg_norm_threshold", 0.0, 100.0, 0.0, 0.5, label="APG norm threshold", info="Used only by APG. Caps the L2 norm of the guidance update over the whole latent (grows with resolution); 0 disables."),
+                ui.Slider("apg_momentum", -0.95, 0.95, -0.5, 0.01, label="APG momentum", info="Used only by APG. Negative values are the paper's reverse momentum; 0 disables."),
+                visible_if=_mode_is(APG_GUIDANCE),
+            ),
+            ui.Slider(
+                "fdg_high_scale",
+                0.0,
+                30.0,
+                12.0,
+                0.1,
+                label="FDG detail guidance",
+                info="Used only by FDG: the guidance scale of the high-frequency band (the low band uses CFG). Keep it above CFG; below CFG it weakens detail guidance. FDG and DCW exclude each other: in this panel the one turned on last wins and locks the other; in API calls with both on, FDG wins. FDG is disabled with the CNS sampler.",
+                visible_if=fdg,
+            ),
+            ui.Group(
+                "Advanced Anima guidance",
+                ui.Markdown(
+                    "NAG modifies cross-attention; Momentum modifies the final flow velocity. "
+                    "NAG guides the base prompt path while synthetic Regional/Artist branches stay isolated. "
+                    "Momentum is limited to single-evaluation Euler samplers and requires the Standard CFG mode."
+                ),
+                ui.Toggle("nag_enable", False, label="Enable NAG attention guidance"),
+                ui.Row(
+                    ui.Slider("nag_scale", 0.0, 8.0, 2.0, 0.05, label="NAG scale"),
+                    ui.Slider("nag_tau", 0.1, 10.0, 2.5, 0.1, label="NAG normalization tau"),
+                    ui.Slider("nag_alpha", 0.0, 1.0, 0.5, 0.01, label="NAG blend alpha"),
+                    visible_if=ui.param("nag_enable"),
+                ),
+                ui.Row(
+                    ui.Slider("nag_start", 0.0, 1.0, 0.0, 0.01, label="NAG start", info=MODEL_TIME_INFO),
+                    ui.Slider("nag_end", 0.0, 1.0, 0.5, 0.01, label="NAG end", info=MODEL_TIME_INFO),
+                    visible_if=ui.param("nag_enable"),
+                ),
+                ui.Toggle("momentum_enable", False, label="Enable Momentum Guidance"),
+                ui.Row(
+                    ui.Slider("momentum_strength", 0.0, 1.5, 0.5, 0.01, label="Momentum strength"),
+                    ui.Slider("momentum_ema", 0.0, 0.99, 0.6, 0.01, label="Momentum EMA decay"),
+                    visible_if=ui.param("momentum_enable"),
+                ),
+                ui.Toggle("guidance_range_enable", False, label="Limit CFG to a sampling range"),
+                ui.Row(
+                    ui.Slider("guidance_range_start", 0.0, 1.0, 0.0, 0.01, label="CFG range start", info=MODEL_TIME_INFO),
+                    ui.Slider("guidance_range_end", 0.0, 1.0, 1.0, 0.01, label="CFG range end", info=MODEL_TIME_INFO),
+                    visible_if=ui.param("guidance_range_enable"),
+                ),
+                open=False,
+            ),
+            ui.Toggle("skim_enable", False, label="Skimmed CFG anti-burn"),
+            ui.Row(
+                ui.Slider("skim_scale", 0.0, 10.0, 2.5, 0.1, label="Skimming fallback CFG", info="Only flagged values are limited to this effective CFG; 1.5–3 is a useful Anima range."),
+                ui.Toggle("full_negative", False, label="Full skim negative", info="Uses a zero fallback for flagged negative-prompt values."),
+                ui.Toggle("disable_flip_filter", False, label="Disable flipping filter", info="More aggressive; keeps values normally rejected by the sign-flip safety filter."),
+                visible_if=ui.param("skim_enable"),
+            ),
+            ui.Row(
+                ui.Slider("start_percent", 0.0, 1.0, 0.0, 0.01, label="Skim start", info=MODEL_TIME_INFO),
+                ui.Slider("end_percent", 0.0, 1.0, 1.0, 0.01, label="Skim end", info=MODEL_TIME_INFO),
+                ui.Slider(
+                    "flip_percent",
+                    0.0,
+                    1.0,
+                    0.0,
+                    0.01,
+                    label="Filter flip point",
+                    info="0 disables timed inversion of the flipping filter. A model (sigma) time fraction, like Skim start/end.",
+                ),
+                visible_if=ui.param("skim_enable"),
+            ),
+            ui.Group(
+                "DCW latent bias correction",
+                ui.Toggle("dcw_enable", False, label="Enable DCW"),
+                ui.Row(
+                    ui.Slider("dcw_lambda", -0.1, 0.1, -0.015, 0.001, label="DCW lambda", info="Anima LL-band starting point: -0.015."),
+                    ui.Choice("dcw_schedule", ["one_minus_sigma", "sigma", "constant"], "one_minus_sigma", label="DCW schedule"),
+                    ui.Choice(
+                        "dcw_bands",
+                        ["LL", "LH", "HL", "HH", "LH+HL+HH", "all"],
+                        "LL",
+                        label="DCW frequency bands",
+                        info="LL is the Anima-tuned default; all reproduces broadband correction.",
+                    ),
+                    visible_if=ui.param("dcw_enable"),
+                ),
+                open=False,
+            ),
+            ui.Group(
+                "CNS colored-noise sampler",
+                ui.Slider(
+                    "cns_strength",
+                    0.0,
+                    1.0,
+                    1.0,
+                    0.05,
+                    label="Anima ER SDE CNS strength",
+                    info="Used only by the Anima ER SDE CNS sampler. 0 is stock ER-SDE noise; 1 is full calibrated recoloring.",
+                ),
+                open=False,
+            ),
+            ui.Group(
+                "Flow corrective sampler tuning",
+                ui.Markdown("These controls are wired only to `Anima Flow UniPC2` and `Anima Flow PC3`; upstream defaults are preserved."),
+                ui.Row(
+                    ui.Choice("flow_unipc_solver_type", ["bh2", "bh1"], "bh2", label="UniPC solver type"),
+                    ui.Slider("flow_unipc_disable_corrector_first", 0, 10, 0, 1, label="UniPC disabled early correctors"),
+                    ui.Toggle("flow_unipc_thresholding", False, label="UniPC dynamic thresholding"),
+                ),
+                ui.Row(
+                    ui.Slider("flow_unipc_dynamic_thresholding_ratio", 0.5, 1.0, 0.995, 0.001, label="UniPC threshold percentile"),
+                    ui.Slider("flow_unipc_sample_max_value", 1.0, 10.0, 1.0, 0.1, label="UniPC threshold maximum"),
+                    visible_if=ui.param("flow_unipc_thresholding"),
+                ),
+                ui.Row(
+                    ui.Slider("flow_pc3_gamma", 0.0, 1.0, 1.0, 0.05, label="PC3 maximum correction gamma"),
+                    ui.Slider("flow_pc3_tolerance", 0.0001, 0.05, 0.005, 0.0005, label="PC3 correction tolerance"),
+                ),
+                open=False,
+            ),
+            ui.Group(
+                "CLIP modulation guidance",
+                ui.Markdown(
+                    "Adds the official-style CLIP pooled modulation path to Anima. "
+                    "The first automatic use downloads a pinned 163 MiB adapter and 235 MiB CLIP-L encoder."
+                ),
+                ui.Toggle("modulation_enable", False, label="Enable CLIP modulation guidance"),
+                ui.Group(
+                    ui.Row(
+                        ui.Slider(
+                            "modulation_weight",
+                            -20.0,
+                            20.0,
+                            3.0,
+                            0.05,
+                            label="Direction weight",
+                            info="proj(base) + weight x (proj(positive direction) - proj(negative direction)), where proj is the adapter's projection of the CLIP-L pooled vector.",
+                        ),
+                        ui.Slider("modulation_start", 0, 63, 0, 1, label="Start block"),
+                        ui.Slider(
+                            "modulation_end",
+                            -1,
+                            63,
+                            -1,
+                            1,
+                            label="End block",
+                            info="-1 means the final block. Start/end count the adapter's blocks (the pinned one has Anima 2B's 28); on 2.9B/3.8B they select the same original blocks.",
+                        ),
+                    ),
+                    ui.Text(
+                        "modulation_base",
+                        "",
+                        label="Base CLIP prompt override",
+                        info="Empty uses each image's normal positive prompt. The normal negative prompt is used for unconditional rows.",
+                    ),
+                    ui.Row(
+                        ui.Text("modulation_positive", "high quality, detailed, accurate anatomy", label="Positive modulation direction"),
+                        ui.Text("modulation_negative", "low quality, artifacts, bad anatomy", label="Negative modulation direction"),
+                    ),
+                    ui.Row(
+                        ui.Choice("adapter_mode", list(ARTIFACT_MODES), ARTIFACT_MODES[0], label="Modulation adapter"),
+                        # Server paths are privileged: not shown under --hide-ui-dir-config
+                        ui.Text(
+                            "adapter_path",
+                            "",
+                            label="Local adapter .pt path",
+                            info="Inside the models folder (absolute, or relative to it).",
+                            hidden=hide_local_paths,
+                            visible_if=ui.param("adapter_mode", eq=LOCAL_FILE),
+                        ),
+                    ),
+                    ui.Row(
+                        ui.Choice("clip_mode", list(ARTIFACT_MODES), ARTIFACT_MODES[0], label="CLIP-L encoder"),
+                        ui.Text(
+                            "clip_path",
+                            "",
+                            label="Local CLIP-L .safetensors path",
+                            info="Inside the models folder (absolute, or relative to it).",
+                            hidden=hide_local_paths,
+                            visible_if=ui.param("clip_mode", eq=LOCAL_FILE),
+                        ),
+                    ),
+                    visible_if=ui.param("modulation_enable"),
+                ),
+                open=False,
+            ),
+        ],
+    )
+
+
 class AnimaGuidanceScript(scripts.Script):
     sorting_priority = 2030
-
-    def __init__(self):
-        self._sampler_component = None
 
     def title(self):
         return "Anima Guidance & Corrections"
@@ -593,354 +832,28 @@ class AnimaGuidanceScript(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def after_component(self, component, **kwargs):
-        if getattr(component, "elem_id", None) == f"{self.tabname}_sampling":
-            self._sampler_component = component
-
-    def ui(self, *args, **kwargs):
-        with InputAccordion(False, label=self.title()) as enable:
-            gr.Markdown(
-                "Only applies to Anima. Guidance patches are installed on a cloned "
-                "model for the current generation and recorded in PNG metadata."
-            )
-            conflict_status = gr.Markdown("")
-            guidance_mode = gr.Dropdown(
-                list(GUIDANCE_MODES),
-                value=STANDARD_GUIDANCE,
-                label="CFG guidance mode",
-                info="SMC-CFG, CFG-Zero*, APG, TCFG and FDG are mutually exclusive combine modes. Skimmed CFG is applied before the selected combine. TCFG has no settings: it drops the part of the negative prediction that does not lie along the direction it shares with the positive one.",
-            )
-            with gr.Row():
-                smc_alpha = gr.Slider(
-                    0.0,
-                    1.0,
-                    value=0.2,
-                    step=0.01,
-                    label="SMC adaptive alpha",
-                    info="Switching gain = alpha x mean absolute conditional residual.",
-                )
-                smc_lambda = gr.Slider(
-                    0.0,
-                    10.0,
-                    value=5.0,
-                    step=0.1,
-                    label="SMC surface lambda",
-                )
-            with gr.Accordion("Advanced Anima guidance", open=False):
-                gr.Markdown(
-                    "NAG modifies cross-attention; Momentum modifies the final flow velocity. "
-                    "NAG guides the base prompt path while synthetic Regional/Artist branches stay isolated. "
-                    "Momentum is limited to single-evaluation Euler samplers and requires the Standard CFG mode."
-                )
-                nag_enable = gr.Checkbox(False, label="Enable NAG attention guidance")
-                with gr.Row():
-                    nag_scale = gr.Slider(0.0, 8.0, value=2.0, step=0.05, label="NAG scale")
-                    nag_tau = gr.Slider(0.1, 10.0, value=2.5, step=0.1, label="NAG normalization tau")
-                    nag_alpha = gr.Slider(0.0, 1.0, value=0.5, step=0.01, label="NAG blend alpha")
-                with gr.Row():
-                    nag_start = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="NAG start", info=MODEL_TIME_INFO)
-                    nag_end = gr.Slider(0.0, 1.0, value=0.5, step=0.01, label="NAG end", info=MODEL_TIME_INFO)
-                momentum_enable = gr.Checkbox(False, label="Enable Momentum Guidance")
-                with gr.Row():
-                    momentum_strength = gr.Slider(0.0, 1.5, value=0.5, step=0.01, label="Momentum strength")
-                    momentum_ema = gr.Slider(0.0, 0.99, value=0.6, step=0.01, label="Momentum EMA decay")
-                fdg_high_scale = gr.Slider(
-                    0.0,
-                    30.0,
-                    value=12.0,
-                    step=0.1,
-                    label="FDG detail guidance",
-                    info="Used only by FDG: the guidance scale of the high-frequency band (the low band uses CFG). Keep it above CFG; below CFG it weakens detail guidance. FDG and DCW exclude each other: in this panel the one turned on last wins and locks the other; in API calls with both on, FDG wins. FDG is disabled with the CNS sampler.",
-                )
-                cfg_zero_init_steps = gr.Slider(
-                    0,
-                    10,
-                    value=1,
-                    step=1,
-                    label="CFG-Zero* zero-init steps",
-                    info="Used only by CFG-Zero*. The first N sampler steps output zero velocity (the latent is left unchanged) when the pass starts from pure noise; hires and img2img passes are not zeroed. 0 keeps only the optimized scale.",
-                )
-                with gr.Row():
-                    apg_eta = gr.Slider(
-                        0.0,
-                        1.0,
-                        value=0.0,
-                        step=0.01,
-                        label="APG eta",
-                        info="Used only by APG. Weight of the guidance part parallel to the prediction (the oversaturating part); 1 keeps it like CFG.",
-                    )
-                    apg_norm_threshold = gr.Slider(
-                        0.0,
-                        100.0,
-                        value=0.0,
-                        step=0.5,
-                        label="APG norm threshold",
-                        info="Used only by APG. Caps the L2 norm of the guidance update over the whole latent (grows with resolution); 0 disables.",
-                    )
-                    apg_momentum = gr.Slider(
-                        -0.95,
-                        0.95,
-                        value=-0.5,
-                        step=0.01,
-                        label="APG momentum",
-                        info="Used only by APG. Negative values are the paper's reverse momentum; 0 disables.",
-                    )
-                guidance_range_enable = gr.Checkbox(False, label="Limit CFG to a sampling range")
-                with gr.Row():
-                    guidance_range_start = gr.Slider(
-                        0.0, 1.0, value=0.0, step=0.01, label="CFG range start", info=MODEL_TIME_INFO
-                    )
-                    guidance_range_end = gr.Slider(
-                        0.0, 1.0, value=1.0, step=0.01, label="CFG range end", info=MODEL_TIME_INFO
-                    )
-            skim_enable = gr.Checkbox(False, label="Skimmed CFG anti-burn")
-            with gr.Row():
-                skim_scale = gr.Slider(
-                    0.0,
-                    10.0,
-                    value=2.5,
-                    step=0.1,
-                    label="Skimming fallback CFG",
-                    info="Only flagged values are limited to this effective CFG; 1.5–3 is a useful Anima range.",
-                )
-                full_negative = gr.Checkbox(
-                    False,
-                    label="Full skim negative",
-                    info="Uses a zero fallback for flagged negative-prompt values.",
-                )
-                disable_flip_filter = gr.Checkbox(
-                    False,
-                    label="Disable flipping filter",
-                    info="More aggressive; keeps values normally rejected by the sign-flip safety filter.",
-                )
-            with gr.Row():
-                start_percent = gr.Slider(0.0, 1.0, value=0.0, step=0.01, label="Skim start", info=MODEL_TIME_INFO)
-                end_percent = gr.Slider(0.0, 1.0, value=1.0, step=0.01, label="Skim end", info=MODEL_TIME_INFO)
-                flip_percent = gr.Slider(
-                    0.0,
-                    1.0,
-                    value=0.0,
-                    step=0.01,
-                    label="Filter flip point",
-                    info="0 disables timed inversion of the flipping filter. A model (sigma) time fraction, like Skim start/end.",
-                )
-            with gr.Accordion("DCW latent bias correction", open=False):
-                dcw_enable = gr.Checkbox(False, label="Enable DCW")
-                with gr.Row():
-                    dcw_lambda = gr.Slider(
-                        -0.1,
-                        0.1,
-                        value=-0.015,
-                        step=0.001,
-                        label="DCW lambda",
-                        info="Anima LL-band starting point: -0.015.",
-                    )
-                    dcw_schedule = gr.Dropdown(
-                        ["one_minus_sigma", "sigma", "constant"],
-                        value="one_minus_sigma",
-                        label="DCW schedule",
-                    )
-                    dcw_bands = gr.Dropdown(
-                        ["LL", "LH", "HL", "HH", "LH+HL+HH", "all"],
-                        value="LL",
-                        label="DCW frequency bands",
-                        info="LL is the Anima-tuned default; all reproduces broadband correction.",
-                    )
-            with gr.Accordion("CNS colored-noise sampler", open=False):
-                cns_strength = gr.Slider(
-                    0.0,
-                    1.0,
-                    value=1.0,
-                    step=0.05,
-                    label="Anima ER SDE CNS strength",
-                    info="Used only by the Anima ER SDE CNS sampler. 0 is stock ER-SDE noise; 1 is full calibrated recoloring.",
-                )
-            with gr.Accordion("Flow corrective sampler tuning", open=False):
-                gr.Markdown(
-                    "These controls are wired only to `Anima Flow UniPC2` and "
-                    "`Anima Flow PC3`; upstream defaults are preserved."
-                )
-                with gr.Row():
-                    flow_unipc_solver_type = gr.Dropdown(
-                        ["bh2", "bh1"],
-                        value="bh2",
-                        label="UniPC solver type",
-                    )
-                    flow_unipc_disable_corrector_first = gr.Slider(
-                        0,
-                        10,
-                        value=0,
-                        step=1,
-                        label="UniPC disabled early correctors",
-                    )
-                    flow_unipc_thresholding = gr.Checkbox(
-                        False,
-                        label="UniPC dynamic thresholding",
-                    )
-                with gr.Row():
-                    flow_unipc_dynamic_thresholding_ratio = gr.Slider(
-                        0.5,
-                        1.0,
-                        value=0.995,
-                        step=0.001,
-                        label="UniPC threshold percentile",
-                    )
-                    flow_unipc_sample_max_value = gr.Slider(
-                        1.0,
-                        10.0,
-                        value=1.0,
-                        step=0.1,
-                        label="UniPC threshold maximum",
-                    )
-                with gr.Row():
-                    flow_pc3_gamma = gr.Slider(
-                        0.0,
-                        1.0,
-                        value=1.0,
-                        step=0.05,
-                        label="PC3 maximum correction gamma",
-                    )
-                    flow_pc3_tolerance = gr.Slider(
-                        0.0001,
-                        0.05,
-                        value=0.005,
-                        step=0.0005,
-                        label="PC3 correction tolerance",
-                    )
-            with gr.Accordion("CLIP modulation guidance", open=False):
-                gr.Markdown(
-                    "Adds the official-style CLIP pooled modulation path to Anima. "
-                    "The first automatic use downloads a pinned 163 MiB adapter and 235 MiB CLIP-L encoder."
-                )
-                modulation_enable = gr.Checkbox(False, label="Enable CLIP modulation guidance")
-                with gr.Row():
-                    modulation_weight = gr.Slider(
-                        -20.0,
-                        20.0,
-                        value=3.0,
-                        step=0.05,
-                        label="Direction weight",
-                        info="proj(base) + weight x (proj(positive direction) - proj(negative direction)), where proj is the adapter's projection of the CLIP-L pooled vector.",
-                    )
-                    modulation_start = gr.Slider(0, 63, value=0, step=1, label="Start block")
-                    modulation_end = gr.Slider(
-                        -1,
-                        63,
-                        value=-1,
-                        step=1,
-                        label="End block",
-                        info="-1 means the final block. Start/end count the adapter's blocks (the pinned one has Anima 2B's 28); on 2.9B/3.8B they select the same original blocks.",
-                    )
-                modulation_base = gr.Textbox(
-                    "",
-                    label="Base CLIP prompt override",
-                    info="Empty uses each image's normal positive prompt. The normal negative prompt is used for unconditional rows.",
-                )
-                with gr.Row():
-                    modulation_positive = gr.Textbox(
-                        "high quality, detailed, accurate anatomy",
-                        label="Positive modulation direction",
-                    )
-                    modulation_negative = gr.Textbox(
-                        "low quality, artifacts, bad anatomy",
-                        label="Negative modulation direction",
-                    )
-                with gr.Row():
-                    adapter_mode = gr.Dropdown(
-                        ["Auto-download pinned", "Local file"],
-                        value="Auto-download pinned",
-                        label="Modulation adapter",
-                    )
-                    adapter_path = gr.Textbox(
-                        "",
-                        label="Local adapter .pt path",
-                        info="Inside the models folder (absolute, or relative to it).",
-                        **shared.hide_dirs,
-                    )
-                with gr.Row():
-                    clip_mode = gr.Dropdown(
-                        ["Auto-download pinned", "Local file"],
-                        value="Auto-download pinned",
-                        label="CLIP-L encoder",
-                    )
-                    clip_path = gr.Textbox(
-                        "",
-                        label="Local CLIP-L .safetensors path",
-                        info="Inside the models folder (absolute, or relative to it).",
-                        **shared.hide_dirs,
-                    )
-
-        if self._sampler_component is not None:
-            conflict_inputs = [
-                self._sampler_component,
-                guidance_mode,
-                momentum_enable,
-                dcw_enable,
-            ]
-            conflict_outputs = [
-                guidance_mode,
-                momentum_enable,
-                dcw_enable,
-                conflict_status,
-            ]
-
-            def update_conflicts(selected, sampler, mode, momentum, dcw):
-                state = resolve_guidance_conflicts(
-                    sampler=str(sampler),
-                    mode=str(mode),
-                    momentum=bool(momentum),
-                    dcw=bool(dcw),
-                    selected=selected,
-                )
-                if state.messages:
-                    status = "**Compatibility:** " + "; ".join(state.messages)
-                elif state.mode == FDG_GUIDANCE:
-                    status = "**Compatibility:** FDG owns CFG combine; Momentum and DCW are locked."
-                elif state.momentum:
-                    status = "**Compatibility:** Momentum requires Standard CFG guidance."
-                elif state.dcw:
-                    status = "**Compatibility:** DCW is active, so FDG is unavailable."
-                else:
-                    status = ""
-                return (
-                    gr.update(value=state.mode, choices=list(state.mode_choices)),
-                    gr.update(
-                        value=state.momentum,
-                        interactive=state.momentum_interactive,
-                    ),
-                    gr.update(value=state.dcw, interactive=state.dcw_interactive),
-                    gr.update(value=status),
-                )
-
-            for selected, component in (
-                ("sampler", self._sampler_component),
-                ("mode", guidance_mode),
-                ("momentum", momentum_enable),
-                ("dcw", dcw_enable),
-            ):
-                component.change(
-                    fn=lambda sampler, mode, momentum, dcw, selected=selected: update_conflicts(
-                        selected, sampler, mode, momentum, dcw
-                    ),
-                    inputs=conflict_inputs,
-                    outputs=conflict_outputs,
-                    queue=False,
-                    show_progress=False,
-                )
-
-        # Each control is the local variable named in SCRIPT_ARGS.
-        return register_table_fields(self, SCRIPT_ARGS, locals())
+    def params(self, is_img2img):
+        # The mode / Momentum / DCW locks against the sampler are the core
+        # __conflicts__ action's, found by these inputs' preset fields.
+        root = guidance_params(self.title(), hide_local_paths=bool(shared.cmd_opts.hide_ui_dir_config))
+        self.param_order = table_params(SCRIPT_ARGS, root)
+        return root
 
     @staticmethod
     def _arguments(values) -> SimpleNamespace:
-        # Positional script args are named by SCRIPT_ARGS, the table ui()
-        # returns its components from, so their order is written only once.
+        # Positional script args are named by SCRIPT_ARGS, the table that
+        # orders params() (param_order), so their order is written only once.
         # Forge's own keywords (x, noise, c, uc) are not script args.
         return script_arguments("Anima guidance", SCRIPT_ARG_NAMES, values, defaults=SCRIPT_ARG_DEFAULTS)
 
     def process(self, p, *values):
         # Once per job, before any pass samples.
-        _prefetch_cns_gamma(p, self._arguments(values))
+        args = self._arguments(values)
+        _prefetch_cns_gamma(p, args)
+        # NAG reads the negative prompt's context from the CFG callback, also
+        # at CFG 1 where Forge would not encode the negative prompt.
+        if args.enable and args.nag_enable:
+            p.keep_negative_conds = True
 
     def process_before_every_sampling(self, p, *values, **kwargs):
         self._process_before_every_sampling(p, self._arguments(values))
@@ -977,7 +890,7 @@ class AnimaGuidanceScript(scripts.Script):
         if not args.enable or not _is_anima(p):
             return
 
-        # Every _record() key is the control's ``infotext_fields`` key, so
+        # Every _record() key is the input's ``infotext`` key, so
         # pasted parameters restore the panel.
         _record(p, "enable", True)
 

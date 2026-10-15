@@ -1,0 +1,427 @@
+{
+ "paste_marker": "__paste__",
+ "default": {
+  "txt2img": {
+   "enabled": false,
+   "type_filter": "All",
+   "module": "None",
+   "model": "None",
+   "weight": 1.0,
+   "guidance_start": 0.0,
+   "guidance_end": 1.0,
+   "processor_res": -1,
+   "threshold_a": -1,
+   "threshold_b": -1,
+   "pixel_perfect": false,
+   "control_mode": "Balanced",
+   "resize_mode": "Crop and Resize",
+   "hr_option": "Both",
+   "save_detected_map": true,
+   "use_preview_as_input": false,
+   "image": null,
+   "sketch": null,
+   "image_fg": null,
+   "mask_image": null,
+   "mask_image_fg": null,
+   "generated_image": null,
+   "mask_upload": false,
+   "pose": null
+  },
+  "img2img": {
+   "enabled": false,
+   "type_filter": "All",
+   "module": "None",
+   "model": "None",
+   "weight": 1.0,
+   "guidance_start": 0.0,
+   "guidance_end": 1.0,
+   "processor_res": -1,
+   "threshold_a": -1,
+   "threshold_b": -1,
+   "pixel_perfect": false,
+   "control_mode": "Balanced",
+   "resize_mode": "Crop and Resize",
+   "hr_option": "Both",
+   "save_detected_map": true,
+   "use_preview_as_input": false,
+   "image": null,
+   "sketch": null,
+   "image_fg": null,
+   "mask_image": null,
+   "mask_image_fg": null,
+   "generated_image": null,
+   "mask_upload": false,
+   "pose": null,
+   "upload_independent": false
+  }
+ },
+ "controls": {
+  "enabled": {
+   "label": "Enable"
+  },
+  "pixel_perfect": {
+   "label": "Pixel Perfect"
+  },
+  "mask_upload": {
+   "label": "Use Mask"
+  },
+  "use_preview_as_input": {
+   "label": "Preview as Input"
+  },
+  "upload_independent": {
+   "label": "Upload independent control image"
+  },
+  "type_filter": {
+   "label": "Control Type"
+  },
+  "module": {
+   "label": "Preprocessor"
+  },
+  "model": {
+   "label": "Model"
+  },
+  "weight": {
+   "label": "Control Weight",
+   "minimum": 0.0,
+   "maximum": 2.0,
+   "step": 0.05
+  },
+  "timestep_range": {
+   "label": "Timestep Range",
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.01
+  },
+  "processor_res": {
+   "label": "Preprocessor resolution"
+  },
+  "threshold_a": {
+   "label": "Threshold A"
+  },
+  "threshold_b": {
+   "label": "Threshold B"
+  },
+  "control_mode": {
+   "label": "Control Mode",
+   "choices": [
+    "Balanced",
+    "My prompt is more important",
+    "ControlNet is more important"
+   ]
+  },
+  "resize_mode": {
+   "label": "Resize Mode",
+   "choices": [
+    "Just Resize",
+    "Crop and Resize",
+    "Resize and Fill"
+   ]
+  },
+  "hr_option": {
+   "label": "Hires-Fix Option",
+   "choices": [
+    "Both",
+    "Low res only",
+    "High res only"
+   ]
+  },
+  "region_subjects": {
+   "label": "Number of Subjects",
+   "minimum": 0,
+   "maximum": 7,
+   "step": 1,
+   "default": 0,
+   "info": "0 for Blank Canvas"
+  },
+  "region_vertical": {
+   "label": "Vertical Position",
+   "minimum": 0.2,
+   "maximum": 0.8,
+   "step": 0.05,
+   "default": 0.4
+  },
+  "region_randomize": {
+   "label": "Randomize Bias",
+   "minimum": 0.0,
+   "maximum": 0.5,
+   "step": 0.025,
+   "default": 0.075
+  },
+  "region_shape": {
+   "label": "Mask Shape",
+   "choices": [
+    "Rectangle",
+    "Oval"
+   ],
+   "default": "Rectangle"
+  }
+ },
+ "props": {
+  "unit": 0,
+  "img2img": false,
+  "tabs": [
+   "ControlNet Unit 1",
+   "ControlNet Unit 2",
+   "ControlNet Unit 3"
+  ],
+  "controls": {
+   "enabled": {
+    "label": "Enable"
+   },
+   "pixel_perfect": {
+    "label": "Pixel Perfect"
+   },
+   "mask_upload": {
+    "label": "Use Mask"
+   },
+   "use_preview_as_input": {
+    "label": "Preview as Input"
+   },
+   "type_filter": {
+    "label": "Control Type"
+   },
+   "module": {
+    "label": "Preprocessor"
+   },
+   "model": {
+    "label": "Model"
+   },
+   "weight": {
+    "label": "Control Weight",
+    "minimum": 0.0,
+    "maximum": 2.0,
+    "step": 0.05
+   },
+   "timestep_range": {
+    "label": "Timestep Range",
+    "minimum": 0.0,
+    "maximum": 1.0,
+    "step": 0.01
+   },
+   "processor_res": {
+    "label": "Preprocessor resolution"
+   },
+   "threshold_a": {
+    "label": "Threshold A"
+   },
+   "threshold_b": {
+    "label": "Threshold B"
+   },
+   "control_mode": {
+    "label": "Control Mode",
+    "choices": [
+     "Balanced",
+     "My prompt is more important",
+     "ControlNet is more important"
+    ]
+   },
+   "resize_mode": {
+    "label": "Resize Mode",
+    "choices": [
+     "Just Resize",
+     "Crop and Resize",
+     "Resize and Fill"
+    ]
+   },
+   "hr_option": {
+    "label": "Hires-Fix Option",
+    "choices": [
+     "Both",
+     "Low res only",
+     "High res only"
+    ]
+   },
+   "region_subjects": {
+    "label": "Number of Subjects",
+    "minimum": 0,
+    "maximum": 7,
+    "step": 1,
+    "default": 0,
+    "info": "0 for Blank Canvas"
+   },
+   "region_vertical": {
+    "label": "Vertical Position",
+    "minimum": 0.2,
+    "maximum": 0.8,
+    "step": 0.05,
+    "default": 0.4
+   },
+   "region_randomize": {
+    "label": "Randomize Bias",
+    "minimum": 0.0,
+    "maximum": 0.5,
+    "step": 0.025,
+    "default": 0.075
+   },
+   "region_shape": {
+    "label": "Mask Shape",
+    "choices": [
+     "Rectangle",
+     "Oval"
+    ],
+    "default": "Rectangle"
+   }
+  },
+  "invert_hint": "Set the preprocessor to [invert] If your image has white background and black lines.",
+  "catalog": {
+   "preprocessors": [
+    {
+     "name": "None",
+     "tags": [],
+     "resolution": {
+      "label": "Resolution",
+      "minimum": 128,
+      "maximum": 2048,
+      "step": 8,
+      "value": 512,
+      "visible": true
+     },
+     "slider_1": {
+      "label": "Parameter 1",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "step": 0.01,
+      "value": 0.5,
+      "visible": false
+     },
+     "slider_2": {
+      "label": "Parameter 1",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "step": 0.01,
+      "value": 0.5,
+      "visible": false
+     },
+     "control_mode": true,
+     "model": true
+    },
+    {
+     "name": "canny",
+     "tags": [
+      "Canny"
+     ],
+     "resolution": {
+      "label": "Resolution",
+      "minimum": 128,
+      "maximum": 2048,
+      "step": 8,
+      "value": 512,
+      "visible": true
+     },
+     "slider_1": {
+      "label": "Low Threshold",
+      "minimum": 0,
+      "maximum": 256,
+      "step": 1,
+      "value": 100,
+      "visible": true
+     },
+     "slider_2": {
+      "label": "High Threshold",
+      "minimum": 0,
+      "maximum": 256,
+      "step": 1,
+      "value": 200,
+      "visible": true
+     },
+     "control_mode": true,
+     "model": true
+    },
+    {
+     "name": "reference_test",
+     "tags": [
+      "Reference"
+     ],
+     "resolution": {
+      "label": "Parameter 1",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "step": 0.01,
+      "value": 0.5,
+      "visible": false
+     },
+     "slider_1": {
+      "label": "Style Fidelity",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "step": 0.01,
+      "value": 0.5,
+      "visible": true
+     },
+     "slider_2": {
+      "label": "Parameter 1",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "step": 0.01,
+      "value": 0.5,
+      "visible": false
+     },
+     "control_mode": false,
+     "model": false
+    }
+   ],
+   "models": [
+    "None",
+    "control_v11p_sd15_canny",
+    "diffusers_xl_depth_full",
+    "t2i_union_promax"
+   ],
+   "types": [
+    {
+     "name": "All",
+     "modules": [
+      "None",
+      "canny",
+      "reference_test"
+     ],
+     "models": [
+      "None",
+      "control_v11p_sd15_canny",
+      "t2i_union_promax"
+     ],
+     "default_module": "None",
+     "default_model": "None"
+    },
+    {
+     "name": "Canny",
+     "modules": [
+      "None",
+      "canny"
+     ],
+     "models": [
+      "None",
+      "control_v11p_sd15_canny",
+      "t2i_union_promax"
+     ],
+     "default_module": "canny",
+     "default_model": "control_v11p_sd15_canny"
+    },
+    {
+     "name": "Reference",
+     "modules": [
+      "None",
+      "reference_test"
+     ],
+     "models": [
+      "None",
+      "t2i_union_promax"
+     ],
+     "default_module": "reference_test",
+     "default_model": "t2i_union_promax"
+    },
+    {
+     "name": "Region",
+     "modules": [
+      "None"
+     ],
+     "models": [
+      "None",
+      "t2i_union_promax"
+     ],
+     "default_module": "None",
+     "default_model": "t2i_union_promax"
+    }
+   ]
+  }
+ }
+}

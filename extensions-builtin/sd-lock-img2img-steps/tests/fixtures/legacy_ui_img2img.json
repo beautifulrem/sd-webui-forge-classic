@@ -1,0 +1,10 @@
+[
+ {
+  "kind": "toggle",
+  "label": "Lock Sampling Steps (ignore values from Send to img2img / paste)",
+  "default": false,
+  "infotext": null,
+  "paste": false,
+  "preset": null
+ }
+]

@@ -14,6 +14,7 @@ import { useHeaderSlotTarget } from "./header-slot-store"
 // Menus and the model picker pull in Base UI's menu/combobox; load them after first paint.
 const AppearanceMenu = lazy(() => import("./AppearanceMenu"))
 const ModelQuickBar = lazy(() => import("./ModelQuickBar"))
+const QuickSettings = lazy(() => import("@/features/quicksettings/QuickSettings"))
 
 const STATUS_LABEL: Record<WsStatus, string> = {
   idle: "Connecting…",
@@ -91,6 +92,9 @@ export function Header({ title, locales }: { title: string; locales: LocaleInfo[
             <ModelQuickBar />
           </Suspense>
         </div>
+        <Suspense fallback={null}>
+          <QuickSettings />
+        </Suspense>
         <Button
           variant="outline"
           size="sm"

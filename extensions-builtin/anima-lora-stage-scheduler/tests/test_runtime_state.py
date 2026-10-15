@@ -179,9 +179,9 @@ def test_an_unreadable_template_file_is_never_overwritten(tmp_path, monkeypatch)
     user_file.parent.mkdir(parents=True, exist_ok=True)
     user_file.write_text('{"mine": ', encoding="utf-8")  # e.g. an interrupted older write
 
-    *_, message = ui._save_template_ui("new", True, "", 0.0, 1.0, 0.5, 1.0, "")
+    edit = ui.save_template("new", True, "", None)
 
-    assert "未做修改" in message
+    assert not edit.ok and edit.status["text"] == options._t("templates_unreadable") and edit.status["params"]["error"]
     assert user_file.read_text(encoding="utf-8") == '{"mine": '
 
 
@@ -225,7 +225,8 @@ def test_a_reload_ui_registers_each_callback_again_exactly_once(monkeypatch):
         script = _load()
         script.Script(), script.Script()  # txt2img and img2img each build one
         assert registered("callbacks_cfg_denoiser") == [runtime._denoiser_callback]
-        assert registered("callbacks_infotext_pasted") == [runtime._translate_pasted_infotext]
+        # The paste reads the recorded codes itself (lib_stage_scheduler.params): no callback
+        assert registered("callbacks_infotext_pasted") == []
 
 
 def test_only_scheduled_loras_are_patched_online(monkeypatch):

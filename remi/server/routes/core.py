@@ -52,12 +52,20 @@ BOOTSTRAP_OPTIONS = (
     "sd_checkpoint_dropdown_use_short",
     "sd_modules_dropdown_use_short",
     "lora_preset_filter",
+    "extra_networks_card_order_field",  # the network browser's default sort
+    "extra_networks_card_order",
     "ctrl_enter_interrupt",
     "prevent_screen_sleep_during_generation",
     "send_seed",
     "send_size",
     "live_preview_refresh_period",
     "confirm_leave",
+    # The image editor (webui/src/canvas)
+    "forge_canvas_consistent_brush",
+    "forge_canvas_plain",
+    "forge_canvas_plain_color",
+    "forge_canvas_height",
+    "forge_canvas_toolbar_always",
 )
 
 FEATURES = ("jobs.v1", "ws.v1", "uploads.v1", "outputs.v1", "networks.v1", "options.v1", "styles.v1", "tokens.v1", "presets.v1")
@@ -126,6 +134,7 @@ def models_summary() -> dict[str, Any]:
 
 @router.get("/app", response_model=m.Bootstrap, summary="Bootstrap: version, features, tabs, locales, options subset, models")
 def bootstrap(request: Request, services: ServicesDep, user: UserDep) -> dict[str, Any]:
+    from modules import shared
     from modules_forge import forge_version
     from remi.server.routes.system import user_assets
     from remi.server.runtime import not_ported
@@ -139,6 +148,8 @@ def bootstrap(request: Request, services: ServicesDep, user: UserDep) -> dict[st
         features.append("sdapi")
     if _pages_module() is not None:
         features.append("pages")
+    if not getattr(shared.cmd_opts, "hide_ui_dir_config", False):
+        features.append("folders.open")  # "open folder" actions (networks, gallery)
     pages = [{"id": page.id, "title": page.title, "icon": getattr(page, "icon", None), "widget": getattr(page, "widget", None)} for page in _registered_pages()]
     return {
         "version": f"{forge_version.version} {forge_version.release}",
@@ -467,9 +478,12 @@ def token_count(text: str, steps: int, styles: list[str], *, positive: bool = Tr
 
 
 def _settings_schema() -> dict[str, Any]:
+    from modules import shared
+    from remi.server.options import frozen_reason
     from remi.ui.settings import settings_schema
 
-    return settings_schema(opts())
+    options = opts()
+    return settings_schema(options, locked=lambda key: frozen_reason(options, key, shared.cmd_opts))
 
 
 @router.get("/options", response_model=m.SettingsSchema, summary="Settings layout and values (schema-format.md §6)")

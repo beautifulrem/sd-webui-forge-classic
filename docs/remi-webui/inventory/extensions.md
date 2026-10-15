@@ -26,7 +26,7 @@ The classes are judged against a **baseline compat contract**. The core UI needs
 | **3** | Needs a **substantial native rewrite**: its own frontend bundle, deep Gradio-internals surgery, or editor or canvas widgets. | **4** |
 
 Class 3: `agent-scheduler`, `sd-webui-prompt-all-in-one-neo`, `sd-webui-tagcomplete-neo`, `sd_forge_controlnet`.
-Class 2: `ADetailer-Neo`, `mobile`, `prompt-bracket-checker`, `repeat-generate-4NEO`, `sd-forge-prompt-workshop`, `sd-lock-img2img-steps`, `sd-webui-detail-daemon`, `sd-webui-joycaption-modified`, `sd-webui-language-diffusion`, `sd-webui-prompt-anchor`, `sd-webui-prompt-queue`, `sd_forge_lora`, `sd_forge_sparse`.
+Class 2: `ADetailer-Neo`, ~~`mobile`~~, ~~`prompt-bracket-checker`~~ (both deleted, see below), `repeat-generate-4NEO`, `sd-forge-prompt-workshop`, `sd-lock-img2img-steps`, `sd-webui-detail-daemon`, `sd-webui-joycaption-modified`, `sd-webui-language-diffusion`, `sd-webui-prompt-anchor`, `sd-webui-prompt-queue`, `sd_forge_lora`, `sd_forge_sparse`.
 Everything else is class 1. Note: `sd_forge_ipadapter`, `sd_forge_controlllite` and the four `forge_preprocessor*` folders have no UI, but they only matter once ControlNet (class 3) is ported.
 
 ADetailer is often assumed to be class 3, but the code does not support that. It has no canvas, no JS file and no `ForgeCanvas`. What it needs from the compat layer is: `gradio_rangeslider.RangeSlider` (`lib_adetailer/ui.py:8`, `:585`), a callable `gr.State` default (`ui.py:198`), and an extra listener bolted onto the foreign Generate button (`ui.py:207`). That makes it class 2.
@@ -53,8 +53,8 @@ Column key:
 | 8 | forge_preprocessor_inpaint | Inpaint, inpaint_only, LaMa, NoobAI-XL inpaint preprocessors | none | 0 | none | 0 | none | 0 | **1** (via CN) |
 | 9 | forge_preprocessor_reference | reference_only / adain / adain+attn | none | 0 | none | 0 | none | 0 | **1** (via CN) |
 | 10 | forge_preprocessor_tile | tile_resample / colorfix / colorfix+sharp | none | 0 | none | 0 | none | 0 | **1** (via CN) |
-| 11 | mobile | Moves Generate box above results on narrow screens | JS only | none | `javascript/mobile.js` 1,240 B | 0 | none | 0 | **2** (trivial) |
-| 12 | prompt-bracket-checker | Marks token counter red on unbalanced brackets | JS only | none | `javascript/prompt-bracket-checker.js` 2,678 B | 0 | none | 0 | **2** (trivial) |
+| 11 | mobile | Moves Generate box above results on narrow screens | JS only | none | `javascript/mobile.js` 1,240 B | 0 | none | 0 | **Deleted** (core SPA, [ports/scripts-postprocess-detail-daemon.md](../ports/scripts-postprocess-detail-daemon.md#deleted-mobile-prompt-bracket-checker)) |
+| 12 | prompt-bracket-checker | Marks token counter red on unbalanced brackets | JS only | none | `javascript/prompt-bracket-checker.js` 2,678 B | 0 | none | 0 | **Deleted** (core SPA, [ports/scripts-postprocess-detail-daemon.md](../ports/scripts-postprocess-detail-daemon.md#deleted-mobile-prompt-bracket-checker)) |
 | 13 | repeat-generate-4NEO | Endless "repeat Generate" with stop button | JS only | none | `javascript/neo-repeat-generate.js` 19,003 B; `style.css` 1,308 B; 3 webp icons | 0 (reads `/prompt-queue/state`) | none | 0 | **2** (protocol rewrite) |
 | 14 | sd-forge-anima-prompt-rescale | Anima prompt-embedding rescale | S-AO (section `accordions`) | 20-21 / 1 | none | 0 | none | 1 (`tests_rescale.py`) | **1** |
 | 15 | sd-forge-anima-resolutions | Anima resolution presets/randomizer, prompt history, auto-fill of img2img size | S-AO (txt2img only, section `dimensions`), AC (10 tracked ids, global hook) | ~ 12 / ~6 in `ui()`, plus 2-3 listeners on foreign buttons (Generate, Send-to) | none | 0 | `.then` + `_js` using `selected_gallery_index()` (`scripts/anima_resolutions.py:760-785`) | 0 | **1** |
@@ -136,7 +136,7 @@ Column key:
   * **an engine-level "enqueue current generate request" API**, so the Python side no longer reverse-engineers the Generate dependency;
   * a native "Enqueue" slot next to Generate (an SPA extension point, instead of `children.pop()`).
 
-  Keep `/agent-scheduler/v1/*` (34 routes) as-is. Drop `file_guard` if the new server's static-file route already enforces an allow-list, or port it to the new route. The task replay path (`task_runner.py:580`, `wrap_gradio_call(txt2img|img2img)`) depends on the positional `fn_inputs` of the Generate dependency. Remi must expose an **ordered input-signature descriptor** for txt2img/img2img to replace this. 4 tests (`test_net`, `test_request_guard`, `test_signing`, `test_file_guard`) are FastAPI/unit tests and do not need Gradio (`test_file_guard` imports `gradio.utils`).
+  Keep `/agent-scheduler/v1/*` (34 routes) as-is. *(Remi: not kept, see architecture.md, "Decision: their HTTP APIs are not kept".)* Drop `file_guard` if the new server's static-file route already enforces an allow-list, or port it to the new route. The task replay path (`task_runner.py:580`, `wrap_gradio_call(txt2img|img2img)`) depends on the positional `fn_inputs` of the Generate dependency. Remi must expose an **ordered input-signature descriptor** for txt2img/img2img to replace this. 4 tests (`test_net`, `test_request_guard`, `test_signing`, `test_file_guard`) are FastAPI/unit tests and do not need Gradio (`test_file_guard` imports `gradio.utils`).
 
 #### sd-webui-prompt-all-in-one-neo (class 3)
 
@@ -215,8 +215,8 @@ Column key:
   * Infotext fields include callables (`ui.py:209-219`).
   * BUI registers XYZ axes (`:1074-1081`). 3 routes (`:1084-1095`). Option `ad_max_models` (needs reload).
   * Work: a native RangeSlider, plus ordered same-trigger listener execution.
-* **mobile.** `javascript/mobile.js` moves `#{tab}_generate_box` into `#{tab}_results` when `#{tab}_results.offsetLeft === 0`. Work: make it SPA responsive layout (CSS/React) and drop the JS.
-* **prompt-bracket-checker.** Uses `#{id} > label > textarea` (a Gradio Textbox DOM shape), `#{tab}_token_counter` and core `onEdit` (`javascript/prompt-bracket-checker.js:63-74`). Work: make it a native prompt-textbox validation feature, or keep the `> label > textarea` DOM shape.
+* **mobile.** `javascript/mobile.js` moves `#{tab}_generate_box` into `#{tab}_results` when `#{tab}_results.offsetLeft === 0`. Work: make it SPA responsive layout (CSS/React) and drop the JS. **Done: deleted**, the SPA's generate panel keeps Generate in reach on narrow screens ([ports/scripts-postprocess-detail-daemon.md](../ports/scripts-postprocess-detail-daemon.md#deleted-mobile-prompt-bracket-checker)).
+* **prompt-bracket-checker.** Uses `#{id} > label > textarea` (a Gradio Textbox DOM shape), `#{tab}_token_counter` and core `onEdit` (`javascript/prompt-bracket-checker.js:63-74`). Work: make it a native prompt-textbox validation feature, or keep the `> label > textarea` DOM shape. **Done: deleted**, the prompt editor marks unbalanced brackets (`bracketProblems`, [ports/scripts-postprocess-detail-daemon.md](../ports/scripts-postprocess-detail-daemon.md#deleted-mobile-prompt-bracket-checker)).
 * **repeat-generate-4NEO.**
   * Reads `window.gradio_config.components` / `.dependencies` (`:68`, `:84`) to find the Generate `fnIndex`.
   * Finds `session_hash` in `window.__gradio_client__` (`:110-126`).
@@ -233,6 +233,8 @@ Column key:
   * 7 `gr.State`; `gr.Image` preview (`:2537`).
 
   Work: give the SPA tab-ordering metadata, a typed `setComponentValue(elem_id, value)` JS API, and Send-to bindings to custom tabs. Alternatively, keep the `.tab-nav button` DOM contract.
+
+  **Done:** a `remi.pages` page (`#/ext/prompt-workshop`, in the nav's pages group rather than between img2img and Extras). Same inputs in the same order (`tests/fixtures/legacy_ui_page.json`); the category boxes are prompt editors (tag completion); "Send / Replace txt2img Prompt" and the per-category sends are `send-button` widgets writing `core.prompt`; grabs run as page tasks (progress, Cancel between requests); "Post URL" and "Grabbed from" are read-only; the post image is downloaded into the upload store (only on a grab / download click) from the image URL the server remembered for the user's last grab (never from page text), over https from the source's own image hosts only, public addresses only, every redirect re-checked, no response text echoed; a failed download clears the preview, and the JoyCaption hand-off sends nothing when the download fails; the image is handed to JoyCaption with `sendToPage`; API keys are a write-only `secret-text` (a saved key is never sent back; an empty field keeps it, "Clear" removes it); the source radio is labelled "Booru source" ("Source" alone is the SPA's word for a source image). No JS left.
 * **sd-lock-img2img-steps.** JS (`javascript/lock_steps.js:19-28,47-48,85-94`) watches `#img2img_steps input[type=number|range]`, restores the value after paste, and dispatches `input`/`change` to push it back into Gradio. Work: a native "lock" flag on the steps control, honoured by the paste/Send-to code path. Or the SPA must treat synthetic DOM `input` events as value changes.
 * **sd-webui-detail-daemon.**
   * `gr.Plot` with matplotlib figures (`scripts/detail_daemon.py:96`, `:120`): 2 per daemon, 12 per tab.
@@ -248,12 +250,16 @@ Column key:
   * JS: `#tabs > .tab-nav button` tab switching and textarea writes.
 
   Work: tqdm progress streaming, a custom-tab switch API, and correct "current context" insertion semantics for components created inside `on_after_component`.
+
+  **Done:** a `remi.pages` page (`#/ext/joycaption`) with the tab's inputs in the same order (the batch log is an output now); model load, caption and folder runs are page tasks (`task-runner`: behind generation, progress text, Cancel); the combined prompt is filled from the image's PNG info by `on_change` and sent with `send-button`; "Send to JoyCaption" in PNG Info comes from the page's `send_to`. Folder captioning is refused with `--hide-ui-dir-config`. No JS left.
 * **sd-webui-language-diffusion.**
   * Mutates the core `localization` `OptionInfo` (`scripts/language_diffusion_setup.py:79-175`): section `(None, …)`, patches `component_args`, pins to quicksettings, and re-scans localizations.
   * JS decorates Gradio's dropdown internals (`ul.options li.item`, `[role=option]`, `forge_language_flags.js:192-205`).
   * `hints_i18n_patch.js` patches core `localization.js` text replacement.
 
   Work: native i18n (SPA translation catalog from the 10 JSON files) plus icon support in the Dropdown option renderer.
+
+  **Done:** the catalogs are served by `/api/v2/i18n/<locale>`; the header's language switcher lists them by native name (no flags); the `localization` setting stays in Settings as "Language" with native choice labels (no quicksettings pin, no page reload). Simplified Chinese is the core catalog `localizations/zh_CN.json`, complete for every core string (`tests/test_remi_core_zh_cn.py`); the pack's `zh_CN.json` keeps only texts the core does not translate. `javascript/` and `style.css` are deleted.
 * **sd-webui-prompt-anchor.**
   * JS moves `#prompt_anchor_group_{tab}` above `#{tab}_prompt` (`javascript/prompt_anchor.js:90-93`).
   * Persists to localStorage and dispatches `input`/`change` (`:82-84`).

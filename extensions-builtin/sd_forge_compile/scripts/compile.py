@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from backend.modules.k_model import KModel
 
-import gradio as gr
 import torch
 
 from backend.args import args as cmd_args
@@ -18,7 +17,7 @@ from backend.logging import setup_logger
 from backend.utils import get_attr, set_attr_raw
 from modules import scripts
 from modules.anima_support import is_anima_engine, process_ref
-from modules.anima_presets import register_preset_control
+from remi import ui
 from anima_block_compile import AnimaBlockCompileManager, block_compile_config, needs_eager, without_inactive_modifiers
 
 try:
@@ -34,6 +33,32 @@ _ORIG_APPLY_KEY = "_orig_apply_model"
 
 logger = logging.getLogger("compile")
 setup_logger(logger)
+
+
+PRESETS = (
+    "Automatic",
+    "Disable",
+    "Anima per-block",
+    "guard_filter_fn",
+    "dynamic",
+    "max-autotune",
+    "max-autotune-no-cudagraphs",
+    "reduce-overhead",
+)
+
+_DYNAMIC = "Support any Resolution / Batch Size"
+_INDYNAMIC = "Require recompilation if Resolution / Batch Size is changed"
+_NO_MALLOC = "Does not work with --cuda-malloc"
+
+PRESET_HELP = rf"""
+**torch.compile** speeds up the inference by compiling the model ahead of time
+- **guard_filter_fn:** Compile the Fastest ; {_INDYNAMIC}
+- **dynamic:** {_DYNAMIC} ; Slower to Compile
+- **max-autotune:** Best Runtime Speed ; {_INDYNAMIC} ; {_NO_MALLOC}
+- **max-autotune-no-cudagraphs:** {_DYNAMIC} ; Faster than **dynamic** ; Even Slower to Compile
+- **reduce-overhead:** Similar to **max-autotune** ; {_INDYNAMIC} ; {_NO_MALLOC}
+- **Anima per-block:** Compile each Anima transformer block separately; a changed Resolution / Batch Size recompiles once into a dynamic-shape graph, but Batch Size 1 (CFG 1, or steps outside the CFG range) and reference images still compile graphs of their own ; lower graph-break risk than whole-model compile
+""".strip()
 
 
 def skip_torch_compile_dict(guard_entries):
@@ -60,41 +85,12 @@ class TorchCompileForForge(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible if TRITON_AVAILABLE else None
 
-    def ui(self, *args, **kwargs):
-        with gr.Accordion(open=False, label=self.title()):
-            preset = gr.Dropdown(
-                label="Preset",
-                value="Automatic",
-                choices=[
-                    "Automatic",
-                    "Disable",
-                    "Anima per-block",
-                    "guard_filter_fn",
-                    "dynamic",
-                    "max-autotune",
-                    "max-autotune-no-cudagraphs",
-                    "reduce-overhead",
-                ],
-                info='"Automatic" maintains the current compile status',
-            )
-
-            _dynamic = "Support any Resolution / Batch Size"
-            _indynamic = "Require recompilation if Resolution / Batch Size is changed"
-            _no_malloc = "Does not work with --cuda-malloc"
-
-            gr.Markdown(rf"""
-**torch.compile** speeds up the inference by compiling the model ahead of time
-- **guard_filter_fn:** Compile the Fastest ; {_indynamic}
-- **dynamic:** {_dynamic} ; Slower to Compile
-- **max-autotune:** Best Runtime Speed ; {_indynamic} ; {_no_malloc}
-- **max-autotune-no-cudagraphs:** {_dynamic} ; Faster than **dynamic** ; Even Slower to Compile
-- **reduce-overhead:** Similar to **max-autotune** ; {_indynamic} ; {_no_malloc}
-- **Anima per-block:** Compile each Anima transformer block separately; a changed Resolution / Batch Size recompiles once into a dynamic-shape graph, but Batch Size 1 (CFG 1, or steps outside the CFG range) and reference images still compile graphs of their own ; lower graph-break risk than whole-model compile
-            """)
-
-        register_preset_control(self.tabname, "compile.preset", preset)
-
-        return [preset]
+    def params(self, is_img2img):
+        return ui.Section(
+            self.title(),
+            ui.Choice("preset", PRESETS, "Automatic", label="Preset", info='"Automatic" maintains the current compile status', preset="compile.preset"),
+            ui.Markdown(PRESET_HELP),
+        )
 
     def process_batch(self, p, preset: str, **kwargs):
         kmodel: "KModel" = p.sd_model.forge_objects.unet.model

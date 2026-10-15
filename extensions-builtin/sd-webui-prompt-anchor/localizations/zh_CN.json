@@ -1,0 +1,11 @@
+{
+  "Prompt Anchor": "提示词锚点",
+  "Anchor prompt": "锚点提示词",
+  "Anchor prompt (prepended to positive prompt at generation)": "锚点提示词（生成时添加到正向提示词之前）",
+  "Anchor text gets prepended to your positive prompt at generation time. Use this for styles, artists, quality tags -- anything you want to keep set-and-forget.": "锚点文本会在生成时添加到正向提示词之前。可用于风格、画师、质量标签等任何希望设定后不再改动的内容。",
+  "Advanced": "高级",
+  "Separator between anchor and main prompt": "锚点与主提示词之间的分隔符",
+  "Inserted between the anchor and the main prompt. Default ', ' suits comma-separated tag prompts. Trailing commas/whitespace on the anchor and leading commas on the main prompt are stripped automatically to prevent doubled separators.": "插入在锚点与主提示词之间。默认的 ', ' 适用于逗号分隔的标签式提示词。锚点末尾的逗号/空白和主提示词开头的逗号会被自动去除，以避免出现重复的分隔符。",
+  "Default separator between anchor and main prompt": "锚点与主提示词之间的默认分隔符",
+  "Start the anchor box collapsed on page load": "页面加载时折叠锚点面板"
+}

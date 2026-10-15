@@ -10,7 +10,6 @@ from itertools import chain, permutations
 from math import sqrt
 from typing import TypeVar
 
-import gradio as gr
 import numpy as np
 from PIL import Image
 
@@ -35,15 +34,13 @@ from modules.processing import (
 )
 from modules.sd_models import model_data, select_checkpoint
 from modules.shared import cmd_opts, opts, state
-from modules.ui_components import ToolButton
+from remi import ui
 
 logger = logging.getLogger("xyz")
 setup_logger(logger)
 
 
 T = TypeVar("T")
-
-fill_values_symbol = "\U0001f4d2"  # 📒
 
 AxisInfo = namedtuple("AxisInfo", ["axis", "values"])
 
@@ -474,143 +471,273 @@ re_range_count_float = re.compile(r"\s*([+-]?\s*\d+(?:.\d*)?)\s*-\s*([+-]?\s*\d+
 # region Script
 
 
+AXES = ("x", "y", "z")
+"""The axis prefixes of the params (``x_type``, ``x_values``, ``x_values_dropdown``, ...)."""
+
+
+def axis_choices(axis: AxisOption) -> list[str] | None:
+    """The values an axis offers (None: free text only)."""
+
+    return None if axis.choices is None else list(axis.choices())
+
+
+def read_choices(axis: AxisOption) -> list[str] | None:
+    """:func:`axis_choices` for the UI: an axis whose list fails (an
+    extension's model scan, ...) is logged and offers no values, without
+    breaking the other axes."""
+
+    try:
+        return axis_choices(axis)
+    except Exception:
+        errors.report(f"X/Y/Z plot: could not list the values of {axis.label!r}", exc_info=True)
+        return None
+
+
+CHOICES_OUTPUT = "axis_choices"
+"""Action output: ``{axis label: values | None}`` of every list axis; a
+single axis' fresh list is the output ``axis_choices/<label>``."""
+
+
+def select_axis(choices: list[str] | None, values: str, values_dropdown: list[str], csv_mode: bool) -> tuple[str, list[str]]:
+    """``(values, values_dropdown)`` after choosing an axis or switching the
+    text mode: an axis with choices moves the entries that are among them
+    between the text box and the dropdown."""
+
+    values_dropdown = list(values_dropdown or [])
+    if choices is not None:
+        if csv_mode:
+            if values_dropdown:
+                values = list_to_csv_string([x for x in values_dropdown if x in choices])
+                values_dropdown = []
+        elif values:
+            values_dropdown = [x for x in csv_string_to_list_strip(values) if x in choices]
+            values = ""
+    return values, values_dropdown
+
+
+def _value_list(value):
+    """A dropdown value: a list of strings (numbers are written as text)."""
+
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("expected a list of values")
+    if not all(isinstance(item, (str, int, float)) and not isinstance(item, bool) for item in value):
+        raise ValueError("expected a list of strings")
+    return [str(item) for item in value]
+
+
+def _paste_dropdown(axis: str):
+    def paste(params):
+        values = params.get(f"{axis.upper()} Values")
+        return None if values is None else csv_string_to_list_strip(str(values))
+
+    return paste
+
+
 class Script(scripts.Script):
+    # The run() arguments: the axes first, then the options (not their visual order)
+    param_order = (
+        *(f"{axis}_{part}" for axis in AXES for part in ("type", "values", "values_dropdown")),
+        "draw_legend",
+        "include_lone_images",
+        "include_sub_grids",
+        "no_fixed_seeds",
+        "vary_seeds_x",
+        "vary_seeds_y",
+        "vary_seeds_z",
+        "row_count",
+        "margin_size",
+        "csv_mode",
+    )
+
+    listed_axes: frozenset[str] | None = None
+    """Labels of the list axes when the layout was built: their dropdown
+    visibility is fixed then. A list axis added later (after before_ui)
+    is treated as a text axis, in the actions and in run()."""
+
     def title(self):
         return "X/Y/Z plot"
 
-    def ui(self, is_img2img):
-        self.current_axis_options = [x for x in axis_options if type(x) == AxisOption or x.is_img2img == is_img2img]
+    @property
+    def current_axis_options(self) -> list[AxisOption]:
+        """This tab's axes; read when needed, so axes other extensions add to ``axis_options`` count."""
 
-        with gr.Group(elem_classes=["xyz_entries"]):
-            with gr.Row():
-                x_type = gr.Dropdown(label="X type", choices=[x.label for x in self.current_axis_options], value=self.current_axis_options[1].label, type="index", elem_id=self.elem_id("x_type"), scale=2)
-                x_values = gr.Textbox(label="X values", lines=1, elem_id=self.elem_id("x_values"), scale=5)
-                x_values_dropdown = gr.Dropdown(label="X values", visible=False, multiselect=True, interactive=True, scale=5)
-                fill_x_button = ToolButton(value=fill_values_symbol, elem_id="xyz_grid_fill_x_tool_button", visible=False, scale=1)
-            with gr.Row():
-                y_type = gr.Dropdown(label="Y type", choices=[x.label for x in self.current_axis_options], value=self.current_axis_options[0].label, type="index", elem_id=self.elem_id("y_type"), scale=2)
-                y_values = gr.Textbox(label="Y values", lines=1, elem_id=self.elem_id("y_values"), scale=5)
-                y_values_dropdown = gr.Dropdown(label="Y values", visible=False, multiselect=True, interactive=True, scale=5)
-                fill_y_button = ToolButton(value=fill_values_symbol, elem_id="xyz_grid_fill_y_tool_button", visible=False, scale=1)
-            with gr.Row():
-                z_type = gr.Dropdown(label="Z type", choices=[x.label for x in self.current_axis_options], value=self.current_axis_options[0].label, type="index", elem_id=self.elem_id("z_type"), scale=2)
-                z_values = gr.Textbox(label="Z values", lines=1, elem_id=self.elem_id("z_values"), scale=5)
-                z_values_dropdown = gr.Dropdown(label="Z values", visible=False, multiselect=True, interactive=True, scale=5)
-                fill_z_button = ToolButton(value=fill_values_symbol, elem_id="xyz_grid_fill_z_tool_button", visible=False, scale=1)
+        return [x for x in axis_options if type(x) == AxisOption or x.is_img2img == self.is_img2img]
 
-        with gr.Row(variant="compact"):
-            row_count = gr.Slider(label="Row Count", info="(set to 0 for auto)", minimum=0, maximum=8, value=0, step=1, elem_id=self.elem_id("row_count"))
-            margin_size = gr.Slider(label="Grid Margins", info="(in pixels)", minimum=0, maximum=500, value=0, step=2, elem_id=self.elem_id("margin_size"))
+    def _axis(self, label) -> AxisOption | None:
+        return next((x for x in self.current_axis_options if x.label == label), None)
 
-        with gr.Row(variant="compact", elem_id="axis_options"):
-            with gr.Column(variant="compact", scale=3):
-                draw_legend = gr.Checkbox(label="Draw legend", value=True, elem_id=self.elem_id("draw_legend"))
-                no_fixed_seeds = gr.Checkbox(label="Keep -1 for seeds", value=False, elem_id=self.elem_id("no_fixed_seeds"))
-                with gr.Row(variant="compact"):
-                    vary_seeds_x = gr.Checkbox(label="Vary seeds for X", value=False, min_width=80, elem_id=self.elem_id("vary_seeds_x"), tooltip="Use different seeds for images along X axis.")
-                    vary_seeds_y = gr.Checkbox(label="Vary seeds for Y", value=False, min_width=80, elem_id=self.elem_id("vary_seeds_y"), tooltip="Use different seeds for images along Y axis.")
-                    vary_seeds_z = gr.Checkbox(label="Vary seeds for Z", value=False, min_width=80, elem_id=self.elem_id("vary_seeds_z"), tooltip="Use different seeds for images along Z axis.")
-            with gr.Column(variant="compact", scale=2):
-                include_lone_images = gr.Checkbox(label="Include Sub Images", value=False, elem_id=self.elem_id("include_lone_images"))
-                include_sub_grids = gr.Checkbox(label="Include Sub Grids", value=False, elem_id=self.elem_id("include_sub_grids"))
-                csv_mode = gr.Checkbox(label="Use text inputs instead of dropdowns", value=False, elem_id=self.elem_id("csv_mode"))
+    def is_listed(self, axis: AxisOption) -> bool:
+        """Whether ``axis`` takes its values from the dropdown (else the text box)."""
 
-        with gr.Row(variant="compact", elem_id="swap_axes"):
-            swap_xy_axes_button = gr.Button(value="Swap X/Y axes", elem_id="xy_grid_swap_axes_button")
-            swap_yz_axes_button = gr.Button(value="Swap Y/Z axes", elem_id="yz_grid_swap_axes_button")
-            swap_xz_axes_button = gr.Button(value="Swap X/Z axes", elem_id="xz_grid_swap_axes_button")
+        return axis.choices is not None and (self.listed_axes is None or axis.label in self.listed_axes)
 
-        def swap_axes(axis1_type, axis1_values, axis1_values_dropdown, axis2_type, axis2_values, axis2_values_dropdown):
-            return self.current_axis_options[axis2_type].label, axis2_values, axis2_values_dropdown, self.current_axis_options[axis1_type].label, axis1_values, axis1_values_dropdown
+    def params(self, is_img2img):
+        options = [x for x in axis_options if type(x) == AxisOption or x.is_img2img == is_img2img]
 
-        xy_swap_args = [x_type, x_values, x_values_dropdown, y_type, y_values, y_values_dropdown]
-        swap_xy_axes_button.click(swap_axes, inputs=xy_swap_args, outputs=xy_swap_args)
-        yz_swap_args = [y_type, y_values, y_values_dropdown, z_type, z_values, z_values_dropdown]
-        swap_yz_axes_button.click(swap_axes, inputs=yz_swap_args, outputs=yz_swap_args)
-        xz_swap_args = [x_type, x_values, x_values_dropdown, z_type, z_values, z_values_dropdown]
-        swap_xz_axes_button.click(swap_axes, inputs=xz_swap_args, outputs=xz_swap_args)
+        def labels():
+            return [x.label for x in self.current_axis_options]
 
-        def fill(axis_type, csv_mode):
-            axis = self.current_axis_options[axis_type]
-            if axis.choices:
-                if csv_mode:
-                    return list_to_csv_string(axis.choices()), gr.skip()
-                else:
-                    return gr.skip(), axis.choices()
-            else:
-                return gr.skip(), gr.skip()
+        # Conditions are static JSON: axes must be registered before the layout is built
+        with_choices = [x.label for x in options if x.choices is not None]
+        self.listed_axes = frozenset(with_choices)
+        csv_mode = ui.param("csv_mode")
 
-        fill_x_button.click(fn=fill, inputs=[x_type, csv_mode], outputs=[x_values, x_values_dropdown])
-        fill_y_button.click(fn=fill, inputs=[y_type, csv_mode], outputs=[y_values, y_values_dropdown])
-        fill_z_button.click(fn=fill, inputs=[z_type, csv_mode], outputs=[z_values, z_values_dropdown])
+        def axis_row(axis: str, default: str):
+            chooses = ui.param(f"{axis}_type", in_=with_choices)
+            return ui.Row(
+                # The script receives the axis index (Gradio's type="index"); the wire value is its label
+                ui.Choice(f"{axis}_type", labels, default, type="index", label=f"{axis.upper()} type", infotext=f"{axis.upper()} Type", on_change=f"axis_{axis}", width=3),
+                ui.Text(f"{axis}_values", "", label=f"{axis.upper()} values", infotext=f"{axis.upper()} Values", visible_if=ui.any_of(ui.not_(chooses), csv_mode), width="fill"),
+                ui.Custom(
+                    f"{axis}_values_dropdown",
+                    "xyz-values",
+                    [],
+                    props={"axis": f"{axis}_type", "action": "axis_choices"},
+                    label=f"{axis.upper()} values",
+                    validate=_value_list,
+                    paste=_paste_dropdown(axis),
+                    visible_if=ui.all_of(chooses, ui.not_(csv_mode)),
+                    width="fill",
+                ),
+                ui.Button("Fill values", f"fill_{axis}", "tool", visible_if=chooses),
+            )
 
-        def select_axis(axis_type, axis_values, axis_values_dropdown, csv_mode):
-            axis_type = axis_type or 0  # if axle type is None set to 0
-
-            choices = self.current_axis_options[axis_type].choices
-            has_choices = choices is not None
-
-            if has_choices:
-                choices = choices()
-                if csv_mode:
-                    if axis_values_dropdown:
-                        axis_values = list_to_csv_string(list(filter(lambda x: x in choices, axis_values_dropdown)))
-                        axis_values_dropdown = []
-                else:
-                    if axis_values:
-                        axis_values_dropdown = list(filter(lambda x: x in choices, csv_string_to_list_strip(axis_values)))
-                        axis_values = ""
-
-            return (gr.update(visible=has_choices), gr.update(visible=not has_choices or csv_mode, value=axis_values), gr.update(choices=choices if has_choices else None, visible=has_choices and not csv_mode, value=axis_values_dropdown))
-
-        x_type.change(fn=select_axis, inputs=[x_type, x_values, x_values_dropdown, csv_mode], outputs=[fill_x_button, x_values, x_values_dropdown])
-        y_type.change(fn=select_axis, inputs=[y_type, y_values, y_values_dropdown, csv_mode], outputs=[fill_y_button, y_values, y_values_dropdown])
-        z_type.change(fn=select_axis, inputs=[z_type, z_values, z_values_dropdown, csv_mode], outputs=[fill_z_button, z_values, z_values_dropdown])
-
-        def change_choice_mode(csv_mode, x_type, x_values, x_values_dropdown, y_type, y_values, y_values_dropdown, z_type, z_values, z_values_dropdown):
-            _fill_x_button, _x_values, _x_values_dropdown = select_axis(x_type, x_values, x_values_dropdown, csv_mode)
-            _fill_y_button, _y_values, _y_values_dropdown = select_axis(y_type, y_values, y_values_dropdown, csv_mode)
-            _fill_z_button, _z_values, _z_values_dropdown = select_axis(z_type, z_values, z_values_dropdown, csv_mode)
-            return _fill_x_button, _x_values, _x_values_dropdown, _fill_y_button, _y_values, _y_values_dropdown, _fill_z_button, _z_values, _z_values_dropdown
-
-        csv_mode.change(fn=change_choice_mode, inputs=[csv_mode, x_type, x_values, x_values_dropdown, y_type, y_values, y_values_dropdown, z_type, z_values, z_values_dropdown], outputs=[fill_x_button, x_values, x_values_dropdown, fill_y_button, y_values, y_values_dropdown, fill_z_button, z_values, z_values_dropdown])
-
-        def get_dropdown_update_from_params(axis, params):
-            val_key = f"{axis} Values"
-            vals = params.get(val_key, "")
-            valslist = csv_string_to_list_strip(vals)
-            return gr.update(value=valslist)
-
-        self.infotext_fields = (
-            (x_type, "X Type"),
-            (x_values, "X Values"),
-            (x_values_dropdown, lambda params: get_dropdown_update_from_params("X", params)),
-            (y_type, "Y Type"),
-            (y_values, "Y Values"),
-            (y_values_dropdown, lambda params: get_dropdown_update_from_params("Y", params)),
-            (z_type, "Z Type"),
-            (z_values, "Z Values"),
-            (z_values_dropdown, lambda params: get_dropdown_update_from_params("Z", params)),
+        return ui.Column(
+            ui.Group(axis_row("x", options[1].label), axis_row("y", options[0].label), axis_row("z", options[0].label)),
+            ui.Row(
+                ui.Slider("row_count", 0, 8, 0, 1, label="Row Count", info="(set to 0 for auto)"),
+                ui.Slider("margin_size", 0, 500, 0, 2, label="Grid Margins", info="(in pixels)"),
+            ),
+            ui.Row(
+                ui.Column(
+                    ui.Toggle("draw_legend", True, label="Draw legend"),
+                    ui.Toggle("no_fixed_seeds", False, label="Keep -1 for seeds"),
+                    ui.Row(
+                        ui.Toggle("vary_seeds_x", False, label="Vary seeds for X", info="Use different seeds for images along X axis."),
+                        ui.Toggle("vary_seeds_y", False, label="Vary seeds for Y", info="Use different seeds for images along Y axis."),
+                        ui.Toggle("vary_seeds_z", False, label="Vary seeds for Z", info="Use different seeds for images along Z axis."),
+                    ),
+                    width=7,
+                ),
+                ui.Column(
+                    ui.Toggle("include_lone_images", False, label="Include Sub Images"),
+                    ui.Toggle("include_sub_grids", False, label="Include Sub Grids"),
+                    ui.Toggle("csv_mode", False, label="Use text inputs instead of dropdowns", on_change="text_mode"),
+                    width=5,
+                ),
+            ),
+            ui.Row(
+                ui.Button("Swap X/Y axes", "swap_xy"),
+                ui.Button("Swap Y/Z axes", "swap_yz"),
+                ui.Button("Swap X/Z axes", "swap_xz"),
+            ),
         )
 
-        def refresh_xyz_dropdowns(x_idx: int, y_idx: int, z_idx: int):
+    # region Actions
 
-            def get_choices(axis_idx: int):
-                if (axis := self.current_axis_options[axis_idx]).choices is not None:
-                    return gr.update(choices=axis.choices())
-                return gr.skip()
+    def _values(self, values: dict) -> dict:
+        """The action's values over the defaults (a client may send only some)."""
 
-            return [get_choices(x_idx), get_choices(y_idx), get_choices(z_idx)]
+        return {**(self.layout.defaults() if self.layout is not None else {}), **values}
 
-        from modules_forge import main_entry
+    def _choices(self, values: dict, axis: str) -> tuple[AxisOption | None, list[str] | None]:
+        """The selected axis of ``axis`` and its fresh list (None: a text axis or a failed list)."""
 
-        main_entry.on_refresh_checkpoint(
-            callback=refresh_xyz_dropdowns,
-            inputs=[x_type, y_type, z_type],
-            outputs=[x_values_dropdown, y_values_dropdown, z_values_dropdown],
-        )
+        option = self._axis(values.get(f"{axis}_type"))
+        return option, (read_choices(option) if option is not None and self.is_listed(option) else None)
 
-        return [x_type, x_values, x_values_dropdown, y_type, y_values, y_values_dropdown, z_type, z_values, z_values_dropdown, draw_legend, include_lone_images, include_sub_grids, no_fixed_seeds, vary_seeds_x, vary_seeds_y, vary_seeds_z, row_count, margin_size, csv_mode]
+    def _fresh(self, option: AxisOption | None, choices: list[str] | None) -> dict:
+        """Outputs refreshing the dropdown options of a list axis (the old UI re-read them on every axis change)."""
+
+        return {f"{CHOICES_OUTPUT}/{option.label}": choices} if option is not None and self.is_listed(option) else {}
+
+    def _select(self, values: dict, axis: str, csv_mode: bool, outputs: dict) -> dict:
+        option, choices = self._choices(values, axis)
+        outputs.update(self._fresh(option, choices))
+        text, listed = select_axis(choices, values.get(f"{axis}_values") or "", values.get(f"{axis}_values_dropdown") or [], csv_mode)
+        return {f"{axis}_values": ui.update(value=text), f"{axis}_values_dropdown": ui.update(value=listed)}
+
+    def _select_axes(self, values: dict, axes: tuple[str, ...]) -> dict:
+        values = self._values(values)
+        csv_mode = bool(values.get("csv_mode"))
+        outputs: dict = {}
+        patch = {key: entry for axis in axes for key, entry in self._select(values, axis, csv_mode, outputs).items()}
+        return {**patch, "__outputs__": outputs} if outputs else patch
+
+    @ui.action
+    def axis_x(self, ctx, values):
+        return self._select_axes(values, ("x",))
+
+    @ui.action
+    def axis_y(self, ctx, values):
+        return self._select_axes(values, ("y",))
+
+    @ui.action
+    def axis_z(self, ctx, values):
+        return self._select_axes(values, ("z",))
+
+    @ui.action
+    def text_mode(self, ctx, values):
+        return self._select_axes(values, AXES)
+
+    @ui.action
+    def axis_choices(self, ctx, values):
+        """The values of every list axis, for the values dropdowns (``xyz-values``); a failing list is None."""
+
+        choices = {x.label: read_choices(x) for x in self.current_axis_options if self.is_listed(x)}
+        return {"__outputs__": {CHOICES_OUTPUT: choices}}
+
+    def _fill(self, values: dict, axis: str) -> dict:
+        option, choices = self._choices(values, axis)
+        fresh = self._fresh(option, choices)
+        patch = {"__outputs__": fresh} if fresh else {}
+        if choices is None:
+            return patch
+        if values.get("csv_mode"):
+            return {**patch, f"{axis}_values": ui.update(value=list_to_csv_string(choices))}
+        return {**patch, f"{axis}_values_dropdown": ui.update(value=choices)}
+
+    @ui.action
+    def fill_x(self, ctx, values):
+        values = self._values(values)
+        return self._fill(values, "x")
+
+    @ui.action
+    def fill_y(self, ctx, values):
+        values = self._values(values)
+        return self._fill(values, "y")
+
+    @ui.action
+    def fill_z(self, ctx, values):
+        values = self._values(values)
+        return self._fill(values, "z")
+
+    @staticmethod
+    def _swap(values: dict, first: str, second: str) -> dict:
+        patch = {}
+        for part in ("type", "values", "values_dropdown"):
+            patch[f"{first}_{part}"] = ui.update(value=values.get(f"{second}_{part}"))
+            patch[f"{second}_{part}"] = ui.update(value=values.get(f"{first}_{part}"))
+        return patch
+
+    @ui.action
+    def swap_xy(self, ctx, values):
+        values = self._values(values)
+        return self._swap(values, "x", "y")
+
+    @ui.action
+    def swap_yz(self, ctx, values):
+        values = self._values(values)
+        return self._swap(values, "y", "z")
+
+    @ui.action
+    def swap_xz(self, ctx, values):
+        values = self._values(values)
+        return self._swap(values, "x", "z")
+
+    # endregion
 
     def run(self, p, x_type, x_values, x_values_dropdown, y_type, y_values, y_values_dropdown, z_type, z_values, z_values_dropdown, draw_legend, include_lone_images, include_sub_grids, no_fixed_seeds, vary_seeds_x, vary_seeds_y, vary_seeds_z, row_count, margin_size, csv_mode):
         x_type, y_type, z_type = x_type or 0, y_type or 0, z_type or 0  # if axle type is None set to 0
@@ -625,7 +752,7 @@ class Script(scripts.Script):
             if opt.label == "Nothing":
                 return [0]
 
-            if opt.choices is not None and not csv_mode:
+            if self.is_listed(opt) and not csv_mode:
                 valslist = vals_dropdown
             elif opt.prepare is not None:
                 valslist = opt.prepare(vals)
@@ -692,17 +819,17 @@ class Script(scripts.Script):
             return valslist
 
         x_opt = self.current_axis_options[x_type]
-        if x_opt.choices is not None and not csv_mode:
+        if self.is_listed(x_opt) and not csv_mode:
             x_values = list_to_csv_string(x_values_dropdown)
         xs = process_axis(x_opt, x_values, x_values_dropdown)
 
         y_opt = self.current_axis_options[y_type]
-        if y_opt.choices is not None and not csv_mode:
+        if self.is_listed(y_opt) and not csv_mode:
             y_values = list_to_csv_string(y_values_dropdown)
         ys = process_axis(y_opt, y_values, y_values_dropdown)
 
         z_opt = self.current_axis_options[z_type]
-        if z_opt.choices is not None and not csv_mode:
+        if self.is_listed(z_opt) and not csv_mode:
             z_values = list_to_csv_string(z_values_dropdown)
         zs = process_axis(z_opt, z_values, z_values_dropdown)
 

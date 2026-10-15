@@ -50,6 +50,12 @@ A generation that mixes records its panel next to the `Anima Artist Mixer` summa
 
 Pasting those parameters (the paste button next to the prompt, or PNG Info's Send to) restores the panel in either UI language. It turns the Mixer on, sets the recorded controls, fills one row per recorded row (the row count follows), and saves the tab's current settings as an edit would. It does not change templates, the template dropdown or the text-encoding cache switch. When an infotext has no Hires rows, the Hires rows are left as they are. An infotext without these keys leaves the panel untouched: a generation without the Mixer, or one from an earlier version that wrote only the summary. The Send to buttons under the gallery also carry the panel from txt2img to img2img, as the other Anima panels do.
 
+## API
+
+`alwayson_scripts` args follow the panel's params, in this order: `enable`, `hires_independent`, `disable_hires_mixing`, `global_strength`, `optimization`, `combine_mode`, `fusion_mode`, `apply_uncond`, `enable_cache`, `base_rows`, `hires_rows`, then the optional template controls (`template`, `template_target`, `template_name`, `rename_to`; a run ignores them). `base_rows` / `hires_rows` are lists of rows, each an object keyed `enabled, artist, weight, blocks, start, end, peak, curve, stage, auto_shift` or a list in that order. The Shift is the request's own (`distilled_cfg_scale`, `hr_distilled_cfg`).
+
+The Gradio panel's 653 positional args (row counts, Shift copies, 640 row values) are no longer accepted through the API: the API keeps only the script's 15 slots, and a request in the old layout is refused with an error naming the expected args.
+
 ## Recommended Defaults
 
 - Optimization: `Balance`

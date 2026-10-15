@@ -47,6 +47,8 @@ const INPUTS: Record<Exclude<InputType, "state">, ComponentType<{ node: any }>> 
 }
 
 function InputView({ node }: { node: Exclude<InputNode, { type: "state" }> }) {
+  // An image list with a widget hint keeps its upload semantics (drafts, validation) but the widget's UI.
+  if (node.type === "image_list" && node.widget) return <Custom node={{ ...node, widget: node.widget }} />
   const Component = INPUTS[node.type]
   return Component ? <Component node={node} /> : null
 }

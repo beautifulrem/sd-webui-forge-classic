@@ -107,10 +107,46 @@ def update(**props: Any) -> PatchEntry:
     return props
 
 
-def toast(message: str, level: str = "info") -> dict:
+def message(text: str, **params: Any) -> dict:
+    """A translatable text for an ``output`` node (schema-format.md §5):
+    ``text`` is the English catalog key with ``{{name}}`` placeholders the
+    client fills from ``params`` after translating it."""
+
+    if not isinstance(text, str):
+        raise SchemaError("message text is a string")
+    return {"text": text, "params": params} if params else {"text": text}
+
+
+def toast(message: str | Mapping[str, Any], level: str = "info") -> dict:
+    """A toast; the client translates ``message`` when a catalog has it.
+    ``message`` may be a :func:`message` (a catalog key with ``{{name}}``
+    placeholders and their ``params``) for texts with variable parts."""
+
     if level not in TOAST_LEVELS:
         raise SchemaError(f"toast level is one of {TOAST_LEVELS}")
+    if isinstance(message, Mapping):
+        return {"__toast__": {"level": level, "message": message_of(message)}}
     return {"__toast__": {"level": level, "message": str(message)}}
+
+
+def message_of(value: Mapping[str, Any]) -> dict:
+    """A validated :func:`message` dict."""
+
+    params = value.get("params")
+    if not isinstance(value.get("text"), str) or not (params is None or isinstance(params, Mapping)):
+        raise SchemaError("a message is {'text': str, 'params'?: dict}")
+    return message(value["text"], **dict(params or {}))
+
+
+def message_english(value: str | Mapping[str, Any]) -> str:
+    """The English text of a string or :func:`message` (placeholders filled)."""
+
+    if not isinstance(value, Mapping):
+        return str(value)
+    text = str(value.get("text", ""))
+    for name, param in (value.get("params") or {}).items():
+        text = text.replace("{{" + str(name) + "}}", str(param))
+    return text
 
 
 def normalize_choices(choices: Any) -> list[dict]:
@@ -159,7 +195,7 @@ def merge_patches(*patches: Mapping[str, Any]) -> Patch:
         for key, entry in patch.items():
             if key == "__toast__" and key in merged:
                 previous = merged[key]
-                merged[key] = {"level": entry.get("level", previous.get("level", "info")), "message": f"{previous['message']}; {entry['message']}"}
+                merged[key] = {"level": entry.get("level", previous.get("level", "info")), "message": f"{message_english(previous['message'])}; {message_english(entry['message'])}"}
             else:
                 merged[key] = {**merged.get(key, {}), **entry}
     return merged

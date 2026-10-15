@@ -1,25 +1,23 @@
-import gradio as gr
 import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
 
 from modules import scripts_postprocessing
-from modules.ui_components import InputAccordion
+from remi import ui
 
 
 class ScriptPostprocessingDegrid(scripts_postprocessing.ScriptPostprocessing):
     name = "DeGrid"
     order = 900
 
-    def ui(self):
-        with InputAccordion(True, label="DeGrid", elem_id="extras_degrid") as degrid_enabled:
-            degrid_threshold = gr.Slider(value=0.0, minimum=0.0, maximum=1.0, step=0.05, label="Threshold", info="0.0 for Auto", elem_id="extras_degrid_threshold")
-
-        return {
-            "degrid_enabled": degrid_enabled,
-            "degrid_threshold": degrid_threshold,
-        }
+    def params(self):
+        return ui.Section(
+            "DeGrid",
+            enable=ui.Toggle("degrid_enabled", True, label="DeGrid"),
+            open=True,
+            children=[ui.Slider("degrid_threshold", 0.0, 1.0, 0.0, 0.05, label="Threshold", info="0.0 for Auto")],
+        )
 
     def process(self, pp: scripts_postprocessing.PostprocessedImage, degrid_enabled: bool = True, degrid_threshold: float = 0.0):
         if not degrid_enabled:
@@ -28,7 +26,10 @@ class ScriptPostprocessingDegrid(scripts_postprocessing.ScriptPostprocessing):
         image = np.asarray(pp.image, dtype=np.float32)
         image = torch.from_numpy(np.clip(image / 255.0, 0.0, 1.0))
 
-        image = degrid(image.cuda(), degrid_threshold)
+        from modules import devices
+
+        # The torch device (not .cuda()): DeGrid is on by default, so a CPU/MPS machine must run it too
+        image = degrid(image.to(devices.device), degrid_threshold)
 
         image = image.detach().clone().cpu().numpy()
         pp.image = Image.fromarray(np.clip((image * 255.0).round(), 0, 255).astype(np.uint8))

@@ -44,17 +44,28 @@ export type InputBase = NodeBase & {
   info?: string | null
   default?: Json
   on_change?: string | null
+  /** Runs only after a user edit of this control (not pastes, presets or action patches). */
+  on_input?: string | null
   width?: Width
   hidden?: boolean
   infotext?: string | null
   preset?: string | null
+  /** `false`: kept out of drafts; each page load starts from the current default. */
+  persist?: boolean
+  /** `false`: held for actions only, never sent with a job (the server uses the default). */
+  submit?: boolean
 }
 
 export type ChoiceOption = { value: string | number; label: string }
 
 // ---------------------------------------------------------------- inputs
 
-export type ToggleNode = InputBase & { type: "toggle"; exclusive?: { group: string; member: string } | null }
+export type ToggleNode = InputBase & {
+  type: "toggle"
+  exclusive?: { group: string; member: string } | null
+  /** `"owner.param"` (or a param of this owner) protected from programmatic writes while on. */
+  locks?: string | null
+}
 export type SliderNode = InputBase & { type: "slider"; minimum: number; maximum: number; step: number; integer?: boolean }
 export type NumberNode = InputBase & {
   type: "number"
@@ -91,10 +102,13 @@ export type ImageNode = InputBase & {
   source?: string | null
   mode?: "RGB" | "RGBA" | "L" | null
 }
-export type ImageListNode = InputBase & { type: "image_list" }
+/** `widget` edits the list with a registered widget (value: upload ids) instead of the stock control. */
+export type ImageListNode = InputBase & { type: "image_list"; widget?: string | null; props?: Record<string, Json> }
 export type FileNode = InputBase & { type: "file"; accept?: string | null }
 export type JsonNode = InputBase & { type: "json" }
 export type CustomNode = InputBase & { type: "custom"; widget: string; props?: Record<string, Json> }
+/** A node a registered widget renders: `custom`, or an input kind with a `widget` hint. */
+export type WidgetNode = CustomNode | (ImageListNode & { widget: string })
 export type StateNode = InputBase & { type: "state" }
 
 export type InputNode =
@@ -136,7 +150,7 @@ export type ButtonNode = NodeBase & {
   type: "button"
   label: string
   action: string
-  variant?: "primary" | "secondary" | "ghost" | "tool"
+  variant?: "primary" | "secondary" | "ghost" | "tool" | "danger"
 }
 export type GalleryNode = NodeBase & { type: "gallery"; name: string; label?: string | null }
 export type OutputNode = NodeBase & {
@@ -244,7 +258,10 @@ export type SettingNode = InputNode & {
   needs_reload_ui?: boolean
   refresh?: boolean
   onchange?: boolean
+  /** Not changeable through the A1111 API (/sdapi/v1); the WebUI can change it. */
   restricted?: boolean
+  /** Why the server refuses changes (frozen, read-only); such a setting is `enabled_if: false`. */
+  locked?: string
 }
 
 export type SettingsSchema = {
@@ -256,6 +273,8 @@ export type SettingsSchema = {
   }[]
   quicksettings: string[]
   values: Record<string, Json>
+  /** Each stored setting's built-in default (absent from older servers). */
+  defaults?: Record<string, Json>
 }
 
 /** One rejected value of a request (§3); `owner` is `"core"`, a script id or `"settings"`. */

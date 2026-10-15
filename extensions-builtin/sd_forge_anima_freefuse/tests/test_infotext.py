@@ -11,7 +11,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 # Shared with the other panels' suites, loaded by path (see its docstring)
-_spec = importlib.util.spec_from_file_location("extension_script_harness", ROOT.parents[1] / "tests" / "extension_script_harness.py")
+_spec = importlib.util.spec_from_file_location("remi_panel_harness", ROOT.parents[1] / "tests" / "remi_panel_harness.py")
 harness = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(harness)
 
@@ -64,9 +64,8 @@ def _recorder(freefuse):
     ids=["subject-1-off", "subject-3-off"],
 )
 def test_the_infotext_replays_into_the_same_script_args(freefuse, subjects, off):
-    script = freefuse.AnimaFreeFuseScript()
-    controls = harness.build_ui(script)
-    defaults = [control.value for control in controls]
+    layout = harness.script_layout(freefuse.AnimaFreeFuseScript())
+    defaults = layout.values_to_args({})
     settings = SETTINGS if off == 1 else [*SETTINGS[:4], "", *SETTINGS[5:]]
     args = [True, *(value for subject in subjects for value in subject), *settings]
     # An inactive subject records only its switch: the replay leaves its texts at their defaults
@@ -74,7 +73,7 @@ def test_the_infotext_replays_into_the_same_script_args(freefuse, subjects, off)
     expected[3 * off - 1 : 3 * off + 1] = defaults[3 * off - 1 : 3 * off + 1]
     assert all(value != default for value, default in zip(SETTINGS, defaults[10:]))
 
-    params = harness.assert_infotext_round_trip(script, controls, args, _recorder(freefuse), expected)
+    params = harness.assert_infotext_round_trip(layout, args, _recorder(freefuse), expected)
     assert params["Anima FreeFuse"] == "2 subjects, two-pass same-noise"
     # The recorded "False" of the inactive subject replays as False, not bool("False")
     assert params[f"Anima FreeFuse subject {off} active"] is False
@@ -83,7 +82,6 @@ def test_the_infotext_replays_into_the_same_script_args(freefuse, subjects, off)
 
 
 def test_an_off_panel_records_nothing_and_replays_its_defaults(freefuse):
-    script = freefuse.AnimaFreeFuseScript()
-    controls = harness.build_ui(script)
+    layout = harness.script_layout(freefuse.AnimaFreeFuseScript())
     args = [False, True, *ALICE, True, *BOB, True, *CAROL, *SETTINGS]
-    harness.assert_infotext_round_trip(script, controls, args, _recorder(freefuse), [control.value for control in controls])
+    harness.assert_infotext_round_trip(layout, args, _recorder(freefuse), layout.values_to_args({}))

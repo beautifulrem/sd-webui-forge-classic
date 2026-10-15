@@ -1,0 +1,18 @@
+{
+ "Anima Hires Guard": "Anima 高清修复守护",
+ "Anima only. Validates the base pass and Hires target after resolution randomization. **Report only** never changes dimensions.": "仅限 Anima。在分辨率随机化之后校验基础轮与高清修复目标尺寸。**仅报告**模式绝不修改尺寸。",
+ "Policy": "策略",
+ "Clamp unsafe values": "钳制不安全的值",
+ "Report only": "仅报告",
+ "Safety preset": "安全预设",
+ "Custom uses the three sliders below.": "“自定义”使用下方三个滑块。",
+ "Balanced": "均衡",
+ "Low VRAM": "低显存",
+ "Detail": "细节",
+ "Custom": "自定义",
+ "Align to 16 px": "对齐到 16 像素",
+ "Matches Anima's 8x VAE reduction and 2x transformer patches. Hires targets also follow Forge's Resolution Step setting.": "匹配 Anima 的 8 倍 VAE 缩减和 2 倍 Transformer 分块。高清修复目标还会遵循 Forge 的“分辨率步长”设置。",
+ "Base maximum (MP)": "基础轮上限（百万像素）",
+ "Hires maximum (MP)": "高清修复上限（百万像素）",
+ "Maximum upscale per axis": "每轴最大放大倍数"
+}

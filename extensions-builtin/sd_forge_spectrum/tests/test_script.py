@@ -1,23 +1,18 @@
-import importlib.util
 import pathlib
 import sys
 from types import SimpleNamespace
 
 import pytest
+import remi_port_harness as harness
 import torch
 
-sys.argv = sys.argv[:1]
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from lib_spectrum.presets import DEFAULTS, INFOTEXT_KEYS, PresetManager
+from lib_spectrum.presets import DEFAULTS, INFOTEXT_KEYS, PresetManager  # noqa: E402
 
 SCRIPT = ROOT / "scripts" / "spectrum.py"
 SEA = "SEA (auto-calibrated)"
-# Shared with the other panels' suites, loaded by path (see its docstring)
-_spec = importlib.util.spec_from_file_location("extension_script_harness", ROOT.parents[1] / "tests" / "extension_script_harness.py")
-harness = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(harness)
 
 
 def _load():
@@ -138,9 +133,7 @@ def test_cleanup_frees_a_real_pass_state():
 def test_old_seven_value_presets_are_padded_with_defaults(monkeypatch):
     old = [0.5, 3, 0.2, 3, 0.1, 4, 0.8]
     monkeypatch.setattr(PresetManager, "presets", {"old": old})
-    updates = PresetManager.get_preset("old")
-    assert len(updates) == len(INFOTEXT_KEYS)
-    assert [update["value"] for update in updates] == [*old, *DEFAULTS[len(old) :]]
+    assert PresetManager.get_preset("old") == [*old, *DEFAULTS[len(old) :]]
 
 
 def test_an_older_stored_argument_list_is_padded_with_defaults():
@@ -154,10 +147,17 @@ def test_an_older_stored_argument_list_is_padded_with_defaults():
     assert p.extra_generation_params["spec_schedule"] == "Window"
 
 
+def test_the_preset_name_argument_changes_nothing():
+    plain, named = _process(), _process()
+    spectrum.SpectrumForForge().process_before_every_sampling(plain, True, *_args(spec_m=3), x=torch.zeros(2, 16, 8, 8))
+    spectrum.SpectrumForForge().process_before_every_sampling(named, True, *_args(spec_m=3), "my preset", x=torch.zeros(2, 16, 8, 8))
+    assert named.extra_generation_params == plain.extra_generation_params
+
+
 def test_extra_arguments_are_refused_before_the_patch():
     p = _process()
     unet = p.sd_model.forge_objects.unet
-    count = len(INFOTEXT_KEYS) + 1
+    count = len(INFOTEXT_KEYS) + 2  # the switch, the settings, the preset name
     with pytest.raises(TypeError, match=f"Spectrum takes {count} script arguments, got {count + 1}"):
-        spectrum.SpectrumForForge().process_before_every_sampling(p, True, *_args(), "extra", x=torch.zeros(2, 16, 8, 8))
+        spectrum.SpectrumForForge().process_before_every_sampling(p, True, *_args(), "", "extra", x=torch.zeros(2, 16, 8, 8))
     assert p.sd_model.forge_objects.unet is unet and p.extra_generation_params == {} and not hasattr(p, "_spectrum_states")

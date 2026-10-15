@@ -2,6 +2,13 @@
 
 An **Anima Workshop** tab for [Haoming02/sd-webui-forge-classic](https://github.com/Haoming02/sd-webui-forge-classic) (the `neo` branch), designed for use with the [Anima](https://huggingface.co/circlestone-labs/Anima) image model.
 
+> **Remi WebUI:** the Workshop is a page (`#/ext/prompt-workshop`, in the
+> navigation's pages group). The category boxes are prompt editors with tag
+> completion; the send buttons write the txt2img prompt directly. Booru
+> requests are made only when you click a grab or download button. API keys
+> are write-only: a saved key is never shown again (leave the field empty to
+> keep it, "Clear" removes it).
+
 Anima expects prompts written in a specific order:
 
 ```

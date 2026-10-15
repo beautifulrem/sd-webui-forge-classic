@@ -11,6 +11,7 @@ import { inputsIn, sectionKey } from "../form-index"
 import { anyModified } from "../form-store"
 import { RenderChildren } from "../Renderer"
 import type { SectionNode, ToggleNode } from "../schema"
+import { summarizeSection } from "../section-summary"
 
 function EnableSwitch({ node, title, onEnabled }: { node: ToggleNode; title: string; onEnabled: () => void }) {
   const { t } = useTranslation()
@@ -34,7 +35,8 @@ function EnableSwitch({ node, title, onEnabled }: { node: ToggleNode; title: str
  * Collapsible panel. With `enable`, the header carries the owner's enable
  * toggle (the former InputAccordion); switching it on also opens the panel.
  * The header's reset restores every param of the section and reruns their
- * `on_change` actions and conflict locks.
+ * `on_change` actions and conflict locks. Widgets may add a summary of
+ * their values to the header (`section-summary.ts`).
  */
 export function Section({ node }: { node: SectionNode }) {
   const { t } = useTranslation()
@@ -43,7 +45,9 @@ export function Section({ node }: { node: SectionNode }) {
   const owner = useOwner()
   const key = sectionKey(owner, node)
   const open = useFormState((s) => s.open[key] ?? node.open ?? false)
-  const names = inputsIn(node).map((input) => input.name)
+  const inputs = inputsIn(node)
+  const names = inputs.map((input) => input.name)
+  const summary = useFormState((s) => summarizeSection(s.values[owner], inputs))
   const modified = useFormState((s) => anyModified(s, owner, names))
   const enabled = useFormState((s) => (node.enable ? Boolean(s.values[owner]?.[node.enable.name]) : false))
   const title = t(node.title)
@@ -74,6 +78,9 @@ export function Section({ node }: { node: SectionNode }) {
           <span id={`${id}-title`} className={cn("truncate", enabled && "text-foreground")}>
             {title}
           </span>
+          {summary ? (
+            <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-px text-[0.7rem] leading-4 font-medium text-primary">{summary}</span>
+          ) : null}
         </Collapsible.Trigger>
         {modified ? (
           <ModifiedDot

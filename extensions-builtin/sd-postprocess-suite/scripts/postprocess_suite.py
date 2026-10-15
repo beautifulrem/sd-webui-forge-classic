@@ -6,20 +6,23 @@ fully reorderable stack of image effects in `postprocess_image_after_composite`
 - the last hook before the image is saved - so every effect is baked into the
 saved file, the gallery, and the API result.
 
-txt2img also gets an "Apply PP -> Send to img2img" button that runs the current
-settings on the selected gallery image and drops the processed result straight
-into the img2img canvas.
+txt2img also gets an "Apply PP -> Send to img2img" button (the ``pp-send``
+widget) that runs the current settings on the selected result and drops the
+processed image into the img2img form.
+
+The panel is declared once from ``lib_postprocess.pipeline.STAGES``: one
+section per stage, inside one collapsed section per category (the SPA only
+mounts what is open), with every stage's params named ``<stage>_<param>``.
 """
 
+import io
 import os
 import shutil
 import sys
 
-import gradio as gr
-
 import modules.scripts as scripts
-from modules import paths_internal, script_callbacks
-from modules.ui_components import InputAccordion
+from modules import paths_internal
+from remi import ui
 
 # make the sibling lib package importable
 _EXT_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -109,72 +112,124 @@ def delete_preset_file(name: str) -> None:
         print(f"[PP Suite] delete preset failed: {e}")
 
 
-def _make_component(spec):
-    t = spec["type"]
-    kw = dict(spec.get("kw", {}))
-    if t == "slider":
-        return gr.Slider(value=spec["default"], **kw)
-    if t == "number":
-        return gr.Number(value=spec["default"], **kw)
-    if t == "checkbox":
-        return gr.Checkbox(value=spec["default"], **kw)
-    if t == "color":
-        return gr.ColorPicker(value=spec["default"], **kw)
-    if t == "dropdown":
-        return gr.Dropdown(value=spec["default"], **kw)
-    if t == "file":
-        return gr.File(value=spec["default"], **kw)
-    raise ValueError(f"unknown component type {t}")
+APPLY_MODES = ["Final output", "img2img input (pre-diffusion)", "Both"]
+
+
+def stage_param_name(stage: dict, spec: dict) -> str:
+    return f"{stage['key']}_{spec['id']}"
+
+
+def pipeline_names() -> list[str]:
+    """The pipeline's params in argument order: the master toggle, then per
+    stage its toggle, order and params (``P.unflatten``'s layout)."""
+
+    names = ["enable"]
+    for stage in P.ordered_stages():
+        names += [f"{stage['key']}_enabled", f"{stage['key']}_order"]
+        names += [stage_param_name(stage, spec) for spec in stage["params"]]
+    return names
+
+
+def _input(name: str, spec: dict):
+    kw = spec.get("kw", {})
+    label = kw.get("label")
+    kind = spec["type"]
+    if kind == "slider":
+        return ui.Slider(name, kw["minimum"], kw["maximum"], spec["default"], kw["step"], label=label)
+    if kind == "number":
+        return ui.Number(name, spec["default"], step=kw.get("step"), precision=kw.get("precision"), label=label)
+    if kind == "checkbox":
+        return ui.Toggle(name, spec["default"], label=label)
+    if kind == "color":
+        return ui.Color(name, spec["default"], label=label)
+    if kind == "dropdown":
+        return ui.Choice(name, kw["choices"], spec["default"], label=label)
+    if kind == "file":
+        return ui.File(name, accept=",".join(kw.get("file_types", ())) or None, label=label)
+    raise ValueError(f"unknown component type {kind}")
+
+
+def stage_section(stage: dict):
+    """One stage: its toggle in the header, the order and the first two params
+    in the first row, then two params per row."""
+
+    created = [_input(stage_param_name(stage, spec), spec) for spec in stage["params"]]
+    order = ui.Number(f"{stage['key']}_order", float(stage["order"]), minimum=0, step=1, precision=2, label="Order")
+    rows = [ui.Row(order, *created[:2])]
+    rows += [ui.Row(*created[i : i + 2]) for i in range(2, len(created), 2)]
+    return ui.Section(stage["label"], enable=ui.Toggle(f"{stage['key']}_enabled", False, label=stage["label"]), children=rows)
 
 
 # ---------------------------------------------------------------------------
-# Send-to-img2img wiring (deferred; needs cross-tab component handles)
+# Uploads (LUT files, the image sent to img2img) live in the server's file store
 # ---------------------------------------------------------------------------
-_SEND = {"button": None, "comps": None, "gallery": None, "wired": False}
+def _file_store(ctx):
+    services = getattr(getattr(getattr(ctx.request, "app", None), "state", None), "services", None)
+    if services is None:
+        from remi.server.services import default_services
+
+        services = default_services()
+    return services.files
 
 
-def _try_wire_send():
-    if _SEND["wired"]:
-        return
-    if not (_SEND["button"] and _SEND["comps"] and _SEND["gallery"]):
-        return
+def _upload_path(ctx, file_id) -> str | None:
+    if not isinstance(file_id, str) or not file_id:
+        return None
+    record = _file_store(ctx).get(file_id)
+    return record.path if record is not None and record.kind in ("upload", "output") else None
+
+
+def _lut_to_preset(ctx, file_id, preset: str) -> str | None:
+    """A preset keeps its own copy of the LUT (uploads are pruned after a while)."""
+
+    path = _upload_path(ctx, file_id)
+    if path is None:
+        return None
+    directory = os.path.join(_PRESET_DIR, "luts")
+    os.makedirs(directory, exist_ok=True)
+    record = _file_store(ctx).get(file_id)
+    base = _sanitize(os.path.splitext(record.name if record else "")[0]) or "lut"
+    target = os.path.join(directory, f"{preset}-{base}.cube")
+    shutil.copyfile(path, target)
+    return target
+
+
+def _preset_lut(name: str) -> str | None:
+    """The LUT copy a saved preset owns (in ``presets/luts``), if any."""
+
+    path = _preset_path(name)
+    if not _sanitize(name) or not os.path.isfile(path):
+        return None
+    import json
+
     try:
-        from modules import infotext_utils
-        dest = infotext_utils.paste_fields.get("img2img", {}).get("init_img")
+        with open(path, "r", encoding="utf-8") as f:
+            lut = P.deserialize_to_values(json.load(f))[pipeline_names().index("lut_lut_file")]
     except Exception:
-        dest = None
-    if dest is None:
-        return
+        return None
+    luts = os.path.realpath(os.path.join(_PRESET_DIR, "luts"))
+    if not isinstance(lut, str) or os.path.dirname(os.path.realpath(lut)) != luts:
+        return None  # not a copy this suite made (a legacy path, an upload)
+    return lut
 
-    from modules.infotext_utils import image_from_url_text
 
-    def _apply_and_send(image_data, *pp_args):
-        img = image_from_url_text(image_data)
-        if img is None:
-            return gr.update()
+def _remove_lut_copy(path: str | None) -> None:
+    if path and os.path.isfile(path):
         try:
-            return P.run_pipeline(img, list(pp_args))
-        except Exception as e:
-            print(f"[PP Suite] send-to-img2img failed: {e}")
-            return img
-
-    _SEND["button"].click(
-        fn=_apply_and_send,
-        inputs=[_SEND["gallery"], *_SEND["comps"]],
-        outputs=[dest],
-        js="pp_extract_and_pass",
-        show_progress=False,
-    ).then(fn=None, js="switch_to_img2img")
-    _SEND["wired"] = True
+            os.remove(path)
+        except OSError as e:
+            print(f"[PP Suite] could not remove the preset's LUT copy: {e}")
 
 
-def _on_after_component(component, **kwargs):
-    if kwargs.get("elem_id") == "txt2img_gallery":
-        _SEND["gallery"] = component
-    _try_wire_send()
+def _lut_from_preset(ctx, path) -> str | None:
+    """The upload id of a preset's LUT file (None when it is gone)."""
 
-
-script_callbacks.on_after_component(_on_after_component)
+    if not isinstance(path, str) or not path.lower().endswith(".cube") or not os.path.isfile(path):
+        return None
+    if os.path.getsize(path) > P._LUT_MAX_BYTES:
+        return None
+    with open(path, "rb") as file:
+        return _file_store(ctx).add_upload_bytes(file.read(), os.path.basename(path)).id
 
 
 # ---------------------------------------------------------------------------
@@ -188,114 +243,142 @@ class PostProcessSuite(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def ui(self, is_img2img):
-        comps = []
-
-        with InputAccordion(False, label="Post Processing Suite") as master_enabled:
-            comps.append(master_enabled)
-
-            if is_img2img:
-                apply_mode = gr.Radio(
-                    ["Final output", "img2img input (pre-diffusion)", "Both"],
-                    value="Final output",
-                    label="Apply post-processing to",
-                    info="'input' cleans/grades the (upscaled) init image right before "
-                         "it is encoded and diffused.",
-                )
-            else:
-                with gr.Row():
-                    send_btn = gr.Button(
-                        "\U0001F5BC\uFE0F Apply PP \u2192 Send to img2img",
-                        variant="primary",
-                        elem_id="pp_suite_send_to_img2img",
-                    )
-                _SEND["button"] = send_btn
-
-            gr.Markdown(
-                "Enable a stage by ticking its toggle. Set each stage's **Order** "
-                "(lower runs first) to reorder the pipeline."
+    def params(self, is_img2img):
+        # Arguments: the pipeline, then (img2img) where it applies; the send
+        # button and the preset picker are UI only and come last.
+        self.param_order = (*pipeline_names(), *(("apply_mode",) if is_img2img else ("send",)), "preset")
+        if is_img2img:
+            where = ui.Choice(
+                "apply_mode",
+                APPLY_MODES,
+                "Final output",
+                style="radio",
+                label="Apply post-processing to",
+                info="'input' cleans/grades the (upscaled) init image right before it is encoded and diffused.",
             )
+        else:
+            where = ui.Custom("send", "pp-send", None, props={"action": "apply_send", "target": "img2img"}, label="")
+        presets = ui.Group(
+            "Presets",
+            ui.Row(
+                ui.Choice(
+                    "preset",
+                    list_presets,
+                    "",
+                    allow_custom=True,
+                    label="Preset",
+                    info="Pick a preset to load or delete, or type a new name to save the current settings.",
+                    width="fill",
+                ),
+                ui.Button("Load", "preset_load", "secondary"),
+                ui.Button("Save", "preset_save", "primary"),
+                ui.Button("Delete", "preset_delete", "ghost"),
+                ui.Button("Refresh", "preset_refresh", "tool"),
+            ),
+            open=False,
+        )
+        categories = [ui.Section(category, children=[stage_section(stage) for stage in members]) for category, members in P.grouped_stages()]
+        return ui.Section(
+            "Post Processing Suite",
+            enable=ui.Toggle("enable", False, label="Post Processing Suite"),
+            children=[
+                where,
+                ui.Markdown("Enable a stage by ticking its toggle. Set each stage's **Order** (lower runs first) to reorder the pipeline."),
+                presets,
+                *categories,
+            ],
+        )
 
-            # ---- Presets -------------------------------------------------
-            with gr.Accordion("\U0001F4BE Presets", open=False):
-                with gr.Row():
-                    preset_dd = gr.Dropdown(choices=list_presets(), label="Preset",
-                                            scale=4, allow_custom_value=False)
-                    preset_load = gr.Button("Load", scale=1)
-                    preset_refresh = gr.Button("\U0001F504", scale=0, min_width=44)
-                    preset_delete = gr.Button("Delete", scale=1, variant="stop")
-                with gr.Row():
-                    preset_name = gr.Textbox(label="Save as", placeholder="preset name",
-                                             scale=4)
-                    preset_save = gr.Button("Save", scale=1, variant="primary")
+    # ---- actions -----------------------------------------------------------
+    def _layout(self):
+        if self.layout is None:
+            self.layout = ui.ScriptLayout(self.params(self.is_img2img), owner="post_processing_suite", order=self.param_order)
+        return self.layout
 
-            for cat, members in P.grouped_stages():
-                with gr.Accordion(cat, open=False):
-                    for st in members:
-                        with InputAccordion(False, label=st["label"]) as stage_enabled:
-                            plist = st["params"]
-                            created = []
-                            with gr.Row():
-                                order = gr.Number(value=st["order"], precision=2,
-                                                  label="Order", minimum=0,
-                                                  elem_classes=["pp-order"])
-                                if len(plist) >= 1:
-                                    created.append(_make_component(plist[0]))
-                                if len(plist) >= 2:
-                                    created.append(_make_component(plist[1]))
-                            for i in range(2, len(plist), 2):
-                                with gr.Row():
-                                    for pspec in plist[i:i + 2]:
-                                        created.append(_make_component(pspec))
-                            comps.append(stage_enabled)
-                            comps.append(order)
-                            comps.extend(created)
+    def _pipeline_args(self, ctx, values) -> list:
+        """The pipeline's processing arguments for the action's ``values``
+        (validated; the LUT upload as its path, as a job passes it)."""
 
-            if is_img2img:
-                comps.append(apply_mode)
+        coerced = self._layout().coerce(values, unknown="ignore")
+        args = [coerced[name] for name in pipeline_names()]
+        lut = pipeline_names().index("lut_lut_file")
+        args[lut] = _upload_path(ctx, args[lut])
+        return args
 
-        # ---- preset handlers (pipeline_comps are the load targets) -------
-        pipeline_comps = comps[:P.PIPELINE_ARG_COUNT]
+    @ui.action
+    def preset_refresh(self, ctx, values):
+        return {"preset": ui.update(choices=list_presets())}
 
-        def _do_save(name, *args):
-            ok = save_preset_file(name, args)
-            choices = list_presets()
-            value = _sanitize(name) if ok else None
-            return gr.update(choices=choices, value=value)
+    @ui.action
+    def preset_save(self, ctx, values):
+        name = _sanitize(values.get("preset") or "")
+        if not name:
+            return ui.toast("Type a name for the preset first", "warning")
+        args = self._pipeline_args(ctx, values)
+        lut = pipeline_names().index("lut_lut_file")
+        previous = _preset_lut(name)
+        args[lut] = _lut_to_preset(ctx, values.get("lut_lut_file"), name)
+        if not save_preset_file(name, args):
+            return ui.toast("Could not save the preset", "error")
+        if previous is not None and previous != args[lut]:
+            _remove_lut_copy(previous)  # the overwritten preset's LUT
+        return {"preset": ui.update(choices=list_presets(), value=name), **ui.toast("Preset saved", "success")}
 
-        def _do_load(name):
-            preset = load_preset_file(name) if name else None
-            if not preset:
-                return [gr.update() for _ in pipeline_comps]
-            values = P.deserialize_to_values(preset)
-            return [gr.update(value=v) for v in values]
+    @ui.action
+    def preset_load(self, ctx, values):
+        name = values.get("preset") or ""
+        preset = load_preset_file(name) if name else None
+        if not preset:
+            return ui.toast("Pick a saved preset first", "warning")
+        layout = self._layout()
+        context = ui.Context()
+        patch = {}
+        for param, value in zip(pipeline_names(), P.deserialize_to_values(preset)):
+            if param == "lut_lut_file":
+                value = _lut_from_preset(ctx, value)
+            try:
+                patch[param] = ui.update(value=layout.by_name[param].coerce(value, context))
+            except ui.ParamError:
+                continue  # a value this version cannot take: the control keeps its own
+        return {**patch, **ui.toast("Preset loaded", "success")}
 
-        def _do_delete(name):
-            if name:
-                delete_preset_file(name)
-            return gr.update(choices=list_presets(), value=None)
+    @ui.action
+    def preset_delete(self, ctx, values):
+        name = values.get("preset") or ""
+        if not name or name not in list_presets():
+            return ui.toast("Pick a saved preset first", "warning")
+        lut = _preset_lut(name)
+        delete_preset_file(name)
+        if not os.path.isfile(_preset_path(name)):
+            _remove_lut_copy(lut)
+        return {"preset": ui.update(choices=list_presets(), value=""), **ui.toast("Preset deleted", "success")}
 
-        def _do_refresh():
-            return gr.update(choices=list_presets())
+    @ui.action
+    def apply_send(self, ctx, values):
+        """Runs the pipeline on the result ``file_id`` (the action's own
+        argument); answers the processed image's upload id as the output ``sent``."""
 
-        preset_save.click(fn=_do_save, inputs=[preset_name, *pipeline_comps],
-                          outputs=[preset_dd], show_progress=False)
-        preset_load.click(fn=_do_load, inputs=[preset_dd],
-                          outputs=pipeline_comps, show_progress=False)
-        preset_delete.click(fn=_do_delete, inputs=[preset_dd],
-                            outputs=[preset_dd], show_progress=False)
-        preset_refresh.click(fn=_do_refresh, inputs=[], outputs=[preset_dd],
-                            show_progress=False)
+        from modules import images
 
-        if not is_img2img:
-            _SEND["comps"] = comps
-            _try_wire_send()
+        path = _upload_path(ctx, ctx.extra.get("file_id"))
+        if path is None:
+            return ui.toast("Select a generated image first", "warning")
+        args = self._pipeline_args(ctx, values)
+        image = images.read(path)
+        image.load()
+        try:
+            result = P.run_pipeline(image, args)
+        except Exception as e:
+            print(f"[PP Suite] send-to-img2img failed: {e}")
+            result = image
+        buffer = io.BytesIO()
+        result.save(buffer, format="PNG")
+        record = _file_store(ctx).add_upload_bytes(buffer.getvalue(), "post-processed.png")
+        return {"__outputs__": {"sent": record.id}}
 
-        return comps
-
-    @staticmethod
-    def _apply_mode(args):
-        if len(args) > P.PIPELINE_ARG_COUNT:
+    # ---- processing --------------------------------------------------------
+    def _apply_mode(self, args):
+        if self.is_img2img and len(args) > P.PIPELINE_ARG_COUNT:
             return args[P.PIPELINE_ARG_COUNT]
         return "Final output"
 

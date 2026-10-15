@@ -4,6 +4,8 @@ import { toast } from "sonner"
 import { useProgress } from "@/api/progress"
 import { keys, queryClient } from "@/api/queries"
 import { onWsEvent, useWs } from "@/api/ws"
+import { onNewOutputs, onOutputsChanged } from "@/features/library/cache"
+import { networksFollowOptions } from "@/features/networks/queries"
 import { reloadServerCatalog, t } from "@/i18n"
 import { showToast } from "@/lib/toast"
 
@@ -41,7 +43,10 @@ export function useWsBridge() {
         useWs.getState().clearPreview()
         void queryClient.invalidateQueries({ queryKey: keys.jobs })
         void queryClient.invalidateQueries({ queryKey: ["outputs"] })
+        // The gallery merges the new outputs in (refetching every loaded page would be slow).
+        if (e.outputs?.length) void onNewOutputs()
       }),
+      onWsEvent("outputs.changed", (e) => void onOutputsChanged(e.ids)),
       onWsEvent("job.failed", (e) => {
         const mine = e.job_id in useProgress.getState().owned
         progress.failed(e)
@@ -57,8 +62,10 @@ export function useWsBridge() {
         void queryClient.invalidateQueries({ queryKey: keys.jobs })
         void queryClient.invalidateQueries({ queryKey: keys.queueItems })
       }),
-      onWsEvent("options.changed", () => {
+      onWsEvent("options.changed", (e) => {
         void queryClient.invalidateQueries({ queryKey: keys.options })
+        // Network lists follow the preset (compatibility), LoRA weight / name and hidden-folder options.
+        if (networksFollowOptions(e.keys)) void queryClient.invalidateQueries({ queryKey: ["networks"] })
         void queryClient.invalidateQueries({ queryKey: keys.app })
         // The checkpoint / module lists and the styles follow some options (e.g. a model switch).
         void queryClient.invalidateQueries({ queryKey: keys.models })

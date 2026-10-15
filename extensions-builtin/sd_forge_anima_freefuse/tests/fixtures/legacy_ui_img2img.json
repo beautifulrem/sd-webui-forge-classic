@@ -1,0 +1,208 @@
+{
+ "shown": true,
+ "script": "AnimaFreeFuseScript",
+ "inputs": [
+  {
+   "kind": "toggle",
+   "label": "Anima FreeFuse (multi-LoRA)",
+   "default": false,
+   "infotext": "Anima FreeFuse enabled",
+   "preset": "freefuse.enabled"
+  },
+  {
+   "kind": "toggle",
+   "label": "Subject 1",
+   "default": true,
+   "infotext": "Anima FreeFuse subject 1 active",
+   "preset": null
+  },
+  {
+   "kind": "text",
+   "label": "LoRA 1 name",
+   "default": "",
+   "lines": 1,
+   "infotext": "Anima FreeFuse subject 1 LoRA",
+   "preset": null
+  },
+  {
+   "kind": "text",
+   "label": "Trigger phrase 1",
+   "default": "",
+   "lines": 1,
+   "infotext": "Anima FreeFuse subject 1 concept",
+   "preset": null
+  },
+  {
+   "kind": "toggle",
+   "label": "Subject 2",
+   "default": true,
+   "infotext": "Anima FreeFuse subject 2 active",
+   "preset": null
+  },
+  {
+   "kind": "text",
+   "label": "LoRA 2 name",
+   "default": "",
+   "lines": 1,
+   "infotext": "Anima FreeFuse subject 2 LoRA",
+   "preset": null
+  },
+  {
+   "kind": "text",
+   "label": "Trigger phrase 2",
+   "default": "",
+   "lines": 1,
+   "infotext": "Anima FreeFuse subject 2 concept",
+   "preset": null
+  },
+  {
+   "kind": "toggle",
+   "label": "Subject 3",
+   "default": false,
+   "infotext": "Anima FreeFuse subject 3 active",
+   "preset": null
+  },
+  {
+   "kind": "text",
+   "label": "LoRA 3 name",
+   "default": "",
+   "lines": 1,
+   "infotext": "Anima FreeFuse subject 3 LoRA",
+   "preset": null
+  },
+  {
+   "kind": "text",
+   "label": "Trigger phrase 3",
+   "default": "",
+   "lines": 1,
+   "infotext": "Anima FreeFuse subject 3 concept",
+   "preset": null
+  },
+  {
+   "kind": "slider",
+   "label": "Collect step",
+   "default": 3,
+   "minimum": 0,
+   "maximum": 12,
+   "step": 1,
+   "infotext": "Anima FreeFuse collect step",
+   "preset": "freefuse.collect_step"
+  },
+  {
+   "kind": "slider",
+   "label": "Collect block",
+   "default": 18,
+   "minimum": 0,
+   "maximum": 27,
+   "step": 1,
+   "infotext": "Anima FreeFuse collect block",
+   "preset": "freefuse.collect_block"
+  },
+  {
+   "kind": "slider",
+   "label": "Core-token top-k ratio",
+   "default": 0.1,
+   "minimum": 0.01,
+   "maximum": 0.5,
+   "step": 0.01,
+   "infotext": "Anima FreeFuse top-k",
+   "preset": "freefuse.top_k"
+  },
+  {
+   "kind": "slider",
+   "label": "Self-concept temperature",
+   "default": 300,
+   "minimum": 10,
+   "maximum": 2000,
+   "step": 10,
+   "infotext": "Anima FreeFuse temperature",
+   "preset": "freefuse.temperature"
+  },
+  {
+   "kind": "text",
+   "label": "Background phrase (optional)",
+   "default": "",
+   "lines": 1,
+   "infotext": "Anima FreeFuse background",
+   "preset": null
+  },
+  {
+   "kind": "slider",
+   "label": "Background scale",
+   "default": 0.95,
+   "minimum": 0.0,
+   "maximum": 2.0,
+   "step": 0.05,
+   "infotext": "Anima FreeFuse background scale",
+   "preset": "freefuse.background_scale"
+  },
+  {
+   "kind": "slider",
+   "label": "Balance iterations",
+   "default": 15,
+   "minimum": 1,
+   "maximum": 50,
+   "step": 1,
+   "infotext": "Anima FreeFuse balance iterations",
+   "preset": "freefuse.balance_iterations"
+  },
+  {
+   "kind": "slider",
+   "label": "Mask feather radius",
+   "default": 1,
+   "minimum": 0,
+   "maximum": 8,
+   "step": 1,
+   "infotext": "Anima FreeFuse feather",
+   "preset": "freefuse.feather"
+  },
+  {
+   "kind": "slider",
+   "label": "Spatial routing strength",
+   "default": 1.0,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.05,
+   "infotext": "Anima FreeFuse routing strength",
+   "preset": "freefuse.routing_strength"
+  },
+  {
+   "kind": "slider",
+   "label": "Routing end progress",
+   "default": 1.0,
+   "minimum": 0.0,
+   "maximum": 1.0,
+   "step": 0.05,
+   "infotext": "Anima FreeFuse routing end",
+   "preset": "freefuse.routing_end"
+  },
+  {
+   "kind": "slider",
+   "label": "Wrong-concept suppression",
+   "default": 6.0,
+   "minimum": 0.0,
+   "maximum": 20.0,
+   "step": 0.5,
+   "infotext": "Anima FreeFuse bias scale",
+   "preset": "freefuse.bias_scale"
+  },
+  {
+   "kind": "slider",
+   "label": "Own-concept boost",
+   "default": 1.0,
+   "minimum": 0.0,
+   "maximum": 10.0,
+   "step": 0.25,
+   "infotext": "Anima FreeFuse positive bias",
+   "preset": "freefuse.positive_bias"
+  },
+  {
+   "kind": "text",
+   "label": "Attention-bias blocks",
+   "default": "0-27",
+   "lines": 1,
+   "infotext": "Anima FreeFuse bias blocks",
+   "preset": "freefuse.bias_blocks"
+  }
+ ]
+}

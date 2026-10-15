@@ -14,7 +14,7 @@ const sources = import.meta.glob<string>(["../**/*.{ts,tsx}", "!../**/*.test.*",
 })
 
 /** Files whose English label constants are translated at render time. */
-const INDIRECT = /(app\/(routes|App|AppearanceMenu|Header)\.tsx|pages\/.*\.tsx?|components\/PagePlaceholder\.tsx)$/
+const INDIRECT = /(app\/(routes|App|AppearanceMenu|Header)\.tsx|pages\/.*\.tsx?|canvas\/.*\.tsx?|components\/PagePlaceholder\.tsx)$/
 
 function chromeKeys(): Set<string> {
   const keys = new Set<string>()

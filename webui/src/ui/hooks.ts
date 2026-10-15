@@ -67,7 +67,7 @@ export type ParamBinding<T> = {
   error: string | undefined
   /** Node enablement: inherited × enabled_if × patch override. */
   enabled: boolean
-  /** User edit: stores the value, then `on_change` and conflict locks (debounced for continuous kinds). */
+  /** User edit: stores the value, then `on_change`, `on_input` and conflict locks (debounced for continuous kinds). */
   setValue: (value: T) => void
   reset: () => void
 }
@@ -90,7 +90,11 @@ export function useParam<T = unknown>(node: InputNode): ParamBinding<T> {
 
   const changed = () => {
     clearTimeout(timer.current)
-    const run = () => runChangeEffects({ store, tab: formId }, owner, [node.name])
+    const run = () => {
+      runChangeEffects({ store, tab: formId }, owner, [node.name])
+      // User edits only: pastes and bulk changes go through runChangeEffects alone
+      if (node.on_input && node.on_input !== node.on_change) void runAction({ store, tab: formId }, owner, node.on_input)
+    }
     if (CONTINUOUS.has(node.type)) timer.current = setTimeout(run, 300)
     else run()
   }

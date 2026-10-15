@@ -22,9 +22,8 @@ import re
 import fnmatch
 import shutil
 
-import gradio as gr
-
-from modules import paths_internal, scripts, script_callbacks
+from modules import paths_internal, scripts
+from remi import ui
 
 
 # --------------------------------------------------------------------------- #
@@ -61,18 +60,34 @@ def load_blacklist() -> str:
         return ""
 
 
-def save_blacklist(text: str) -> str:
+# Status messages: English catalog keys (localizations/zh_CN.json) whose
+# {{placeholders}} the client fills after translating them.
+MSG_SAVED = "Blacklist saved."
+MSG_SAVE_FAILED = "Could not save blacklist: {{error}}"
+MSG_SAVE_FAILED_TOAST = "Could not save the blacklist."
+MSG_RELOADED = "Blacklist reloaded from file."
+MSG_EMPTY = "Blacklist is empty, nothing to remove."
+MSG_UNCHANGED = "No blacklisted tags found, prompt unchanged."
+MSG_REMOVED = "Removed {{count}} tag(s): {{tags}}"
+MSG_REMOVED_MORE = "Removed {{count}} tag(s): {{tags}} … and {{more}} more"
+MSG_REMOVED_DUPES = "Removed {{count}} tag(s), {{duplicates}} of them duplicates: {{tags}}"
+MSG_REMOVED_DUPES_MORE = "Removed {{count}} tag(s), {{duplicates}} of them duplicates: {{tags}} … and {{more}} more"
+MESSAGES = (MSG_SAVED, MSG_SAVE_FAILED, MSG_SAVE_FAILED_TOAST, MSG_RELOADED, MSG_EMPTY, MSG_UNCHANGED, MSG_REMOVED, MSG_REMOVED_MORE, MSG_REMOVED_DUPES, MSG_REMOVED_DUPES_MORE)
+
+
+def save_blacklist(text: str) -> tuple[bool, dict]:
+    """Writes the blacklist file: ``(saved, status message)``."""
     try:
         os.makedirs(STATE_DIR, exist_ok=True)
         with open(BLACKLIST_FILE, "w", encoding="utf-8") as f:
             f.write((text or "").strip() + "\n")
-        return "✅ Blacklist saved."
+        return True, ui.message(MSG_SAVED)
     except OSError as e:
-        return f"⚠️ Could not save blacklist: {e}"
+        return False, ui.message(MSG_SAVE_FAILED, error=str(e))
 
 
 def reload_blacklist():
-    return load_blacklist(), "🔄 Blacklist reloaded from file."
+    return load_blacklist(), ui.message(MSG_RELOADED)
 
 
 # --------------------------------------------------------------------------- #
@@ -187,12 +202,13 @@ def _bracket_residue(tag: str):
 
 
 def clean_prompt(prompt: str, blacklist_text: str, remove_dupes: bool):
-    """Remove blacklisted tags from the positive prompt. Returns (prompt, status)."""
+    """Remove blacklisted tags from the positive prompt. Returns (prompt,
+    status), the status a message ``{"text": catalog key, "params": ...}``."""
     entries = _parse_blacklist(blacklist_text)
     if not entries and not remove_dupes:
-        return prompt, "ℹ️ Blacklist is empty — nothing to remove."
+        return prompt, {"text": "Blacklist is empty, nothing to remove."}
 
-    removed, seen = [], set()
+    removed, seen, duplicates = [], set(), 0
     out_lines = []
 
     for line in (prompt or "").split("\n"):
@@ -238,7 +254,8 @@ def clean_prompt(prompt: str, blacklist_text: str, remove_dupes: bool):
 
             if remove_dupes:
                 if norm in seen:
-                    drop(tag, f"{tag} (duplicate)")
+                    drop(tag, tag)
+                    duplicates += 1
                     continue
                 seen.add(norm)
 
@@ -251,34 +268,30 @@ def clean_prompt(prompt: str, blacklist_text: str, remove_dupes: bool):
     new_prompt = "\n".join(out_lines).strip()
 
     if removed:
-        shown = ", ".join(f"`{t}`" for t in removed[:25])
-        extra = f" … and {len(removed) - 25} more" if len(removed) > 25 else ""
-        status = f"🧹 Removed **{len(removed)}** tag(s): {shown}{extra}"
+        params = {"count": len(removed), "tags": ", ".join(removed[:25])}
+        if duplicates:
+            params["duplicates"] = duplicates
+        if len(removed) > 25:
+            params["more"] = len(removed) - 25
+        text = "Removed {{count}} tag(s)" + (", {{duplicates}} of them duplicates" if duplicates else "") + ": {{tags}}" + (" … and {{more}} more" if len(removed) > 25 else "")
+        status = {"text": text, "params": params}
     else:
-        status = "✨ No blacklisted tags found — prompt unchanged."
+        status = {"text": "No blacklisted tags found, prompt unchanged."}
 
     return new_prompt, status
 
 
 # --------------------------------------------------------------------------- #
-#  Grab the positive-prompt textboxes as the UI is built                       #
-# --------------------------------------------------------------------------- #
-
-PROMPT_BOXES = {}
-
-
-def _on_after_component(component, **kwargs):
-    elem_id = kwargs.get("elem_id")
-    if elem_id in ("txt2img_prompt", "img2img_prompt"):
-        PROMPT_BOXES[elem_id] = component
-
-
-script_callbacks.on_after_component(_on_after_component)
-
-
-# --------------------------------------------------------------------------- #
 #  Script / UI                                                                 #
 # --------------------------------------------------------------------------- #
+
+INTRO = (
+    "Tags listed below are stripped from the **positive prompt** when you "
+    "press *Clean Prompt*. Separate entries with commas or new lines. "
+    "`*` wildcards are supported (e.g. `*_username`). Matching ignores "
+    "case, underscores vs. spaces, and `(emphasis:1.2)` weighting."
+)
+
 
 class PromptBlacklistScript(scripts.Script):
 
@@ -291,67 +304,56 @@ class PromptBlacklistScript(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
-    def ui(self, is_img2img):
-        tab = "img2img" if is_img2img else "txt2img"
-        prompt_box = PROMPT_BOXES.get(f"{tab}_prompt")
+    def params(self, is_img2img):
+        # The blacklist and the duplicate switch only feed the actions (this
+        # extension never runs during image generation): never submitted with
+        # a job nor kept in drafts, so neither a reused job nor a stale draft
+        # can put an old blacklist back in the box (and a later Save write it).
+        return ui.Section(
+            "Prompt Blacklist",
+            open=False,
+            children=[
+                ui.Markdown(INTRO),
+                ui.Text(
+                    "blacklist",
+                    load_blacklist,
+                    lines=4,
+                    max_lines=12,
+                    label="Blacklisted tags",
+                    placeholder="e.g. watermark, signature, artist name, *_username, jpeg artifacts",
+                    persist=False,
+                    submit=False,
+                ),
+                ui.Row(
+                    ui.Button("Clean Prompt", "clean", "primary"),
+                    ui.Button("Save Blacklist", "save"),
+                    ui.Button("Reload", "reload"),
+                ),
+                ui.Toggle("remove_dupes", False, label="Also remove duplicate tags", persist=False, submit=False),
+                ui.Output("status", "text"),
+            ],
+        )
 
-        with gr.Accordion("🧹 Prompt Blacklist", open=False, elem_id=f"pbl_accordion_{tab}"):
-            gr.Markdown(
-                "Tags listed below are stripped from the **positive prompt** when you "
-                "press *Clean Prompt*. Separate entries with commas or new lines. "
-                "`*` wildcards are supported (e.g. `*_username`). Matching ignores "
-                "case, underscores vs. spaces, and `(emphasis:1.2)` weighting."
-            )
+    @ui.action("clean")
+    def clean(self, ctx, values):
+        """Removes the blacklisted tags from the form's positive prompt."""
 
-            blacklist_tb = gr.Textbox(
-                label="Blacklisted tags",
-                value=load_blacklist(),
-                lines=4,
-                max_lines=12,
-                placeholder="e.g. watermark, signature, artist name, *_username, jpeg artifacts",
-                elem_id=f"pbl_blacklist_{tab}",
-            )
+        prompt = str(ctx.core.get("prompt") or "")
+        cleaned, status = clean_prompt(prompt, str(values.get("blacklist") or ""), bool(values.get("remove_dupes")))
+        patch = {"__outputs__": {"status": status}}
+        if cleaned != prompt:
+            patch["core.prompt"] = {"value": cleaned}
+        return patch
 
-            with gr.Row():
-                clean_btn = gr.Button("🧹 Clean Prompt", variant="primary", elem_id=f"pbl_clean_{tab}")
-                save_btn = gr.Button("💾 Save Blacklist", elem_id=f"pbl_save_{tab}")
-                reload_btn = gr.Button("🔄 Reload", elem_id=f"pbl_reload_{tab}")
+    @ui.action("save")
+    def save(self, ctx, values):
+        ok, status = save_blacklist(str(values.get("blacklist") or ""))
+        return {"__outputs__": {"status": status}, **({} if ok else ui.toast(MSG_SAVE_FAILED_TOAST, "error"))}
 
-            remove_dupes = gr.Checkbox(
-                label="Also remove duplicate tags",
-                value=False,
-                elem_id=f"pbl_dedupe_{tab}",
-            )
-
-            status_md = gr.Markdown("", elem_id=f"pbl_status_{tab}")
-
-            if prompt_box is not None:
-                clean_btn.click(
-                    fn=clean_prompt,
-                    inputs=[prompt_box, blacklist_tb, remove_dupes],
-                    outputs=[prompt_box, status_md],
-                    show_progress="hidden",
-                )
-            else:
-                gr.Markdown("⚠️ Could not locate the positive prompt box — cleaning is disabled.")
-
-            save_btn.click(
-                fn=save_blacklist,
-                inputs=[blacklist_tb],
-                outputs=[status_md],
-                show_progress="hidden",
-            )
-
-            reload_btn.click(
-                fn=reload_blacklist,
-                inputs=[],
-                outputs=[blacklist_tb, status_md],
-                show_progress="hidden",
-            )
-
-        # No components are passed to generation — this extension never runs
-        # during image generation.
-        return []
+    @ui.action("reload")
+    def reload(self, ctx, values):
+        text, status = reload_blacklist()
+        return {"blacklist": {"value": text}, "__outputs__": {"status": status}}
 
     def process(self, p, *args):
         return

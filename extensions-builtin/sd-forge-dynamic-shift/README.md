@@ -13,9 +13,9 @@ Drop this folder into your webui's `extensions/` directory (or *Extensions → I
 ## Usage
 
 1. In txt2img or img2img, open **Dynamic Shift** directly below the native
-   sampler controls. The accordion header is also its enable switch.
+   sampler controls. The panel header carries its enable switch.
 2. Set **Shift @ first step** and **Shift @ last step**, then pick a curve.
-   The inline plot shows your dynamic schedule (orange) against the two constant-shift references (dashed/dotted).
+   The live plot under the curve choice shows your dynamic schedule (accent colour) against the two constant-shift references (dashed/dotted), over the current Sampling Steps.
 3. Generate. The console logs the active ramp; parameters are written to infotext and restore correctly via *Send to txt2img* / PNG Info.
 
 **Curves:** `Linear`, `Cosine` (eases in/out — the default, usually smoothest), `Exponential` (geometric interpolation, spends longer near the start value).
@@ -39,8 +39,8 @@ Drop this folder into your webui's `extensions/` directory (or *Extensions → I
 - While enabled with a **K-diffusion sampler** (Euler, DPM++, etc.), the **Schedule type** dropdown and the built-in **Shift** slider are bypassed for the sigma schedule (the extension takes over via `sampler_noise_scheduler_override`). Forge's timestep/alternate sampler families do not consume this override, so Dynamic Shift has no effect with those samplers. Prompt-editing step percentages (`[a:b:0.5]`) still use the built-in shift for their timing — a minor, usually invisible interaction.
 - `Anima Flow Euler`, `Anima Flow UniPC2`, and `Anima Flow PC3` lock the official
   `Anima FlowMatch` schedule. Selecting one disables Dynamic Shift and locks the
-  Schedule type control in the GUI; API/CLI requests are skipped with an
-  infotext reason. Enabling Dynamic Shift on an ordinary sampler resets the
+  Schedule type control in the GUI (the core conflict locks, with a note in
+  the panel); API/CLI requests are skipped with an infotext reason. Enabling Dynamic Shift on an ordinary sampler resets the
   bypassed Schedule type to `Automatic`.
 - Only activates on models with `use_shift = True`; it silently skips SDXL/SD1.5 and prints a console notice.
 - If another script already sets a scheduler override, this extension defers to it.

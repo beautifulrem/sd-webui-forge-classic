@@ -1,0 +1,20 @@
+{
+  "Prompt Blacklist": "提示词黑名单",
+  "Tags listed below are stripped from the **positive prompt** when you press *Clean Prompt*. Separate entries with commas or new lines. `*` wildcards are supported (e.g. `*_username`). Matching ignores case, underscores vs. spaces, and `(emphasis:1.2)` weighting.": "点击*清理提示词*时，下方列出的标签会从**正向提示词**中移除。用逗号或换行分隔各项。支持 `*` 通配符（例如 `*_username`）。匹配时忽略大小写、下划线与空格的差异，以及 `(emphasis:1.2)` 权重。",
+  "Blacklisted tags": "黑名单标签",
+  "e.g. watermark, signature, artist name, *_username, jpeg artifacts": "例如 watermark, signature, artist name, *_username, jpeg artifacts",
+  "Clean Prompt": "清理提示词",
+  "Save Blacklist": "保存黑名单",
+  "Reload": "重新加载",
+  "Also remove duplicate tags": "同时移除重复标签",
+  "Blacklist saved.": "黑名单已保存。",
+  "Could not save blacklist: {{error}}": "无法保存黑名单：{{error}}",
+  "Could not save the blacklist.": "无法保存黑名单。",
+  "Blacklist reloaded from file.": "已从文件重新加载黑名单。",
+  "Blacklist is empty, nothing to remove.": "黑名单为空，没有可移除的内容。",
+  "No blacklisted tags found, prompt unchanged.": "未找到黑名单标签，提示词未改变。",
+  "Removed {{count}} tag(s): {{tags}}": "已移除 {{count}} 个标签：{{tags}}",
+  "Removed {{count}} tag(s): {{tags}} … and {{more}} more": "已移除 {{count}} 个标签：{{tags}} …… 等另外 {{more}} 个",
+  "Removed {{count}} tag(s), {{duplicates}} of them duplicates: {{tags}}": "已移除 {{count}} 个标签（其中 {{duplicates}} 个为重复）：{{tags}}",
+  "Removed {{count}} tag(s), {{duplicates}} of them duplicates: {{tags}} … and {{more}} more": "已移除 {{count}} 个标签（其中 {{duplicates}} 个为重复）：{{tags}} …… 等另外 {{more}} 个"
+}

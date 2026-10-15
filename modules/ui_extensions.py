@@ -1,26 +1,29 @@
-import errno
+"""The legacy Gradio "Extensions" tab (until the Gradio UI is deleted). The
+logic is :mod:`remi.extensions_admin`; the Remi SPA uses it through
+``/api/v2/extensions``."""
+
 import html
 import json
 import os
-import shutil
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-import git
 import gradio as gr
 
-from modules import config_states, errors, extensions, paths, restart, shared
+from modules import config_states, extensions, restart, shared
 from modules.call_queue import wrap_gradio_gpu_call
-from modules.paths_internal import config_states_dir
+from remi import extensions_admin as admin
 
 available_extensions = {"extensions": []}
 STYLE_PRIMARY = ' style="color: var(--primary-400)"'
 
+# The logic lives in remi.extensions_admin (Gradio-free, shared with the
+# Remi HTTP API); this module only renders the legacy Gradio tab.
+
 
 def check_access():
-    assert not shared.cmd_opts.disable_extension_access, "extension access disabled because of command line flags"
+    admin.check_access()
 
 
 def apply_and_restart(disable_list, update_list, disable_all):
@@ -33,22 +36,9 @@ def apply_and_restart(disable_list, update_list, disable_all):
     assert type(update) == list, f"wrong update_list data for apply_and_restart: {update_list}"
 
     if update:
-        save_config_state("Backup (pre-update)")
+        admin.update(update)
 
-    update = set(update)
-
-    for ext in extensions.extensions:
-        if ext.name not in update:
-            continue
-
-        try:
-            ext.fetch_and_reset_hard()
-        except Exception:
-            errors.report(f"Error getting updates for {ext.name}", exc_info=True)
-
-    shared.opts.disabled_extensions = disabled
-    shared.opts.disable_all_extensions = disable_all
-    shared.opts.save(shared.config_filename)
+    admin.configure(disabled, disable_all)
 
     if restart.is_restartable():
         restart.restart_program()
@@ -57,20 +47,10 @@ def apply_and_restart(disable_list, update_list, disable_all):
 
 
 def save_config_state(name):
-    current_config_state = config_states.get_config()
-
-    name = os.path.basename(name or "Config")
-
-    current_config_state["name"] = name
-    timestamp = datetime.now().strftime("%Y_%m_%d-%H_%M_%S")
-    filename = os.path.join(config_states_dir, f"{timestamp}_{name}.json")
-    print(f"Saving backup of webui/extension state to {filename}.")
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(current_config_state, f, indent=4, ensure_ascii=False)
-    config_states.list_config_states()
+    saved = admin.save_config_state(name)
     new_value = next(iter(config_states.all_config_states.keys()), "Current")
     new_choices = ["Current"] + list(config_states.all_config_states.keys())
-    return gr.update(value=new_value, choices=new_choices), f'<span>Saved current webui/extension state to "{filename}"</span>'
+    return gr.update(value=new_value, choices=new_choices), f'<span>Saved current webui/extension state to "{html.escape(saved["id"])}"</span>'
 
 
 def restore_config_state(confirmed, config_state_name, restore_type):
@@ -79,51 +59,29 @@ def restore_config_state(confirmed, config_state_name, restore_type):
     if not confirmed:
         return "<span>Cancelled.</span>"
 
-    check_access()
-
     config_state = config_states.all_config_states[config_state_name]
-
-    print(f"*** Restoring webui state from backup: {restore_type} ***")
-
-    if restore_type == "extensions" or restore_type == "both":
-        shared.opts.restore_config_state_file = config_state["filepath"]
-        shared.opts.save(shared.config_filename)
-
-    if restore_type == "webui" or restore_type == "both":
-        config_states.restore_webui_config(config_state)
-
+    print(f"*** Restoring the extensions from backup: {restore_type} ***")
+    try:
+        admin.restore_config_state(os.path.basename(config_state["filepath"]), restore_type)
+    except admin.AdminError as error:
+        return f"<span>{html.escape(str(error))}</span>"
     shared.state.request_restart()
 
     return ""
 
 
 def check_updates(id_task, disable_list):
-    check_access()
-
     disabled = json.loads(disable_list)
     assert type(disabled) == list, f"wrong disable_list data for apply_and_restart: {disable_list}"
 
     exts = [ext for ext in extensions.extensions if ext.remote is not None and ext.name not in disabled]
     shared.state.job_count = len(exts)
 
-    lock = threading.Lock()
+    def progress(ext):
+        shared.state.textinfo = ext.name
+        shared.state.nextjob()
 
-    def _check_update(ext):
-        try:
-            ext.check_updates()
-        except FileNotFoundError as e:
-            if "FETCH_HEAD" not in str(e):
-                raise
-        except Exception:
-            with lock:
-                errors.report(f"Error checking updates for {ext.name}", exc_info=True)
-        with lock:
-            shared.state.textinfo = ext.name
-            shared.state.nextjob()
-
-    with ThreadPoolExecutor(max_workers=16) as executor:
-        [executor.submit(_check_update, ext) for ext in exts]
-
+    admin.check_updates([ext.name for ext in exts], on_progress=progress)
     return extension_table(), ""
 
 
@@ -333,73 +291,13 @@ def update_config_states_table(state_name):
     return code
 
 
-def normalize_git_url(url):
-    if url is None:
-        return ""
-
-    url = url.replace(".git", "")
-    return url
-
-
-def get_extension_dirname_from_url(url):
-    *parts, last_part = url.split("/")
-    return normalize_git_url(last_part)
+normalize_git_url = admin.normalize_git_url
+get_extension_dirname_from_url = admin.dirname_from_url
 
 
 def install_extension_from_url(dirname, url, branch_name=None):
-    check_access()
-
-    if isinstance(dirname, str):
-        dirname = dirname.strip()
-    if isinstance(url, str):
-        url = url.strip()
-
-    assert url, "No URL specified"
-
-    if dirname is None or dirname == "":
-        dirname = get_extension_dirname_from_url(url)
-
-    target_dir = os.path.join(extensions.extensions_dir, dirname)
-    assert not os.path.exists(target_dir), f"Extension directory already exists: {target_dir}"
-
-    normalized_url = normalize_git_url(url)
-    if any(x for x in extensions.extensions if normalize_git_url(x.remote) == normalized_url):
-        raise Exception(f"Extension with this URL is already installed: {url}")
-
-    tmpdir = os.path.join(paths.data_path, "tmp", dirname)
-
-    try:
-        shutil.rmtree(tmpdir, True)
-        if not branch_name:
-            # if no branch is specified, use the default branch
-            with git.Repo.clone_from(url, tmpdir, filter=["blob:none"]) as repo:
-                repo.remote().fetch()
-                for submodule in repo.submodules:
-                    submodule.update()
-        else:
-            with git.Repo.clone_from(url, tmpdir, filter=["blob:none"], branch=branch_name) as repo:
-                repo.remote().fetch()
-                for submodule in repo.submodules:
-                    submodule.update()
-        try:
-            os.rename(tmpdir, target_dir)
-        except OSError as err:
-            if err.errno == errno.EXDEV:
-                # Cross device link, typical in docker or when tmp/ and extensions/ are on different file systems
-                # Since we can't use a rename, do the slower but more versatile shutil.move()
-                shutil.move(tmpdir, target_dir)
-            else:
-                # Something else, not enough free space, permissions, etc.  rethrow it so that it gets handled.
-                raise err
-
-        import launch
-
-        launch.run_extension_installer(target_dir)
-
-        extensions.list_extensions()
-        return [extension_table(), html.escape(f"Installed into {target_dir}. Use Installed tab to restart.")]
-    finally:
-        shutil.rmtree(tmpdir, True)
+    ext = admin.install(url, branch_name, dirname)
+    return [extension_table(), html.escape(f"Installed into {ext.path}. Use Installed tab to restart.")]
 
 
 def install_extension_from_index(url, selected_tags, showing_type, filtering_type, sort_column, filter_text):
@@ -413,12 +311,8 @@ def install_extension_from_index(url, selected_tags, showing_type, filtering_typ
 def refresh_available_extensions(url, selected_tags, showing_type, filtering_type, sort_column):
     global available_extensions
 
-    import urllib.request
-
-    with urllib.request.urlopen(url) as response:
-        text = response.read()
-
-    available_extensions = json.loads(text)
+    admin.check_access()
+    available_extensions = admin.fetch_index(url)
 
     code, tags = refresh_available_extensions_from_data(selected_tags, showing_type, filtering_type, sort_column)
 
@@ -605,7 +499,7 @@ def create_ui():
             with gr.TabItem("Available", id="available"):
                 with gr.Row():
                     refresh_available_extensions_button = gr.Button(value="Load from:", variant="primary")
-                    extensions_index_url = os.environ.get("WEBUI_EXTENSIONS_INDEX", "https://raw.githubusercontent.com/AUTOMATIC1111/stable-diffusion-webui-extensions/master/index.json")
+                    extensions_index_url = admin.default_index_url()
                     available_extensions_index = gr.Text(value=extensions_index_url, label="Extension index URL", container=False)
                     extension_to_install = gr.Text(elem_id="extension_to_install", visible=False)
                     install_extension_button = gr.Button(elem_id="install_extension_button", visible=False)
@@ -667,7 +561,7 @@ def create_ui():
                 with gr.Row(elem_id="extensions_backup_top_row"):
                     config_states_list = gr.Dropdown(label="Saved Configs", elem_id="extension_backup_saved_configs", value="Current", choices=["Current"] + list(config_states.all_config_states.keys()))
                     modules.ui.create_refresh_button(config_states_list, config_states.list_config_states, lambda: {"choices": ["Current"] + list(config_states.all_config_states.keys())}, "refresh_config_states")
-                    config_restore_type = gr.Radio(label="State to restore", choices=["extensions", "webui", "both"], value="extensions", elem_id="extension_backup_restore_type")
+                    config_restore_type = gr.Radio(label="State to restore", choices=["extensions"], value="extensions", elem_id="extension_backup_restore_type")
                     config_restore_button = gr.Button(value="Restore Selected Config", variant="primary", elem_id="extension_backup_restore")
                 with gr.Row(elem_id="extensions_backup_top_row2"):
                     config_save_name = gr.Textbox("", placeholder="Config Name", show_label=False)

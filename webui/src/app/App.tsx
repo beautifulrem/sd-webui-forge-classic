@@ -7,6 +7,7 @@ import { bootstrapQuery } from "@/api/queries"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { PageSkeleton } from "@/components/PageSkeleton"
 import { Toaster } from "@/components/ui/sonner"
+import { ServerControlHost } from "@/features/server-control/ServerControlHost"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { activateLocale, browserLocale, useLocale } from "@/i18n"
 import { useAppearance, useApplyAppearance } from "@/lib/theme"
@@ -130,6 +131,7 @@ export function App() {
         </Suspense>
       ) : null}
       <Toaster position="bottom-right" closeButton richColors={false} />
+      <ServerControlHost />
     </TooltipProvider>
   )
 }

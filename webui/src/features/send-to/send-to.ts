@@ -63,10 +63,10 @@ function apply(tab: FormTab, entries: readonly PasteEntry[], filter: PasteFilter
 
 /**
  * Forms whose page keeps a loaded store across visits (the generate view
- * loads a schema once and carries uploads over reloads). Other pages load
+ * and Extras load a schema once and carry uploads over reloads). Other pages load
  * their schema again on every mount, which drops upload ids.
  */
-const KEEPS_VALUES: ReadonlySet<FormTab> = new Set(["txt2img", "img2img"])
+const KEEPS_VALUES: ReadonlySet<FormTab> = new Set(["txt2img", "img2img", "extras"])
 
 /**
  * Applies `entries` to form `tab` and shows its page: right away when the

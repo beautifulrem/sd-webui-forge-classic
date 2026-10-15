@@ -1,0 +1,40 @@
+/** A full prompt tools config for tests (every feature on, no translation provider). */
+import type { PromptToolsConfig } from "./api"
+
+export const TEST_CONFIG: PromptToolsConfig = {
+  tags: {
+    enabled: true,
+    negative: true,
+    source: "danbooru",
+    max_results: 8,
+    loras: true,
+    embeddings: true,
+    chants: false,
+    wildcards: true,
+    wildcard_mode: "To next folder level",
+    replace_underscores: true,
+    underscore_exclusions: [],
+    escape_parentheses: true,
+    append_comma: true,
+    append_space: true,
+    always_space_at_end: true,
+    keywords: false,
+    keyword_location: "Start of prompt",
+    artist_prefix: false,
+    previews: true,
+    wiki_links: true,
+    network_separator: " ",
+    default_weight: 1,
+  },
+  tools: {
+    enabled: true,
+    history: true,
+    groups: true,
+    translation: null,
+    translation_provider: "none",
+    translation_key: false,
+    language: "zh_CN",
+    comments: true,
+    toolbar: "All prompt fields",
+  },
+}

@@ -6,7 +6,7 @@
  */
 import { Dialog } from "@base-ui/react/dialog"
 import { ChevronLeft, ChevronRight, Grid2x2, Maximize, Minimize, X } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { type ReactNode, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useClientOption } from "@/api/app-options"
 import { api } from "@/api/endpoints"
@@ -29,6 +29,8 @@ type LightboxProps = {
   /** A live preview frame URL to show instead (follows generation). */
   live?: string | null
   tab: FormTab
+  /** A side panel for the shown item (e.g. its parameters), right of the image on wide screens. */
+  aside?: (item: ResultItem) => ReactNode
 }
 
 const ZOOM_STEP = 1.25
@@ -46,7 +48,7 @@ function useViewportSize(element: HTMLElement | null): Size {
   return size
 }
 
-export function Lightbox({ open, onOpenChange, items, current, onNavigate, live, tab }: LightboxProps) {
+export function Lightbox({ open, onOpenChange, items, current, onNavigate, live, tab, aside }: LightboxProps) {
   const { t } = useTranslation()
   const zoomedByDefault = useClientOption("js_modal_lightbox_initially_zoomed")
   const gamepad = useClientOption("js_modal_lightbox_gamepad")
@@ -174,6 +176,7 @@ export function Lightbox({ open, onOpenChange, items, current, onNavigate, live,
             </div>
           </div>
 
+          <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
           <div
             ref={setViewport}
             tabIndex={-1}
@@ -256,6 +259,15 @@ export function Lightbox({ open, onOpenChange, items, current, onNavigate, live,
                 </Button>
               </>
             ) : null}
+          </div>
+          {aside && item && !live ? (
+            <aside
+              aria-label={t("Image details")}
+              className="max-h-[40%] shrink-0 overflow-y-auto border-t border-white/10 bg-black/40 p-3 lg:max-h-none lg:w-80 lg:border-t-0 lg:border-l xl:w-96"
+            >
+              {aside(item)}
+            </aside>
+          ) : null}
           </div>
         </Dialog.Popup>
       </Dialog.Portal>

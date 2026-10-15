@@ -1,13 +1,15 @@
-# preload.py is used for cmd line arguments
+# The Agent Scheduler is superseded by the Remi Queue (Queue page). These
+# flags stay so existing launch commands keep working: the Queue's importer
+# ("Import from Agent Scheduler" in the Queue page menu) reads the database
+# --agent-scheduler-sqlite-file names.
 def preload(parser):
     parser.add_argument(
         "--agent-scheduler-sqlite-file",
-        help="SQLite database path. Absolute paths are used as-is; relative paths are resolved from Forge's data directory.",
+        help="Agent Scheduler database to import into the Queue. Absolute paths are used as-is; relative paths are resolved from Forge's data directory.",
         default="extension-data/agent-scheduler/task_scheduler.sqlite3",
     )
     parser.add_argument(
         "--agent-scheduler-trust-unsigned-params",
         action="store_true",
-        help="Sign stored task params that have no valid signature (tasks saved by older versions) at startup. "
-        "Use once, and only if nobody else could have imported tasks into this database.",
+        help="No longer used: the Queue's importer reads stored script arguments with a restricted loader, signed or not.",
     )

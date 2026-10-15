@@ -183,22 +183,49 @@ def preset_bindings(layouts: Mapping[str, Any]) -> list[tuple[str, str, str, Any
     return result
 
 
-def anima_preset_patch(tab: str, label: str, *, layouts: Mapping[str, Any] | None = None, ctx: Context | None = None) -> Patch:
+def anima_preset_patch(
+    tab: str,
+    label: str,
+    *,
+    values: Mapping[str, Mapping[str, Any]] | None = None,
+    layouts: Mapping[str, Any] | None = None,
+    ctx: Context | None = None,
+) -> Patch:
     """Applying the Anima preset ``label`` on ``tab``: every bound param's
-    value (conflict-locked controls are unlocked), relative to the core owner."""
+    value, relative to the core owner, with the conflict locks resolved
+    again for the result (as the old panels' ``.change`` chain did).
+
+    ``values`` are the form's current values (``{"core": {...}, script_id:
+    {...}}``, as for :func:`remi.core.conflicts.conflict_patch`); the
+    preset's values are laid over them. Conflict-locked preset controls are
+    unlocked unless a rule locks them again for the new values; the guidance
+    mode always gets its allowed choices back. Controls the preset leaves
+    alone keep their value unless ``values`` has it (only their lock and
+    choices are patched)."""
 
     from modules.anima_presets import PRESET_CONFLICT_CONTROLS, PRESETS, SAFE_BASE_AESTHETIC_LABEL, preset_named_values
-    from remi.core.conflicts import _layouts, _ref
+    from remi.core.conflicts import _layouts, _ref, conflict_patch
 
     label = label if label in PRESETS else SAFE_BASE_AESTHETIC_LABEL
     layouts = layouts if layouts is not None else _layouts(tab)
     bound = preset_bindings(layouts)
-    values = preset_named_values(label, bound)
+    preset_values = preset_named_values(label, bound)
     unlock = {(owner, name) for field, owner, name, _own in bound if field in PRESET_CONFLICT_CONTROLS}
 
     patch: Patch = {}
-    for owner, owner_values in values.items():
+    for owner, owner_values in preset_values.items():
         for name, value in owner_values.items():
             patch[_ref(owner, name)] = {"value": value, **({"enabled": True} if (owner, name) in unlock else {})}
+
+    merged: dict[str, dict[str, Any]] = {owner: dict(owner_values) for owner, owner_values in (values or {}).items() if isinstance(owner_values, Mapping)}
+    for owner, owner_values in preset_values.items():
+        merged.setdefault(owner, {}).update(owner_values)
+    known = {_ref(owner, name) for owner, owner_values in merged.items() for name in owner_values}
+    for key, entry in conflict_patch(tab, merged, ctx=ctx, layouts=layouts).items():
+        if key.startswith("__"):
+            continue  # the panels' compatibility notes explain the locks
+        resolved = {prop: value for prop, value in entry.items() if prop != "value" or key in known}
+        if resolved:
+            patch.setdefault(key, {}).update(resolved)
     patch["__toast__"] = {"level": "success", "message": f"Applied: {label} ({len(bound)} controls)"}
     return patch

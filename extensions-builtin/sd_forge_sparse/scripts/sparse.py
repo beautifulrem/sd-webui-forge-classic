@@ -7,14 +7,12 @@ from typing import TYPE_CHECKING, Callable
 if TYPE_CHECKING:
     from backend.patcher.base import ModelPatcher
 
-import gradio as gr
 import torch
-from gradio_rangeslider import RangeSlider
 
 from backend.logging import setup_logger
 from backend.quant_ops import ck
 from modules import scripts
-from modules.ui_components import InputAccordion
+from remi import ui
 
 logger = logging.getLogger("SolAttn")
 setup_logger(logger)
@@ -125,18 +123,23 @@ class SparseAttentionForForge(scripts.Script):
     def show(self, *args, **kwargs):
         return scripts.AlwaysVisible
 
-    def ui(self, *args, **kwargs):
-        with InputAccordion(False, label=self.title()) as enable:
-            with gr.Row():
-                tau = gr.Slider(value=1.25, minimum=0.0, maximum=4.0, step=0.05, label="Tau", info="higher = faster & worse quality")
-                percent = RangeSlider(minimum=0.0, maximum=1.0, step=0.05, value=(0.15, 0.85), label="Timestep Range")
-            with gr.Row():
-                min_tokens = gr.Slider(value=4096, minimum=0, maximum=32768, step=512, label="Tokens Threshold", info="model & resolution dependent ; higher = slower & better quality")
-                extra_tokens = gr.Slider(value=0, minimum=0, maximum=256, step=64, label="Extra Tokens", info="higher = slower & better quality")
-            dense_blocks = gr.Textbox(value="", lines=1, max_lines=1, placeholder="0, 1, 25-27", label="Dense Blocks", info="blocks to keep dense (i.e. slower / better quality)")
-            verbose = gr.Checkbox(False, label="Verbose (Debug)")
-
-        return [enable, tau, percent, min_tokens, extra_tokens, dense_blocks, verbose]
+    def params(self, is_img2img):
+        return ui.Section(
+            self.title(),
+            enable=ui.Toggle("enable", False, label=self.title()),
+            children=[
+                ui.Row(
+                    ui.Slider("tau", 0.0, 4.0, 1.25, 0.05, label="Tau", info="higher = faster & worse quality"),
+                    ui.RangeSlider("percent", 0.0, 1.0, (0.15, 0.85), 0.05, label="Timestep Range"),
+                ),
+                ui.Row(
+                    ui.Slider("min_tokens", 0, 32768, 4096, 512, label="Tokens Threshold", info="model & resolution dependent ; higher = slower & better quality"),
+                    ui.Slider("extra_tokens", 0, 256, 0, 64, label="Extra Tokens", info="higher = slower & better quality"),
+                ),
+                ui.Text("dense_blocks", "", max_lines=1, placeholder="0, 1, 25-27", label="Dense Blocks", info="blocks to keep dense (i.e. slower / better quality)"),
+                ui.Toggle("verbose", False, label="Verbose (Debug)"),
+            ],
+        )
 
     def process_before_every_sampling(self, p, enable: bool, tau: float = 1.25, percent: tuple[float, float] = (0.15, 0.85), min_tokens: int = 4096, extra_tokens: int = 0, dense_blocks: str = "", verbose: bool = False, **kwargs):
         if not enable:

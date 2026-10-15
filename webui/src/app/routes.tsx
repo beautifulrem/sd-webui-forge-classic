@@ -27,7 +27,7 @@ const loaders = {
   queue: () => import("@/pages/queue"),
   settings: () => import("@/pages/settings"),
   extensions: () => import("@/pages/extensions"),
-  page: () => import("@/pages/extension-page"),
+  page: () => import("@/pages/ext"),
   "not-found": () => import("@/pages/not-found"),
 } satisfies Record<Route["name"], () => Promise<PageModule>>
 

@@ -1,0 +1,9 @@
+{
+ "script": "AnimaHiresGuardScript",
+ "title": "Anima Hires Guard",
+ "tab": "img2img",
+ "shown": false,
+ "inputs": [],
+ "non_arg_controls": [],
+ "paste_field_names": []
+}

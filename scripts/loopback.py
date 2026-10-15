@@ -1,10 +1,9 @@
 import math
 
-import gradio as gr
-
 from modules import images, processing, scripts
 from modules.processing import Processed
 from modules.shared import opts, state
+from remi import ui
 
 
 class Loopback(scripts.Script):
@@ -14,13 +13,12 @@ class Loopback(scripts.Script):
     def show(self, is_img2img):
         return is_img2img
 
-    def ui(self, is_img2img):
-        with gr.Row():
-            loops = gr.Slider(minimum=1, maximum=8, step=1, label="Loops", value=2, elem_id=self.elem_id("loops"))
-            final_denoising_strength = gr.Slider(minimum=0.0, maximum=1.0, step=0.05, label="Final Denoising Strength", value=0.5, elem_id=self.elem_id("final_denoising_strength"))
-            denoising_curve = gr.Dropdown(label="Denoising Strength Curve", choices=("Aggressive", "Linear", "Lazy"), value="Linear", elem_id=self.elem_id("denoising_strength_curve"))
-
-        return [loops, final_denoising_strength, denoising_curve]
+    def params(self, is_img2img):
+        return ui.Row(
+            ui.Slider("loops", 1, 8, 2, 1, label="Loops"),
+            ui.Slider("final_denoising_strength", 0.0, 1.0, 0.5, 0.05, label="Final Denoising Strength"),
+            ui.Choice("denoising_curve", ("Aggressive", "Linear", "Lazy"), "Linear", label="Denoising Strength Curve"),
+        )
 
     def run(self, p, loops: int, final_denoising_strength: float, denoising_curve: str):
         processing.fix_seed(p)

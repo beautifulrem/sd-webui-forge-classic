@@ -32,39 +32,42 @@ export const SCHEDULERS = options(["Automatic", "Simple", "Karras", "Exponential
 
 // ---------------------------------------------------------------- core form
 
+/** img2img modes of the real form (remi.core.forms.IMG2IMG_MODES, without Batch). */
+const IMG2IMG_MODES = ["img2img", "Sketch", "Inpaint", "Inpaint sketch", "Inpaint upload"]
+
 function coreLayout(tab: "txt2img" | "img2img"): Node {
   // txt2img recomputes the Hires. fix output line when the size changes.
   const hires = tab === "txt2img" ? { on_change: "hr_resolution" } : {}
   const img2img: Node[] =
     tab === "img2img"
       ? [
-          // Like the real form: the mode strip selects which layers the canvas edits over `init_img`.
-          { type: "choice", name: "mode", label: "Mode", choices: options(["img2img", "Inpaint"]), style: "radio", hidden: true },
+          // Like the real form: the mode strip selects which layers the canvas edits over `init_img`
+          // (the stage's image editor); the inpaint options show in the inpaint modes.
           {
-            type: "tabs",
-            bind: "mode",
+            type: "group",
             children: [
-              { type: "tab", title: "img2img", value: "img2img", children: [] },
+              { type: "choice", name: "mode", label: "Mode", choices: options(IMG2IMG_MODES), style: "radio", hidden: true },
+              { type: "tabs", bind: "mode", children: IMG2IMG_MODES.map((mode) => ({ type: "tab", title: mode, value: mode, children: [] })) },
+              { type: "image", name: "init_img", label: "Image for img2img", kind: "image", mode: "RGBA" },
+              { type: "image", name: "sketch", label: "Sketch", kind: "sketch", source: "init_img", mode: "RGBA", visible_if: { param: "mode", in: ["Sketch", "Inpaint sketch"] } },
+              { type: "image", name: "mask", label: "Mask", kind: "mask", source: "init_img", visible_if: { param: "mode", eq: "Inpaint" } },
+              { type: "image", name: "mask_upload", label: "Mask", kind: "mask", visible_if: { param: "mode", eq: "Inpaint upload" } },
+            ],
+          },
+          {
+            type: "group",
+            visible_if: { param: "mode", in: ["Inpaint", "Inpaint sketch", "Inpaint upload"] },
+            children: [
+              { type: "slider", name: "mask_blur", label: "Mask blur", minimum: 0, maximum: 64, step: 1, integer: true },
               {
-                type: "tab",
-                title: "Inpaint",
-                value: "Inpaint",
+                type: "row",
                 children: [
-                  {
-                    type: "slider",
-                    name: "mask_blur",
-                    label: "Mask blur",
-                    minimum: 0,
-                    maximum: 64,
-                    step: 1,
-                    integer: true,
-                  },
+                  { type: "choice", name: "inpaint_full_res", label: "Inpaint area", choices: options(["Whole picture", "Only masked"]), style: "radio" },
+                  { type: "slider", name: "inpaint_full_res_padding", label: "Only masked padding, pixels", minimum: 0, maximum: 256, step: 4, integer: true },
                 ],
               },
             ],
           },
-          { type: "image", name: "init_img", label: "Image for img2img", kind: "image" },
-          { type: "image", name: "mask", label: "Mask", kind: "mask", source: "init_img", visible_if: { param: "mode", eq: "Inpaint" } },
           {
             type: "slider",
             name: "denoising_strength",
@@ -201,7 +204,17 @@ function coreDefaults(tab: "txt2img" | "img2img") {
     script: "None",
     ...(tab === "txt2img"
       ? { enable_hr: false, hr_upscaler: "Latent", hr_second_pass_steps: 0, denoising_strength: 0.7, hr_scale: 2, hr_prompt: "", hr_negative_prompt: "" }
-      : { mode: "img2img", init_img: null, mask: null, mask_blur: 4, denoising_strength: 0.75 }),
+      : {
+          mode: "img2img",
+          init_img: null,
+          sketch: null,
+          mask: null,
+          mask_upload: null,
+          mask_blur: 4,
+          inpaint_full_res: "Only masked",
+          inpaint_full_res_padding: 32,
+          denoising_strength: 0.75,
+        }),
   }
 }
 
@@ -614,7 +627,7 @@ export const toolboxPage: PageSchema = {
 
 export const bootstrap: Bootstrap = {
   version: "remi-mock",
-  features: ["jobs", "uploads", "preview.binary"],
+  features: ["jobs", "uploads", "preview.binary", "folders.open"],
   tabs: ["txt2img", "img2img", "extras", "png-info", "gallery", "networks", "queue", "settings", "extensions"],
   pages: [{ id: "toolbox", title: "Toolbox", icon: "wrench" }],
   locales: [{ id: "zh_CN", name: "简体中文" }],

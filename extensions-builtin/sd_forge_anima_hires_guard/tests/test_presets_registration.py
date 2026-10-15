@@ -1,21 +1,15 @@
 """The preset's hires_guard.* values are the panel's own defaults."""
 
-import importlib.util
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-# Shared with the DAVE / Cross-Attention Boost suites, loaded by path (see its docstring)
-_spec = importlib.util.spec_from_file_location("extension_script_harness", ROOT.parents[1] / "tests" / "extension_script_harness.py")
-harness = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(harness)
+import remi_script_harness as harness
 
+ROOT = Path(__file__).resolve().parents[1]
 hires_guard = harness.load_script(ROOT / "scripts" / "anima_hires_guard.py", "anima_hires_guard_presets_under_test")
 
 
 def test_apply_preset_turns_the_panel_off_at_its_defaults():
-    harness.assert_registers_preset(hires_guard.AnimaHiresGuardScript(), "hires_guard")
+    harness.assert_registers_preset(harness.script_layout(hires_guard.AnimaHiresGuardScript()), "hires_guard")
 
 
 def test_preset_limits_are_those_of_its_safety_preset():
@@ -30,16 +24,6 @@ def test_preset_limits_are_those_of_its_safety_preset():
     )
 
 
-def test_img2img_registers_nothing():
-    from modules.anima_presets import preset_controls
-
-    assert harness.build_ui(hires_guard.AnimaHiresGuardScript(), "img2img") == []
-    assert preset_controls("img2img") == ((), (), ())
-
-
-def test_send_to_carries_none_of_its_txt2img_only_fields():
-    # "Send to" pairs the source and target tabs' paste field names by
-    # position: names the other tabs lack would shift a later panel's values
-    script = hires_guard.AnimaHiresGuardScript()
-    controls = harness.build_ui(script, "txt2img")
-    assert script.paste_field_names == [] and [field.component for field in script.infotext_fields] == controls
+def test_img2img_has_no_panel():
+    # txt2img only: no layout, so no params, preset bindings or infotext keys on img2img
+    assert harness.script_layout(hires_guard.AnimaHiresGuardScript(), "img2img") is None

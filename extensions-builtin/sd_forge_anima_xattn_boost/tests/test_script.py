@@ -7,24 +7,24 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-# Shared with the DAVE suite, loaded by path (see its docstring)
-_spec = importlib.util.spec_from_file_location("extension_script_harness", ROOT.parents[1] / "tests" / "extension_script_harness.py")
+# Shared with the other ported panels' suites, loaded by path (see its docstring)
+_spec = importlib.util.spec_from_file_location("remi_panel_harness", ROOT.parents[1] / "tests" / "remi_panel_harness.py")
 harness = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(harness)
 
 boost = harness.load_script(ROOT / "scripts" / "anima_xattn_boost.py", "anima_xattn_boost_under_test")
 
 
-def test_written_infotext_restores_the_panel_controls():
-    harness.assert_infotext_restores_controls(
-        boost.AnimaXattnBoostScript(),
-        (True, 2.0, 0.85, 0.5),
-        {"Anima xattn boost enabled": True, "Anima xattn boost strength": 2.0, "Anima xattn boost band": 0.85, "Anima xattn boost renorm": 0.5},
-    )
+def test_written_infotext_restores_the_panel_params():
+    args = (True, 2.0, 0.85, 0.5)
+    written = _record(args)
+    assert written == {"Anima xattn boost enabled": True, "Anima xattn boost strength": 2.0, "Anima xattn boost band": 0.85, "Anima xattn boost renorm": 0.5}
+    harness.assert_infotext_restores_params(harness.script_layout(boost.AnimaXattnBoostScript()), args, written)
 
 
-def test_apply_preset_turns_the_panel_off_at_its_defaults():
-    harness.assert_registers_preset(boost.AnimaXattnBoostScript(), "xattn_boost")
+@pytest.mark.parametrize("tab", ["txt2img", "img2img"])
+def test_apply_preset_turns_the_panel_off_at_its_defaults(tab):
+    harness.assert_preset_fields(harness.script_layout(boost.AnimaXattnBoostScript(), tab), "xattn_boost")
 
 
 def test_process_patches_the_pass_and_writes_infotext():
@@ -54,13 +54,13 @@ def _record(args):
 
 @pytest.mark.parametrize("enable", [True, False], ids=["every-control-changed", "off"])
 def test_the_infotext_replays_into_the_same_script_args(enable):
-    script = boost.AnimaXattnBoostScript()
-    controls = harness.build_ui(script)
+    layout = harness.script_layout(boost.AnimaXattnBoostScript())
+    defaults = layout.values_to_args({})
     args = [enable, *(True, 1.5, 0.9, 0.25)[1:]]
-    assert all(value != control.value for value, control in zip(args[1:], controls[1:]))
+    assert all(value != default for value, default in zip(args[1:], defaults[1:]))
     # Off records nothing: the paste and the API leave the panel at its defaults
-    expected = args if enable else [control.value for control in controls]
-    params = harness.assert_infotext_round_trip(script, controls, args, _record, expected)
+    expected = args if enable else defaults
+    params = harness.assert_infotext_round_trip(layout, args, _record, expected)
     assert (params == {}) is not enable
 
 

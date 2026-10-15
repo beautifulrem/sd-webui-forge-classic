@@ -192,38 +192,19 @@ class Extension:
         return res
 
     def check_updates(self):
-        repo = Repo(self.path)
-        branch_name = f"{repo.remote().name}/{self.branch}"
-        for fetch in repo.remote().fetch(dry_run=True):
-            if self.branch and fetch.name != branch_name:
-                continue
-            if fetch.flags != fetch.HEAD_UPTODATE:
-                self.can_update = True
-                self.status = "new commits"
-                return
+        """Fetch the remote and set ``can_update`` / ``status``; git runs without
+        a terminal and with a timeout (raises ``remi.extensions_admin.GitError``)."""
 
-        try:
-            origin = repo.rev_parse(branch_name)
-            if repo.head.commit != origin:
-                self.can_update = True
-                self.status = "behind HEAD"
-                return
-        except Exception:
-            self.can_update = False
-            self.status = "unknown (remote error)"
-            return
+        from remi.extensions_admin import check_repo
 
-        self.can_update = False
-        self.status = "latest"
+        self.can_update, self.status = check_repo(self.path, self.branch)
 
     def fetch_and_reset_hard(self, commit=None):
-        repo = Repo(self.path)
-        if commit is None:
-            commit = f"{repo.remote().name}/{self.branch}"
-        # Fix: `error: Your local changes to the following files would be overwritten by merge`,
-        # because WSL2 Docker set 755 file permissions instead of 644, this results to the error.
-        repo.git.fetch(all=True)
-        repo.git.reset(commit, hard=True)
+        """Reset the checkout to ``commit`` (default: the remote's tip of the branch)."""
+
+        from remi.extensions_admin import reset_repo
+
+        reset_repo(self.path, self.branch, commit)
         self.have_info_from_repo = False
 
 

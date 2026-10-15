@@ -6,13 +6,11 @@ import logging
 import math
 import sys
 
-import gradio as gr
-
 from backend.logging import setup_logger
 from lib_anima_hires import BALANCED, GuardLimits, guard_dimensions
 from modules import scripts, shared
-from modules.anima_support import is_anima_engine, register_table_fields, require_finite
-from modules.ui_components import InputAccordion
+from modules.anima_support import is_anima_engine, require_finite, table_params
+from remi import ui
 
 logger = logging.getLogger("AnimaHiresGuard")
 setup_logger(logger)
@@ -67,61 +65,38 @@ class AnimaHiresGuardScript(scripts.Script):
     def show(self, is_img2img):
         return scripts.AlwaysVisible if not is_img2img else False
 
-    def ui(self, is_img2img):
-        if is_img2img:
-            return []
-
-        with InputAccordion(False, label=self.title()) as enabled:
-            gr.Markdown(
-                "Anima only. Validates the base pass and Hires target after "
-                "resolution randomization. **Report only** never changes dimensions."
-            )
-            with gr.Row():
-                policy = gr.Dropdown(
-                    ["Clamp unsafe values", "Report only"],
-                    value="Clamp unsafe values",
-                    label="Policy",
-                )
-                preset = gr.Dropdown(
-                    ["Balanced", "Low VRAM", "Detail", "Custom"],
-                    value="Balanced",
-                    label="Safety preset",
-                    info="Custom uses the three sliders below.",
-                )
-                align = gr.Checkbox(
-                    True,
-                    label="Align to 16 px",
-                    info="Matches Anima's 8x VAE reduction and 2x transformer patches. Hires targets also follow Forge's Resolution Step setting.",
-                )
-            with gr.Row():
-                base_mp = gr.Slider(
-                    0.4,
-                    3.0,
-                    value=1.2,
-                    step=0.05,
-                    label="Base maximum (MP)",
-                )
-                hires_mp = gr.Slider(
-                    0.8,
-                    6.0,
-                    value=2.1,
-                    step=0.05,
-                    label="Hires maximum (MP)",
-                )
-                max_upscale = gr.Slider(
-                    1.0,
-                    3.0,
-                    value=1.75,
-                    step=0.05,
-                    label="Maximum upscale per axis",
-                )
-
-        controls = [enabled, policy, preset, align, base_mp, hires_mp, max_upscale]
-        register_table_fields(self, ((name, key, f"hires_guard.{name}") for name, key in FIELDS), controls)
-        # txt2img only: "Send to" pairs the tabs' paste field names by position,
-        # so names img2img lacks would shift every later panel's values
-        self.paste_field_names = []
-        return controls
+    def params(self, is_img2img):
+        # txt2img only (show): the guard sizes the Hires. fix target
+        custom = ui.param("preset", eq="Custom")
+        root = ui.Section(
+            self.title(),
+            enable=ui.Toggle("enabled", False, label=self.title()),
+            children=[
+                ui.Markdown(
+                    "Anima only. Validates the base pass and Hires target after "
+                    "resolution randomization. **Report only** never changes dimensions."
+                ),
+                ui.Row(
+                    ui.Choice("policy", ["Clamp unsafe values", "Report only"], "Clamp unsafe values", label="Policy"),
+                    ui.Choice("preset", ["Balanced", "Low VRAM", "Detail", "Custom"], "Balanced", label="Safety preset", info="Custom uses the three sliders below."),
+                    ui.Toggle(
+                        "align",
+                        True,
+                        label="Align to 16 px",
+                        info="Matches Anima's 8x VAE reduction and 2x transformer patches. Hires targets also follow Forge's Resolution Step setting.",
+                    ),
+                ),
+                # Read only with the Custom preset: the named presets bring their own limits
+                ui.Row(
+                    ui.Slider("base_mp", 0.4, 3.0, 1.2, 0.05, label="Base maximum (MP)"),
+                    ui.Slider("hires_mp", 0.8, 6.0, 2.1, 0.05, label="Hires maximum (MP)"),
+                    ui.Slider("max_upscale", 1.0, 3.0, 1.75, 0.05, label="Maximum upscale per axis"),
+                    enabled_if=custom,
+                ),
+            ],
+        )
+        self.param_order = table_params(((name, key, f"hires_guard.{name}") for name, key in FIELDS), root)
+        return root
 
     def after_model_load(
         self,
@@ -178,7 +153,7 @@ class AnimaHiresGuardScript(scripts.Script):
             fixed_base=upscaling_image,
             hires_alignment=hires_alignment,
         )
-        # Same keys as ``self.infotext_fields``, so pasted parameters restore the panel
+        # The params' ``infotext`` keys (``FIELDS``), so pasted parameters restore the panel
         values = (True, str(policy), str(preset), bool(align), float(base_mp), float(hires_mp), float(max_upscale))
         process.extra_generation_params.update(zip((key for _, key in FIELDS), values))
         process.extra_generation_params["Anima Hires limits"] = (

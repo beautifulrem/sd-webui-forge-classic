@@ -1,0 +1,10 @@
+{
+  "Queued": "排队中",
+  "Running…": "运行中…",
+  "Run": "运行",
+  "Cancelling…": "正在取消…",
+  "Cancel": "取消",
+  "Failed: {{error}}": "失败：{{error}}",
+  "Finished": "已完成",
+  "Cancelled": "已取消"
+}

@@ -15,6 +15,7 @@ import type { FormTab, TabSchema } from "@/api/types"
 import { onWsEvent } from "@/api/ws"
 import { t } from "@/i18n"
 import { getFormStore } from "@/ui/form-store"
+import { flushPendingWrites } from "@/ui/pending-writes"
 import { jobRequest } from "@/ui/tab"
 import { notifyResults } from "./effects"
 import { IDLE, type JobOutcome, reduce, type RunEffect, type RunEvent, type RunState } from "./run-machine"
@@ -82,6 +83,8 @@ async function submit(tab: GenerateTab) {
     return
   }
   try {
+    // Canvas layers still uploading after the last stroke go out first.
+    await flushPendingWrites(tab)
     const created = await api.jobs.create(jobRequest(store, schema))
     store.getState().clearErrors()
     const jobIds = created.job_ids?.length ? created.job_ids : [created.job_id]

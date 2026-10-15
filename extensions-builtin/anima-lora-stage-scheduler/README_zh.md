@@ -64,6 +64,12 @@ lora_name=模板名
 - 自定义模板按名称记录。粘贴端没有该模板时，模板下拉框保持不变，并在控制台给出警告。
 - 此前生成的图片只有一行 `Anima LoRA Stage Scheduler` 摘要；粘贴这类图片时面板保持不变。
 
+## API
+
+`alwayson_scripts` 的 args 按面板参数顺序传入：`enabled`，基础面板的 `base_target_mode`、`base_target_loras`、`base_panel_weight`、`base_template`、`base_lora_templates`、`base_timing`，然后是 `hr_independent`、同样的 6 个 `hr_` 参数、`hr_disable_mode` 和 `hr_disable_tags`（共 16 个）。`*_timing` 参数是一个对象：`{"auto", "start", "end", "peak", "strength", "curve"}`（缺少的键取默认值）。
+
+API 不再接受 Gradio 面板的 26 个位置参数（各时间控件分开传）：API 只保留脚本的 16 个参数位，按旧布局发送的请求会被拒绝，错误信息会列出应传入的参数。
+
 ## 语言设置
 
 进入 **设置**，找到 **Anima LoRA Stage Scheduler / Anima LoRA 阶段介入**，选择 `zh` 或 `en`，然后 Reload UI。

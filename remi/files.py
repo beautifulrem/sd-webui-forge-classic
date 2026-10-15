@@ -31,7 +31,7 @@ THUMB_WIDTHS = (64, 128, 192, 256, 320, 384, 512, 768, 1024)
 DEFAULT_MAX_UPLOAD = 64 * 1024 * 1024
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif", ".jxl", ".tif", ".tiff")
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".mov", ".mkv", ".avi", ".gif")
-TEXT_EXTENSIONS = (".txt", ".csv", ".json", ".yaml", ".yml")
+TEXT_EXTENSIONS = (".txt", ".csv", ".json", ".yaml", ".yml", ".cube")  # .cube: 3D LUTs (Post Processing Suite)
 
 
 class FileError(ValueError):
@@ -469,6 +469,11 @@ class FileStore:
     def _was_removed(self, path: str) -> bool:
         with self._lock:
             return self._db.execute("SELECT 1 FROM removed WHERE path = ?", (path,)).fetchone() is not None
+
+    def is_removed(self, path: str | os.PathLike) -> bool:
+        """``path`` was taken out of the gallery (kept on disk)."""
+
+        return self._was_removed(os.path.realpath(path))
 
     # endregion
 

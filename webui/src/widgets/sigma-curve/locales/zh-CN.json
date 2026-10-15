@@ -1,0 +1,6 @@
+{
+  "Daemon {{name}}: {{status}}, amount {{amount}}, peak {{peak}}": "Daemon {{name}}：{{status}}，强度 {{amount}}，峰值 {{peak}}",
+  "active": "已启用",
+  "inactive": "未启用",
+  "Daemons": "Daemon 列表"
+}

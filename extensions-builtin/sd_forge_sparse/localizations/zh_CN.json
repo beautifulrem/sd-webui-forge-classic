@@ -1,0 +1,14 @@
+{
+  "Sparse Attention Integrated": "Sparse Attention 集成",
+  "Tau": "Tau",
+  "higher = faster & worse quality": "越高 = 越快、质量越差",
+  "Timestep Range": "时间步范围",
+  "Tokens Threshold": "Token 阈值",
+  "model & resolution dependent ; higher = slower & better quality": "取决于模型与分辨率；越高 = 越慢、质量越好",
+  "Extra Tokens": "额外 Token",
+  "higher = slower & better quality": "越高 = 越慢、质量越好",
+  "Dense Blocks": "稠密块",
+  "blocks to keep dense (i.e. slower / better quality)": "保持稠密的块（即更慢 / 质量更好）",
+  "0, 1, 25-27": "0, 1, 25-27",
+  "Verbose (Debug)": "详细日志（调试）"
+}

@@ -15,6 +15,9 @@ export const jobOf = (id: string, status: Job["status"], outputs: JobOutput[] = 
   outputs,
   priority: 0,
   forever: false,
+  starred: false,
+  replayable: true,
+  notes: [],
 })
 
 /** `GET /jobs/{id}`: a job with its request. */

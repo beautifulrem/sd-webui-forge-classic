@@ -12,7 +12,7 @@ sys.argv = sys.argv[:1]
 SCRIPT = Path(__file__).parents[1] / "scripts" / "anima_artist_scheduled_mixer.py"
 
 
-_spec = importlib.util.spec_from_file_location("extension_script_harness", Path(__file__).resolve().parents[3] / "tests" / "extension_script_harness.py")
+_spec = importlib.util.spec_from_file_location("remi_anima_lora_harness", Path(__file__).resolve().parents[3] / "tests" / "remi_anima_lora_harness.py")
 harness = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(harness)
 
@@ -445,7 +445,8 @@ def test_a_wrong_argument_count_installs_nothing(monkeypatch, args):
     p = _run_p()
     p.is_api = False  # a UI run remembers its panel
     unet = p.sd_model.forge_objects.unet
-    count = len(mixer.SCRIPT_ARG_NAMES)
+    # Neither the Gradio panel's 653 arguments nor the params() layout's
+    count = len(mixer.PARAM_NAMES)
     for hook in (mixer.Script().process, mixer.Script().process_before_every_sampling):
         with pytest.raises(TypeError, match=f"Anima Artist Scheduled Mixer takes {count} script arguments, got {len(args)}"):
             hook(p, *args)
