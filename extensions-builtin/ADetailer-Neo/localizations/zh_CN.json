@@ -96,5 +96,19 @@
  "ADetailer Prompt": "ADetailer 正向提示词",
  "ADetailer Negative Prompt": "ADetailer 反向提示词",
  "If blank, the original prompt is used": "留空则使用原提示词",
- "If blank, the original negative prompt is used": "留空则使用原反向提示词"
+ "If blank, the original negative prompt is used": "留空则使用原反向提示词",
+ "[ADetailer] ADetailer Detector": "[ADetailer] ADetailer 检测模型",
+ "[ADetailer] ADetailer Prompt": "[ADetailer] ADetailer 正向提示词",
+ "[ADetailer] ADetailer Negative Prompt": "[ADetailer] ADetailer 反向提示词",
+ "[ADetailer] Prompt S/R": "[ADetailer] 提示词搜索/替换",
+ "[ADetailer] Prompt S/R (+ main prompt)": "[ADetailer] 提示词搜索/替换 (+ 主提示词)",
+ "[ADetailer] Mask Dilation / Erosion": "[ADetailer] 蒙版扩张 / 腐蚀",
+ "[ADetailer] Inpaint Denoising Strength": "[ADetailer] 重绘降噪强度",
+ "[ADetailer] CFG Scale": "[ADetailer] CFG 缩放",
+ "[ADetailer] Inpaint Only Masked": "[ADetailer] 仅重绘蒙版区域",
+ "[ADetailer] Inpaint Only masked padding": "[ADetailer] 仅重绘蒙版区域边缘预留像素",
+ "[ADetailer] ADetailer Sampler": "[ADetailer] ADetailer 采样器",
+ "[ADetailer] ADetailer Scheduler": "[ADetailer] ADetailer 调度器",
+ "[ADetailer] Noise Multiplier": "[ADetailer] 噪声倍率",
+ "[ADetailer] ControlNet Model": "[ADetailer] ControlNet 模型"
 }

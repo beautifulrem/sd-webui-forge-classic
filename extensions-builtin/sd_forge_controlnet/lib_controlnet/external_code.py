@@ -205,6 +205,8 @@ class ControlNetUnit:
         unit = ControlNetUnit(**{k: v for k, v in d.items() if k in vars(ControlNetUnit)})
         if isinstance(unit.image, str):
             unit.image = np.array(api.decode_base64_to_image(unit.image)).astype("uint8")
+        elif isinstance(unit.image, dict):  # the A1111 API's {"image": b64, "mask": b64}
+            unit.image = {key: np.array(api.decode_base64_to_image(value)).astype("uint8") if isinstance(value, str) and value else value for key, value in unit.image.items()}
         if isinstance(unit.mask_image, str):
             unit.mask_image = np.array(api.decode_base64_to_image(unit.mask_image)).astype("uint8")
         return unit

@@ -272,6 +272,52 @@ def test_tasks_wait_for_generation_and_can_be_cancelled(server):
     assert done["__outputs__"]["task:run"]["state"] == "cancelled" and done["__toast__"]["message"] == "Cancelled"
 
 
+def test_tasks_wait_behind_the_webui_generation_lock(webui, tmp_path):
+    """The real generation lock (``modules.call_queue.queue_lock``) is a
+    FIFOLock: a waiting task runs once it is released, or stops when cancelled."""
+
+    from modules.fifo_lock import FIFOLock
+
+    lock = FIFOLock()
+    with server_app(tmp_path, lock=lock) as server:
+        page = pages.register(Echo("echo", "Echo"))
+        page.gate = threading.Event()
+        page.gate.set()
+        body = {"values": {"text": "go"}}
+        with lock:
+            status = server.client.post("/api/v2/actions/page:echo/run", json=body).json()["__outputs__"]["task:run"]
+            waiting = _poll(server, {"values": {}, "task": "run", "id": status["id"]}, lambda s: s["text"] is not None)
+            assert waiting["__outputs__"]["task:run"]["state"] == "queued"
+        done = _poll(server, {"values": {}, "task": "run", "id": status["id"]}, lambda s: s["done"])
+        assert done["__outputs__"]["task:run"]["state"] == "completed" and done["__outputs__"]["result"] == "gogo"
+        with lock:
+            status = server.client.post("/api/v2/actions/page:echo/run", json=body).json()["__outputs__"]["task:run"]
+            _poll(server, {"values": {}, "task": "run", "id": status["id"]}, lambda s: s["text"] is not None)
+            server.client.post("/api/v2/actions/page:echo/__cancel__", json={"values": {}, "task": "run"})
+            done = _poll(server, {"values": {}, "task": "run", "id": status["id"]}, lambda s: s["done"])
+        assert done["__outputs__"]["task:run"]["state"] == "cancelled"
+        assert lock.acquire(blocking=False)  # the cancelled waiter left the queue
+        lock.release()
+
+
+def test_fifo_lock_timeout():
+    from modules.fifo_lock import FIFOLock
+
+    lock = FIFOLock()
+    assert lock.acquire()
+    started = time.monotonic()
+    assert lock.acquire(timeout=0.05) is False and time.monotonic() - started >= 0.04
+    assert not lock._pending_threads
+    got = []
+    waiter = threading.Thread(target=lambda: got.append(lock.acquire(timeout=5)))
+    waiter.start()
+    time.sleep(0.05)
+    lock.release()
+    waiter.join(5)
+    assert got == [True]
+    lock.release()
+
+
 def test_failed_tasks_toast_their_error(server):
     class Broken(Echo):
         @ui.action("run")

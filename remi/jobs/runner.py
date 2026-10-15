@@ -76,8 +76,18 @@ def _image_infotext(image: Any) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _as_image(image: Any) -> Any:
+    """A PIL image; extra images may be numpy arrays (ControlNet's detected maps)."""
+
+    if image is not None and not hasattr(image, "save"):
+        from PIL import Image
+
+        return Image.fromarray(image)
+    return image
+
+
 def _from_processed(processed: Any) -> JobResult:
-    images = [image for image in list(getattr(processed, "images", None) or []) + list(getattr(processed, "extra_images", None) or []) if image is not None]
+    images = [_as_image(image) for image in list(getattr(processed, "images", None) or []) + list(getattr(processed, "extra_images", None) or []) if image is not None]
     infotexts = [text for text in getattr(processed, "infotexts", None) or [] if isinstance(text, str)]
     info = infotexts[0] if infotexts else getattr(processed, "info", None)
     texts = [infotexts[index] if index < len(infotexts) else (_image_infotext(image) or info) for index, image in enumerate(images)]

@@ -448,6 +448,20 @@ def test_api_units_and_the_batch_directory_reach_processing(cn, monkeypatch):
     assert script.get_batch_input_dir(args) == ""
 
 
+def test_api_units_decode_the_image_mask_pair():
+    """The A1111 API also sends ``"image": {"image": b64, "mask": b64}``."""
+
+    import base64
+
+    from lib_controlnet.external_code import ControlNetUnit
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (6, 4), (200, 10, 10)).save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode()
+    unit = ControlNetUnit.from_dict({"enabled": True, "image": {"image": encoded, "mask": None}})
+    assert unit.image["image"].shape == (4, 6, 3) and unit.image["image"][0, 0, 0] == 200 and unit.image["mask"] is None
+
+
 def test_the_batch_directory_supplies_control_images(cn, registry, tmp_path):
     from lib_controlnet.external_code import ControlNetUnit
 

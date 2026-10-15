@@ -356,3 +356,20 @@ def test_store_round_trips_a_job(tmp_path):
 
 
 # endregion
+
+
+def test_numpy_extra_images_become_pil_outputs():
+    """ControlNet adds its detected maps to ``extra_images`` as numpy arrays."""
+
+    from types import SimpleNamespace
+
+    import numpy as np
+    from PIL import Image
+
+    from remi.jobs.runner import _from_processed
+
+    image = Image.new("RGB", (8, 8))
+    detected = np.zeros((4, 6, 3), dtype=np.uint8)
+    result = _from_processed(SimpleNamespace(images=[image], extra_images=[detected], infotexts=["info"], info="info"))
+    assert result.images[0] is image and isinstance(result.images[1], Image.Image) and result.images[1].size == (6, 4)
+    assert result.infotexts == ["info", "info"]
