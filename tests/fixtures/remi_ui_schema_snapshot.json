@@ -1,0 +1,251 @@
+{
+ "type": "section",
+ "title": "Demo",
+ "open": true,
+ "enable": {
+  "type": "toggle",
+  "name": "enable",
+  "label": "Enable",
+  "default": false,
+  "infotext": "Demo",
+  "exclusive": {
+   "group": "spatial",
+   "member": "demo"
+  }
+ },
+ "children": [
+  {
+   "type": "row",
+   "children": [
+    {
+     "type": "slider",
+     "name": "strength",
+     "label": "Strength",
+     "info": "How strong",
+     "default": 0.3,
+     "minimum": 0.0,
+     "maximum": 1.0,
+     "step": 0.05,
+     "integer": false,
+     "width": 6,
+     "infotext": "Demo strength",
+     "preset": "dave.strength"
+    },
+    {
+     "type": "number",
+     "name": "seed_offset",
+     "label": "Seed offset",
+     "default": 0,
+     "minimum": 0,
+     "precision": 0,
+     "integer": true
+    },
+    {
+     "type": "seed",
+     "name": "seed",
+     "label": "Seed",
+     "default": -1
+    }
+   ]
+  },
+  {
+   "type": "column",
+   "width": "fill",
+   "children": [
+    {
+     "type": "text",
+     "name": "prompt",
+     "label": "",
+     "default": "",
+     "lines": 3,
+     "placeholder": "Prompt",
+     "prompt": true
+    }
+   ]
+  },
+  {
+   "type": "group",
+   "title": "More",
+   "open": false,
+   "children": [
+    {
+     "type": "choice",
+     "name": "mode",
+     "label": "Mode",
+     "default": "Fast",
+     "choices": [
+      {
+       "value": "Fast",
+       "label": "Fast"
+      },
+      {
+       "value": "slow",
+       "label": "Slow and steady"
+      }
+     ],
+     "style": "radio",
+     "allow_custom": false,
+     "on_change": "refresh"
+    },
+    {
+     "type": "multichoice",
+     "name": "tags",
+     "label": "Tags",
+     "default": [
+      "a"
+     ],
+     "choices": [
+      {
+       "value": "a",
+       "label": "a"
+      },
+      {
+       "value": "b",
+       "label": "b"
+      }
+     ],
+     "style": "checkboxes",
+     "allow_custom": true
+    },
+    {
+     "type": "color",
+     "name": "tint",
+     "label": "Tint",
+     "default": "#ff0000",
+     "visible_if": {
+      "param": "mode",
+      "eq": "slow"
+     }
+    }
+   ]
+  },
+  {
+   "type": "tabs",
+   "bind": "source",
+   "children": [
+    {
+     "type": "tab",
+     "title": "Upload",
+     "value": "upload",
+     "children": [
+      {
+       "type": "image",
+       "name": "image",
+       "label": "Image",
+       "default": null,
+       "kind": "image",
+       "mode": "RGBA"
+      },
+      {
+       "type": "image",
+       "name": "mask",
+       "label": "Mask",
+       "default": null,
+       "kind": "mask",
+       "source": "image"
+      }
+     ]
+    },
+    {
+     "type": "tab",
+     "title": "Folder",
+     "value": "dir",
+     "children": [
+      {
+       "type": "image_list",
+       "name": "batch",
+       "label": "Batch",
+       "default": []
+      },
+      {
+       "type": "file",
+       "name": "model",
+       "label": "Model",
+       "default": null,
+       "accept": ".safetensors"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "type": "choice",
+   "name": "source",
+   "label": "Source",
+   "default": "upload",
+   "choices": [
+    {
+     "value": "upload",
+     "label": "Upload"
+    },
+    {
+     "value": "dir",
+     "label": "Folder"
+    }
+   ],
+   "style": "dropdown",
+   "allow_custom": false,
+   "hidden": true
+  },
+  {
+   "type": "json",
+   "name": "table",
+   "label": "Table",
+   "default": {
+    "rows": []
+   }
+  },
+  {
+   "type": "custom",
+   "name": "timeline",
+   "label": "Timeline",
+   "default": [],
+   "widget": "stage-timeline",
+   "props": {
+    "stages": 3
+   }
+  },
+  {
+   "type": "state",
+   "name": "cache",
+   "label": "Cache",
+   "default": null
+  },
+  {
+   "type": "markdown",
+   "text": "**Note**"
+  },
+  {
+   "type": "html",
+   "text": "<b>raw</b>"
+  },
+  {
+   "type": "separator"
+  },
+  {
+   "type": "button",
+   "label": "Refresh",
+   "action": "refresh",
+   "variant": "tool",
+   "enabled_if": {
+    "not": {
+     "param": "enable"
+    }
+   }
+  },
+  {
+   "type": "gallery",
+   "name": "previews",
+   "label": "Previews"
+  },
+  {
+   "type": "output",
+   "name": "status",
+   "kind": "html"
+  },
+  {
+   "type": "slot",
+   "section": "seed"
+  }
+ ]
+}

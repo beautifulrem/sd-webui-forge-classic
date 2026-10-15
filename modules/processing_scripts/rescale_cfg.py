@@ -1,11 +1,10 @@
 # https://github.com/comfyanonymous/ComfyUI/blob/v0.3.64/comfy_extras/nodes_model_advanced.py#L274
 
-import gradio as gr
 import torch
 
 from modules import scripts
-from modules.infotext_utils import PasteField
 from modules.shared import opts
+from remi import ui
 
 
 class ScriptRescaleCFG(scripts.ScriptBuiltinUI):
@@ -18,7 +17,14 @@ class ScriptRescaleCFG(scripts.ScriptBuiltinUI):
     def show(self, is_img2img):
         return scripts.AlwaysVisible if opts.show_rescale_cfg else None
 
+    def params(self, is_img2img):
+        return ui.Slider("cfg", 0.0, 1.0, 0.0, 0.05, label="Rescale CFG", infotext="Rescale CFG")
+
     def ui(self, is_img2img):
+        import gradio as gr
+
+        from modules.infotext_utils import PasteField
+
         cfg = gr.Slider(
             value=0.0,
             minimum=0.0,

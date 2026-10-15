@@ -23,8 +23,9 @@ def run_postprocessing(extras_mode, image, image_folder, input_dir, output_dir, 
         if extras_mode == 1:
             for img in image_folder:
                 if isinstance(img, Image.Image):
+                    # An upload carries its original file name (remi.core.JobContext)
+                    fn = os.path.splitext(getattr(img, "filename", "") or "")[0] or None
                     image = images.fix_image(img)
-                    fn = ""
                 else:
                     image = images.read(os.path.abspath(img.name))
                     fn = os.path.splitext(img.name)[0]
@@ -206,3 +207,21 @@ def run_extras(extras_mode, resize_mode, image, image_folder, input_dir, output_
     )
 
     return run_postprocessing(extras_mode, image, image_folder, input_dir, output_dir, show_extras_results, "", *args, save_output=save_output)
+
+
+def run_extras_named(core: dict | None, scripts_values: dict | None = None, job=None, *, save_output: bool = True):
+    """Extras from named values (``core``: the extras form with upload ids,
+    ``scripts_values``: ``{operation id: {param: value}}``); returns
+    ``(images, info_html)``. Raises ``remi.ui.ValidationError``."""
+
+    from remi.core import JobContext
+    from remi.core.job import job_state
+    from remi.core.tabs import processing_args
+
+    job = job or JobContext()
+    core_args, script_args = processing_args("extras", core, scripts_values, job.context())
+    run_args = (core_args["mode"], core_args["image"], core_args["image_batch"], core_args["input_dir"], core_args["output_dir"], core_args["show_extras_results"], core_args["video_input"], *script_args)
+    run = run_postprocessing_video if core_args["mode"] == 3 else run_postprocessing
+    with job_state(job):
+        images_out, info_html, _ = run(*run_args, save_output=save_output)
+    return images_out, info_html

@@ -1,11 +1,12 @@
 import json
 
-import gradio as gr
-
-from modules import errors, infotext_utils, scripts, ui
-from modules.infotext_utils import PasteField
+from modules import errors, scripts
 from modules.shared import cmd_opts
-from modules.ui_components import ToolButton
+from remi import ui
+
+
+def _subseed_shown(params: dict) -> bool:
+    return "Variation seed" in params or "Seed resize from-1" in params
 
 
 class ScriptSeed(scripts.ScriptBuiltinUI):
@@ -23,23 +24,49 @@ class ScriptSeed(scripts.ScriptBuiltinUI):
     def show(self, is_img2img):
         return scripts.AlwaysVisible
 
+    def params(self, is_img2img):
+        shown = ui.param("subseed_show")
+        return ui.Group(
+            ui.Row(
+                ui.Seed("seed", -1, label="Seed", infotext="Seed"),
+                ui.Toggle("subseed_show", False, label="Extra", paste=_subseed_shown, width="auto"),
+            ),
+            ui.Group(
+                ui.Row(
+                    ui.Seed("subseed", -1, label="Variation seed", infotext="Variation seed"),
+                    ui.Slider("subseed_strength", 0, 1, 0.0, 0.01, label="Variation strength", infotext="Variation seed strength"),
+                ),
+                ui.Row(
+                    ui.Slider("seed_resize_from_w", 0, 2048, 0, 8, label="Resize seed from width", infotext="Seed resize from-1"),
+                    ui.Slider("seed_resize_from_h", 0, 2048, 0, 8, label="Resize seed from height", infotext="Seed resize from-2"),
+                ),
+                visible_if=shown,
+            ),
+        )
+
     def ui(self, is_img2img):
+        import gradio as gr
+
+        from modules import ui as legacy_ui
+        from modules.infotext_utils import PasteField
+        from modules.ui_components import ToolButton
+
         with gr.Row(elem_id=self.elem_id("seed_row")):
             if cmd_opts.use_textbox_seed:
                 self.seed = gr.Textbox(label="Seed", value="-1", elem_id=self.elem_id("seed"), min_width=100)
             else:
                 self.seed = gr.Number(label="Seed", value=-1, elem_id=self.elem_id("seed"), min_width=100, precision=0)
 
-            random_seed = ToolButton(ui.random_symbol, elem_id=self.elem_id("random_seed"), tooltip="Set seed to -1, which will cause a new random number to be used every time")
-            reuse_seed = ToolButton(ui.reuse_symbol, elem_id=self.elem_id("reuse_seed"), tooltip="Reuse seed from last generation, mostly useful if it was randomized")
+            random_seed = ToolButton(legacy_ui.random_symbol, elem_id=self.elem_id("random_seed"), tooltip="Set seed to -1, which will cause a new random number to be used every time")
+            reuse_seed = ToolButton(legacy_ui.reuse_symbol, elem_id=self.elem_id("reuse_seed"), tooltip="Reuse seed from last generation, mostly useful if it was randomized")
 
             seed_checkbox = gr.Checkbox(label="Extra", elem_id=self.elem_id("subseed_show"), value=False, scale=0, min_width=60)
 
         with gr.Group(visible=False, elem_id=self.elem_id("seed_extras")) as seed_extras:
             with gr.Row(elem_id=self.elem_id("subseed_row")):
                 subseed = gr.Number(label="Variation seed", value=-1, elem_id=self.elem_id("subseed"), precision=0)
-                random_subseed = ToolButton(ui.random_symbol, elem_id=self.elem_id("random_subseed"))
-                reuse_subseed = ToolButton(ui.reuse_symbol, elem_id=self.elem_id("reuse_subseed"))
+                random_subseed = ToolButton(legacy_ui.random_symbol, elem_id=self.elem_id("random_subseed"))
+                reuse_subseed = ToolButton(legacy_ui.reuse_symbol, elem_id=self.elem_id("reuse_subseed"))
                 subseed_strength = gr.Slider(label="Variation strength", value=0.0, minimum=0, maximum=1, step=0.01, elem_id=self.elem_id("subseed_strength"))
 
             with gr.Row(elem_id=self.elem_id("seed_resize_from_row")):
@@ -77,12 +104,16 @@ class ScriptSeed(scripts.ScriptBuiltinUI):
             p.seed_resize_from_h = seed_resize_from_h
 
 
-def connect_reuse_seed(seed: gr.Number, reuse_seed: gr.Button, generation_info: gr.Textbox, is_subseed):
+def connect_reuse_seed(seed, reuse_seed, generation_info, is_subseed):
     """
     Connects a "reuse (sub)seed" button's click event so that it copies last used (sub)seed value
     from generation info the to the seed field. If copying subseed and subseed strength was 0,
     i.e. no variation seed was used, it copies the normal seed value instead.
     """
+
+    import gradio as gr
+
+    from modules import infotext_utils
 
     def copy_seed(gen_info_string: str, index):
         res = -1

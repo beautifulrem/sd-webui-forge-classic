@@ -1,8 +1,9 @@
 import html
 import sys
 
-from modules import script_callbacks, scripts, ui_components
+from modules import script_callbacks, scripts
 from modules.options import OptionHTML, OptionInfo
+from remi import ui
 
 
 def postprocessing_scripts():
@@ -145,7 +146,7 @@ def callbacks_order_settings():
         if not callbacks:
             continue
 
-        option_info = OptionInfo([], f"{category} callback priority", ui_components.DropdownMulti, {"choices": [x.name for x in callbacks]})
+        option_info = OptionInfo([], f"{category} callback priority", ui.MultiChoice, {"choices": [x.name for x in callbacks]})
         option_info.needs_restart()
         option_info.html("<div class='info'>Default order: <ol>" + "".join(f"<li>{html.escape(x.name)}</li>\n" for x in callbacks) + "</ol></div>")
         options["prioritized_callbacks_" + category] = option_info

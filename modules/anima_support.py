@@ -4,7 +4,8 @@ plumbing, extra-prompt encoding and caching, block-list and branch-row
 parsing, setting bounds (``clamp`` / ``to_float``), generated-frame (vs
 edit reference frame) token spans, model-wrapper helpers (windowed
 forward-override patches), the panels' script-argument check, infotext
-paste keys and the block-patch panels' script mixin."""
+paste keys and the block-patch panels' script mixin, with its declarative
+(``params()``) forms: :func:`table_params` and ``AnimaPatchPanel.panel_params``."""
 
 from __future__ import annotations
 
@@ -817,10 +818,49 @@ def register_table_fields(script, rows, controls) -> list:
     return [control for control, _, _ in fields]
 
 
+def table_params(rows, root) -> tuple[str, ...]:
+    """The declarative :func:`register_table_fields`, for ``params()``.
+
+    ``rows`` is the panel's argument table, each ``(name, infotext key or
+    None, preset field or None, ...)``; every row names one input of the
+    ``remi.ui`` tree ``root``, which gets the row's ``infotext`` key (a
+    :class:`PasteKey` also becomes its ``paste`` function) and ``preset``
+    field unless the node declares its own. Returns the row names in order:
+    the script's ``param_order`` (the positional order the table defines).
+    Raises ``KeyError`` for a row without an input, an input without a row,
+    or an unknown preset field."""
+
+    from modules.anima_presets import SAFE_BASE_AESTHETIC_PRESET
+    from remi.ui import Input
+
+    rows = list(rows)
+    inputs = {node.name: node for node in root.walk() if isinstance(node, Input)}
+    names = tuple(name for name, *_ in rows)
+    missing = [name for name in names if name not in inputs]
+    unlisted = [name for name in inputs if name not in names]
+    if missing or unlisted:
+        raise KeyError(f"argument table and params() differ: rows without an input {missing}, inputs without a row {unlisted}")
+    for name, key, preset_name, *_ in rows:
+        node = inputs[name]
+        if key is not None and node.infotext is None:
+            node.infotext = str(key)
+            if callable(key) and node.paste is None:
+                node.paste = key
+        if preset_name is not None and node.preset_key is None:
+            if preset_name not in SAFE_BASE_AESTHETIC_PRESET:
+                raise KeyError(f"Unknown Anima preset field: {preset_name}")
+            node.set_preset(preset_name)
+    return names
+
+
 class AnimaPatchPanel:
     """Mixin for an always-visible Anima panel that patches the UNet of each
     pass (DAVE, cross-attention boost). Its ``ui`` returns the enable switch
-    and then the settings, in the order of ``INFOTEXT_KEYS``."""
+    and then the settings, in the order of ``INFOTEXT_KEYS``.
+
+    Declaratively (``params()``), name each input after its preset field's
+    last part (``"dave.strength"`` -> ``strength``) and return
+    ``self.panel_params(root)``."""
 
     INFOTEXT_KEYS: tuple[str, ...] = ()
     # Anima preset control names, in the same order (see modules/anima_presets.py)
@@ -836,6 +876,20 @@ class AnimaPatchPanel:
         ``controls``; returns them."""
 
         return register_table_fields(self, zip(self.PRESET_FIELDS, self.INFOTEXT_KEYS, self.PRESET_FIELDS, strict=True), controls)
+
+    @classmethod
+    def panel_param_names(cls) -> tuple[str, ...]:
+        """The ``params()`` names, in argument order: ``PRESET_FIELDS``' last parts."""
+
+        return tuple(field.rsplit(".", 1)[-1] for field in cls.PRESET_FIELDS)
+
+    def panel_params(self, root):
+        """Bind ``root``'s inputs to ``INFOTEXT_KEYS`` / ``PRESET_FIELDS``
+        and order the arguments by them; returns ``root`` for ``params()``."""
+
+        rows = zip(self.panel_param_names(), self.INFOTEXT_KEYS, self.PRESET_FIELDS, strict=True)
+        self.param_order = table_params(rows, root)
+        return root
 
     @staticmethod
     def patch_pass(p, patch, infotext: dict) -> None:

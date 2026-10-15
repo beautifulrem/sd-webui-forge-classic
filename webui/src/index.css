@@ -1,0 +1,306 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./styles/shadcn.css";
+@import "@fontsource-variable/inter/index.css";
+@import "@fontsource-variable/jetbrains-mono/index.css";
+
+/* `dark` class on <html> (set by the appearance store before first paint). */
+@custom-variant dark (&:is(.dark *));
+/* `compact` density, also on <html>. */
+@custom-variant compact (&:is([data-density="compact"] *));
+
+/*
+ * Design tokens.
+ *
+ * Surfaces are neutral with a faint cool tint so generated images (the content)
+ * carry the colour. One brand hue drives `--primary` and the focus ring; the
+ * user picks it (data-accent on <html>). shadcn's `--accent` stays a neutral
+ * hover surface, as the base-nova components expect.
+ */
+:root {
+  --brand-h: 277;
+  --brand-c: 0.17;
+  --brand-l: 0.56;
+  --brand-fg: oklch(0.99 0 0);
+
+  --radius: 0.625rem;
+
+  --background: oklch(0.985 0.002 270);
+  --foreground: oklch(0.2 0.006 270);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(var(--brand-l) var(--brand-c) var(--brand-h));
+  --primary-foreground: var(--brand-fg);
+  --secondary: oklch(0.955 0.003 270);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.955 0.003 270);
+  --muted-foreground: oklch(0.5 0.01 270);
+  --accent: oklch(0.945 0.004 270);
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.58 0.22 25);
+  --success: oklch(0.6 0.15 155);
+  --warning: oklch(0.72 0.16 70);
+  --border: oklch(0.2 0.01 270 / 11%);
+  --input: oklch(0.2 0.01 270 / 16%);
+  --ring: oklch(var(--brand-l) var(--brand-c) var(--brand-h));
+  --chart-1: oklch(0.65 0.17 var(--brand-h));
+  --chart-2: oklch(0.7 0.14 190);
+  --chart-3: oklch(0.75 0.15 75);
+  --chart-4: oklch(0.65 0.18 15);
+  --chart-5: oklch(0.6 0.12 250);
+  --sidebar: oklch(0.965 0.003 270);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: oklch(0.92 0.005 270);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+  --canvas: oklch(0.94 0.003 270);
+  --scrollbar: oklch(0.2 0.01 270 / 22%);
+}
+
+.dark {
+  --brand-l: 0.7;
+  --brand-fg: oklch(0.16 0.02 var(--brand-h));
+
+  --background: oklch(0.165 0.004 270);
+  --foreground: oklch(0.955 0.003 270);
+  --card: oklch(0.198 0.005 270);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.225 0.006 270);
+  --popover-foreground: var(--foreground);
+  --secondary: oklch(0.26 0.006 270);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.245 0.006 270);
+  --muted-foreground: oklch(0.7 0.01 270);
+  --accent: oklch(0.27 0.007 270);
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.68 0.19 22);
+  --success: oklch(0.72 0.15 155);
+  --warning: oklch(0.8 0.15 75);
+  --border: oklch(1 0 0 / 8.5%);
+  --input: oklch(1 0 0 / 13%);
+  --sidebar: oklch(0.145 0.004 270);
+  --sidebar-accent: oklch(0.24 0.007 270);
+  --canvas: oklch(0.13 0.003 270);
+  --scrollbar: oklch(1 0 0 / 16%);
+}
+
+/* Accent presets: hue, chroma, and whether the primary text is dark or light. */
+[data-accent="iris"] { --brand-h: 277; --brand-c: 0.17; }
+[data-accent="blue"] { --brand-h: 250; --brand-c: 0.16; }
+[data-accent="teal"] { --brand-h: 190; --brand-c: 0.12; }
+[data-accent="green"] { --brand-h: 152; --brand-c: 0.15; }
+[data-accent="amber"] { --brand-h: 70; --brand-c: 0.16; --brand-l: 0.66; --brand-fg: oklch(0.2 0.03 70); }
+[data-accent="coral"] { --brand-h: 32; --brand-c: 0.17; }
+[data-accent="rose"] { --brand-h: 5; --brand-c: 0.18; }
+.dark[data-accent="amber"],
+.dark [data-accent="amber"] { --brand-l: 0.8; }
+
+/* Re-derive brand colours wherever an accent is set (e.g. accent swatches). */
+[data-accent] {
+  --primary: oklch(var(--brand-l) var(--brand-c) var(--brand-h));
+  --primary-foreground: var(--brand-fg);
+  --ring: oklch(var(--brand-l) var(--brand-c) var(--brand-h));
+}
+
+/* Compact density scales every spacing utility (padding, gap, h-*, size-*). */
+[data-density="compact"] {
+  --spacing: 0.215rem;
+}
+
+@theme inline {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-canvas: var(--canvas);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    color-scheme: light;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+    font-optical-sizing: auto;
+  }
+
+  #root {
+    isolation: isolate;
+    min-height: 100dvh;
+  }
+
+  /* Numbers line up in sliders, counters and tables. */
+  input[type="number"],
+  [data-slot="slider"],
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Thin, theme-aware scrollbars. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar);
+    background-clip: content-box;
+    border: 3px solid transparent;
+    border-radius: 999px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::selection {
+    background: oklch(var(--brand-l) var(--brand-c) var(--brand-h) / 30%);
+  }
+
+  :focus-visible {
+    outline-offset: 2px;
+  }
+}
+
+/* base-nova marker classes. */
+.cn-font-heading {
+  font-family: var(--font-heading);
+}
+
+.cn-menu-translucent {
+  backdrop-filter: blur(12px) saturate(140%);
+  background-color: color-mix(in oklch, var(--popover) 92%, transparent);
+}
+
+[dir="rtl"] .cn-rtl-flip {
+  transform: scaleX(-1);
+}
+
+/* Renderer rows (see src/ui/layout/sizing.ts). */
+@layer components {
+  .remi-row {
+    container-type: inline-size;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: calc(var(--spacing) * 3);
+  }
+
+  .remi-cell {
+    min-width: 0;
+  }
+
+  .remi-cell-auto {
+    flex: 1 1 9rem;
+    min-width: min(100%, 8rem);
+  }
+
+  .remi-cell-fill {
+    flex: 1000 1 12rem;
+    min-width: min(100%, 10rem);
+  }
+
+  .remi-cell-span {
+    flex: 0 1 calc(var(--span) / 12 * 100% - var(--spacing) * 3);
+    min-width: min(100%, 7rem);
+  }
+
+  .remi-cell-content {
+    flex: 0 0 auto;
+  }
+
+  @container (max-width: 30rem) {
+    .remi-cell-span,
+    .remi-cell-fill {
+      flex-basis: 100%;
+    }
+  }
+}
+
+/* Transparent-image backdrop. */
+@utility bg-checker {
+  background-color: var(--canvas);
+  background-image:
+    linear-gradient(45deg, var(--muted) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--muted) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--muted) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--muted) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+/* Motion: honour the OS preference everywhere, including tw-animate-css. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

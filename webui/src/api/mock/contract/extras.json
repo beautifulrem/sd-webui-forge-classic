@@ -1,0 +1,135 @@
+{
+ "version": 1,
+ "tab": "extras",
+ "core": {
+  "owner": "core",
+  "layout": {
+   "type": "column",
+   "children": [
+    {
+     "type": "choice",
+     "name": "mode",
+     "label": "Mode",
+     "default": "Single Image",
+     "choices": [
+      {
+       "value": "Single Image",
+       "label": "Single Image"
+      },
+      {
+       "value": "Batch Process",
+       "label": "Batch Process"
+      },
+      {
+       "value": "Batch from Directory",
+       "label": "Batch from Directory"
+      },
+      {
+       "value": "Single Video",
+       "label": "Single Video"
+      }
+     ],
+     "style": "dropdown",
+     "allow_custom": false,
+     "hidden": true
+    },
+    {
+     "type": "tabs",
+     "bind": "mode",
+     "children": [
+      {
+       "type": "tab",
+       "title": "Single Image",
+       "value": "Single Image",
+       "children": [
+        {
+         "type": "image",
+         "name": "image",
+         "label": "Source",
+         "default": null,
+         "kind": "image",
+         "mode": "RGBA"
+        }
+       ]
+      },
+      {
+       "type": "tab",
+       "title": "Batch Process",
+       "value": "Batch Process",
+       "children": [
+        {
+         "type": "image_list",
+         "name": "image_batch",
+         "label": "Batch Process",
+         "default": []
+        }
+       ]
+      },
+      {
+       "type": "tab",
+       "title": "Batch from Directory",
+       "value": "Batch from Directory",
+       "children": [
+        {
+         "type": "text",
+         "name": "input_dir",
+         "label": "Input directory",
+         "default": "",
+         "lines": 1,
+         "placeholder": "A directory on the same machine where the server is running.",
+         "prompt": false
+        },
+        {
+         "type": "text",
+         "name": "output_dir",
+         "label": "Output directory",
+         "default": "",
+         "lines": 1,
+         "placeholder": "Leave blank to save images to the default path.",
+         "prompt": false
+        },
+        {
+         "type": "toggle",
+         "name": "show_extras_results",
+         "label": "Show result images",
+         "default": true
+        }
+       ]
+      },
+      {
+       "type": "tab",
+       "title": "Single Video",
+       "value": "Single Video",
+       "children": [
+        {
+         "type": "text",
+         "name": "video_input",
+         "label": "Input Clip",
+         "info": "For video longer than 1 minute, please extract the frames and use \"Batch from Directory\" instead",
+         "default": "",
+         "lines": 1,
+         "placeholder": "Path to a video file",
+         "prompt": false
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "type": "slot",
+     "section": "scripts"
+    }
+   ]
+  },
+  "defaults": {
+   "mode": "Single Image",
+   "image": null,
+   "image_batch": [],
+   "input_dir": "",
+   "output_dir": "",
+   "show_extras_results": true,
+   "video_input": ""
+  }
+ },
+ "scripts": []
+}

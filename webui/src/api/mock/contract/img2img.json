@@ -1,0 +1,1230 @@
+{
+ "version": 1,
+ "tab": "img2img",
+ "core": {
+  "owner": "core",
+  "layout": {
+   "type": "column",
+   "children": [
+    {
+     "type": "group",
+     "open": true,
+     "children": [
+      {
+       "type": "text",
+       "name": "prompt",
+       "label": "Prompt",
+       "default": "",
+       "lines": 3,
+       "placeholder": "Prompt\n(Ctrl+Enter to Generate ; Alt+Enter to Skip ; Esc to Interrupt)",
+       "prompt": true,
+       "infotext": "Prompt"
+      },
+      {
+       "type": "text",
+       "name": "negative_prompt",
+       "label": "Negative Prompt",
+       "default": "",
+       "lines": 3,
+       "placeholder": "Negative Prompt\n(Ctrl+Enter to Generate ; Alt+Enter to Skip ; Esc to Interrupt)",
+       "prompt": true,
+       "infotext": "Negative prompt",
+       "enabled_if": {
+        "param": "cfg_scale",
+        "gt": 1
+       }
+      },
+      {
+       "type": "multichoice",
+       "name": "styles",
+       "label": "Styles",
+       "default": [],
+       "choices": [],
+       "style": "dropdown",
+       "allow_custom": false
+      }
+     ]
+    },
+    {
+     "type": "group",
+     "open": true,
+     "children": [
+      {
+       "type": "group",
+       "open": true,
+       "children": [
+        {
+         "type": "choice",
+         "name": "mode",
+         "label": "Mode",
+         "default": "img2img",
+         "choices": [
+          {
+           "value": "img2img",
+           "label": "img2img"
+          },
+          {
+           "value": "Sketch",
+           "label": "Sketch"
+          },
+          {
+           "value": "Inpaint",
+           "label": "Inpaint"
+          },
+          {
+           "value": "Inpaint sketch",
+           "label": "Inpaint sketch"
+          },
+          {
+           "value": "Inpaint upload",
+           "label": "Inpaint upload"
+          },
+          {
+           "value": "Batch",
+           "label": "Batch"
+          }
+         ],
+         "style": "dropdown",
+         "allow_custom": false,
+         "hidden": true
+        },
+        {
+         "type": "tabs",
+         "bind": "mode",
+         "children": [
+          {
+           "type": "tab",
+           "title": "img2img",
+           "value": "img2img",
+           "children": []
+          },
+          {
+           "type": "tab",
+           "title": "Sketch",
+           "value": "Sketch",
+           "children": []
+          },
+          {
+           "type": "tab",
+           "title": "Inpaint",
+           "value": "Inpaint",
+           "children": []
+          },
+          {
+           "type": "tab",
+           "title": "Inpaint sketch",
+           "value": "Inpaint sketch",
+           "children": []
+          },
+          {
+           "type": "tab",
+           "title": "Inpaint upload",
+           "value": "Inpaint upload",
+           "children": []
+          },
+          {
+           "type": "tab",
+           "title": "Batch",
+           "value": "Batch",
+           "children": [
+            {
+             "type": "choice",
+             "name": "batch_source",
+             "label": "Batch source",
+             "default": "upload",
+             "choices": [
+              {
+               "value": "upload",
+               "label": "Upload"
+              },
+              {
+               "value": "from dir",
+               "label": "From directory"
+              }
+             ],
+             "style": "dropdown",
+             "allow_custom": false,
+             "hidden": true
+            },
+            {
+             "type": "tabs",
+             "bind": "batch_source",
+             "children": [
+              {
+               "type": "tab",
+               "title": "Upload",
+               "value": "upload",
+               "children": [
+                {
+                 "type": "image_list",
+                 "name": "batch_upload",
+                 "label": "Files",
+                 "default": []
+                }
+               ]
+              },
+              {
+               "type": "tab",
+               "title": "From directory",
+               "value": "from dir",
+               "children": [
+                {
+                 "type": "markdown",
+                 "text": "Process images in a directory on the same machine where the server is running.\nUse an empty output directory to save pictures normally instead of writing to the output directory.\nAdd inpaint batch mask directory to enable inpaint batch processing."
+                },
+                {
+                 "type": "text",
+                 "name": "batch_input_dir",
+                 "label": "Input directory",
+                 "default": "",
+                 "lines": 1,
+                 "prompt": false
+                },
+                {
+                 "type": "text",
+                 "name": "batch_output_dir",
+                 "label": "Output directory",
+                 "default": "",
+                 "lines": 1,
+                 "prompt": false
+                },
+                {
+                 "type": "text",
+                 "name": "batch_inpaint_mask_dir",
+                 "label": "Inpaint batch mask directory (required for inpaint batch processing only)",
+                 "default": "",
+                 "lines": 1,
+                 "prompt": false
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "type": "section",
+             "title": "Append PNG Info",
+             "open": false,
+             "enable": {
+              "type": "toggle",
+              "name": "batch_use_png_info",
+              "label": "Append PNG Info",
+              "default": false
+             },
+             "children": [
+              {
+               "type": "text",
+               "name": "batch_png_info_dir",
+               "label": "PNG info directory",
+               "default": "",
+               "lines": 1,
+               "placeholder": "Leave empty to use input directory",
+               "prompt": false
+              },
+              {
+               "type": "multichoice",
+               "name": "batch_png_info_props",
+               "label": "Parameters to take from png info",
+               "info": "Prompts from png info will be appended to prompts set in ui.",
+               "default": [],
+               "choices": [
+                {
+                 "value": "Prompt",
+                 "label": "Prompt"
+                },
+                {
+                 "value": "Negative prompt",
+                 "label": "Negative prompt"
+                },
+                {
+                 "value": "Seed",
+                 "label": "Seed"
+                },
+                {
+                 "value": "CFG scale",
+                 "label": "CFG scale"
+                },
+                {
+                 "value": "Sampler",
+                 "label": "Sampler"
+                },
+                {
+                 "value": "Steps",
+                 "label": "Steps"
+                },
+                {
+                 "value": "Model hash",
+                 "label": "Model hash"
+                },
+                {
+                 "value": "Filename",
+                 "label": "Filename"
+                }
+               ],
+               "style": "checkboxes",
+               "allow_custom": false
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "type": "image",
+         "name": "init_img",
+         "label": "Image",
+         "default": null,
+         "kind": "image",
+         "mode": "RGBA",
+         "visible_if": {
+          "param": "mode",
+          "ne": "Batch"
+         }
+        },
+        {
+         "type": "image",
+         "name": "sketch",
+         "label": "Sketch",
+         "default": null,
+         "kind": "sketch",
+         "source": "init_img",
+         "mode": "RGBA",
+         "visible_if": {
+          "param": "mode",
+          "in": [
+           "Sketch",
+           "Inpaint sketch"
+          ]
+         }
+        },
+        {
+         "type": "image",
+         "name": "mask",
+         "label": "Mask",
+         "default": null,
+         "kind": "mask",
+         "source": "init_img",
+         "mode": "RGBA",
+         "visible_if": {
+          "param": "mode",
+          "in": [
+           "Inpaint",
+           "Inpaint upload"
+          ]
+         }
+        },
+        {
+         "type": "choice",
+         "name": "resize_mode",
+         "label": "Resize Mode",
+         "default": "Crop and Resize",
+         "choices": [
+          {
+           "value": "Just Resize",
+           "label": "Just Resize"
+          },
+          {
+           "value": "Crop and Resize",
+           "label": "Crop and Resize"
+          },
+          {
+           "value": "Resize and Fill",
+           "label": "Resize and Fill"
+          },
+          {
+           "value": "Latent Upscale",
+           "label": "Latent Upscale"
+          },
+          {
+           "value": "Preserve Aspect Ratio",
+           "label": "Preserve Aspect Ratio"
+          }
+         ],
+         "style": "radio",
+         "allow_custom": false
+        }
+       ]
+      },
+      {
+       "type": "slot",
+       "section": "image"
+      }
+     ]
+    },
+    {
+     "type": "group",
+     "open": true,
+     "children": [
+      {
+       "type": "group",
+       "open": true,
+       "children": [
+        {
+         "type": "slider",
+         "name": "mask_blur",
+         "label": "Mask blur",
+         "default": 4,
+         "minimum": 0,
+         "maximum": 64,
+         "step": 4,
+         "integer": true,
+         "infotext": "Mask blur"
+        },
+        {
+         "type": "choice",
+         "name": "inpainting_mask_invert",
+         "label": "Mask mode",
+         "default": "Inpaint masked",
+         "choices": [
+          {
+           "value": "Inpaint masked",
+           "label": "Inpaint masked"
+          },
+          {
+           "value": "Inpaint not masked",
+           "label": "Inpaint not masked"
+          }
+         ],
+         "style": "radio",
+         "allow_custom": false,
+         "infotext": "Mask mode"
+        },
+        {
+         "type": "choice",
+         "name": "inpainting_fill",
+         "label": "Masked content",
+         "default": "original",
+         "choices": [
+          {
+           "value": "fill",
+           "label": "fill"
+          },
+          {
+           "value": "original",
+           "label": "original"
+          },
+          {
+           "value": "latent noise",
+           "label": "latent noise"
+          },
+          {
+           "value": "latent nothing",
+           "label": "latent nothing"
+          }
+         ],
+         "style": "radio",
+         "allow_custom": false,
+         "infotext": "Masked content"
+        },
+        {
+         "type": "row",
+         "children": [
+          {
+           "type": "choice",
+           "name": "inpaint_full_res",
+           "label": "Inpaint area",
+           "default": "Only masked",
+           "choices": [
+            {
+             "value": "Whole picture",
+             "label": "Whole picture"
+            },
+            {
+             "value": "Only masked",
+             "label": "Only masked"
+            }
+           ],
+           "style": "radio",
+           "allow_custom": false,
+           "infotext": "Inpaint area"
+          },
+          {
+           "type": "slider",
+           "name": "inpaint_full_res_padding",
+           "label": "Only masked padding, pixels",
+           "default": 32,
+           "minimum": 0,
+           "maximum": 256,
+           "step": 8,
+           "integer": true,
+           "infotext": "Masked area padding"
+          }
+         ]
+        }
+       ],
+       "visible_if": {
+        "param": "mode",
+        "in": [
+         "Inpaint",
+         "Inpaint sketch",
+         "Inpaint upload"
+        ]
+       }
+      },
+      {
+       "type": "slot",
+       "section": "inpaint"
+      }
+     ]
+    },
+    {
+     "type": "slot",
+     "section": "sampler"
+    },
+    {
+     "type": "row",
+     "children": [
+      {
+       "type": "slot",
+       "section": "accordions"
+      }
+     ]
+    },
+    {
+     "type": "slot",
+     "section": "checkboxes"
+    },
+    {
+     "type": "row",
+     "children": [
+      {
+       "type": "choice",
+       "name": "resize_tab",
+       "label": "Resize",
+       "default": "Resize to",
+       "choices": [
+        {
+         "value": "Resize to",
+         "label": "Resize to"
+        },
+        {
+         "value": "Resize by",
+         "label": "Resize by"
+        }
+       ],
+       "style": "dropdown",
+       "allow_custom": false,
+       "hidden": true
+      },
+      {
+       "type": "tabs",
+       "bind": "resize_tab",
+       "children": [
+        {
+         "type": "tab",
+         "title": "Resize to",
+         "value": "Resize to",
+         "children": [
+          {
+           "type": "slider",
+           "name": "width",
+           "label": "Width",
+           "default": 1024,
+           "minimum": 64,
+           "maximum": 2048,
+           "step": 64,
+           "integer": true,
+           "infotext": "Size-1"
+          },
+          {
+           "type": "slider",
+           "name": "height",
+           "label": "Height",
+           "default": 1024,
+           "minimum": 64,
+           "maximum": 2048,
+           "step": 64,
+           "integer": true,
+           "infotext": "Size-2"
+          },
+          {
+           "type": "button",
+           "label": "Switch width/height",
+           "action": "swap_dimensions",
+           "variant": "tool"
+          }
+         ]
+        },
+        {
+         "type": "tab",
+         "title": "Resize by",
+         "value": "Resize by",
+         "children": [
+          {
+           "type": "slider",
+           "name": "scale_by",
+           "label": "Scale",
+           "default": 1.0,
+           "minimum": 0.5,
+           "maximum": 4.0,
+           "step": 0.05,
+           "integer": false
+          },
+          {
+           "type": "output",
+           "name": "scale_by_resolution",
+           "kind": "html"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "type": "slider",
+       "name": "batch_count",
+       "label": "Batch Count",
+       "default": 1,
+       "minimum": 1,
+       "maximum": 128,
+       "step": 1,
+       "integer": true
+      },
+      {
+       "type": "slider",
+       "name": "batch_size",
+       "label": "Batch Size",
+       "default": 1,
+       "minimum": 1,
+       "maximum": 8,
+       "step": 1,
+       "integer": true,
+       "infotext": "Batch size"
+      },
+      {
+       "type": "slot",
+       "section": "dimensions"
+      }
+     ]
+    },
+    {
+     "type": "row",
+     "children": [
+      {
+       "type": "slider",
+       "name": "distilled_cfg_scale",
+       "label": "Distilled CFG Scale",
+       "default": 3.0,
+       "minimum": 0.0,
+       "maximum": 24.0,
+       "step": 0.5,
+       "integer": false,
+       "infotext": "Distilled CFG Scale",
+       "preset": "native.distilled_cfg"
+      },
+      {
+       "type": "slider",
+       "name": "cfg_scale",
+       "label": "CFG Scale",
+       "default": 6.0,
+       "minimum": 1.0,
+       "maximum": 24.0,
+       "step": 0.5,
+       "integer": false,
+       "infotext": "CFG scale",
+       "preset": "native.cfg"
+      },
+      {
+       "type": "slider",
+       "name": "image_cfg_scale",
+       "label": "Image CFG Scale",
+       "default": 1.5,
+       "minimum": 0,
+       "maximum": 3.0,
+       "step": 0.05,
+       "integer": false,
+       "hidden": true,
+       "infotext": "Image CFG scale"
+      },
+      {
+       "type": "slot",
+       "section": "cfg"
+      }
+     ]
+    },
+    {
+     "type": "group",
+     "open": true,
+     "children": [
+      {
+       "type": "slider",
+       "name": "denoising_strength",
+       "label": "Denoising Strength",
+       "default": 0.6,
+       "minimum": 0.0,
+       "maximum": 1.0,
+       "step": 0.01,
+       "integer": false,
+       "infotext": "Denoising strength"
+      },
+      {
+       "type": "slot",
+       "section": "denoising"
+      }
+     ]
+    },
+    {
+     "type": "slot",
+     "section": "seed"
+    },
+    {
+     "type": "row",
+     "children": [
+      {
+       "type": "slot",
+       "section": "batch"
+      }
+     ]
+    },
+    {
+     "type": "row",
+     "children": [
+      {
+       "type": "multichoice",
+       "name": "override_settings",
+       "label": "Override settings",
+       "default": [],
+       "choices": [],
+       "style": "dropdown",
+       "allow_custom": true,
+       "visible_if": {
+        "param": "override_settings"
+       }
+      },
+      {
+       "type": "slot",
+       "section": "override_settings"
+      }
+     ]
+    },
+    {
+     "type": "group",
+     "open": true,
+     "children": [
+      {
+       "type": "choice",
+       "name": "script",
+       "label": "Script",
+       "default": "None",
+       "choices": [
+        {
+         "value": "None",
+         "label": "None"
+        }
+       ],
+       "style": "dropdown",
+       "allow_custom": false
+      },
+      {
+       "type": "slot",
+       "section": "scripts"
+      }
+     ]
+    }
+   ]
+  },
+  "defaults": {
+   "prompt": "",
+   "negative_prompt": "",
+   "styles": [],
+   "mode": "img2img",
+   "batch_source": "upload",
+   "batch_upload": [],
+   "batch_input_dir": "",
+   "batch_output_dir": "",
+   "batch_inpaint_mask_dir": "",
+   "batch_use_png_info": false,
+   "batch_png_info_dir": "",
+   "batch_png_info_props": [],
+   "init_img": null,
+   "sketch": null,
+   "mask": null,
+   "resize_mode": "Crop and Resize",
+   "mask_blur": 4,
+   "inpainting_mask_invert": "Inpaint masked",
+   "inpainting_fill": "original",
+   "inpaint_full_res": "Only masked",
+   "inpaint_full_res_padding": 32,
+   "resize_tab": "Resize to",
+   "width": 1024,
+   "height": 1024,
+   "scale_by": 1.0,
+   "batch_count": 1,
+   "batch_size": 1,
+   "distilled_cfg_scale": 3.0,
+   "cfg_scale": 6.0,
+   "image_cfg_scale": 1.5,
+   "denoising_strength": 0.6,
+   "override_settings": [],
+   "script": "None"
+  }
+ },
+ "scripts": [
+  {
+   "id": "seed",
+   "title": "Seed",
+   "kind": "alwayson",
+   "section": "seed",
+   "order": 0,
+   "legacy": false,
+   "layout": {
+    "type": "group",
+    "open": true,
+    "children": [
+     {
+      "type": "row",
+      "children": [
+       {
+        "type": "seed",
+        "name": "seed",
+        "label": "Seed",
+        "default": -1,
+        "infotext": "Seed"
+       },
+       {
+        "type": "toggle",
+        "name": "subseed_show",
+        "label": "Extra",
+        "default": false,
+        "width": "auto"
+       }
+      ]
+     },
+     {
+      "type": "group",
+      "open": true,
+      "children": [
+       {
+        "type": "row",
+        "children": [
+         {
+          "type": "seed",
+          "name": "subseed",
+          "label": "Variation seed",
+          "default": -1,
+          "infotext": "Variation seed"
+         },
+         {
+          "type": "slider",
+          "name": "subseed_strength",
+          "label": "Variation strength",
+          "default": 0.0,
+          "minimum": 0,
+          "maximum": 1,
+          "step": 0.01,
+          "integer": false,
+          "infotext": "Variation seed strength"
+         }
+        ]
+       },
+       {
+        "type": "row",
+        "children": [
+         {
+          "type": "slider",
+          "name": "seed_resize_from_w",
+          "label": "Resize seed from width",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 2048,
+          "step": 8,
+          "integer": true,
+          "infotext": "Seed resize from-1"
+         },
+         {
+          "type": "slider",
+          "name": "seed_resize_from_h",
+          "label": "Resize seed from height",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 2048,
+          "step": 8,
+          "integer": true,
+          "infotext": "Seed resize from-2"
+         }
+        ]
+       }
+      ],
+      "visible_if": {
+       "param": "subseed_show"
+      }
+     }
+    ]
+   },
+   "defaults": {
+    "seed": -1,
+    "subseed_show": false,
+    "subseed": -1,
+    "subseed_strength": 0.0,
+    "seed_resize_from_w": 0,
+    "seed_resize_from_h": 0
+   },
+   "args": [
+    "seed",
+    "subseed_show",
+    "subseed",
+    "subseed_strength",
+    "seed_resize_from_w",
+    "seed_resize_from_h"
+   ]
+  },
+  {
+   "id": "sampler",
+   "title": "Sampler",
+   "kind": "alwayson",
+   "section": "sampler",
+   "order": 0,
+   "legacy": false,
+   "layout": {
+    "type": "row",
+    "children": [
+     {
+      "type": "choice",
+      "name": "sampler_name",
+      "label": "Sampling Method",
+      "default": "DPM++ 2M",
+      "choices": [
+       {
+        "value": "DPM++ 2M",
+        "label": "DPM++ 2M"
+       },
+       {
+        "value": "DPM++ SDE",
+        "label": "DPM++ SDE"
+       },
+       {
+        "value": "DPM++ 2M SDE",
+        "label": "DPM++ 2M SDE"
+       },
+       {
+        "value": "DPM++ 3M SDE",
+        "label": "DPM++ 3M SDE"
+       },
+       {
+        "value": "DPM++ 2s a RF",
+        "label": "DPM++ 2s a RF"
+       },
+       {
+        "value": "Euler a",
+        "label": "Euler a"
+       },
+       {
+        "value": "Euler",
+        "label": "Euler"
+       },
+       {
+        "value": "Anima Flow Euler",
+        "label": "Anima Flow Euler"
+       },
+       {
+        "value": "Anima Flow UniPC2",
+        "label": "Anima Flow UniPC2"
+       },
+       {
+        "value": "Anima Flow PC3",
+        "label": "Anima Flow PC3"
+       },
+       {
+        "value": "Anima SPEED",
+        "label": "Anima SPEED"
+       },
+       {
+        "value": "Anima FreeFuse Euler",
+        "label": "Anima FreeFuse Euler"
+       },
+       {
+        "value": "ER SDE",
+        "label": "ER SDE"
+       },
+       {
+        "value": "Anima ER SDE CNS",
+        "label": "Anima ER SDE CNS"
+       },
+       {
+        "value": "LCM",
+        "label": "LCM"
+       },
+       {
+        "value": "LMS",
+        "label": "LMS"
+       },
+       {
+        "value": "Heun",
+        "label": "Heun"
+       },
+       {
+        "value": "DPM2",
+        "label": "DPM2"
+       },
+       {
+        "value": "Res Multistep",
+        "label": "Res Multistep"
+       },
+       {
+        "value": "Kohaku LoNyu Yog",
+        "label": "Kohaku LoNyu Yog"
+       },
+       {
+        "value": "Restart",
+        "label": "Restart"
+       },
+       {
+        "value": "UniPC",
+        "label": "UniPC"
+       },
+       {
+        "value": "DDIM",
+        "label": "DDIM"
+       },
+       {
+        "value": "PLMS",
+        "label": "PLMS"
+       },
+       {
+        "value": "DPM++ 2M CFG++",
+        "label": "DPM++ 2M CFG++"
+       },
+       {
+        "value": "Euler a CFG++",
+        "label": "Euler a CFG++"
+       },
+       {
+        "value": "Euler CFG++",
+        "label": "Euler CFG++"
+       }
+      ],
+      "style": "dropdown",
+      "allow_custom": false,
+      "preset": "native.sampler"
+     },
+     {
+      "type": "choice",
+      "name": "scheduler",
+      "label": "Schedule Type",
+      "default": "Automatic",
+      "choices": [
+       {
+        "value": "Automatic",
+        "label": "Automatic"
+       },
+       {
+        "value": "Karras",
+        "label": "Karras"
+       },
+       {
+        "value": "Exponential",
+        "label": "Exponential"
+       },
+       {
+        "value": "Polyexponential",
+        "label": "Polyexponential"
+       },
+       {
+        "value": "Normal",
+        "label": "Normal"
+       },
+       {
+        "value": "Simple",
+        "label": "Simple"
+       },
+       {
+        "value": "Uniform",
+        "label": "Uniform"
+       },
+       {
+        "value": "SGM Uniform",
+        "label": "SGM Uniform"
+       },
+       {
+        "value": "Linear Quadratic",
+        "label": "Linear Quadratic"
+       },
+       {
+        "value": "KL Optimal",
+        "label": "KL Optimal"
+       },
+       {
+        "value": "DDIM",
+        "label": "DDIM"
+       },
+       {
+        "value": "Align Your Steps",
+        "label": "Align Your Steps"
+       },
+       {
+        "value": "Beta",
+        "label": "Beta"
+       },
+       {
+        "value": "Beta57",
+        "label": "Beta57"
+       },
+       {
+        "value": "Turbo",
+        "label": "Turbo"
+       },
+       {
+        "value": "Bong Tangent",
+        "label": "Bong Tangent"
+       },
+       {
+        "value": "FlowMatchEulerDiscrete",
+        "label": "FlowMatchEulerDiscrete"
+       },
+       {
+        "value": "Anima FlowMatch",
+        "label": "Anima FlowMatch"
+       },
+       {
+        "value": "Flux2",
+        "label": "Flux2"
+       }
+      ],
+      "style": "dropdown",
+      "allow_custom": false,
+      "preset": "native.scheduler"
+     },
+     {
+      "type": "slider",
+      "name": "steps",
+      "label": "Sampling Steps",
+      "default": 20,
+      "minimum": 1,
+      "maximum": 150,
+      "step": 1,
+      "integer": true,
+      "infotext": "Steps",
+      "preset": "native.steps"
+     }
+    ]
+   },
+   "defaults": {
+    "steps": 20,
+    "sampler_name": "DPM++ 2M",
+    "scheduler": "Automatic"
+   },
+   "args": [
+    "steps",
+    "sampler_name",
+    "scheduler"
+   ]
+  },
+  {
+   "id": "refiner",
+   "title": "Refiner",
+   "kind": "alwayson",
+   "section": "accordions",
+   "order": 0,
+   "legacy": false,
+   "layout": {
+    "type": "section",
+    "title": "Refiner",
+    "open": false,
+    "enable": {
+     "type": "toggle",
+     "name": "enable",
+     "label": "Refiner",
+     "default": false,
+     "preset": "native.refiner"
+    },
+    "children": [
+     {
+      "type": "choice",
+      "name": "checkpoint",
+      "label": "Checkpoint",
+      "info": "(use model of same architecture)",
+      "default": "None",
+      "choices": [
+       {
+        "value": "None",
+        "label": "None"
+       }
+      ],
+      "style": "dropdown",
+      "allow_custom": false
+     },
+     {
+      "type": "row",
+      "children": [
+       {
+        "type": "slider",
+        "name": "switch_at",
+        "label": "Switch at",
+        "info": "(in sigmas) Wan 2.2 I2V: 0.9",
+        "default": 0.875,
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "step": 0.025,
+        "integer": false,
+        "infotext": "Refiner switch at"
+       },
+       {
+        "type": "slider",
+        "name": "cfg",
+        "label": "Refiner CFG Scale",
+        "info": "use original if < 1.0",
+        "default": 0.0,
+        "minimum": 0.0,
+        "maximum": 24.0,
+        "step": 0.5,
+        "integer": false,
+        "infotext": "Refiner CFG scale"
+       }
+      ]
+     },
+     {
+      "type": "group",
+      "title": "LoRA Replacements",
+      "open": true,
+      "children": [
+       {
+        "type": "markdown",
+        "text": "\nUse this setting to load different LoRAs between the normal pass and the refiner pass\n- Each line can contain one rule to process the LoRA names\n- **Available Rules:**\n    - `AAA=BBB` : the `AAA` within a LoRA would be replaced with `BBB` during the refiner pass\n    - `-CCC` : any LoRA that contains `CCC` would be removed during the refiner pass\n    - `DDD+EEE` : the LoRA named `DDD` would be added with strength `EEE` during the refiner pass\n- **Example:**\n    - The default value would replace any occurrence of \"`high_noise`\" with \"`low_noise`\"\n"
+       },
+       {
+        "type": "text",
+        "name": "replacements",
+        "label": "",
+        "default": "high_noise=low_noise\nhigh-noise=low-noise",
+        "lines": 4,
+        "max_lines": 12,
+        "placeholder": "high_noise=low_noise\nhigh-noise=low-noise\n-lora_to_remove\nlora_to_add+1.0",
+        "prompt": false
+       }
+      ]
+     }
+    ]
+   },
+   "defaults": {
+    "enable": false,
+    "checkpoint": "None",
+    "switch_at": 0.875,
+    "cfg": 0.0,
+    "replacements": "high_noise=low_noise\nhigh-noise=low-noise"
+   },
+   "args": [
+    "enable",
+    "checkpoint",
+    "switch_at",
+    "cfg",
+    "replacements"
+   ]
+  },
+  {
+   "id": "comments",
+   "title": "Comments",
+   "kind": "alwayson",
+   "section": null,
+   "order": 0,
+   "legacy": false,
+   "layout": null,
+   "defaults": {},
+   "args": []
+  }
+ ],
+ "conflict_params": [
+  "refiner.checkpoint",
+  "refiner.enable",
+  "sampler.sampler_name",
+  "sampler.scheduler"
+ ]
+}

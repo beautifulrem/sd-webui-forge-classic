@@ -48,6 +48,10 @@ def prepare_webui_imports():
     sys.argv = sys.argv[:1]
     import modules
 
+    # The Gradio patches (``_js=`` etc.) the panels' ui() code expects, which
+    # the WebUI applies at startup (modules/initialize.py)
+    from modules import gradio_extensions  # noqa: F401
+
     try:
         from modules import infotext_utils  # noqa: F401
     except ImportError:

@@ -3,10 +3,12 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import os
-from typing import Optional, Any
+from typing import TYPE_CHECKING, Optional, Any
 
 from fastapi import FastAPI
-from gradio import Blocks
+
+if TYPE_CHECKING:
+    from gradio import Blocks
 
 from modules import errors, timer, extensions, shared, util
 

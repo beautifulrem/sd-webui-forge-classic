@@ -252,6 +252,30 @@ def preset_value(label: str, name: str, registered: object) -> object:
     return overrides.get(name, registered)
 
 
+def resolved_preset(label: str) -> dict[str, object]:
+    """Every preset field's value under ``label`` (the base preset with the
+    label's overrides; an unknown label gives the base preset)."""
+
+    return {**SAFE_BASE_AESTHETIC_PRESET, **PRESETS.get(label, {})}
+
+
+def preset_named_values(label: str, bindings) -> dict[str, dict[str, object]]:
+    """Named values ``label`` gives the bound params: ``{owner: {param: value}}``.
+
+    ``bindings`` is ``[(field, owner, param, own value or None), ...]``; an
+    own value (e.g. a localized choice) replaces the base preset's, but not a
+    label's override, exactly as :func:`preset_value`. Pure."""
+
+    values: dict[str, dict[str, object]] = {}
+    overrides = PRESETS.get(label, {})
+    for name, owner, param, own in bindings:
+        if name not in SAFE_BASE_AESTHETIC_PRESET:
+            raise KeyError(f"Unknown Anima preset field: {name}")
+        value = overrides[name] if name in overrides else (SAFE_BASE_AESTHETIC_PRESET[name] if own is None else own)
+        values.setdefault(owner, {})[param] = value
+    return values
+
+
 # Only these controls are ever locked by Remi's mutual-exclusion GUI. The
 # preset unlocks them after moving the whole set back to a compatible state;
 # all other components keep their extension-defined interactivity.

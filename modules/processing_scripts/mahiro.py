@@ -1,12 +1,11 @@
 # https://github.com/comfyanonymous/ComfyUI/blob/v0.3.64/comfy_extras/nodes_mahiro.py
 
-import gradio as gr
 import torch
 import torch.nn.functional as F
 
 from modules import scripts
-from modules.infotext_utils import PasteField
 from modules.shared import opts
+from remi import ui
 
 
 class ScriptMahiro(scripts.ScriptBuiltinUI):
@@ -20,7 +19,14 @@ class ScriptMahiro(scripts.ScriptBuiltinUI):
     def show(self, is_img2img):
         return scripts.AlwaysVisible if opts.show_mahiro else None
 
+    def params(self, is_img2img):
+        return ui.Toggle("enable", False, label="MaHiRo", infotext="MaHiRo")
+
     def ui(self, is_img2img):
+        import gradio as gr
+
+        from modules.infotext_utils import PasteField
+
         enable = gr.Checkbox(
             value=False,
             label="MaHiRo",

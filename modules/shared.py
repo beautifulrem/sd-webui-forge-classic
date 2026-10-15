@@ -1,14 +1,14 @@
 import os
 import sys
-from typing import TYPE_CHECKING
-
-import gradio as gr
+from typing import TYPE_CHECKING, Any
 
 from backend import memory_management
-from modules import options, shared_cmd_options, shared_gradio_themes, shared_items, util
+from modules import options, shared_cmd_options, shared_items, util
 from modules.paths_internal import data_path, extensions_builtin_dir, extensions_dir, models_path, script_path  # noqa: F401
 
 if TYPE_CHECKING:
+    import gradio as gr
+
     from backend.diffusion_engine.base import ForgeDiffusionEngine
     from modules import face_restoration, memmon, shared_state, shared_total_tqdm, styles, upscaler
 
@@ -21,7 +21,8 @@ styles_filename = cmd_opts.styles_file = cmd_opts.styles_file if len(cmd_opts.st
 config_filename = cmd_opts.ui_settings_file
 hide_dirs = {"visible": not cmd_opts.hide_ui_dir_config}
 
-demo: gr.Blocks = None
+demo: "gr.Blocks | None" = None
+"""The legacy Gradio app, when it is built"""
 
 device: str = None
 
@@ -58,8 +59,6 @@ sd_upscalers: list["upscaler.Upscaler"] = []
 
 progress_print_out = sys.stdout
 
-gradio_theme = gr.themes.Base()
-
 total_tqdm: "shared_total_tqdm.TotalTQDM" = None
 
 mem_mon: "memmon.MemUsageMonitor" = None
@@ -74,10 +73,28 @@ html_path = util.html_path
 html = util.html
 walk_files = util.walk_files
 
-reload_gradio_theme = shared_gradio_themes.reload_gradio_theme
+
+
+def reload_gradio_theme(theme_name=None):
+    """Load the legacy Gradio UI's theme (imports Gradio)."""
+
+    from modules import shared_gradio_themes
+
+    shared_gradio_themes.reload_gradio_theme(theme_name)
 
 list_checkpoint_tiles = shared_items.list_checkpoint_tiles
 refresh_checkpoints = shared_items.refresh_checkpoints
 list_samplers = shared_items.list_samplers
 
 hf_endpoint = os.getenv("HF_ENDPOINT", "https://huggingface.co")
+
+
+def __getattr__(name: str) -> Any:
+    # ``gradio_theme``: created on first use, so importing this module does not load Gradio
+    if name == "gradio_theme":
+        import gradio as gr
+
+        theme = gr.themes.Base()
+        globals()["gradio_theme"] = theme
+        return theme
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

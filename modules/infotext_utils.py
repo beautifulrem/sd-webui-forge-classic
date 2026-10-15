@@ -7,18 +7,17 @@ from ast import literal_eval
 from functools import partial
 from typing import Any
 
-import gradio as gr
 from PIL import Image
 
 from backend.text_processing.emphasis import uses_emphasis
-from modules import errors, images, processing, script_callbacks, shared, ui_tempdir
+from modules import errors, images, processing, script_callbacks, shared
 from modules.paths import data_path
-from modules_forge import main_entry
+from remi.ui.legacy_gradio import gr  # lazy: only the legacy paste/send-to wiring uses Gradio
 
 re_param_code = r'\s*([\w\s\-\/]+):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)'
 re_param = re.compile(re_param_code)
 re_imagesize = re.compile(r"^(\d+)x(\d+)$")
-type_of_gr_update = type(gr.skip())
+type_of_gr_update = dict  # gr.update() / gr.skip() are plain dicts in Gradio 4
 
 
 class ParamBinding:
@@ -120,6 +119,8 @@ def image_from_url_text(filedata) -> Image.Image:
         return filedata[0]
 
     if filename:
+        from modules import ui_tempdir
+
         is_in_right_dir = ui_tempdir.check_tmp_file(shared.demo, filename)
         assert is_in_right_dir, "trying to open image file outside of allowed directories"
         filename = filename.rsplit("?", 1)[0]
@@ -431,6 +432,8 @@ def parse_generation_parameters(x: str, skip_fields: list[str] | None = None):
 
     if (vae := res.pop("VAE", None)) is not None:
         modules.append(vae)  # Classic
+
+    from modules_forge import main_entry
 
     _keys = list(res.keys())
     known_modules = {os.path.splitext(m)[0]: m for m in main_entry.module_list.keys()}

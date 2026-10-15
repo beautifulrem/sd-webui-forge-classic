@@ -3,11 +3,15 @@ import os
 import re
 import sys
 from collections import namedtuple
+from collections.abc import Mapping
 from dataclasses import dataclass
-
-import gradio as gr
+from typing import TYPE_CHECKING, Any
 
 from modules import errors, extensions, paths, script_callbacks, script_loading, scripts_postprocessing, shared, timer, util
+
+if TYPE_CHECKING:
+    from remi.ui import Context, ScriptLayout
+    from remi.ui.types import ScriptEntry
 
 topological_sort = util.topological_sort
 
@@ -60,7 +64,8 @@ class PostprocessBatchListArgs:
 
 @dataclass
 class OnComponent:
-    component: gr.blocks.Block
+    component: Any
+    """The Gradio block just created (legacy UI only)."""
 
 
 class Script:
@@ -113,18 +118,35 @@ class Script:
     sorting_priority = 0
     """Larger number will appear downwards in the UI."""
 
+    param_order = None
+    """Positional order of the ``params()`` names when it differs from their
+    declaration (visual) order, e.g. the Sampler script's ``steps`` first."""
+
+    script_id = None
+    """The script's owner id in the Remi API (``seed``, ``sampler``, ...), set by the runner."""
+
+    layout = None
+    """The ``remi.ui.ScriptLayout`` built from ``params()``; None for a script
+    still on the legacy ``ui()`` path."""
+
     def title(self):
         """this function should return the title of the script. This is what will be displayed in the dropdown menu."""
 
         raise NotImplementedError()
 
     def ui(self, is_img2img):
-        """this function should create gradio UI elements. See https://gradio.app/docs/#components
-        The return value should be an array of all components that are used in processing.
-        Values of those returned components will be passed to run() and process() functions.
-        """
+        """Legacy: create Gradio UI elements and return the ones whose values
+        are passed to run()/process(). Superseded by :meth:`params`."""
 
         pass
+
+    def params(self, is_img2img):
+        """Return the script's parameters as one ``remi.ui`` layout node (or
+        None for none). The inputs' depth-first declaration order (or
+        ``param_order``) is the order of the positional arguments that run(),
+        process() and the other hooks receive. Replaces :meth:`ui`."""
+
+        return None
 
     def show(self, is_img2img):
         """
@@ -577,6 +599,47 @@ def wrap_call(func, filename, funcname, *args, default=None, **kwargs):
     return default
 
 
+def has_params(script) -> bool:
+    """Whether the script declares ``params()`` (the Remi parameter model)."""
+
+    return getattr(type(script), "params", Script.params) is not Script.params
+
+
+def overrides_ui(script) -> bool:
+    """Whether the script still builds a legacy Gradio ``ui()``."""
+
+    return getattr(type(script), "ui", Script.ui) is not Script.ui
+
+
+RESERVED_OWNERS = frozenset({"core", "settings"})
+"""Owner ids of the Remi API that no script may take."""
+
+
+def script_slug(title: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "_", str(title).lower()).strip("_")
+    return slug if slug and not slug[0].isdigit() else f"s_{slug}"
+
+
+def unique_id(base: str, taken) -> str:
+    """``base``, or ``base_2``, ``base_3``, ... when taken or reserved."""
+
+    candidate, number = base, 2
+    while candidate in taken or candidate in RESERVED_OWNERS:
+        candidate, number = f"{base}_{number}", number + 1
+    return candidate
+
+
+def ordered_ui_categories():
+    """The txt2img/img2img parameter categories in the user's order
+    (``opts.ui_reorder_list``), as ``modules.ui`` lays them out."""
+
+    from modules import shared_items
+
+    user_order = {x.strip(): i * 2 + 1 for i, x in enumerate(getattr(shared.opts, "ui_reorder_list", []) or [])}
+    for _, category in sorted(enumerate(shared_items.ui_reorder_categories()), key=lambda x: user_order.get(x[1], x[0] * 2 + 0)):
+        yield category
+
+
 class ScriptRunner:
     def __init__(self):
         self.scripts = []
@@ -619,9 +682,22 @@ class ScriptRunner:
         self.on_after_component_elem_id = {}
         """dict of callbacks to be called after an element is created; key=elem_id, value=list of callbacks"""
 
+        self.is_img2img = False
+        self.by_id: dict[str, Script] = {}
+        """scripts by ``script_id`` (the Remi API owner ids)"""
+        self.legacy_ui_built = False
+        """True once the Gradio UI has created the script inputs: it then owns the argument slots"""
+        self._slots_total = None
+        self.disabled_scripts: list[tuple[Script, str]] = []
+        """scripts left out because their params()/ui() failed, with the reason"""
+
     def initialize_scripts(self, is_img2img):
         from modules import scripts_auto_postprocessing
 
+        self.is_img2img = is_img2img
+        self.legacy_ui_built = False
+        self._slots_total = None
+        self.disabled_scripts = []
         self.scripts.clear()
         self.alwayson_scripts.clear()
         self.selectable_scripts.clear()
@@ -653,6 +729,7 @@ class ScriptRunner:
 
         self.callback_map.clear()
 
+        self.build_layouts()
         self.apply_on_before_component_callbacks()
 
     def apply_on_before_component_callbacks(self):
@@ -688,7 +765,15 @@ class ScriptRunner:
     def create_script_ui_inner(self, script):
         import modules.api.models as api_models
 
-        controls = wrap_call(script.ui, script.filename, "ui", script.is_img2img)
+        if script.layout is not None and not overrides_ui(script):
+            # Ported to params(): an approximate Gradio rendering keeps its argument slots
+            from remi.ui import legacy_gradio
+
+            controls, paste_fields = legacy_gradio.render(script.layout)
+            script.infotext_fields = paste_fields or None
+            script.paste_field_names = [field.label for field in paste_fields if field.label] or None
+        else:
+            controls = wrap_call(script.ui, script.filename, "ui", script.is_img2img)
         script.controls = controls
 
         if controls is None:
@@ -741,6 +826,8 @@ class ScriptRunner:
                 continue
 
             if script.create_group:
+                import gradio as gr
+
                 with gr.Group(visible=script.alwayson) as group:
                     self.create_script_ui(script)
 
@@ -750,8 +837,11 @@ class ScriptRunner:
 
     def prepare_ui(self):
         self.inputs = [None]
+        self.legacy_ui_built = False
 
     def setup_ui(self):
+        import gradio as gr
+
         all_titles = [wrap_call(script.title, script.filename, "title") or script.filename for script in self.scripts]
         self.title_map = {title.lower(): script for title, script in zip(all_titles, self.scripts)}
         self.titles = [wrap_call(script.title, script.filename, "title") or f"{script.filename} [error]" for script in self.selectable_scripts]
@@ -804,8 +894,301 @@ class ScriptRunner:
         self.infotext_fields.extend([(script.group, onload_script_visibility) for script in self.selectable_scripts])
 
         self.apply_on_before_component_callbacks()
+        self.legacy_ui_built = True
 
         return self.inputs
+
+    # region Remi parameter model (params() layouts, named values)
+
+    def build_layouts(self):
+        """Give every script its ``script_id`` and, unless it is still on the
+        legacy ``ui()`` path, its ``ScriptLayout`` from ``params()``. No UI is
+        built."""
+
+        from remi.ui import ScriptLayout
+
+        self.by_id = {}
+        for script in list(self.scripts):
+            title = wrap_call(script.title, script.filename, "title") or os.path.basename(script.filename or "script")
+            script.name = title.lower()
+            script.script_id = unique_id(script_slug(title), self.by_id)
+            self.by_id[script.script_id] = script
+            script.layout = None
+
+            if has_params(script):
+                try:
+                    script.layout = ScriptLayout(script.params(script.is_img2img), owner=script.script_id, order=script.param_order)
+                except Exception as error:
+                    errors.report(f"Error in params() of {script.filename}; the script is disabled", exc_info=True)
+                    self.disable_script(script, f"params() failed: {error}")
+                    continue
+                script.api_info = self._layout_api_info(script)
+            elif not overrides_ui(script):
+                script.layout = ScriptLayout(None, owner=script.script_id)
+
+        self._index_titles()
+
+    def _index_titles(self):
+        self.titles = [wrap_call(script.title, script.filename, "title") or f"{script.filename} [error]" for script in self.selectable_scripts]
+        self.title_map = {script.name: script for script in self.scripts}
+
+    def disable_script(self, script, reason: str):
+        """Leave a script whose parameters cannot be read out of this runner:
+        no slots, no schema entry, no processing hooks."""
+
+        for collection in (self.scripts, self.alwayson_scripts, self.selectable_scripts):
+            if script in collection:
+                collection.remove(script)
+        if self.by_id.get(script.script_id) is script:
+            del self.by_id[script.script_id]
+        self.disabled_scripts.append((script, reason))
+        self.callback_map.clear()
+        self._slots_total = None
+        self._index_titles()
+
+    def _layout_api_info(self, script):
+        try:
+            import modules.api.models as api_models
+            from remi.ui import Context, nodes
+
+            ctx = Context()
+            args = []
+            for node in script.layout.inputs:
+                arg = api_models.ScriptArg(label=node.label or node.name, value=node.resolve_default(ctx))
+                for field in ("minimum", "maximum", "step"):
+                    if getattr(node, field, None) is not None:
+                        setattr(arg, field, getattr(node, field))
+                if isinstance(node, (nodes.Choice, nodes.MultiChoice)):
+                    arg.choices = [str(value) for _label, value in node.resolve_choices(ctx)]
+                args.append(arg)
+            return api_models.ScriptInfo(name=script.name, is_img2img=script.is_img2img, is_alwayson=script.alwayson, args=args)
+        except Exception:
+            errors.report(f"Error building API info for {script.filename}", exc_info=True)
+            return None
+
+    def layout_for(self, script) -> "ScriptLayout":
+        """The script's layout; for a legacy ``ui()`` script, a positional
+        ``#i`` layout of its Gradio controls (built detached when the Gradio
+        UI has not created them)."""
+
+        if script.layout is not None:
+            return script.layout
+
+        from remi.ui import ScriptLayout
+        from remi.ui.legacy import legacy_layout
+
+        if script.controls is None and not getattr(script, "_remi_legacy_built", False):
+            script._remi_legacy_built = True  # once, even when ui() returns nothing
+            if not self._build_legacy_controls(script):
+                self.disable_script(script, "ui() failed")
+                return ScriptLayout(None, owner=script.script_id)
+        cached = getattr(script, "_remi_legacy_layout", None)
+        if cached is None or cached[0] is not script.controls:
+            cached = (script.controls, legacy_layout(script.script_id, script.controls or [], script.infotext_fields))
+            script._remi_legacy_layout = cached
+        return cached[1]
+
+    def _build_legacy_controls(self, script):
+        """Run a legacy script's ``ui()`` inside a throwaway Gradio Blocks, for
+        its argument count and defaults when no Gradio UI is built."""
+
+        global scripts_current
+
+        import gradio as gr
+
+        from modules import gradio_extensions  # noqa: F401 - the Gradio patches ui() code expects
+
+        previous, scripts_current = scripts_current, self
+        try:
+            with gr.Blocks(analytics_enabled=False):
+                script.controls = script.ui(script.is_img2img)
+        except Exception:
+            errors.report(f"Error calling: {script.filename}/ui; the script is disabled", exc_info=True)
+            script.controls = None
+            return False
+        finally:
+            scripts_current = previous
+        return True
+
+    def prepare_layouts(self):
+        """Read every legacy script's controls now (disabling those whose
+        ``ui()`` fails), so the loops over the scripts see a stable list."""
+
+        for script in list(self.scripts):
+            self.layout_for(script)
+
+    def slot_order(self) -> list:
+        """The order in which scripts get their argument slots: the order the
+        Gradio UI creates them in (by UI category, then sorting priority)."""
+
+        alwayson = sorted(self.alwayson_scripts, key=lambda x: x.sorting_priority)
+        selectable = sorted(self.selectable_scripts, key=lambda x: x.sorting_priority)
+        order = []
+        for category in ordered_ui_categories():
+            if category == "scripts":
+                order += [script for script in alwayson if script.section is None] + selectable
+            order += [script for script in alwayson if script.section == category]
+        return order + [script for script in self.scripts if script not in order]
+
+    def ensure_arg_slots(self) -> int:
+        """Assign ``args_from``/``args_to`` from the layouts unless the Gradio
+        UI has done so; returns the length of the full script_args list."""
+
+        self.prepare_layouts()
+        if self.legacy_ui_built:
+            return len(self.inputs)
+        if self._slots_total is None:
+            position = 1  # slot 0 is the selected script's index
+            for script in self.slot_order():
+                count = len(self.layout_for(script))
+                script.args_from, script.args_to = position, position + count
+                position += count
+            self._slots_total = position
+        return self._slots_total
+
+    def selector_choices(self) -> list[str]:
+        return ["None", *self.titles]
+
+    def selector_index(self, title) -> int:
+        """Slot 0's value for the selected script's title (0: none)."""
+
+        from remi.ui import ParamError, ValidationError
+
+        if title in (None, "", "None"):
+            return 0
+        if isinstance(title, int) and not isinstance(title, bool) and 0 <= title <= len(self.titles):
+            return title
+        if title in self.titles:
+            return self.titles.index(title) + 1
+        raise ValidationError([ParamError(f"unknown script {title!r}", owner="core", param="script")])
+
+    def script_args_from_values(self, selected, values: dict | None, ctx: "Context | None" = None, *, unknown: str = "error") -> list:
+        """The full ``p.script_args`` for named values ``{script_id: {param:
+        value}}`` (legacy scripts: ``{"#0": v, ...}`` or a list) and the
+        selected script's title. Missing params take their defaults; the
+        unselected selectable scripts get their defaults."""
+
+        from remi.ui import Context, ParamError, ValidationError
+
+        ctx = ctx or Context()
+        if values is None:
+            values = {}
+        elif not isinstance(values, Mapping):
+            raise ValidationError([ParamError(f"scripts: expected an object of values by script id, got {type(values).__name__}")])
+        problems = []
+        if unknown == "error":
+            problems += [ParamError("unknown script", owner=owner) for owner in values if owner not in self.by_id]
+
+        index = self.selector_index(selected)
+        chosen = self.selectable_scripts[index - 1] if index else None
+        args = [None] * self.ensure_arg_slots()
+        args[0] = index
+        for script in self.scripts:
+            if script.args_from is None or script.args_to is None:
+                continue
+            layout = self.layout_for(script)
+            owner_values = None if (not script.alwayson and script is not chosen) else values.get(script.script_id)
+            if isinstance(owner_values, (list, tuple)):
+                owner_values = {f"#{i}": value for i, value in enumerate(owner_values)}
+            try:
+                positional = layout.values_to_args(owner_values, ctx, unknown=unknown)
+            except ValidationError as error:
+                problems.append(error)
+                continue
+            if len(positional) != script.args_to - script.args_from:
+                raise RuntimeError(f"{script.filename}: params() declares {len(positional)} arguments, the UI built {script.args_to - script.args_from}")
+            args[script.args_from : script.args_to] = positional
+        if problems:
+            raise ValidationError.merge(problems)
+        return args
+
+    def script_values_from_args(self, args, ctx: "Context | None" = None) -> tuple:
+        """Inverse of :meth:`script_args_from_values`: ``(selected title,
+        {script_id: values})`` for a full script_args list."""
+
+        from remi.ui import Context
+
+        ctx = ctx or Context()
+        self.ensure_arg_slots()
+        args = list(args)
+        index = args[0] if args and isinstance(args[0], int) else 0
+        selected = self.titles[index - 1] if 0 < index <= len(self.titles) else "None"
+        values = {}
+        for script in self.scripts:
+            if script.args_from is None or script.args_to is None:
+                continue
+            values[script.script_id] = self.layout_for(script).args_to_values(args[script.args_from : script.args_to], ctx)
+        return selected, values
+
+    def scripts_schema(self, ctx: "Context | None" = None) -> list["ScriptEntry"]:
+        """The ``scripts`` part of ``GET /schema/{tab}`` (schema-format.md §4)."""
+
+        from remi.ui import Context, jsonable
+
+        ctx = ctx or Context()
+        self.ensure_arg_slots()
+        result = []
+        ordered = sorted(self.alwayson_scripts, key=lambda x: x.sorting_priority) + sorted(self.selectable_scripts, key=lambda x: x.sorting_priority)
+        for script in ordered:
+            layout = self.layout_for(script)
+            title = wrap_call(script.title, script.filename, "title") or script.name
+            entry = {
+                "id": script.script_id,
+                "title": title,
+                "kind": "alwayson" if script.alwayson else "selectable",
+                # Selectable scripts always render in the scripts area
+                "section": (script.section if isinstance(script.section, str) else None) if script.alwayson else "scripts",
+                "order": script.sorting_priority,
+            }
+            if not script.alwayson:
+                entry["visible_if"] = {"param": "core.script", "eq": title}
+            entry.update(legacy=layout.legacy, layout=layout.schema(ctx), defaults=jsonable(layout.defaults(ctx)), args=layout.names)
+            result.append(entry)
+        return result
+
+    def paste_values(self, params: dict, ctx: "Context | None" = None) -> tuple[dict, list]:
+        """Values every script reads from parsed infotext ``params``:
+        ``({script_id: values}, problems)``. Owners with nothing pasted are left out."""
+
+        from remi.ui import Context
+
+        ctx = ctx or Context()
+        self.prepare_layouts()
+        values, problems = {}, []
+        for script in self.scripts:
+            try:
+                layout = self.layout_for(script)
+            except Exception:
+                errors.report(f"Error reading the params of {script.filename}", exc_info=True)
+                continue
+            pasted, failed = layout.paste(params, ctx)
+            if pasted:
+                values[script.script_id] = pasted
+            problems += failed
+        return values, problems
+
+    def preset_values(self, label: str) -> dict[str, dict]:
+        """``{script_id: {param: value}}`` the Anima preset ``label`` gives
+        the ported scripts' bound params (see ``remi.core.presets`` for the
+        patch with the core form and the conflict-control unlocks)."""
+
+        from modules.anima_presets import preset_named_values
+        from remi.core.presets import preset_bindings
+
+        layouts = {script.script_id: script.layout for script in self.scripts if script.layout is not None}
+        return preset_named_values(label, preset_bindings(layouts))
+
+    def preset_bindings(self) -> dict[str, list[tuple[str, str]]]:
+        """Anima preset field -> [(script_id, param)] over the ported scripts."""
+
+        bindings: dict[str, list[tuple[str, str]]] = {}
+        for script in self.scripts:
+            if script.layout is not None:
+                for key, (name, _value) in script.layout.presets.items():
+                    bindings.setdefault(key, []).append((script.script_id, name))
+        return bindings
+
+    # endregion
 
     def run(self, p, *args):
         script_index = args[0]
@@ -1043,6 +1426,9 @@ class ScriptRunner:
                     self.scripts[si].filename = filename
                     self.scripts[si].args_from = args_from
                     self.scripts[si].args_to = args_to
+                    # Body-only reload: the parameter model is kept as it was
+                    self.scripts[si].script_id = script.script_id
+                    self.scripts[si].layout = script.layout
 
     def before_hr(self, p):
         for script in self.ordered_scripts("before_hr"):

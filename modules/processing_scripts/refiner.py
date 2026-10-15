@@ -1,10 +1,29 @@
-import gradio as gr
 import torch
 
 from modules import scripts, sd_models, shared
-from modules.infotext_utils import PasteField
-from modules.ui_components import InputAccordion
-from modules_forge import main_entry
+from remi import ui
+
+LORA_REPLACEMENTS_HELP = """
+Use this setting to load different LoRAs between the normal pass and the refiner pass
+- Each line can contain one rule to process the LoRA names
+- **Available Rules:**
+    - `AAA=BBB` : the `AAA` within a LoRA would be replaced with `BBB` during the refiner pass
+    - `-CCC` : any LoRA that contains `CCC` would be removed during the refiner pass
+    - `DDD+EEE` : the LoRA named `DDD` would be added with strength `EEE` during the refiner pass
+- **Example:**
+    - The default value would replace any occurrence of "`high_noise`" with "`low_noise`"
+"""
+
+LORA_REPLACEMENTS_PLACEHOLDER = "\n".join(["high_noise=low_noise", "high-noise=low-noise", "-lora_to_remove", "lora_to_add+1.0"])
+
+
+def lookup_checkpoint(title):
+    info = sd_models.get_closet_checkpoint_match(title)
+    return None if info is None else info.short_title
+
+
+def checkpoint_choices() -> list[str]:
+    return ["None"] + sorted(shared.list_checkpoint_tiles(shared.opts.sd_checkpoint_dropdown_use_short))
 
 
 class ScriptRefiner(scripts.ScriptBuiltinUI):
@@ -20,11 +39,42 @@ class ScriptRefiner(scripts.ScriptBuiltinUI):
 
     @classmethod
     def refresh_checkpoints(cls):
-        ckpts = shared.list_checkpoint_tiles(shared.opts.sd_checkpoint_dropdown_use_short)
-        cls.ckpts = ["None"] + sorted(ckpts)
+        import gradio as gr
+
+        cls.ckpts = checkpoint_choices()
         return gr.update(choices=cls.ckpts)
 
+    def params(self, is_img2img):
+        if shared.opts.refiner_use_steps:
+            switch_info = "(in steps) percentage of total steps"
+        else:
+            switch_info = "(in sigmas) " + ("Wan 2.2 I2V: 0.9" if is_img2img else "Wan 2.2 T2V: 0.875")
+        architecture = "(use model of same architecture and quantization)" if shared.opts.refiner_fast_sd else "(use model of same architecture)"
+        return ui.Section(
+            "Refiner",
+            enable=ui.Toggle("enable", False, label="Refiner", paste=lambda d: "Refiner" in d, preset="native.refiner"),
+            children=[
+                ui.Choice("checkpoint", checkpoint_choices, "None", label="Checkpoint", info=architecture, paste=lambda d: lookup_checkpoint(d.get("Refiner"))),
+                ui.Row(
+                    ui.Slider("switch_at", 0.0, 1.0, 0.875, 0.025, label="Switch at", info=switch_info, infotext="Refiner switch at"),
+                    ui.Slider("cfg", 0.0, 24.0, 0.0, 0.5, label="Refiner CFG Scale", info="use original if < 1.0", infotext="Refiner CFG scale"),
+                ),
+                ui.Group(
+                    "LoRA Replacements",
+                    ui.Markdown(LORA_REPLACEMENTS_HELP),
+                    ui.Text("replacements", lambda: shared.opts.refiner_lora_replacement, lines=4, max_lines=12, placeholder=LORA_REPLACEMENTS_PLACEHOLDER, label=""),
+                    open=True,
+                ),
+            ],
+        )
+
     def ui(self, is_img2img):
+        import gradio as gr
+
+        from modules.infotext_utils import PasteField
+        from modules.ui_components import InputAccordion
+        from modules_forge import main_entry
+
         self.refresh_checkpoints()
         with InputAccordion(False, label="Refiner", elem_id=self.elem_id("enable")) as enable_refiner:
             refiner_checkpoint = gr.Dropdown(
@@ -65,30 +115,15 @@ class ScriptRefiner(scripts.ScriptBuiltinUI):
                 )
 
             with gr.Accordion(label="LoRA Replacements", open=True):
-                gr.Markdown(
-                    """
-Use this setting to load different LoRAs between the normal pass and the refiner pass
-- Each line can contain one rule to process the LoRA names
-- **Available Rules:**
-    - `AAA=BBB` : the `AAA` within a LoRA would be replaced with `BBB` during the refiner pass
-    - `-CCC` : any LoRA that contains `CCC` would be removed during the refiner pass
-    - `DDD+EEE` : the LoRA named `DDD` would be added with strength `EEE` during the refiner pass
-- **Example:**
-    - The default value would replace any occurrence of "`high_noise`" with "`low_noise`"
-                    """,
-                )
+                gr.Markdown(LORA_REPLACEMENTS_HELP)
                 replacements = gr.Textbox(
                     value=lambda: shared.opts.refiner_lora_replacement,
                     lines=4,
                     max_lines=12,
-                    placeholder="\n".join(["high_noise=low_noise", "high-noise=low-noise", "-lora_to_remove", "lora_to_add+1.0"]),
+                    placeholder=LORA_REPLACEMENTS_PLACEHOLDER,
                     show_label=False,
                 )
                 replacements.do_not_save_to_config = True
-
-        def lookup_checkpoint(title):
-            info = sd_models.get_closet_checkpoint_match(title)
-            return None if info is None else info.short_title
 
         self.infotext_fields = [
             PasteField(enable_refiner, lambda d: "Refiner" in d),

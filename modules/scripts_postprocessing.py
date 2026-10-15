@@ -1,6 +1,5 @@
 import dataclasses
 import os
-import gradio as gr
 
 from modules import errors, shared
 
@@ -158,6 +157,8 @@ class ScriptPostprocessingRunner:
         return sorted(filtered_scripts, key=lambda x: script_scores[x.name])
 
     def setup_ui(self):
+        import gradio as gr
+
         inputs = []
 
         for script in self.scripts_in_preferred_order():
@@ -209,6 +210,8 @@ class ScriptPostprocessingRunner:
 
     def create_args_for_run(self, scripts_args):
         if not self.ui_created:
+            import gradio as gr
+
             with gr.Blocks(analytics_enabled=False):
                 self.setup_ui()
 

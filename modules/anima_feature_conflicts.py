@@ -8,7 +8,8 @@ algorithm choice and safely drops incompatible auxiliary switches.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
@@ -364,6 +365,108 @@ def resolve_freefuse_refiner_conflicts(
         checkpoint_interactive=True,
         messages=(),
     )
+
+
+# region Declarative conflict locks (Remi parameter model)
+
+# One-of-N groups declared with ``ui.Toggle(..., exclusive=(group, member))``.
+# Headless runs keep the first enabled member in this order.
+SPATIAL_GROUP = "anima_spatial_conditioning"
+PID_HIRES_GROUP = "pid_hires"
+EXCLUSIVE_GROUPS: dict[str, tuple[str, ...]] = {
+    SPATIAL_GROUP: ("freefuse", "regional", "artist"),
+    PID_HIRES_GROUP: ("pid", "hires"),
+}
+
+# Conflict roles: the params the pairwise rules read and lock, named by their
+# Anima preset field (``ui.Input(preset=...)``); the Refiner checkpoint has
+# no preset field and is bound by the core forms.
+ROLE_SAMPLER = "native.sampler"
+ROLE_SCHEDULER = "native.scheduler"
+ROLE_REFINER = "native.refiner"
+ROLE_REFINER_CHECKPOINT = "native.refiner_checkpoint"
+ROLE_GUIDANCE_MODE = "guidance.mode"
+ROLE_MOMENTUM = "guidance.momentum_enabled"
+ROLE_DCW = "guidance.dcw_enabled"
+ROLE_DYNAMIC_SHIFT = "dynamic_shift.enabled"
+ROLE_FREEFUSE = "freefuse.enabled"
+CONFLICT_ROLES = frozenset({ROLE_SAMPLER, ROLE_SCHEDULER, ROLE_REFINER, ROLE_REFINER_CHECKPOINT, ROLE_GUIDANCE_MODE, ROLE_MOMENTUM, ROLE_DCW, ROLE_DYNAMIC_SHIFT, ROLE_FREEFUSE})
+
+
+@dataclass(frozen=True)
+class ConflictLocks:
+    """What the rules make of the current values, by role: ``values`` (the
+    resolved value of every role a rule covered), ``enabled`` (whether the
+    control stays interactive), ``choices`` (allowed choices, where a rule
+    narrows them) and the ``messages`` explaining any change."""
+
+    values: dict[str, Any] = field(default_factory=dict)
+    enabled: dict[str, bool] = field(default_factory=dict)
+    choices: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    messages: tuple[str, ...] = ()
+
+
+def resolve_conflict_locks(values: Mapping[str, Any], *, selected: str | None = None) -> ConflictLocks:
+    """Apply every pairwise rule whose roles are all present in ``values``
+    (role -> current value), as the Gradio panels wired them: FreeFuse vs
+    Refiner, guidance (mode / Momentum / DCW vs the sampler) and schedule
+    (scheduler / Dynamic Shift vs the sampler). ``selected`` is the role the
+    user just changed, so their last action wins. Pure; no Gradio."""
+
+    resolved: dict[str, Any] = {}
+    enabled: dict[str, bool] = {}
+    choices: dict[str, tuple[str, ...]] = {}
+    messages: list[str] = []
+
+    if {ROLE_FREEFUSE, ROLE_REFINER, ROLE_REFINER_CHECKPOINT} <= values.keys():
+        state = resolve_freefuse_refiner_conflicts(
+            freefuse=bool(values[ROLE_FREEFUSE]),
+            refiner=bool(values[ROLE_REFINER]),
+            checkpoint=values[ROLE_REFINER_CHECKPOINT],
+            selected={ROLE_FREEFUSE: "freefuse", ROLE_REFINER: "refiner", ROLE_REFINER_CHECKPOINT: "checkpoint"}.get(selected),
+        )
+        resolved.update({ROLE_FREEFUSE: state.freefuse, ROLE_REFINER: state.refiner, ROLE_REFINER_CHECKPOINT: state.checkpoint})
+        enabled.update({ROLE_FREEFUSE: state.freefuse_interactive, ROLE_REFINER: state.refiner_interactive, ROLE_REFINER_CHECKPOINT: state.checkpoint_interactive})
+        messages += state.messages
+
+    sampler = values.get(ROLE_SAMPLER)
+    if sampler is not None and {ROLE_GUIDANCE_MODE, ROLE_MOMENTUM, ROLE_DCW} <= values.keys():
+        state = resolve_guidance_conflicts(
+            sampler=str(sampler),
+            mode=str(values[ROLE_GUIDANCE_MODE]),
+            momentum=bool(values[ROLE_MOMENTUM]),
+            dcw=bool(values[ROLE_DCW]),
+            selected={ROLE_SAMPLER: "sampler", ROLE_GUIDANCE_MODE: "mode", ROLE_MOMENTUM: "momentum", ROLE_DCW: "dcw"}.get(selected),
+        )
+        resolved.update({ROLE_GUIDANCE_MODE: state.mode, ROLE_MOMENTUM: state.momentum, ROLE_DCW: state.dcw})
+        enabled.update({ROLE_MOMENTUM: state.momentum_interactive, ROLE_DCW: state.dcw_interactive})
+        choices[ROLE_GUIDANCE_MODE] = state.mode_choices
+        messages += state.messages
+
+    if sampler is not None and {ROLE_SCHEDULER, ROLE_DYNAMIC_SHIFT} <= values.keys():
+        state = resolve_schedule_conflicts(
+            sampler=str(sampler),
+            scheduler=str(values[ROLE_SCHEDULER]),
+            dynamic_shift=bool(values[ROLE_DYNAMIC_SHIFT]),
+            selected={ROLE_SAMPLER: "sampler", ROLE_SCHEDULER: "scheduler", ROLE_DYNAMIC_SHIFT: "dynamic_shift"}.get(selected),
+        )
+        resolved.update({ROLE_SCHEDULER: state.scheduler, ROLE_DYNAMIC_SHIFT: state.dynamic_shift})
+        enabled.update({ROLE_SCHEDULER: state.scheduler_interactive, ROLE_DYNAMIC_SHIFT: state.dynamic_shift_interactive})
+        messages += state.messages
+
+    return ConflictLocks(resolved, enabled, choices, tuple(dict.fromkeys(messages)))
+
+
+def exclusive_group_order(group: str, members) -> tuple[str, ...]:
+    """``members`` of ``group`` in its priority order (declared groups first
+    by :data:`EXCLUSIVE_GROUPS`, then the others in the given order)."""
+
+    members = list(dict.fromkeys(members))
+    declared = [member for member in EXCLUSIVE_GROUPS.get(group, ()) if member in members]
+    return tuple(declared + [member for member in members if member not in declared])
+
+
+# endregion
 
 
 _EXCLUSIVE_UI_COMPONENTS: dict[

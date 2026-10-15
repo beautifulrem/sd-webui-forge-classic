@@ -1,0 +1,1189 @@
+{
+ "version": 1,
+ "tab": "txt2img",
+ "core": {
+  "owner": "core",
+  "layout": {
+   "type": "column",
+   "children": [
+    {
+     "type": "group",
+     "open": true,
+     "children": [
+      {
+       "type": "text",
+       "name": "prompt",
+       "label": "Prompt",
+       "default": "",
+       "lines": 3,
+       "placeholder": "Prompt\n(Ctrl+Enter to Generate ; Alt+Enter to Skip ; Esc to Interrupt)",
+       "prompt": true,
+       "infotext": "Prompt"
+      },
+      {
+       "type": "text",
+       "name": "negative_prompt",
+       "label": "Negative Prompt",
+       "default": "",
+       "lines": 3,
+       "placeholder": "Negative Prompt\n(Ctrl+Enter to Generate ; Alt+Enter to Skip ; Esc to Interrupt)",
+       "prompt": true,
+       "infotext": "Negative prompt",
+       "enabled_if": {
+        "param": "cfg_scale",
+        "gt": 1
+       }
+      },
+      {
+       "type": "multichoice",
+       "name": "styles",
+       "label": "Styles",
+       "default": [],
+       "choices": [],
+       "style": "dropdown",
+       "allow_custom": false
+      }
+     ]
+    },
+    {
+     "type": "slot",
+     "section": "sampler"
+    },
+    {
+     "type": "row",
+     "children": [
+      {
+       "type": "section",
+       "title": "Hires. fix",
+       "open": false,
+       "enable": {
+        "type": "toggle",
+        "name": "enable_hr",
+        "label": "Hires. fix",
+        "default": false,
+        "on_change": "hr_resolution",
+        "preset": "native.hires",
+        "exclusive": {
+         "group": "pid_hires",
+         "member": "hires"
+        }
+       },
+       "children": [
+        {
+         "type": "output",
+         "name": "hr_final_resolution",
+         "kind": "html",
+         "label": "Upscaled resolution"
+        },
+        {
+         "type": "row",
+         "children": [
+          {
+           "type": "choice",
+           "name": "hr_upscaler",
+           "label": "Upscaler",
+           "default": "Latent",
+           "choices": [
+            {
+             "value": "Latent",
+             "label": "Latent"
+            },
+            {
+             "value": "Latent (antialiased)",
+             "label": "Latent (antialiased)"
+            },
+            {
+             "value": "Latent (bicubic)",
+             "label": "Latent (bicubic)"
+            },
+            {
+             "value": "Latent (bicubic antialiased)",
+             "label": "Latent (bicubic antialiased)"
+            },
+            {
+             "value": "Latent (nearest)",
+             "label": "Latent (nearest)"
+            },
+            {
+             "value": "Latent (nearest-exact)",
+             "label": "Latent (nearest-exact)"
+            }
+           ],
+           "style": "dropdown",
+           "allow_custom": false,
+           "infotext": "Hires upscaler"
+          },
+          {
+           "type": "slider",
+           "name": "hr_second_pass_steps",
+           "label": "Hires steps",
+           "default": 0,
+           "minimum": 0,
+           "maximum": 150,
+           "step": 1,
+           "integer": true,
+           "infotext": "Hires steps"
+          },
+          {
+           "type": "slider",
+           "name": "denoising_strength",
+           "label": "Denoising strength",
+           "default": 0.6,
+           "minimum": 0.0,
+           "maximum": 1.0,
+           "step": 0.05,
+           "integer": false,
+           "infotext": "Denoising strength"
+          }
+         ]
+        },
+        {
+         "type": "row",
+         "children": [
+          {
+           "type": "slider",
+           "name": "hr_scale",
+           "label": "Upscale by",
+           "default": 2.0,
+           "minimum": 1.0,
+           "maximum": 4.0,
+           "step": 0.05,
+           "integer": false,
+           "on_change": "hr_resolution",
+           "infotext": "Hires upscale"
+          },
+          {
+           "type": "slider",
+           "name": "hr_resize_x",
+           "label": "Resize width to",
+           "default": 0,
+           "minimum": 0,
+           "maximum": 4096,
+           "step": 64,
+           "integer": true,
+           "on_change": "hr_resolution",
+           "infotext": "Hires resize-1"
+          },
+          {
+           "type": "slider",
+           "name": "hr_resize_y",
+           "label": "Resize height to",
+           "default": 0,
+           "minimum": 0,
+           "maximum": 4096,
+           "step": 64,
+           "integer": true,
+           "on_change": "hr_resolution",
+           "infotext": "Hires resize-2"
+          }
+         ]
+        },
+        {
+         "type": "row",
+         "children": [
+          {
+           "type": "slider",
+           "name": "hr_distilled_cfg",
+           "label": "Hires Distilled CFG Scale",
+           "default": 3.0,
+           "minimum": 1.0,
+           "maximum": 24.0,
+           "step": 0.5,
+           "integer": false,
+           "infotext": "Hires Distilled CFG Scale"
+          },
+          {
+           "type": "slider",
+           "name": "hr_cfg",
+           "label": "Hires CFG Scale",
+           "default": 6.0,
+           "minimum": 1.0,
+           "maximum": 24.0,
+           "step": 0.5,
+           "integer": false,
+           "infotext": "Hires CFG Scale"
+          }
+         ]
+        },
+        {
+         "type": "group",
+         "open": true,
+         "children": [
+          {
+           "type": "row",
+           "children": [
+            {
+             "type": "choice",
+             "name": "hr_checkpoint_name",
+             "label": "Hires Checkpoint",
+             "default": "Use same checkpoint",
+             "choices": [
+              {
+               "value": "Use same checkpoint",
+               "label": "Use same checkpoint"
+              }
+             ],
+             "style": "dropdown",
+             "allow_custom": false,
+             "infotext": "Hires checkpoint"
+            },
+            {
+             "type": "multichoice",
+             "name": "hr_additional_modules",
+             "label": "Hires VAE / Text Encoder",
+             "default": [
+              "Use same choices"
+             ],
+             "choices": [
+              {
+               "value": "Use same choices",
+               "label": "Use same choices"
+              }
+             ],
+             "style": "dropdown",
+             "allow_custom": false,
+             "infotext": "Hires VAE/TE"
+            }
+           ]
+          },
+          {
+           "type": "row",
+           "children": [
+            {
+             "type": "choice",
+             "name": "hr_sampler_name",
+             "label": "Hires sampling method",
+             "default": "Use same sampler",
+             "choices": [
+              {
+               "value": "Use same sampler",
+               "label": "Use same sampler"
+              },
+              {
+               "value": "DPM++ 2M",
+               "label": "DPM++ 2M"
+              },
+              {
+               "value": "DPM++ SDE",
+               "label": "DPM++ SDE"
+              },
+              {
+               "value": "DPM++ 2M SDE",
+               "label": "DPM++ 2M SDE"
+              },
+              {
+               "value": "DPM++ 3M SDE",
+               "label": "DPM++ 3M SDE"
+              },
+              {
+               "value": "DPM++ 2s a RF",
+               "label": "DPM++ 2s a RF"
+              },
+              {
+               "value": "Euler a",
+               "label": "Euler a"
+              },
+              {
+               "value": "Euler",
+               "label": "Euler"
+              },
+              {
+               "value": "Anima Flow Euler",
+               "label": "Anima Flow Euler"
+              },
+              {
+               "value": "Anima Flow UniPC2",
+               "label": "Anima Flow UniPC2"
+              },
+              {
+               "value": "Anima Flow PC3",
+               "label": "Anima Flow PC3"
+              },
+              {
+               "value": "Anima SPEED",
+               "label": "Anima SPEED"
+              },
+              {
+               "value": "Anima FreeFuse Euler",
+               "label": "Anima FreeFuse Euler"
+              },
+              {
+               "value": "ER SDE",
+               "label": "ER SDE"
+              },
+              {
+               "value": "Anima ER SDE CNS",
+               "label": "Anima ER SDE CNS"
+              },
+              {
+               "value": "LCM",
+               "label": "LCM"
+              },
+              {
+               "value": "LMS",
+               "label": "LMS"
+              },
+              {
+               "value": "Heun",
+               "label": "Heun"
+              },
+              {
+               "value": "DPM2",
+               "label": "DPM2"
+              },
+              {
+               "value": "Res Multistep",
+               "label": "Res Multistep"
+              },
+              {
+               "value": "Kohaku LoNyu Yog",
+               "label": "Kohaku LoNyu Yog"
+              },
+              {
+               "value": "Restart",
+               "label": "Restart"
+              },
+              {
+               "value": "UniPC",
+               "label": "UniPC"
+              },
+              {
+               "value": "DDIM",
+               "label": "DDIM"
+              },
+              {
+               "value": "PLMS",
+               "label": "PLMS"
+              },
+              {
+               "value": "DPM++ 2M CFG++",
+               "label": "DPM++ 2M CFG++"
+              },
+              {
+               "value": "Euler a CFG++",
+               "label": "Euler a CFG++"
+              },
+              {
+               "value": "Euler CFG++",
+               "label": "Euler CFG++"
+              }
+             ],
+             "style": "dropdown",
+             "allow_custom": false
+            },
+            {
+             "type": "choice",
+             "name": "hr_scheduler",
+             "label": "Hires schedule type",
+             "default": "Use same scheduler",
+             "choices": [
+              {
+               "value": "Use same scheduler",
+               "label": "Use same scheduler"
+              },
+              {
+               "value": "Automatic",
+               "label": "Automatic"
+              },
+              {
+               "value": "Karras",
+               "label": "Karras"
+              },
+              {
+               "value": "Exponential",
+               "label": "Exponential"
+              },
+              {
+               "value": "Polyexponential",
+               "label": "Polyexponential"
+              },
+              {
+               "value": "Normal",
+               "label": "Normal"
+              },
+              {
+               "value": "Simple",
+               "label": "Simple"
+              },
+              {
+               "value": "Uniform",
+               "label": "Uniform"
+              },
+              {
+               "value": "SGM Uniform",
+               "label": "SGM Uniform"
+              },
+              {
+               "value": "Linear Quadratic",
+               "label": "Linear Quadratic"
+              },
+              {
+               "value": "KL Optimal",
+               "label": "KL Optimal"
+              },
+              {
+               "value": "DDIM",
+               "label": "DDIM"
+              },
+              {
+               "value": "Align Your Steps",
+               "label": "Align Your Steps"
+              },
+              {
+               "value": "Beta",
+               "label": "Beta"
+              },
+              {
+               "value": "Beta57",
+               "label": "Beta57"
+              },
+              {
+               "value": "Turbo",
+               "label": "Turbo"
+              },
+              {
+               "value": "Bong Tangent",
+               "label": "Bong Tangent"
+              },
+              {
+               "value": "FlowMatchEulerDiscrete",
+               "label": "FlowMatchEulerDiscrete"
+              },
+              {
+               "value": "Anima FlowMatch",
+               "label": "Anima FlowMatch"
+              },
+              {
+               "value": "Flux2",
+               "label": "Flux2"
+              }
+             ],
+             "style": "dropdown",
+             "allow_custom": false
+            }
+           ]
+          }
+         ],
+         "visible_if": {
+          "any": [
+           {
+            "param": "hr_checkpoint_name",
+            "ne": "Use same checkpoint"
+           },
+           {
+            "param": "hr_sampler_name",
+            "ne": "Use same sampler"
+           },
+           {
+            "param": "hr_scheduler",
+            "ne": "Use same scheduler"
+           }
+          ]
+         }
+        },
+        {
+         "type": "row",
+         "children": [
+          {
+           "type": "text",
+           "name": "hr_prompt",
+           "label": "Hires prompt",
+           "default": "",
+           "lines": 3,
+           "placeholder": "Prompt for hires fix pass.\nLeave empty to use the same prompt as in first pass.",
+           "prompt": true,
+           "infotext": "Hires prompt"
+          },
+          {
+           "type": "text",
+           "name": "hr_negative_prompt",
+           "label": "Hires negative prompt",
+           "default": "",
+           "lines": 3,
+           "placeholder": "Negative prompt for hires fix pass.\nLeave empty to use the same negative prompt as in first pass.",
+           "prompt": true,
+           "infotext": "Hires negative prompt",
+           "enabled_if": {
+            "param": "hr_cfg",
+            "gt": 1
+           }
+          }
+         ],
+         "visible_if": {
+          "any": [
+           {
+            "param": "hr_prompt"
+           },
+           {
+            "param": "hr_negative_prompt"
+           }
+          ]
+         }
+        }
+       ]
+      },
+      {
+       "type": "slot",
+       "section": "accordions"
+      }
+     ]
+    },
+    {
+     "type": "slot",
+     "section": "checkboxes"
+    },
+    {
+     "type": "row",
+     "children": [
+      {
+       "type": "slider",
+       "name": "width",
+       "label": "Width",
+       "default": 1024,
+       "minimum": 64,
+       "maximum": 2048,
+       "step": 64,
+       "integer": true,
+       "on_change": "hr_resolution",
+       "infotext": "Size-1"
+      },
+      {
+       "type": "slider",
+       "name": "height",
+       "label": "Height",
+       "default": 1024,
+       "minimum": 64,
+       "maximum": 2048,
+       "step": 64,
+       "integer": true,
+       "on_change": "hr_resolution",
+       "infotext": "Size-2"
+      },
+      {
+       "type": "button",
+       "label": "Switch width/height",
+       "action": "swap_dimensions",
+       "variant": "tool"
+      },
+      {
+       "type": "slider",
+       "name": "batch_count",
+       "label": "Batch Count",
+       "default": 1,
+       "minimum": 1,
+       "maximum": 128,
+       "step": 1,
+       "integer": true
+      },
+      {
+       "type": "slider",
+       "name": "batch_size",
+       "label": "Batch Size",
+       "default": 1,
+       "minimum": 1,
+       "maximum": 8,
+       "step": 1,
+       "integer": true,
+       "infotext": "Batch size"
+      },
+      {
+       "type": "slot",
+       "section": "dimensions"
+      }
+     ]
+    },
+    {
+     "type": "row",
+     "children": [
+      {
+       "type": "slider",
+       "name": "distilled_cfg_scale",
+       "label": "Distilled CFG Scale",
+       "default": 3.0,
+       "minimum": 1.0,
+       "maximum": 24.0,
+       "step": 0.5,
+       "integer": false,
+       "infotext": "Distilled CFG Scale",
+       "preset": "native.distilled_cfg"
+      },
+      {
+       "type": "slider",
+       "name": "cfg_scale",
+       "label": "CFG Scale",
+       "default": 6.0,
+       "minimum": 1.0,
+       "maximum": 24.0,
+       "step": 0.5,
+       "integer": false,
+       "infotext": "CFG scale",
+       "preset": "native.cfg"
+      },
+      {
+       "type": "slot",
+       "section": "cfg"
+      }
+     ]
+    },
+    {
+     "type": "slot",
+     "section": "seed"
+    },
+    {
+     "type": "row",
+     "children": [
+      {
+       "type": "slot",
+       "section": "batch"
+      }
+     ]
+    },
+    {
+     "type": "row",
+     "children": [
+      {
+       "type": "multichoice",
+       "name": "override_settings",
+       "label": "Override settings",
+       "default": [],
+       "choices": [],
+       "style": "dropdown",
+       "allow_custom": true,
+       "visible_if": {
+        "param": "override_settings"
+       }
+      },
+      {
+       "type": "slot",
+       "section": "override_settings"
+      }
+     ]
+    },
+    {
+     "type": "group",
+     "open": true,
+     "children": [
+      {
+       "type": "choice",
+       "name": "script",
+       "label": "Script",
+       "default": "None",
+       "choices": [
+        {
+         "value": "None",
+         "label": "None"
+        }
+       ],
+       "style": "dropdown",
+       "allow_custom": false
+      },
+      {
+       "type": "slot",
+       "section": "scripts"
+      }
+     ]
+    }
+   ]
+  },
+  "defaults": {
+   "prompt": "",
+   "negative_prompt": "",
+   "styles": [],
+   "enable_hr": false,
+   "hr_upscaler": "Latent",
+   "hr_second_pass_steps": 0,
+   "denoising_strength": 0.6,
+   "hr_scale": 2.0,
+   "hr_resize_x": 0,
+   "hr_resize_y": 0,
+   "hr_distilled_cfg": 3.0,
+   "hr_cfg": 6.0,
+   "hr_checkpoint_name": "Use same checkpoint",
+   "hr_additional_modules": [
+    "Use same choices"
+   ],
+   "hr_sampler_name": "Use same sampler",
+   "hr_scheduler": "Use same scheduler",
+   "hr_prompt": "",
+   "hr_negative_prompt": "",
+   "width": 1024,
+   "height": 1024,
+   "batch_count": 1,
+   "batch_size": 1,
+   "distilled_cfg_scale": 3.0,
+   "cfg_scale": 6.0,
+   "override_settings": [],
+   "script": "None"
+  }
+ },
+ "scripts": [
+  {
+   "id": "seed",
+   "title": "Seed",
+   "kind": "alwayson",
+   "section": "seed",
+   "order": 0,
+   "legacy": false,
+   "layout": {
+    "type": "group",
+    "open": true,
+    "children": [
+     {
+      "type": "row",
+      "children": [
+       {
+        "type": "seed",
+        "name": "seed",
+        "label": "Seed",
+        "default": -1,
+        "infotext": "Seed"
+       },
+       {
+        "type": "toggle",
+        "name": "subseed_show",
+        "label": "Extra",
+        "default": false,
+        "width": "auto"
+       }
+      ]
+     },
+     {
+      "type": "group",
+      "open": true,
+      "children": [
+       {
+        "type": "row",
+        "children": [
+         {
+          "type": "seed",
+          "name": "subseed",
+          "label": "Variation seed",
+          "default": -1,
+          "infotext": "Variation seed"
+         },
+         {
+          "type": "slider",
+          "name": "subseed_strength",
+          "label": "Variation strength",
+          "default": 0.0,
+          "minimum": 0,
+          "maximum": 1,
+          "step": 0.01,
+          "integer": false,
+          "infotext": "Variation seed strength"
+         }
+        ]
+       },
+       {
+        "type": "row",
+        "children": [
+         {
+          "type": "slider",
+          "name": "seed_resize_from_w",
+          "label": "Resize seed from width",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 2048,
+          "step": 8,
+          "integer": true,
+          "infotext": "Seed resize from-1"
+         },
+         {
+          "type": "slider",
+          "name": "seed_resize_from_h",
+          "label": "Resize seed from height",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 2048,
+          "step": 8,
+          "integer": true,
+          "infotext": "Seed resize from-2"
+         }
+        ]
+       }
+      ],
+      "visible_if": {
+       "param": "subseed_show"
+      }
+     }
+    ]
+   },
+   "defaults": {
+    "seed": -1,
+    "subseed_show": false,
+    "subseed": -1,
+    "subseed_strength": 0.0,
+    "seed_resize_from_w": 0,
+    "seed_resize_from_h": 0
+   },
+   "args": [
+    "seed",
+    "subseed_show",
+    "subseed",
+    "subseed_strength",
+    "seed_resize_from_w",
+    "seed_resize_from_h"
+   ]
+  },
+  {
+   "id": "sampler",
+   "title": "Sampler",
+   "kind": "alwayson",
+   "section": "sampler",
+   "order": 0,
+   "legacy": false,
+   "layout": {
+    "type": "row",
+    "children": [
+     {
+      "type": "choice",
+      "name": "sampler_name",
+      "label": "Sampling Method",
+      "default": "DPM++ 2M",
+      "choices": [
+       {
+        "value": "DPM++ 2M",
+        "label": "DPM++ 2M"
+       },
+       {
+        "value": "DPM++ SDE",
+        "label": "DPM++ SDE"
+       },
+       {
+        "value": "DPM++ 2M SDE",
+        "label": "DPM++ 2M SDE"
+       },
+       {
+        "value": "DPM++ 3M SDE",
+        "label": "DPM++ 3M SDE"
+       },
+       {
+        "value": "DPM++ 2s a RF",
+        "label": "DPM++ 2s a RF"
+       },
+       {
+        "value": "Euler a",
+        "label": "Euler a"
+       },
+       {
+        "value": "Euler",
+        "label": "Euler"
+       },
+       {
+        "value": "Anima Flow Euler",
+        "label": "Anima Flow Euler"
+       },
+       {
+        "value": "Anima Flow UniPC2",
+        "label": "Anima Flow UniPC2"
+       },
+       {
+        "value": "Anima Flow PC3",
+        "label": "Anima Flow PC3"
+       },
+       {
+        "value": "Anima SPEED",
+        "label": "Anima SPEED"
+       },
+       {
+        "value": "Anima FreeFuse Euler",
+        "label": "Anima FreeFuse Euler"
+       },
+       {
+        "value": "ER SDE",
+        "label": "ER SDE"
+       },
+       {
+        "value": "Anima ER SDE CNS",
+        "label": "Anima ER SDE CNS"
+       },
+       {
+        "value": "LCM",
+        "label": "LCM"
+       },
+       {
+        "value": "LMS",
+        "label": "LMS"
+       },
+       {
+        "value": "Heun",
+        "label": "Heun"
+       },
+       {
+        "value": "DPM2",
+        "label": "DPM2"
+       },
+       {
+        "value": "Res Multistep",
+        "label": "Res Multistep"
+       },
+       {
+        "value": "Kohaku LoNyu Yog",
+        "label": "Kohaku LoNyu Yog"
+       },
+       {
+        "value": "Restart",
+        "label": "Restart"
+       },
+       {
+        "value": "UniPC",
+        "label": "UniPC"
+       },
+       {
+        "value": "DDIM",
+        "label": "DDIM"
+       },
+       {
+        "value": "PLMS",
+        "label": "PLMS"
+       },
+       {
+        "value": "DPM++ 2M CFG++",
+        "label": "DPM++ 2M CFG++"
+       },
+       {
+        "value": "Euler a CFG++",
+        "label": "Euler a CFG++"
+       },
+       {
+        "value": "Euler CFG++",
+        "label": "Euler CFG++"
+       }
+      ],
+      "style": "dropdown",
+      "allow_custom": false,
+      "preset": "native.sampler"
+     },
+     {
+      "type": "choice",
+      "name": "scheduler",
+      "label": "Schedule Type",
+      "default": "Automatic",
+      "choices": [
+       {
+        "value": "Automatic",
+        "label": "Automatic"
+       },
+       {
+        "value": "Karras",
+        "label": "Karras"
+       },
+       {
+        "value": "Exponential",
+        "label": "Exponential"
+       },
+       {
+        "value": "Polyexponential",
+        "label": "Polyexponential"
+       },
+       {
+        "value": "Normal",
+        "label": "Normal"
+       },
+       {
+        "value": "Simple",
+        "label": "Simple"
+       },
+       {
+        "value": "Uniform",
+        "label": "Uniform"
+       },
+       {
+        "value": "SGM Uniform",
+        "label": "SGM Uniform"
+       },
+       {
+        "value": "Linear Quadratic",
+        "label": "Linear Quadratic"
+       },
+       {
+        "value": "KL Optimal",
+        "label": "KL Optimal"
+       },
+       {
+        "value": "DDIM",
+        "label": "DDIM"
+       },
+       {
+        "value": "Align Your Steps",
+        "label": "Align Your Steps"
+       },
+       {
+        "value": "Beta",
+        "label": "Beta"
+       },
+       {
+        "value": "Beta57",
+        "label": "Beta57"
+       },
+       {
+        "value": "Turbo",
+        "label": "Turbo"
+       },
+       {
+        "value": "Bong Tangent",
+        "label": "Bong Tangent"
+       },
+       {
+        "value": "FlowMatchEulerDiscrete",
+        "label": "FlowMatchEulerDiscrete"
+       },
+       {
+        "value": "Anima FlowMatch",
+        "label": "Anima FlowMatch"
+       },
+       {
+        "value": "Flux2",
+        "label": "Flux2"
+       }
+      ],
+      "style": "dropdown",
+      "allow_custom": false,
+      "preset": "native.scheduler"
+     },
+     {
+      "type": "slider",
+      "name": "steps",
+      "label": "Sampling Steps",
+      "default": 20,
+      "minimum": 1,
+      "maximum": 150,
+      "step": 1,
+      "integer": true,
+      "infotext": "Steps",
+      "preset": "native.steps"
+     }
+    ]
+   },
+   "defaults": {
+    "steps": 20,
+    "sampler_name": "DPM++ 2M",
+    "scheduler": "Automatic"
+   },
+   "args": [
+    "steps",
+    "sampler_name",
+    "scheduler"
+   ]
+  },
+  {
+   "id": "refiner",
+   "title": "Refiner",
+   "kind": "alwayson",
+   "section": "accordions",
+   "order": 0,
+   "legacy": false,
+   "layout": {
+    "type": "section",
+    "title": "Refiner",
+    "open": false,
+    "enable": {
+     "type": "toggle",
+     "name": "enable",
+     "label": "Refiner",
+     "default": false,
+     "preset": "native.refiner"
+    },
+    "children": [
+     {
+      "type": "choice",
+      "name": "checkpoint",
+      "label": "Checkpoint",
+      "info": "(use model of same architecture)",
+      "default": "None",
+      "choices": [
+       {
+        "value": "None",
+        "label": "None"
+       }
+      ],
+      "style": "dropdown",
+      "allow_custom": false
+     },
+     {
+      "type": "row",
+      "children": [
+       {
+        "type": "slider",
+        "name": "switch_at",
+        "label": "Switch at",
+        "info": "(in sigmas) Wan 2.2 T2V: 0.875",
+        "default": 0.875,
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "step": 0.025,
+        "integer": false,
+        "infotext": "Refiner switch at"
+       },
+       {
+        "type": "slider",
+        "name": "cfg",
+        "label": "Refiner CFG Scale",
+        "info": "use original if < 1.0",
+        "default": 0.0,
+        "minimum": 0.0,
+        "maximum": 24.0,
+        "step": 0.5,
+        "integer": false,
+        "infotext": "Refiner CFG scale"
+       }
+      ]
+     },
+     {
+      "type": "group",
+      "title": "LoRA Replacements",
+      "open": true,
+      "children": [
+       {
+        "type": "markdown",
+        "text": "\nUse this setting to load different LoRAs between the normal pass and the refiner pass\n- Each line can contain one rule to process the LoRA names\n- **Available Rules:**\n    - `AAA=BBB` : the `AAA` within a LoRA would be replaced with `BBB` during the refiner pass\n    - `-CCC` : any LoRA that contains `CCC` would be removed during the refiner pass\n    - `DDD+EEE` : the LoRA named `DDD` would be added with strength `EEE` during the refiner pass\n- **Example:**\n    - The default value would replace any occurrence of \"`high_noise`\" with \"`low_noise`\"\n"
+       },
+       {
+        "type": "text",
+        "name": "replacements",
+        "label": "",
+        "default": "high_noise=low_noise\nhigh-noise=low-noise",
+        "lines": 4,
+        "max_lines": 12,
+        "placeholder": "high_noise=low_noise\nhigh-noise=low-noise\n-lora_to_remove\nlora_to_add+1.0",
+        "prompt": false
+       }
+      ]
+     }
+    ]
+   },
+   "defaults": {
+    "enable": false,
+    "checkpoint": "None",
+    "switch_at": 0.875,
+    "cfg": 0.0,
+    "replacements": "high_noise=low_noise\nhigh-noise=low-noise"
+   },
+   "args": [
+    "enable",
+    "checkpoint",
+    "switch_at",
+    "cfg",
+    "replacements"
+   ]
+  },
+  {
+   "id": "comments",
+   "title": "Comments",
+   "kind": "alwayson",
+   "section": null,
+   "order": 0,
+   "legacy": false,
+   "layout": null,
+   "defaults": {},
+   "args": []
+  }
+ ],
+ "conflict_params": [
+  "core.enable_hr",
+  "refiner.checkpoint",
+  "refiner.enable",
+  "sampler.sampler_name",
+  "sampler.scheduler"
+ ]
+}

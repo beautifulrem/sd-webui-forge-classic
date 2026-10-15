@@ -2,19 +2,21 @@ import json
 import sys
 from dataclasses import dataclass
 
-import gradio as gr
-
 from modules import errors
 from modules.paths_internal import script_path
 from modules.shared_cmd_options import cmd_opts
-from modules.ui_components import FormRow
+from remi import ui
 
 
 class OptionInfo:
+    """One setting. ``component`` is a ``remi.ui`` widget class (``ui.Slider``,
+    ``ui.Choice``, ...; see remi/ui/settings.py) with Gradio-style
+    ``component_args``; ``None`` picks one from the default's type."""
+
     def __init__(self, default=None, label="", component=None, component_args=None, onchange=None, section=None, refresh=None, comment_before='', comment_after='', infotext=None, restrict_api=False, category_id=None):
         self.default = default
         self.label = label
-        self.component = component
+        self.widget = component
         self.component_args = component_args
         self.onchange = onchange
         self.section = section
@@ -28,13 +30,34 @@ class OptionInfo:
         self.comment_after = comment_after
         """HTML text that will be added before label in UI"""
 
+        # The same help, structured for the settings schema
+        self.notes: list[str] = []
+        self.links: list[tuple[str, str]] = []
+        self.html_blocks: list[str] = [text for text in (comment_before, comment_after) if text]
+        self.requires_restart = False
+        self.requires_reload_ui = False
+
         self.infotext = infotext
 
         self.restrict_api = restrict_api
         """If True, the setting will not be accessible via API"""
 
+    @property
+    def component(self):
+        """What the legacy Gradio settings page instantiates: the Gradio
+        equivalent of a ``remi.ui`` widget (other values as given)."""
+
+        from remi.ui.settings import legacy_gradio_component
+
+        return legacy_gradio_component(self.widget)
+
+    @component.setter
+    def component(self, value):
+        self.widget = value
+
     def link(self, label, url):
         self.comment_before += f"[<a href='{url}' target='_blank'>{label}</a>]"
+        self.links.append((label, url))
         return self
 
     def js(self, label, js_func):
@@ -43,38 +66,44 @@ class OptionInfo:
 
     def info(self, info):
         self.comment_after += f"<span class='info'>({info})</span>"
+        self.notes.append(info)
         return self
 
     def html(self, html):
         self.comment_after += html
+        self.html_blocks.append(html)
         return self
 
     def needs_restart(self):
         self.comment_after += " <span class='info'>(requires restart)</span>"
+        self.requires_restart = True
         return self
 
     def needs_reload_ui(self):
         self.comment_after += " <span class='info'>(requires Reload UI)</span>"
+        self.requires_reload_ui = True
         return self
 
 
 class OptionHTML(OptionInfo):
     def __init__(self, text):
-        super().__init__(str(text).strip(), label='', component=lambda **kwargs: gr.HTML(elem_classes="settings-info", **kwargs))
+        super().__init__(str(text).strip(), label='', component=ui.Html)
 
         self.do_not_save = True
 
 
 class OptionDiv(OptionInfo):
     def __init__(self):
-        super().__init__("", label="", component=lambda **kwargs: gr.HTML(elem_classes="settings-div", **kwargs))
+        super().__init__("", label="", component=ui.Separator)
 
         self.do_not_save = True
 
 
 class OptionRow(OptionInfo):
+    """Opens a row of settings; the next OptionRow of the section closes it."""
+
     def __init__(self):
-        super().__init__("", label="", component=FormRow)
+        super().__init__("", label="", component=ui.Row)
 
         self.do_not_save = True
 

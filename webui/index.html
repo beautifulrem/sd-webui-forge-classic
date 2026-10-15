@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en" class="dark" data-density="comfortable" data-accent="iris">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Remi WebUI</title>
+    <script>
+      // Apply persisted appearance before first paint (see src/lib/theme.ts).
+      try {
+        var s = JSON.parse(localStorage.getItem("remi-appearance") || "{}").state || {}
+        var d = document.documentElement
+        var dark = s.theme === "light" ? false : s.theme === "system" ? matchMedia("(prefers-color-scheme: dark)").matches : true
+        d.classList.toggle("dark", dark)
+        if (s.density) d.dataset.density = s.density
+        if (s.accent) d.dataset.accent = s.accent
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
