@@ -1,6 +1,6 @@
 /** The job the worker runs now: live preview, progress, and interrupt / skip. */
 import { useQuery } from "@tanstack/react-query"
-import { Ban, Loader2, Pause, SkipForward, Sparkles } from "lucide-react"
+import { Ban, Hourglass, Pause, SkipForward, Sparkles } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { useClientOption } from "@/api/app-options"
 import { api } from "@/api/endpoints"
@@ -54,7 +54,8 @@ export function RunningCard({ paused, queued }: { paused: boolean; queued: numbe
           {preview && livePreviews ? (
             <img src={preview} alt={t("Live preview")} className="size-full object-contain" />
           ) : (
-            <Loader2 className="size-5 animate-spin text-muted-foreground" aria-hidden />
+            // static: no endless animation while a job runs (see NavRail)
+            <Hourglass className="size-5 text-muted-foreground" aria-hidden />
           )}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">

@@ -1,5 +1,8 @@
 /// <reference types="vitest/config" />
+import { readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
+import { promisify } from "node:util"
+import { brotliCompress, constants as zlib, gzip } from "node:zlib"
 import babel from "@rolldown/plugin-babel"
 import tailwindcss from "@tailwindcss/vite"
 import react, { reactCompilerPreset } from "@vitejs/plugin-react"
@@ -38,10 +41,40 @@ function mockFiles(): Plugin {
   }
 }
 
+/**
+ * Writes `.br` and `.gz` copies of the built scripts, styles and SVGs next to them; the server
+ * sends them to clients that accept the encoding (remi/server/spa.py), so nothing is compressed
+ * per request.
+ */
+function precompress(): Plugin {
+  const brotli = promisify(brotliCompress)
+  const deflate = promisify(gzip)
+  return {
+    name: "remi-precompress",
+    apply: "build",
+    async writeBundle(options, bundle) {
+      const dir = options.dir ?? "dist"
+      const files = Object.keys(bundle).filter((name) => /\.(?:js|css|svg)$/.test(name))
+      await Promise.all(
+        files.map(async (name) => {
+          const file = path.join(dir, name)
+          const raw = await readFile(file)
+          if (raw.length < 1024) return
+          const [br, gz] = await Promise.all([
+            brotli(raw, { params: { [zlib.BROTLI_PARAM_QUALITY]: 11, [zlib.BROTLI_PARAM_SIZE_HINT]: raw.length } }),
+            deflate(raw, { level: 9 }),
+          ])
+          await Promise.all([writeFile(`${file}.br`, br), writeFile(`${file}.gz`, gz)])
+        }),
+      )
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   const mock = loadEnv(mode, process.cwd(), "VITE_").VITE_MOCK === "1"
   return {
-    plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss(), mock && mockFiles()],
+    plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss(), mock && mockFiles(), precompress()],
     resolve: { alias: { "@": path.resolve(import.meta.dirname, "./src") } },
     server: {
       proxy: mock
@@ -66,9 +99,11 @@ export default defineConfig(({ mode }) => {
       rolldownOptions: {
         output: {
           codeSplitting: {
-            // Everything the shell needs before first paint in two files instead of dozens of
-            // tiny shared chunks; lazily loaded code keeps rolldown's automatic splitting.
+            // Everything the shell needs before first paint in three files (React, other libraries,
+            // the app shell) instead of dozens of tiny shared chunks, none over the 150 KB gzip
+            // chunk budget; lazily loaded code keeps rolldown's automatic splitting.
             groups: [
+              { name: "react", tags: ["$initial"], test: /node_modules[\\/](?:\.pnpm[\\/])?(?:react|react-dom|scheduler)[@\\/]/, priority: 3 },
               { name: "vendor", tags: ["$initial"], test: /node_modules/, priority: 2 },
               { name: "shell", tags: ["$initial"], priority: 1 },
             ],

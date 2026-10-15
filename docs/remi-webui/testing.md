@@ -69,7 +69,9 @@ already answers there, then runs:
   palette) and the main pages on a phone. Any serious or critical violation
   fails the test with the rule, the element and the fix summary.
 
-Most flow tests also fail on console errors or uncaught page errors
+Before the workers start, `global-setup.ts` opens every page once in one
+browser, so Vite's on-demand transforms are cached and the workers' first
+pages do not race for them. Most flow tests also fail on console errors or uncaught page errors
 (`watchConsole` in `helpers.ts`). Workers: 3 locally, 2 on CI
 (`REMI_E2E_WORKERS` overrides); CI retries once.
 
@@ -88,6 +90,18 @@ half changed) and an Extras Lanczos upscale, stops the server and prints a
 table (exit 1 on a failed check, 2 when the server did not start). It
 refuses to run while another `launch.py` holds the model. Not part of
 `tools/check.sh` or CI (it needs the model and a GPU / MPS).
+
+## Performance measurements
+
+`docs/research/ui-performance.md` records the scorecard's performance budgets
+with the method and raw numbers. The tools are not part of `tools/check.sh`
+(they need the real model, synthetic fixtures and about an hour):
+`tools/perf/fixtures.py` (5,000 LoRAs, 10,000 gallery images, the 300-token
+prompt), `tools/perf/serve_traced.py` (the server with timing probes),
+`tools/perf/startup.py` (old vs new startup), `webui/tools/perf/bundle.mjs`
+(bundle budgets from the Vite manifest) and `webui/tools/perf/browser.mjs`
+(Playwright + CDP: DOM size, INP, scrolling, preview latency, generation
+overhead).
 
 ## CI
 

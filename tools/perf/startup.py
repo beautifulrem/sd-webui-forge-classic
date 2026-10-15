@@ -1,0 +1,138 @@
+"""Server startup time of this tree against the pre-rewrite tree (docs/research/ui-performance.md).
+
+    python tools/perf/startup.py --old /tmp/remi-baseline --old-python /tmp/remi-testenv/bin/python \
+        --new-python /tmp/remi-nogradio-env/bin/python --runs 5 --out /tmp/remi-perf-out/startup.json
+
+For each tree and mode (``ui``: the web interface, ``api``: ``--nowebui``) it starts ``launch.py``
+``runs`` times (plus one unrecorded warm-up start that fills the OS file cache) with a fresh
+``--data-dir`` holding a copy of this repo's ``config.json``, the models from ``--model-ref``, and
+measures the wall time from spawning the process until the server answers (``GET /`` for the UI,
+``GET /sdapi/v1/sd-models`` for the API) and the process's own ``Startup time`` line, then
+stops it (Ctrl+C). The RSS of the process tree once ready is recorded too. Refuses to run while
+another ``launch.py`` runs.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import signal
+import statistics
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_STARTUP = re.compile(r"Startup time: ([\d.]+)s")
+
+
+def answers(url: str) -> bool:
+    try:
+        with _opener.open(url, timeout=2) as response:
+            return response.status == 200
+    except Exception:
+        return False
+
+
+def tree_rss(pid: int) -> int:
+    import psutil
+
+    try:
+        proc = psutil.Process(pid)
+        return sum(p.memory_info().rss for p in [proc, *proc.children(recursive=True)])
+    except psutil.Error:
+        return 0
+
+
+def start_once(tree: Path, python: str, mode: str, port: int, timeout: float) -> dict:
+    data = Path(tempfile.mkdtemp(prefix="remi-startup-"))
+    if (ROOT / "config.json").is_file():
+        shutil.copy2(ROOT / "config.json", data / "config.json")
+    args = [python, "launch.py", "--skip-prepare-environment", "--skip-install", "--port", str(port), "--data-dir", str(data), "--model-ref", str(ROOT / "models")]
+    args += ["--nowebui"] if mode == "api" else []
+    env = {**os.environ, "REMI_SKIP_WEBUI_BUILD": "1", "PYTHONUNBUFFERED": "1", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
+    url = f"http://127.0.0.1:{port}" + ("/sdapi/v1/sd-models" if mode == "api" else "/")
+    log_path = data / "server.log"
+    with open(log_path, "wb") as log:
+        started = time.perf_counter()
+        process = subprocess.Popen(args, cwd=tree, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        ready = None
+        while time.perf_counter() - started < timeout and process.poll() is None:
+            if answers(url):
+                ready = time.perf_counter() - started
+                break
+            time.sleep(0.05)
+        time.sleep(0.5)  # let the startup line be written
+        rss = tree_rss(process.pid)
+        for sig, wait in ((signal.SIGINT, 20), (signal.SIGTERM, 10), (signal.SIGKILL, 5)):
+            if process.poll() is not None:
+                break
+            try:
+                os.killpg(process.pid, sig)
+                process.wait(wait)
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                continue
+    text = log_path.read_text(errors="replace")
+    match = _STARTUP.search(text)
+    reported = float(match.group(1)) if match else None
+    detail = text[match.start() : text.find("\n", match.start())] if match else text[-1500:]
+    shutil.rmtree(data, ignore_errors=True)
+    return {"ready_s": round(ready, 2) if ready else None, "reported_s": reported, "rss_mb": round(rss / 1048576), "detail": detail.strip()}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--old", type=Path, required=True, help="worktree of the pre-rewrite code (git ref 'remi')")
+    parser.add_argument("--old-python", required=True)
+    parser.add_argument("--new-python", default=sys.executable)
+    parser.add_argument("--runs", type=int, default=5)
+    parser.add_argument("--port", type=int, default=7871)
+    parser.add_argument("--timeout", type=float, default=300)
+    parser.add_argument("--modes", default="api,ui")
+    parser.add_argument("--out", type=Path)
+    options = parser.parse_args()
+
+    import psutil
+
+    busy = [p.pid for p in psutil.process_iter(["cmdline"]) if any(str(part).endswith("launch.py") for part in (p.info.get("cmdline") or []))]
+    if busy:
+        print(f"another launch.py is running: {busy}", file=sys.stderr)
+        return 2
+
+    results: dict[str, dict] = {}
+    for mode in options.modes.split(","):
+        for name, tree, python in (("old", options.old, options.old_python), ("new", ROOT, options.new_python)):
+            key = f"{name}-{mode}"
+            print(f"{key}: warm-up", flush=True)
+            start_once(tree, python, mode, options.port, options.timeout)
+            runs = []
+            for index in range(options.runs):
+                run = start_once(tree, python, mode, options.port, options.timeout)
+                runs.append(run)
+                print(f"  {key} #{index + 1}: ready {run['ready_s']} s, reported {run['reported_s']} s, RSS {run['rss_mb']} MB", flush=True)
+            ready = [run["ready_s"] for run in runs if run["ready_s"]]
+            reported = [run["reported_s"] for run in runs if run["reported_s"]]
+            results[key] = {
+                "runs": runs,
+                "ready_median_s": round(statistics.median(ready), 2) if ready else None,
+                "ready_min_s": min(ready) if ready else None,
+                "reported_median_s": round(statistics.median(reported), 2) if reported else None,
+                "rss_median_mb": round(statistics.median(run["rss_mb"] for run in runs)),
+            }
+    print(f"\n{'tree-mode':<10} {'ready (median)':>15} {'reported':>10} {'RSS':>8}")
+    for key, row in results.items():
+        print(f"{key:<10} {row['ready_median_s']!s:>13} s {row['reported_median_s']!s:>8} s {row['rss_median_mb']:>5} MB")
+    if options.out:
+        options.out.write_text(json.dumps(results, indent=1))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

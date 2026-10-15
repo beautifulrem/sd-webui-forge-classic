@@ -38,6 +38,8 @@ class State:
 
     def __init__(self):
         self.server_start = time.time()
+        # Remi: called (no arguments, must not block) after each new live preview; wakes the preview encoder
+        self.live_preview_listeners: list = []
         if stream.should_use_stream():
             self.vae_stream = stream.get_vae_stream()
         else:
@@ -189,3 +191,5 @@ class State:
             image = image.convert("RGB")
         self.current_image = image
         self.id_live_preview += 1
+        for listener in tuple(self.live_preview_listeners):
+            listener()

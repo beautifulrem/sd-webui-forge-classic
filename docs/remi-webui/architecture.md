@@ -343,9 +343,11 @@ what it shows, e.g. job history). A failed send closes the socket. The
 client may send `hello{features}` (previews are then only sent in the formats it
 lists) and `ping`. Binary frames carry previews: little-endian header `u8 type=1,
 u8 fmt (1=jpeg, 2=webp), u32 job_seq, u32 step`, then the image bytes. A
-dedicated encoder thread keeps only the newest frame (setting
-`live_preview_fps`, default 6; JPEG when `live_previews_image_format` is
-JPEG, else WebP; nothing is encoded while no client is connected). Each
+dedicated encoder thread keeps only the newest frame: `shared.state`'s
+`live_preview_listeners` wake it when a preview is assigned, so a frame
+leaves within its encoding time, and `live_preview_fps` (default 6) only
+throttles (JPEG when `live_previews_image_format` is JPEG, else WebP; nothing
+is encoded while no client is connected). Each
 client has a bounded event queue and one preview slot.
 
 ## Server (`remi/server`, `remi/jobs`)
@@ -393,7 +395,8 @@ client has a bounded event queue and one preview slot.
   with or without a prefix-stripping proxy), `--tls-keyfile/--tls-certfile`,
   `--cors-allow-origins(-regex)`.
 - SPA: `webui/dist` is the router fallback (extension routes win): hashed
-  `/assets` cached for a year, `index.html` no-cache and served for client
+  `/assets` cached for a year and sent from the build's precompressed `.br` /
+  `.gz` copies when the client accepts them, `index.html` no-cache and served for client
   routes, with `window.__REMI_ROOT__` and prefixed asset URLs under
   `--subpath`. `launch.py` builds it when missing or when its sources or
   lockfile changed since the build (a stamp in `dist/`), with pnpm and the

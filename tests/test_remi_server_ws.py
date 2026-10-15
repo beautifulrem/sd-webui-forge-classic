@@ -99,6 +99,62 @@ def test_preview_encoder_sends_only_the_newest_frame_in_the_configured_format():
     assert encoder.interval() == pytest.approx(1 / 30)
 
 
+def _frame_times(bus):
+    times = []
+    bus.subscribe(SimpleNamespace(send_event=lambda event: None, send_frame=lambda frame: times.append((time.monotonic(), frame.step))))
+    return times
+
+
+def test_preview_encoder_wakes_on_a_new_preview_and_throttles_to_the_fps():
+    bus, state = EventBus(), FakeState()
+    times = _frame_times(bus)
+    opts = SimpleNamespace(live_previews_enable=True, live_previews_image_format="jpeg", live_preview_fps=2)  # 0.5 s interval
+    encoder = PreviewEncoder(bus, lambda: JobRef("j", 1, "txt2img"), state=lambda: state, opts=lambda: opts)
+    encoder.start()
+    try:
+        deadline = time.monotonic() + 2
+        while not state.live_preview_listeners and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert state.live_preview_listeners == [encoder.notify]
+        state.sampling_step = 1
+        assigned = time.monotonic()
+        state.assign_current_image(Image.new("RGB", (8, 8)))
+        while not times and time.monotonic() < deadline:
+            time.sleep(0.002)
+        assert times and times[0][0] - assigned < 0.1  # not the 0.5 s polling interval
+        # two more previews right away: only the newest goes out, one interval after the first
+        state.sampling_step = 2
+        state.assign_current_image(Image.new("RGB", (8, 8)))
+        state.sampling_step = 3
+        state.assign_current_image(Image.new("RGB", (8, 8)))
+        while len(times) < 2 and time.monotonic() < deadline + 1:
+            time.sleep(0.005)
+        assert [step for _, step in times] == [1, 3]
+        assert times[1][0] - times[0][0] >= 0.45
+    finally:
+        encoder.stop()
+        encoder.join(2)
+    assert state.live_preview_listeners == []
+
+
+def test_preview_encoder_polls_a_state_without_listeners():
+    bus = EventBus()
+    times = _frame_times(bus)
+    state = SimpleNamespace(current_image=None, id_live_preview=0, current_image_sampling_step=4, sampling_step=4)
+    opts = SimpleNamespace(live_previews_enable=True, live_previews_image_format="jpeg", live_preview_fps=20)
+    encoder = PreviewEncoder(bus, lambda: JobRef("j", 1, "txt2img"), state=lambda: state, opts=lambda: opts)
+    encoder.start()
+    try:
+        state.current_image, state.id_live_preview = Image.new("RGB", (8, 8)), 1
+        deadline = time.monotonic() + 2
+        while not times and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert [step for _, step in times] == [4]
+    finally:
+        encoder.stop()
+        encoder.join(2)
+
+
 def test_previews_are_not_encoded_when_nobody_watches():
     bus, state = EventBus(), FakeState()
 

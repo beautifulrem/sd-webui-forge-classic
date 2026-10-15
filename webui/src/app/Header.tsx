@@ -70,7 +70,8 @@ function HeaderProgress() {
       className="absolute inset-x-0 -bottom-px h-0.5 overflow-hidden"
     >
       <div
-        className="h-full origin-left bg-primary transition-transform duration-300 ease-out"
+        // not animated: one repaint per step instead of a 300 ms transition (see components/ui/progress)
+        className="h-full origin-left bg-primary"
         style={{ transform: `scaleX(${fraction})` }}
       />
     </div>

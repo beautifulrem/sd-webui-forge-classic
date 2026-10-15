@@ -40,6 +40,15 @@ class FakeState:
         self.id_live_preview = 0
         self.current_image: Any = None
         self.current_image_sampling_step = 0
+        self.live_preview_listeners: list[Callable[[], None]] = []
+
+    def assign_current_image(self, image: Any) -> None:
+        """As ``shared.state.assign_current_image``: the newest preview, listeners woken."""
+
+        self.current_image = image
+        self.id_live_preview += 1
+        for listener in tuple(self.live_preview_listeners):
+            listener()
 
     def interrupt(self) -> None:
         self.interrupted = True
@@ -76,8 +85,7 @@ class StubExecutor:
             if state.interrupted:
                 break
             state.sampling_step = step
-            state.current_image = Image.new("RGB", (32, 32), (step * 20 % 256, 0, 0))
-            state.id_live_preview += 1
+            state.assign_current_image(Image.new("RGB", (32, 32), (step * 20 % 256, 0, 0)))
             time.sleep(self.step_time)
         if self.gate is not None:
             deadline = time.time() + 10

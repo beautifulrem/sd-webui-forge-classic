@@ -262,8 +262,9 @@ offset  size  field
 10      …     image bytes
 ```
 
-A dedicated encoder thread produces at most `live_preview_fps` frames per
-second (setting, default 6), JPEG when the live preview format setting is
+A dedicated encoder thread sends each new preview as soon as the sampler
+produces it, at most `live_preview_fps` frames per second (setting, default
+6), JPEG when the live preview format setting is
 JPEG, else WebP, and nothing while no client is connected. Each client has
 one preview slot: a newer frame replaces one not yet sent, so slow clients
 skip frames instead of lagging. Events have a bounded queue per client

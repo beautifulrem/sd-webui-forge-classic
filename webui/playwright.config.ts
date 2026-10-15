@@ -15,6 +15,7 @@ for (const key of ["NO_PROXY", "no_proxy"]) {
 
 export default defineConfig({
   testDir: "tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.ts",
   outputDir: "node_modules/.e2e-results",
   fullyParallel: false,
   // The mock worker and Vite's on-demand transforms are CPU bound: a few workers keep timings stable.

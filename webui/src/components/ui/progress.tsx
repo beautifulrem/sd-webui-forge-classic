@@ -44,7 +44,9 @@ function ProgressIndicator({
   return (
     <ProgressPrimitive.Indicator
       data-slot="progress-indicator"
-      className={cn("h-full bg-primary transition-all", className)}
+      // No transition: progress moves once per sampling step, and an animated width would lay out and
+      // repaint ~10 frames per step while the GPU samples (docs/research/ui-performance.md).
+      className={cn("h-full bg-primary", className)}
       {...props}
     />
   )

@@ -61,13 +61,14 @@ function RailLink({ item, active }: { item: NavItem; active: boolean }) {
             aria-hidden
             className={cn(
               "absolute top-0.5 right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[0.6rem] leading-none font-semibold text-primary-foreground tabular-nums ring-2 ring-sidebar",
-              busy && "animate-pulse",
             )}
           >
             {queued > 99 ? "99+" : queued}
           </span>
         ) : busy ? (
-          <span aria-hidden className="absolute top-2 right-2 size-1.5 animate-pulse rounded-full bg-primary" />
+          // Static on purpose: an endless animation makes the compositor redraw at display rate for the
+          // whole job, which costs sampling speed on machines whose GPU the browser shares.
+          <span aria-hidden className="absolute top-2 right-2 size-1.5 rounded-full bg-primary" />
         ) : null}
       </TooltipTrigger>
       <TooltipContent side="right" sideOffset={8}>

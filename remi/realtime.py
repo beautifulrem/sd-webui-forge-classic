@@ -235,11 +235,18 @@ def encode_preview(image: Any, fmt: int, quality: int = 80) -> bytes:
 
 class PreviewEncoder(_Loop):
     """Encodes only the newest live preview (``shared.state.current_image``),
-    at most ``live_preview_fps`` frames per second, while a job runs."""
+    at most ``live_preview_fps`` frames per second, while a job runs.
+
+    The state's ``live_preview_listeners`` wake it as soon as a preview is
+    assigned, so a frame leaves after its encoding time instead of up to a
+    polling interval later; the interval only throttles. A state without
+    that hook is polled every interval."""
 
     def __init__(self, bus: EventBus, current_job: CurrentJob, *, state: Callable[[], Any] = _shared_state, opts: Callable[[], Any] = _shared_opts) -> None:
         super().__init__("remi-preview")
         self.bus, self.current_job, self.state, self.opts = bus, current_job, state, opts
+        self._wake = threading.Event()
+        self._listening: list[Callable[[], None]] | None = None
 
     def interval(self) -> float:
         try:
@@ -248,13 +255,51 @@ class PreviewEncoder(_Loop):
             fps = DEFAULT_PREVIEW_FPS
         return 1.0 / min(max(fps, 0.5), 30.0)
 
+    def notify(self) -> None:
+        """A new preview was assigned (called on the generation thread; never blocks)."""
+
+        self._wake.set()
+
+    def stop(self) -> None:
+        super().stop()
+        self._wake.set()
+
+    def _listen(self) -> None:
+        try:
+            listeners = getattr(self.state(), "live_preview_listeners", None)
+        except Exception:
+            return
+        if listeners is self._listening or not isinstance(listeners, list):
+            return
+        self._unlisten()
+        listeners.append(self.notify)
+        self._listening = listeners
+
+    def _unlisten(self) -> None:
+        if self._listening is not None and self.notify in self._listening:
+            self._listening.remove(self.notify)
+        self._listening = None
+
     def run(self) -> None:
-        last = None
-        while not self.wait(self.interval()):
-            try:
-                last = self.tick(last)
-            except Exception:
-                log.exception("preview encoder")
+        last, ready_at = None, 0.0
+        try:
+            while not self._stop_event.is_set():
+                self._listen()
+                self._wake.wait(self.interval())
+                self._wake.clear()
+                delay = ready_at - time.monotonic()
+                if delay > 0 and self.wait(delay):  # throttle: the newest preview goes out after the delay
+                    break
+                try:
+                    key = self.tick(last)
+                except Exception:
+                    log.exception("preview encoder")
+                    continue
+                if key is not None and key != last:
+                    ready_at = time.monotonic() + self.interval()
+                last = key
+        finally:
+            self._unlisten()
 
     def tick(self, last: Any) -> Any:
         ref = self.current_job()

@@ -287,6 +287,29 @@ def test_the_spa_is_served_with_cache_headers_and_client_route_fallback(webui, t
         assert server.client.post("/").status_code == 404
 
 
+def test_assets_are_served_precompressed_when_the_client_accepts_it(webui, tmp_path):
+    import gzip
+
+    from remi.server.spa import accepted_codings
+
+    dist = make_dist(tmp_path)
+    source = "console.log(1)"
+    (dist / "assets" / "app-1a2b.js.gz").write_bytes(gzip.compress(source.encode()))
+    (dist / "assets" / "app-1a2b.js.br").write_bytes(b"not really brotli")
+    with server_app(tmp_path / "data", spa_dir=dist) as server:
+        get = server.client.get
+        br = get("/assets/app-1a2b.js", headers={"Accept-Encoding": "gzip, deflate, br, zstd"})
+        assert br.headers["content-encoding"] == "br" and br.headers["content-type"].startswith("text/javascript") and br.content == b"not really brotli"
+        assert "accept-encoding" in br.headers["vary"].lower() and "immutable" in br.headers["cache-control"]
+        packed = get("/assets/app-1a2b.js", headers={"Accept-Encoding": "gzip, br;q=0"})
+        assert packed.headers["content-encoding"] == "gzip" and packed.text == source  # the client inflates it
+        plain = get("/assets/app-1a2b.js", headers={"Accept-Encoding": "identity"})
+        assert "content-encoding" not in plain.headers and plain.text == source
+        assert "content-encoding" not in get("/favicon.svg", headers={"Accept-Encoding": "gzip, br"}).headers
+    assert accepted_codings("gzip;q=0.5, br;q=0, deflate") == {"gzip", "deflate"}
+    assert accepted_codings("") == set() and accepted_codings("gzip;q=x") == set()
+
+
 def test_the_spa_shell_gets_the_subpath(webui, tmp_path):
     from fastapi.testclient import TestClient
 

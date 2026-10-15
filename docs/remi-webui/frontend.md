@@ -100,6 +100,11 @@ imperatively).
   back to system fonts. `.tabular` / numeric inputs use tabular figures.
 - Motion: `tw-animate-css` + base-nova animations; a global
   `prefers-reduced-motion` rule neutralises animations and transitions.
+  Nothing that stays on screen while a job runs animates endlessly (no
+  `animate-pulse` / `animate-spin` on running indicators): an infinite
+  animation makes the compositor redraw at display rate for the whole job,
+  which measurably slows sampling where the browser shares the GPU
+  (docs/research/ui-performance.md). Spinners are for short waits only.
 - Scrollbars: thin, theme-aware (`--scrollbar`). Focus: visible rings from
   `--ring` everywhere (`outline-ring/50`, `focus-visible:ring-3`).
 - shadcn components import `cn` from the `cn` package (what the base-nova
