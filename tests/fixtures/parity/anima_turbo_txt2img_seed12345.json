@@ -1,0 +1,20 @@
+{
+  "prompt": "masterpiece, best quality, 1girl, silver hair, blue eyes, school uniform, cherry blossoms, upper body, smile",
+  "negative_prompt": "worst quality, low quality",
+  "seed": 12345,
+  "steps": 8,
+  "cfg_scale": 1.0,
+  "width": 768,
+  "height": 768,
+  "sampler_name": "Euler",
+  "infotexts": [
+    "masterpiece, best quality, 1girl, silver hair, blue eyes, school uniform, cherry blossoms, upper body, smile\nNegative prompt: worst quality, low quality\nSteps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 768x768, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, Version: neo-2.30"
+  ],
+  "scheduler": "Simple",
+  "model": "anima-turbo-v1.1.safetensors",
+  "modules": [
+    "qwen_3_06b_base.safetensors",
+    "qwen_image_vae.safetensors"
+  ],
+  "note": "Pre-rewrite baseline (git ref remi, d5a71cad, Gradio UI) generated through /sdapi/v1/txt2img on Apple M4 / MPS; the rewrite must reproduce it pixel-identically."
+}
