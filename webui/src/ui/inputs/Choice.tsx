@@ -1,4 +1,4 @@
-import { useId } from "react"
+import { useId, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { SearchSelect } from "@/components/SearchSelect"
 import { Segmented } from "@/components/Segmented"
@@ -9,6 +9,7 @@ import { describedBy, hintRef } from "../a11y"
 import { Field } from "../Field"
 import type { ChoiceNode, ChoiceOption } from "../schema"
 import { useFallbackName } from "../fallback-name"
+import { useSegmentsFit } from "./segment-fit"
 
 /** Up to this many short options render as a segmented control (radio style). */
 const SEGMENTED_MAX = 5
@@ -31,11 +32,19 @@ export function Choice({ node }: { node: ChoiceNode }) {
   const value = param.value ?? null
   const disabled = !param.enabled
   const aria = { "aria-describedby": describedBy(id, param.info, param.error, hintRef(id, param.hint)), "aria-invalid": param.error ? true : undefined }
+  const radio = node.style === "radio"
+  const fitRef = useRef<HTMLDivElement>(null)
+  const short = radio && options.length <= SEGMENTED_MAX && options.every((o) => o.label.length <= SEGMENTED_LABEL_MAX)
+  // the translated labels must fit their segments, else radios (no ellipsised option)
+  const fits = useSegmentsFit(
+    fitRef,
+    options.map((o) => o.label),
+    short,
+  )
 
   let control
-  if (node.style === "radio") {
-    const segmented = options.length <= SEGMENTED_MAX && options.every((o) => o.label.length <= SEGMENTED_LABEL_MAX)
-    control = segmented ? (
+  if (radio) {
+    control = short && fits ? (
       <Segmented
         options={options}
         value={value}
@@ -120,7 +129,13 @@ export function Choice({ node }: { node: ChoiceNode }) {
       disabled={disabled}
       labelFor={node.style !== "radio"}
     >
-      {control}
+      {radio ? (
+        <div ref={fitRef} className="min-w-0">
+          {control}
+        </div>
+      ) : (
+        control
+      )}
     </Field>
   )
 }

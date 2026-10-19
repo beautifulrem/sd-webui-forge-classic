@@ -1,0 +1,193 @@
+{
+ "base": "http://127.0.0.1:7871",
+ "date": "2026-10-19T21:35:05.962Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "interleaved": {
+  "steps": 20,
+  "size": "512x512",
+  "windowS": 9,
+  "jobMs": 160884,
+  "painted": 33,
+  "received": 33,
+  "paintedShare": 1,
+  "browserCpuPct": 2,
+  "stepMsOn": {
+   "n": 20,
+   "mean": 2798,
+   "p50": 2759.8,
+   "p95": 3541,
+   "p99": 4315.4,
+   "max": 4509.1
+  },
+  "stepMsOff": {
+   "n": 21,
+   "mean": 2452.7,
+   "p50": 2441.6,
+   "p95": 3075.5,
+   "p99": 3448,
+   "max": 3541.1
+  },
+  "overheadPct": 14.07,
+  "batchCount": 3,
+  "pairs": [
+   6.35,
+   13.16,
+   44.06,
+   6.59,
+   -5.99,
+   8.03,
+   42.24,
+   9.46
+  ],
+  "pairMeanPct": 15.49,
+  "pairCi95Pct": 14.97,
+  "pairStats": {
+   "n": 8,
+   "mean": 15.49,
+   "ci95": 14.97,
+   "upper95": 27.47,
+   "median": 8.75
+  },
+  "trimmedPairStats": {
+   "n": 7,
+   "mean": 11.62,
+   "ci95": 15.25,
+   "upper95": 23.7,
+   "median": 7.6
+  },
+  "medianOverheadPct": 13.03,
+  "windows": [
+   {
+    "condition": "on",
+    "steps": [
+     2596,
+     2426
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     2574,
+     2001,
+     2508
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     3076,
+     2753
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     3105,
+     3490
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     4509,
+     2997
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     2447,
+     2764
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     2255,
+     1964,
+     2163
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     2662,
+     2156,
+     1985
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     2176,
+     2403,
+     2698
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     2442,
+     2718
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     2742,
+     3541,
+     2382
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     3120
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     2832,
+     2836
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     1953,
+     2209,
+     1815
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     2307,
+     2094,
+     2801
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     2822,
+     2569,
+     2491
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     3147,
+     2938
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": []
+   }
+  ]
+ }
+}

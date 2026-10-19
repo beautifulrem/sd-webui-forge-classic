@@ -305,10 +305,13 @@ offset  size  field
 10      …     image bytes
 ```
 
-A dedicated encoder thread sends each new preview as soon as the sampler
-produces it, at most `live_preview_fps` frames per second (setting, default
-6), JPEG when the live preview format setting is
-JPEG, else WebP, and nothing while no client is connected. `job.progress`
+Each new preview is sent as soon as the sampler produces it, at most
+`live_preview_fps` frames per second (setting, default 6), JPEG when the
+live preview format setting is JPEG, else WebP, and nothing while no client
+is connected. `step` is the sampler's step within the current image: it
+starts again at 0 for each image of a batch (and each pass of a hires fix),
+so it does not order frames; frames arrive in the order they were made,
+and the newest one received is the current preview. `job.progress`
 is published when the step counter changes (checked every 0.2 s), so it
 reports the step being sampled and arrives shortly after the previous
 step's frame; a client that wants one update per step can show it with the

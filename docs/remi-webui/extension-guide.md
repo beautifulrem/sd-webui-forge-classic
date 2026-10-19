@@ -185,6 +185,7 @@ Keyword arguments every input takes:
 | `label`, `info` | English label (default: from the name; `""` hides it) and help text under the control |
 | `hint` | tooltip on the label, also the control's accessible description (Gradio's `tooltip=`); `Choice` / `MultiChoice` also take `hints={choice label: tooltip}` for their options |
 | `visible_if`, `enabled_if` | [conditions](#5-conditions) evaluated in the browser |
+| `inactive_if` | a [condition](#5-conditions) under which the control is dimmed but stays editable, because its value has no effect then (the Gradio UI's `inactive` class; e.g. Hires. fix "Upscale by" while a target size is set) |
 | `on_change="action"` | run that [action](#6-actions) after any change of the value (user edit, paste, preset, reset) |
 | `on_input="action"` | run it only after the user's own edit (Gradio's `.input`): for derived values an infotext paste already restores |
 | `infotext="Key"` | infotext key the value is written under and pasted from ([§7](#7-infotext-paste-presets-and-exclusive-groups)) |
@@ -223,7 +224,7 @@ turns any mask into an `L` image), sketches as RGBA. A `mask` without
 | `ui.Row(*children)`, `ui.Column(*children, width=None)` | horizontal flow (12-column grid, wraps on narrow screens) and vertical stack |
 | `ui.Tabs(ui.Tab(title, *children, value=...), ..., bind=None)` | tab strip; `bind="mode"` makes the selected tab the value of the `Choice` named `mode` (each `Tab` gives its `value`) |
 | `ui.Markdown(text)` | CommonMark, no raw HTML; translated as one string |
-| `ui.Html(text)` | trusted server HTML, sanitized in the browser, never translated |
+| `ui.Html(text)` | trusted server HTML, sanitized in the browser; translated as one string keyed by its exact markup (the translation keeps the markup) |
 | `ui.Separator()` | horizontal rule |
 | `ui.Button(label, action, variant="secondary")` | calls the owner's action; variants `primary`, `secondary`, `ghost`, `tool`, `danger` |
 | `ui.Output(name, kind="text" \| "html" \| "image" \| "json", label=None)` | output-only value, filled by an action's `__outputs__` |
@@ -609,7 +610,8 @@ Frontend conventions (design system, i18n, tests, accessibility) are in
   have the same translation everywhere: do not re-translate strings core
   already translates (`tests/remi_port_harness.assert_localized` fails on
   contradictions).
-- `ui.Html` text is never translated; choice **values** are never
+- `ui.Html` text is translated whole, keyed by its exact markup (the
+  translation keeps the tags and links); choice **values** are never
   translated (only their labels). Use `(label, value)` pairs when the value
   is a key your code reads.
 - Infotext keys are not translated (they are data).

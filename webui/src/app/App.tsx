@@ -1,4 +1,5 @@
 /** The application shell: rail + header + lazily loaded page, plus global services. */
+import { DirectionProvider } from "@base-ui/react/direction-provider"
 import { useQuery } from "@tanstack/react-query"
 import { Keyboard, Languages, Monitor, Moon, Rows3, Rows4, Sun } from "lucide-react"
 import { lazy, Suspense, useEffect, useMemo } from "react"
@@ -18,6 +19,7 @@ import { BottomBar, NavRail } from "./NavRail"
 import { buildNav, pageFor, type NavItem } from "./routes"
 import { onShortcutsKey, useShortcutsHelp } from "./shortcuts-help"
 import { navigate, type Route, routeKey, useRoute } from "./router"
+import { useUserStylesheet } from "./user-stylesheet"
 import { useWsBridge } from "./ws-bridge"
 
 const CommandPalette = lazy(() => import("./CommandPalette"))
@@ -80,12 +82,14 @@ export function App() {
   const route = useRoute()
   const bootstrap = useQuery(bootstrapQuery)
   const chosen = useLocale((s) => s.chosen)
+  const direction = useLocale((s) => s.direction)
   const paletteLoaded = useCommands((s) => s.paletteLoaded)
   const shortcutsLoaded = useShortcutsHelp((s) => s.loaded)
 
   useApplyAppearance()
   useWsBridge()
   useGlobalShortcuts()
+  useUserStylesheet(bootstrap.data?.user_assets)
 
   const serverLocale = bootstrap.data?.locale
   useEffect(() => {
@@ -104,44 +108,53 @@ export function App() {
   const Page = pageFor(route)
 
   return (
-    <TooltipProvider delay={400}>
-      <a
-        href="#main"
-        onClick={(event) => {
-          event.preventDefault()
-          document.getElementById("main")?.focus()
-        }}
-        className="sr-only z-50 rounded-md bg-primary px-3 py-2 text-primary-foreground focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
-      >
-        {t("Skip to content")}
-      </a>
-      <div className="flex h-dvh overflow-hidden">
-        <NavRail items={nav} route={route} />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Header title={title} locales={locales} />
-          <main id="main" tabIndex={-1} className="relative min-h-0 flex-1 overflow-clip outline-none">
-            <ErrorBoundary resetKey={routeKey(route)}>
-              <Suspense fallback={<PageSkeleton />}>
-                {/* oxlint-disable-next-line react/static-components -- a stable lazy component from the route table */}
-                <Page route={route} />
-              </Suspense>
-            </ErrorBoundary>
-          </main>
-          <BottomBar items={nav} route={route} />
+    <DirectionProvider direction={direction}>
+      <TooltipProvider delay={400}>
+        <a
+          href="#main"
+          onClick={(event) => {
+            event.preventDefault()
+            document.getElementById("main")?.focus()
+          }}
+          className="sr-only z-50 rounded-md bg-primary px-3 py-2 text-primary-foreground focus:not-sr-only focus:fixed focus:top-2 focus:left-2"
+        >
+          {t("Skip to content")}
+        </a>
+        <div className="flex h-dvh overflow-hidden">
+          <NavRail items={nav} route={route} />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <Header title={title} locales={locales} />
+            <main id="main" tabIndex={-1} className="relative min-h-0 flex-1 overflow-clip outline-none">
+              <ErrorBoundary resetKey={routeKey(route)}>
+                <Suspense fallback={<PageSkeleton />}>
+                  {/* oxlint-disable-next-line react/static-components -- a stable lazy component from the route table */}
+                  <Page route={route} />
+                </Suspense>
+              </ErrorBoundary>
+            </main>
+            <BottomBar items={nav} route={route} />
+          </div>
         </div>
-      </div>
-      {paletteLoaded ? (
-        <Suspense fallback={null}>
-          <CommandPalette />
-        </Suspense>
-      ) : null}
-      {shortcutsLoaded ? (
-        <Suspense fallback={null}>
-          <ShortcutsDialog />
-        </Suspense>
-      ) : null}
-      <Toaster position="bottom-right" closeButton richColors={false} />
-      <ServerControlHost />
-    </TooltipProvider>
+        {paletteLoaded ? (
+          <Suspense fallback={null}>
+            <CommandPalette />
+          </Suspense>
+        ) : null}
+        {shortcutsLoaded ? (
+          <Suspense fallback={null}>
+            <ShortcutsDialog />
+          </Suspense>
+        ) : null}
+        <Toaster
+          position="bottom-right"
+          closeButton
+          richColors={false}
+          // sonner's own labels are English ("Notifications alt+T", "Close toast"); Alt+T is its default hotkey
+          customAriaLabel={t("Notifications ({{shortcut}})", { shortcut: "Alt+T" })}
+          closeButtonAriaLabel={t("Close notification")}
+        />
+        <ServerControlHost />
+      </TooltipProvider>
+    </DirectionProvider>
   )
 }

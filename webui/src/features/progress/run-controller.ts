@@ -16,7 +16,8 @@ import { onWsEvent } from "@/api/ws"
 import { t } from "@/i18n"
 import { getFormStore } from "@/ui/form-store"
 import { flushPendingWrites } from "@/ui/pending-writes"
-import { jobRequest } from "@/ui/tab"
+import { jobRequest, missingInputs } from "@/ui/tab"
+import { errorText, toastInvalid } from "@/features/errors/error-text"
 import { notifyResults } from "./effects"
 import { noteUpscale } from "@/features/gallery/session-store"
 import { IDLE, type JobOutcome, reduce, type RunEffect, type RunEvent, type RunState, type UpscaleSource } from "./run-machine"
@@ -87,6 +88,14 @@ async function submit(tab: GenerateTab, upscale?: UpscaleSource) {
     // Canvas layers still uploading after the last stroke go out first.
     await flushPendingWrites(tab)
     const request = jobRequest(store, schema)
+    const missing = missingInputs(schema, request)
+    if (missing.length > 0) {
+      // the server would reject it: mark the fields without sending a request that must fail
+      store.getState().setErrors(missing)
+      toastInvalid(missing)
+      dispatchRun(tab, { type: "rejected" })
+      return
+    }
     const created = await api.jobs.create(upscale ? { ...request, upscale_from: upscale.fileId } : request)
     store.getState().clearErrors()
     const jobIds = created.job_ids?.length ? created.job_ids : [created.job_id]
@@ -99,10 +108,12 @@ async function submit(tab: GenerateTab, upscale?: UpscaleSource) {
     for (const jobId of jobIds) replayEarly(tab, jobId)
   } catch (error) {
     const errors = validationErrors(error)
-    if (errors) store.getState().setErrors(errors)
-    toast.error(errors ? t("Some parameters are invalid") : t("Could not queue the job"), {
-      description: error instanceof Error ? error.message : String(error),
-    })
+    if (errors) {
+      store.getState().setErrors(errors)
+      toastInvalid(errors)
+    } else {
+      toast.error(t("Could not queue the job"), { description: errorText(error) })
+    }
     dispatchRun(tab, { type: "rejected" })
   }
 }

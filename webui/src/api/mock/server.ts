@@ -8,7 +8,7 @@ import { materializeStyles } from "@/features/prompt-editor/styles/apply-styles"
 import { encodeFrame, FrameFormat } from "../frames"
 import { buildIndex } from "@/ui/form-index"
 import type { InputNode, ValidationError } from "@/ui/schema"
-import { tabOwners } from "@/ui/tab"
+import { missingInputs, tabOwners } from "@/ui/tab"
 import type { ActionRequest, FormTab, InfotextParsed, Job, JobOutput, JobRequest, PromptStyle, TokenCountRequest } from "../types"
 import { bootstrap, extrasSchema, models, serverCatalogZh, styles, tabSchema, toolboxPage } from "./fixtures"
 import { broadcast, broadcastBinary } from "./socket"
@@ -72,14 +72,25 @@ function simulateModelLoad(model: string) {
   setTimeout(() => broadcast({ type: "model.loaded", model }), 150 + stages.length * 450)
 }
 
+/** The Hires. fix target size (`calculate_target_resolution`): the resize sizes win over the factor; one left at 0 keeps the aspect ratio. */
+function hiresTarget(core: Values): { width: number; height: number } {
+  const width = Number(core.width ?? 1024)
+  const height = Number(core.height ?? 1024)
+  const x = Number(core.hr_resize_x ?? 0)
+  const y = Number(core.hr_resize_y ?? 0)
+  if (x > 0 && y > 0) return { width: x, height: y }
+  if (x > 0) return { width: x, height: Math.round((x * height) / width) }
+  if (y > 0) return { width: Math.round((y * width) / height), height: y }
+  const scale = Number(core.hr_scale ?? 2)
+  return { width: Math.round(width * scale), height: Math.round(height * scale) }
+}
+
 /** The Hires. fix output line (`remi.core.actions.hires_resolution`): a translatable message. */
 function hiresLine(core: Values): { text: string; params: Record<string, string> } | "" {
   if (!core.enable_hr) return ""
-  const width = Number(core.width ?? 1024)
-  const height = Number(core.height ?? 1024)
-  const scale = Number(core.hr_scale ?? 2)
   const snap = (n: number) => Math.round(n / 8) * 8
-  return { text: "from {{from}} to {{to}}", params: { from: `${width}×${height}`, to: `${snap(width * scale)}×${snap(height * scale)}` } }
+  const target = hiresTarget(core)
+  return { text: "from {{from}} to {{to}}", params: { from: `${Number(core.width ?? 1024)}×${Number(core.height ?? 1024)}`, to: `${snap(target.width)}×${snap(target.height)}` } }
 }
 
 /**
@@ -185,7 +196,7 @@ function actionPatch(owner: string, action: string, body: ActionRequest & { sele
 /**
  * A small version of the server's request validation (schema-format.md §3):
  * numbers must be finite and in range, choices must be listed, plus two
- * demo rules (img2img needs a source image; "#invalid" in the prompt).
+ * the schema's required inputs, and a demo rule ("#invalid" in the prompt).
  */
 export function validateJob(request: JobRequest): ValidationError[] {
   const schema = request.tab === "extras" ? extrasSchema : tabSchema(request.tab)
@@ -199,9 +210,7 @@ export function validateJob(request: JobRequest): ValidationError[] {
       if (message) errors.push({ owner, param: name, message })
     }
   }
-  if (request.tab === "img2img" && !request.core.init_img) {
-    errors.push({ owner: "core", param: "init_img", message: "an image is required" })
-  }
+  errors.push(...missingInputs(schema, request))
   if (String(request.core.prompt ?? "").includes("#invalid")) {
     errors.push({ owner: "core", param: "prompt", message: "the prompt contains #invalid (mock validation demo)" })
   }
@@ -255,8 +264,11 @@ function infotext(request: JobRequest, seed: number): string {
   const c = request.core
   const sampler = request.scripts.sampler ?? {}
   const size = `${String(c.width ?? 1024)}x${String(c.height ?? 1024)}`
-  // Like the WebUI: the Hires. fix values only when it ran (txt2img).
-  const hires = request.tab === "txt2img" && c.enable_hr ? `, Denoising strength: ${String(c.denoising_strength ?? 0.7)}, Hires upscale: ${String(c.hr_scale ?? 2)}, Hires upscaler: ${String(c.hr_upscaler ?? "Latent")}` : ""
+  // Like the WebUI: the Hires. fix values only when it ran (txt2img), the factor when no target size is set, else the size.
+  const resized = Number(c.hr_resize_x ?? 0) > 0 || Number(c.hr_resize_y ?? 0) > 0
+  const hiresSize = hiresTarget(c)
+  const target = resized ? `Hires resize: ${hiresSize.width}x${hiresSize.height}` : `Hires upscale: ${String(c.hr_scale ?? 2)}`
+  const hires = request.tab === "txt2img" && c.enable_hr ? `, Denoising strength: ${String(c.denoising_strength ?? 0.7)}, ${target}, Hires upscaler: ${String(c.hr_upscaler ?? "Latent")}` : ""
   // The refiner script's values when it is on with a checkpoint (generation tabs).
   const refinerValues = request.scripts.refiner ?? {}
   const refiner = request.tab !== "extras" && refinerValues.enable && refinerValues.checkpoint ? `, Refiner: ${String(refinerValues.checkpoint)}, Refiner switch at: ${String(refinerValues.switch_at ?? 0.8)}` : ""
@@ -286,8 +298,8 @@ function outputSize(request: JobRequest): { width: number; height: number } {
     const scale = Number(c.upscaling_resize ?? 2)
     return { width: Math.round(source.width * scale), height: Math.round(source.height * scale) }
   }
-  const scale = request.tab === "txt2img" && c.enable_hr ? Number(c.hr_scale ?? 2) : 1
-  return { width: Math.round(Number(c.width ?? 1024) * scale), height: Math.round(Number(c.height ?? 1024) * scale) }
+  if (request.tab === "txt2img" && c.enable_hr) return hiresTarget(c)
+  return { width: Number(c.width ?? 1024), height: Number(c.height ?? 1024) }
 }
 
 /** Extras' infotext: the operations' parameters (as `run_extras_named` returns them). */

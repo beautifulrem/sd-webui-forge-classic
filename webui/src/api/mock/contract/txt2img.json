@@ -154,7 +154,19 @@
            "step": 0.05,
            "integer": false,
            "on_change": "hr_resolution",
-           "infotext": "Hires upscale"
+           "infotext": "Hires upscale",
+           "inactive_if": {
+            "any": [
+             {
+              "param": "hr_resize_x",
+              "gt": 0
+             },
+             {
+              "param": "hr_resize_y",
+              "gt": 0
+             }
+            ]
+           }
           },
           {
            "type": "slider",
@@ -167,7 +179,11 @@
            "step": 64,
            "integer": true,
            "on_change": "hr_resolution",
-           "infotext": "Hires resize-1"
+           "infotext": "Hires resize-1",
+           "inactive_if": {
+            "param": "hr_resize_x",
+            "lte": 0
+           }
           },
           {
            "type": "slider",
@@ -180,7 +196,11 @@
            "step": 64,
            "integer": true,
            "on_change": "hr_resolution",
-           "infotext": "Hires resize-2"
+           "infotext": "Hires resize-2",
+           "inactive_if": {
+            "param": "hr_resize_y",
+            "lte": 0
+           }
           }
          ]
         },
@@ -735,7 +755,8 @@
    "cfg_scale": 6.0,
    "override_settings": [],
    "script": "None"
-  }
+  },
+  "required": []
  },
  "scripts": [
   {

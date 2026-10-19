@@ -90,13 +90,21 @@ already answers there, then runs:
 - `flows.spec.ts`: settings change applied with Mod+S and discard, the
   networks drawer (Alt+N, search, insert a LoRA), queue cancel, infotext read
   from the prompt, PNG Info from a pasted image, an extension page and its
-  action, the Extensions page, zh-CN without a reload, light / dark (kept
-  across reloads), command palette (navigate, theme), skip link, focus rings.
+  action, the Extensions page, zh-CN without a reload, a right-to-left
+  locale (`<html dir="rtl">`, the rail on the right), `user.css` applied over
+  the app's styles, light / dark (kept across reloads), command palette
+  (navigate, theme), skip link, focus rings.
+- `extensions.spec.ts`: extension management against the mock admin API:
+  install from a URL (validation, the folder conflict, listed afterwards),
+  load the index and install from it, Check for updates (progress, Stop,
+  summary, Update buttons), restore a backup (cancel, then confirm: the
+  reconnect overlay and the page reload).
 - `extras.spec.ts`: Extras (upload a source, pick the upscaler and the scale,
   process, then the result size, the before / after comparison, its infotext
   and the viewer; the job carries the values by name), a txt2img result sent
   to Extras, and generation with Hires. fix and with the Refiner (the values
-  reach the job, the infotext and the result's parameter list).
+  reach the job, the infotext and the result's parameter list), and the Hires.
+  fix target controls dimmed while they do not apply (`inactive_if`).
 - `a11y.spec.ts`: axe-core (`@axe-core/playwright`, WCAG 2.x A/AA + best
   practices) on every page in light and dark, plus open states (networks
   drawer, result, image viewer, gallery details, PNG Info result, queue with
@@ -148,9 +156,26 @@ Scheduler changes it; Anima FreeFuse routes the two LoRAs (infotext
 CUDA GPU with sol_attn and elsewhere leaves the image unchanged with the job
 warning "... was skipped: CUDA device is required"; inpaint with "Masked
 content: latent noise" finishes and keeps the unmasked half. Each feature
-job's infotext (and Prompt Anchor's, PP Suite's and, with a second
-checkpoint installed, the Refiner's) goes through `POST /api/v2/infotext/parse`
-without problems and, queued again, gives the same pixels and infotext.
+job's infotext (and Prompt Anchor's, PP Suite's and the Refiner's) goes through `POST /api/v2/infotext/parse`
+without problems and, queued again, gives the same pixels and infotext. So do
+three runs where a feature replaced part of the request (an Anima Flow
+sampler's scheduler lock, Dynamic Shift's Automatic schedule and the Anima
+Hires Guard's clamp of a 2x Hires target): the infotext records the
+replacement ("... replaced scheduler: Simple", "Anima Hires adjustments"),
+the paste restores the request and the pasted job replaces it again. Without
+a model, `tests/test_infotext_replaced_settings_roundtrip.py` checks the
+same byte for byte (the API's processing object, the scripts' hooks,
+`get_sigmas` and `create_infotext`), and `tests/test_refiner_switch.py`
+switches between two tiny synthetic checkpoints that differ: the refiner
+pass changes the result from the switch step on and records
+`Refiner: <name> [hash], Refiner switch at`.
+For the Refiner it also writes a second, genuinely different checkpoint into
+the data folder (`tools/anima_test_loras.py --refiner`: a copy of the
+checkpoint with a third seeded low-rank delta merged into the same layers,
+about 4 GB, passed with `--ckpt-dirs`; `--no-refiner-checkpoint` skips it and
+uses an installed one): with it as the Refiner at switch 0.5 the image must
+change, the infotext record `Refiner: remi-test-refiner [<hash>], Refiner
+switch at: 0.5`, and the base checkpoint be selected again afterwards.
 The same LoRAs can be written into a LoRA folder by hand:
 `$PYTHON tools/anima_test_loras.py models/Stable-diffusion/<anima>.safetensors models/Lora`.
 

@@ -33,6 +33,15 @@ HEADER_SIZE = _HEADER.size
 
 DEFAULT_PREVIEW_FPS = 6.0
 
+INLINE_MAX_PIXELS = {FORMAT_JPEG: 256 * 256, FORMAT_WEBP: 96 * 96}
+"""Previews up to this size (by format) are encoded on the thread that assigns
+them (about 0.1-1.5 ms) instead of waking the encoder thread; see
+:meth:`PreviewEncoder.notify`."""
+
+LISTENING_POLL_S = 1.0
+"""How often the encoder looks at the state on its own while the state wakes
+it (a client that connects mid-job gets the current preview)."""
+
 
 @dataclass(frozen=True)
 class PreviewFrame:
@@ -241,16 +250,27 @@ class PreviewEncoder(_Loop):
     """Encodes only the newest live preview (``shared.state.current_image``),
     at most ``live_preview_fps`` frames per second, while a job runs.
 
-    The state's ``live_preview_listeners`` wake it as soon as a preview is
-    assigned, so a frame leaves after its encoding time instead of up to a
-    polling interval later; the interval only throttles. A state without
-    that hook is polled every interval."""
+    The state's ``live_preview_listeners`` call :meth:`notify` on the
+    generation thread as soon as a preview is assigned. A small preview
+    (:data:`INLINE_MAX_PIXELS`: the RGB / Approx NN previews of a few
+    dozen pixels a side) whose throttle interval has passed is encoded and
+    published right there: about 0.1-0.5 ms on the thread that already holds
+    the interpreter, where waking this thread would make the sampler hand the
+    GIL over and wait for this thread to be scheduled, which costs much more
+    when the machine is busy. Larger previews, and newer ones assigned
+    during a throttle wait, wake the thread, which encodes the newest one
+    after the wait. A state without that hook is polled every interval."""
 
     def __init__(self, bus: EventBus, current_job: CurrentJob, *, state: Callable[[], Any] = _shared_state, opts: Callable[[], Any] = _shared_opts) -> None:
         super().__init__("remi-preview")
         self.bus, self.current_job, self.state, self.opts = bus, current_job, state, opts
         self._wake = threading.Event()
         self._listening: list[Callable[[], None]] | None = None
+        self._lock = threading.Lock()
+        """held while a preview is encoded (by this thread or inline)"""
+        self._last: Any = None
+        self._ready_at = 0.0
+        """monotonic time before which no further frame goes out (the fps throttle)"""
 
     def interval(self) -> float:
         try:
@@ -260,9 +280,37 @@ class PreviewEncoder(_Loop):
         return 1.0 / min(max(fps, 0.5), 30.0)
 
     def notify(self) -> None:
-        """A new preview was assigned (called on the generation thread; never blocks)."""
+        """A new preview was assigned (called on the generation thread; never
+        blocks): encoded here when it is small and not throttled, else this
+        thread is woken."""
 
-        self._wake.set()
+        if not self._encode_inline():
+            self._wake.set()
+
+    def _encode_inline(self) -> bool:
+        if time.monotonic() < self._ready_at or not self._lock.acquire(blocking=False):
+            return False  # throttled, or this thread is encoding: it takes the newest next
+        try:
+            image = getattr(self.state(), "current_image", None)
+            if image is None or getattr(image, "is_animated", False):
+                return False
+            if image.width * image.height > INLINE_MAX_PIXELS[preview_format(self.opts())]:
+                return False
+            self._step()
+            return True
+        except Exception:
+            log.exception("preview encoder")
+            return True
+        finally:
+            self._lock.release()
+
+    def _step(self) -> None:
+        """One tick under the lock; starts a throttle interval when a frame went out."""
+
+        key = self.tick(self._last)
+        if key is not None and key != self._last:
+            self._ready_at = time.monotonic() + self.interval()
+        self._last = key
 
     def stop(self) -> None:
         super().stop()
@@ -285,23 +333,20 @@ class PreviewEncoder(_Loop):
         self._listening = None
 
     def run(self) -> None:
-        last, ready_at = None, 0.0
         try:
             while not self._stop_event.is_set():
                 self._listen()
-                self._wake.wait(self.interval())
+                # woken by notify(); the poll is a fallback (seldom while the state wakes this thread)
+                self._wake.wait(LISTENING_POLL_S if self._listening is not None else self.interval())
                 self._wake.clear()
-                delay = ready_at - time.monotonic()
+                delay = self._ready_at - time.monotonic()
                 if delay > 0 and self.wait(delay):  # throttle: the newest preview goes out after the delay
                     break
                 try:
-                    key = self.tick(last)
+                    with self._lock:
+                        self._step()
                 except Exception:
                     log.exception("preview encoder")
-                    continue
-                if key is not None and key != last:
-                    ready_at = time.monotonic() + self.interval()
-                last = key
         finally:
             self._unlisten()
 

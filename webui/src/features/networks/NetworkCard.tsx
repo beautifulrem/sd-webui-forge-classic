@@ -7,7 +7,7 @@
  * item menu (see NetworkGrid).
  */
 import { AlertTriangle, Box, Check, ImagePlus, Info, Layers, MoreHorizontal, Pencil, Sparkles, Type } from "lucide-react"
-import { type CSSProperties, type MouseEvent, type ReactNode, useState } from "react"
+import { type CSSProperties, memo, type MouseEvent, type ReactNode, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { api } from "@/api/endpoints"
 import type { NetworkItem, NetworkKind } from "@/api/types"
@@ -150,7 +150,7 @@ const contextMenu = (onAction: CardProps["onAction"], item: NetworkItem, index: 
   onAction("menu", item, index, { x: event.clientX, y: event.clientY, element: event.currentTarget })
 }
 
-export function NetworkCard({ item, kind, id, index, active, cursor, mismatch, width, onApply, onAction }: CardProps) {
+function CardView({ item, kind, id, index, active, cursor, mismatch, width, onApply, onAction }: CardProps) {
   const archLabel = useArchLabel()
   const label = useAccessibleName(item, active, kind, mismatch)
   return (
@@ -214,7 +214,7 @@ function formatDate(seconds: number | null | undefined, locale: string): string 
   return new Date(seconds * 1000).toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric" })
 }
 
-export function NetworkRow({ item, kind, id, index, active, cursor, mismatch, onApply, onAction }: CardProps) {
+function RowView({ item, kind, id, index, active, cursor, mismatch, onApply, onAction }: CardProps) {
   const { i18n } = useTranslation()
   const archLabel = useArchLabel()
   const label = useAccessibleName(item, active, kind, mismatch)
@@ -274,3 +274,11 @@ export function NetworkRow({ item, kind, id, index, active, cursor, mismatch, on
     </div>
   )
 }
+
+/*
+ * Memoised: the virtualized grid renders again on every scroll frame, and only the cards of
+ * rows coming into view are new; the others keep their props (NetworkGrid passes stable
+ * callbacks) and are skipped.
+ */
+export const NetworkCard = memo(CardView)
+export const NetworkRow = memo(RowView)

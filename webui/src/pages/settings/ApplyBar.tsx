@@ -30,7 +30,7 @@ export function ApplyBar(props: { count: number; onApply: () => void; onDiscard:
         <Button size="sm" onClick={props.onApply} disabled={applying || props.count === 0} className="gap-1.5">
           {applying ? <Loader2 className="animate-spin" aria-hidden /> : null}
           {t("Apply settings")}
-          <Kbd className="hidden bg-primary-foreground/15 text-primary-foreground sm:inline-flex">{formatShortcut("Mod+S")}</Kbd>
+          <Kbd className="hidden border border-primary-foreground/45 bg-transparent text-primary-foreground sm:inline-flex">{formatShortcut("Mod+S")}</Kbd>
         </Button>
       </div>
     </div>

@@ -11,7 +11,7 @@ All strings meant for people (`label`, `info`, `hint`, `title`, `text`,
 choice `label`s and `choice_hints`, `notes`) are **English source strings**. The SPA translates them
 through the locale catalog (key = the English text) and must fall back to the
 English text when a key is missing. `text` of `markdown` nodes is translated
-as one key; `html` text is never translated.
+as one key; so is `html` text (key = the exact markup, translations keep it).
 
 Every object below is plain JSON (no `NaN`, no `Infinity`). Keys that are
 absent mean "default"; the renderer must not depend on optional keys being
@@ -48,6 +48,7 @@ holds a value) or a **layout/display** node.
 | `infotext` | string? | infotext key this param is written to / read from (informational; parsing is server-side) |
 | `preset` | string? | Anima preset field this param belongs to (informational) |
 | `exclusive` | `{"group": str, "member": str}`? | `toggle` only: one-of-N group membership; server action `__conflicts__` resolves locks |
+| `inactive_if` | Condition? | while true the control is shown dimmed (and announced as not in use) but stays editable: its value has no effect with the current values (e.g. Hires. fix "Upscale by" while "Resize width to" is set). Unlike `enabled_if` it never blocks input |
 
 ### 1.3 Input kinds
 
@@ -182,7 +183,12 @@ needs `init_img` in every mode but "Batch", `mask` in "Inpaint", `sketch` in
 "Inpaint sketch", `mask_upload` in "Inpaint upload" and `batch_upload` for a
 "Batch" from uploads; Extras needs `image` ("Single Image"), `image_batch`
 ("Batch Process"), `input_dir` ("Batch from Directory") or `video_input`
-("Single Video").
+("Single Video"). The tab schema lists these rules as `core.required`
+(§4): `[{"param", "message", "when"}]`, where `when` is a condition (§2) on
+the core values under which `param` must not be empty (`null`, a blank
+string or an empty list). Clients check them before submitting, mark the
+fields with `message` (a catalog key, like every server message) and send
+nothing; the server applies the same list.
 
 A rejected request answers with
 
@@ -205,7 +211,8 @@ A script's values may also be a JSON array: its params in argument order
 {
   "version": 1,
   "tab": "txt2img",                       // "txt2img" | "img2img" | "extras"
-  "core": {"owner": "core", "layout": Node, "defaults": {name: value}},
+  "core": {"owner": "core", "layout": Node, "defaults": {name: value},
+           "required": [{"param": "init_img", "message": "an image is required", "when": Condition}, ...]},  // §3
   "scripts": [Script, ...],                // in render order
   "conflict_params": ["sampler.sampler_name", "core.enable_hr", ...]  // txt2img/img2img only
 }

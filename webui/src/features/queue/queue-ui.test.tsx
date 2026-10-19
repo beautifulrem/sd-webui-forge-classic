@@ -307,3 +307,22 @@ describe("queued count", () => {
     queryClient.removeQueries({ queryKey: queueKeys.status })
   })
 })
+
+describe("loading states", () => {
+  it("the running card is a placeholder until the queue state arrives, not 'Nothing is running'", async () => {
+    const { RunningCard } = await import("./RunningCard")
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <RunningCard paused={false} queued={0} loading />
+      </QueryClientProvider>,
+    )
+    expect(screen.queryByText("Nothing is running")).toBeNull()
+    expect(screen.getByRole("region", { name: "Now running" })).toHaveAttribute("aria-busy", "true")
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <RunningCard paused={false} queued={0} />
+      </QueryClientProvider>,
+    )
+    expect(screen.getByText("Nothing is running")).toBeVisible()
+  })
+})

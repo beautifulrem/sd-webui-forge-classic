@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react"
 import { useTranslation } from "react-i18next"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { activateLocale, i18n } from "./index"
+import { activateLocale, i18n, textDirection, useLocale } from "./index"
 
 function Probe() {
   const { t } = useTranslation()
@@ -46,5 +46,17 @@ describe("locale switching", () => {
     expect(i18n.t("Start", { context: "runs" })).toBe("开始")
     expect(i18n.t("Start")).toBe("起始") // a slider's start, from the server catalog
   })
-})
 
+  it("writes right-to-left languages right to left (<html dir>)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { headers: { "Content-Type": "application/json" } }))
+    for (const locale of ["ar", "he_IL", "fa-IR", "ur", "ckb", "pa-Arab"]) expect(textDirection(locale), locale).toBe("rtl")
+    for (const locale of ["en", "zh_CN", "ja_JP", "pa", "not a locale"]) expect(textDirection(locale), locale).toBe("ltr")
+
+    await activateLocale("ar_SA")
+    expect(document.documentElement.dir).toBe("rtl")
+    expect(useLocale.getState().direction).toBe("rtl")
+    await activateLocale("en")
+    expect(document.documentElement.dir).toBe("ltr")
+    expect(useLocale.getState().direction).toBe("ltr")
+  })
+})

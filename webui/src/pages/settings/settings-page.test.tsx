@@ -163,3 +163,15 @@ describe("settings page", { timeout: 20_000 }, () => {
     expect(row.querySelectorAll("input").length).toBeGreaterThan(0)
   })
 })
+
+describe("settings navigation while loading", () => {
+  it("shows placeholders, not the empty-search message, until the schema arrives", async () => {
+    const { SettingsNav } = await import("./SettingsNav")
+    const props = { view: "settings" as const, activeSection: null, filtering: false, unsaved: new Map<string, number>(), onSection: () => {}, onView: () => {} }
+    const { rerender } = render(<SettingsNav sections={[]} loading {...props} />)
+    expect(screen.queryByText("No matching sections")).toBeNull()
+    expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "true")
+    rerender(<SettingsNav sections={[]} {...props} />)
+    expect(screen.getByText("No matching sections")).toBeVisible()
+  })
+})

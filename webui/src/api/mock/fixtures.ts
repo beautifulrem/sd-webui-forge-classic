@@ -7,7 +7,7 @@
  * by slots, Hires. fix is a core section whose toggle is a conflict param.
  */
 import type { Bootstrap, Models, PageSchema, PromptStyle } from "@/api/types"
-import type { ChoiceOption, Node, ScriptSchema, TabSchema } from "@/ui/schema"
+import type { ChoiceOption, Node, RequiredInput, ScriptSchema, TabSchema } from "@/ui/schema"
 
 const options = (values: string[]): ChoiceOption[] => values.map((value) => ({ value, label: value }))
 
@@ -34,6 +34,14 @@ export const SCHEDULERS = options(["Automatic", "Simple", "Karras", "Exponential
 
 /** img2img modes of the real form (remi.core.forms.IMG2IMG_MODES, without Batch). */
 const IMG2IMG_MODES = ["img2img", "Sketch", "Inpaint", "Inpaint sketch", "Inpaint upload"]
+
+/** What each mode needs, as the real schema's `core.required` (remi.core.forms.REQUIRED_INPUTS). */
+const IMG2IMG_REQUIRED: RequiredInput[] = [
+  { param: "init_img", message: "an image is required", when: { param: "mode", in: IMG2IMG_MODES } },
+  { param: "mask", message: "paint a mask over the image", when: { param: "mode", eq: "Inpaint" } },
+  { param: "sketch", message: "paint the area to inpaint", when: { param: "mode", eq: "Inpaint sketch" } },
+  { param: "mask_upload", message: "a mask image is required", when: { param: "mode", eq: "Inpaint upload" } },
+]
 
 function coreLayout(tab: "txt2img" | "img2img"): Node {
   // txt2img recomputes the Hires. fix output line when the size changes.
@@ -151,7 +159,25 @@ function coreLayout(tab: "txt2img" | "img2img"): Node {
                   type: "row",
                   children: [
                     { type: "slider", name: "denoising_strength", label: "Denoising strength", minimum: 0, maximum: 1, step: 0.01, width: 6 },
-                    { type: "slider", name: "hr_scale", label: "Upscale by", minimum: 1, maximum: 4, step: 0.05, width: 6, on_change: "hr_resolution" },
+                    {
+                      type: "slider",
+                      name: "hr_scale",
+                      label: "Upscale by",
+                      minimum: 1,
+                      maximum: 4,
+                      step: 0.05,
+                      width: 6,
+                      on_change: "hr_resolution",
+                      // as remi/core/forms.py: a target size wins over the factor
+                      inactive_if: { any: [{ param: "hr_resize_x", gt: 0 }, { param: "hr_resize_y", gt: 0 }] },
+                    },
+                  ],
+                },
+                {
+                  type: "row",
+                  children: [
+                    { type: "slider", name: "hr_resize_x", label: "Resize width to", minimum: 0, maximum: 4096, step: 8, integer: true, width: 6, on_change: "hr_resolution", inactive_if: { param: "hr_resize_x", lte: 0 } },
+                    { type: "slider", name: "hr_resize_y", label: "Resize height to", minimum: 0, maximum: 4096, step: 8, integer: true, width: 6, on_change: "hr_resolution", inactive_if: { param: "hr_resize_y", lte: 0 } },
                   ],
                 },
                 {
@@ -203,7 +229,7 @@ function coreDefaults(tab: "txt2img" | "img2img") {
     styles: [],
     script: "None",
     ...(tab === "txt2img"
-      ? { enable_hr: false, hr_upscaler: "Latent", hr_second_pass_steps: 0, denoising_strength: 0.7, hr_scale: 2, hr_prompt: "", hr_negative_prompt: "" }
+      ? { enable_hr: false, hr_upscaler: "Latent", hr_second_pass_steps: 0, denoising_strength: 0.7, hr_scale: 2, hr_resize_x: 0, hr_resize_y: 0, hr_prompt: "", hr_negative_prompt: "" }
       : {
           mode: "img2img",
           init_img: null,
@@ -573,7 +599,7 @@ export function tabSchema(tab: "txt2img" | "img2img"): TabSchema {
   return {
     version: 1,
     tab,
-    core: { owner: "core", layout: coreLayout(tab), defaults: coreDefaults(tab) },
+    core: { owner: "core", layout: coreLayout(tab), defaults: coreDefaults(tab), required: tab === "img2img" ? IMG2IMG_REQUIRED : [] },
     scripts: [SEED, SAMPLER, REFINER, ANIMA, CONTROLNET, BATCH, XYZ, PROMPT_MATRIX, MISC],
     conflict_params: [
       ...(tab === "txt2img" ? ["core.enable_hr"] : []),
@@ -601,6 +627,8 @@ export const extrasSchema: TabSchema = {
       ],
     },
     defaults: { image: null, upscaler_1: "Lanczos", upscaling_resize: 2 },
+    // the mock form has no mode: it always processes one image
+    required: [{ param: "image", message: "an image is required", when: true }],
   },
   scripts: [],
 }
@@ -680,7 +708,8 @@ export const bootstrap: Bootstrap = {
   not_ported: [],
   auth: { required: false },
   queue: { size: 0, paused: false, running: null },
-  user_assets: [],
+  // the dev server's mock plugin serves an empty user.css (vite.config.ts); end-to-end tests route their own
+  user_assets: ["user.css"],
 }
 
 const GB = 1024 ** 3
@@ -762,4 +791,9 @@ export const serverCatalogZh: Record<string, string> = {
   "Switch at": "切换时机",
   "Variation strength": "差异强度",
   Swap: "交换",
+  // as in localizations/zh_CN.json: a settings help block (keyed by its markup) and a required-input message
+  Infotext: "生成信息",
+  "Infotext is what the webui calls the text that contains generation parameters, and can be used to generate the same image again.":
+    "生成信息（Infotext）是 WebUI 对包含生成参数的文本的称呼，可用于再次生成相同的图像。",
+  "an image is required": "需要一张图像",
 }

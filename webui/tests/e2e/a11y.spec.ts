@@ -159,6 +159,33 @@ for (const theme of ["light", "dark"] satisfies Theme[]) {
   })
 }
 
+/** The user-selectable accents (src/lib/theme.ts ACCENTS). */
+const ACCENTS = ["iris", "blue", "teal", "green", "amber", "coral", "rose"] as const
+
+test.describe("axe with every accent", () => {
+  for (const theme of ["light", "dark"] satisfies Theme[]) {
+    for (const accent of ACCENTS) {
+      test(`${theme} ${accent}: primary buttons (also hovered), links and tinted labels keep their contrast`, async ({ page }) => {
+        await presetStorage(page, { theme, accent })
+        await openRoute(page, "txt2img")
+        await expect(page.locator("html")).toHaveAttribute("data-accent", accent)
+        await page.waitForLoadState("networkidle")
+        expect(await scan(page)).toEqual([])
+        // the hover shade of a primary button keeps its label readable
+        const generate = page.getByRole("button", { name: /^Generate/ }).first()
+        await generate.hover()
+        expect(await scan(page), "hovered Generate").toEqual([])
+        // settings: primary-coloured links in help texts
+        await page.evaluate(() => (location.hash = "#/settings"))
+        await page.getByRole("button", { name: "Saving Videos" }).first().click()
+        await expect(page.getByRole("link", { name: "Wiki" })).toBeVisible()
+        await page.mouse.move(0, 0)
+        expect(await scan(page), "settings").toEqual([])
+      })
+    }
+  }
+})
+
 /** Tabs through a page and lists the tab stops that show no focus indicator (outline or ring). */
 async function stopsWithoutFocusRing(page: Page, presses: number): Promise<string[]> {
   const missing = new Set<string>()

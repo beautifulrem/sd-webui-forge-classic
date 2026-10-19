@@ -48,7 +48,7 @@ export function TagChips({
                 <span className="truncate" style={{ fontWeight: weight > 0.6 ? 600 : weight > 0.3 ? 500 : 400 }}>
                   {tag}
                 </span>
-                <span className={cn("tabular-nums", on ? "text-primary-foreground/75" : "text-muted-foreground")}>{count}</span>
+                <span className={cn("tabular-nums", on ? "text-primary-foreground" : "text-foreground/70")}>{count}</span>
               </button>
             </li>
           )

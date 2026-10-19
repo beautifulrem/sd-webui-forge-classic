@@ -26,7 +26,7 @@ describe("localization template", () => {
       quicksettings: [],
       values: {},
     } as unknown as SettingsSchema
-    expect(settingsStrings(schema)).toEqual(["Saving", "Paths", "Format", "lossless", "wiki", "PNG", "Inner", "Bold help"])
+    expect(settingsStrings(schema)).toEqual(["Saving", "Paths", "Format", "lossless", "wiki", "PNG", "Inner", "<b>Bold</b> help"])
   })
 
   it("sorts unique keys and fills known translations", () => {

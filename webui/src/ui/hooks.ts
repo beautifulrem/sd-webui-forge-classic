@@ -16,6 +16,8 @@ export type FormContextValue = {
 export const FormContext = createContext<FormContextValue | null>(null)
 export const OwnerContext = createContext<string>("core")
 export const EnabledContext = createContext<boolean>(true)
+/** The input's `inactive_if` holds: its value has no effect now (dimmed, still editable). */
+export const InactiveContext = createContext<boolean>(false)
 /** `undefined`: no provider (seed inputs fall back to the form's last result). */
 export const SeedSourceContext = createContext<string | null | undefined>(undefined)
 

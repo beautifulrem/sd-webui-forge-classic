@@ -86,7 +86,7 @@ job from the UI; "effect" compares the output with the plain run
 | Anima Cross-Attention Boost | pass | infotext `Anima xattn boost …`, mean diff 57.9 |
 | Anima Guidance & Corrections (all sub-features off) | pass | infotext `Anima guidance enabled: True …`, image unchanged as expected |
 | Spectrum Integrated (warm-up 6 of 8 steps) | pass | infotext `spec_enabled: True, …`; no skipped step at 8 steps, image unchanged as expected |
-| Sparse Attention Integrated | pass (no-op here) | below its 4096-token threshold at 512² and 768² (by design) |
+| Sparse Attention Integrated | pass (GPU only; skipped here) | needs the Sol-Attn kernels (NVIDIA sm_80+ or ROCm with matrix cores): on this MPS machine the run reports "Sparse Attention Integrated was skipped: CUDA device is required" and the image is unchanged, as the panel's note says; the patch itself is covered on the CPU by `extensions-builtin/sd_forge_sparse/tests/test_sparse_attention.py` |
 | Post Processing Suite (Sepia 1.0) | pass | infotext `PP Suite: "{"sepia":…}"`, mean diff 19.3; "Apply PP → Send to img2img" shows the selected image |
 | Hires. fix + Anima Hires Guard | pass | infotext `Anima Hires guard enabled: True, Anima Hires policy: Clamp unsafe values, …` |
 | ADetailer | fixed (D13) / model n/a | runs; every detector in `models/adetailer` is truncated (`.pt` zips without a central directory, `.tflite` "not a valid Flatbuffer") — Forge renamed two of them to `*.corrupted` while loading, the names were restored afterwards. The failure is now reported to the user (toast + job warnings) |
@@ -110,16 +110,22 @@ job from the UI; "effect" compares the output with the plain run
 | C. Generate / Interrupt / Skip / forever / queue another, Ctrl+Enter, Esc | pass | see generation table |
 | C. Progress in the title, wake lock, restore | pass | title `[25%] ETA 32s · Generate · Remi` |
 | C. Hires preview "from 512×512 to 768×768" | pass | Hires. fix panel |
+| C. Hires target greying (`onCalcResolutionHires`) | pass (mock e2e) | `inactive_if` on the three target sliders (`remi/core/forms.py`): "Upscale by" dims while a resize size is set, a resize size dims while it is 0; dimmed controls stay editable. `extras.spec.ts` "Hires. fix dims the target controls that do not apply…" (states, opacity 0.5, job values and `Hires resize: 1536x1536`), `Renderer.test.tsx`, `test_remi_ui_input_flags.py` |
+| C. Live preview without flicker (double buffer; crossfade replaced) | pass (vitest) | `pages/generate/LivePreview.tsx`: a decoded frame is stacked over the previous one, without a fade (a 150 ms fade drew ~12 frames per step, frontend.md "Motion", ui-performance.md); `LivePreview.test.tsx`, e2e `generate.spec.ts` live preview tests |
 | C. Width/height swap, aspect presets, W x H paste | pass (render) | Size card renders and takes typed sizes; swap / paste covered by vitest, not operated here |
 | D. Lightbox (←/→, Home/End, zoom, S, T, Esc) | pass / fixed (D9) | ←/→ ("1 of 23 → 2 of 23"), Esc and the toolbar operated; zoom keys covered by vitest |
 | D. Send to img2img / inpaint / extras / txt2img | pass | above |
 | D. Notifications (permission from the Generate menu) | pass (present) | menu item "Notify me when images are ready"; the permission prompt was not triggered |
 | E. Networks page and drawer (Alt+N), search, empty state, checkpoint card | pass / fixed (D5, D9) | "No LoRA found — Put files into the model folder, then refresh."; checkpoint card selected |
 | F. Settings search, filters, apply (⌘S), Reload UI banner, sysinfo, licenses | pass / fixed (D3, D4) | "Settings applied"; sysinfo loads in ~1.2 s |
+| F. Help for the VAE / text encoder modules (the Gradio "?" link) | pass (vitest) | the model bar's modules popover says which checkpoints need them and links to the download guide; `ModelBar.test.tsx` |
 | G. Canvas: upload, blank canvas, brush / eraser / fill / lasso, undo, zoom, mask overlay, inpaint area overlay | pass / fixed (D15) | "512×512 · Crop and Resize", "Inpaint area 431×431" |
 | H. Localization: zh-CN switch without a reload | pass / fixed (D6, D11, D25) | a `window` marker survived the switch from the appearance menu, `<html lang="zh-CN">`; toasts in zh-CN |
+| H. Right-to-left localizations | pass (mock e2e) | `<html dir>` from the locale (`i18n/index.ts` `textDirection`), Base UI `DirectionProvider`; `flows.spec.ts` "lays the app out right to left…" (`ar`: `dir="rtl"`, the rail on the right, back to `ltr` in English), `i18n.test.tsx` |
+| A. `user.css` from the data folder | pass (mock e2e) | `app/user-stylesheet.ts` links it at the end of `<body>`; `flows.spec.ts` "applies user.css…" (a routed `user.css` sets the body outline and beats the app's body background, also after a lazily loaded page), `user-stylesheet.test.ts` |
 | I. Resizable panes, collapsible sections, sticky run controls | pass | sections opened / closed throughout, run controls stay on top of the scrolled pane; pane resizing not dragged here (e2e) |
 | J. Extensions tab | pass | above |
+| J. Install from URL / from the index, Check for updates with progress, backup restore with confirmation | pass (mock e2e) | `extensions.spec.ts` against the mock admin API (`api/mock/admin.ts`): URL validation, install, the 409 for an existing folder, the new extension listed; index loaded and an entry installed; the progress bar ("Checked n of m", Stop) then the summary toast and Update buttons; restore cancelled (nothing happens), then confirmed (reconnect overlay, page reload). Not run against GitHub (network, changes the install) |
 | Gallery (filters, search, viewer with details, PNG Info) | pass | 24 images, details panel, PNG Info page with all metadata |
 | Queue (running card, up next, history with filters) | pass / fixed (D13, D25) | running card with progress, "No jobs are waiting", history rows with warnings and localized durations |
 | Keyboard shortcuts documented in-app | fixed (D16) | `?` dialog |
@@ -184,7 +190,8 @@ job from the UI; "effect" compares the output with the plain run
 - Effects of extensions that need weights absent from `models/` (LoRA,
   ControlNet, IP-Adapter, refiner checkpoint, JoyCaption, working ADetailer
   detectors): their processing is covered by their own test suites.
-- Extension install / update and the extension index (network), real
+- Extension install / update and the extension index against the real
+  network (the flows themselves run offline in `extensions.spec.ts`), real
   browser notifications and the wake lock (need user permission prompts).
 - Multi-user / `--auth` flows (covered by `test_remi_server_auth.py` and
   `test_remi_security.py`).

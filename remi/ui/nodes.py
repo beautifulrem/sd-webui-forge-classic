@@ -157,7 +157,10 @@ class Input(Node):
     Common keyword arguments (architecture.md): ``label`` (English; default
     from the name, ``""`` hides it), ``info`` (a note shown under the
     control), ``hint`` (a tooltip on the label, A1111's ``tooltip=``),
-    ``visible_if``, ``enabled_if``,
+    ``visible_if``, ``enabled_if``, ``inactive_if`` (a condition under
+    which the control is shown dimmed but stays editable: its value has no
+    effect then, e.g. Hires. fix "Upscale by" while a target size is set;
+    the Gradio UI's ``inactive`` class),
     ``infotext`` (infotext key), ``paste`` (``params -> value`` for derived
     paste; ``None`` skips), ``preset`` (Anima preset field, or ``(field,
     value)`` when this control's preset value differs from the table's),
@@ -186,6 +189,7 @@ class Input(Node):
         hint: str | None = None,
         visible_if: conditions.Condition | None = None,
         enabled_if: conditions.Condition | None = None,
+        inactive_if: conditions.Condition | None = None,
         infotext: str | None = None,
         paste: Callable[[dict], Any] | None = None,
         preset: str | tuple[str, Any] | None = None,
@@ -209,6 +213,7 @@ class Input(Node):
             raise SchemaError(f"{name}: infotext must be a key string")
         self.name = name
         self.default = default
+        self.inactive_if = None if inactive_if is None else conditions.check(inactive_if)
         self.label = _humanize(name) if label is None else str(label)
         self.info = info
         if hint is not None and not isinstance(hint, str):
@@ -319,6 +324,8 @@ class Input(Node):
             data["preset"] = self.preset_key
         if self.exclusive:
             data["exclusive"] = {"group": self.exclusive[0], "member": self.exclusive[1]}
+        if self.inactive_if is not None:
+            data["inactive_if"] = self.inactive_if
         return data
 
     def _input_schema(self, ctx: Context) -> dict[str, Any]:

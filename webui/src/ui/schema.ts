@@ -56,6 +56,8 @@ export type InputBase = NodeBase & {
   persist?: boolean
   /** `false`: held for actions only, never sent with a job (the server uses the default). */
   submit?: boolean
+  /** While true the control is dimmed but stays editable: its value has no effect with the current values. */
+  inactive_if?: Condition
 }
 
 export type ChoiceOption = { value: string | number; label: string }
@@ -226,10 +228,14 @@ export type ScriptSchema = {
   args?: string[]
 }
 
+/** A core input that must not be empty while `when` holds (schema-format.md §3). */
+export type RequiredInput = { param: string; message: string; when: Condition }
+
 export type TabSchema = {
   version: number
   tab: "txt2img" | "img2img" | "extras"
-  core: { owner: "core"; layout: Node; defaults: OwnerDefaults }
+  /** `required`: checked before submitting; the server applies the same rules. */
+  core: { owner: "core"; layout: Node; defaults: OwnerDefaults; required?: RequiredInput[] }
   scripts: ScriptSchema[]
   /**
    * `"owner.param"` references (core params as `"core.<name>"`) whose changes

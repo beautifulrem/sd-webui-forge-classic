@@ -225,6 +225,7 @@ export function SettingView({ node }: { node: SettingNode }) {
 }
 
 export function SettingItemView({ item }: { item: SettingItem }) {
+  const { t } = useTranslation()
   switch (item.kind) {
     case "setting":
       return <SettingView node={item.node} />
@@ -237,7 +238,8 @@ export function SettingItemView({ item }: { item: SettingItem }) {
         </div>
       )
     case "html":
-      return <SafeHtml html={item.node.text} className="py-2 text-sm text-muted-foreground [&_a]:text-primary" />
+      // The catalogs key a help block by its exact markup (translations keep the markup)
+      return <SafeHtml html={t(item.node.text)} className="py-2 text-sm text-muted-foreground [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:decoration-2" />
     case "separator":
       return <Separator className="my-2" />
   }

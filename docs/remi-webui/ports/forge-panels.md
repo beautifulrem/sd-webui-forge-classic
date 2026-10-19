@@ -17,7 +17,17 @@ and no Gradio import remains. Snapshots:
   `alwayson_scripts` args may omit it. It is stored in drafts and queued jobs.
   Drop it once core can mark an input as form-only.
 - **Sparse** `percent` is one `[low, high]` argument (`ui.RangeSlider`), as
-  Gradio's RangeSlider passed it.
+  Gradio's RangeSlider passed it. Sparse attention runs only on a GPU with the
+  Comfy Kitchen Sol-Attn kernels (NVIDIA compute capability 8.0+, or ROCm with
+  matrix cores); the panel says so in a note above its controls. On MPS or
+  the CPU an enabled panel is skipped with a job warning ("Sparse Attention
+  Integrated was skipped: CUDA device is required"), patches nothing and
+  writes no infotext. `tests/test_sparse_attention.py` covers the patch on the
+  CPU: through `backend.attention.attention_pytorch`, eligible calls reach a
+  stand-in kernel with the panel's tau / extra tokens and return the dense
+  result in the caller's layout; masked, out-of-range, under-threshold and
+  dense-block calls stay dense, and the kernel's eligibility rules are
+  checked one by one.
 - **PiD** switch carries `exclusive=("pid_hires", "pid")` on txt2img only
   (the former `wire_exclusive_components(("pid", "hires"))`).
 - **NegPiP**, **LoRA schedule**: no panel (no `ui()`); the runner gives

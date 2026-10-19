@@ -9,7 +9,6 @@
 import { api } from "@/api/endpoints"
 import { DEFAULT_LOCALE, i18n } from "@/i18n"
 import type { Node, SettingsSchema } from "@/ui/schema"
-import { htmlText } from "./settings-model"
 
 /** The locale whose catalogs list the most strings (their keys are the English texts). */
 const REFERENCE_LOCALE = "zh-CN"
@@ -23,13 +22,15 @@ export function settingsStrings(schema: SettingsSchema): string[] {
     if (typeof text === "string" && text.trim()) out.push(text)
   }
   const visit = (node: Node) => {
-    const item = node as Node & { label?: unknown; info?: unknown; notes?: unknown[]; links?: { label: string }[]; choices?: { label: string }[]; children?: Node[]; text?: unknown }
+    const item = node as Node & { label?: unknown; info?: unknown; notes?: unknown[]; links?: { label: string }[]; choices?: { label: string }[]; children?: Node[]; text?: unknown; html?: unknown }
     add(item.label)
     add(item.info)
     item.notes?.forEach(add)
     item.links?.forEach((link) => add(link.label))
     item.choices?.forEach((choice) => add(choice.label))
-    if (node.type === "html" && typeof item.text === "string") add(htmlText(item.text))
+    // help markup is looked up whole (the key keeps its tags), like the SPA renders it
+    if (node.type === "html") add(item.text)
+    add(item.html)
     item.children?.forEach(visit)
   }
   for (const category of schema.categories) {

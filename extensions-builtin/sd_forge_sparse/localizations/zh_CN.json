@@ -10,5 +10,6 @@
   "Dense Blocks": "稠密块",
   "blocks to keep dense (i.e. slower / better quality)": "保持稠密的块（即更慢 / 质量更好）",
   "0, 1, 25-27": "0, 1, 25-27",
-  "Verbose (Debug)": "详细日志（调试）"
+  "Verbose (Debug)": "详细日志（调试）",
+  "**GPU only:** needs the Comfy Kitchen Sol-Attn kernels, i.e. an NVIDIA GPU of compute capability 8.0 or newer (RTX 30 series and later) or an AMD GPU with matrix cores (ROCm). On Apple Silicon (MPS) or the CPU the run skips it with a warning and makes the image with regular attention.": "**仅限 GPU：** 需要 Comfy Kitchen 的 Sol-Attn 内核，即计算能力 8.0 及以上的 NVIDIA GPU（RTX 30 系列及更新）或带矩阵核心的 AMD GPU（ROCm）。在 Apple Silicon（MPS）或 CPU 上，运行时会跳过并给出警告，图像改用常规注意力生成。"
 }

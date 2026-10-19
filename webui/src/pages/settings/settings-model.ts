@@ -126,7 +126,11 @@ export function settingHaystack(node: SettingNode, translate: Translate): string
   for (const note of node.notes ?? []) add(note)
   for (const link of node.links ?? []) add(link.label)
   for (const name of node.default_order ?? []) parts.push(name)
-  if (node.html) parts.push(htmlText(node.html))
+  if (node.html) {
+    parts.push(htmlText(node.html))
+    const translated = translate(node.html)
+    if (translated !== node.html) parts.push(htmlText(translated))
+  }
   if ((node.type === "choice" || node.type === "multichoice") && node.choices) {
     for (const choice of node.choices) add(choice.label)
     for (const hint of Object.values(node.choice_hints ?? {})) add(hint)

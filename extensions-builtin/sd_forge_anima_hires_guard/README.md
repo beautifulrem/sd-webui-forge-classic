@@ -17,7 +17,12 @@ multiple of that step and the 16-pixel grid (just the step when alignment is
 off). A target on that grid comes out of Forge's rounding unchanged, so the
 checked size is the rendered size. When clamping is enabled and Hires is on,
 the guarded target is always written as an explicit Hires width and height.
-Every selected limit and applied adjustment is recorded in image metadata.
+Every selected limit and applied adjustment is recorded in image metadata,
+together with the request the guarded target replaced (`Hires upscale` for a
+scale, `Anima Hires requested resize` for an explicit size). Pasting the
+infotext restores that request and the original base size (from the
+`base WxH -> ...` adjustment), so the pasted run is guarded the same way and
+writes the same metadata.
 Alignment is ceiling-aware: if nearest-grid rounding would cross an MP or
 per-axis limit, the guard rounds downward. A target that would become smaller
 than the base on either axis falls back to the already-safe base rectangle,

@@ -147,6 +147,35 @@ test.describe("hires fix and refiner", () => {
     console.assertClean()
   })
 
+  test("Hires. fix dims the target controls that do not apply, and a target size wins over the factor", async ({ page }) => {
+    const console = watchConsole(page)
+    await openGenerate(page)
+    await setPrompt(page, "a castle on a hill")
+    await page.getByRole("switch", { name: "Enable Hires. fix", exact: true }).click()
+    const section = page.getByRole("region", { name: "Hires. fix", exact: true })
+    const field = (name: string) => section.getByRole("textbox", { name }).locator("xpath=ancestor::div[contains(@class, 'group/field')][1]")
+    const inactive = async (name: string) => (await field(name).getAttribute("data-inactive")) === "true"
+    const states = async () => [await inactive("Upscale by"), await inactive("Resize width to"), await inactive("Resize height to")]
+    expect(await states()).toEqual([false, true, true])
+
+    // a dimmed control stays editable: typing a width makes it the one in use
+    const resizeWidth = section.getByRole("textbox", { name: "Resize width to" })
+    await expect(resizeWidth).toBeEditable()
+    await resizeWidth.fill("1536")
+    await resizeWidth.press("Tab")
+    await expect.poll(states).toEqual([true, false, true])
+    await expect(section.getByText(/to 1536×1536/)).toBeVisible()
+    await expect.poll(() => field("Upscale by").evaluate((element) => getComputedStyle(element).opacity)).toBe("0.5")
+
+    await page.keyboard.press(`${mod}+Enter`)
+    await expect(page.getByRole("img", { name: "Generated image" })).toBeVisible({ timeout: 15_000 })
+    const job = await lastJob(page, "txt2img")
+    expect(job.core).toMatchObject({ enable_hr: true, hr_resize_x: 1536, hr_resize_y: 0 })
+    expect(job.outputs[0]).toMatchObject({ width: 1536, height: 1536 })
+    expect(job.outputs[0]!.infotext).toContain("Hires resize: 1536x1536")
+    console.assertClean()
+  })
+
   test("generates with the Refiner and its checkpoint and switch point reach the job and the infotext", async ({ page }) => {
     const console = watchConsole(page)
     await openGenerate(page)

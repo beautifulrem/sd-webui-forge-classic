@@ -123,6 +123,20 @@ def _populate_defaults(res: dict):
         res["Rescale CFG"] = 0.0
 
 
+def _restore_locked_schedulers(res: dict):
+    """The Schedule type an Anima Flow sampler replaced (its scheduler lock in
+    ``KDiffusionSampler.get_sigmas`` writes the sampler's own schedule as the
+    Schedule type, and the replaced one as "Anima Flow replaced [hires]
+    scheduler"). Pasting the locked schedule back ran without a replacement:
+    the same image, an infotext without the record."""
+
+    if replaced := res.get("Anima Flow replaced scheduler"):
+        res["Schedule type"] = replaced
+    if replaced := res.get("Anima Flow replaced hires scheduler"):
+        # "Use same scheduler" when it is the base pass's (get_hr_sampler_and_scheduler)
+        res["Hires schedule type"] = replaced
+
+
 def parse_generation_parameters(x: str, skip_fields: list[str] | None = None):
     """
     parses infotext (the string under the Gallery in UI)
@@ -176,6 +190,7 @@ def parse_generation_parameters(x: str, skip_fields: list[str] | None = None):
     res["Prompt"], res["Negative prompt"] = prompt, negative_prompt = _extract_styles(res, prompt, negative_prompt)
 
     _populate_defaults(res)
+    _restore_locked_schedulers(res)
 
     prompt_uses_emphasis: bool = uses_emphasis(prompt) or uses_emphasis(negative_prompt)
     if prompt_uses_emphasis and "Emphasis" not in res:

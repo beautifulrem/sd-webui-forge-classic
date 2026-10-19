@@ -1,0 +1,276 @@
+{
+ "base": "http://127.0.0.1:7871",
+ "date": "2026-10-19T21:17:19.154Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "networks": {
+  "total": 5000,
+  "idleFps": 60,
+  "runs": [
+   {
+    "pxPerFrame": 40,
+    "frames": 3258,
+    "seconds": 54.28,
+    "fps": 60,
+    "interval": {
+     "n": 3257,
+     "mean": 16.7,
+     "p50": 16.7,
+     "p95": 16.8,
+     "p99": 16.8,
+     "max": 16.8
+    },
+    "over20ms": 0,
+    "over33ms": 0,
+    "scrollHeight": 131232,
+    "pipeline": {
+     "STATE_NO_UPDATE_DESIRED": 2,
+     "STATE_PRESENTED_ALL": 3259,
+     "STATE_DROPPED": 1,
+     "STATE_PRESENTED_PARTIAL": 3255
+    },
+    "taskDurationS": 5.78,
+    "layoutDurationS": 0.17,
+    "recalcStyleDurationS": 1.16,
+    "nodesAfter": 1017,
+    "longFrames": {
+     "count": 0,
+     "pageWork": 0,
+     "noPageWork": 0,
+     "byEvent": {},
+     "worst": []
+    },
+    "trace": "/Volumes/Remi/Anima/remi-perf/fx/out/scroll3/trace-networks-40.json"
+   },
+   {
+    "pxPerFrame": 160,
+    "frames": 815,
+    "seconds": 13.65,
+    "fps": 59.6,
+    "interval": {
+     "n": 814,
+     "mean": 16.8,
+     "p50": 16.7,
+     "p95": 16.7,
+     "p99": 16.8,
+     "max": 33.4
+    },
+    "over20ms": 5,
+    "over33ms": 1,
+    "scrollHeight": 131232,
+    "pipeline": {
+     "STATE_NO_UPDATE_DESIRED": 2,
+     "STATE_PRESENTED_ALL": 815,
+     "STATE_DROPPED": 5,
+     "STATE_PRESENTED_PARTIAL": 815
+    },
+    "taskDurationS": 3.2,
+    "layoutDurationS": 0.13,
+    "recalcStyleDurationS": 0.54,
+    "nodesAfter": 3080,
+    "longFrames": {
+     "count": 5,
+     "pageWork": 5,
+     "noPageWork": 0,
+     "byEvent": {
+      "FunctionCall": 12.1,
+      "EventDispatch": 2.2,
+      "ProxyMain::BeginMainFrame": 106,
+      "V8.GC_HEAP_ENSURE_SWEEPING_COMPLETED": 0,
+      "V8.GC_TIME_TO_SAFEPOINT": 0,
+      "V8.GC_MC_INCREMENTAL_START": 0.4,
+      "V8.GC_MC_INCREMENTAL": 7,
+      "V8.GC_HEAP_EXTERNAL_PROLOGUE": 0,
+      "MajorGC": 3.5,
+      "V8.GC_HEAP_EXTERNAL_EPILOGUE": 0
+     },
+     "worst": [
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 19.8,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         17
+        ],
+        [
+         "FunctionCall",
+         2.4
+        ],
+        [
+         "EventDispatch",
+         0.5
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 18.1,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         16.4
+        ],
+        [
+         "FunctionCall",
+         1.4
+        ],
+        [
+         "EventDispatch",
+         0.3
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.3,
+       "mainBusyMs": 31.5,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         28.6
+        ],
+        [
+         "FunctionCall",
+         2.4
+        ],
+        [
+         "EventDispatch",
+         0.5
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.3,
+       "mainBusyMs": 31.3,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         20.6
+        ],
+        [
+         "MajorGC",
+         3.5
+        ],
+        [
+         "V8.GC_MC_INCREMENTAL",
+         3.5
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.3,
+       "mainBusyMs": 30.4,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         23.4
+        ],
+        [
+         "V8.GC_MC_INCREMENTAL",
+         3.5
+        ],
+        [
+         "FunctionCall",
+         2.8
+        ]
+       ]
+      }
+     ]
+    },
+    "trace": "/Volumes/Remi/Anima/remi-perf/fx/out/scroll3/trace-networks-160.json"
+   },
+   {
+    "pxPerFrame": 40,
+    "frames": 3258,
+    "seconds": 54.33,
+    "fps": 59.9,
+    "interval": {
+     "n": 3257,
+     "mean": 16.7,
+     "p50": 16.7,
+     "p95": 16.7,
+     "p99": 16.8,
+     "max": 33.3
+    },
+    "over20ms": 3,
+    "over33ms": 0,
+    "scrollHeight": 131232,
+    "pipeline": {
+     "STATE_NO_UPDATE_DESIRED": 2,
+     "STATE_PRESENTED_ALL": 3259,
+     "STATE_DROPPED": 4,
+     "STATE_PRESENTED_PARTIAL": 3257
+    },
+    "taskDurationS": 6.15,
+    "layoutDurationS": 0.19,
+    "recalcStyleDurationS": 1.18,
+    "nodesAfter": 2073,
+    "longFrames": {
+     "count": 3,
+     "pageWork": 3,
+     "noPageWork": 0,
+     "byEvent": {
+      "MajorGC": 11.9,
+      "V8.GC_HEAP_EXTERNAL_EPILOGUE": 0,
+      "V8.GC_HEAP_EXTERNAL_SECOND_PASS_CALLBACKS": 0,
+      "V8.GC_HEAP_EXTERNAL_PROLOGUE": 0,
+      "ScrollLayer": 0,
+      "ProxyMain::BeginMainFrame": 64.8,
+      "EventDispatch": 0.6,
+      "FunctionCall": 2.3
+     },
+     "worst": [
+      {
+       "gapMs": 33.3,
+       "mainBusyMs": 30.5,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         30.5
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.3,
+       "mainBusyMs": 19.2,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         16.2
+        ],
+        [
+         "FunctionCall",
+         2.3
+        ],
+        [
+         "EventDispatch",
+         0.6
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.2,
+       "mainBusyMs": 30,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         18.1
+        ],
+        [
+         "MajorGC",
+         11.9
+        ],
+        [
+         "ScrollLayer",
+         0
+        ]
+       ]
+      }
+     ]
+    },
+    "trace": "/Volumes/Remi/Anima/remi-perf/fx/out/scroll3/trace-networks-40-warm.json"
+   }
+  ],
+  "dom": 1777
+ }
+}

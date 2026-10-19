@@ -1,0 +1,148 @@
+{
+ "base": "http://127.0.0.1:7871",
+ "date": "2026-10-19T21:23:55.401Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "preview": {
+  "jobs": [
+   {
+    "jobId": "3fb7f1b52276c3c0",
+    "ms": 36439,
+    "status": "completed"
+   },
+   {
+    "jobId": "5690ea6549a52a1c",
+    "ms": 33676,
+    "status": "completed"
+   }
+  ],
+  "steps": 16,
+  "batchCount": 1,
+  "perImage": [
+   {
+    "seq": 3,
+    "received": 16,
+    "painted": 16
+   },
+   {
+    "seq": 4,
+    "received": 16,
+    "painted": 16
+   }
+  ],
+  "paintedShare": 1,
+  "framesPerStep": 12.36,
+  "frameReportsPerStep": 21.43,
+  "frameStates": {
+   "STATE_NO_UPDATE_DESIRED": 67,
+   "STATE_PRESENTED_ALL": 172,
+   "STATE_DROPPED": 18,
+   "STATE_PRESENTED_PARTIAL": 128
+  },
+  "pageIdlePerSecond": {
+   "steps": 10,
+   "seconds": 10.1,
+   "taskMs": 0.07,
+   "scriptMs": 0.01,
+   "layoutMs": 0,
+   "recalcStyleMs": 0,
+   "layouts": 0,
+   "chromiumCpuMs": 0
+  },
+  "pageCostPerStep": {
+   "steps": 14,
+   "seconds": 29.3,
+   "taskMs": 24.9,
+   "scriptMs": 3.94,
+   "layoutMs": 1.05,
+   "recalcStyleMs": 2.79,
+   "layouts": 2.21,
+   "chromiumCpuMs": 183.6,
+   "overIdle": {
+    "taskMs": 24.75,
+    "chromiumCpuMs": 183.6
+   }
+  },
+  "framesPresentedFirstJob": 173,
+  "clockOffsetMs": -1,
+  "framesReceived": 32,
+  "framesPainted": 32,
+  "framesPublished": 32,
+  "imagesAssigned": 32,
+  "matched": 32,
+  "total": {
+   "n": 32,
+   "mean": 47.3,
+   "p50": 37.5,
+   "p95": 108.5,
+   "p99": 162.3,
+   "max": 170.2
+  },
+  "imageToPublish": {
+   "n": 32,
+   "mean": 4.8,
+   "p50": 0.7,
+   "p95": 3.9,
+   "p99": 84.3,
+   "max": 120.4
+  },
+  "encode": {
+   "n": 32,
+   "mean": 4.6,
+   "p50": 0.4,
+   "p95": 3.7,
+   "p99": 84.1,
+   "max": 120.1
+  },
+  "publishToReceive": {
+   "n": 32,
+   "mean": 7.8,
+   "p50": 1.8,
+   "p95": 28.6,
+   "p99": 83.3,
+   "max": 107.9
+  },
+  "receiveToPaint": {
+   "n": 32,
+   "mean": 34.7,
+   "p50": 34.3,
+   "p95": 47.5,
+   "p99": 68.6,
+   "max": 76.6
+  },
+  "encodedToPaint": {
+   "n": 32,
+   "mean": 42.5,
+   "p50": 37,
+   "p95": 70.6,
+   "p99": 121.2,
+   "max": 140.6
+  },
+  "its": [
+   {
+    "steps": 16,
+    "its": 0.4649,
+    "stepMs": {
+     "n": 15,
+     "mean": 2151.1,
+     "p50": 2122.3,
+     "p95": 2338.5,
+     "p99": 2532.3,
+     "max": 2580.7
+    }
+   },
+   {
+    "steps": 16,
+    "its": 0.4783,
+    "stepMs": {
+     "n": 15,
+     "mean": 2090.5,
+     "p50": 2047.6,
+     "p95": 2433.8,
+     "p99": 2440.7,
+     "max": 2442.4
+    }
+   }
+  ]
+ }
+}

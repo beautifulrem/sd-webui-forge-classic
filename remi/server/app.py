@@ -98,14 +98,33 @@ def handle_exception(request: Request, error: Exception) -> JSONResponse:
     return ErrorResponse(status_code=status, content={"error": _phrase(status), "detail": f"Internal server error (id {error_id}); the details are in the server log", "id": error_id})
 
 
+# Longest raw body text an error echoes back (an upload can be megabytes)
+ECHO_LIMIT = 1024
+
+
+def _echoed_bytes(value: bytes) -> str:
+    """Raw body bytes a validation error echoes as its ``input`` (a multipart
+    upload sent to a JSON route): short UTF-8 text as is, anything else as a
+    placeholder. ``jsonable_encoder`` decodes bytes as UTF-8, so binary data
+    (a PNG) raised inside the error handler and answered 500."""
+
+    if len(value) <= ECHO_LIMIT:
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            pass
+    return f"<{len(value)} bytes of binary data>"
+
+
 def _request_validation_error(request: Request, error: RequestValidationError) -> JSONResponse:
     """422 for a request that fails its model (also for bodies holding
-    ``1e999`` / ``NaN``, which the default handler could not encode: a 500
-    and a traceback per request from any client). A client error: logged at
-    debug level, without a traceback."""
+    ``1e999`` / ``NaN`` or binary data, which the default handler could not
+    encode: a 500 and a traceback per request from any client). A client
+    error: logged at debug level, without a traceback."""
 
     log.debug("%s %s: invalid request (%d errors)", request.method, request.url.path, len(error.errors()))
-    return ErrorResponse(status_code=422, content={"detail": jsonable_encoder(error.errors())})
+    encoders = {bytes: _echoed_bytes, bytearray: lambda value: _echoed_bytes(bytes(value)), memoryview: lambda value: _echoed_bytes(value.tobytes())}
+    return ErrorResponse(status_code=422, content={"detail": jsonable_encoder(error.errors(), custom_encoder=encoders)})
 
 
 def _validation_error(request: Request, error: ValidationError) -> JSONResponse:

@@ -5,7 +5,8 @@ import { Toaster as Sonner, type ToasterProps } from "sonner"
 
 import { CircleCheckIcon, InfoIcon, Loader2Icon, OctagonXIcon, TriangleAlertIcon } from "lucide-react"
 
-const Toaster = ({ ...props }: ToasterProps) => {
+/** `closeButtonAriaLabel`: the close buttons' label (sonner sets it per toast). */
+const Toaster = ({ closeButtonAriaLabel, ...props }: ToasterProps & { closeButtonAriaLabel?: string }) => {
   const { theme = "system" } = useTheme()
 
   return (
@@ -51,6 +52,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
         classNames: {
           toast: "cn-toast",
         },
+        closeButtonAriaLabel,
       }}
       {...props}
     />

@@ -129,7 +129,41 @@
    "output_dir": "",
    "show_extras_results": true,
    "video_input": ""
-  }
+  },
+  "required": [
+   {
+    "param": "image",
+    "message": "an image is required",
+    "when": {
+     "param": "mode",
+     "eq": "Single Image"
+    }
+   },
+   {
+    "param": "image_batch",
+    "message": "upload the images to process",
+    "when": {
+     "param": "mode",
+     "eq": "Batch Process"
+    }
+   },
+   {
+    "param": "input_dir",
+    "message": "an input directory is required",
+    "when": {
+     "param": "mode",
+     "eq": "Batch from Directory"
+    }
+   },
+   {
+    "param": "video_input",
+    "message": "a video file is required",
+    "when": {
+     "param": "mode",
+     "eq": "Single Video"
+    }
+   }
+  ]
  },
  "scripts": []
 }

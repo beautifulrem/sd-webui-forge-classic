@@ -135,7 +135,8 @@ def test_unsupported_devices_are_reported_not_silently_skipped(sparse, monkeypat
 def test_schema_export(sparse):
     schema = harness.script_layout(sparse.SparseAttentionForForge()).schema()
     json.dumps(schema, allow_nan=False)
-    timestep_range = schema["children"][0]["children"][1]
+    # after the GPU requirement note, the first row
+    timestep_range = schema["children"][1]["children"][1]
     assert timestep_range == {
         "type": "custom",
         "name": "percent",

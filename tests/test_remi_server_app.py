@@ -172,6 +172,29 @@ def test_image_info_of_an_upload(server):
     assert server.client.post("/api/v2/infotext/image", json={"file_id": "missingmissing"}).status_code == 404
 
 
+@pytest.mark.parametrize("route", ["/api/v2/pnginfo", "/api/v2/infotext/image", "/api/v2/jobs"])
+def test_a_binary_body_on_a_json_route_is_a_client_error(server, route):
+    """A multipart PNG upload sent to a JSON route: the validation error echoes
+    the raw body as its input, and encoding the binary bytes answered 500."""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (64, 64), (200, 10, 10)).save(buffer, format="PNG")
+    png = buffer.getvalue()
+    binary = server.client.post(route, files={"file": ("x.png", png, "image/png")})
+    assert binary.status_code == 422, binary.text
+    assert "Internal server error" not in binary.text
+    assert binary.json()["detail"][0]["input"] == f"<{len(binary.request.content)} bytes of binary data>"
+    # binary bytes declared as JSON: FastAPI's own 400 (the body is not JSON)
+    raw = server.client.post(route, content=png, headers={"content-type": "application/json"})
+    assert raw.status_code == 400
+    # a short text body is still echoed as is
+    text = server.client.post(route, content=b"a=1", headers={"content-type": "text/plain"})
+    assert text.status_code == 422 and text.json()["detail"][0]["input"] == "a=1"
+
+
 def test_i18n_catalog_merges_and_caches(server, monkeypatch, tmp_path):
     from modules import localization
 

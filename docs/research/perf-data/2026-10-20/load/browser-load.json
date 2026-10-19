@@ -1,0 +1,1660 @@
+{
+ "base": "http://127.0.0.1:7871",
+ "date": "2026-10-19T21:03:38.254Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "load": {
+  "txt2img": {
+   "readyMs": 2519,
+   "navigation": {
+    "domContentLoaded": 96,
+    "load": 96.79999995231628,
+    "fcp": 192,
+    "transfer": {
+     "jsEncoded": 512630,
+     "jsDecoded": 1615696,
+     "cssEncoded": 26000,
+     "apiEncoded": 83695,
+     "apiDecoded": 572478,
+     "apiRequests": 8
+    }
+   },
+   "scripts": {
+    "count": 145,
+    "gzipKB": 560.8,
+    "rawKB": 1577.8,
+    "files": [
+     {
+      "file": "/assets/rolldown-runtime-hePW80VL.js",
+      "raw": 716,
+      "gzip": 430
+     },
+     {
+      "file": "/assets/react-C0WMy7cJ.js",
+      "raw": 218928,
+      "gzip": 67622
+     },
+     {
+      "file": "/assets/shell-CWKwLJ4w.js",
+      "raw": 85408,
+      "gzip": 30722
+     },
+     {
+      "file": "/assets/vendor-MH43N4Sc.js",
+      "raw": 269560,
+      "gzip": 88568
+     },
+     {
+      "file": "/assets/box-DkR59zbI.js",
+      "raw": 341,
+      "gzip": 245
+     },
+     {
+      "file": "/assets/ModelQuickBar-BFdm7JrE.js",
+      "raw": 49,
+      "gzip": 69
+     },
+     {
+      "file": "/assets/SearchSelect-BEDgUYit.js",
+      "raw": 7568,
+      "gzip": 3354
+     },
+     {
+      "file": "/assets/useOpenInteractionType-x2iVIwfV.js",
+      "raw": 2337,
+      "gzip": 1150
+     },
+     {
+      "file": "/assets/ModelBar-C2AmpWz6.js",
+      "raw": 14051,
+      "gzip": 5540
+     },
+     {
+      "file": "/assets/check-bkgFNaPU.js",
+      "raw": 155,
+      "gzip": 160
+     },
+     {
+      "file": "/assets/serializeValue-B_EucO5O.js",
+      "raw": 133,
+      "gzip": 122
+     },
+     {
+      "file": "/assets/useValueChanged-BKeFhDlK.js",
+      "raw": 267,
+      "gzip": 210
+     },
+     {
+      "file": "/assets/getPseudoElementBounds-68hQzt9L.js",
+      "raw": 2380,
+      "gzip": 1158
+     },
+     {
+      "file": "/assets/ComboboxEmpty-7nT8V0ZU.js",
+      "raw": 31623,
+      "gzip": 11421
+     },
+     {
+      "file": "/assets/useScrollLock-DAMxA-9c.js",
+      "raw": 13176,
+      "gzip": 5046
+     },
+     {
+      "file": "/assets/ItemIndicator-voinITHV.js",
+      "raw": 3368,
+      "gzip": 1494
+     },
+     {
+      "file": "/assets/areArraysEqual-DpJhDMgE.js",
+      "raw": 140,
+      "gzip": 132
+     },
+     {
+      "file": "/assets/inertValue-DUzL5QE1.js",
+      "raw": 97,
+      "gzip": 114
+     },
+     {
+      "file": "/assets/useControlled-CvDYyhI4.js",
+      "raw": 298,
+      "gzip": 242
+     },
+     {
+      "file": "/assets/useListNavigation-CqQR5jYH.js",
+      "raw": 5963,
+      "gzip": 2616
+     },
+     {
+      "file": "/assets/CompositeList-CAkIgkC-.js",
+      "raw": 3349,
+      "gzip": 1480
+     },
+     {
+      "file": "/assets/getHighlightReason-BUFUt-pl.js",
+      "raw": 192,
+      "gzip": 157
+     },
+     {
+      "file": "/assets/stringifyLocale-CkHjdQTJ.js",
+      "raw": 99,
+      "gzip": 109
+     },
+     {
+      "file": "/assets/useRegisterFieldControl-4_00QEPP.js",
+      "raw": 2470,
+      "gzip": 1166
+     },
+     {
+      "file": "/assets/resolveAriaLabelledBy-B2ZzrlGb.js",
+      "raw": 99,
+      "gzip": 101
+     },
+     {
+      "file": "/assets/circle-question-mark-4FDPNP4h.js",
+      "raw": 317,
+      "gzip": 246
+     },
+     {
+      "file": "/assets/select-DMOhlbTT.js",
+      "raw": 30054,
+      "gzip": 10516
+     },
+     {
+      "file": "/assets/chevron-up-D2v2oPhF.js",
+      "raw": 259,
+      "gzip": 194
+     },
+     {
+      "file": "/assets/ToolbarRootContext-BdUpYyxt.js",
+      "raw": 271,
+      "gzip": 213
+     },
+     {
+      "file": "/assets/composite-DrCKQD7F.js",
+      "raw": 2137,
+      "gzip": 779
+     },
+     {
+      "file": "/assets/isElementDisabled-KSuuBj8D.js",
+      "raw": 114,
+      "gzip": 111
+     },
+     {
+      "file": "/assets/clamp-D0kAXd-u.js",
+      "raw": 85,
+      "gzip": 93
+     },
+     {
+      "file": "/assets/CSPContext-DD6lOO5E.js",
+      "raw": 214,
+      "gzip": 184
+     },
+     {
+      "file": "/assets/input-DBJQqSkh.js",
+      "raw": 2959,
+      "gzip": 1480
+     },
+     {
+      "file": "/assets/checkbox-CHmX29p4.js",
+      "raw": 6209,
+      "gzip": 2911
+     },
+     {
+      "file": "/assets/badge-CTStSInE.js",
+      "raw": 1413,
+      "gzip": 652
+     },
+     {
+      "file": "/assets/FieldItemContext-BCLWFyMS.js",
+      "raw": 190,
+      "gzip": 166
+     },
+     {
+      "file": "/assets/useAriaLabelledBy-KRB0iICN.js",
+      "raw": 608,
+      "gzip": 398
+     },
+     {
+      "file": "/assets/useMutation-jSIHocX5.js",
+      "raw": 2374,
+      "gzip": 988
+     },
+     {
+      "file": "/assets/model-options-B6n_16fn.js",
+      "raw": 2282,
+      "gzip": 1200
+     },
+     {
+      "file": "/assets/popover-BswMr3wT.js",
+      "raw": 10644,
+      "gzip": 4051
+     },
+     {
+      "file": "/assets/useTriggerFocusGuards-Vg7blowP.js",
+      "raw": 1112,
+      "gzip": 606
+     },
+     {
+      "file": "/assets/form-store-DPHAqeBY.js",
+      "raw": 7537,
+      "gzip": 2902
+     },
+     {
+      "file": "/assets/values-s8pbNQv7.js",
+      "raw": 1510,
+      "gzip": 692
+     },
+     {
+      "file": "/assets/QuickSettings-BEO-eOJw.js",
+      "raw": 6521,
+      "gzip": 3201
+     },
+     {
+      "file": "/assets/actions-EY1hn6c_.js",
+      "raw": 2464,
+      "gzip": 1210
+     },
+     {
+      "file": "/assets/zap-BGCUgGyu.js",
+      "raw": 304,
+      "gzip": 237
+     },
+     {
+      "file": "/assets/popup-tooltip-Y0YyWVXE.js",
+      "raw": 834,
+      "gzip": 493
+     },
+     {
+      "file": "/assets/pinned-B32MK2Qf.js",
+      "raw": 1453,
+      "gzip": 747
+     },
+     {
+      "file": "/assets/AppearanceMenu-Gn9tFGVK.js",
+      "raw": 6235,
+      "gzip": 2729
+     },
+     {
+      "file": "/assets/Separator-CpTHt8rZ.js",
+      "raw": 356,
+      "gzip": 264
+     },
+     {
+      "file": "/assets/dropdown-menu-Dg6RODvC.js",
+      "raw": 41311,
+      "gzip": 12572
+     },
+     {
+      "file": "/assets/CompositeItem-Bg06DKi4.js",
+      "raw": 385,
+      "gzip": 273
+     },
+     {
+      "file": "/assets/useCompositeItem-BgB92OJY.js",
+      "raw": 573,
+      "gzip": 388
+     },
+     {
+      "file": "/assets/generate-Bd120lGp.js",
+      "raw": 77707,
+      "gzip": 28288
+     },
+     {
+      "file": "/assets/chevron-right-BK6OGeUR.js",
+      "raw": 161,
+      "gzip": 161
+     },
+     {
+      "file": "/assets/copy-D8UOy2XA.js",
+      "raw": 267,
+      "gzip": 225
+     },
+     {
+      "file": "/assets/ResultActions-C6fAKRP-.js",
+      "raw": 5318,
+      "gzip": 2161
+     },
+     {
+      "file": "/assets/external-link-uGjBS3kz.js",
+      "raw": 282,
+      "gzip": 218
+     },
+     {
+      "file": "/assets/download-DJpKdj0i.js",
+      "raw": 263,
+      "gzip": 209
+     },
+     {
+      "file": "/assets/image-plus-B8MivK6w.js",
+      "raw": 394,
+      "gzip": 272
+     },
+     {
+      "file": "/assets/result-actions-75_mcL-9.js",
+      "raw": 2453,
+      "gzip": 1184
+     },
+     {
+      "file": "/assets/send-to-CO3EKW7u.js",
+      "raw": 2714,
+      "gzip": 1265
+     },
+     {
+      "file": "/assets/files-HPnLJYfG.js",
+      "raw": 394,
+      "gzip": 284
+     },
+     {
+      "file": "/assets/infotext-RlQizYWF.js",
+      "raw": 176,
+      "gzip": 170
+     },
+     {
+      "file": "/assets/recycle-BEWrHTjP.js",
+      "raw": 613,
+      "gzip": 367
+     },
+     {
+      "file": "/assets/save-BljqmjCa.js",
+      "raw": 358,
+      "gzip": 245
+     },
+     {
+      "file": "/assets/trash-BLutKz5r.js",
+      "raw": 377,
+      "gzip": 246
+     },
+     {
+      "file": "/assets/session-store-B4A_OzR3.js",
+      "raw": 1823,
+      "gzip": 912
+     },
+     {
+      "file": "/assets/run-controller-DIZMwGvq.js",
+      "raw": 5328,
+      "gzip": 2131
+     },
+     {
+      "file": "/assets/effects-CgDC_KPu.js",
+      "raw": 3190,
+      "gzip": 1630
+     },
+     {
+      "file": "/assets/pending-writes-92gjOHW8.js",
+      "raw": 214,
+      "gzip": 178
+     },
+     {
+      "file": "/assets/bell-CytPpiHK.js",
+      "raw": 321,
+      "gzip": 255
+     },
+     {
+      "file": "/assets/edit-session-ByIFqfAB.js",
+      "raw": 3233,
+      "gzip": 1528
+     },
+     {
+      "file": "/assets/eraser-DmPZXV9B.js",
+      "raw": 313,
+      "gzip": 241
+     },
+     {
+      "file": "/assets/skip-forward-Cx1wYCVa.js",
+      "raw": 412,
+      "gzip": 284
+     },
+     {
+      "file": "/assets/canvas-BkVXacmM.js",
+      "raw": 26480,
+      "gzip": 10944
+     },
+     {
+      "file": "/assets/activity-BCYmcBkD.js",
+      "raw": 4165,
+      "gzip": 1789
+     },
+     {
+      "file": "/assets/upload-DAvBjo8z.js",
+      "raw": 261,
+      "gzip": 209
+     },
+     {
+      "file": "/assets/image-up-CGL8DpSp.js",
+      "raw": 368,
+      "gzip": 269
+     },
+     {
+      "file": "/assets/circle-alert-CYYRpkVJ.js",
+      "raw": 306,
+      "gzip": 220
+     },
+     {
+      "file": "/assets/x-DkNJ7XBx.js",
+      "raw": 185,
+      "gzip": 170
+     },
+     {
+      "file": "/assets/Segmented-CJHcMV6P.js",
+      "raw": 6781,
+      "gzip": 3160
+     },
+     {
+      "file": "/assets/CompositeRoot-Epf5JyNB.js",
+      "raw": 3928,
+      "gzip": 1766
+     },
+     {
+      "file": "/assets/uploads-D7EUl31e.js",
+      "raw": 1903,
+      "gzip": 1013
+     },
+     {
+      "file": "/assets/Renderer-BzMyog-F.js",
+      "raw": 77694,
+      "gzip": 26191
+     },
+     {
+      "file": "/assets/circle-x-BRQRj2e-.js",
+      "raw": 259,
+      "gzip": 207
+     },
+     {
+      "file": "/assets/textarea-BJkU-ZYA.js",
+      "raw": 990,
+      "gzip": 565
+     },
+     {
+      "file": "/assets/dices-ZHjWdX6x.js",
+      "raw": 437,
+      "gzip": 280
+     },
+     {
+      "file": "/assets/combobox-CnpJjb36.js",
+      "raw": 9068,
+      "gzip": 3385
+     },
+     {
+      "file": "/assets/file-up-CcPE3-XH.js",
+      "raw": 384,
+      "gzip": 263
+     },
+     {
+      "file": "/assets/image-off-DY0-lo2g.js",
+      "raw": 502,
+      "gzip": 314
+     },
+     {
+      "file": "/assets/slider-D_yzNnvI.js",
+      "raw": 17590,
+      "gzip": 7193
+     },
+     {
+      "file": "/assets/input-group-CWYS90WG.js",
+      "raw": 3641,
+      "gzip": 1356
+     },
+     {
+      "file": "/assets/paste-targets-BWeXXLnL.js",
+      "raw": 1447,
+      "gzip": 811
+     },
+     {
+      "file": "/assets/usePressAndHold-CZFAJTyw.js",
+      "raw": 2064,
+      "gzip": 971
+     },
+     {
+      "file": "/assets/formatNumber-CaBnao-Y.js",
+      "raw": 274,
+      "gzip": 217
+     },
+     {
+      "file": "/assets/valueToPercent-CNSGbpPd.js",
+      "raw": 55,
+      "gzip": 73
+     },
+     {
+      "file": "/assets/tabs-CgS8e9B-.js",
+      "raw": 9848,
+      "gzip": 3717
+     },
+     {
+      "file": "/assets/FitTabsList-fifSIftK.js",
+      "raw": 2302,
+      "gzip": 1173
+     },
+     {
+      "file": "/assets/number-field-129KJ3VI.js",
+      "raw": 14292,
+      "gzip": 6170
+     },
+     {
+      "file": "/assets/CollapsiblePanel-CpRd9ifa.js",
+      "raw": 6392,
+      "gzip": 2649
+     },
+     {
+      "file": "/assets/switch-BCGONjMl.js",
+      "raw": 4163,
+      "gzip": 1905
+     },
+     {
+      "file": "/assets/hooks-3urBjp8N.js",
+      "raw": 3121,
+      "gzip": 1513
+     },
+     {
+      "file": "/assets/Field-DNDt01Eb.js",
+      "raw": 5878,
+      "gzip": 2512
+     },
+     {
+      "file": "/assets/rich-text-D6_kjBtZ.js",
+      "raw": 5122,
+      "gzip": 2286
+     },
+     {
+      "file": "/assets/rotate-ccw-BltcCpEZ.js",
+      "raw": 231,
+      "gzip": 201
+     },
+     {
+      "file": "/assets/a11y-Dnci2gWw.js",
+      "raw": 262,
+      "gzip": 186
+     },
+     {
+      "file": "/assets/DropZone-DqR0qWc6.js",
+      "raw": 3114,
+      "gzip": 1527
+     },
+     {
+      "file": "/assets/i18n-D34po_6e.js",
+      "raw": 215,
+      "gzip": 203
+     },
+     {
+      "file": "/assets/pencil-qdsEXfqJ.js",
+      "raw": 307,
+      "gzip": 244
+     },
+     {
+      "file": "/assets/toggle-BBS6Eu_z.js",
+      "raw": 2416,
+      "gzip": 1202
+     },
+     {
+      "file": "/assets/rotate-ccw-clock-DeR5O7BR.js",
+      "raw": 297,
+      "gzip": 238
+     },
+     {
+      "file": "/assets/prompt-target-7GrnBc16.js",
+      "raw": 51498,
+      "gzip": 17084
+     },
+     {
+      "file": "/assets/use-media-query-BJE3FvJ2.js",
+      "raw": 466,
+      "gzip": 317
+     },
+     {
+      "file": "/assets/use-debounced-value-BpikVao0.js",
+      "raw": 361,
+      "gzip": 267
+     },
+     {
+      "file": "/assets/tokenize-CI4sfJvm.js",
+      "raw": 2003,
+      "gzip": 871
+     },
+     {
+      "file": "/assets/esm-BH4zq2Qg.js",
+      "raw": 26969,
+      "gzip": 8125
+     },
+     {
+      "file": "/assets/DialogTitle-5prhTj0s.js",
+      "raw": 6834,
+      "gzip": 2733
+     },
+     {
+      "file": "/assets/shortcut-BIH_i1xY.js",
+      "raw": 136,
+      "gzip": 127
+     },
+     {
+      "file": "/assets/DialogDescription-Dd3OjzY_.js",
+      "raw": 397,
+      "gzip": 296
+     },
+     {
+      "file": "/assets/alert-dialog-29SRfmDY.js",
+      "raw": 4825,
+      "gzip": 1398
+     },
+     {
+      "file": "/assets/prompt-editor-CQjOiIW-.js",
+      "raw": 699,
+      "gzip": 406
+     },
+     {
+      "file": "/assets/progress-zNc0wjUp.js",
+      "raw": 3090,
+      "gzip": 1401
+     },
+     {
+      "file": "/assets/use-form-loader-B7kc4hrm.js",
+      "raw": 4221,
+      "gzip": 2106
+     },
+     {
+      "file": "/assets/list-plus-D8x1h4e5.js",
+      "raw": 299,
+      "gzip": 208
+     },
+     {
+      "file": "/assets/InfotextPanel-1S8VxdmR.js",
+      "raw": 3430,
+      "gzip": 1610
+     },
+     {
+      "file": "/assets/header-slot-KTqlRU9D.js",
+      "raw": 351,
+      "gzip": 265
+     },
+     {
+      "file": "/assets/read-image-info-BskpJXpp.js",
+      "raw": 3215,
+      "gzip": 1496
+     },
+     {
+      "file": "/assets/PromptEditor-DFgrVzyp.js",
+      "raw": 53,
+      "gzip": 71
+     },
+     {
+      "file": "/assets/PromptEditor-Cdk-sm-c.js",
+      "raw": 23032,
+      "gzip": 8495
+     },
+     {
+      "file": "/assets/dist-WGWahflo.js",
+      "raw": 27158,
+      "gzip": 9156
+     },
+     {
+      "file": "/assets/dist-D6l_mHfa.js",
+      "raw": 49169,
+      "gzip": 16332
+     },
+     {
+      "file": "/assets/dist-kQRq5OSE.js",
+      "raw": 200187,
+      "gzip": 63852
+     },
+     {
+      "file": "/assets/PromptEditor-MazWoioC.js",
+      "raw": 53,
+      "gzip": 71
+     },
+     {
+      "file": "/assets/facets-B3v037ul.js",
+      "raw": 153,
+      "gzip": 143
+     },
+     {
+      "file": "/assets/resolution-presets-CSB3jZGc.js",
+      "raw": 2792,
+      "gzip": 1601
+     },
+     {
+      "file": "/assets/dist-C-ZdzF6M.js",
+      "raw": 39436,
+      "gzip": 13474
+     },
+     {
+      "file": "/assets/dist-BHqlJqzp.js",
+      "raw": 26938,
+      "gzip": 9513
+     },
+     {
+      "file": "/assets/translate-BkczcqAF.js",
+      "raw": 1206,
+      "gzip": 709
+     },
+     {
+      "file": "/assets/PromptToolbar-B2Ll94RG.js",
+      "raw": 12510,
+      "gzip": 5327
+     },
+     {
+      "file": "/assets/spinner-jVe4hC_o.js",
+      "raw": 533,
+      "gzip": 384
+     },
+     {
+      "file": "/assets/parse-Bg8YLqYN.js",
+      "raw": 6257,
+      "gzip": 2448
+     },
+     {
+      "file": "/assets/layout-grid-nJRN3HDa.js",
+      "raw": 377,
+      "gzip": 210
+     },
+     {
+      "file": "/assets/star-WktF238d.js",
+      "raw": 503,
+      "gzip": 312
+     }
+    ]
+   },
+   "dom": {
+    "elements": 1222,
+    "textNodes": 133,
+    "depth": 28,
+    "cdpNodes": 1549,
+    "documents": 2,
+    "jsHeapMB": 16.9,
+    "layoutCount": 28,
+    "recalcStyleCount": 69
+   },
+   "singleSection": {
+    "base": 1222,
+    "sections": 24,
+    "heaviest": [
+     {
+      "label": "Anima Regional Conditioning",
+      "elements": 368
+     },
+     {
+      "label": "Anima FreeFuse (multi-LoRA)",
+      "elements": 278
+     },
+     {
+      "label": "Spectrum Integrated",
+      "elements": 183
+     },
+     {
+      "label": "Detail Daemon",
+      "elements": 181
+     },
+     {
+      "label": "ADetailer",
+      "elements": 131
+     },
+     {
+      "label": "Hires. fix",
+      "elements": 130
+     },
+     {
+      "label": "Anima Hires Guard",
+      "elements": 106
+     },
+     {
+      "label": "Anima Artist Scheduled Mixer",
+      "elements": 94
+     }
+    ],
+    "after": 1265
+   },
+   "allSectionsExpanded": {
+    "clicks": 73,
+    "elements": 6827
+   }
+  },
+  "img2img": {
+   "readyMs": 2558,
+   "navigation": {
+    "domContentLoaded": 67.29999995231628,
+    "load": 69.79999995231628,
+    "fcp": 160,
+    "transfer": {
+     "jsEncoded": 574321,
+     "jsDecoded": 1832409,
+     "cssEncoded": 26000,
+     "apiEncoded": 83695,
+     "apiDecoded": 572478,
+     "apiRequests": 8
+    }
+   },
+   "scripts": {
+    "count": 155,
+    "gzipKB": 629.8,
+    "rawKB": 1789.5,
+    "files": [
+     {
+      "file": "/assets/rolldown-runtime-hePW80VL.js",
+      "raw": 716,
+      "gzip": 430
+     },
+     {
+      "file": "/assets/shell-CWKwLJ4w.js",
+      "raw": 85408,
+      "gzip": 30722
+     },
+     {
+      "file": "/assets/react-C0WMy7cJ.js",
+      "raw": 218928,
+      "gzip": 67622
+     },
+     {
+      "file": "/assets/vendor-MH43N4Sc.js",
+      "raw": 269560,
+      "gzip": 88568
+     },
+     {
+      "file": "/assets/SearchSelect-BEDgUYit.js",
+      "raw": 7568,
+      "gzip": 3354
+     },
+     {
+      "file": "/assets/ModelBar-C2AmpWz6.js",
+      "raw": 14051,
+      "gzip": 5540
+     },
+     {
+      "file": "/assets/box-DkR59zbI.js",
+      "raw": 341,
+      "gzip": 245
+     },
+     {
+      "file": "/assets/check-bkgFNaPU.js",
+      "raw": 155,
+      "gzip": 160
+     },
+     {
+      "file": "/assets/ModelQuickBar-BFdm7JrE.js",
+      "raw": 49,
+      "gzip": 69
+     },
+     {
+      "file": "/assets/useOpenInteractionType-x2iVIwfV.js",
+      "raw": 2337,
+      "gzip": 1150
+     },
+     {
+      "file": "/assets/getPseudoElementBounds-68hQzt9L.js",
+      "raw": 2380,
+      "gzip": 1158
+     },
+     {
+      "file": "/assets/useScrollLock-DAMxA-9c.js",
+      "raw": 13176,
+      "gzip": 5046
+     },
+     {
+      "file": "/assets/ComboboxEmpty-7nT8V0ZU.js",
+      "raw": 31623,
+      "gzip": 11421
+     },
+     {
+      "file": "/assets/serializeValue-B_EucO5O.js",
+      "raw": 133,
+      "gzip": 122
+     },
+     {
+      "file": "/assets/ItemIndicator-voinITHV.js",
+      "raw": 3368,
+      "gzip": 1494
+     },
+     {
+      "file": "/assets/useValueChanged-BKeFhDlK.js",
+      "raw": 267,
+      "gzip": 210
+     },
+     {
+      "file": "/assets/useControlled-CvDYyhI4.js",
+      "raw": 298,
+      "gzip": 242
+     },
+     {
+      "file": "/assets/useListNavigation-CqQR5jYH.js",
+      "raw": 5963,
+      "gzip": 2616
+     },
+     {
+      "file": "/assets/areArraysEqual-DpJhDMgE.js",
+      "raw": 140,
+      "gzip": 132
+     },
+     {
+      "file": "/assets/inertValue-DUzL5QE1.js",
+      "raw": 97,
+      "gzip": 114
+     },
+     {
+      "file": "/assets/getHighlightReason-BUFUt-pl.js",
+      "raw": 192,
+      "gzip": 157
+     },
+     {
+      "file": "/assets/CompositeList-CAkIgkC-.js",
+      "raw": 3349,
+      "gzip": 1480
+     },
+     {
+      "file": "/assets/useRegisterFieldControl-4_00QEPP.js",
+      "raw": 2470,
+      "gzip": 1166
+     },
+     {
+      "file": "/assets/resolveAriaLabelledBy-B2ZzrlGb.js",
+      "raw": 99,
+      "gzip": 101
+     },
+     {
+      "file": "/assets/stringifyLocale-CkHjdQTJ.js",
+      "raw": 99,
+      "gzip": 109
+     },
+     {
+      "file": "/assets/circle-question-mark-4FDPNP4h.js",
+      "raw": 317,
+      "gzip": 246
+     },
+     {
+      "file": "/assets/select-DMOhlbTT.js",
+      "raw": 30054,
+      "gzip": 10516
+     },
+     {
+      "file": "/assets/composite-DrCKQD7F.js",
+      "raw": 2137,
+      "gzip": 779
+     },
+     {
+      "file": "/assets/ToolbarRootContext-BdUpYyxt.js",
+      "raw": 271,
+      "gzip": 213
+     },
+     {
+      "file": "/assets/clamp-D0kAXd-u.js",
+      "raw": 85,
+      "gzip": 93
+     },
+     {
+      "file": "/assets/chevron-up-D2v2oPhF.js",
+      "raw": 259,
+      "gzip": 194
+     },
+     {
+      "file": "/assets/isElementDisabled-KSuuBj8D.js",
+      "raw": 114,
+      "gzip": 111
+     },
+     {
+      "file": "/assets/CSPContext-DD6lOO5E.js",
+      "raw": 214,
+      "gzip": 184
+     },
+     {
+      "file": "/assets/badge-CTStSInE.js",
+      "raw": 1413,
+      "gzip": 652
+     },
+     {
+      "file": "/assets/checkbox-CHmX29p4.js",
+      "raw": 6209,
+      "gzip": 2911
+     },
+     {
+      "file": "/assets/input-DBJQqSkh.js",
+      "raw": 2959,
+      "gzip": 1480
+     },
+     {
+      "file": "/assets/useAriaLabelledBy-KRB0iICN.js",
+      "raw": 608,
+      "gzip": 398
+     },
+     {
+      "file": "/assets/FieldItemContext-BCLWFyMS.js",
+      "raw": 190,
+      "gzip": 166
+     },
+     {
+      "file": "/assets/popover-BswMr3wT.js",
+      "raw": 10644,
+      "gzip": 4051
+     },
+     {
+      "file": "/assets/useTriggerFocusGuards-Vg7blowP.js",
+      "raw": 1112,
+      "gzip": 606
+     },
+     {
+      "file": "/assets/useMutation-jSIHocX5.js",
+      "raw": 2374,
+      "gzip": 988
+     },
+     {
+      "file": "/assets/values-s8pbNQv7.js",
+      "raw": 1510,
+      "gzip": 692
+     },
+     {
+      "file": "/assets/model-options-B6n_16fn.js",
+      "raw": 2282,
+      "gzip": 1200
+     },
+     {
+      "file": "/assets/form-store-DPHAqeBY.js",
+      "raw": 7537,
+      "gzip": 2902
+     },
+     {
+      "file": "/assets/actions-EY1hn6c_.js",
+      "raw": 2464,
+      "gzip": 1210
+     },
+     {
+      "file": "/assets/QuickSettings-BEO-eOJw.js",
+      "raw": 6521,
+      "gzip": 3201
+     },
+     {
+      "file": "/assets/zap-BGCUgGyu.js",
+      "raw": 304,
+      "gzip": 237
+     },
+     {
+      "file": "/assets/popup-tooltip-Y0YyWVXE.js",
+      "raw": 834,
+      "gzip": 493
+     },
+     {
+      "file": "/assets/pinned-B32MK2Qf.js",
+      "raw": 1453,
+      "gzip": 747
+     },
+     {
+      "file": "/assets/AppearanceMenu-Gn9tFGVK.js",
+      "raw": 6235,
+      "gzip": 2729
+     },
+     {
+      "file": "/assets/dropdown-menu-Dg6RODvC.js",
+      "raw": 41311,
+      "gzip": 12572
+     },
+     {
+      "file": "/assets/chevron-right-BK6OGeUR.js",
+      "raw": 161,
+      "gzip": 161
+     },
+     {
+      "file": "/assets/useCompositeItem-BgB92OJY.js",
+      "raw": 573,
+      "gzip": 388
+     },
+     {
+      "file": "/assets/CompositeItem-Bg06DKi4.js",
+      "raw": 385,
+      "gzip": 273
+     },
+     {
+      "file": "/assets/Separator-CpTHt8rZ.js",
+      "raw": 356,
+      "gzip": 264
+     },
+     {
+      "file": "/assets/generate-Bd120lGp.js",
+      "raw": 77707,
+      "gzip": 28288
+     },
+     {
+      "file": "/assets/ResultActions-C6fAKRP-.js",
+      "raw": 5318,
+      "gzip": 2161
+     },
+     {
+      "file": "/assets/copy-D8UOy2XA.js",
+      "raw": 267,
+      "gzip": 225
+     },
+     {
+      "file": "/assets/external-link-uGjBS3kz.js",
+      "raw": 282,
+      "gzip": 218
+     },
+     {
+      "file": "/assets/download-DJpKdj0i.js",
+      "raw": 263,
+      "gzip": 209
+     },
+     {
+      "file": "/assets/image-plus-B8MivK6w.js",
+      "raw": 394,
+      "gzip": 272
+     },
+     {
+      "file": "/assets/result-actions-75_mcL-9.js",
+      "raw": 2453,
+      "gzip": 1184
+     },
+     {
+      "file": "/assets/files-HPnLJYfG.js",
+      "raw": 394,
+      "gzip": 284
+     },
+     {
+      "file": "/assets/infotext-RlQizYWF.js",
+      "raw": 176,
+      "gzip": 170
+     },
+     {
+      "file": "/assets/send-to-CO3EKW7u.js",
+      "raw": 2714,
+      "gzip": 1265
+     },
+     {
+      "file": "/assets/recycle-BEWrHTjP.js",
+      "raw": 613,
+      "gzip": 367
+     },
+     {
+      "file": "/assets/save-BljqmjCa.js",
+      "raw": 358,
+      "gzip": 245
+     },
+     {
+      "file": "/assets/session-store-B4A_OzR3.js",
+      "raw": 1823,
+      "gzip": 912
+     },
+     {
+      "file": "/assets/run-controller-DIZMwGvq.js",
+      "raw": 5328,
+      "gzip": 2131
+     },
+     {
+      "file": "/assets/trash-BLutKz5r.js",
+      "raw": 377,
+      "gzip": 246
+     },
+     {
+      "file": "/assets/pending-writes-92gjOHW8.js",
+      "raw": 214,
+      "gzip": 178
+     },
+     {
+      "file": "/assets/effects-CgDC_KPu.js",
+      "raw": 3190,
+      "gzip": 1630
+     },
+     {
+      "file": "/assets/edit-session-ByIFqfAB.js",
+      "raw": 3233,
+      "gzip": 1528
+     },
+     {
+      "file": "/assets/bell-CytPpiHK.js",
+      "raw": 321,
+      "gzip": 255
+     },
+     {
+      "file": "/assets/skip-forward-Cx1wYCVa.js",
+      "raw": 412,
+      "gzip": 284
+     },
+     {
+      "file": "/assets/eraser-DmPZXV9B.js",
+      "raw": 313,
+      "gzip": 241
+     },
+     {
+      "file": "/assets/canvas-BkVXacmM.js",
+      "raw": 26480,
+      "gzip": 10944
+     },
+     {
+      "file": "/assets/image-up-CGL8DpSp.js",
+      "raw": 368,
+      "gzip": 269
+     },
+     {
+      "file": "/assets/upload-DAvBjo8z.js",
+      "raw": 261,
+      "gzip": 209
+     },
+     {
+      "file": "/assets/activity-BCYmcBkD.js",
+      "raw": 4165,
+      "gzip": 1789
+     },
+     {
+      "file": "/assets/x-DkNJ7XBx.js",
+      "raw": 185,
+      "gzip": 170
+     },
+     {
+      "file": "/assets/Segmented-CJHcMV6P.js",
+      "raw": 6781,
+      "gzip": 3160
+     },
+     {
+      "file": "/assets/CompositeRoot-Epf5JyNB.js",
+      "raw": 3928,
+      "gzip": 1766
+     },
+     {
+      "file": "/assets/dices-ZHjWdX6x.js",
+      "raw": 437,
+      "gzip": 280
+     },
+     {
+      "file": "/assets/circle-alert-CYYRpkVJ.js",
+      "raw": 306,
+      "gzip": 220
+     },
+     {
+      "file": "/assets/circle-x-BRQRj2e-.js",
+      "raw": 259,
+      "gzip": 207
+     },
+     {
+      "file": "/assets/uploads-D7EUl31e.js",
+      "raw": 1903,
+      "gzip": 1013
+     },
+     {
+      "file": "/assets/Renderer-BzMyog-F.js",
+      "raw": 77694,
+      "gzip": 26191
+     },
+     {
+      "file": "/assets/file-up-CcPE3-XH.js",
+      "raw": 384,
+      "gzip": 263
+     },
+     {
+      "file": "/assets/input-group-CWYS90WG.js",
+      "raw": 3641,
+      "gzip": 1356
+     },
+     {
+      "file": "/assets/textarea-BJkU-ZYA.js",
+      "raw": 990,
+      "gzip": 565
+     },
+     {
+      "file": "/assets/combobox-CnpJjb36.js",
+      "raw": 9068,
+      "gzip": 3385
+     },
+     {
+      "file": "/assets/paste-targets-BWeXXLnL.js",
+      "raw": 1447,
+      "gzip": 811
+     },
+     {
+      "file": "/assets/image-off-DY0-lo2g.js",
+      "raw": 502,
+      "gzip": 314
+     },
+     {
+      "file": "/assets/slider-D_yzNnvI.js",
+      "raw": 17590,
+      "gzip": 7193
+     },
+     {
+      "file": "/assets/valueToPercent-CNSGbpPd.js",
+      "raw": 55,
+      "gzip": 73
+     },
+     {
+      "file": "/assets/formatNumber-CaBnao-Y.js",
+      "raw": 274,
+      "gzip": 217
+     },
+     {
+      "file": "/assets/switch-BCGONjMl.js",
+      "raw": 4163,
+      "gzip": 1905
+     },
+     {
+      "file": "/assets/usePressAndHold-CZFAJTyw.js",
+      "raw": 2064,
+      "gzip": 971
+     },
+     {
+      "file": "/assets/tabs-CgS8e9B-.js",
+      "raw": 9848,
+      "gzip": 3717
+     },
+     {
+      "file": "/assets/FitTabsList-fifSIftK.js",
+      "raw": 2302,
+      "gzip": 1173
+     },
+     {
+      "file": "/assets/CollapsiblePanel-CpRd9ifa.js",
+      "raw": 6392,
+      "gzip": 2649
+     },
+     {
+      "file": "/assets/number-field-129KJ3VI.js",
+      "raw": 14292,
+      "gzip": 6170
+     },
+     {
+      "file": "/assets/Field-DNDt01Eb.js",
+      "raw": 5878,
+      "gzip": 2512
+     },
+     {
+      "file": "/assets/hooks-3urBjp8N.js",
+      "raw": 3121,
+      "gzip": 1513
+     },
+     {
+      "file": "/assets/a11y-Dnci2gWw.js",
+      "raw": 262,
+      "gzip": 186
+     },
+     {
+      "file": "/assets/rotate-ccw-BltcCpEZ.js",
+      "raw": 231,
+      "gzip": 201
+     },
+     {
+      "file": "/assets/DropZone-DqR0qWc6.js",
+      "raw": 3114,
+      "gzip": 1527
+     },
+     {
+      "file": "/assets/rich-text-D6_kjBtZ.js",
+      "raw": 5122,
+      "gzip": 2286
+     },
+     {
+      "file": "/assets/i18n-D34po_6e.js",
+      "raw": 215,
+      "gzip": 203
+     },
+     {
+      "file": "/assets/rotate-ccw-clock-DeR5O7BR.js",
+      "raw": 297,
+      "gzip": 238
+     },
+     {
+      "file": "/assets/pencil-qdsEXfqJ.js",
+      "raw": 307,
+      "gzip": 244
+     },
+     {
+      "file": "/assets/use-media-query-BJE3FvJ2.js",
+      "raw": 466,
+      "gzip": 317
+     },
+     {
+      "file": "/assets/prompt-target-7GrnBc16.js",
+      "raw": 51498,
+      "gzip": 17084
+     },
+     {
+      "file": "/assets/toggle-BBS6Eu_z.js",
+      "raw": 2416,
+      "gzip": 1202
+     },
+     {
+      "file": "/assets/esm-BH4zq2Qg.js",
+      "raw": 26969,
+      "gzip": 8125
+     },
+     {
+      "file": "/assets/use-debounced-value-BpikVao0.js",
+      "raw": 361,
+      "gzip": 267
+     },
+     {
+      "file": "/assets/shortcut-BIH_i1xY.js",
+      "raw": 136,
+      "gzip": 127
+     },
+     {
+      "file": "/assets/alert-dialog-29SRfmDY.js",
+      "raw": 4825,
+      "gzip": 1398
+     },
+     {
+      "file": "/assets/tokenize-CI4sfJvm.js",
+      "raw": 2003,
+      "gzip": 871
+     },
+     {
+      "file": "/assets/DialogTitle-5prhTj0s.js",
+      "raw": 6834,
+      "gzip": 2733
+     },
+     {
+      "file": "/assets/DialogDescription-Dd3OjzY_.js",
+      "raw": 397,
+      "gzip": 296
+     },
+     {
+      "file": "/assets/use-form-loader-B7kc4hrm.js",
+      "raw": 4221,
+      "gzip": 2106
+     },
+     {
+      "file": "/assets/list-plus-D8x1h4e5.js",
+      "raw": 299,
+      "gzip": 208
+     },
+     {
+      "file": "/assets/prompt-editor-CQjOiIW-.js",
+      "raw": 699,
+      "gzip": 406
+     },
+     {
+      "file": "/assets/progress-zNc0wjUp.js",
+      "raw": 3090,
+      "gzip": 1401
+     },
+     {
+      "file": "/assets/InfotextPanel-1S8VxdmR.js",
+      "raw": 3430,
+      "gzip": 1610
+     },
+     {
+      "file": "/assets/header-slot-KTqlRU9D.js",
+      "raw": 351,
+      "gzip": 265
+     },
+     {
+      "file": "/assets/read-image-info-BskpJXpp.js",
+      "raw": 3215,
+      "gzip": 1496
+     },
+     {
+      "file": "/assets/eye-B7daSyIn.js",
+      "raw": 689,
+      "gzip": 365
+     },
+     {
+      "file": "/assets/minus-DLfIOCZJ.js",
+      "raw": 148,
+      "gzip": 153
+     },
+     {
+      "file": "/assets/plus-fsUmlIdG.js",
+      "raw": 184,
+      "gzip": 170
+     },
+     {
+      "file": "/assets/rotate-cw-BiH_kKOh.js",
+      "raw": 232,
+      "gzip": 204
+     },
+     {
+      "file": "/assets/maximize-2-D6Sang6h.js",
+      "raw": 269,
+      "gzip": 204
+     },
+     {
+      "file": "/assets/Editor-mV6rhBWT.js",
+      "raw": 210751,
+      "gzip": 67547
+     },
+     {
+      "file": "/assets/dialog-DBpdgLgv.js",
+      "raw": 3386,
+      "gzip": 1183
+     },
+     {
+      "file": "/assets/DialogRoot-BT19bg9A.js",
+      "raw": 146,
+      "gzip": 137
+     },
+     {
+      "file": "/assets/undo-2-D5Ftp1-k.js",
+      "raw": 239,
+      "gzip": 194
+     },
+     {
+      "file": "/assets/use-scroll-fade-BA8mB7RB.js",
+      "raw": 1271,
+      "gzip": 721
+     },
+     {
+      "file": "/assets/dist-WGWahflo.js",
+      "raw": 27158,
+      "gzip": 9156
+     },
+     {
+      "file": "/assets/PromptEditor-DFgrVzyp.js",
+      "raw": 53,
+      "gzip": 71
+     },
+     {
+      "file": "/assets/PromptEditor-Cdk-sm-c.js",
+      "raw": 23032,
+      "gzip": 8495
+     },
+     {
+      "file": "/assets/dist-D6l_mHfa.js",
+      "raw": 49169,
+      "gzip": 16332
+     },
+     {
+      "file": "/assets/dist-kQRq5OSE.js",
+      "raw": 200187,
+      "gzip": 63852
+     },
+     {
+      "file": "/assets/facets-B3v037ul.js",
+      "raw": 153,
+      "gzip": 143
+     },
+     {
+      "file": "/assets/dist-C-ZdzF6M.js",
+      "raw": 39436,
+      "gzip": 13474
+     },
+     {
+      "file": "/assets/dist-BHqlJqzp.js",
+      "raw": 26938,
+      "gzip": 9513
+     },
+     {
+      "file": "/assets/PromptEditor-MazWoioC.js",
+      "raw": 53,
+      "gzip": 71
+     },
+     {
+      "file": "/assets/source-size-fit-CjSkxC2X.js",
+      "raw": 2190,
+      "gzip": 1322
+     },
+     {
+      "file": "/assets/PromptToolbar-B2Ll94RG.js",
+      "raw": 12510,
+      "gzip": 5327
+     },
+     {
+      "file": "/assets/star-WktF238d.js",
+      "raw": 503,
+      "gzip": 312
+     },
+     {
+      "file": "/assets/layout-grid-nJRN3HDa.js",
+      "raw": 377,
+      "gzip": 210
+     },
+     {
+      "file": "/assets/parse-Bg8YLqYN.js",
+      "raw": 6257,
+      "gzip": 2448
+     },
+     {
+      "file": "/assets/translate-BkczcqAF.js",
+      "raw": 1206,
+      "gzip": 709
+     },
+     {
+      "file": "/assets/spinner-jVe4hC_o.js",
+      "raw": 533,
+      "gzip": 384
+     }
+    ]
+   },
+   "dom": {
+    "elements": 1292,
+    "textNodes": 150,
+    "depth": 28,
+    "cdpNodes": 1662,
+    "documents": 2,
+    "jsHeapMB": 17.4,
+    "layoutCount": 27,
+    "recalcStyleCount": 81
+   },
+   "singleSection": {
+    "base": 1292,
+    "sections": 24,
+    "heaviest": [
+     {
+      "label": "Anima Regional Conditioning",
+      "elements": 357
+     },
+     {
+      "label": "Anima FreeFuse (multi-LoRA)",
+      "elements": 267
+     },
+     {
+      "label": "Anima LoRA/LoKR Layer Weight",
+      "elements": 204
+     },
+     {
+      "label": "Detail Daemon",
+      "elements": 177
+     },
+     {
+      "label": "Spectrum Integrated",
+      "elements": 172
+     },
+     {
+      "label": "ADetailer",
+      "elements": 137
+     },
+     {
+      "label": "Anima Prompt-Schedule Rescaler",
+      "elements": 116
+     },
+     {
+      "label": "Soft inpainting",
+      "elements": 102
+     }
+    ],
+    "after": 1324
+   },
+   "allSectionsExpanded": {
+    "clicks": 74,
+    "elements": 6926
+   }
+  }
+ }
+}

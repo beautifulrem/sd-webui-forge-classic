@@ -28,11 +28,35 @@ export function toServerLocale(locale: string): string {
   return locale.replace(/-/g, "_")
 }
 
+export type TextDirection = "ltr" | "rtl"
+
+/** Languages written right to left, for engines without `Intl.Locale` text info. */
+const RTL_LANGUAGES = new Set(["ar", "arc", "ckb", "dv", "fa", "he", "iw", "ks", "ps", "sd", "syr", "ug", "ur", "yi"])
+
+/**
+ * The writing direction of a locale ("ar", "he-IL", "fa_IR" → rtl), from
+ * CLDR through `Intl.Locale` (its script, so "pa-Arab" is rtl and "pa" is not). This
+ * replaces the Gradio UI's `"rtl": true` flag in a localization file: a
+ * catalog is named after its language, which already says the direction.
+ */
+export function textDirection(locale: string): TextDirection {
+  try {
+    const info = new Intl.Locale(toBcp47(locale)) as Intl.Locale & { getTextInfo?: () => { direction?: string }; textInfo?: { direction?: string } }
+    const direction = info.getTextInfo?.().direction ?? info.textInfo?.direction
+    if (direction === "rtl" || direction === "ltr") return direction
+    return RTL_LANGUAGES.has(info.language) ? "rtl" : "ltr"
+  } catch {
+    return "ltr"
+  }
+}
+
 type LocaleState = {
   /** The user's explicit choice; null follows the server default, then the browser. */
   chosen: string | null
   /** The locale currently active in i18next. */
   locale: string
+  /** Its writing direction (also `<html dir>`). */
+  direction: TextDirection
   setLocale: (locale: string) => void
 }
 
@@ -41,6 +65,7 @@ export const useLocale = create<LocaleState>()(
     (set) => ({
       chosen: null,
       locale: DEFAULT_LOCALE,
+      direction: "ltr",
       setLocale: (locale) => set({ chosen: locale }),
     }),
     { name: "remi-locale", version: 1, partialize: ({ chosen }) => ({ chosen }) },
@@ -99,8 +124,10 @@ export async function activateLocale(locale: string): Promise<void> {
     loaded.add(lng)
   }
   await i18n.changeLanguage(lng)
+  const direction = textDirection(lng)
   document.documentElement.lang = lng
-  useLocale.setState({ locale: lng })
+  document.documentElement.dir = direction
+  useLocale.setState({ locale: lng, direction })
 }
 
 /** Re-fetches the server catalog (e.g. after extensions changed). */

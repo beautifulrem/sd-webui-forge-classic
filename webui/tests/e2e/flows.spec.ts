@@ -190,6 +190,58 @@ test.describe("appearance and language", () => {
     console.assertClean()
   })
 
+  test("zh-CN: settings help blocks, a missing source image and the notifications region are Chinese", async ({ page }) => {
+    const console = watchConsole(page)
+    await presetStorage(page, { locale: "zh-CN" })
+    await openRoute(page, "img2img")
+    await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN")
+    await expect(page.getByRole("textbox", { name: "提示词", exact: true })).toBeVisible()
+    // the client checks the required source image itself: inline marker and a Chinese toast body
+    await page.getByRole("button", { name: /^生成/ }).first().click()
+    const toast = page.locator("[data-sonner-toast]").filter({ hasText: "部分参数无效" })
+    await expect(toast).toContainText("需要一张图像")
+    await expect(toast).not.toContainText("an image is required")
+    await expect(page.getByRole("region", { name: "通知（Alt+T）" })).toBeAttached()
+    await expect(toast.getByRole("button", { name: "关闭通知" })).toBeAttached()
+    // settings: an HTML help block is translated with its markup
+    await go(page, "#/settings")
+    await page.getByRole("navigation", { name: "设置分区" }).getByRole("button", { name: "生成信息" }).click()
+    await expect(page.getByText("生成信息（Infotext）是 WebUI 对包含生成参数的文本的称呼")).toBeVisible()
+    console.assertClean()
+  })
+
+  test("applies user.css from the data folder over the app's own styles", async ({ page }) => {
+    const console = watchConsole(page)
+    await page.route("**/api/v2/user-assets/user.css", (route) =>
+      route.fulfill({ contentType: "text/css", body: "body { outline: 3px solid rgb(1, 2, 3); background-color: rgb(4, 5, 6); }" }),
+    )
+    await openGenerate(page)
+    const body = () => page.evaluate(() => [getComputedStyle(document.body).outlineColor, getComputedStyle(document.body).backgroundColor])
+    // the background rule competes with the app's own body background, and wins
+    await expect.poll(body).toEqual(["rgb(1, 2, 3)", "rgb(4, 5, 6)"])
+    expect(await page.evaluate(() => document.querySelector<HTMLLinkElement>("link[rel=stylesheet][href$='/user-assets/user.css']")?.parentElement?.tagName)).toBe("BODY")
+    // still applied after visiting a lazily loaded page (its CSS comes later, into <head>)
+    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", { name: "Settings" }).click()
+    await expect(page).toHaveURL(/#\/settings/)
+    expect(await body()).toEqual(["rgb(1, 2, 3)", "rgb(4, 5, 6)"])
+    console.assertClean()
+  })
+
+  test("lays the app out right to left for a right-to-left language", async ({ page }) => {
+    await presetStorage(page, { locale: "ar" })
+    await openGenerate(page)
+    const html = page.locator("html")
+    await expect(html).toHaveAttribute("lang", "ar")
+    await expect(html).toHaveAttribute("dir", "rtl")
+    // the navigation rail moves to the right-hand side
+    const rail = await page.getByRole("navigation", { name: "Main navigation" }).boundingBox()
+    const main = await page.getByRole("main").boundingBox()
+    expect(rail!.x).toBeGreaterThan(main!.x)
+    await page.getByRole("button", { name: "Appearance" }).click()
+    await page.getByRole("menuitemradio", { name: "English" }).click()
+    await expect(html).toHaveAttribute("dir", "ltr")
+  })
+
   test("switches between light and dark and remembers the theme", async ({ page }) => {
     await presetStorage(page, { theme: "dark" })
     await openGenerate(page)

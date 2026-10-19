@@ -21,6 +21,7 @@ import type { GenerateTab } from "@/features/progress/run-controller"
 import { ResultActions } from "@/features/send-to/ResultActions"
 import { Img2imgStage } from "@/canvas"
 import { useOwnRunningJob } from "./hooks"
+import { LivePreview } from "./LivePreview"
 
 function ProgressOverlay({ job }: { job: RunningJob }) {
   const { t } = useTranslation()
@@ -136,13 +137,11 @@ export function Stage({ tab, onOpenViewer, className, leading, trailing, toolbar
           aria-label={t("Open image viewer")}
           className="group/stage flex size-full items-center justify-center outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
         >
-          <img
-            src={src}
-            alt={live ? t("Live preview") : t("Generated image")}
-            draggable={!live}
-            // Previews are often latent-sized (e.g. 96 px): scale them up to the stage.
-            className={cn(live ? "size-full object-contain" : "max-h-full max-w-full object-contain", job && !live && "opacity-90")}
-          />
+          {live ? (
+            <LivePreview src={live} alt={t("Live preview")} />
+          ) : (
+            <img src={src} alt={t("Generated image")} className={cn("max-h-full max-w-full object-contain", job && "opacity-90")} />
+          )}
         </button>
       ) : (
         <div className="flex flex-col items-center gap-2 p-6 text-center text-sm text-muted-foreground">

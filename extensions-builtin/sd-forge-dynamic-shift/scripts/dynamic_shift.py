@@ -36,6 +36,9 @@ K_CURVE = "DynShift curve"
 K_HR_MODE = "DynShift hires mode"
 K_HR_START = "DynShift hires start"
 K_HR_END = "DynShift hires end"
+# The Schedule type the run replaced with Automatic (an API/XYZ choice; the
+# panel itself keeps Schedule Type at Automatic while Dynamic Shift is on)
+K_REPLACED = "DynShift replaced scheduler"
 
 HR_MODES = ["Same as first pass", "Custom", "Static (built-in shift)"]
 
@@ -141,7 +144,7 @@ class DynamicShiftScript(scripts.Script):
             return
 
         if conflict_state.scheduler != str(getattr(p, "scheduler", "Automatic")):
-            p.extra_generation_params["DynShift replaced scheduler"] = getattr(
+            p.extra_generation_params[K_REPLACED] = getattr(
                 p, "scheduler", "Automatic"
             )
             p.scheduler = conflict_state.scheduler
@@ -180,6 +183,18 @@ class DynamicShiftScript(scripts.Script):
             if hr_mode == "Custom":
                 p.extra_generation_params[K_HR_START] = hr_start
                 p.extra_generation_params[K_HR_END] = hr_end
+
+
+def _on_infotext_pasted(infotext, params):
+    """Paste the Schedule type the run replaced: its infotext reads "Schedule
+    type: Automatic" plus "DynShift replaced scheduler", and pasting Automatic
+    ran without a replacement (the same image, an infotext without the record)."""
+
+    if replaced := params.get(K_REPLACED):
+        params["Schedule type"] = replaced
+
+
+script_callbacks.on_infotext_pasted(_on_infotext_pasted, name="dynamic_shift")
 
 
 # ---------------------------------------------------------------------------

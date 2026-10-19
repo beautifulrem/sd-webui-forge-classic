@@ -14,10 +14,10 @@ import type { FormTab, JobDetail, ParamValues, TabSchema } from "@/api/types"
 import { navigate } from "@/app/router"
 import type { PasteEntry } from "@/features/infotext/paste"
 import { deliver } from "@/features/send-to/send-to"
-import { errorText } from "@/features/errors/error-text"
+import { errorText, toastInvalid } from "@/features/errors/error-text"
 import { t } from "@/i18n"
 import { getFormStore } from "@/ui/form-store"
-import { jobRequest } from "@/ui/tab"
+import { jobRequest, missingInputs } from "@/ui/tab"
 
 export type EditSession = { jobId: string; seq: number; tab: FormTab; title: string }
 
@@ -71,6 +71,12 @@ export async function saveEdit(tab: FormTab): Promise<boolean> {
   if (!session || !schema) return false
   const store = getFormStore(tab)
   const { core, scripts } = jobRequest(store, schema)
+  const missing = missingInputs(schema, { core })
+  if (missing.length > 0) {
+    store.getState().setErrors(missing)
+    toastInvalid(missing)
+    return false
+  }
   useQueueEdit.setState((s) => ({ saving: { ...s.saving, [tab]: true } }))
   try {
     await api.jobs.updateParams(session.jobId, { core, scripts })
@@ -84,7 +90,7 @@ export async function saveEdit(tab: FormTab): Promise<boolean> {
     const errors = validationErrors(error)
     if (errors) {
       store.getState().setErrors(errors)
-      toast.error(t("Some parameters are invalid"), { description: message(error) })
+      toastInvalid(errors)
     } else if (error instanceof ApiError && (error.status === 409 || error.status === 404)) {
       cancelEdit(tab)
       toast.error(t("Job #{{seq}} already started or was removed", { seq: session.seq }), {
@@ -104,8 +110,15 @@ export async function enqueueForm(tab: FormTab): Promise<string | null> {
   const schema = queryClient.getQueryData<TabSchema>(keys.schema(tab))
   if (!schema) return null
   const store = getFormStore(tab)
+  const request = jobRequest(store, schema)
+  const missing = missingInputs(schema, request)
+  if (missing.length > 0) {
+    store.getState().setErrors(missing)
+    toastInvalid(missing)
+    return null
+  }
   try {
-    const created = await api.jobs.create(jobRequest(store, schema))
+    const created = await api.jobs.create(request)
     store.getState().clearErrors()
     const queued = queryClient.getQueryData<unknown[]>(keys.queueItems)?.length
     toast.success(t("Added to the queue as #{{seq}}", { seq: created.seq }), {
@@ -116,8 +129,12 @@ export async function enqueueForm(tab: FormTab): Promise<string | null> {
     return created.job_id
   } catch (error) {
     const errors = validationErrors(error)
-    if (errors) store.getState().setErrors(errors)
-    toast.error(errors ? t("Some parameters are invalid") : t("Could not queue the job"), { description: message(error) })
+    if (errors) {
+      store.getState().setErrors(errors)
+      toastInvalid(errors)
+    } else {
+      toast.error(t("Could not queue the job"), { description: message(error) })
+    }
     return null
   }
 }

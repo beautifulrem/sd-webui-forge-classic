@@ -271,6 +271,28 @@ def test_img2img_masks_and_required_images(webui, anima_checkpoint):
     assert errors({"mode": "Batch"}) == {("batch_upload", "upload the images to process")}
 
 
+def test_the_tab_schema_lists_the_required_inputs(webui):
+    """``core.required``: what the client checks before submitting, the same
+    rules the server applies (an empty required input never reaches POST /jobs)."""
+
+    from remi.core import forms
+    from remi.core.tabs import tab_schema
+
+    for tab in ("img2img", "extras"):
+        schema = tab_schema(tab)
+        required = schema["core"]["required"]
+        assert required == forms.required_inputs(tab) and required
+        names = set(forms.core_layout(tab).by_name)
+        for entry in required:
+            assert entry["param"] in names and ui.conditions.references(entry["when"]) <= names
+    assert tab_schema("txt2img")["core"]["required"] == []
+    img2img = {entry["param"]: entry for entry in tab_schema("img2img")["core"]["required"]}
+    assert ui.evaluate(img2img["init_img"]["when"], {"mode": "Inpaint"}) and not ui.evaluate(img2img["init_img"]["when"], {"mode": "Batch"})
+    # blank strings and empty lists are empty, as the client sees them
+    assert {problem.param for problem in forms.check_core("extras", {"mode": "Batch from Directory", "input_dir": "  "})} == {"input_dir"}
+    assert forms.check_core("extras", {"mode": "Single Image", "image": "abc"}) == []
+
+
 def test_compose_inputs_matches_each_legacy_mode():
     from modules.img2img import compose_inputs
 

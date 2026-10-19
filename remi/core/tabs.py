@@ -60,7 +60,7 @@ def tab_schema(tab: str, ctx: Context | None = None) -> TabSchema:
     schema: TabSchema = {
         "version": SCHEMA_VERSION,
         "tab": tab,
-        "core": {"owner": "core", "layout": layout.schema(ctx), "defaults": jsonable(layout.defaults(ctx))},
+        "core": {"owner": "core", "layout": layout.schema(ctx), "defaults": jsonable(layout.defaults(ctx)), "required": forms.required_inputs(tab)},
         "scripts": script_entries,
     }
     if runner is not None:

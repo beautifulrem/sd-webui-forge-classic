@@ -692,7 +692,9 @@ def verify_version():
     settings_file: os.PathLike = args.ui_settings_file
 
     if not os.path.isfile(settings_file):
-        # config.json does not exist on a fresh git clone
+        # config.json does not exist on a fresh git clone, nor its folder
+        # with a new --data-dir (the first thing written into it)
+        os.makedirs(os.path.dirname(os.path.abspath(settings_file)), exist_ok=True)
         with open(settings_file, "w", encoding="utf8") as file:
             json.dump({"VERSION_UID": VERSION_UID}, file)
             return

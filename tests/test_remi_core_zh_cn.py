@@ -50,6 +50,21 @@ def test_the_collector_sees_the_whole_ui(strings):
     assert "Euler a" not in strings and "samples_format" not in strings and not {"png", "veryfast"} & strings
     # lowercase choice labels elsewhere are UI text ("Masked content")
     assert {"fill", "original"} <= strings
+    # settings help markup (keyed by its exact text, as the SPA looks it up) and the Callbacks section
+    assert any(text.startswith("These settings allow you to enable PyTorch profiler") for text in strings)
+    assert {"Callbacks", "For categories below, callbacks added to dropdowns happen before others, in order listed."} <= strings
+    assert not any(text.startswith(("prioritized_callbacks_", "base/")) for text in strings)
+
+
+def test_the_callbacks_section_keeps_the_vae_explanation():
+    """The Callbacks section's help once reused the key ``sd_vae_explanation``
+    and replaced the VAE section's explanation."""
+
+    from modules import shared_items, shared_options
+
+    with webui_state():
+        callbacks = shared_items.callbacks_order_settings()
+    assert not set(callbacks) & set(shared_options.options_templates)
 
 
 def test_every_core_string_is_translated(strings, catalog):

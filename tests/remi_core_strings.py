@@ -1,7 +1,8 @@
 """The English strings of the core UI the server catalog must translate
 (``localizations/<locale>.json``): the generation forms (core params and the
 built-in processing scripts), every setting (category, section, label, info,
-notes, link labels, choice labels, tooltips), and the server's translatable messages
+notes, link labels, choice labels, tooltips, HTML help blocks keyed by their
+exact markup), and the server's translatable messages
 (action toasts and texts, page task messages, extension admin errors).
 
 Not a test module: ``tests/test_remi_core_zh_cn.py`` checks the zh_CN
@@ -40,7 +41,11 @@ def _text_strings(node, found: set[str]) -> None:
         return
     if not isinstance(node, dict):
         return
-    if node.get("type") != "html":
+    if node.get("type") == "html":
+        # help markup: the SPA translates it by its exact text (markup included)
+        if isinstance(node.get("text"), str) and node["text"].strip():
+            found.add(node["text"])
+    else:
         for key in ("label", "info", "hint", "title", "placeholder"):
             if isinstance(node.get(key), str) and node[key].strip():
                 found.add(node[key])
@@ -49,13 +54,16 @@ def _text_strings(node, found: set[str]) -> None:
                 found.add(hint)
         if node.get("type") == "markdown" and isinstance(node.get("text"), str):
             found.add(node["text"])
+    if isinstance(node.get("html"), str) and node["html"].strip():  # a setting's A1111 help markup
+        found.add(node["html"])
     for note in node.get("notes") or ():
         if isinstance(note, str) and note.strip():
             found.add(note)
     for link in node.get("links") or ():
         if isinstance(link, dict) and isinstance(link.get("label"), str):
             found.add(link["label"])
-    if (node.get("name") or node.get("key")) not in DATA_CHOICES:
+    name = node.get("name") or node.get("key")
+    if name not in DATA_CHOICES and not str(name).startswith(DATA_CHOICE_PREFIXES):
         for choice in node.get("choices") or ():
             if isinstance(choice, dict) and isinstance(choice.get("label"), str) and choice["label"].strip():
                 found.add(choice["label"])
@@ -79,6 +87,7 @@ DATA_CHOICES = frozenset(
         "ui_reorder_list",  # the generation form's section ids
     }
 )
+DATA_CHOICE_PREFIXES = ("prioritized_callbacks_",)  # callback ids (file/callback/class)
 
 
 def _dynamic_names() -> set[str]:
@@ -113,6 +122,7 @@ def form_strings() -> set[str]:
     for tab in TABS:
         schema = tab_schema(tab)
         _text_strings(schema["core"]["layout"], found)
+        found.update(entry["message"] for entry in schema["core"].get("required", ()))  # shown inline and in the toast
         for script in schema["scripts"]:
             found.add(script["title"])
             _text_strings(script["layout"], found)
@@ -120,13 +130,24 @@ def form_strings() -> set[str]:
 
 
 def settings_strings(opts) -> set[str]:
+    """Every setting the server shows, the Callbacks section included
+    (``remi.server.runtime.prepare`` adds it at startup)."""
+
+    from modules import shared_items
+    from modules.options import options_section
     from remi.server.settings import register_options
     from remi.ui.settings import settings_schema
 
     register_options(opts)
-    found: set[str] = set()
-    _text_strings(settings_schema(opts)["categories"], found)
-    return found
+    callbacks = options_section(("callbacks", "Callbacks", "system"), shared_items.callbacks_order_settings())
+    saved = opts.data_labels
+    opts.data_labels = {**saved, **callbacks}
+    try:
+        found: set[str] = set()
+        _text_strings(settings_schema(opts)["categories"], found)
+    finally:
+        opts.data_labels = saved
+    return found - set(callbacks)  # setting keys offered as choices (quick settings) are data
 
 
 def message_strings() -> set[str]:

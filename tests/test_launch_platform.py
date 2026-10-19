@@ -215,5 +215,28 @@ fi
         self.assertIn("|launch.py --port 7870|--api", self.calls())
 
 
+class VerifyVersionTests(unittest.TestCase):
+    """``verify_version`` writes config.json first thing at startup: a new
+    ``--data-dir`` did not exist yet and launch.py died with FileNotFoundError."""
+
+    def load(self, settings_file):
+        source = ast.parse((ROOT / "modules/launch_utils.py").read_text())
+        nodes = [node for node in source.body if (isinstance(node, ast.FunctionDef) and node.name == "verify_version") or (isinstance(node, ast.AnnAssign) and getattr(node.target, "id", None) == "VERSION_UID")]
+        namespace = {"os": os, "json": __import__("json"), "Any": object, "Final": object, "args": SimpleNamespace(ui_settings_file=str(settings_file))}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), "launch_utils.py", "exec"), namespace)
+        return namespace
+
+    def test_a_new_data_dir_is_created(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as root:
+            settings = Path(root, "new", "data-dir", "config.json")
+            helpers = self.load(settings)
+            helpers["verify_version"]()
+            self.assertEqual(json.loads(settings.read_text()), {"VERSION_UID": helpers["VERSION_UID"]})
+            # the next start finds it up to date
+            helpers["verify_version"]()
+
+
 if __name__ == "__main__":
     unittest.main()

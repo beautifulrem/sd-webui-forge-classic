@@ -37,6 +37,7 @@ class NodeSchema(TypedDict, total=False):
     infotext: str
     preset: str
     exclusive: dict[str, str]
+    inactive_if: Condition
     minimum: float
     maximum: float
     step: float
@@ -106,10 +107,17 @@ class ScriptEntry(TypedDict):
     args: list[str]
 
 
+class RequiredInput(TypedDict):
+    param: str
+    message: str
+    when: Condition
+
+
 class OwnerSchema(TypedDict):
     owner: str
     layout: NodeSchema | None
     defaults: dict[str, Any]
+    required: NotRequired[list[RequiredInput]]
 
 
 class TabSchema(TypedDict):

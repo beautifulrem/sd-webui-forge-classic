@@ -12,10 +12,10 @@ import { validationErrors } from "@/api/http"
 import { useProgress } from "@/api/progress"
 import { keys, queryClient } from "@/api/queries"
 import type { JobOutput, TabSchema } from "@/api/types"
-import { errorText } from "@/features/errors/error-text"
+import { errorText, toastInvalid } from "@/features/errors/error-text"
 import { t } from "@/i18n"
 import { getFormStore } from "@/ui/form-store"
-import { jobRequest } from "@/ui/tab"
+import { jobRequest, missingInputs } from "@/ui/tab"
 
 export type ExtrasResult = {
   jobId: string
@@ -61,6 +61,12 @@ export async function runExtras(): Promise<void> {
   if (!schema || state.submitting) return
   const store = getFormStore("extras")
   const body = jobRequest(store, schema)
+  const missing = missingInputs(schema, body)
+  if (missing.length > 0) {
+    store.getState().setErrors(missing)
+    toastInvalid(missing)
+    return
+  }
   useExtrasRuns.setState({ submitting: true })
   try {
     const created = await api.jobs.create(body)
@@ -71,8 +77,12 @@ export async function runExtras(): Promise<void> {
     for (const id of ids) useProgress.getState().track(id, "extras")
   } catch (error) {
     const errors = validationErrors(error)
-    if (errors) store.getState().setErrors(errors)
-    toast.error(errors ? t("Some parameters are invalid") : t("Could not queue the job"), { description: errorText(error, { 422: t("Check the marked fields.") }) })
+    if (errors) {
+      store.getState().setErrors(errors)
+      toastInvalid(errors)
+    } else {
+      toast.error(t("Could not queue the job"), { description: errorText(error) })
+    }
   } finally {
     useExtrasRuns.setState({ submitting: false })
   }

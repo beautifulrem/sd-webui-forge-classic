@@ -1,0 +1,167 @@
+{
+ "base": "http://127.0.0.1:7871",
+ "date": "2026-10-19T21:30:08.910Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "preview": {
+  "jobs": [
+   {
+    "jobId": "1a6f560e65c7c462",
+    "ms": 69701,
+    "status": "completed"
+   },
+   {
+    "jobId": "a962594a8c7ed710",
+    "ms": 67998,
+    "status": "completed"
+   }
+  ],
+  "steps": 12,
+  "batchCount": 3,
+  "perImage": [
+   {
+    "seq": 9,
+    "received": 13,
+    "painted": 13
+   },
+   {
+    "seq": 9,
+    "received": 12,
+    "painted": 12
+   },
+   {
+    "seq": 9,
+    "received": 11,
+    "painted": 11
+   },
+   {
+    "seq": 10,
+    "received": 13,
+    "painted": 13
+   },
+   {
+    "seq": 10,
+    "received": 12,
+    "painted": 12
+   },
+   {
+    "seq": 10,
+    "received": 11,
+    "painted": 11
+   }
+  ],
+  "paintedShare": 1,
+  "framesPerStep": 2.65,
+  "frameReportsPerStep": 2.65,
+  "frameStates": {
+   "STATE_PRESENTED_ALL": 90,
+   "STATE_NO_UPDATE_DESIRED": 95,
+   "STATE_DROPPED": 48
+  },
+  "pageIdlePerSecond": {
+   "steps": 10,
+   "seconds": 10.1,
+   "taskMs": 0.06,
+   "scriptMs": 0.01,
+   "layoutMs": 0,
+   "recalcStyleMs": 0,
+   "layouts": 0,
+   "chromiumCpuMs": 1
+  },
+  "pageCostPerStep": {
+   "steps": 34,
+   "seconds": 64.3,
+   "taskMs": 12.01,
+   "scriptMs": 3.26,
+   "layoutMs": 0.69,
+   "recalcStyleMs": 0.26,
+   "layouts": 1.24,
+   "chromiumCpuMs": 50.6,
+   "overIdle": {
+    "taskMs": 11.9,
+    "chromiumCpuMs": 48.7
+   }
+  },
+  "framesPresentedFirstJob": 90,
+  "clockOffsetMs": -0.6,
+  "framesReceived": 72,
+  "framesPainted": 72,
+  "framesPublished": 72,
+  "imagesAssigned": 72,
+  "matched": 72,
+  "total": {
+   "n": 72,
+   "mean": 40.1,
+   "p50": 35.4,
+   "p95": 73,
+   "p99": 140.9,
+   "max": 144.5
+  },
+  "imageToPublish": {
+   "n": 72,
+   "mean": 0.8,
+   "p50": 0.5,
+   "p95": 1.8,
+   "p99": 5.7,
+   "max": 12.4
+  },
+  "encode": {
+   "n": 72,
+   "mean": 0.5,
+   "p50": 0.3,
+   "p95": 1.4,
+   "p99": 2.7,
+   "max": 2.9
+  },
+  "publishToReceive": {
+   "n": 72,
+   "mean": 4.7,
+   "p50": 1.1,
+   "p95": 17.2,
+   "p99": 62.7,
+   "max": 99
+  },
+  "receiveToPaint": {
+   "n": 72,
+   "mean": 34.5,
+   "p50": 33.4,
+   "p95": 46.1,
+   "p99": 75.3,
+   "max": 133.1
+  },
+  "encodedToPaint": {
+   "n": 72,
+   "mean": 39.3,
+   "p50": 34.9,
+   "p95": 69,
+   "p99": 140.1,
+   "max": 143.7
+  },
+  "its": [
+   {
+    "steps": 36,
+    "its": 0.518,
+    "stepMs": {
+     "n": 35,
+     "mean": 1930.3,
+     "p50": 1913.6,
+     "p95": 2121.6,
+     "p99": 2226.8,
+     "max": 2279.1
+    }
+   },
+   {
+    "steps": 36,
+    "its": 0.5322,
+    "stepMs": {
+     "n": 35,
+     "mean": 1879.1,
+     "p50": 1861.1,
+     "p95": 1977.1,
+     "p99": 2346.6,
+     "max": 2515.6
+    }
+   }
+  ]
+ }
+}

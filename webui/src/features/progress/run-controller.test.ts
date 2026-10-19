@@ -46,6 +46,22 @@ describe("run controller", () => {
     expect(localStorage.getItem(persistKey("txt2img"))).toBeNull()
   })
 
+  it("does not send a job whose required inputs are empty: marks them and says why", async () => {
+    queryClient.setQueryData(keys.schema("img2img"), tabSchema("img2img"))
+    const { getFormStore } = await import("@/ui/form-store")
+    const { tabOwners } = await import("@/ui/tab")
+    const store = getFormStore("img2img")
+    store.getState().load(tabOwners(tabSchema("img2img")))
+    const create = vi.spyOn(api.jobs, "create")
+    const { toast } = await import("sonner")
+    const error = vi.spyOn(toast, "error")
+    dispatchRun("img2img", { type: "generate" })
+    await vi.waitFor(() => expect(store.getState().errors.core?.init_img).toBe("an image is required"))
+    expect(create).not.toHaveBeenCalled()
+    expect(error).toHaveBeenCalledWith("Some parameters are invalid", { description: "an image is required" })
+    expect(phaseOf(useRuns.getState().runs.img2img)).toBe("idle")
+  })
+
   it("upscales a result with the form's values and puts the result in its place", async () => {
     const send = await socket()
     wireSessionResults()

@@ -1,10 +1,11 @@
 import { QueryClientProvider } from "@tanstack/react-query"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { extrasSchema } from "@/api/mock/fixtures"
 import { useProgress } from "@/api/progress"
 import { keys, queryClient } from "@/api/queries"
 import { resetExtrasRuns, useExtrasRuns } from "@/features/extras/run"
+import { getFormStore } from "@/ui/form-store"
 import ExtrasPage from "./index"
 
 function mockFetch() {
@@ -40,6 +41,7 @@ describe("extras page", () => {
     )
     expect(await screen.findByText("Scale by")).toBeInTheDocument()
     expect(screen.getByText("Results appear here, next to their source.")).toBeInTheDocument()
+    act(() => getFormStore("extras").getState().setValue("core", "image", "src1")) // the source the schema requires
     fireEvent.keyDown(window, { key: "Enter", ctrlKey: true })
     await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.path === "/jobs")).toBe(true))
     await waitFor(() => expect(screen.getByRole("button", { name: "Interrupt" })).toBeInTheDocument())
@@ -53,6 +55,7 @@ describe("extras page", () => {
       </QueryClientProvider>,
     )
     expect(await screen.findByText("Scale by")).toBeInTheDocument()
+    act(() => getFormStore("extras").getState().setValue("core", "image", "src1"))
     fireEvent.keyDown(window, { key: "Enter", ctrlKey: true, shiftKey: true })
     await waitFor(() => expect(calls.filter((call) => call.method === "POST" && call.path === "/jobs")).toHaveLength(1))
     expect(calls.find((call) => call.path === "/jobs")?.body).toMatchObject({ tab: "extras" })

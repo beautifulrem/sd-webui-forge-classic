@@ -200,9 +200,11 @@ def _enable_hr() -> ui.Toggle:
 def _hr_target() -> list[ui.Input]:
     step = resolution_step()
     return [
-        ui.Slider("hr_scale", 1.0, 4.0, 2.0, 0.05, label="Upscale by", hint=hints.UPSCALE_BY, infotext="Hires upscale", on_change="hr_resolution"),
-        ui.Slider("hr_resize_x", 0, 4096, 0, step, label="Resize width to", hint=hints.RESIZE_WIDTH_TO, infotext="Hires resize-1", on_change="hr_resolution"),
-        ui.Slider("hr_resize_y", 0, 4096, 0, step, label="Resize height to", hint=hints.RESIZE_HEIGHT_TO, infotext="Hires resize-2", on_change="hr_resolution"),
+        # A target size wins over the factor; a size left at 0 follows the other one (the
+        # Gradio UI greyed out whichever does not apply): dimmed, still editable
+        ui.Slider("hr_scale", 1.0, 4.0, 2.0, 0.05, label="Upscale by", hint=hints.UPSCALE_BY, infotext="Hires upscale", on_change="hr_resolution", inactive_if=ui.any_of(ui.param("hr_resize_x", gt=0), ui.param("hr_resize_y", gt=0))),
+        ui.Slider("hr_resize_x", 0, 4096, 0, step, label="Resize width to", hint=hints.RESIZE_WIDTH_TO, infotext="Hires resize-1", on_change="hr_resolution", inactive_if=ui.param("hr_resize_x", lte=0)),
+        ui.Slider("hr_resize_y", 0, 4096, 0, step, label="Resize height to", hint=hints.RESIZE_HEIGHT_TO, infotext="Hires resize-2", on_change="hr_resolution", inactive_if=ui.param("hr_resize_y", lte=0)),
     ]
 
 
@@ -465,38 +467,49 @@ def core_layout(tab: str, runner: ScriptRunner | None = None) -> ui.ScriptLayout
     return layout
 
 
-# Which canvas layer each img2img mode needs: (param, message)
-_REQUIRED_IMAGES: dict[str, tuple[tuple[str, str], ...]] = {
-    "img2img": (("init_img", "an image is required"),),
-    "Sketch": (("init_img", "an image is required"),),
-    "Inpaint": (("init_img", "an image is required"), ("mask", "paint a mask over the image")),
-    "Inpaint sketch": (("init_img", "an image is required"), ("sketch", "paint the area to inpaint")),
-    "Inpaint upload": (("init_img", "an image is required"), ("mask_upload", "a mask image is required")),
+# The inputs each core form needs: (param, message, when). ``when`` is a
+# condition (schema-format.md §2) on the coerced core values; while it holds,
+# the param must not be empty. The tab schema sends them as ``core.required``
+# so the client checks before submitting (no request that must fail).
+_IMG2IMG_IMAGE_MODES = ("img2img", "Sketch", "Inpaint", "Inpaint sketch", "Inpaint upload")
+REQUIRED_INPUTS: dict[str, tuple[tuple[str, str, ui.conditions.Condition], ...]] = {
+    "img2img": (
+        ("init_img", "an image is required", ui.param("mode", in_=list(_IMG2IMG_IMAGE_MODES))),
+        ("mask", "paint a mask over the image", ui.param("mode", eq="Inpaint")),
+        ("sketch", "paint the area to inpaint", ui.param("mode", eq="Inpaint sketch")),
+        ("mask_upload", "a mask image is required", ui.param("mode", eq="Inpaint upload")),
+        ("batch_upload", "upload the images to process", ui.all_of(ui.param("mode", eq="Batch"), ui.param("batch_source", eq="upload"))),
+    ),
+    "extras": (
+        ("image", "an image is required", ui.param("mode", eq="Single Image")),
+        ("image_batch", "upload the images to process", ui.param("mode", eq="Batch Process")),
+        ("input_dir", "an input directory is required", ui.param("mode", eq="Batch from Directory")),
+        ("video_input", "a video file is required", ui.param("mode", eq="Single Video")),
+    ),
 }
 
 
-def check_core(tab: str, values: Mapping[str, Any]) -> list[ui.ParamError]:
-    """Rules across params of a coerced core form: the images each mode
-    needs (img2img), the source of an Extras run."""
+def required_inputs(tab: str) -> list[dict[str, Any]]:
+    """``core.required`` of the tab schema: ``[{"param", "message", "when"}]``."""
 
-    problems: list[ui.ParamError] = []
-    if tab == "img2img":
-        for name, message in _REQUIRED_IMAGES.get(values.get("mode"), ()):
-            if values.get(name) is None:
-                problems.append(ui.ParamError(message, owner="core", param=name))
-        if values.get("mode") == "Batch" and values.get("batch_source") == "upload" and not values.get("batch_upload"):
-            problems.append(ui.ParamError("upload the images to process", owner="core", param="batch_upload"))
-    elif tab == "extras":
-        mode = values.get("mode")
-        if mode == "Single Image" and values.get("image") is None:
-            problems.append(ui.ParamError("an image is required", owner="core", param="image"))
-        elif mode == "Batch Process" and not values.get("image_batch"):
-            problems.append(ui.ParamError("upload the images to process", owner="core", param="image_batch"))
-        elif mode == "Batch from Directory" and not str(values.get("input_dir") or "").strip():
-            problems.append(ui.ParamError("an input directory is required", owner="core", param="input_dir"))
-        elif mode == "Single Video" and not str(values.get("video_input") or "").strip():
-            problems.append(ui.ParamError("a video file is required", owner="core", param="video_input"))
-    return problems
+    return [{"param": name, "message": message, "when": when} for name, message, when in REQUIRED_INPUTS.get(tab, ())]
+
+
+def _empty(value: Any) -> bool:
+    """No value: ``None``, a blank string or an empty list."""
+
+    return value is None or (isinstance(value, str) and not value.strip()) or (isinstance(value, list | tuple) and not value)
+
+
+def check_core(tab: str, values: Mapping[str, Any]) -> list[ui.ParamError]:
+    """Rules across params of a coerced core form: the images each img2img
+    mode needs, the source of an Extras run (:data:`REQUIRED_INPUTS`)."""
+
+    return [
+        ui.ParamError(message, owner="core", param=name)
+        for name, message, when in REQUIRED_INPUTS.get(tab, ())
+        if ui.evaluate(when, values) and _empty(values.get(name))
+    ]
 
 
 # endregion

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { ApiError } from "@/api/http"
-import { errorText } from "./error-text"
+import { errorText, validationText } from "./error-text"
 
 const failed = (status: number) => new ApiError(status, `HTTP ${status}`, { detail: "English detail for the logs" })
 
@@ -38,5 +38,25 @@ describe("errorText", () => {
     // Statuses the caller did not name keep the generic text.
     expect(errorText(failed(403), texts)).toBe("The server does not allow this.")
     expect(errorText(new Error("network"), texts)).toBe("The server cannot be reached.")
+  })
+})
+
+describe("validationText", () => {
+  it("lists each distinct message once, translated like the inline errors", async () => {
+    const { i18n } = await import("@/i18n")
+    i18n.addResource("zh-CN", "server", "an image is required", "需要一张图像")
+    i18n.addResource("zh-CN", "server", "paint a mask over the image", "请在图像上绘制蒙版")
+    const errors = [
+      { owner: "core", param: "init_img", message: "an image is required" },
+      { owner: "core", param: "mask", message: "paint a mask over the image" },
+      { owner: "other", param: "image", message: "an image is required" },
+    ]
+    expect(validationText(errors)).toBe("an image is required · paint a mask over the image")
+    await i18n.changeLanguage("zh-CN")
+    try {
+      expect(validationText(errors)).toBe("需要一张图像 · 请在图像上绘制蒙版")
+    } finally {
+      await i18n.changeLanguage("en")
+    }
   })
 })

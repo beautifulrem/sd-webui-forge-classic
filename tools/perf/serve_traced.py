@@ -43,6 +43,7 @@ ROOT = Path(__file__).resolve().parents[2]
 _lock = threading.Lock()
 _out = open(os.environ.get("REMI_PERF_TRACE", "/tmp/remi-perf-trace.jsonl"), "a", buffering=1)  # noqa: SIM115 - process lifetime
 _images: dict[int, tuple[float, int]] = {}
+"""assignment time and id of the live previews, by ``id_live_preview``"""
 
 
 def emit(**record) -> None:
@@ -57,11 +58,14 @@ def _patch_shared_state(module) -> None:
 
     @functools.wraps(assign)
     def assign_current_image(self, image):
-        assign(self, image)
+        # timed and keyed before the call: the encoder may publish the preview inside it (its
+        # listener encodes small previews on this thread); assign increments id_live_preview
         now = time.time()
-        _images[id(self.current_image)] = (now, self.id_live_preview)
+        _images.pop(self.id_live_preview + 1, None)  # the id restarts with every job: newest last
+        _images[self.id_live_preview + 1] = (now, self.id_live_preview + 1)
         if len(_images) > 256:
             _images.pop(next(iter(_images)))
+        assign(self, image)
         emit(e="image", t=now, id=self.id_live_preview)
 
     @functools.wraps(begin)
@@ -101,11 +105,11 @@ def _patch_realtime(module) -> None:
     def tick_(self, last):
         local.frame = None
         t0 = time.time()
-        image = getattr(self.state(), "current_image", None)
+        preview = getattr(self.state(), "id_live_preview", None)
         result = tick(self, last)
         frame = local.frame
         if frame is not None:
-            image_t, image_id = _images.get(id(image), (None, None))
+            image_t, image_id = _images.get(preview, (None, None))
             emit(e="frame", t0=t0, t=local.published, seq=frame.job_seq, step=frame.step, id=image_id, image_t=image_t, bytes=len(frame.data))
         return result
 

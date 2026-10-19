@@ -88,6 +88,13 @@ def unavailable_reason(device) -> str | None:
 
 INFOTEXT_PREFIX = "Sparse attention"
 
+# What unavailable_reason() checks, said before a run instead of after it
+REQUIREMENT_NOTE = (
+    "**GPU only:** needs the Comfy Kitchen Sol-Attn kernels, i.e. an NVIDIA GPU of compute capability 8.0 or newer "
+    "(RTX 30 series and later) or an AMD GPU with matrix cores (ROCm). On Apple Silicon (MPS) or the CPU the run "
+    "skips it with a warning and makes the image with regular attention."
+)
+
 
 def make_attention_override(patch: "SparseAttnPatch", prev_attn: Callable) -> Callable:
 
@@ -149,6 +156,7 @@ class SparseAttentionForForge(scripts.Script):
             # Like Refiner: an image without the record ran without sparse attention
             enable=ui.Toggle("enable", False, label=self.title(), paste=lambda d: f"{INFOTEXT_PREFIX} tau" in d),
             children=[
+                ui.Markdown(REQUIREMENT_NOTE),
                 ui.Row(
                     ui.Slider("tau", 0.0, 4.0, 1.25, 0.05, label="Tau", info="higher = faster & worse quality", infotext=f"{INFOTEXT_PREFIX} tau"),
                     ui.RangeSlider("percent", 0.0, 1.0, (0.15, 0.85), 0.05, label="Timestep Range", infotext=f"{INFOTEXT_PREFIX} range"),

@@ -78,8 +78,8 @@ _TEXT_KEYS = ("label", "info", "title", "placeholder")
 
 def ui_strings(schema: Any) -> set[str]:
     """The English strings the SPA translates in an exported layout: labels,
-    info texts, titles, placeholders, Markdown texts and choice labels
-    (numbers excepted; ``html`` is never translated)."""
+    info texts, titles, placeholders, Markdown texts, HTML texts (keyed by
+    their exact markup) and choice labels (numbers excepted)."""
 
     found: set[str] = set()
     if isinstance(schema, list):
@@ -91,7 +91,7 @@ def ui_strings(schema: Any) -> set[str]:
     for key in _TEXT_KEYS:
         if isinstance(schema.get(key), str) and schema[key].strip():
             found.add(schema[key])
-    if schema.get("type") == "markdown":
+    if schema.get("type") in ("markdown", "html") and isinstance(schema.get("text"), str) and schema["text"].strip():
         found.add(schema["text"])
     for choice in schema.get("choices") or ():
         label = choice.get("label")

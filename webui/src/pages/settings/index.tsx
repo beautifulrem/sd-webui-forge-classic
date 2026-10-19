@@ -232,6 +232,7 @@ export default function SettingsPage({ route }: { route: Route }) {
   const nav = (
     <SettingsNav
       sections={sections}
+      loading={!index}
       view={view}
       activeSection={activeSection}
       filtering={filtering}

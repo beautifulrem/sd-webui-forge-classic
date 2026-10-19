@@ -136,6 +136,35 @@ test.describe("generate", () => {
     }
   })
 
+  test("shows the live preview of every image of a batch, not only the first", async ({ page }) => {
+    await open(page)
+    // every preview URL the stage's live image shows (the step starts at 0 again for each image of the job)
+    await page.evaluate(() => {
+      const seen = new Set<string>()
+      Object.assign(window, { __previews: seen })
+      const note = (node: Node) => {
+        if (node instanceof HTMLImageElement && node.alt === "Live preview" && node.src) seen.add(node.src)
+      }
+      new MutationObserver((records) => {
+        for (const record of records) {
+          note(record.target)
+          record.addedNodes.forEach((node) => {
+            note(node)
+            if (node instanceof Element) node.querySelectorAll("img").forEach(note)
+          })
+        }
+      }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["src", "alt"] })
+    })
+    await setNumber(page, "Batch count", 3)
+    await setNumber(page, "Sampling steps", 12) // the mock sends a preview every third step: 4 per image
+    await page.getByRole("button", { name: /^Generate/ }).first().click()
+    await expect(page.getByText(/Batch 3 of 3/).first()).toBeVisible({ timeout: 10_000 })
+    await expect(idleGenerate(page)).toBeVisible({ timeout: 20_000 })
+    const shown = await page.evaluate(() => (window as unknown as { __previews: Set<string> }).__previews.size)
+    // 12 frames (4 per image); a check on the step alone dropped images 2 and 3 but for their last frame (6)
+    expect(shown).toBeGreaterThanOrEqual(11)
+  })
+
   test("Alt+Enter skips the current image of a multi-image job and the job goes on", async ({ page }) => {
     await open(page)
     await setNumber(page, "Batch count", 2)

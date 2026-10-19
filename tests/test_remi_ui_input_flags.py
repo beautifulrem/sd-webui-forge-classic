@@ -45,6 +45,34 @@ def test_tool_inputs_are_not_arguments():
             ui.Text("tool", "", arg=False, **flags)
 
 
+def test_inactive_if_is_exported_checked_and_validated():
+    """``inactive_if``: dimmed but editable while true (the Gradio UI's ``inactive`` class)."""
+
+    assert "inactive_if" not in schema(ui.Slider("s", 0, 10, 5, 1))
+    exported = schema(ui.Slider("s", 0, 10, 0, 1, inactive_if=ui.param("s", lte=0)))
+    assert exported["inactive_if"] == {"param": "s", "lte": 0} and "enabled_if" not in exported
+    with pytest.raises(SchemaError):
+        ui.Slider("s", 0, 10, 5, 1, inactive_if={"param": "s", "bogus": 1})
+    with pytest.raises(SchemaError, match="unknown param"):
+        ui.ScriptLayout(ui.Group(ui.Slider("s", 0, 10, 5, 1, inactive_if=ui.param("missing"))))
+
+
+def test_hires_target_marks_the_unused_controls():
+    """Upscale by is inactive while a target size is set; a size left at 0 is inactive."""
+
+    from remi.core.forms import hires_resolution_layout
+
+    nodes = {node.name: node for node in hires_resolution_layout().inputs}
+
+    def state(**values):
+        values = {"hr_scale": 2.0, "hr_resize_x": 0, "hr_resize_y": 0, **values}
+        return {name: ui.evaluate(nodes[name].inactive_if, values) for name in ("hr_scale", "hr_resize_x", "hr_resize_y")}
+
+    assert state() == {"hr_scale": False, "hr_resize_x": True, "hr_resize_y": True}
+    assert state(hr_resize_x=1024) == {"hr_scale": True, "hr_resize_x": False, "hr_resize_y": True}
+    assert state(hr_resize_x=1024, hr_resize_y=768) == {"hr_scale": True, "hr_resize_x": False, "hr_resize_y": False}
+
+
 def test_toggle_locks():
     assert schema(ui.Toggle("lock", False, locks="sampler.steps"))["locks"] == "sampler.steps"
     assert schema(ui.Toggle("lock", False, locks="steps"))["locks"] == "steps"

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { api } from "@/api/endpoints"
 import { bootstrap, models } from "@/api/mock/fixtures"
 import { keys, queryClient } from "@/api/queries"
-import ModelBar from "./ModelBar"
+import ModelBar, { MODULES_HELP_URL } from "./ModelBar"
 
 function renderBar() {
   return render(
@@ -62,5 +62,15 @@ describe("model bar modules picker", () => {
     fireEvent.click(box)
     unmount()
     expect(patch).not.toHaveBeenCalled()
+  })
+
+  it("says what the modules are for and links to where to get them", async () => {
+    renderBar()
+    fireEvent.click(modulesTriggers()[0]!)
+    const link = await screen.findByRole("link", { name: "Where to get them" })
+    expect(link).toHaveAttribute("href", MODULES_HELP_URL)
+    expect(link).toHaveAttribute("target", "_blank")
+    expect(link.getAttribute("rel")).toContain("noopener")
+    expect(screen.getByText(/Checkpoints without a built-in VAE or text encoder/)).toBeVisible()
   })
 })

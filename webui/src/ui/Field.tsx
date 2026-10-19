@@ -1,10 +1,11 @@
 /** Shared chrome for inputs: label (with its hint tooltip), modified dot (click = reset), trailing slot, info text. */
 import { CircleAlert, RotateCcw } from "lucide-react"
-import type { ReactElement, ReactNode } from "react"
+import { type ReactElement, type ReactNode, use } from "react"
 import { useTranslation } from "react-i18next"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { errorTextId, hintTextId, infoTextId, labelId as labelIdOf } from "./a11y"
+import { InactiveContext } from "./hooks"
 
 /** Dotted underline: the label has a tooltip. */
 export const HINTED = "cursor-help underline decoration-muted-foreground/50 decoration-dotted underline-offset-[3px]"
@@ -95,10 +96,18 @@ export function Field(props: FieldProps) {
   const showHeader = props.label !== "" || props.trailing !== undefined || props.modified
   const labelId = labelIdOf(props.id)
   const infoId = infoTextId(props.id)
+  // `inactive_if`: the value has no effect now; dimmed (clear again while pointed at or focused), still editable
+  const inactive = use(InactiveContext) && !props.disabled
   return (
     <div
-      className={cn("group/field flex min-w-0 flex-col gap-1.5", props.disabled && "opacity-60", props.className)}
+      className={cn(
+        "group/field flex min-w-0 flex-col gap-1.5",
+        props.disabled && "opacity-60",
+        inactive && "opacity-50 transition-opacity focus-within:opacity-100 hover:opacity-100",
+        props.className,
+      )}
       data-disabled={props.disabled || undefined}
+      data-inactive={inactive || undefined}
       data-invalid={props.error ? true : undefined}
     >
       {showHeader ? (
@@ -129,6 +138,7 @@ export function Field(props: FieldProps) {
           {props.trailing ? <div className="ml-auto flex shrink-0 items-center">{props.trailing}</div> : null}
         </div>
       ) : null}
+      {inactive ? <p className="sr-only">{t("Not used with the current values")}</p> : null}
       {props.children}
       {props.info ? (
         <p id={infoId} className="text-xs leading-snug text-muted-foreground">

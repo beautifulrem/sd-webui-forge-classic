@@ -1,0 +1,2 @@
+interleaved: on 2798 ms/step (n 20) vs off 2452.7 ms/step (n 21) -> 14.07 %; 8 window pairs 15.49 ± 14.97 % (95 % CI, one-sided upper bound 27.47 %); first step of each window dropped: 11.62 ± 15.25 %; medians 13.03 %; 33 previews painted
+results: /Volumes/Remi/Anima/remi-perf/fx/out/il-synth-b3/browser-interleaved.json

@@ -14,8 +14,9 @@ const backend = process.env.REMI_BACKEND ?? "http://127.0.0.1:7860"
 
 /**
  * Mock mode (VITE_MOCK=1): the API is answered in the browser (src/api/mock);
- * this plugin only serves placeholder artwork for /files and /thumbs ids,
- * which <img> tags request directly.
+ * this plugin only serves what the page requests directly: placeholder
+ * artwork for /files and /thumbs ids (<img> tags) and an empty user.css
+ * (the bootstrap fixture lists one, so the app links it).
  */
 function mockFiles(): Plugin {
   return {
@@ -23,6 +24,12 @@ function mockFiles(): Plugin {
     apply: "serve",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
+        if (/^\/api\/v2\/user-assets\/user\.css(?:\?|$)/.test(req.url ?? "")) {
+          res.setHeader("Content-Type", "text/css")
+          res.setHeader("Cache-Control", "no-store")
+          res.end("/* the mock backend's user.css: empty */\n")
+          return
+        }
         const match = /^\/api\/v2\/(?:files|thumbs)\/([^?]+)/.exec(req.url ?? "")
         if (!match) return next()
         const id = decodeURIComponent(match[1])

@@ -793,7 +793,63 @@
    "denoising_strength": 0.6,
    "override_settings": [],
    "script": "None"
-  }
+  },
+  "required": [
+   {
+    "param": "init_img",
+    "message": "an image is required",
+    "when": {
+     "param": "mode",
+     "in": [
+      "img2img",
+      "Sketch",
+      "Inpaint",
+      "Inpaint sketch",
+      "Inpaint upload"
+     ]
+    }
+   },
+   {
+    "param": "mask",
+    "message": "paint a mask over the image",
+    "when": {
+     "param": "mode",
+     "eq": "Inpaint"
+    }
+   },
+   {
+    "param": "sketch",
+    "message": "paint the area to inpaint",
+    "when": {
+     "param": "mode",
+     "eq": "Inpaint sketch"
+    }
+   },
+   {
+    "param": "mask_upload",
+    "message": "a mask image is required",
+    "when": {
+     "param": "mode",
+     "eq": "Inpaint upload"
+    }
+   },
+   {
+    "param": "batch_upload",
+    "message": "upload the images to process",
+    "when": {
+     "all": [
+      {
+       "param": "mode",
+       "eq": "Batch"
+      },
+      {
+       "param": "batch_source",
+       "eq": "upload"
+      }
+     ]
+    }
+   }
+  ]
  },
  "scripts": [
   {

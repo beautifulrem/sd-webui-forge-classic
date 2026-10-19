@@ -110,7 +110,9 @@ const theme = EditorView.theme({
 })
 
 function contentAttributes(id?: string, label?: string, describedBy?: string, invalid?: boolean): Extension {
-  const attrs: Record<string, string> = { spellcheck: "false", autocorrect: "off", autocapitalize: "off", "aria-multiline": "true" }
+  // dir=auto: a prompt is tag markup ("(masterpiece:1.2), <lora:x:0.8>"), laid out by its own first
+  // letter rather than the UI language, so a right-to-left UI does not reorder its brackets
+  const attrs: Record<string, string> = { spellcheck: "false", autocorrect: "off", autocapitalize: "off", "aria-multiline": "true", dir: "auto" }
   if (id) attrs.id = id
   if (label) attrs["aria-label"] = label
   if (describedBy) attrs["aria-describedby"] = describedBy

@@ -9,10 +9,12 @@ import { useWs } from "@/api/ws"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
+import { Skeleton } from "@/components/ui/skeleton"
 import { formatEta, stepText } from "@/features/progress/effects"
 import { act, formLabel, jobTitle } from "./queries"
 
-export function RunningCard({ paused, queued }: { paused: boolean; queued: number }) {
+/** `loading`: the queue state has not arrived yet (a placeholder, not "Nothing is running"). */
+export function RunningCard({ paused, queued, loading = false }: { paused: boolean; queued: number; loading?: boolean }) {
   const { t } = useTranslation()
   const running = useProgress((s) => s.running)
   const livePreviews = useClientOption("live_previews_enable")
@@ -23,6 +25,19 @@ export function RunningCard({ paused, queued }: { paused: boolean; queued: numbe
     enabled: running !== null,
     staleTime: 60_000,
   })
+
+  if (!running && loading) {
+    return (
+      <section aria-label={t("Now running")} aria-busy="true" className="flex items-center gap-3 rounded-xl border border-dashed bg-card/50 px-4 py-3">
+        <Skeleton className="size-10 shrink-0 rounded-lg" />
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <Skeleton className="h-3.5 w-32" />
+          <Skeleton className="h-3 w-48 max-w-full" />
+        </div>
+        <span className="sr-only">{t("Loading…")}</span>
+      </section>
+    )
+  }
 
   if (!running) {
     return (

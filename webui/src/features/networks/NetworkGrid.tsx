@@ -141,14 +141,20 @@ export function NetworkGrid({ items, total, kind, view, size, isActive, currentA
     }
   }
 
-  const apply = (item: NetworkItem, index: number) => {
-    setCursor(index)
-    onApply(item)
-  }
-  const action = (name: ItemAction, item: NetworkItem, index: number, anchor: MenuAnchor) => {
-    setCursor(index)
-    onAction(name, item, anchor)
-  }
+  // Stable across renders (this grid renders on every scroll frame): the memoised cards keep
+  // their props and are skipped; the newest handlers are read through a ref.
+  const handlers = useRef({ onApply, onAction })
+  handlers.current = { onApply, onAction }
+  const [{ apply, action }] = useState(() => ({
+    apply: (item: NetworkItem, index: number) => {
+      setCursor(index)
+      handlers.current.onApply(item)
+    },
+    action: (name: ItemAction, item: NetworkItem, index: number, anchor: MenuAnchor) => {
+      setCursor(index)
+      handlers.current.onAction(name, item, anchor)
+    },
+  }))
 
   const Item = view === "list" ? NetworkRow : NetworkCard
   return (

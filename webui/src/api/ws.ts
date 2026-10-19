@@ -125,14 +125,19 @@ function decoded(url: string): Promise<void> {
   return image.decode().catch(() => {})
 }
 
-/** Older than `current` (a frame of the same job and an earlier step, arriving late). */
-function stale(frame: { jobSeq: number; step: number }, current: LivePreview | null): boolean {
-  return current !== null && current.jobSeq === frame.jobSeq && frame.step < current.step
-}
-
 export const useWs = create<WsState>()((set, get) => {
   /** Bumped by `clearPreview`: a frame still decoding from before must not show. */
   let epoch = 0
+  /**
+   * Preview frames in the order they arrived, and the arrival number of the one shown. The
+   * socket delivers frames in the order the server sent them (its preview slot keeps only the
+   * newest), so the latest arrival is the newest image; but frames are decoded concurrently and
+   * a later one can finish first, so a frame is shown only if no later arrival is on screen.
+   * Not the step: it starts again at 0 for every image of a batch (and every pass of a hires
+   * fix), and an earlier step of the job's next image is the newest frame.
+   */
+  let arrived = 0
+  let shown = 0
 
   function setPreview(next: LivePreview | null) {
     const previous = get().preview
@@ -143,8 +148,7 @@ export const useWs = create<WsState>()((set, get) => {
   function handleBinary(buffer: ArrayBuffer) {
     try {
       const frame = parseFrame(buffer)
-      // Frames for an older job or step can arrive late; keep the newest.
-      if (stale(frame, get().preview)) return
+      const order = ++arrived
       const url = URL.createObjectURL(new Blob([frame.bytes], { type: frame.mime }))
       const from = epoch
       // Decoded first, then shown with the step's progress in one frame (api/paint-batch).
@@ -152,8 +156,11 @@ export const useWs = create<WsState>()((set, get) => {
       for (const listener of frameListeners) listener({ jobSeq: frame.jobSeq, step: frame.step })
       void decoded(url).then(() => {
         paintBatch(() => {
-          if (from !== epoch || stale(frame, get().preview)) URL.revokeObjectURL(url)
-          else setPreview({ jobSeq: frame.jobSeq, step: frame.step, url })
+          if (from !== epoch || order < shown) URL.revokeObjectURL(url)
+          else {
+            shown = order
+            setPreview({ jobSeq: frame.jobSeq, step: frame.step, url })
+          }
         })
         release()
       })

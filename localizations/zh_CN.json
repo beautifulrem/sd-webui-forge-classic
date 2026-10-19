@@ -861,5 +861,22 @@
   "RescaleCFG": "CFG 重缩放",
   "legacy preview method": "旧版预览方式",
   "fast but low quality preview method": "快速但质量较低的预览方式",
-  "high quality preview method": "高质量预览方式"
+  "high quality preview method": "高质量预览方式",
+  "<abbr title='Variational AutoEncoder'>VAE</abbr> is a neural network that transforms a standard <abbr title='Red/Green/Blue'>RGB</abbr>\nimage to and from latent space representation. Latent space is what Stable Diffusion works on during generation. For txt2img, VAE is used\nto create the resulting image after the sampling is finished. For img2img, VAE is additionally used to process user's input image before the sampling.": "<abbr title='变分自编码器 (Variational AutoEncoder)'>VAE</abbr> 是一种神经网络，用于在标准 <abbr title='红/绿/蓝 (Red/Green/Blue)'>RGB</abbr>\n图像与潜空间表示之间相互转换。Stable Diffusion 在生成过程中处理的就是潜空间。文生图中，VAE 用于\n在采样结束后生成最终图像；图生图中，VAE 还会在采样前处理用户输入的图像。",
+  "<b>Note:</b> Remember to change the setting before txt2img to clear the references": "<b>注意：</b>请在文生图之前更改此设置，以清除参考",
+  "<b>Token Merging</b> speeds up the diffusion process by fusing \"redundant\" tokens together, but also reduces quality as a result.\n[<a href=\"https://github.com/dbolya/tomesd\">GitHub</a>] <br>\n<b>Note:</b> Has no effect on SDXL when Max Downsample is set to 1": "<b>Token 合并</b>通过融合“冗余”的 token 来加快扩散过程，但也会因此降低质量。\n[<a href=\"https://github.com/dbolya/tomesd\">GitHub</a>] <br>\n<b>注意：</b>当最大下采样设为 1 时，对 SDXL 无效",
+  "Callbacks": "回调",
+  "Flux": "Flux",
+  "Qwen": "Qwen",
+  "For categories below, callbacks added to dropdowns happen before others, in order listed.": "对于下列类别，添加到下拉框中的回调会按列出的顺序先于其他回调执行。",
+  "Infotext is what the webui calls the text that contains generation parameters, and can be used to generate the same image again.": "生成信息（Infotext）是 WebUI 对包含生成参数的文本的称呼，可用于再次生成相同的图像。",
+  "Parameters for encoding videos in <b>H.264</b> using <b>FFmpeg</b><br>\nRefer to the <a href=\"https://trac.ffmpeg.org/wiki/Encode/H.264\">Wiki</a> for what these parameters mean": "使用 <b>FFmpeg</b> 以 <b>H.264</b> 编码视频的参数<br>\n这些参数的含义请参阅 <a href=\"https://trac.ffmpeg.org/wiki/Encode/H.264\">Wiki</a>",
+  "These settings allow you to enable PyTorch profiler during generation.<br>\nProfiling allows you to see which code uses how much of the computer's resources.\nEach generation writes its own profile to one file, overwriting previous ones.\nThe file can be viewed in <a href=\"chrome:tracing\">Chrome</a> or on the <a href=\"https://ui.perfetto.dev/\">Perfetto</a> website.\n<br><b>Warning:</b> Writing profile can take up to 30 seconds, and the file itself can be around 500MB in size.": "这些设置可在生成过程中启用 PyTorch 性能分析器。<br>\n性能分析可让你查看哪些代码占用了多少计算机资源。\n每次生成都会将分析结果写入同一个文件，覆盖之前的结果。\n该文件可在 <a href=\"chrome:tracing\">Chrome</a> 或 <a href=\"https://ui.perfetto.dev/\">Perfetto</a> 网站中查看。\n<br><b>警告：</b>写入分析文件可能需要长达 30 秒，文件本身可能约有 500MB。",
+  "a mask image is required": "需要一张蒙版图像",
+  "an image is required": "需要一张图像",
+  "paint a mask over the image": "请在图像上绘制蒙版",
+  "paint the area to inpaint": "请涂抹需要重绘的区域",
+  "upload the images to process": "请上传要处理的图片",
+  "a video file is required": "需要一个视频文件",
+  "an input directory is required": "需要输入目录"
 }

@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import threading
 import time
 from types import SimpleNamespace
 
@@ -157,6 +158,55 @@ def test_preview_encoder_wakes_on_a_new_preview_and_throttles_to_the_fps():
         encoder.stop()
         encoder.join(2)
     assert state.live_preview_listeners == []
+
+
+def test_a_small_preview_is_encoded_on_the_assigning_thread():
+    """No hand-over to the encoder thread for the usual tiny previews (the sampler
+    would wait for that thread to get the GIL); large ones and throttled ones
+    wake the thread instead."""
+
+    bus, state = EventBus(), FakeState()
+    published = []
+    bus.subscribe(SimpleNamespace(send_event=lambda event: None, send_frame=lambda frame: published.append((threading.get_ident(), frame.step, frame.fmt))))
+    opts = SimpleNamespace(live_previews_enable=True, live_previews_image_format="jpeg", live_preview_fps=2)  # 0.5 s interval
+    encoder = PreviewEncoder(bus, lambda: JobRef("j", 1, "txt2img"), state=lambda: state, opts=lambda: opts)
+    state.live_preview_listeners.append(encoder.notify)  # as run() does; the thread is not started
+    state.sampling_step = 1
+    state.assign_current_image(Image.new("RGB", (96, 96)))
+    assert published == [(threading.get_ident(), 1, FORMAT_JPEG)]
+    assert not encoder._wake.is_set()
+    # within the throttle interval: left to the thread (woken), nothing encoded here
+    state.sampling_step = 2
+    state.assign_current_image(Image.new("RGB", (96, 96)))
+    assert len(published) == 1 and encoder._wake.is_set()
+    encoder._wake.clear()
+    encoder._ready_at = 0.0
+    # too large for the generation thread: the encoder thread does it
+    state.sampling_step = 3
+    state.assign_current_image(Image.new("RGB", (512, 512)))
+    assert len(published) == 1 and encoder._wake.is_set()
+    encoder._wake.clear()
+    # WebP costs more per pixel: a smaller limit
+    opts.live_previews_image_format = "webp"
+    state.sampling_step = 4
+    state.assign_current_image(Image.new("RGB", (64, 64)))
+    state.sampling_step = 5
+    encoder._ready_at = 0.0
+    state.assign_current_image(Image.new("RGB", (128, 128)))
+    assert [(step, fmt) for _, step, fmt in published] == [(1, FORMAT_JPEG), (4, FORMAT_WEBP)] and encoder._wake.is_set()
+
+
+def test_an_inline_encoding_error_never_reaches_the_sampler(caplog):
+    bus, state = EventBus(), FakeState()
+    opts = SimpleNamespace(live_previews_enable=True, live_previews_image_format="jpeg", live_preview_fps=6)
+
+    def broken():
+        raise RuntimeError("no job")
+
+    encoder = PreviewEncoder(bus, broken, state=lambda: state, opts=lambda: opts)
+    state.live_preview_listeners.append(encoder.notify)
+    state.assign_current_image(Image.new("RGB", (8, 8)))  # does not raise
+    assert "preview encoder" in caplog.text
 
 
 def test_preview_encoder_polls_a_state_without_listeners():

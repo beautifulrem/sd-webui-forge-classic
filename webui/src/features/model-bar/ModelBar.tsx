@@ -5,7 +5,7 @@
  * Bits". While the server loads a model, `model.loading` shows its stage.
  */
 import { useQuery } from "@tanstack/react-query"
-import { Box, Layers, Loader2, SlidersHorizontal } from "lucide-react"
+import { Box, CircleHelp, Layers, Loader2, SlidersHorizontal } from "lucide-react"
 import { useEffect, useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useClientOption } from "@/api/app-options"
@@ -23,6 +23,8 @@ import { checkpointLabel, fileName, formatBytes, MODEL_OPTION_KEYS, presetLabel,
 
 const DEFAULT_PRESETS = ["sd", "xl", "flux", "anima"]
 const DEFAULT_DTYPES = ["Automatic", "Automatic (fp16 LoRA)", "float8-e4m3fn", "float8-e5m2"]
+/** Where to download VAEs and text encoders (the Gradio UI's "?" link next to the modules dropdown). */
+export const MODULES_HELP_URL = "https://github.com/Haoming02/sd-webui-forge-classic/wiki/Download-Models"
 
 const useModelBusy = () => useProgress((s) => s.modelLoading)
 
@@ -173,7 +175,21 @@ function ModulesPicker({ className }: { className?: string }) {
           )}
           {modules.length === 0 ? <p className="px-2 py-4 text-center text-sm text-muted-foreground">{t("No modules found")}</p> : null}
         </div>
-        <p className="px-1 text-xs text-muted-foreground">{t("Applied when this panel closes.")}</p>
+        <div className="flex flex-col gap-1 px-1 text-xs text-muted-foreground">
+          <p>{t("Applied when this panel closes.")}</p>
+          <p>
+            {t("Checkpoints without a built-in VAE or text encoder (Flux, Anima, …) need them selected here.")}{" "}
+            <a
+              href={MODULES_HELP_URL}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex items-center gap-1 rounded-sm font-medium text-foreground/80 underline underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+            >
+              <CircleHelp className="size-3.5" aria-hidden />
+              {t("Where to get them")}
+            </a>
+          </p>
+        </div>
       </PopoverContent>
     </Popover>
   )

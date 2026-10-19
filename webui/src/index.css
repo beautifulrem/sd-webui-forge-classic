@@ -20,7 +20,13 @@
 :root {
   --brand-h: 277;
   --brand-c: 0.17;
-  --brand-l: 0.56;
+  /* Light mode: dark enough that the light label on --primary, --primary as
+     text on every surface and on its own 15 % tint all reach 4.5:1
+     (tests/e2e/a11y.spec.ts scans each accent). */
+  --brand-l: 0.515;
+  /* Hover/press shade of --primary: darker in light mode, lighter in dark
+     mode, so its label keeps (and gains) contrast. */
+  --brand-hover-dl: -0.04;
   --brand-fg: oklch(0.99 0 0);
 
   --radius: 0.625rem;
@@ -32,6 +38,7 @@
   --popover: oklch(1 0 0);
   --popover-foreground: var(--foreground);
   --primary: oklch(var(--brand-l) var(--brand-c) var(--brand-h));
+  --primary-hover: oklch(calc(var(--brand-l) + var(--brand-hover-dl)) var(--brand-c) var(--brand-h));
   --primary-foreground: var(--brand-fg);
   --secondary: oklch(0.955 0.003 270);
   --secondary-foreground: var(--foreground);
@@ -64,6 +71,7 @@
 
 .dark {
   --brand-l: 0.7;
+  --brand-hover-dl: 0.04;
   --brand-fg: oklch(0.16 0.02 var(--brand-h));
 
   --background: oklch(0.165 0.004 270);
@@ -89,20 +97,25 @@
   --scrollbar: oklch(1 0 0 / 16%);
 }
 
-/* Accent presets: hue, chroma, and whether the primary text is dark or light. */
-[data-accent="iris"] { --brand-h: 277; --brand-c: 0.17; }
-[data-accent="blue"] { --brand-h: 250; --brand-c: 0.16; }
-[data-accent="teal"] { --brand-h: 190; --brand-c: 0.12; }
-[data-accent="green"] { --brand-h: 152; --brand-c: 0.15; }
-[data-accent="amber"] { --brand-h: 70; --brand-c: 0.16; --brand-l: 0.66; --brand-fg: oklch(0.2 0.03 70); }
-[data-accent="coral"] { --brand-h: 32; --brand-c: 0.17; }
-[data-accent="rose"] { --brand-h: 5; --brand-c: 0.18; }
+/* Accent presets: hue, chroma, and the light-mode lightness that keeps every
+   pairing at 4.5:1 or more (the hues differ in luminance at equal L). */
+[data-accent="iris"] { --brand-h: 277; --brand-c: 0.17; --brand-l: 0.515; }
+[data-accent="blue"] { --brand-h: 250; --brand-c: 0.16; --brand-l: 0.495; }
+[data-accent="teal"] { --brand-h: 190; --brand-c: 0.12; --brand-l: 0.47; }
+[data-accent="green"] { --brand-h: 152; --brand-c: 0.15; --brand-l: 0.475; }
+[data-accent="amber"] { --brand-h: 70; --brand-c: 0.16; --brand-l: 0.505; }
+[data-accent="coral"] { --brand-h: 32; --brand-c: 0.17; --brand-l: 0.515; }
+[data-accent="rose"] { --brand-h: 5; --brand-c: 0.18; --brand-l: 0.52; }
+/* Dark mode: one lightness for all, with a dark label; amber is brighter. */
+.dark[data-accent],
+.dark [data-accent] { --brand-l: 0.7; }
 .dark[data-accent="amber"],
 .dark [data-accent="amber"] { --brand-l: 0.8; }
 
 /* Re-derive brand colours wherever an accent is set (e.g. accent swatches). */
 [data-accent] {
   --primary: oklch(var(--brand-l) var(--brand-c) var(--brand-h));
+  --primary-hover: oklch(calc(var(--brand-l) + var(--brand-hover-dl)) var(--brand-c) var(--brand-h));
   --primary-foreground: var(--brand-fg);
   --ring: oklch(var(--brand-l) var(--brand-c) var(--brand-h));
 }
@@ -125,6 +138,7 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -165,6 +179,12 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+  }
+
+  /* A right-to-left UI keeps numbers in their own order ("-1", "0.05"), aligned like the labels. */
+  [dir="rtl"] :is(input[inputmode="numeric"], input[inputmode="decimal"], input[type="number"]) {
+    direction: ltr;
+    text-align: right;
   }
 
   html {

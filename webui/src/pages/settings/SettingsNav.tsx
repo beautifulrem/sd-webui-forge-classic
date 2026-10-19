@@ -1,11 +1,14 @@
 /** Settings section navigation: categories → sections (match counts, unsaved dots), then the system views. */
 import { useTranslation } from "react-i18next"
+import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import type { FilteredSection } from "./settings-model"
 import { type SettingsView, SYSTEM_VIEWS } from "./views"
 
 type Props = {
   sections: FilteredSection[]
+  /** The settings schema has not arrived yet: placeholders, not "no matching sections". */
+  loading?: boolean
   view: SettingsView
   activeSection: string | null
   filtering: boolean
@@ -22,7 +25,7 @@ const itemClass = (active: boolean) =>
     active && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
   )
 
-export function SettingsNav({ sections, view, activeSection, filtering, unsaved, onSection, onView }: Props) {
+export function SettingsNav({ sections, loading = false, view, activeSection, filtering, unsaved, onSection, onView }: Props) {
   const { t } = useTranslation()
   const categories: { id: string; label: string; sections: FilteredSection[] }[] = []
   for (const section of sections) {
@@ -57,7 +60,17 @@ export function SettingsNav({ sections, view, activeSection, filtering, unsaved,
           </ul>
         </div>
       ))}
-      {categories.length === 0 ? <p className="px-2 text-sm text-muted-foreground">{t("No matching sections")}</p> : null}
+      {loading ? (
+        <div role="status" className="flex flex-col gap-1.5 px-2" aria-busy="true">
+          <span className="sr-only">{t("Loading…")}</span>
+          <Skeleton className="mb-1 h-3 w-20" />
+          {Array.from({ length: 8 }, (_, i) => (
+            <Skeleton key={i} className="h-5 w-full" />
+          ))}
+        </div>
+      ) : categories.length === 0 ? (
+        <p className="px-2 text-sm text-muted-foreground">{t("No matching sections")}</p>
+      ) : null}
       <div className="flex flex-col gap-0.5 border-t pt-3">
         <p className="px-2 pb-1 text-[0.7rem] font-semibold tracking-wider text-muted-foreground uppercase">{t("System")}</p>
         <ul className="flex flex-col gap-px">

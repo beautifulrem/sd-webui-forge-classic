@@ -12,6 +12,13 @@ FreeFuse can route two distinct subject LoRAs.
 They change an image visibly at weight 1 without destroying it. ``tools/smoke_real.py
 --features`` generates them into its temporary data folder and uses them to check Anima
 FreeFuse, LoRA Layer Weight and LoRA Stage Scheduler against the real model.
+
+    python tools/anima_test_loras.py --refiner CHECKPOINT OUT.safetensors
+
+writes a second, genuinely different checkpoint instead: a copy of ``CHECKPOINT`` with a
+third seeded delta of the same kind merged into its weights (every other tensor and the
+metadata unchanged). ``tools/smoke_real.py --features`` uses one as the Refiner checkpoint,
+so the refiner pass is seen changing the image (the weights must differ for that).
 """
 
 from __future__ import annotations
@@ -24,6 +31,8 @@ import sys
 from pathlib import Path
 
 NAMES = ("remi-test-a", "remi-test-b")
+REFINER_NAME = "remi-test-refiner"
+REFINER_SEED = 3
 RANK = 4
 # The Linear layers each block gets a delta on (their output feeds the residual stream)
 MODULES = ("self_attn.output_proj", "cross_attn.output_proj", "mlp.layer2")
@@ -87,11 +96,51 @@ def write_test_loras(checkpoint: Path | str, out_dir: Path | str) -> list[Path]:
     return paths
 
 
+def write_refiner_checkpoint(checkpoint: Path | str, out_path: Path | str, *, scale: float = 0.25) -> Path:
+    """Write a copy of ``checkpoint`` with a seeded low-rank delta merged into the DiT
+    layers the test LoRAs patch (``up @ down`` added to each weight, in its dtype): a
+    checkpoint of the same architecture whose images differ visibly. Other tensors and
+    the metadata are copied unchanged. Its path."""
+
+    from safetensors import safe_open
+    from safetensors.torch import save_file
+
+    header = read_header(checkpoint)
+    layers = target_layers(header)
+    if not layers:
+        raise ValueError(f"{checkpoint}: no Anima DiT block layers ({', '.join(MODULES)}) in the header")
+    delta = make_lora(layers, REFINER_SEED, scale=scale)
+    by_key = {}
+    for key in header:
+        match = _BLOCK_WEIGHT.match(key)
+        if match and f"blocks.{int(match[1])}.{match[2]}" in layers:
+            by_key[key] = f"diffusion_model.blocks.{int(match[1])}.{match[2]}"
+    tensors = {}
+    with safe_open(str(checkpoint), framework="pt") as source:
+        metadata = dict(source.metadata() or {})
+        for key in source.keys():  # noqa: SIM118 - safe_open is not a mapping
+            tensor = source.get_tensor(key)
+            if (prefix := by_key.get(key)) is not None:
+                up = delta[f"{prefix}.lora_up.weight"].float()
+                down = delta[f"{prefix}.lora_down.weight"].float()
+                tensor = (tensor.float() + up @ down).to(tensor.dtype)
+            tensors[key] = tensor.contiguous()
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    save_file(tensors, str(out_path), metadata={**metadata, "remi_test_refiner": "1"})
+    return out_path
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("checkpoint", type=Path, help="the Anima checkpoint (.safetensors) the LoRAs are for")
-    parser.add_argument("out_dir", type=Path, help="where to write them (e.g. a --lora-dir)")
+    parser.add_argument("out_dir", type=Path, help="where to write them (e.g. a --lora-dir); with --refiner the output file")
+    parser.add_argument("--refiner", action="store_true", help="write a perturbed copy of the checkpoint (a second, different checkpoint) to out_dir")
     options = parser.parse_args()
+    if options.refiner:
+        path = write_refiner_checkpoint(options.checkpoint, options.out_dir)
+        print(f"{path} ({path.stat().st_size / 1e9:.2f} GB)")
+        return 0
     for path in write_test_loras(options.checkpoint, options.out_dir):
         print(f"{path} ({path.stat().st_size / 1e6:.1f} MB)")
     return 0

@@ -1,6 +1,6 @@
 /** Renderer smoke tests: every node kind renders accessibly and binds to the form store. */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { tabSchema } from "@/api/mock/fixtures"
 import { createFormStore, type FormStore } from "./form-store"
@@ -44,6 +44,32 @@ describe("input kinds", () => {
     fireEvent.change(box, { target: { value: "42" } })
     fireEvent.blur(box)
     expect(core(store).steps).toBe(42)
+  })
+
+  it("inactive_if dims a control whose value has no effect, without disabling it (Hires. fix target)", () => {
+    const resized = { any: [{ param: "hr_resize_x", gt: 0 }, { param: "hr_resize_y", gt: 0 }] }
+    const store = renderSchema(
+      schemaOf({
+        type: "column",
+        children: [
+          { type: "slider", name: "hr_scale", label: "Upscale by", minimum: 1, maximum: 4, step: 0.05, integer: false, inactive_if: resized },
+          { type: "slider", name: "hr_resize_x", label: "Resize width to", minimum: 0, maximum: 4096, step: 8, integer: true, inactive_if: { param: "hr_resize_x", lte: 0 } },
+          { type: "slider", name: "hr_resize_y", label: "Resize height to", minimum: 0, maximum: 4096, step: 8, integer: true, inactive_if: { param: "hr_resize_y", lte: 0 } },
+        ],
+      }, { hr_scale: 2, hr_resize_x: 0, hr_resize_y: 0 }),
+    )
+    const box = (label: string) => screen.getByLabelText(label, { selector: "input:not([type=range])" })
+    const inactive = (label: string) => box(label).closest("[data-inactive]") !== null
+    expect([inactive("Upscale by"), inactive("Resize width to"), inactive("Resize height to")]).toEqual([false, true, true])
+    expect(screen.getAllByText("Not used with the current values")).toHaveLength(2)
+
+    // A dimmed control stays editable: setting a width makes it the one in use
+    expect(box("Resize width to")).toBeEnabled()
+    fireEvent.change(box("Resize width to"), { target: { value: "1024" } })
+    fireEvent.blur(box("Resize width to"))
+    expect(core(store).hr_resize_x).toBe(1024)
+    expect([inactive("Upscale by"), inactive("Resize width to"), inactive("Resize height to")]).toEqual([true, false, true])
+    expect(box("Upscale by")).toBeEnabled()
   })
 
   it("hints: a tooltip on the label, the control's description, choice tooltips", () => {
@@ -125,6 +151,27 @@ describe("input kinds", () => {
     fireEvent.click(radios[1]!)
     expect(core(store).radio).toBe("b")
     expect(screen.getByLabelText("Searchable")).toHaveTextContent("Option 3")
+  })
+
+  it("radio choices whose (translated) labels do not fit their segments render as radio buttons", () => {
+    // labels measured in the control's font: CJK and long words need more room than their length suggests
+    const context = { font: "", measureText: (text: string) => ({ width: [...text].length * 13 }) }
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context as unknown as CanvasRenderingContext2D)
+    const width = vi.spyOn(Element.prototype, "clientWidth", "get").mockReturnValue(1000)
+    const choices = [
+      { value: "none", label: "None" },
+      { value: "sum", label: "Weighted sum" },
+      { value: "diff", label: "Add difference" },
+    ]
+    const node: Node = { type: "choice", name: "method", label: "Interpolation Method", style: "radio", choices }
+    one(node, { method: "sum" })
+    expect(screen.queryByText("Weighted sum", { selector: "label" })).toBeNull() // segments
+    cleanup()
+    width.mockReturnValue(300) // 3 × (14 × 13 + 22) + 8 > 300
+    one(node, { method: "sum" })
+    expect(screen.getByText("Weighted sum", { selector: "label" })).toBeVisible() // radios with labels
+    expect(within(screen.getByRole("radiogroup", { name: "Interpolation Method" })).getAllByRole("radio")).toHaveLength(3)
+    vi.restoreAllMocks()
   })
 
   it("multichoice: checkboxes and chips", () => {

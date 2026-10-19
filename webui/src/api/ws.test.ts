@@ -65,10 +65,6 @@ describe("useWs", () => {
     socket.receive(encodeFrame(FrameFormat.Jpeg, 1, 5, new Uint8Array([1, 2, 3])))
     await painted()
     expect(useWs.getState().preview).toEqual({ jobSeq: 1, step: 5, url: "blob:test/0" })
-    // A late, older frame of the same job is ignored.
-    socket.receive(encodeFrame(FrameFormat.Jpeg, 1, 3, new Uint8Array([9])))
-    await painted()
-    expect(useWs.getState().preview?.step).toBe(5)
     socket.receive(encodeFrame(FrameFormat.Webp, 1, 6, new Uint8Array([4])))
     await painted()
     expect(useWs.getState().preview?.url).toBe("blob:test/1")
@@ -81,6 +77,64 @@ describe("useWs", () => {
     await painted()
     expect(useWs.getState().preview).toBeNull()
     expect(revoked).toEqual(["blob:test/0", "blob:test/1", "blob:test/2"])
+    useWs.getState().disconnect()
+  })
+
+  it("shows every image of a batch: the step starts again at 0 within one job", async () => {
+    let created = 0
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => `blob:test/${created++}`)
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {})
+    const { useWs, socket, encodeFrame, FrameFormat } = await setup()
+    socket.open()
+    const shown: [number, number][] = []
+    // batch_count 3, 3 steps per image: steps 0, 1, 2 of each image, one job (seq 7)
+    for (let image = 0; image < 3; image++) {
+      for (let step = 0; step < 3; step++) {
+        socket.receive(encodeFrame(FrameFormat.Jpeg, 7, step, new Uint8Array([image, step])))
+        await vi.advanceTimersByTimeAsync(20)
+        const preview = useWs.getState().preview
+        shown.push([preview!.jobSeq, preview!.step])
+      }
+    }
+    expect(shown).toEqual([
+      [7, 0], [7, 1], [7, 2],
+      [7, 0], [7, 1], [7, 2],
+      [7, 0], [7, 1], [7, 2],
+    ])
+    expect(useWs.getState().preview?.url).toBe("blob:test/8")
+    useWs.getState().disconnect()
+  })
+
+  it("keeps the newest arrival when an earlier frame finishes decoding later", async () => {
+    const revoked: string[] = []
+    let created = 0
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => `blob:test/${created++}`)
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation((url) => void revoked.push(url))
+    // decoding resolves when the test says so, per URL
+    const decodes = new Map<string, () => void>()
+    vi.stubGlobal(
+      "Image",
+      class {
+        src = ""
+        decode() {
+          return new Promise<void>((resolve) => decodes.set(this.src, resolve))
+        }
+      },
+    )
+    const { useWs, socket, encodeFrame, FrameFormat } = await setup()
+    socket.open()
+    socket.receive(encodeFrame(FrameFormat.Jpeg, 1, 4, new Uint8Array([1])))
+    // the next image of the batch (step 0) arrives while step 4 is still decoding
+    socket.receive(encodeFrame(FrameFormat.Jpeg, 1, 0, new Uint8Array([2])))
+    decodes.get("blob:test/1")!()
+    // the other frame still decoding holds the paint at most paint-batch's MAX_HOLD_MS
+    await vi.advanceTimersByTimeAsync(150)
+    expect(useWs.getState().preview).toEqual({ jobSeq: 1, step: 0, url: "blob:test/1" })
+    // the older arrival finishes last: dropped, its URL revoked
+    decodes.get("blob:test/0")!()
+    await vi.advanceTimersByTimeAsync(20)
+    expect(useWs.getState().preview).toEqual({ jobSeq: 1, step: 0, url: "blob:test/1" })
+    expect(revoked).toEqual(["blob:test/0"])
     useWs.getState().disconnect()
   })
 

@@ -62,11 +62,11 @@ function Pending({ status }: { status: QueueStatus | undefined }) {
   const jobs = items.data ?? []
   return (
     <div className="flex flex-col gap-3">
-      <RunningCard paused={status?.paused ?? false} queued={jobs.length} />
+      <RunningCard paused={status?.paused ?? false} queued={jobs.length} loading={status === undefined} />
       <section aria-labelledby="queue-pending-title" className="flex flex-col gap-2">
         <h2 id="queue-pending-title" className="flex items-center gap-2 text-sm font-semibold">
           {t("Up next")}
-          <span className="rounded-full bg-muted px-1.5 text-xs font-medium text-muted-foreground tabular-nums">{jobs.length}</span>
+          {items.isPending ? null : <span className="rounded-full bg-muted px-1.5 text-xs font-medium text-muted-foreground tabular-nums">{jobs.length}</span>}
         </h2>
         {items.isPending ? (
           <Skeleton className="h-24 w-full" />

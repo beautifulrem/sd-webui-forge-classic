@@ -95,6 +95,13 @@ imperatively).
   (`window.__REMI_THEME__`, written into the shell by `remi/server/spa.py`
   before the pre-paint script), then dark. A browser that never picked a
   theme follows `--theme` when it changes.
+- **user.css** (`app/user-stylesheet.ts`): when the bootstrap's
+  `user_assets` lists `user.css` (the data folder's, as the Gradio UI
+  applied it), the shell links `/api/v2/user-assets/user.css` at the end of
+  `<body>`, after every stylesheet the app loads (Vite appends lazily loaded
+  page CSS to `<head>`), so a user rule beats an app rule of the same
+  specificity. It is linked again on the next page load after the file
+  changes (served `no-cache`).
 
 ## Design system
 
@@ -121,7 +128,9 @@ imperatively).
   next preview frame, and `api/paint-batch.ts` applies both in one animation
   frame once the image has decoded. No `backdrop-filter` on surfaces that
   change every step (the stage's progress overlay, the header with its
-  progress line).
+  progress line), and no fade or transition between live preview frames
+  (`pages/generate/LivePreview.tsx` stacks the new frame over the previous
+  one without animating it: a 150 ms fade drew about 12 frames per step).
 - Scrollbars: thin, theme-aware (`--scrollbar`). Focus: visible rings from
   `--ring` everywhere (`outline-ring/50`, `focus-visible:ring-3`).
 - shadcn components import `cn` from the `cn` package (what the base-nova
@@ -230,7 +239,10 @@ Rules the renderer implements:
   the last rejected submit's `errors` (not persisted).
 - **Visibility**: `visible_if` hides a node and its subtree; a patch
   `visible: false` hides an input (AND). `enabled_if` disables the subtree;
-  patch `enabled: false` disables an input. `hidden: true` and `state` inputs
+  patch `enabled: false` disables an input. `inactive_if` dims an input
+  (`data-inactive`, full opacity again on hover or focus, an off-screen
+  "Not used with the current values" note) without disabling it.
+  `hidden: true` and `state` inputs
   are not rendered but are submitted. A `tab` with `visible_if` false has
   neither trigger nor content (an unbound strip then shows its first visible
   tab); its `enabled_if` disables its content. Patch `label` / `info` replace
@@ -456,7 +468,13 @@ mode's schema is prefetched).
   400 max) in a virtualized thumbnail grid / strip (one listbox tab stop:
   arrows select, Enter opens, Delete removes). The stage shows the selected
   result, or the live preview while a job runs unless an older result was
-  picked ("Show live preview" returns). The lightbox (lazy chunk): wheel zoom
+  picked ("Show live preview" returns). The preview is double-buffered
+  (`pages/generate/LivePreview.tsx`): each frame, decoded before it is
+  shown (`api/ws.ts`), is stacked over the previous one, so the stage never blinks between
+  steps. The legacy UI's crossfade is deliberately not reproduced: a 150 ms
+  fade drew about 12 frames per step and tripled the browser's CPU per step,
+  against the one-frame-per-step rule (Motion above;
+  docs/research/ui-performance.md). The lightbox (lazy chunk): wheel zoom
   at the cursor, two-finger pinch zoom around the fingers' midpoint, drag to
   pan, double-click fit ↔ actual size, ←/→ (or a sideways wheel — tilt
   wheel, horizontal two-finger swipe — at most once per
@@ -491,7 +509,9 @@ mode's schema is prefetched).
   preset (`__forge_preset__` on the form on screen, then all schemas
   refresh), checkpoint (searchable, architecture and size), VAE / text
   encoders (applied when the picker closes, so one change loads the model
-  once), "Diffusion in Low Bits"; option writes are optimistic `PATCH
+  once; the picker says which checkpoints need them and links to where to
+  download them, the Gradio UI's "?" next to the dropdown), "Diffusion in
+  Low Bits"; option writes are optimistic `PATCH
   /options`; `model.loading` stages show next to it. Narrow headers fold
   preset, modules and dtype into a popover.
 
@@ -970,8 +990,10 @@ older server) nothing is shown.
   string concatenation, no plural suffixes; write sentences that work
   without plural forms.
 - Schema strings are passed to `t()` as-is (`t(node.label)`); `html` node text
-  is never translated, except a setting's HTML comment, which is looked up
-  whole (the language packs translate them) and sanitized like the original.
+  and a setting's HTML comment are looked up whole (key = the exact markup;
+  the catalogs translate them keeping the markup) and sanitized like the
+  original. `tests/remi_core_strings.py` collects them, so an untranslated
+  settings help block fails `tests/test_remi_core_zh_cn.py`.
 - `src/locales/zh-CN.json` must contain every chrome key:
   `locales/locales.test.ts` scans the sources and fails on a missing key or a
   mismatched `{{placeholder}}`.
@@ -979,6 +1001,14 @@ older server) nothing is shown.
   the server (`zh_CN`). The user's choice persists (`remi-locale`); without
   one, the server default (`Bootstrap.locale`) then the browser language is
   used. Switching does not reload the page.
+- **Writing direction**: `activateLocale` sets `<html dir>` from the
+  locale (`textDirection`: CLDR through `Intl.Locale` text info, with a list
+  of right-to-left languages as a fallback), so an Arabic, Hebrew, Persian or
+  Urdu catalog (`localizations/ar_SA.json`, …) lays the app out right to
+  left; `App` passes it to Base UI's `DirectionProvider` (sliders, menus,
+  keyboard arrows). This replaces the Gradio UI's `"rtl": true` key in a
+  localization file (the server's catalog only carries strings): a catalog
+  is named after its language, which already determines the direction.
 
 ## Mock mode
 
@@ -986,7 +1016,8 @@ older server) nothing is shown.
 `/api/v2` call from `api/mock/fixtures.ts`; `api/mock/socket.ts` replaces the
 WebSocket and the simulated worker emits `job.*` events and real WebP
 preview frames; a dev-server plugin serves generated SVG artwork for
-`/api/v2/files|thumbs/mock-*`. The txt2img fixture mirrors the shape of the
+`/api/v2/files|thumbs/mock-*` and an empty `user.css` (the bootstrap fixture
+lists one; end-to-end tests route their own). The txt2img fixture mirrors the shape of the
 real schema — `sampler`, `seed` and `refiner` are scripts in the `sampler`,
 `seed` and `accordions` slots, Hires. fix is a core section whose enable
 toggle is exclusive, has `on_change: hr_resolution` and an output line, and
@@ -998,7 +1029,9 @@ exclusive locks, custom widget) and a ControlNet-like section (uploads,
 `on_change`, sanitised HTML). The mock `__conflicts__` reads the `scripts`
 context (Anima locks one-of-two, Hires. fix vs refiner, LCM pins its
 schedule). `POST /jobs` validates like §3 and answers 422 `{"errors": …}`
-(try `#invalid` in the prompt, or img2img without a source image);
+(try `#invalid` in the prompt; the schema's `core.required` rules are
+checked by the client before it sends anything, so img2img without a
+source image marks the field and shows the toast without a request);
 `GET /jobs` is paged (`cursor`, `limit`), `repeat` queues copies and retry
 works; interrupted jobs end as `job.completed` with status `interrupted`.
 `/prompt/tokens`, `/styles` (+ `/styles/apply`), `/infotext/parse`,

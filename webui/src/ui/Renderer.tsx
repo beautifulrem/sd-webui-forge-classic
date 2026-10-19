@@ -1,12 +1,13 @@
 /**
  * Schema renderer: dispatches every node `type` to its component and applies
- * `visible_if` / `enabled_if`, patch overrides and `width` sizing inside rows.
+ * `visible_if` / `enabled_if` / `inactive_if`, patch overrides and `width`
+ * sizing inside rows.
  */
 import type { ComponentType } from "react"
 import { useTranslation } from "react-i18next"
 import { Separator } from "@/components/ui/separator"
 import { EnabledProvider } from "./context"
-import { useCondition, useFormState, useOwner } from "./hooks"
+import { InactiveContext, useCondition, useFormState, useOwner } from "./hooks"
 import { Choice } from "./inputs/Choice"
 import { Color } from "./inputs/Color"
 import { Custom } from "./inputs/Custom"
@@ -88,7 +89,8 @@ function LayoutView({ node }: { node: Exclude<Node, InputNode> }) {
     case "markdown":
       return <Markdown text={t(node.text)} />
     case "html":
-      return <SafeHtml html={node.text} />
+      // Catalogs key help markup by its exact text, like Markdown
+      return <SafeHtml html={t(node.text)} />
     case "separator":
       return <Separator className="my-1" />
     case "button":
@@ -110,13 +112,16 @@ export function RenderNode({ node, inRow = false }: { node: Node; inRow?: boolea
   const owner = useOwner()
   const visible = useCondition(node.visible_if)
   const enabled = useCondition(node.enabled_if)
+  const inactive = useCondition(isInput(node) ? (node.inactive_if ?? false) : false)
   // Action patches can hide an input (`visible: false`), ANDed with visible_if.
   const hiddenByPatch = useFormState((s) => isInput(node) && s.overrides[owner]?.[node.name]?.visible === false)
   if (!visible || hiddenByPatch) return null
   if (isInput(node) && (node.type === "state" || node.hidden)) return null
 
   const content = isInput(node) ? (
-    <InputView node={node as Exclude<InputNode, { type: "state" }>} />
+    <InactiveContext value={inactive}>
+      <InputView node={node as Exclude<InputNode, { type: "state" }>} />
+    </InactiveContext>
   ) : (
     <EnabledProvider enabled={enabled}>
       <LayoutView node={node} />

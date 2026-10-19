@@ -4,6 +4,7 @@
 //     [--only load,inp,networks,gallery,preview,overhead] [--trace /tmp/remi-perf-trace.jsonl] \
 //     [--prompt prompt300.txt] [--steps 24] [--size 768x768] [--jobs 4] [--pairs 6] [--gap 20]
 //     [--headed] [--cpu-throttle 4] [--window 15] [--batch-count 1] [--mute /tmp/remi-perf-mute] [--save-trace]
+//     [--dist <the build the server serves; default $REMI_PERF_DIST or webui/dist>] [--inject-css "<css>"]
 //
 // Drives Chromium through Playwright and the DevTools protocol:
 // - load: JS fetched until the Generate view is idle (gzip size of each script from webui/dist),
@@ -38,7 +39,10 @@ const TRACE = args.trace ?? "/tmp/remi-perf-trace.jsonl"
 const STEPS = Number(args.steps ?? 24)
 const JOBS = Number(args.jobs ?? 4)
 const THROTTLE = Number(args["cpu-throttle"] ?? 1)
-const DIST = path.resolve(import.meta.dirname, "../../dist")
+/** Images per job (`preview`, `interleaved`): the step starts again at 0 for each image of the job. */
+const BATCH = Number(args["batch-count"] ?? 1)
+// the build the server serves (serve_traced.py's REMI_PERF_DIST), for the scripts' gzip sizes
+const DIST = path.resolve(args.dist ?? process.env.REMI_PERF_DIST ?? path.join(import.meta.dirname, "../../dist"))
 mkdirSync(OUT, { recursive: true })
 
 const PROMPT = "masterpiece, best quality, 1girl, silver hair, blue eyes, school uniform, cherry blossoms, upper body, smile"
@@ -134,6 +138,11 @@ async function newPage(browser) {
   const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 })
   const page = await context.newPage()
   await page.addInitScript(instrument)
+  // A/B experiments without a rebuild, e.g. --inject-css ".animate-in{animation:none!important}"
+  if (args["inject-css"])
+    await page.addInitScript((css) => {
+      document.addEventListener("DOMContentLoaded", () => document.head.append(Object.assign(document.createElement("style"), { textContent: css })))
+    }, args["inject-css"])
   const cdp = await context.newCDPSession(page)
   await cdp.send("Performance.enable")
   if (THROTTLE > 1) await cdp.send("Emulation.setCPUThrottlingRate", { rate: THROTTLE })
@@ -159,7 +168,12 @@ async function openGenerate(page, tab = "txt2img") {
 const gzipOf = new Map()
 function scriptGzip(url) {
   const file = path.join(DIST, new URL(url).pathname)
-  if (!existsSync(file)) return { raw: 0, gzip: 0 }
+  if (!existsSync(file)) {
+    // not the build the server serves: the totals would be too small
+    if (!gzipOf.has(file)) log(`load: WARNING ${new URL(url).pathname} is not in ${DIST} (pass --dist <the served build>)`)
+    gzipOf.set(file, { raw: 0, gzip: 0 })
+    return gzipOf.get(file)
+  }
   if (!gzipOf.has(file)) {
     const raw = readFileSync(file)
     gzipOf.set(file, { raw: raw.length, gzip: gzipSync(raw, { level: 6 }).length })
@@ -314,6 +328,50 @@ async function measureInp(browser) {
 
 const TRACE_CATEGORIES = ["devtools.timeline", "disabled-by-default-devtools.timeline.frame", "benchmark", "latencyInfo", "rail"]
 
+/**
+ * What the renderer's main thread did during each frame interval longer than `limitMs` (the
+ * page's own rAF timestamps, put on the trace's clock by a `console.timeStamp` anchor): the
+ * outermost timeline events in the interval by name, and how much of it they cover. A long frame
+ * with less than a frame's worth of main-thread work was not caused by the page's scripts, layout
+ * or GC (the renderer was not scheduled, or the compositor / GPU was late).
+ */
+function longFrames(traceEvents, frames, limitMs = 20) {
+  const out = { count: 0, pageWork: 0, noPageWork: 0, byEvent: {}, worst: [] }
+  const anchor = traceEvents.find((e) => e.name === "TimeStamp" && e.args?.data?.message === "perf-anchor")
+  if (!anchor || frames.anchor == null) return { ...out, error: "no anchor in the trace" }
+  const offset = anchor.ts - frames.anchor * 1000 // trace µs = page ms * 1000 + offset
+  const key = `${anchor.pid}:${anchor.tid}` // the page's main thread called console.timeStamp
+  const work = traceEvents.filter((e) => e.ph === "X" && e.dur > 0 && `${e.pid}:${e.tid}` === key).sort((a, b) => a.ts - b.ts || b.dur - a.dur)
+  let w = 0
+  for (let i = 1; i < frames.times.length; i++) {
+    const gapMs = frames.times[i] - frames.times[i - 1]
+    if (gapMs <= limitMs) continue
+    out.count++
+    const from = frames.times[i - 1] * 1000 + offset
+    const to = frames.times[i] * 1000 + offset
+    while (w < work.length && work[w].ts + work[w].dur < from) w++
+    const byName = {}
+    let busy = 0
+    let coveredTo = from
+    for (let j = w; j < work.length && work[j].ts < to; j++) {
+      const e = work[j]
+      const start = Math.max(e.ts, coveredTo)
+      const end = Math.min(e.ts + e.dur, to)
+      if (end <= start) continue // inside an event already counted
+      busy += end - start
+      byName[e.name] = (byName[e.name] ?? 0) + (end - start) / 1000
+      coveredTo = end
+    }
+    const busyMs = busy / 1000
+    if (busyMs > 16.7) out.pageWork++
+    else out.noPageWork++
+    for (const [name, ms] of Object.entries(byName)) out.byEvent[name] = round((out.byEvent[name] ?? 0) + ms, 1)
+    out.worst.push({ gapMs: round(gapMs, 1), mainBusyMs: round(busyMs, 1), top: Object.entries(byName).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([name, ms]) => [name, round(ms, 1)]) })
+  }
+  out.worst = out.worst.sort((a, b) => b.gapMs - a.gapMs).slice(0, 10)
+  return out
+}
+
 async function scrollRun(page, cdp, scroller, pxPerFrame, label) {
   const tracePath = path.join(OUT, `trace-${label}.json`)
   const chunks = []
@@ -328,11 +386,14 @@ async function scrollRun(page, cdp, scroller, pxPerFrame, label) {
         el.scrollTop = 0
         const times = []
         const start = performance.now()
+        // puts the rAF times on the trace's clock (longFrames)
+        const anchor = performance.now()
+        console.timeStamp("perf-anchor")
         const tick = (ts) => {
           times.push(ts)
           el.scrollTop += step
           const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 2
-          if (atEnd || ts - start > 100_000) resolve({ times, scrollHeight: el.scrollHeight, rendered: el.querySelectorAll("img").length })
+          if (atEnd || ts - start > 100_000) resolve({ times, anchor, scrollHeight: el.scrollHeight, rendered: el.querySelectorAll("img").length })
           else requestAnimationFrame(tick)
         }
         requestAnimationFrame(tick)
@@ -365,9 +426,10 @@ async function scrollRun(page, cdp, scroller, pxPerFrame, label) {
     layoutDurationS: round(after.LayoutDuration - before.LayoutDuration, 2),
     recalcStyleDurationS: round(after.RecalcStyleDuration - before.RecalcStyleDuration, 2),
     nodesAfter: after.Nodes,
+    longFrames: longFrames(chunks, frames),
     trace: tracePath,
   }
-  log(`  ${label} @${pxPerFrame}px/frame: ${out.fps} fps over ${out.seconds}s, p95 ${out.interval.p95} ms, >20ms ${out.over20ms}/${intervals.length}, pipeline ${JSON.stringify(states)}`)
+  log(`  ${label} @${pxPerFrame}px/frame: ${out.fps} fps over ${out.seconds}s, p95 ${out.interval.p95} ms, >20ms ${out.over20ms}/${intervals.length}, pipeline ${JSON.stringify(states)}; long frames with page work ${out.longFrames.pageWork}, without ${out.longFrames.noPageWork}`)
   return out
 }
 
@@ -566,12 +628,13 @@ async function measurePreview(browser) {
   cdp.on("Tracing.dataCollected", ({ value }) => chunks.push(...value))
   const traced = new Promise((resolve) => cdp.once("Tracing.tracingComplete", resolve))
   const submitted = Date.now()
-  const first = uiJob(page, STEPS)
+  const jobSteps = STEPS * BATCH
+  const first = uiJob(page, STEPS, { batchCount: BATCH })
   const stepsSince = (t) => readTrace(t).filter((e) => e.e === "step")
   while (stepsSince(submitted).length < 2) await page.waitForTimeout(100)
   const tracedFrom = Date.now()
   await cdp.send("Tracing.start", { traceConfig: { includedCategories: TRACE_CATEGORIES }, transferMode: "ReportEvents" })
-  while (stepsSince(submitted).length < STEPS) await page.waitForTimeout(100)
+  while (stepsSince(submitted).length < jobSteps) await page.waitForTimeout(100)
   await cdp.send("Tracing.end")
   await traced
   const tracedSteps = stepsSince(tracedFrom).length
@@ -592,12 +655,12 @@ async function measurePreview(browser) {
   let cost = null
   for (let i = 1; i < JOBS; i++) {
     const submittedAt = Date.now()
-    const next = uiJob(page, STEPS)
+    const next = uiJob(page, STEPS, { batchCount: BATCH })
     if (i === 1) {
       while (stepsSince(submittedAt).length < 2) await page.waitForTimeout(100)
       const from = await pageCounters(cdp)
       const fromSteps = stepsSince(submittedAt).length
-      while (stepsSince(submittedAt).length < STEPS) await page.waitForTimeout(100)
+      while (stepsSince(submittedAt).length < jobSteps) await page.waitForTimeout(100)
       const to = await pageCounters(cdp)
       cost = pageCost(from, to, stepsSince(submittedAt).length - fromSteps, idle)
     }
@@ -626,9 +689,21 @@ async function measurePreview(browser) {
     })
   }
   const pick = (key) => summary(rows.map((r) => r[key]))
+  // frames received and painted per image of each job (a new image: the step goes back within the job)
+  const images = []
+  data.frames.forEach((frame, i) => {
+    const previous = data.frames[i - 1]
+    if (!previous || previous.seq !== frame.seq || frame.step < previous.step) images.push({ seq: frame.seq, received: 0, painted: 0 })
+    images.at(-1).received++
+    frame.image = images.length - 1
+  })
+  for (const paint of data.paints) images[data.frames[paint.i].image].painted++
   results.preview = {
     jobs: jobs.map(({ jobId, start, end, status }) => ({ jobId, ms: end - start, status })),
     steps: STEPS,
+    batchCount: BATCH,
+    perImage: images,
+    paintedShare: round(data.paints.length / Math.max(1, data.frames.length), 3),
     framesPerStep: round(sequences.size / Math.max(1, firstJobSteps), 2),
     frameReportsPerStep: round(presented / Math.max(1, firstJobSteps), 2),
     frameStates: states,
@@ -650,7 +725,9 @@ async function measurePreview(browser) {
     its: jobs.map((j) => itsFrom(trace, j.start, j.end)),
   }
   writeFileSync(path.join(OUT, "preview-rows.json"), JSON.stringify(rows, null, 1))
-  log(`preview: ${rows.length} frames matched (${data.frames.length} received, ${data.paints.length} painted); total p50 ${results.preview.total.p50} p95 ${results.preview.total.p95} ms; image→publish p95 ${results.preview.imageToPublish.p95}, publish→receive p95 ${results.preview.publishToReceive.p95}, receive→paint p95 ${results.preview.receiveToPaint.p95}; clock offset ${results.preview.clockOffsetMs} ms; ${results.preview.framesPerStep} frames drawn per step (${results.preview.frameReportsPerStep} reports); per step: renderer tasks ${cost?.taskMs} ms, ${cost?.layouts} layouts, Chromium CPU ${cost?.chromiumCpuMs} ms (over idle ${cost?.overIdle?.chromiumCpuMs} ms)`)
+  const unpainted = images.filter((image) => image.painted < image.received / 2).length
+  if (unpainted) log(`preview: WARNING ${unpainted} of ${images.length} images had fewer than half of their frames painted`)
+  log(`preview: ${rows.length} frames matched (${data.frames.length} received, ${data.paints.length} painted, ${images.length} images); total p50 ${results.preview.total.p50} p95 ${results.preview.total.p95} ms; image→publish p95 ${results.preview.imageToPublish.p95}, publish→receive p95 ${results.preview.publishToReceive.p95}, receive→paint p95 ${results.preview.receiveToPaint.p95}; clock offset ${results.preview.clockOffsetMs} ms; ${results.preview.framesPerStep} frames drawn per step (${results.preview.frameReportsPerStep} reports); per step: renderer tasks ${cost?.taskMs} ms, ${cost?.layouts} layouts, Chromium CPU ${cost?.chromiumCpuMs} ms (over idle ${cost?.overIdle?.chromiumCpuMs} ms)`)
 }
 
 /** CPU seconds (user + system) of a process and its descendants, from `ps`. */
@@ -778,7 +855,7 @@ async function measureInterleaved(browser) {
   const mute = args.mute ?? "/tmp/remi-perf-mute"
   const windowMs = Number(args.window ?? 15) * 1000
   const steps = Number(args.steps ?? 160)
-  const batchCount = Number(args["batch-count"] ?? 1)
+  const batchCount = BATCH
   rmSync(mute, { force: true })
   const { context, page } = await newPage(browser)
   await openGenerate(page)
@@ -808,8 +885,11 @@ async function measureInterleaved(browser) {
   rmSync(mute, { force: true })
   const finished = await job
   const browserCpu = treeCpu(process.pid, { includeRoot: false }) - cpu0
-  const painted = await page.evaluate(() => window.__perf.paints.length)
+  const { painted, received } = await page.evaluate(() => ({ painted: window.__perf.paints.length, received: window.__perf.frames.length }))
   await context.close()
+  // the "on" condition is only valid if the page painted what it received (every image of a batch)
+  const paintedShare = round(painted / Math.max(1, received), 3)
+  if (paintedShare < 0.9) log(`interleaved: WARNING the page painted ${painted} of ${received} preview frames: the "on" windows did not show the previews`)
   const trace = readTrace(windows[0].start - 1000).filter((e) => e.e === "step")
   for (const w of windows) w.steps = []
   for (let i = 1; i < trace.length; i++) {
@@ -849,6 +929,8 @@ async function measureInterleaved(browser) {
     windowS: windowMs / 1000,
     jobMs: finished.end - finished.start,
     painted,
+    received,
+    paintedShare,
     browserCpuPct: round((browserCpu / ((finished.end - finished.start) / 1000)) * 100, 1),
     stepMsOn: summary(on),
     stepMsOff: summary(off),

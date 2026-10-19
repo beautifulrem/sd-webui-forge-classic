@@ -46,7 +46,6 @@
     "CRF": "CRF",
     "Cache Window": "缓存窗口",
     "Calculate hash for all checkpoint": "计算所有 checkpoint 的哈希值",
-    "Callbacks": "回调",
     "Cancel": "取消",
     "Change checkpoint": "更换 checkpoint",
     "Check for updates": "检查更新",
@@ -685,10 +684,5 @@
     "Move to favorites": "移动到收藏夹",
     "Copy to favorites": "复制到收藏夹",
     "Move to directory": "移动到目录",
-    "⚠ Caution: You should only use these options if you know what you are doing. ⚠": "⚠ 注意：只有在你了解操作时才使用这些选项。 ⚠",
-    "an image is required": "需要一张图像",
-    "paint a mask over the image": "请在图像上绘制蒙版",
-    "paint the area to inpaint": "请涂抹需要重绘的区域",
-    "a mask image is required": "需要一张蒙版图像",
-    "upload the images to process": "请上传要处理的图片"
+    "⚠ Caution: You should only use these options if you know what you are doing. ⚠": "⚠ 注意：只有在你了解操作时才使用这些选项。 ⚠"
 }

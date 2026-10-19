@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 
 from backend.logging import setup_logger
 from lib_anima_hires import BALANCED, GuardLimits, guard_dimensions
-from modules import scripts, shared
+from modules import script_callbacks, scripts, shared
 from modules.anima_support import is_anima_engine, require_finite, table_params
 from remi import ui
 
@@ -23,6 +24,13 @@ PRESETS = {
 # Marks a "Report only" note in the infotext, which then lists changes the
 # guard did not make
 REPORT_ONLY_PREFIX = "report only (not applied): "
+
+# The applied changes, and the Hires target the user asked for when the guard
+# replaced it (an explicit resize; a scale is recorded as "Hires upscale"):
+# what the paste restores, so the pasted run makes the same changes again
+K_ADJUSTMENTS = "Anima Hires adjustments"
+K_REQUESTED_RESIZE = "Anima Hires requested resize"
+RE_BASE_CHANGE = re.compile(r"(?:^|; )base (\d+)x(\d+) -> ")
 
 
 def _is_anima(process) -> bool:
@@ -112,7 +120,7 @@ class AnimaHiresGuardScript(scripts.Script):
             # Width/height are then the final hires size and processing
             # derives the first pass (and hr_resize_x/y) from them later.
             reason = "skipped: the legacy hires width/height setting is on"
-            process.extra_generation_params["Anima Hires adjustments"] = reason
+            process.extra_generation_params[K_ADJUSTMENTS] = reason
             logger.warning("Anima Hires Guard %s", reason)
             return
 
@@ -157,6 +165,12 @@ class AnimaHiresGuardScript(scripts.Script):
         if not report_only and result.hires_width is not None and result.hires_height is not None:
             # Always an explicit target, so both axes keep the exact guarded,
             # grid-aligned values: a scalar hr_scale cannot express rounding.
+            requested = (int(getattr(process, "hr_resize_x", 0) or 0), int(getattr(process, "hr_resize_y", 0) or 0))
+            if requested == (0, 0):
+                # Processing records "Hires upscale" only without a target
+                process.extra_generation_params["Hires upscale"] = getattr(process, "hr_scale", 1.0)
+            elif requested != (result.hires_width, result.hires_height):
+                process.extra_generation_params[K_REQUESTED_RESIZE] = f"{requested[0]}x{requested[1]}"
             process.hr_resize_x = result.hires_width
             process.hr_resize_y = result.hires_height
         if not result.changes:
@@ -165,11 +179,37 @@ class AnimaHiresGuardScript(scripts.Script):
         summary = "; ".join(result.changes)
         if report_only:
             # The image keeps the unsafe size: say so, or the infotext reads as a clamp
-            process.extra_generation_params["Anima Hires adjustments"] = f"{REPORT_ONLY_PREFIX}{summary}"
+            process.extra_generation_params[K_ADJUSTMENTS] = f"{REPORT_ONLY_PREFIX}{summary}"
             logger.warning("Anima Hires Guard report: %s", summary)
             return
 
-        process.extra_generation_params["Anima Hires adjustments"] = summary
+        process.extra_generation_params[K_ADJUSTMENTS] = summary
         process.width = result.base_width
         process.height = result.base_height
         logger.info("Anima Hires Guard applied: %s", summary)
+
+
+def _truthy(value) -> bool:
+    return str(value).strip().lower() == "true"
+
+
+def _on_infotext_pasted(infotext, params):
+    """Paste the request a clamping guard replaced, not its result: the base
+    size from "base WxH -> ..." of the adjustments, and the Hires scale or
+    resize the guarded target replaced. Pasting the guarded sizes ran without
+    a change to make: the same image, an infotext without the adjustments
+    (and the Hires scale lost)."""
+
+    if not _truthy(params.get(FIELDS[0][1])) or params.get(FIELDS[1][1]) == "Report only":
+        return
+    adjustments = str(params.get(K_ADJUSTMENTS, ""))
+    if (base := RE_BASE_CHANGE.search(adjustments)) is not None:
+        params["Size-1"], params["Size-2"] = base.group(1), base.group(2)
+    if f"{K_REQUESTED_RESIZE}-1" in params:
+        params["Hires resize-1"], params["Hires resize-2"] = params[f"{K_REQUESTED_RESIZE}-1"], params[f"{K_REQUESTED_RESIZE}-2"]
+    elif "Hires upscale" in params and str(params.get("Hires resize-1", 0)) not in ("0", ""):
+        # Never both without the guard: the target replaced this scale
+        params["Hires resize-1"], params["Hires resize-2"] = 0, 0
+
+
+script_callbacks.on_infotext_pasted(_on_infotext_pasted, name="anima_hires_guard")

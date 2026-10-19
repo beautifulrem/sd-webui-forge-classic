@@ -58,6 +58,7 @@ Inputs (each has a `name` unique within its script; that name is the param id):
 | `State(name, default)` | JSON | hidden; not rendered |
 
 Common keyword arguments for inputs: `label`, `info`, `visible_if`, `enabled_if`,
+`inactive_if` (shown dimmed but editable while true: the value has no effect then),
 `infotext` (infotext key), `paste` (callable `params -> value` for derived
 paste), `preset` (Anima preset key), `exclusive=(group, member)` (Toggle only),
 `on_change="action"` (after any change: edits, pastes, bulk resets),
@@ -358,12 +359,17 @@ fresh snapshot, `queue.changed` and the running job; the client refetches
 what it shows, e.g. job history). A failed send closes the socket. The
 client may send `hello{features}` (previews are then only sent in the formats it
 lists) and `ping`. Binary frames carry previews: little-endian header `u8 type=1,
-u8 fmt (1=jpeg, 2=webp), u32 job_seq, u32 step`, then the image bytes. A
-dedicated encoder thread keeps only the newest frame: `shared.state`'s
-`live_preview_listeners` wake it when a preview is assigned, so a frame
-leaves within its encoding time, and `live_preview_fps` (default 6) only
-throttles (JPEG when `live_previews_image_format` is JPEG, else WebP; nothing
-is encoded while no client is connected). The SPA draws a step once: a
+u8 fmt (1=jpeg, 2=webp), u32 job_seq, u32 step`, then the image bytes (the
+step restarts for each image of a batch; the client orders frames by
+arrival). Only the newest preview is encoded: `shared.state`'s
+`live_preview_listeners` call the encoder when a preview is assigned; a
+small one (the RGB / Approx NN previews, up to 256 × 256 px for JPEG,
+96 × 96 for WebP) is encoded and handed to the hubs right there on the
+generation thread (0.1-0.5 ms), larger ones and those inside a throttle wait
+by the encoder thread (`remi.realtime.PreviewEncoder`), so the sampler does
+not hand the interpreter to another thread for every step; `live_preview_fps`
+(default 6) only throttles (JPEG when `live_previews_image_format` is JPEG,
+else WebP; nothing is encoded while no client is connected). The SPA draws a step once: a
 `job.progress` that arrives while previews come every step waits for the
 next frame (`webui/src/api/progress-gate.ts`), and both are applied in one
 animation frame once the image has decoded (`webui/src/api/paint-batch.ts`).

@@ -75,7 +75,7 @@ class ScriptLayout:
         if self.root is None:
             return
         for node in self.root.walk():
-            for condition in (node.visible_if, node.enabled_if):
+            for condition in (node.visible_if, node.enabled_if, getattr(node, "inactive_if", None)):
                 for name in conditions.references(condition):
                     if "." not in name and name not in self.by_name:
                         raise SchemaError(f"{self.owner}: condition refers to unknown param {name!r}")

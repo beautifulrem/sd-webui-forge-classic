@@ -75,3 +75,21 @@ def test_lora_keys_map_onto_the_anima_model():
 
     key_map = model_lora_keys_unet(Model(), {})
     assert key_map.get("diffusion_model.blocks.0.mlp.layer2") == "diffusion_model.blocks.0.mlp.layer2.weight"
+
+
+def test_refiner_checkpoint_differs_only_in_the_patched_layers(tmp_path):
+    checkpoint = _checkpoint(tmp_path / "anima.safetensors")
+    path = tool.write_refiner_checkpoint(checkpoint, tmp_path / "refiner" / "remi-test-refiner.safetensors")
+    original, refiner = load_file(str(checkpoint)), load_file(str(path))
+    assert original.keys() == refiner.keys()
+    layers = tool.target_layers(tool.read_header(checkpoint))
+    for key, tensor in original.items():
+        assert refiner[key].dtype == tensor.dtype and refiner[key].shape == tensor.shape
+        patched = any(key == f"model.diffusion_model.{layer}.weight" for layer in layers)
+        assert torch.equal(refiner[key], tensor) is not patched, key
+    from safetensors import safe_open
+
+    with safe_open(str(path), framework="pt") as file:
+        assert file.metadata()["remi_test_refiner"] == "1"
+    again = load_file(str(tool.write_refiner_checkpoint(checkpoint, tmp_path / "again.safetensors")))
+    assert all(torch.equal(again[key], refiner[key]) for key in refiner)

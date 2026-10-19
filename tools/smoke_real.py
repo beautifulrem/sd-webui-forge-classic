@@ -35,7 +35,15 @@ What it does (one model load, about three minutes on an M4 with Anima Turbo):
    - inpaint with "Masked content: latent noise" finishes in time and keeps the unmasked half;
    - paste round-trips: each feature job's infotext through ``POST /api/v2/infotext/parse``
      (no problems) and queued again gives the same pixels and infotext - also for Prompt
-     Anchor, PP Suite and (with a second checkpoint installed) the Refiner checkpoint.
+     Anchor, PP Suite and the Refiner;
+   - the Refiner with a second, different checkpoint: a perturbed copy of the checkpoint
+     (``tools/anima_test_loras.py --refiner``, about 4 GB) written into the temporary data
+     folder (``--ckpt-dirs``; ``--no-refiner-checkpoint`` uses an installed one) takes over
+     at 0.5 - the image changes, the infotext records ``Refiner: <name> [<hash>]``, and the
+     base checkpoint is selected again;
+   - runs a feature changed the request of (an Anima Flow sampler's scheduler lock, Dynamic
+     Shift's Automatic schedule, the Anima Hires Guard's clamp) record the replacement, and
+     their paste restores the request, so the pasted job writes the same infotext.
 
 7. Stops the server (Ctrl+C, then terminate) and prints a result table; exit 1 when a check
    failed, 2 when the server could not be started.
@@ -472,16 +480,47 @@ def run_features(server: Server, out: Path, report: Report, base_values: dict) -
         report.check("PP Suite infotext", "PP Suite: " in info, info.splitlines()[-1][:300])
         check_round_trip(server, report, "PP Suite", "txt2img", vignetted, info)
 
+    # Runs a feature changed the request of: the infotext records the result and
+    # what it replaced, and the paste restores the request, so the pasted run
+    # replaces it again (the same infotext, not only the same pixels)
+    dynshift = script_owner(schema, "shift_start", "shift_end", "curve")
+    guard = script_owner(schema, "policy", "base_mp", "hires_mp", "max_upscale")
+    simple = {**sampler, "scheduler": "Simple"}
+    hires = {"enable_hr": True, "hr_scale": 2.0, "hr_upscaler": "Lanczos", "hr_second_pass_steps": 4, "denoising_strength": 0.5}
+    replacements = {
+        "anima_flow_lock": ({}, {"sampler": {**simple, "sampler_name": "Anima Flow Euler"}}, "Anima Flow replaced scheduler: Simple"),
+        "dynshift_schedule": ({}, {"sampler": simple, dynshift: {"enabled": True}}, "DynShift replaced scheduler: Simple"),
+        "hires_guard_clamp": (hires, {"sampler": simple, guard: {"enabled": True}}, "Anima Hires adjustments: hires 1024x1024 -> 896x896"),
+    }
+    for name, (core_values, scripts, record) in replacements.items():
+        print(f"feature: {name}", flush=True)
+        job, image, info = run_v2(server, "txt2img", {**core(FEATURE_PROMPT), **core_values}, {**common_scripts, **scripts})
+        if not report.check(f"{name}: job completed", image is not None, job.get("error") or ""):
+            continue
+        image.save(out / f"feature_{name}.png")
+        report.check(f"{name}: infotext records the replacement", record in info, info.splitlines()[-1][:300])
+        check_round_trip(server, report, name, "txt2img", image, info)
+
+    # Refiner: the second checkpoint (by default the perturbed copy written into the data
+    # folder, see main) takes over at 0.5 - the image changes, the infotext records it, the
+    # base checkpoint is selected again afterwards, and the paste regenerates it
+    from anima_test_loras import REFINER_NAME
+
     models = [model["title"] for model in server.request("GET", "/sdapi/v1/sd-models")]
-    other = next((title for title in models if not title.startswith(MODEL)), None)
+    other = next((title for title in models if REFINER_NAME in title), None) or next((title for title in models if not title.startswith(MODEL)), None)
     if other is None:
-        report.check("Refiner paste (needs a second checkpoint)", True, "skipped: only one checkpoint installed")
+        report.check("Refiner (needs a second checkpoint)", False, "no second checkpoint installed")
     else:
         refiner = script_owner(schema, "checkpoint", "switch_at")
         name = other.split(" [")[0]  # a Checkpoint choice; the paste must map "Refiner: <short title>" back onto one
+        before = server.request("GET", "/sdapi/v1/options")["sd_model_checkpoint"]
         _, refined, info = generate("refiner", FEATURE_PROMPT, {refiner: {"enable": True, "checkpoint": name, "switch_at": 0.5}})
         if refined is not None:
-            report.check("Refiner infotext", "Refiner: " in info, info.splitlines()[-1][:300])
+            effect, _ = diff(refined, plain)
+            report.check("Refiner changes the image", effect > 0.5, f"{name}: mean diff to without the refiner {effect:.2f}")
+            report.check("Refiner infotext", f"Refiner: {name} [" in info and "Refiner switch at: 0.5" in info, info.splitlines()[-1][:300])
+            after = server.request("GET", "/sdapi/v1/options")["sd_model_checkpoint"]
+            report.check("Refiner restores the base checkpoint", after == before, f"before {before}, after {after}")
             check_round_trip(server, report, "Refiner", "txt2img", refined, info)
 
     # Inpaint, "Masked content: latent noise" (5D Anima latents): finishes, keeps the unmasked half
@@ -515,6 +554,7 @@ def main() -> int:
     parser.add_argument("--startup-timeout", type=float, default=300)
     parser.add_argument("--keep-data", action="store_true", help="keep the temporary data folder")
     parser.add_argument("--features", action="store_true", help="also check the LoRA features, Sparse Attention and paste round-trips (step 6)")
+    parser.add_argument("--no-refiner-checkpoint", action="store_true", help="with --features: do not write the perturbed second checkpoint (the Refiner check then needs one installed)")
     parser.add_argument("--report", type=Path, help="also write the result as JSON here (evidence of a Gradio-free start and generation)")
     options = parser.parse_args()
 
@@ -541,11 +581,16 @@ def main() -> int:
     started = time.monotonic()
     extra_args = []
     if options.features:
-        from anima_test_loras import write_test_loras
+        from anima_test_loras import REFINER_NAME, write_refiner_checkpoint, write_test_loras
 
         lora_dir = data_dir / "Lora"
         write_test_loras(ROOT / "models" / "Stable-diffusion" / MODEL, lora_dir)
         extra_args = ["--lora-dir", str(lora_dir)]
+        if not options.no_refiner_checkpoint:
+            print("Writing a second checkpoint for the Refiner (a perturbed copy)", flush=True)
+            refiner_dir = data_dir / "Stable-diffusion"
+            write_refiner_checkpoint(ROOT / "models" / "Stable-diffusion" / MODEL, refiner_dir / f"{REFINER_NAME}.safetensors")
+            extra_args += ["--ckpt-dirs", str(refiner_dir)]
     server = Server(options.python, options.port, data_dir, options.out / "server.log", extra_args)
     started_ok = False
     try:
