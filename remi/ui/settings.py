@@ -12,6 +12,7 @@ type.
 
 from __future__ import annotations
 
+import html
 import re
 from collections.abc import Callable, Mapping
 from html.parser import HTMLParser
@@ -83,7 +84,8 @@ def setting_node(key: str, info, value: Any) -> nodes.Node:
         return nodes.Text(key, value, lines=max(int(args.get("lines", 1) or 1), 1), max_lines=args.get("max_lines"), placeholder=args.get("placeholder"), **common)
     if kind in (nodes.Choice, nodes.MultiChoice):
         style = extra.get("style", "dropdown")
-        return kind(key, args.get("choices") or [], value, style=style, allow_custom=bool(extra.get("allow_custom")), **common)
+        hints = {str(label): str(text) for label, text in (getattr(info, "choice_hints", None) or {}).items()}
+        return kind(key, args.get("choices") or [], value, style=style, allow_custom=bool(extra.get("allow_custom")), hints=hints or None, **common)
     if kind is nodes.Toggle:
         return nodes.Toggle(key, value, **common)
     if kind is nodes.Color:
@@ -155,9 +157,12 @@ def _setting_extras(info) -> dict:
         data["notes"] = notes
     if links:
         data["links"] = [{"label": label, "url": url} for label, url in links]
-    html = "".join(html_blocks)
-    if html.strip():
-        data["html"] = html.strip()
+    default_order = [str(name) for name in getattr(info, "default_order", None) or ()]
+    if default_order:
+        data["default_order"] = default_order
+    markup = "".join(html_blocks)
+    if markup.strip():
+        data["html"] = markup.strip()
     if getattr(info, "requires_restart", False):
         data["needs_restart"] = True
     if getattr(info, "requires_reload_ui", False):
@@ -206,7 +211,7 @@ def settings_schema(opts, ctx: Context | None = None, *, categories=None, quicks
         try:
             node = setting_node(key, info, value)
         except Exception as error:  # an extension option this exporter cannot read
-            node = nodes.Html(f"<i>{key}: {error}</i>")
+            node = nodes.Html(f"<i>{html.escape(key)}: {html.escape(str(error))}</i>")
 
         if isinstance(node, nodes.Row):  # OptionRow markers open and close a row
             if open_rows[section] is None:

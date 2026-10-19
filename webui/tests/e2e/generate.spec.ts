@@ -16,6 +16,25 @@ async function setPrompt(page: Page, text: string) {
   return prompt
 }
 
+/** Types a value into a numeric field of the form (a slider's box, the seed) and commits it. */
+async function setNumber(page: Page, label: string, value: number) {
+  const box = page.getByRole("textbox", { name: label, exact: true }).first()
+  await box.fill(String(value))
+  await box.press("Tab")
+  await expect(box).toHaveValue(String(value))
+}
+
+/** The Generate button while none of the form's runs is in flight (it reads "Queue another" meanwhile). */
+const idleGenerate = (page: Page) => page.getByRole("button", { name: /^Generate\b(?! several)/ }).first()
+
+/** The Seed chip of the selected result's parameters. */
+const seedChip = (page: Page) =>
+  page
+    .getByRole("region", { name: "Result" })
+    .locator("dl > div")
+    .filter({ has: page.locator("dt", { hasText: /^Seed$/ }) })
+    .locator("dd")
+
 test.describe("generate", () => {
   test("generates with Ctrl/Cmd+Enter and files the result into the history", async ({ page }) => {
     await open(page)
@@ -97,6 +116,75 @@ test.describe("generate", () => {
     // The source image is set (its line offers to replace / remove it) and the stage shows it in the editor.
     await expect(page.getByRole("region", { name: "Source", exact: true }).getByRole("button", { name: /^Remove/ })).toBeVisible()
     await expect(page.getByRole("img", { name: /^Image editor, / })).toBeVisible()
+  })
+
+  test("batch count N makes N results in batch order", async ({ page }) => {
+    await open(page)
+    await setPrompt(page, "a lantern")
+    await setNumber(page, "Batch count", 3)
+    await setNumber(page, "Sampling steps", 20) // about 2 s a batch: the batch counter stays on screen long enough to see
+    await setNumber(page, "Seed", 1234)
+    await page.getByRole("button", { name: /^Generate/ }).first().click()
+    await expect(page.getByText(/Batch 1 of 3/).first()).toBeVisible()
+    await expect(idleGenerate(page)).toBeVisible({ timeout: 20_000 })
+    const results = page.getByRole("listbox", { name: "History" }).getByRole("option")
+    await expect(results).toHaveCount(3)
+    // Each image has its own seed (seed + index): the results keep the batch order.
+    for (const [index, seed] of [1234, 1235, 1236].entries()) {
+      await results.nth(index).click()
+      await expect(seedChip(page)).toHaveText(String(seed))
+    }
+  })
+
+  test("Alt+Enter skips the current image of a multi-image job and the job goes on", async ({ page }) => {
+    await open(page)
+    await setNumber(page, "Batch count", 2)
+    await setNumber(page, "Sampling steps", 60) // about 5 s a batch: a skip shows as batch 2 starting at once
+    await page.getByRole("button", { name: /^Generate/ }).first().click()
+    await expect(page.getByText(/Batch 1 of 2/).first()).toBeVisible()
+    await page.locator("body").press("Alt+Enter")
+    await expect(page.getByText(/Batch 2 of 2/).first()).toBeVisible({ timeout: 3_000 })
+    // Skip is not Interrupt: the job is still running; it ends with both batches' images.
+    await expect(page.getByRole("button", { name: "Interrupt" })).toBeVisible()
+    await page.getByRole("button", { name: "Skip" }).click()
+    await expect(idleGenerate(page)).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByRole("listbox", { name: "History" }).getByRole("option")).toHaveCount(2)
+    await expect(page.getByRole("img", { name: "Generated image" })).toBeVisible()
+  })
+
+  test("Generate forever queues run after run until it is stopped", async ({ page }) => {
+    await open(page)
+    await setNumber(page, "Sampling steps", 3)
+    await page.getByRole("button", { name: "More generate options" }).click()
+    const forever = page.getByRole("menuitemcheckbox", { name: "Generate forever" })
+    await forever.click()
+    await expect(forever).toHaveAttribute("aria-checked", "true")
+    await page.keyboard.press("Escape") // a checkbox item leaves the menu open; Escape closes it, the runs go on
+    await expect(forever).toBeHidden()
+    await expect(page.getByText("Generating forever")).toBeVisible()
+    const results = page.getByRole("listbox", { name: "History" }).getByRole("option")
+    // Each run is queued when the previous one has finished.
+    await expect.poll(() => results.count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(3)
+    await page.getByRole("button", { name: "Stop generating forever" }).click()
+    await expect(page.getByText("Generating forever")).toBeHidden()
+    // The run in progress finishes; no other one follows.
+    await expect(idleGenerate(page)).toBeVisible({ timeout: 5_000 })
+    const made = await results.count()
+    await page.waitForTimeout(1_500)
+    await expect(results).toHaveCount(made)
+    await expect(idleGenerate(page)).toBeVisible()
+  })
+
+  test("Generate several times runs the form N times, one after another", async ({ page }) => {
+    await open(page)
+    await setNumber(page, "Sampling steps", 3)
+    await page.getByRole("button", { name: "Generate several times" }).click()
+    const runs = page.getByRole("spinbutton", { name: "Generate several times" }).or(page.getByRole("textbox", { name: "Generate several times" }))
+    await runs.fill("3")
+    await page.getByRole("button", { name: "Start" }).click()
+    await expect(page.getByText(/2 more runs/)).toBeVisible()
+    await expect(idleGenerate(page)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole("listbox", { name: "History" }).getByRole("option")).toHaveCount(3)
   })
 
   test("phone layout stacks the panes with the run controls at the bottom @phone", async ({ page }) => {

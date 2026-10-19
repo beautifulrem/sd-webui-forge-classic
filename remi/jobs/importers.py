@@ -39,7 +39,8 @@ import os
 import pickle
 import sqlite3
 import zlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -518,11 +519,18 @@ def find_source(source: str) -> str | None:
     return next((path for path in paths if os.path.isfile(path)), None)
 
 
-def _connect_readonly(path: str) -> sqlite3.Connection:
+@contextmanager
+def _connect_readonly(path: str) -> Iterator[sqlite3.Connection]:
+    """A read-only connection, closed on exit (sqlite3's own context manager
+    only ends the transaction and leaves the connection open)."""
+
     uri = "file:" + path.replace("?", "%3F").replace("#", "%23") + "?mode=ro"
     db = sqlite3.connect(uri, uri=True, timeout=10)
-    db.row_factory = sqlite3.Row
-    return db
+    try:
+        db.row_factory = sqlite3.Row
+        yield db
+    finally:
+        db.close()
 
 
 def count_agent_scheduler(path: str) -> int:

@@ -1,4 +1,4 @@
-"""Prompt Anchor's ``params()``: the panel in the prompt slot, infotext and the prompt join."""
+"""Prompt Anchor's ``params()``: the panel above the main prompt, infotext and the prompt join."""
 
 import json
 from pathlib import Path
@@ -34,6 +34,10 @@ def test_matches_the_legacy_panel(env, tab):
     assert len(snapshot) == 4 and snapshot[3]["kind"] == "json"
     env.kit.assert_matches_snapshot(layout, snapshot[:3], {0: {"paste": True}, 1: {"label": ""}, 2: {"paste": True}})
     assert layout.by_name["anchor"].prompt is True
+    # Placement: legacy prompt_anchor.js lifted the panel right above the main
+    # prompt; slot "prompt_before" puts it there, and section "prompt" keeps
+    # the arguments where Gradio's section placed them (test_renders_above_the_main_prompt)
+    assert _script.section == "prompt" and _script.slot == "prompt_before"
 
 
 def test_settings_set_the_separator_and_the_open_state(env):
@@ -146,18 +150,36 @@ def test_disabled_or_empty_anchor_leaves_the_prompt(env):
         assert p.prompt == "1girl" and p.extra_generation_params == {}
 
 
-def test_renders_in_the_prompt_slot(env):
+def test_renders_above_the_main_prompt(env):
     from remi.core.tabs import tab_schema
     from remi.ui.schema import dumps
 
     for tab in ("txt2img", "img2img"):
         schema = json.loads(dumps(tab_schema(tab)))
         entry = next(script for script in schema["scripts"] if script["id"] == "prompt_anchor")
-        assert entry["section"] == "prompt" and entry["args"] == ["enabled", "anchor", "separator"]
+        assert entry["section"] == "prompt_before" and entry["args"] == ["enabled", "anchor", "separator"]
         assert entry["layout"]["type"] == "section" and entry["layout"]["enable"]["default"] is True
-        # The core form's prompt group holds the slot, right after the prompts
+        # The core form's prompt group opens with the slot, before the main
+        # prompt (as legacy prompt_anchor.js reparented the panel); no script
+        # of section "prompt" renders below the prompts here, so no slot there
         prompts = next(node for node in schema["core"]["layout"]["children"] if any(child.get("name") == "prompt" for child in node.get("children", [])))
-        assert prompts["children"][-1] == {"type": "slot", "section": "prompt"}
+        assert prompts["children"][0] == {"type": "slot", "section": "prompt_before"}
+        assert prompts["children"][1]["name"] == "prompt"
+        assert {"type": "slot", "section": "prompt"} not in prompts["children"]
+
+
+def test_arguments_stay_in_the_prompt_category(env):
+    """The slot moves the panel only: no new UI category, and the positional
+    arguments keep their legacy place (section "prompt" decides it, which
+    positional /sdapi clients rely on)."""
+    from modules import shared_items
+
+    categories = list(shared_items.ui_reorder_categories())
+    assert "prompt" in categories and "prompt_before" not in categories
+    order = env.webui.txt2img.slot_order()
+    anchor = next(index for index, script in enumerate(order) if script.title() == "Prompt Anchor")
+    seed = next(index for index, script in enumerate(order) if script.section == "seed")
+    assert categories.index("prompt") < categories.index("seed") and anchor < seed
 
 
 def test_localized(env):

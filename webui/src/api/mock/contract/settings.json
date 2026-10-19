@@ -5289,10 +5289,14 @@
        ],
        "style": "radio",
        "allow_custom": false,
+       "choice_hints": {
+        "Approx NN": "legacy preview method",
+        "RGB": "fast but low quality preview method",
+        "TAESD": "high quality preview method"
+       },
        "notes": [
         "Approx NN and TAESD will download additional model"
-       ],
-       "html": "<ul style='margin-left: 1.5em'>\n<li><b>Approx NN</b>: legacy preview method</li>\n<li><b>RGB</b>: fast but low quality preview method</li>\n<li><b>TAESD</b>: high quality preview method</li>\n</ul>"
+       ]
       },
       {
        "type": "toggle",

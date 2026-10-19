@@ -220,8 +220,9 @@ kinds (`ui.Slider`, `ui.Choice`, `ui.MultiChoice`, `ui.Color`, `ui.Text`,
 `"checkboxes"`) and `allow_custom`; any other component (an A1111 Gradio
 class) is ignored and the widget picked from the default's type. The
 settings schema is exported from `shared.opts.data_labels` by
-`remi.ui.settings.settings_schema` (`.info()`, `.link()`, `.html()`,
-`.needs_restart()`, `.needs_reload_ui()` are kept structured; `.js()`, a
+`remi.ui.settings.settings_schema` (`.info()`, `.link()`, `.choice_info()`,
+`default_order`, `.html()`, `.needs_restart()`, `.needs_reload_ui()` are
+kept structured; `.js()`, a
 client-side link of the old settings page, is accepted and ignored).
 `on_ui_settings` callbacks run before each app is built.
 
@@ -323,7 +324,7 @@ schema-format.md §3 body; other errors `{"detail": str}`.
 | GET / POST / DELETE | `/extensions/config-states`, `/extensions/config-states/{id}`, `/extensions/config-states/{id}/restore` | config-state backups (`config_states/*.json`): list, save `{name}`, detail (each extension saved vs. now; the WebUI commit for reference), delete, restore `{what: "extensions"}` → `{reload}` (each extension is reset to its commit during the next reload). The WebUI checkout is never reset: old backups point at upstream commits and `git reset --hard` would drop the working tree |
 | GET | `/user-assets/{name}` | `user.css` (data folder) and `notification.mp3` (WebUI folder) when present; bootstrap `user_assets` lists them |
 | POST | `/prompt/tokens` | token count of one prompt (`null` without a model; not queued) |
-| GET / POST / PUT / PATCH / DELETE | `/prompt-tools/config`, `/complete`, `/usage`, `/lookup`, `/translate`, `/translation-key`, `/groups`, `/refresh`, `/history[/{id}]`, `/collections[/{id}]`, `/favorites[/{id}]`, `/favorites-export`, `/favorites-import` | prompt tools (`remi/prompt_tools`, frontend.md "Prompt tools"): tag completion, usage ranking, chip lookups, translation through a configured provider (its API key write-only, kept in the prompt tools store), quick tag groups, prompt history (recorded from `job.queued`), favorites (paged) |
+| GET / POST / PUT / PATCH / DELETE | `/prompt-tools/config`, `/complete`, `/usage`, `/lookup`, `/translate`, `/generate`, `/translation-key`, `/groups`, `/refresh`, `/history[/{id}]`, `/collections[/{id}]`, `/favorites[/{id}]`, `/favorites-export`, `/favorites-import` | prompt tools (`remi/prompt_tools`, frontend.md "Prompt tools"): tag completion, usage ranking, chip lookups, translation through a configured provider (its API key write-only, kept in the prompt tools store), prompt writing from a description by the OpenAI-compatible provider (`/generate`: 409 without that provider, 413 over 4,000 characters, 502 when it fails), quick tag groups, prompt history (recorded from `job.queued`), favorites (paged) |
 | GET / POST | `/auth/status`, `/auth/login`, `/auth/logout` | login (session cookie) |
 | POST | `/server/reload`, `/server/restart` | rebuild the app in-process ("Reload UI"); restart the process (when the launcher can; answers first, then the serve loop stops the server, interrupts the running job and exits) |
 | GET / POST | `/sysinfo`, `/sysinfo/check` | system information; whether a sysinfo file's checksum matches (`{text}` → `{valid}`) |
@@ -572,12 +573,11 @@ Kept, each for a non-UI reason:
 | `modules/extras.py` `run_modelmerger` | the checkpoint merge itself, run by the Checkpoint Merger page (`remi/core/merger.py`, registered by `scripts/checkpoint_merger.py`) as a page task with `progress=`; returns its status message |
 | `html/licenses.html` | read by `GET /api/v2/licenses` |
 | `modules/util.plaintext_to_html` | the A1111 `/sdapi/v1/extra-single-image` and `extra-batch-images` responses carry `html_info` (HTML) for API compatibility; Remi's own API and UI get plain infotext (`run_extras_named`) |
-| `html/ui.webp` | README screenshot |
-| `OptionInfo.js()`, `comment_before` / `comment_after` | A1111 extension API; `.js()` is ignored |
+| `OptionInfo.js()`, `OptionInfo(comment_before=, comment_after=)`, `OptionInfo.html()` | A1111 extension API: the two arguments and `.html()` become the setting's `html` help (for third-party options; Remi's own options use `.info()`, `.link()`, `.choice_info()` and `default_order`), `.js()` is ignored |
 | `util.open_folder`, `ScriptRunner.set_named_arg` | A1111 helpers extensions call; Gradio-free now (`set_named_arg` takes param names) |
 | `--use-textbox-seed`, `--add-stop-route`, `--ngrok-region`, `--ui-config-file` | accepted so existing launch commands keep working; they do nothing (`--ui-config-file`: form drafts live in the browser, defaults come from `params()` and the UI presets) |
 | `--share` | accepted so existing launch commands keep working, but there is no public tunnel: the server logs a warning at startup (use `--listen`, a reverse proxy or `--ngrok`). Like those, it marks the server as non-local (`cmd_opts.webui_is_non_local`), so the protections of an exposed server stay on (installing extensions needs `--enable-insecure-extension-access`; the browser is not opened automatically) |
-| `legacy_ui_<tab>.json` test fixtures | the argument contract recorded from each script's Gradio `ui()` before its port (the control class is the `legacy_control` key in some); the ports are tested against them. New ones are recorded with `tools/record_legacy_ui.py` (in the format of `tests/remi_port_harness.describe`), which builds the `ui()` in an export of the last Gradio-era revision |
+| `legacy_ui_<tab>.json` test fixtures | the argument contract recorded from each script's Gradio `ui()` before its port (the control class is the `legacy_control` key in some); the ports are tested against them. New ones are recorded with `tools/record_legacy_ui.py` (in the format of `tests/remi_port_harness.describe`), which builds the `ui()` in an export of the last Gradio-era revision, run by an interpreter of its own (`tools/legacy-ui-requirements.txt`: that revision's requirements plus Gradio 4.40) |
 
 Settings: every core option (`modules/shared_options.py`) and every UI
 preset option (`modules_forge/presets.py`) has a reader — processing, the

@@ -457,6 +457,83 @@ def test_refresh_rescans_the_detectors(ad, models, monkeypatch):
 
 
 @pytest.fixture
+def downloads(monkeypatch):
+    """Stock model downloads allowed (no --ad-no-huggingface); every
+    download recorded and written as a stub file instead of fetched."""
+
+    from lib_adetailer.detection import common
+
+    from modules import shared
+
+    fetched = []
+
+    def fake_download(url, dst, progress=True):
+        fetched.append((url, dst))
+        with open(dst, "wb") as file:
+            file.write(b"stub")
+
+    monkeypatch.setattr(shared.cmd_opts, "ad_no_huggingface", False)
+    monkeypatch.setattr(common, "download_url_to_file", fake_download)
+    return common, fetched
+
+
+def test_scanning_never_downloads_and_lists_the_stock_models(downloads, tmp_path):
+    common, fetched = downloads
+    (tmp_path / "own.pt").write_bytes(b"x")
+    (tmp_path / "face_yolov8n.pt").write_bytes(b"x")
+    models = common.get_models(str(tmp_path), "", str(tmp_path / "missing"))
+    assert fetched == []  # startup and Refresh only scan
+    assert models["own.pt"] == str(tmp_path / "own.pt") and models["face_yolov8n.pt"] == str(tmp_path / "face_yolov8n.pt")
+    # the stock detectors not downloaded yet are listed where they will go
+    assert set(common.DOWNLOADS) <= set(models)
+    assert models["hand_yolov8n.pt"] == str(tmp_path / "hand_yolov8n.pt") and not (tmp_path / "hand_yolov8n.pt").exists()
+
+
+def test_without_downloads_only_the_files_are_listed(downloads, tmp_path, monkeypatch):
+    common, fetched = downloads
+    from modules import shared
+
+    monkeypatch.setattr(shared.cmd_opts, "ad_no_huggingface", True)
+    (tmp_path / "own.pt").write_bytes(b"x")
+    assert common.get_models(str(tmp_path), download=True) == {"own.pt": str(tmp_path / "own.pt")}
+    with pytest.raises(FileNotFoundError, match="--ad-no-huggingface"):
+        common.download_model("hand_yolov8n.pt", tmp_path / "hand_yolov8n.pt")
+    assert fetched == []
+
+
+def test_a_stock_detector_is_downloaded_when_a_unit_first_uses_it(ad, downloads, tmp_path, monkeypatch):
+    common, fetched = downloads
+    monkeypatch.setattr(ad, "model_mapping", common.get_models(str(tmp_path)))
+    script = make(ad)
+    path = script.get_ad_model("hand_yolov8n.pt")
+    assert path == str(tmp_path / "hand_yolov8n.pt") and (tmp_path / "hand_yolov8n.pt").read_bytes() == b"stub"
+    assert fetched == [(common.DOWNLOADS["hand_yolov8n.pt"], path)]
+    # once: the next run uses the file
+    assert script.get_ad_model("hand_yolov8n.pt") == path and len(fetched) == 1
+    # a listed file that is gone and has no download source is an error, not a fetch
+    monkeypatch.setitem(ad.model_mapping, "own.pt", str(tmp_path / "own.pt"))
+    with pytest.raises(FileNotFoundError):
+        script.get_ad_model("own.pt")
+    assert len(fetched) == 1
+
+
+def test_loading_the_script_makes_no_download(monkeypatch, tmp_path):
+    # The module-level scan at import (startup) with downloads allowed
+    from lib_adetailer.detection import common
+
+    from modules import shared
+
+    monkeypatch.setattr(shared.cmd_opts, "ad_no_huggingface", False)
+    monkeypatch.setattr(common, "download_url_to_file", lambda *args, **kwargs: pytest.fail("downloaded at startup"))
+    with webui_state():
+        module = kit.load_script(SCRIPT, "adetailer_startup_under_test")
+        try:
+            assert set(common.DOWNLOADS) <= set(module.model_mapping)
+        finally:
+            sys.modules.pop("adetailer_startup_under_test", None)
+
+
+@pytest.fixture
 def settings(ad):
     from modules import shared
 
@@ -478,6 +555,8 @@ def test_settings_keep_their_keys_and_use_remi_widgets(ad, settings):
     assert settings["ad_max_models"].component is ui.Slider and settings["ad_max_models"].requires_reload_ui
     assert settings["ad_bbox_sortby"].component is ui.Choice and settings["ad_bbox_sortby"].component_args["style"] == "radio"
     assert settings["ad_match_inpaint_bbox_size"].component_args == {"choices": ["Off", "Strict", "Free"], "style": "radio"}
+    # the mode descriptions are choice hints (translated text), not an HTML list
+    assert list(settings["ad_match_inpaint_bbox_size"].choice_hints) == ["Off", "Strict", "Free"] and settings["ad_match_inpaint_bbox_size"].html_blocks == []
     assert settings["ad_extra_models_dir"].component is ui.Text
 
 

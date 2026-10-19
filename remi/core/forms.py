@@ -151,13 +151,17 @@ def _paste_hr_scheduler(params: dict):
 
 
 def _prompts(tab: str, runner: ScriptRunner | None = None) -> ui.Node:
-    # Scripts of section "prompt" (prompt anchor, blacklist) render next to the prompts
-    prompt_scripts = runner is not None and any(script.section == "prompt" for script in runner.alwayson_scripts)
+    from modules.scripts import PROMPT_BEFORE_SLOT, script_slot
+
+    # Scripts of the prompt category: slot "prompt_before" (prompt anchor)
+    # above the main prompt, section "prompt" (blacklist) below the prompts
+    slots = {script_slot(script) for script in runner.alwayson_scripts} if runner is not None else set()
     return ui.Group(
+        ui.Slot(PROMPT_BEFORE_SLOT) if PROMPT_BEFORE_SLOT in slots else None,
         ui.Text("prompt", "", lines=3, prompt=True, label="Prompt", placeholder=PROMPT_PLACEHOLDER, infotext="Prompt"),
         ui.Text("negative_prompt", "", lines=3, prompt=True, label="Negative Prompt", placeholder=NEGATIVE_PLACEHOLDER, infotext="Negative prompt", enabled_if=ui.param("cfg_scale", gt=1)),
         ui.MultiChoice("styles", _style_names, [], label="Styles", paste=_paste_styles),
-        ui.Slot("prompt") if prompt_scripts else None,
+        ui.Slot("prompt") if "prompt" in slots else None,
     )
 
 

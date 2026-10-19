@@ -3,6 +3,7 @@ deleted, shown in its folder) and PNG Info (all metadata of an image)."""
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any, Literal
 
@@ -14,6 +15,8 @@ from pydantic import Field
 from remi.library import CATEGORIES, SORTS, GalleryQuery, gallery_for, item_json
 from remi.server import models as m
 from remi.server.deps import LOCAL_ONLY, ServicesDep, is_local_client, iso, not_found
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -194,7 +197,8 @@ def reveal_output(file_id: str, request: Request, services: ServicesDep) -> dict
     except FileNotFoundError as error:
         raise not_found("the file is gone") from error
     except OSError as error:
-        raise HTTPException(status_code=500, detail=f"cannot open the file manager: {error}") from error
+        log.warning("cannot open the file manager: %s", error)
+        raise HTTPException(status_code=500, detail="cannot open the file manager (the reason is in the server log)") from error
     return {"ok": True}
 
 
@@ -212,4 +216,5 @@ async def png_info(body: MetadataRequest, services: ServicesDep) -> dict[str, An
     except Image.DecompressionBombError as error:  # not an OSError
         raise HTTPException(status_code=415, detail="the image has too many pixels to read") from error
     except OSError as error:
-        raise HTTPException(status_code=415, detail=f"cannot read the image: {error}") from error
+        log.debug("cannot read the image: %s", error)  # (the message may name the file)
+        raise HTTPException(status_code=415, detail="cannot read the image") from error

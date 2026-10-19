@@ -5,6 +5,7 @@ history / favorites store, translation providers and the
 import json
 import sqlite3
 import time
+from contextlib import closing
 
 import pytest
 
@@ -347,7 +348,7 @@ def test_usage_counts_age_and_reset(store):
 
 def test_legacy_imports(store, tmp_path):
     legacy = tmp_path / "tag_frequency.db"
-    with sqlite3.connect(legacy) as db:
+    with closing(sqlite3.connect(legacy)) as db, db:  # closed after the commit (sqlite3's own `with` only commits)
         db.execute("CREATE TABLE tag_frequency (name TEXT, type INT, count_pos INT, count_neg INT, last_used TIMESTAMP)")
         db.execute(
             "INSERT INTO tag_frequency VALUES ('long_hair', 1, 7, 1, '2026-10-01 10:00:00'), ('mylora', 8, 2, 0, NULL), "

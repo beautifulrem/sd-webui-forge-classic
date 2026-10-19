@@ -127,7 +127,7 @@ def _options():
             ("demo", "Demo", "sd"),
             {
                 "steps": options_module.OptionInfo(20, "Steps", ui.Slider, {"minimum": 1, "maximum": 150, "step": 1}).info("per pass").needs_reload_ui(),
-                "mode": options_module.OptionInfo("b", "Mode", ui.Choice, {"style": "radio", "choices": ("a", "b")}).link("wiki", "https://example.org"),
+                "mode": options_module.OptionInfo("b", "Mode", ui.Choice, {"style": "radio", "choices": ("a", "b")}).link("wiki", "https://example.org").choice_info({"a": "first letter"}),
                 "hint": options_module.OptionHTML("Read <b>this</b>"),
                 "row_open": options_module.OptionRow(),
                 "width": options_module.OptionInfo(1024, "Width"),
@@ -137,11 +137,18 @@ def _options():
                 "colors": options_module.OptionInfo(["red"], "Colors", ui.MultiChoice, lambda: {"choices": ["red", "blue"], "style": "checkboxes"}, refresh=lambda: None),
                 "flag": options_module.OptionInfo(False, "Flag", onchange=lambda: None).info("see <b>X/Y/Z Plot</b>").info("plain").info('read the <a href="https://example.org/faq">FAQ</a> &amp; <code>|</code>').needs_restart(),
                 "locked": options_module.OptionInfo("Automatic", "Locked", ui.Choice, {"choices": ("Automatic",), "interactive": False}, restrict_api=True),
+                "order": _ordered(options_module.OptionInfo([], "Order", ui.MultiChoice, {"choices": ["late", "early"]}), ["late", "early"]),
+                "legacy": options_module.OptionInfo("", "Legacy", comment_after="<i>old</i>").html("<b>more</b>"),
             },
         )
     )
     templates.update(options_module.options_section((None, "Hidden"), {"secret": options_module.OptionInfo("s", "Secret")}))
     return options_module.Options(templates, set())
+
+
+def _ordered(info, order):
+    info.default_order = order
+    return info
 
 
 def test_settings_schema():
@@ -155,9 +162,14 @@ def test_settings_schema():
     (section,) = schema["categories"][0]["sections"]
     assert section["id"] == "demo" and section["label"] == "Demo"
     items = {item.get("name", item["type"]): item for item in section["items"]}
-    assert list(items) == ["steps", "mode", "html", "row", "separator", "colors", "flag", "locked"]
+    assert list(items) == ["steps", "mode", "html", "row", "separator", "colors", "flag", "locked", "order", "legacy"]
     assert items["steps"] == {"type": "slider", "name": "steps", "label": "Steps", "default": 30, "minimum": 1, "maximum": 150, "step": 1, "integer": True, "notes": ["per pass"], "needs_reload_ui": True}
     assert items["mode"]["style"] == "radio" and items["mode"]["links"] == [{"label": "wiki", "url": "https://example.org"}]
+    # Choice descriptions and default orders are data, not markup
+    assert items["mode"]["choice_hints"] == {"a": "first letter"} and "html" not in items["mode"]
+    assert items["order"]["default_order"] == ["late", "early"] and "html" not in items["order"]
+    # A1111's comment_before / comment_after and .html() (third-party help markup) stay html help
+    assert items["legacy"]["html"] == "<i>old</i><b>more</b>"
     assert items["html"] == {"type": "html", "text": "Read <b>this</b>"}
     assert [child["name"] for child in items["row"]["children"]] == ["width", "name"]
     assert items["row"]["children"][0]["type"] == "number" and items["row"]["children"][0]["integer"]
@@ -188,3 +200,43 @@ def test_settings_widgets():
     # An int setting stays an int slider though its stored value came back as a float
     node = setting_node("n", options_module.OptionInfo(4, "N", ui.Slider, {"minimum": 0, "maximum": 8, "step": 1}), 4.0)
     assert node.integer and node.resolve_default(ui.Context()) == 4
+
+
+def _setting_items(nodes):
+    for node in nodes:
+        if node.get("type") == "row":
+            yield from _setting_items(node["children"])
+        else:
+            yield node
+
+
+def test_core_settings_ship_no_presentational_markup():
+    """Remi's own settings help is data (notes, links, choice_hints, default_order); only third-party .html() is markup."""
+
+    from types import SimpleNamespace
+
+    from remi.server.settings import register_options
+    from remi.testing import webui_state
+    from remi.ui.settings import settings_schema
+
+    with webui_state() as state:
+        register_options(state.opts)
+        schema = settings_schema(state.opts)
+    items = [item for category in schema["categories"] for section in category["sections"] for item in _setting_items(section["items"])]
+    assert [item["name"] for item in items if item.get("html")] == []
+    texts = [item["text"] for item in items if item["type"] == "html"]
+    assert texts and not [text for text in texts if "class=" in text or "style=" in text]
+    progress = next(item for item in items if item.get("name") == "show_progress_type")
+    assert progress["choice_hints"] == {"Approx NN": "legacy preview method", "RGB": "fast but low quality preview method", "TAESD": "high quality preview method"}
+
+    from modules import shared_items  # after webui_state: the WebUI's import order
+
+    callbacks = [SimpleNamespace(name="ext_b"), SimpleNamespace(name="ext_a")]
+    no_scripts = SimpleNamespace(callback_names=[])
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(shared_items.script_callbacks, "enumerate_callbacks", lambda: [("ui_settings", None)])
+        patch.setattr(shared_items.script_callbacks, "ordered_callbacks", lambda category, enable_user_sort: callbacks)
+        patch.setattr(shared_items.scripts, "scripts_txt2img", no_scripts, raising=False)
+        patch.setattr(shared_items.scripts, "scripts_img2img", no_scripts, raising=False)
+        option = shared_items.callbacks_order_settings()["prioritized_callbacks_ui_settings"]
+    assert option.default_order == ["ext_b", "ext_a"] and option.html_blocks == [] and option.requires_restart

@@ -23,16 +23,15 @@ class OptionInfo:
         self.refresh = refresh
         self.do_not_save = False
 
-        self.comment_before = comment_before
-        """HTML text that will be added after label in UI"""
-
-        self.comment_after = comment_after
-        """HTML text that will be added before label in UI"""
-
-        # The same help, structured for the settings schema
+        # Help, structured for the settings schema (remi/ui/settings.py). A1111's
+        # comment_before / comment_after arguments (HTML) are kept as html help.
         self.notes: list[str] = []
         self.links: list[tuple[str, str]] = []
         self.html_blocks: list[str] = [text for text in (comment_before, comment_after) if text]
+        self.choice_hints: dict[str, str] = {}
+        """Description of each choice, by choice label (schema ``choice_hints``)"""
+        self.default_order: list[str] = []
+        """For an ordering setting: the order used while it is empty (schema ``default_order``)"""
         self.requires_restart = False
         self.requires_reload_ui = False
 
@@ -42,7 +41,6 @@ class OptionInfo:
         """If True, the setting will not be accessible via API"""
 
     def link(self, label, url):
-        self.comment_before += f"[<a href='{url}' target='_blank'>{label}</a>]"
         self.links.append((label, url))
         return self
 
@@ -55,22 +53,26 @@ class OptionInfo:
         """Help notes, one per argument (plain text; A1111's inline markup is reduced to text)."""
 
         for info in infos:
-            self.comment_after += f"<span class='info'>({info})</span>"
             self.notes.append(info)
         return self
 
+    def choice_info(self, hints):
+        """Describe the choices: ``{choice label: plain-text description}``."""
+
+        self.choice_hints.update(hints)
+        return self
+
     def html(self, html):
-        self.comment_after += html
+        """A1111 help markup; Remi's own options use notes, links and choice_info instead."""
+
         self.html_blocks.append(html)
         return self
 
     def needs_restart(self):
-        self.comment_after += " <span class='info'>(requires restart)</span>"
         self.requires_restart = True
         return self
 
     def needs_reload_ui(self):
-        self.comment_after += " <span class='info'>(requires Reload UI)</span>"
         self.requires_reload_ui = True
         return self
 
@@ -250,26 +252,6 @@ class Options:
 
         if call:
             func()
-
-    def dumpjson(self):
-        d = {k: self.data.get(k, v.default) for k, v in self.data_labels.items()}
-        d["_comments_before"] = {k: v.comment_before for k, v in self.data_labels.items() if v.comment_before is not None}
-        d["_comments_after"] = {k: v.comment_after for k, v in self.data_labels.items() if v.comment_after is not None}
-
-        item_categories = {}
-        for item in self.data_labels.values():
-            if item.section[0] is None:
-                continue
-
-            category = categories.mapping.get(item.category_id)
-            category = "Extensions" if category is None else category.label
-            if category not in item_categories:
-                item_categories[category] = item.section[1]
-
-        # _categories is a list of pairs: [section, category]. Each section (a setting page) will get a special heading above it with the category as text.
-        d["_categories"] = [[v, k] for k, v in item_categories.items()] + [["Defaults", "Other"]]
-
-        return json.dumps(d)
 
     def add_option(self, key, info):
         self.data_labels[key] = info

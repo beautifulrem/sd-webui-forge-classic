@@ -1,7 +1,7 @@
 /**
  * One settings item: the control (schema renderer: label, widget, modified
- * dot = reset to the built-in default), its help (notes, links, trusted
- * HTML), effect badges, the unsaved marker, and the row actions (refresh the
+ * dot = reset to the built-in default), its help (notes, links, choice
+ * descriptions, default order, a third-party option's HTML), effect badges, the unsaved marker, and the row actions (refresh the
  * choices, pin to quick settings, revert the unsaved edit).
  */
 import { useQuery } from "@tanstack/react-query"
@@ -85,6 +85,13 @@ function QuickSettingsHint() {
   )
 }
 
+/** `[label, description]` of a choice setting's described choices, in choice order. */
+function choiceDescriptions(node: SettingNode): [string, string][] {
+  if (node.type !== "choice" && node.type !== "multichoice") return []
+  const hints = node.choice_hints ?? {}
+  return node.choices.flatMap((choice) => (hints[choice.label] ? [[choice.label, hints[choice.label]!] as [string, string]] : []))
+}
+
 /** Effect badges and help under a setting's control. */
 function SettingHelp({ node }: { node: SettingNode }) {
   const { t } = useTranslation()
@@ -92,13 +99,35 @@ function SettingHelp({ node }: { node: SettingNode }) {
   if (node.needs_restart) badges.push("Requires restart")
   else if (node.needs_reload_ui) badges.push("Requires Reload UI")
   const quick = node.name === QUICKSETTINGS_KEY
-  const hasHelp = (node.notes?.length ?? 0) > 0 || (node.links?.length ?? 0) > 0 || Boolean(node.html) || Boolean(node.locked) || quick
+  const choiceHints = choiceDescriptions(node)
+  const defaultOrder = node.default_order ?? []
+  const hasHelp =
+    (node.notes?.length ?? 0) > 0 || (node.links?.length ?? 0) > 0 || choiceHints.length > 0 || defaultOrder.length > 0 || Boolean(node.html) || Boolean(node.locked) || quick
   if (!hasHelp && badges.length === 0) return null
   return (
     <div className="flex flex-col gap-1 text-xs leading-snug text-muted-foreground">
       {node.locked ? <LockedNote reason={node.locked} /> : null}
       {node.notes?.map((note, index) => <p key={index}>{t(note)}</p>)}
       {quick ? <QuickSettingsHint /> : null}
+      {choiceHints.length > 0 ? (
+        <ul className="flex flex-col gap-0.5">
+          {choiceHints.map(([label, hint]) => (
+            <li key={label}>
+              <span className="font-medium text-foreground/80">{t(label)}</span>: {t(hint)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {defaultOrder.length > 0 ? (
+        <div>
+          <p>{t("Default order")}:</p>
+          <ol className="list-decimal pl-5">
+            {defaultOrder.map((name) => (
+              <li key={name}>{name}</li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
       {node.html ? <SafeHtml html={t(node.html)} className="[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:decoration-2" /> : null}
       {(node.links?.length ?? 0) > 0 || badges.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">

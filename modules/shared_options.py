@@ -476,13 +476,7 @@ options_templates.update(
             "live_previews_enable": OptionInfo(True, "Show live previews of images during sampling"),
             "live_previews_image_format": OptionInfo("jpeg", "Live Preview Format", ui.Choice, {"style": "radio", "choices": ("jpeg", "png", "webp")}),
             "show_progress_grid": OptionInfo(True, "Show previews of all images in a batch as a grid"),
-            "show_progress_type": OptionInfo("RGB", "Live Preview Method", ui.Choice, {"style": "radio", "choices": ("Approx NN", "RGB", "TAESD")}).info("<b>Approx NN</b> and <b>TAESD</b> will download additional model").html("""
-<ul style='margin-left: 1.5em'>
-<li><b>Approx NN</b>: legacy preview method</li>
-<li><b>RGB</b>: fast but low quality preview method</li>
-<li><b>TAESD</b>: high quality preview method</li>
-</ul>
-                """),
+            "show_progress_type": OptionInfo("RGB", "Live Preview Method", ui.Choice, {"style": "radio", "choices": ("Approx NN", "RGB", "TAESD")}).info("<b>Approx NN</b> and <b>TAESD</b> will download additional model").choice_info({"Approx NN": "legacy preview method", "RGB": "fast but low quality preview method", "TAESD": "high quality preview method"}),
             "live_preview_fast_interrupt": OptionInfo(False, "Return image with the selected preview method on interruption").info("speed up interruption"),
             "js_live_preview_in_modal_lightbox": OptionInfo(False, "Show the live previews in full page image viewer"),
             "show_progress_every_n_steps": OptionInfo(1, "Generate live preview every N step", ui.Slider, {"minimum": -1, "maximum": 32, "step": 1}).info("-1 = only after completion of a batch"),

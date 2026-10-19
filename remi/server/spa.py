@@ -148,7 +148,9 @@ class Spa:
                     media_type = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
                     return FileResponse(packed, media_type=media_type, headers={**headers, "Content-Encoding": coding})
             return FileResponse(file, headers=headers)
-        if os.path.splitext(path)[1] and not path.endswith(".html"):
+        # Only existing build files under /assets: it is public (the login
+        # page's assets), so it must never fall back to the shell
+        if path == "/assets" or path.startswith("/assets/") or (os.path.splitext(path)[1] and not path.endswith(".html")):
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         index = self.index(root)
         if index is None:

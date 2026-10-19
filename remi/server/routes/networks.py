@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Annotated, Any
 
@@ -12,6 +13,8 @@ from remi.networks import NetworkError, NetworkReadOnly
 from remi.server import models as m
 from remi.server import network_models as nm
 from remi.server.deps import ServicesDep, not_found, require_local_folders
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -105,13 +108,18 @@ def set_preview(kind: str, name: str, body: nm.PreviewRequest, services: Service
         raise not_found("no such image")
     try:
         image = Image.open(record.path)
-        image.load()
+        try:
+            image.load()
+        except BaseException:
+            image.close()  # a truncated file: do not leave it open
+            raise
     except FileNotFoundError as error:
         raise not_found("no such image") from error
     except (UnidentifiedImageError, Image.DecompressionBombError) as error:
         raise HTTPException(status_code=422, detail="the file is not an image the WebUI can read") from error
     except OSError as error:  # truncated or otherwise broken image data
-        raise HTTPException(status_code=422, detail=f"cannot read the image: {error}") from error
+        log.debug("cannot read the preview image: %s", error)  # (the message may name the file)
+        raise HTTPException(status_code=422, detail="cannot read the image") from error
     with image:
         result = _guard(lambda: services.networks.set_preview(kind, name, image))
     services.bus.publish("networks.changed", kind=kind)

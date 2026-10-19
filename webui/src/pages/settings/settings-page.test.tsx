@@ -39,6 +39,8 @@ describe("real settings schema", () => {
     const keysFor = (query: string) => find(query).flatMap((s) => s.visible.flatMap((i) => (i.kind === "setting" ? [i.key] : i.kind === "row" ? i.keys : [])))
     expect(keysFor("jpeg_quality")).toContain("jpeg_quality")
     expect(keysFor("live preview")).toContain("live_previews_enable")
+    // choice descriptions are searchable help
+    expect(keysFor("high quality preview method")).toContain("show_progress_type")
     expect(Object.keys(contract.defaults ?? {})).toEqual(Object.keys(contract.values))
   })
 })
@@ -126,6 +128,25 @@ describe("settings page", { timeout: 20_000 }, () => {
     second.rerender(page("q=webp&filter=changed"))
     await waitFor(() => expect(screen.getByRole("searchbox", { name: "Search settings" })).toHaveValue("webp"))
     expect(screen.getByRole("radio", { name: "Changed" })).toBeChecked()
+  })
+
+  it("describes choices and an ordering setting's default order as text, not server markup", async () => {
+    const ordered = structuredClone(contract)
+    const section = ordered.categories[0]!.sections[0]!
+    section.items.push({ type: "multichoice", name: "prioritized_callbacks_demo", label: "demo callback priority", default: [], choices: [{ value: "b", label: "b" }, { value: "a", label: "a" }], default_order: ["b", "a"], needs_restart: true })
+    ordered.values.prioritized_callbacks_demo = []
+    vi.spyOn(api, "options").mockResolvedValue(ordered)
+    const view = renderPage("q=show_progress_type")
+    const row = (await screen.findByText("show_progress_type", { selector: "code" }, { timeout: 8000 })).closest("[data-setting]")!
+    const help = within(row as HTMLElement)
+    expect(help.getByText("legacy preview method", { exact: false }).closest("li")).toHaveTextContent("Approx NN: legacy preview method")
+    expect(help.getByText("fast but low quality preview method", { exact: false }).closest("li")).toHaveTextContent("RGB: fast but low quality preview method")
+    expect(row.querySelector(".info, ul[style], li[style]")).toBeNull()
+    view.unmount()
+    renderPage("q=prioritized_callbacks_demo")
+    const orderRow = (await screen.findByText("prioritized_callbacks_demo", { selector: "code" }, { timeout: 8000 })).closest("[data-setting]")!
+    expect(within(orderRow as HTMLElement).getByText("Default order:")).toBeInTheDocument()
+    expect([...orderRow.querySelectorAll("ol li")].map((item) => item.textContent)).toEqual(["b", "a"])
   })
 
   it("disables settings the server refuses, with the reason", async () => {

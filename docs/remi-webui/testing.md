@@ -22,17 +22,18 @@ the end).
 | `ruff:extensions` | ruff on every `extensions-builtin/*/scripts` and `extensions-builtin/*/lib_*` (strict rules on the files Remi wrote, such as `lib_controlnet/unit_param.py`; legacy rules on the rest) |
 | `ruff:core` | ruff with the legacy rules on the upstream-origin runtime Remi edits: `modules/`, `modules_forge/` (not the vendored `packages/`), `backend/`, `scripts/`, `launch.py`, `webui.py` |
 | `ruff:syntax` | the whole tree (including vendored third-party code) for syntax errors (`E9`) and Gradio imports (`TID251`) |
-| `pytest:tests` | `pytest tests --cov=remi`, failing below 90 % line coverage of `remi/` |
+| `pytest:tests` | `pytest tests --cov=remi`, failing below 91 % line coverage of `remi/` (measured 92 %), or on a leaked resource (below) |
 | `pytest:<extension>` | `pytest extensions-builtin/<extension>/tests`, one run per directory (they share module names); a directory that collects nothing fails |
 | `contract:openapi` | `tools/export_openapi.py --check`: `webui/src/api/openapi.json` matches the server |
 | `contract:settings` | `tools/dump_settings.py --check`: the SPA's settings contract matches `GET /api/v2/options` |
+| `contract:schemas` | `webui/tools/dump_schemas.py --check`: the tab schema fixtures the SPA contract tests render (`webui/src/api/mock/contract/{txt2img,img2img,extras}.json`) match `tab_schema()` |
 | `contract:line-endings` | `tools/check_line_endings.py`: the files shared with Forge Neo that upstream commits with CRLF (`tools/upstream_crlf.txt`) still have CRLF, so Neo merges stay line-by-line ([upstream-absorption.md §3](upstream-absorption.md#3-procedure)) |
 | `i18n:server` | `tests/test_remi_core_zh_cn.py`: the zh_CN catalog covers every core string, glossary, language pack and extension catalogs agree |
 | `pnpm:install` | `pnpm install --frozen-lockfile` in `webui/` |
 | `i18n:spa` | `src/locales/locales.test.ts`: every chrome key has a zh-CN translation with the same placeholders |
 | `pnpm:build` | `tsc -b` (app, Vite config, e2e specs) and the production build |
 | `pnpm:lint` | oxlint with `--deny-warnings --report-unused-disable-directives` (correctness and suspicious categories, React hooks rules, `typescript/no-explicit-any`; `webui/.oxlintrc.json`) |
-| `pnpm:vitest` | the Vitest suites (jsdom) with V8 coverage, failing below the floors in `webui/vite.config.ts` (lines 80 %, statements 75 %, functions 70 %, branches 65 %) |
+| `pnpm:vitest` | the Vitest suites (jsdom) with V8 coverage, failing below the floors in `webui/vite.config.ts` (lines 83 %, statements 77 %, functions 72 %, branches 68 %; measured 84.5 / 79.0 / 73.1 / 69.0 %) |
 | `e2e` | Playwright against the mock backend, including the axe scans |
 
 **Python.** `$PYTHON`, else `venv/` or `.venv/` in the repo, else
@@ -42,6 +43,16 @@ else the first one; the `env:gradio-free` step fails when the chosen
 interpreter can import `gradio`, `gradio_client` or `gradio_rangeslider`
 (the WebUI must start and its suites must pass without them). Ruff comes
 from that environment, then `PATH`, then `uvx ruff`.
+
+**Leaked resources fail the Python suites.** `pyproject.toml` turns
+`ResourceWarning` (an unclosed SQLite connection, file or socket) and
+pytest's `PytestUnraisableExceptionWarning` (the same warning raised while the
+garbage collector frees the object) into errors for every pytest run, so a
+leak fails `pytest:*` instead of passing silently (Python hides
+`ResourceWarning` by default). The failing test is the one during which the
+object was freed; `PYTHONTRACEMALLOC=20` shows where it was allocated. Close
+SQLite connections explicitly (`contextlib.closing`, or a store's `close()`):
+`with sqlite3.connect(...)` only commits or rolls back.
 
 **Ruff configuration** (`pyproject.toml`). Upstream-origin code keeps Forge's
 legacy rules (`N805`, `S307`, `S102`, `T`, `W`, `F`) and its existing style;
@@ -64,8 +75,12 @@ folder (`COVERAGE_FILE`), never into the repository.
 already answers there, then runs:
 
 - `generate.spec.ts`: generate with live preview → result and history,
-  Escape interrupts, prompt editor keys and bracket warning, txt2img ↔ img2img,
-  the image viewer, send to img2img, the phone layout.
+  Escape interrupts, batch count N → N results in batch order (one seed
+  each), Alt+Enter skips the current batch and the job goes on, Generate
+  forever re-queues until stopped, Generate several times, prompt editor keys
+  and bracket warning, txt2img ↔ img2img, the image viewer, send to img2img,
+  the phone layout. The mock backend runs batch count and Skip as the server
+  does (`src/api/mock/server.ts`).
 - `canvas.spec.ts`: inpaint (paint a mask, undo / redo, the job carries the
   mask), sketch, zoom / fit / full screen, uploaded masks per mode, drop and
   paste, image size, phone scrolling.
@@ -98,7 +113,7 @@ pages do not race for them. Most flow tests also fail on console errors or uncau
 ## Real-server smoke test
 
 ```sh
-$PYTHON tools/smoke_real.py   # --python $PYTHON --port 7879 --out /tmp/remi-smoke --baseline tests/fixtures/parity
+$PYTHON tools/smoke_real.py   # --python $PYTHON --port 7879 --out /tmp/remi-smoke --baseline tests/fixtures/parity --report docs/research/smoke/<date>.json
 ```
 
 `$PYTHON` is an interpreter with requirements.txt and without Gradio: the
@@ -115,6 +130,11 @@ half changed) and an Extras Lanczos upscale, stops the server and prints a
 table (exit 1 on a failed check, 2 when the server did not start). It
 refuses to run while another `launch.py` holds the model. Not part of
 `tools/check.sh` or CI (it needs the model and a GPU / MPS).
+`--report <file>.json` also writes the run as JSON (date, git revision and
+whether the tree had uncommitted changes, the server interpreter and the
+Gradio packages it can import, which must be none, and every check): commit
+it under `docs/research/smoke/` as the evidence that the WebUI starts and
+generates without Gradio (scorecard dimension 1).
 
 `--features` also checks the Anima features that need LoRA files and the
 paste round-trips (about five more minutes). It writes two tiny deterministic

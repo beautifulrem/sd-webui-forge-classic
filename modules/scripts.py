@@ -69,6 +69,12 @@ class Script:
     section = None
     """name of UI section that the script's controls will be placed into"""
 
+    slot = None
+    """Where in the generation form the controls render when not in the
+    ``section``'s own slot: ``"prompt_before"`` puts them above the main
+    prompt. ``section`` still decides the argument order and the UI
+    category (``ui_reorder_list``)."""
+
     filename = None
     args_from = None
     args_to = None
@@ -532,6 +538,19 @@ def script_slug(title: str) -> str:
     return slug if slug and not slug[0].isdigit() else f"s_{slug}"
 
 
+PROMPT_BEFORE_SLOT = "prompt_before"
+"""The core-form slot above the main prompt (``Script.slot``)."""
+
+
+def script_slot(script) -> str | None:
+    """The core-form slot an always-on script renders in: its ``slot``, else
+    its ``section`` (None: the scripts area)."""
+
+    if isinstance(script.slot, str) and script.slot:
+        return script.slot
+    return script.section if isinstance(script.section, str) else None
+
+
 def unique_id(base: str, taken) -> str:
     """``base``, or ``base_2``, ``base_3``, ... when taken or reserved."""
 
@@ -824,7 +843,7 @@ class ScriptRunner:
                 "title": title,
                 "kind": "alwayson" if script.alwayson else "selectable",
                 # Selectable scripts always render in the scripts area
-                "section": (script.section if isinstance(script.section, str) else None) if script.alwayson else "scripts",
+                "section": script_slot(script) if script.alwayson else "scripts",
                 "order": script.sorting_priority,
             }
             if not script.alwayson:

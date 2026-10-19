@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -12,11 +13,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from remi.files import FileError
 from remi.jobs import JobError
 from remi.server.auth import Auth, SecurityMiddleware, credentials_from_cmd_opts, load_secret
+from remi.server.limits import BodyLimitMiddleware, body_limit
 from remi.server.services import Services, default_services
 from remi.server.spa import Spa
 from remi.server.ws import Hub
@@ -54,6 +58,28 @@ def _phrase(status: int) -> str:
         return "Error"
 
 
+def json_safe(value: Any) -> Any:
+    """``value`` with every non-finite float (``inf``, ``nan``: what a JSON
+    body like ``1e999`` parses to) as its text, so it can be encoded."""
+
+    if isinstance(value, float) and not math.isfinite(value):
+        return repr(value)
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    return value
+
+
+class ErrorResponse(JSONResponse):
+    """The error handlers' JSON: errors echo the request's values, which may
+    be non-finite numbers (strict JSON cannot encode them; the plain
+    response would fail with a 500 and a logged traceback instead)."""
+
+    def render(self, content: Any) -> bytes:
+        return super().render(json_safe(content))
+
+
 def handle_exception(request: Request, error: Exception) -> JSONResponse:
     """Unhandled errors as JSON. A server error (5xx) answers only a generic
     message and a correlation id; the exception, its message and any body it
@@ -66,22 +92,32 @@ def handle_exception(request: Request, error: Exception) -> JSONResponse:
     status = status if isinstance(status, int) and 400 <= status < 600 else 500
     if status < 500:
         detail = getattr(error, "detail", None)
-        return JSONResponse(status_code=status, content={"detail": detail if isinstance(detail, str) and detail else _phrase(status)})
+        return ErrorResponse(status_code=status, content={"detail": detail if isinstance(detail, str) and detail else _phrase(status)})
     error_id = secrets.token_hex(6)
     log.error("%s %s failed (error id %s)", request.method, request.url.path, error_id, exc_info=error)
-    return JSONResponse(status_code=status, content={"error": _phrase(status), "detail": f"Internal server error (id {error_id}); the details are in the server log", "id": error_id})
+    return ErrorResponse(status_code=status, content={"error": _phrase(status), "detail": f"Internal server error (id {error_id}); the details are in the server log", "id": error_id})
+
+
+def _request_validation_error(request: Request, error: RequestValidationError) -> JSONResponse:
+    """422 for a request that fails its model (also for bodies holding
+    ``1e999`` / ``NaN``, which the default handler could not encode: a 500
+    and a traceback per request from any client). A client error: logged at
+    debug level, without a traceback."""
+
+    log.debug("%s %s: invalid request (%d errors)", request.method, request.url.path, len(error.errors()))
+    return ErrorResponse(status_code=422, content={"detail": jsonable_encoder(error.errors())})
 
 
 def _validation_error(request: Request, error: ValidationError) -> JSONResponse:
-    return JSONResponse(status_code=422, content=error.to_json())
+    return ErrorResponse(status_code=422, content=error.to_json())
 
 
 def _job_error(request: Request, error: JobError) -> JSONResponse:
-    return JSONResponse(status_code=error.status, content={"detail": str(error)})
+    return ErrorResponse(status_code=error.status, content={"detail": str(error)})
 
 
 def _file_error(request: Request, error: FileError) -> JSONResponse:
-    return JSONResponse(status_code=error.status, content={"detail": str(error)})
+    return ErrorResponse(status_code=error.status, content={"detail": str(error)})
 
 
 def snapshot_events(services: Services) -> list[dict[str, Any]]:
@@ -142,7 +178,7 @@ def create_app(
         lifespan=lifespan,
         docs_url="/docs",
         redoc_url="/redoc",
-        exception_handlers={Exception: handle_exception, ValidationError: _validation_error, JobError: _job_error, FileError: _file_error},
+        exception_handlers={Exception: handle_exception, RequestValidationError: _request_validation_error, ValidationError: _validation_error, JobError: _job_error, FileError: _file_error},
     )
     app.state.services = services
     app.state.auth = auth
@@ -166,6 +202,8 @@ def create_app(
 
         Api(app, queue_lock)
 
+    # (inside the security checks: a refused request is never read)
+    app.add_middleware(BodyLimitMiddleware, limit=lambda: body_limit(services.files.max_upload_bytes))
     app.add_middleware(SecurityMiddleware, auth=auth)
     from modules import initialize_util
 

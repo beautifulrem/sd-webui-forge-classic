@@ -92,6 +92,9 @@ export function defaultOf(spec: OwnerSpec, node: InputNode): unknown {
 /** The default slot for scripts without a (known) section. */
 export const DEFAULT_SLOT = "scripts"
 
+/** The core-form slot above the main prompt (scripts whose `slot` is "prompt_before", e.g. Prompt Anchor). */
+export const PROMPT_BEFORE_SLOT = "prompt_before"
+
 /** Scripts for `section`, ordered; unknown/absent sections fall back to the default slot. */
 export function scriptsForSlot(scripts: readonly ScriptSchema[], section: string, slots: ReadonlySet<string>): ScriptSchema[] {
   return scripts

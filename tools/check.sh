@@ -10,7 +10,7 @@
 # scripts and libraries, the upstream-origin runtime, the whole tree for syntax errors and
 # Gradio imports) - pytest for
 # tests/ (with a coverage floor for remi/) and for every extensions-builtin/*/tests directory
-# separately - OpenAPI and settings contracts, upstream line endings - i18n coverage (server zh_CN catalog, SPA
+# separately - OpenAPI, settings and tab schema contracts, upstream line endings - i18n coverage (server zh_CN catalog, SPA
 # chrome catalog) - pnpm install (frozen lockfile), build (tsc + vite), oxlint, vitest (with
 # coverage floors), Playwright end-to-end tests and axe scans against the mock backend.
 # Steps keep running after a failure; the script ends with a summary table and exits 1
@@ -176,7 +176,7 @@ step ruff:core "${RUFF[@]}" check modules modules_forge backend scripts launch.p
 step ruff:syntax "${RUFF[@]}" check . --select E9,TID251 --output-format concise
 
 # Coverage floor for remi/ (the measured line coverage of tests/, minus a small margin).
-COVERAGE_FLOOR_PYTHON=90
+COVERAGE_FLOOR_PYTHON=91
 step pytest:tests run_pytest tests --cov=remi --cov-report=term:skip-covered --cov-fail-under="$COVERAGE_FLOOR_PYTHON"
 for dir in extensions-builtin/*/tests; do
   [ -d "$dir" ] || continue
@@ -186,6 +186,8 @@ done
 
 step contract:openapi py tools/export_openapi.py --check
 step contract:settings py tools/dump_settings.py --check
+# The real tab schemas the SPA contract tests (webui/src/ui/contract.test.tsx) render.
+step contract:schemas py webui/tools/dump_schemas.py --check
 # Files shared with Forge Neo keep upstream's CRLF line endings (clean merges of Neo updates).
 step contract:line-endings py tools/check_line_endings.py
 

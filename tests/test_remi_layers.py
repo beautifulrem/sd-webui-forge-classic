@@ -5,6 +5,7 @@ files through ``ctx.files`` (``remi.ui.ActionFiles``) instead."""
 
 import ast
 import re
+import warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,7 +38,12 @@ def _is_server(module: str) -> bool:
 
 def _server_imports(source: str) -> list[int]:
     lines = []
-    for node in ast.walk(ast.parse(source)):
+    with warnings.catch_warnings():
+        # Vendored third-party code (mmcv, OneFormer in forge_legacy_preprocessors) has "\s" in
+        # docstrings: that is upstream's to fix, and this test reads imports only.
+        warnings.simplefilter("ignore", SyntaxWarning)
+        tree = ast.parse(source)
+    for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             names = [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:

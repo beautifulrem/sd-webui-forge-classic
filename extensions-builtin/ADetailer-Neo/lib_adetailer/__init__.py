@@ -1,5 +1,5 @@
 from .args import ALL_ARGS, ADetailerArgs
-from .detection.common import PredictOutput, get_models
+from .detection.common import PredictOutput, download_model, get_models
 from .detection.mediapipe import mediapipe_predict
 from .detection.ultralytics import ultralytics_predict
 
@@ -10,6 +10,7 @@ __all__ = [
     "ALL_ARGS",
     "ADetailerArgs",
     "PredictOutput",
+    "download_model",
     "get_models",
     "mediapipe_predict",
     "ultralytics_predict",

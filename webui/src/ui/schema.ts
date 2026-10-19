@@ -256,7 +256,9 @@ export type PageSchema = {
 export type SettingNode = InputNode & {
   notes?: string[]
   links?: { label: string; url: string }[]
-  /** Extra trusted HTML help (sanitised like `html` nodes). */
+  /** An ordering setting's order while it is empty (plain names, not translated). */
+  default_order?: string[]
+  /** Help markup of a third-party option (A1111 `.html()`; sanitised like `html` nodes). */
   html?: string | null
   needs_restart?: boolean
   needs_reload_ui?: boolean

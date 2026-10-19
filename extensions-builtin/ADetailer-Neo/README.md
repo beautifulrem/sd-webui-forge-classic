@@ -14,7 +14,7 @@ After a generation, use **YOLO** or **MediaPipe** model(s) to detect certain reg
 > Not taking feature requests ; this repo is only meant as the "official" fork that is guaranteed to work with **Forge Neo** ; if you need other features, consider [this fork](https://github.com/abzaloff/aadetailer-neoforge) instead
 
 ## Models
-On a fresh launch, this Extension will download the following **10** detector models into the `models/adetailer/` folder
+The following **10** detector models are listed from the start; each one is downloaded into the `models/adetailer/` folder the first time a generation uses it (nothing is downloaded at launch). Launch with `--ad-no-huggingface` to turn these downloads off: then only the models already in the folders are listed
 
 <table>
 	<tr>
@@ -72,6 +72,8 @@ On a fresh launch, this Extension will download the following **10** detector mo
 > The **YOLO** models must be in `.pt` format
 
 The **Refresh models** button next to a tab's detector rescans the model folders (without downloading)
+
+The `/adetailer/v1/ad_model` list also contains the stock models that are not downloaded yet
 
 ## API
 - **Remi WebUI** (`/api/v2`): named params `ad_enable`, `ad_skip_img2img`, then each tab's [`ADetailerArgs`](lib_adetailer/args.py) fields, suffixed from the 2nd tab on (`ad_model`, `ad_model_2nd`, `ad_model_3rd`, ...), then one UI-only flag per tab (`ad_model_is_world`, `ad_model_is_world_2nd`, ...; shows "Detector Classes", never processed)

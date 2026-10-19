@@ -71,12 +71,44 @@ Each new sync adds a `docs/upstream-sync-YYYY-MM-DD.md` from the template in
 | `modules_forge/forge_canvas/**` | `webui/src/canvas` (Konva editor) | translate (upstream's 2026-10-02 single-click drawing is already covered) |
 | `javascript/*.js` (other) | SPA features: `edit-attention.js` / `edit-order.js` / `promptField.js` / `token-counters.js` → prompt editor; `imageviewer*.js` → lightbox; `progressbar.js` → WebSocket progress; `contextMenus.js` (generate forever) → run controller; `dragdrop.js` / `imageDragAndDrop.js` → drop zones; `aspectRatioOverlay.js` / `imageMaskFix.js` → canvas; `hires_fix.js` → `hr_resolution` action; `localization.js` → i18n; `notification.js` → completion notifications; `resizeHandle.js` → resizable panes; `ui.js` → app shell | translate |
 | `html/licenses.html` | `GET /api/v2/licenses` (parsed into data; kept in `html/`) | merge the license list |
-| `html/footer.html`, `html/ui.webp`, other `html/*` | none | none |
+| `html/footer.html`, `html/ui.webp`, other `html/*` | none: `html/licenses.html` is the only file Remi keeps in `html/`. The others were Gradio page templates and assets (`footer.html`, the `extra-networks-*.html` cards, `card-no-preview.jpg`) or a screenshot of the old Gradio UI (`ui.webp`), and the SPA has its own | none: delete them again when a merge brings them back; a new runtime data file (read by Python, like `licenses.html`) is merged |
 | `scripts/*.py`, `modules/processing_scripts/*.py` | same files; `ui()` replaced by `params()` with the same arguments | merge processing; translate `ui()` changes into `params()` (§2.1) |
-| `extensions-builtin/<upstream ext>/` (ControlNet, LoRA, MultiDiffusion, Spectrum, …) | same folders; `ui()` → `params()`, `on_ui_tabs` → `remi.pages`, extension JS → widgets | merge `lib_*` / processing; translate UI (§2.1); upstream `mobile` and `prompt-bracket-checker` are SPA features and stay deleted |
+| `extensions-builtin/<upstream ext>/` (ControlNet, LoRA, MultiDiffusion, Spectrum, …) | same folders; `ui()` → `params()`, `on_ui_tabs` → `remi.pages`, extension JS → widgets | merge `lib_*` / processing, **except the files Remi forked ([§1.1](#11-built-ins-whose-processing-remi-forked)): keep Remi's and port upstream fixes selectively**; translate UI (§2.1); upstream `mobile` and `prompt-bracket-checker` are SPA features and stay deleted |
 | `docker/` | upstream's image recipe, unchanged: it clones Forge Neo itself (not Remi) at build time, so it does not build Remi | merge (keeps the file identical to upstream); Remi ships no Docker image |
 | `README.md`, `pyproject.toml`, `.gitignore`, `.github/`, `LICENSE`, `models/**/Put … here.txt`, `extensions/`, `localizations/` placeholders | Remi's own README (en, zh-CN), lint config and CI; placeholders unchanged | carry over what applies (README model-family list, new placeholder folders); keep Remi's versions otherwise |
 | **any other file** (including files upstream adds) | — | **merge** when it is runtime code or data; **translate** when it builds UI (imports `gradio`, defines `ui()` / `on_ui_tabs`, or is JavaScript / CSS / HTML for the page) and delete it again |
+
+### 1.1 Built-ins whose processing Remi forked
+
+Most upstream built-ins only lost their UI, and their processing merges as
+the table says. A few had their processing rewritten or extended by Remi;
+a merge must not let upstream's version replace Remi's. For these files the
+rule is **keep Remi's version; read upstream's diff and port its fixes
+selectively** (the ones Remi's version does not already cover, with a test);
+then name each upstream commit and what was taken or left in the sync note
+(§5, "Adapted for Remi"). Conflicts in them are expected and are resolved with
+`git checkout --ours <file>` followed by the selective port, never by taking
+`--theirs`.
+
+| upstream file(s) | Remi's version | seams it relies on ([remi-architecture-notes.md](../remi-architecture-notes.md#seams)) |
+|---|---|---|
+| `extensions-builtin/sd_forge_spectrum/lib_spectrum/*` (`forecaster.py`, `presets.py`, `__init__.py`) and the hooks of `scripts/spectrum.py` (`process_before_every_sampling`, …) | a fork: per-branch forecasters that rebuild on shape changes and handle cond/uncond split calls, Remi-only `pass_context.py` (the steps and parameters of the pass being sampled: hires, img2img) and `sea.py` (the SEA cache-decision metric with per-configuration calibration), presets and the controls upstream lacks. Upstream's `34022261` "rewrite Spectrum" (after `46af880c`) conflicts in `forecaster.py` and `spectrum.py` and moves `SpectrumNode` into `lib_spectrum/__init__.py` (Remi's holds only the logger; Remi's `SpectrumNode` stays in `forecaster.py`); the 2026-10-14 sync already kept Remi's `forecaster.py` over upstream's shape guard | "Spectrum \"run a real forward\" requests" (`modules/spectrum_force.py`), "`model_function_wrapper` chain", "Script-argument check" (defaults for the controls upstream lacks) |
+| `extensions-builtin/sd_forge_compile/scripts/compile.py` (`process_batch` and the compile presets) | upstream's presets plus Remi's "Anima per-block" preset (Remi-only `anima_block_compile.py`), the Windows compiler probe and the eager fallback while a forward override is active | "Temporary forward overrides", "Per-call block forward pre-hooks" (Modulation keeps the compiled blocks) |
+| `extensions-builtin/sd_forge_controlnet/lib_controlnet/controlnet_ui/**`, `infotext.py`, `external_code.py` (infotext and API unit parsing) | the Gradio unit UI is replaced by Remi-only `unit_param.py` / `unit_actions.py` / `openpose.py` / `region_canvas.py`; `infotext.py` parses an entry into unit fields (`parse_unit_fields`) instead of wiring Gradio components; `external_code.py` also reads the A1111 API's `{"image", "mask"}` dict | none (UI port); processing in `lib_controlnet` other than these files merges normally |
+
+Small Remi hooks inside otherwise upstream files (for example the Anima
+key formats and the failed-name list of `sd_forge_lora/networks.py`, or
+`backend/nn/anima.py`) are not forks: merge, keeping the hooks.
+
+To see what a sync must look at here, diff upstream against the merge base
+for these paths before merging:
+
+```bash
+git diff "$BASE" upstream/neo -- extensions-builtin/sd_forge_spectrum extensions-builtin/sd_forge_compile \
+    extensions-builtin/sd_forge_controlnet/lib_controlnet
+```
+
+When Remi forks another upstream file, add its row here in the same commit.
 
 ## 2. Translating each kind of change
 
@@ -145,7 +177,7 @@ A new core control (a new txt2img/img2img parameter) touches:
    curated generate view frames blocks by content: `pages/generate/curate.ts`).
 6. Refresh what the frontend tests and the typed client read, from the
    repository root: `python webui/tools/dump_schemas.py` (the tab schemas),
-   `python tools/dump_settings.py` for settings (`tools/check.sh` runs it
+   `python tools/dump_settings.py` for settings (`tools/check.sh` runs both
    with `--check`), and `python tools/export_openapi.py` followed by
    `pnpm gen:api` in `webui/` when a route or model changed (frontend.md
    "Scripts").
@@ -163,11 +195,13 @@ SPA has its own design system.
 Port it like Remi's own ports ([extension-guide.md §14](extension-guide.md#14-porting-an-a1111--forge-extension),
 architecture.md "Built-in extension porting rule"): snapshot its `ui()` with
 `tools/record_legacy_ui.py` (it runs the `ui()` in an export of the last
-Gradio-era revision, with an interpreter that has Gradio 4.40; setup in
-[extension-guide.md §13](extension-guide.md#13-testing)):
+Gradio-era revision, with an interpreter that has Gradio 4.40, set up once
+from `tools/legacy-ui-requirements.txt` as
+[extension-guide.md §13](extension-guide.md#13-testing) shows; the current
+`requirements.txt` cannot be installed next to Gradio 4.40):
 
 ```bash
-/tmp/remi-gradio-env/bin/python tools/record_legacy_ui.py \
+../remi-gradio-env/bin/python tools/record_legacy_ui.py \
     extensions-builtin/<ext>/scripts/<script>.py --script-rev upstream/neo
 # -> extensions-builtin/<ext>/tests/fixtures/legacy_ui_txt2img.json, legacy_ui_img2img.json
 ```
@@ -228,7 +262,12 @@ GROUPED=("${RUNTIME[@]}" "${RUNNER[@]}" "${SETTINGS[@]}" "${DELEGATED[@]}" "${UI
 review other . "${GROUPED[@]/#/:(exclude)}"  # modules_forge/*.py, other modules/*.py, docker/, README, …: §1 rows or the default row
 
 git diff "$BASE" upstream/neo -- "${UI[@]}"                                                          # translated, not merged
-git diff "$BASE" upstream/neo -G'def ui\(|gr\.' -- "${SCRIPTS[@]}"                                     # ui() changes
+# ui() changes: the whole diff of every script file, because a ui() also shows module-level texts and
+# constants (image_stitch.py's t2i_info / i2i_info HTML, choice lists) that a pattern on ui() lines misses
+git diff "$BASE" upstream/neo -- scripts modules/processing_scripts 'extensions-builtin/*/scripts/*' \
+    'extensions-builtin/*/javascript/*' 'extensions-builtin/*.css'
+git diff "$BASE" upstream/neo -G'gradio|gr\.|def ui\(|on_ui_tabs|ui_components' -- extensions-builtin \
+    ':(exclude)extensions-builtin/*/scripts/*'                                                       # UI built in lib_* code
 git diff --name-status --diff-filter=A "$BASE" upstream/neo                                          # new files
 ```
 
@@ -298,6 +337,9 @@ note, because the merge base does not move.
       translate / skip) in the sync note.
 - [ ] Runtime conflicts resolved without dropping Remi's Anima hooks
       ([remi-architecture-notes.md](../remi-architecture-notes.md) "Seams").
+- [ ] Files Remi forked (§1.1) keep Remi's version; the upstream fixes
+      they lacked are ported with tests, and each upstream commit to them is
+      listed in the sync note's "Adapted for Remi" table.
 - [ ] No Gradio: the `ruff --select TID251` check above reports nothing;
       `requirements.txt` and `modules/launch_utils.py` install no Gradio.
 - [ ] Line endings: `tools/check_line_endings.py` passes, and
@@ -353,7 +395,7 @@ Merged unchanged, or with conflicts that only kept Remi's hooks:
 
 | File | Resolution |
 | --- | --- |
-| `<path>` | <conflict and how it was resolved, which Remi hook it keeps> |
+| `<path>` | <conflict and how it was resolved, which Remi hook it keeps; for a file Remi forked (§1.1): Remi's version kept, and which upstream fixes were ported or left out> |
 
 ## Skipped
 

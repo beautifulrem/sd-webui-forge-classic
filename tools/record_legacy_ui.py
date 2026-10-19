@@ -9,21 +9,26 @@ in the format of the harness's ``describe()``.
 
 Remi has no Gradio, so the recording runs in a copy of the last revision that
 still had the Gradio UI (``LEGACY_REV``, exported with ``git archive`` to a
-temporary folder, or ``--legacy-tree``) with an interpreter that has Gradio 4.40::
+temporary folder, or ``--legacy-tree``) with an interpreter that has Gradio 4.40.
+That interpreter gets its own environment from ``tools/legacy-ui-requirements.txt``
+(``LEGACY_REV``'s requirements with Gradio and the Pillow 10 it needs; the current
+``requirements.txt`` cannot be installed next to Gradio 4.40)::
 
-    python -m venv /tmp/remi-gradio-env
-    /tmp/remi-gradio-env/bin/pip install -r requirements.txt "gradio==4.40.0" "gradio_rangeslider==0.0.8"
+    python3.13 -m venv ../remi-gradio-env      # outside the checkout (and outside /tmp, which macOS purges)
+    ../remi-gradio-env/bin/pip install -r tools/legacy-ui-requirements.txt
 
     # a new upstream extension, taken from upstream/neo:
-    /tmp/remi-gradio-env/bin/python tools/record_legacy_ui.py \\
+    ../remi-gradio-env/bin/python tools/record_legacy_ui.py \\
         extensions-builtin/<ext>/scripts/<script>.py --script-rev upstream/neo
     # a script file on disk (an upstream checkout, a third-party extension):
-    /tmp/remi-gradio-env/bin/python tools/record_legacy_ui.py /path/to/ext/scripts/x.py --out /path/to/ext/tests/fixtures
+    ../remi-gradio-env/bin/python tools/record_legacy_ui.py /path/to/ext/scripts/x.py --out /path/to/ext/tests/fixtures
 
 It writes ``legacy_ui_<tab>.json`` for each tab the script shows on (or the
 ``--tabs`` given) into ``--out``, by default
 ``extensions-builtin/<ext>/tests/fixtures`` of this checkout. Only this tool
-needs Gradio; nothing imports it.
+needs a Gradio interpreter, and the Gradio code it runs (``gr.Blocks``,
+``remi.ui.legacy``, the scripts' ``ui()``) is the exported legacy revision's:
+this file imports no Gradio module itself, and nothing imports this file.
 """
 
 from __future__ import annotations
@@ -92,7 +97,7 @@ def export(rev: str, target: Path, *paths: str) -> None:
 
 def require_gradio() -> None:
     if importlib.util.find_spec("gradio") is None:
-        raise SystemExit(f"{sys.executable} cannot import Gradio: run this tool with an interpreter that has gradio==4.40.0 (see --help)")
+        raise SystemExit(f"{sys.executable} cannot import Gradio: run this tool with an interpreter set up from tools/legacy-ui-requirements.txt (docs/remi-webui/extension-guide.md §13)")
 
 
 def require_legacy_tree(tree: Path) -> None:
@@ -107,21 +112,21 @@ def load_file(path: Path, name: str):
     return module
 
 
-def legacy_snapshot(script, tab: str, describe) -> list[dict[str, Any]]:
-    """Build ``script``'s Gradio ``ui()`` for ``tab`` and describe it as ``describe`` does."""
+def legacy_snapshot(script, tab: str, describe, build_ui) -> list[dict[str, Any]]:
+    """Build ``script``'s Gradio ``ui()`` for ``tab`` and describe it as ``describe`` does.
 
-    import gradio as gr
+    ``build_ui`` is the legacy tree's ``tests/extension_script_harness.build_ui``: it
+    resets the tab's preset registry and builds the panel in a ``gr.Blocks``, so the
+    Gradio code that runs is the legacy revision's own, never this checkout's.
+    """
 
-    from modules.anima_presets import preset_controls, reset_preset_controls
-    from remi.ui.legacy import legacy_layout
+    from modules.anima_presets import preset_controls
+    from remi.ui.legacy import legacy_layout  # the legacy tree's Gradio bridge (sys.path)
 
-    reset_preset_controls(tab)
-    script.tabname = tab
     script.is_img2img = tab == "img2img"
     script.is_txt2img = not script.is_img2img
     script.infotext_fields = []
-    with gr.Blocks():
-        controls = list(script.ui(script.is_img2img) or [])
+    controls = list(build_ui(script, tab) or [])
     layout = legacy_layout("legacy", controls, script.infotext_fields)
     names, components, _values = preset_controls(tab)
     presets = {id(component): name for name, component in zip(names, components, strict=True)}
@@ -179,7 +184,7 @@ def record(options: argparse.Namespace, tree: Path, scratch: Path) -> list[Path]
                 continue
             target = out / f"legacy_ui_{tab}.json"
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(json.dumps(legacy_snapshot(script, tab, describe), indent=1, ensure_ascii=False) + "\n", encoding="utf8")
+            target.write_text(json.dumps(legacy_snapshot(script, tab, describe, harness.build_ui), indent=1, ensure_ascii=False) + "\n", encoding="utf8")
             written.append(target)
     return written
 

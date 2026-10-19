@@ -28,3 +28,17 @@ def test_a_recorded_request_and_response_pair_still_works(tmp_path):
     (tmp_path / "baseline_1.png").write_bytes(b"")
     params, infotext, image = smoke.load_baseline(tmp_path)
     assert params == request and infotext == "cat\nSteps: 1" and image == tmp_path / "baseline_1.png"
+
+
+def test_the_report_is_committable_evidence_of_a_gradio_free_run(capsys):
+    report = smoke.Report()
+    report.check("server interpreter has no Gradio", True, "/venv/bin/python")
+    report.check("txt2img parity", False, "differs")
+    document = report.document("/venv/bin/python", [], features=False)
+    json.dumps(document)
+    assert document["server_python"] == "/venv/bin/python" and document["server_python_gradio_modules"] == []
+    assert document["passed"] is False and document["model"] == smoke.MODEL and len(document["revision"]) in (0, 40)
+    assert document["checks"] == [
+        {"name": "server interpreter has no Gradio", "ok": True, "detail": "/venv/bin/python"},
+        {"name": "txt2img parity", "ok": False, "detail": "differs"},
+    ]

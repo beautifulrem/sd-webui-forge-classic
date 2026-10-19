@@ -492,6 +492,16 @@ def gallery_for(files: FileStore) -> GalleryIndex:
         return index
 
 
+def close_gallery(files: FileStore) -> None:
+    """Close the index of ``files`` (its own database connection), if one
+    was opened: :meth:`remi.server.Services.close`."""
+
+    with _indexes_lock:
+        index = _indexes.pop(files, None)
+    if index is not None:
+        index.close()
+
+
 def item_json(item: GalleryItem, iso: Callable[[float | None], str | None]) -> dict[str, Any]:
     record = item.record
     return {

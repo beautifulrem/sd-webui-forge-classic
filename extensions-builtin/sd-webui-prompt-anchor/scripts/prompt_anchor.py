@@ -29,9 +29,10 @@ Implementation overview
 
 A `scripts.Script` subclass with `alwayson=True` that:
    - Declares the panel (`params()`: enable switch in the panel header,
-     anchor prompt editor, separator field). `section = "prompt"` places
-     it in the core form's prompt slot, below the main prompts; the panel
-     collapses to its header. The SPA keeps the values in the form draft
+     anchor prompt editor, separator field). `slot = "prompt_before"`
+     places it directly above the main positive prompt (where the legacy
+     prompt_anchor.js moved it); `section = "prompt"` keeps its arguments
+     in the prompt category. The panel collapses to its header. The SPA keeps the values in the form draft
      (per browser, restored on reload).
    - Implements `process(p, *args)` to PREPEND the anchor text onto
      `p.prompt`, `p.all_prompts`, `p.hr_prompt`, and `p.all_hr_prompts`.
@@ -148,6 +149,9 @@ class PromptAnchorScript(scripts.Script):
     webui's Script framework; each tab's form keeps its own anchor."""
 
     section = "prompt"
+    # Above the main prompt, where the legacy prompt_anchor.js moved the box;
+    # the section keeps the arguments in the prompt category
+    slot = "prompt_before"
 
     def title(self):
         return "Prompt Anchor"
@@ -160,8 +164,8 @@ class PromptAnchorScript(scripts.Script):
     # ---- UI ----------------------------------------------------------------
 
     def params(self, is_img2img):
-        """The anchor panel, rendered in the core form's prompt slot (this
-        script's ``section``), right below the main prompts. The enable
+        """The anchor panel, rendered in the core form's ``prompt_before``
+        slot (this script's ``slot``), right above the main prompt. The enable
         switch sits in the panel header; collapsing the panel keeps it
         reachable. The SPA keeps the text in the form's draft, so it
         survives reloads per browser as the old localStorage shim did."""

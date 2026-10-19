@@ -60,7 +60,7 @@ Below 72 rem the history becomes a strip; on phones the stage comes first and th
 
 **Extension pages.** Extensions add their own pages: **JoyCaption** (image captioning, single or folder, with progress and cancel) and **Prompt Workshop** ship with Remi.
 
-**Prompt tools.** Under every prompt: a tag view (chips you can reorder, reweight, disable or delete), quick tag groups, prompt history, favorites in collections, and optional translation through a provider you configure. Nothing is sent anywhere until you choose a provider.
+**Prompt tools.** Under every prompt: a tag view (chips you can reorder, reweight, disable or delete), quick tag groups, prompt history, favorites in collections, optional translation through a provider you configure, and, with an OpenAI-compatible provider, "Write a prompt" (an LLM writes or changes the prompt from a description in any language). Nothing is sent anywhere until you choose a provider.
 
 **API.** The same server offers [`/api/v2`](docs/remi-webui/api.md) (what the SPA uses: named parameters, validation, jobs, WebSocket events) and, with `--api`, the A1111-compatible `/sdapi/v1`. Interactive docs are at `/docs`.
 
@@ -291,10 +291,10 @@ By default the server listens on `127.0.0.1` only.
 - **Exposing the server.** Use `--listen` (or `--server-name`) together with `--auth`, ideally behind a TLS reverse proxy or with `--tls-keyfile` / `--tls-certfile`. `--share` is not supported. Installing and updating extensions from the UI is disabled while listening on the network unless `--enable-insecure-extension-access` is given; "Show in folder" in the Gallery only works for a browser on the same machine, and `--hide-ui-dir-config` removes every action that opens or reveals folders on the server.
 - **Cross-site requests are refused.** State-changing requests and WebSocket connections from pages on another site are rejected, so a malicious page cannot drive your WebUI. Scripts and API tools send no `Origin` header and are unaffected; browser front-ends on another origin must be allowed with `--cors-allow-origins`.
 - **DNS rebinding is refused.** A loopback-only server answers only to `localhost` / loopback host names (or hosts allowed with `--cors-allow-origins`). A local reverse proxy must pass one of those as `Host`, or allow its public origin.
-- **Files** are served by opaque id only, uploads are type- and size-checked (`remi_upload_max_mb`), and extension HTML, infotext and metadata are rendered as text or sanitized.
+- **Files** are served by opaque id only, uploads are type- and size-checked (`remi_upload_max_mb`), every other request body is capped at twice that size, and extension HTML, infotext and metadata are rendered as text or sanitized.
 - **Extension routes** (added by extensions to the server) get the same cross-site and host checks; with `--auth` they also require the login or `--api-auth` credentials (local API clients are exempt only with `--api-no-auth-on-localhost`).
 - **Startup warnings** name risky combinations: reachable without a login, `--cors-allow-origins=*`, insecure extension access, logins without TLS. See [docs/remi-webui/security.md](docs/remi-webui/security.md) for the threat model and a checklist for running exposed.
-- **Outbound requests** happen only for what you use or configure: the extension index on the Extensions page, a translation provider you set up, and model downloads of features that need them on first use (CLIP Modulation, JoyCaption, ControlNet preprocessors, ADetailer).
+- **Outbound requests** happen only for what you use or configure: the extension index on the Extensions page, a translation provider you set up (it also receives the descriptions you send with "Write a prompt" when it is an OpenAI-compatible one), and model downloads of features that need them on first use (CLIP Modulation, JoyCaption, ControlNet preprocessors, ADetailer).
 
 ## Troubleshooting
 

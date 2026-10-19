@@ -242,6 +242,11 @@ Core forms are built per request and follow the options: the categories
 (`prompt`, `image`, `inpaint`, `sampler`, `accordions`, `checkboxes`,
 `dimensions`, `cfg`, `denoising`, `seed`, `batch`, `override_settings`,
 extension sections, `scripts`) come in the user's order, each with a `slot`.
+The prompt category's group also opens with a `prompt_before` slot when a
+script asks for it (Python `Script.slot = "prompt_before"`, e.g. Prompt
+Anchor): its entry's `section` is then `"prompt_before"` and the client
+renders it directly above the main prompt; the script's arguments stay in
+the prompt category.
 Choice params with `type="index"` (img2img `mode`, `resize_mode`, …) still
 take their choice *value* on the wire.
 
@@ -337,7 +342,9 @@ Items are input nodes whose `name` is the setting key, plus `html`,
 |---|---|
 | `notes` | array of short plain-text help strings (each translated separately; never markup) |
 | `links` | array of `{"label", "url"}` |
-| `html` | extra trusted HTML help (option descriptions, lists, and any note that contains markup) |
+| `choice_hints` | (choice and multichoice settings) `{choice label: description}` from `OptionInfo.choice_info()`; the settings page lists them under the control and shows them as option tooltips |
+| `default_order` | (ordering settings, e.g. `prioritized_callbacks_*`) the order used while the setting is empty, as plain names; the settings page shows it as a numbered list |
+| `html` | trusted HTML help from the A1111 API (`OptionInfo.html()`, `comment_before` / `comment_after`) that third-party extensions use; Remi's own settings never set it |
 | `needs_restart` / `needs_reload_ui` | changing it takes effect after a restart / page reload |
 | `refresh` | `true`: the setting has a refresh action (`POST /actions/settings/refresh:<key>`) that returns a `choices` patch |
 | `onchange` | `true`: the server runs a side effect when it changes |

@@ -135,7 +135,10 @@ scripts, `run(p, *args)`. So are the `script_callbacks` that do not build UI:
 `seed`, `batch`, `accordions`, `checkboxes`, `override_settings`, or a name
 of your own (it becomes a category of its own, `modules/shared_items.py`
 `ui_reorder_categories`). Without a section the script goes to the scripts
-list under the form. The user's category order (Settings → "Parameter order
+list under the form. `slot = "prompt_before"` (with `section = "prompt"`)
+renders the panel directly above the main prompt instead of below the
+prompts; `section` still decides the argument order and the category
+(Prompt Anchor does this, where its old JavaScript moved the box). The user's category order (Settings → "Parameter order
 for txt2img / img2img") decides the layout. Selectable scripts render only while chosen in the
 "Script" dropdown.
 
@@ -506,9 +509,11 @@ script_callbacks.on_ui_settings(on_ui_settings)
   (choices computed when the settings page loads).
 - `refresh=callable` adds a refresh button (`POST
   /api/v2/actions/settings/refresh:<key>`) that re-reads the choices.
-- `.info(text)`, `.link(label, url)`, `.html(markup)`,
-  `.needs_restart()`, `.needs_reload_ui()` are kept and rendered as notes,
-  links, help and badges. `onchange=` runs on the server after a change.
+- `.info(text)`, `.link(label, url)`, `.choice_info({choice label:
+  description})`, `.html(markup)`, `.needs_restart()`, `.needs_reload_ui()`
+  are kept and rendered as notes, links, choice descriptions, help and
+  badges (prefer plain-text `.info()` / `.choice_info()` to `.html()`: they
+  are translated and follow the theme). `onchange=` runs on the server after a change.
   `restrict_api=True` keeps `/sdapi/v1/options` from changing it.
 - `shared.options_section((id, label), {...})` with
   `shared.options_templates.update(...)` at import time also still works
@@ -694,16 +699,26 @@ What to test:
   exports the last revision that still had the Gradio UI (`9c96c45e`, the
   parent of the commit that removed it) to a temporary folder and builds the
   `ui()` there; the record uses this checkout's `describe()`, the format
-  `assert_matches_snapshot` reads. Give it an interpreter with Gradio 4.40:
+  `assert_matches_snapshot` reads. Give it an interpreter with Gradio 4.40,
+  in an environment of its own built from `tools/legacy-ui-requirements.txt`:
+  that revision's requirements plus `gradio==4.40.0` and
+  `gradio_rangeslider==0.0.8`, with the Pillow 10 Gradio 4.40 requires
+  (`pillow<11`). Do not add Gradio to the WebUI's environment or install it
+  on top of the current `requirements.txt`: its Pillow pin (12 and later)
+  cannot be resolved with Gradio 4.40, and `tools/check.sh` refuses an
+  interpreter that can import Gradio.
 
   ```bash
-  python -m venv /tmp/remi-gradio-env
-  /tmp/remi-gradio-env/bin/pip install -r requirements.txt "gradio==4.40.0" "gradio_rangeslider==0.0.8"
+  python3.13 -m venv ../remi-gradio-env   # outside the checkout, and outside /tmp (macOS purges it)
+  ../remi-gradio-env/bin/pip install -r tools/legacy-ui-requirements.txt
   # an extension folder on disk (third-party, or an upstream checkout):
-  /tmp/remi-gradio-env/bin/python tools/record_legacy_ui.py /path/to/my-ext/scripts/my_script.py --out /path/to/my-ext/tests/fixtures
+  ../remi-gradio-env/bin/python tools/record_legacy_ui.py /path/to/my-ext/scripts/my_script.py --out /path/to/my-ext/tests/fixtures
   # a built-in or upstream extension, taken from a git revision (upstream/neo, or the pre-port commit):
-  /tmp/remi-gradio-env/bin/python tools/record_legacy_ui.py extensions-builtin/<ext>/scripts/<script>.py --script-rev upstream/neo
+  ../remi-gradio-env/bin/python tools/record_legacy_ui.py extensions-builtin/<ext>/scripts/<script>.py --script-rev upstream/neo
   ```
+
+  A script that imports a package the file does not list needs it installed
+  into the same environment (`../remi-gradio-env/bin/pip install <package>`).
 
   `--tabs txt2img img2img` records tabs the script's `show()` hides in that
   environment (a panel gated on an optional package or a platform),

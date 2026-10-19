@@ -644,13 +644,20 @@ class Api:
     def set_config(self, req: dict[str, Any]):
         from modules.sysinfo import set_config
 
+        # A setting that does not exist is a client error (422, nothing set),
+        # not a KeyError half-way through (500 and a traceback per request).
+        # Unchanged values are skipped as before: a posted-back GET answer
+        # may hold the settings of a removed extension.
+        unknown = sorted(str(key) for key, value in req.items() if key not in shared.opts.data_labels and value != shared.opts.data.get(key))
+        if unknown:
+            raise HTTPException(status_code=422, detail=f"unknown settings: {', '.join(unknown)}"[:1000])
         set_config(req, is_api=True)  # restrict_api settings (URL fetching) stay out of the API's reach
 
     def get_cmd_flags(self):
         from modules import redact
 
         flags = dict(vars(shared.cmd_opts))
-        for name in ("auth", "api_auth", "ngrok", "ngrok_options", "gradio_auth"):
+        for name in ("auth", "api_auth", "ngrok", "ngrok_options"):
             if flags.get(name):
                 flags[name] = {redact.HIDDEN: redact.HIDDEN} if isinstance(flags[name], dict) else redact.HIDDEN
         return flags

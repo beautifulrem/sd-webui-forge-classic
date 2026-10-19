@@ -123,7 +123,7 @@ export default defineConfig(({ mode }) => {
       testTimeout: 20_000,
       hookTimeout: 30_000,
       // `vitest run --coverage` (tools/check.sh): the floors sit a little under the measured
-      // values (2026-10-19: lines 81.7%, statements 76.3%, functions 71.4%, branches 67.2%), so a
+      // values (2026-10-20: lines 84.5%, statements 79.0%, functions 73.1%, branches 69.0%), so a
       // change that drops coverage noticeably fails the check. Raise them as coverage grows.
       coverage: {
         provider: "v8",
@@ -131,7 +131,7 @@ export default defineConfig(({ mode }) => {
         exclude: ["src/**/*.test.{ts,tsx}", "src/test/**", "src/api/gen/**", "src/**/*.d.ts"],
         reporter: ["text-summary", ["text", { skipFull: true }]],
         reportsDirectory: "node_modules/.vitest-coverage",
-        thresholds: { lines: 80, statements: 75, functions: 70, branches: 65 },
+        thresholds: { lines: 83, statements: 77, functions: 72, branches: 68 },
       },
     },
   }

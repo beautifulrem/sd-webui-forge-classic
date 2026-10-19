@@ -127,6 +127,47 @@ def test_categories_follow_the_user_order(webui):
         webui.opts.data["ui_reorder_list"] = []
 
 
+def test_prompt_slots_place_scripts_around_the_prompts():
+    """Section "prompt" scripts render below the prompts; a script whose
+    ``slot`` is "prompt_before" renders above the main prompt, its arguments
+    staying in the prompt category."""
+    from modules import scripts
+    from remi.core.tabs import tab_schema
+
+    class Above(scripts.Script):
+        section, slot = "prompt", "prompt_before"
+
+        def title(self):
+            return "Above"
+
+        def show(self, is_img2img):
+            return scripts.AlwaysVisible
+
+        def params(self, is_img2img):
+            return ui.Text("text", "", label="Above")
+
+    class Below(Above):
+        slot = None
+
+        def title(self):
+            return "Below"
+
+    with webui_state(script_classes=[Above, Below]) as state:
+        for tab in ("txt2img", "img2img"):
+            schema = tab_schema(tab)
+            entries = {entry["id"]: entry["section"] for entry in schema["scripts"]}
+            assert entries["above"] == "prompt_before" and entries["below"] == "prompt"
+            group = next(block for block in schema["core"]["layout"]["children"] if any(node.get("name") == "prompt" for node in _walk(block)))
+            order = [node.get("section") or node.get("name") for node in group["children"]]
+            assert order == ["prompt_before", "prompt", "negative_prompt", "styles", "prompt"]
+        # Both are in the prompt category: their arguments come first, in sorting order
+        assert [script.title() for script in state.txt2img.slot_order()[:2]] == ["Above", "Below"]
+
+    with webui_state():
+        group = next(block for block in tab_schema("txt2img")["core"]["layout"]["children"] if any(node.get("name") == "prompt" for node in _walk(block)))
+        assert [node["type"] for node in group["children"]] == ["text", "text", "multichoice"]  # no empty slots
+
+
 def _walk(node):
     yield node
     for child in node.get("children", []):

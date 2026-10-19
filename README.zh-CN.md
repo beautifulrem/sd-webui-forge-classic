@@ -60,7 +60,7 @@ Forge Neo Remi 是 [Forge Neo](https://github.com/Haoming02/sd-webui-forge-class
 
 **扩展页面。** 扩展可以添加自己的页面：Remi 自带 **JoyCaption**（图片描述，单张或整个文件夹，带进度与取消）和 **Prompt Workshop**。
 
-**提示词工具。** 每个提示词下方都有：标签视图（可重新排序、调整权重、禁用或删除的标签块）、快捷标签组、提示词历史、按收藏夹分组的收藏，以及通过你配置的服务进行的可选翻译。在你选择翻译服务之前，不会向任何地方发送内容。
+**提示词工具。** 每个提示词下方都有：标签视图（可重新排序、调整权重、禁用或删除的标签块）、快捷标签组、提示词历史、按收藏夹分组的收藏、通过你配置的服务进行的可选翻译，以及在使用 OpenAI 兼容服务时的“AI 撰写提示词”（由大语言模型根据任意语言的描述撰写或修改提示词）。在你选择翻译服务之前，不会向任何地方发送内容。
 
 **API。** 同一个服务器提供 [`/api/v2`](docs/remi-webui/api.md)（界面所用的 API：命名参数、校验、任务、WebSocket 事件），加上 `--api` 时还提供兼容 A1111 的 `/sdapi/v1`。交互式文档位于 `/docs`。
 
@@ -291,10 +291,10 @@ Agent Scheduler、Prompt Queue 和 Repeat Generate 已成为核心的队列功�
 - **对外开放服务器。** 请同时使用 `--listen`（或 `--server-name`）和 `--auth`，最好放在 TLS 反向代理之后，或使用 `--tls-keyfile` / `--tls-certfile`。不支持 `--share`。网络监听时，除非指定 `--enable-insecure-extension-access`，否则不能从界面安装和更新扩展；图库中的“在文件夹中显示”只对同一台机器上的浏览器有效，`--hide-ui-dir-config` 会移除所有在服务器上打开或定位文件夹的操作。
 - **拒绝跨站请求。** 来自其他网站页面的写操作请求和 WebSocket 连接会被拒绝，恶意网页无法操控你的 WebUI。脚本和 API 工具不发送 `Origin` 头，不受影响；其他来源的浏览器前端需要用 `--cors-allow-origins` 放行。
 - **拒绝 DNS 重绑定。** 仅监听本机的服务器只响应 `localhost` / 回环主机名（或 `--cors-allow-origins` 放行的主机）。本地反向代理必须以这些名称作为 `Host` 转发，或放行其公开来源。
-- **文件**只能通过不透明 id 访问，上传内容会检查类型和大小（`remi_upload_max_mb`），扩展 HTML、infotext 和元数据都以纯文本显示或经过净化。
+- **文件**只能通过不透明 id 访问，上传内容会检查类型和大小（`remi_upload_max_mb`），其他请求体的大小上限是它的两倍，扩展 HTML、infotext 和元数据都以纯文本显示或经过净化。
 - **扩展路由**（扩展添加到服务器的路由）同样经过跨站和主机检查；启用 `--auth` 时，它们还需要登录或 `--api-auth` 凭据（仅在使用 `--api-no-auth-on-localhost` 时本机 API 客户端免登录）。
 - **启动警告**会指出有风险的组合：无登录即可被访问、`--cors-allow-origins=*`、不安全的扩展访问、未使用 TLS 的登录。威胁模型和对外开放的检查清单见 [docs/remi-webui/security.md](docs/remi-webui/security.md)。
-- **对外网络请求**只发生在你使用或配置的功能中：扩展页面中的扩展索引、你配置的翻译服务，以及部分功能首次使用时的模型下载（CLIP Modulation、JoyCaption、ControlNet 预处理器、ADetailer）。
+- **对外网络请求**只发生在你使用或配置的功能中：扩展页面中的扩展索引、你配置的翻译服务（若为 OpenAI 兼容服务，“AI 撰写提示词”时你输入的描述也会发送给它），以及部分功能首次使用时的模型下载（CLIP Modulation、JoyCaption、ControlNet 预处理器、ADetailer）。
 
 ## 故障排查
 

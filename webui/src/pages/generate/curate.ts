@@ -1,13 +1,14 @@
 /**
- * The generate page's arrangement of a core form: the prompts, the styles
- * and the script choice are taken out (the page renders them itself) and the
+ * The generate page's arrangement of a core form: the prompts, the styles,
+ * the slot above the prompt and the script choice are taken out (the page
+ * renders them itself) and the
  * remaining top-level blocks are classified by what they hold (source image,
  * sampler, size, guidance, seed, sections, the rest) so the page can frame
  * them. Blocks stay in schema order — the user's category order
  * (`ui_reorder_list`) decides the layout — and keep their schema subtree, so
  * server-side layout changes still render.
  */
-import { DEFAULT_SLOT, walk } from "@/ui/form-index"
+import { DEFAULT_SLOT, PROMPT_BEFORE_SLOT, walk } from "@/ui/form-index"
 import type { ChoiceNode, MultiChoiceNode, Node, TextNode } from "@/ui/schema"
 import { isInput } from "@/ui/schema"
 
@@ -23,11 +24,13 @@ export type CuratedForm = {
 }
 
 const TAKEN = new Set(["prompt", "negative_prompt", "styles", "script"])
+/** Slots the page renders itself: the scripts list, and the scripts above the prompt (`PromptsPanel`). */
+const TAKEN_SLOTS = new Set([DEFAULT_SLOT, PROMPT_BEFORE_SLOT])
 const SOURCE_INPUTS = new Set(["init_img", "sketch", "mask", "mask_upload", "batch_upload", "mask_blur"])
 
 function prune(node: Node): Node | null {
   if (isInput(node)) return TAKEN.has(node.name) ? null : node
-  if (node.type === "slot") return node.section === DEFAULT_SLOT ? null : node
+  if (node.type === "slot") return TAKEN_SLOTS.has(node.section) ? null : node
   if (!("children" in node) || node.type === "tab" || node.type === "tabs") return node
   if (node.type === "section" && node.enable) {
     return { ...node, children: node.children.map(prune).filter((child): child is Node => child !== null) }

@@ -93,12 +93,12 @@ def test_the_webui_starts_and_generates(tmp_path):
     # environment with nothing but requirements.txt installed). Gradio is
     # made unimportable first (as if it were not installed, whatever this
     # interpreter has): nothing on the startup path, in remi/ or in a built-in
-    # extension may need it. The data folder is empty, so ADetailer would
-    # download its detector models at load: --ad-no-huggingface (the user's
-    # opt-out) keeps startup offline, and any other connection to a non-local
-    # host fails the test (proxy settings, from the environment or the
-    # system, are dropped, so a download cannot pass as a local connection to
-    # a proxy).
+    # extension may need it. Startup makes no outbound connection without a
+    # user action: the data folder is empty and no opt-out flag is given (the
+    # stock ADetailer detectors are downloaded on first use, not at load), so
+    # any connection to a non-local host fails the test (proxy settings, from
+    # the environment or the system, are dropped, so a download cannot pass
+    # as a local connection to a proxy).
     code = f"""
 import os, socket, sys, traceback, urllib.request
 for key in [key for key in os.environ if key.lower().endswith("_proxy")]:
@@ -120,7 +120,7 @@ def getaddrinfo(host, *args, **kwargs):
         raise socket.gaierror("no network in this test")
     return _getaddrinfo(host, *args, **kwargs)
 socket.socket.connect, socket.getaddrinfo = connect, getaddrinfo
-sys.argv = ["launch.py", "--skip-prepare-environment", "--skip-version-check", "--skip-torch-cuda-test", "--ad-no-huggingface", "--data-dir", {str(tmp_path)!r}]
+sys.argv = ["launch.py", "--skip-prepare-environment", "--skip-version-check", "--skip-torch-cuda-test", "--data-dir", {str(tmp_path)!r}]
 import webui
 from modules import scripts
 from remi.jobs import run_inline

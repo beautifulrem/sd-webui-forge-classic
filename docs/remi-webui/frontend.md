@@ -22,7 +22,7 @@ Run in `webui/`:
 | `pnpm test:e2e` | Playwright against mock mode (`tests/e2e`; starts `vite` on port 5199, bypassing proxies for loopback) |
 | `pnpm lint` | oxlint (must be silent) |
 | `python3 tools/shadcn_fetch.py <names>` | add shadcn registry components with curl (Node cannot use the proxy) |
-| `$PYTHON tools/dump_schemas.py` (requirements.txt, no Gradio) | re-dump the real tab schemas into `src/api/mock/contract/*.json` (contract tests) after a `remi/ui` / `remi/core` change |
+| `$PYTHON tools/dump_schemas.py` (requirements.txt, no Gradio) | re-dump the real tab schemas into `src/api/mock/contract/*.json` (contract tests) after a `remi/ui` / `remi/core` change; `--check` (the `contract:schemas` step of `tools/check.sh`) fails when they are stale |
 
 ## Layout of `src/`
 
@@ -379,8 +379,10 @@ mode's schema is prefetched).
   (not `TabForm`), once per schema object. On a reload (options changed, UI
   preset) image ids survive and params still at their old default follow
   the new default (`carryOver`).
-- **Curated form** (`curate.ts`): prompt, negative prompt, styles and the
-  `script` choice are taken out of the core layout; the remaining top-level
+- **Curated form** (`curate.ts`): prompt, negative prompt, styles, the
+  `prompt_before` slot (its scripts, e.g. Prompt Anchor, render at the top
+  of `PromptsPanel`, above the main prompt) and the `script` choice are
+  taken out of the core layout; the remaining top-level
   blocks are classified by content (source image, sampler slot, size,
   sections, guidance, seed, other) only to frame them (cards, size tools);
   they keep the schema's order, so the user's category order
@@ -1113,25 +1115,29 @@ widgets, locale catalogs. Measured 2026-10-15 (`pnpm build`, `gzip -9`):
 
 Fonts load per unicode range (Inter latin ≈ 48 KB woff2).
 
-## Backend contract assumptions (to confirm)
+## Backend contract
 
-- `GET /app` returns `Bootstrap` (generated from the server's model).
+What the client relies on, and where the server side is specified (the
+generated `src/api/gen/schema.d.ts` types every route):
+
+- `GET /app` returns `Bootstrap` (generated from the server's model;
+  architecture.md "HTTP API v2").
 - Schema-rendered extension pages: `GET /api/v2/pages/{id}` →
   `{version, id, title, owner: "page:<id>", layout, defaults, on_load?,
-  send_to?}` (schema-format.md §8).
-- WS job events carry `job_id` and `seq` (= binary `job_seq`); `job_no` is
-  0-based; `tab` is optional. Binary preview headers are little-endian.
+  send_to?}` ([schema-format.md §8](schema-format.md#8-page-schema-get-apiv2pagesid)).
 - Action bodies carry `scripts: {owner id: values}` (every non-core owner
-  except the caller) next to `values` / `core`; the server fills
-  `ActionContext.scripts` from it (needed by `__conflicts__`). Not yet in
-  schema-format.md §5.
-- `__settings__` in an action patch reports settings the server already
-  stored (schema-format.md §5); the client only updates its cache.
-- A model load ends with `model.loaded {model?, error?}` (or a
-  `model.loading` stage `done`); not yet in architecture.md.
-- `GET /jobs?cursor=&limit=` returns `{items, next_cursor, total?}` newest
-  first.
+  except the caller) next to `values` / `core`, and `__settings__` in a
+  patch reports settings the server already stored, so the client only
+  updates its cache ([schema-format.md §5](schema-format.md#5-actions)).
+- WS job events carry `job_id` and `seq` (= binary `job_seq`); `job_no` is
+  0-based; `tab` is optional; binary preview headers are little-endian. A
+  model load ends with `model.loaded {model?, error?}` (or a
+  `model.loading` stage `done`). See [api.md "WebSocket"](api.md#websocket-apiv2ws)
+  and architecture.md "WebSocket `/api/v2/ws`".
+- `GET /jobs?cursor=&limit=` returns `{items, next_cursor, total}` newest
+  first ([api.md "Conventions"](api.md#conventions), architecture.md route
+  table).
 - Uploaded images are previewed from a local object URL; ids from elsewhere
-  are shown via `/api/v2/files/{id}`, so upload ids should resolve there.
+  are shown via `/api/v2/files/{id}`, where upload ids resolve too.
 - The checkpoint quick-bar writes `sd_model_checkpoint` with `PATCH /options`
   and shows `model.loading{stage}` while a model loads.

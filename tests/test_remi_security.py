@@ -5,6 +5,7 @@ folder actions, extension-install validation, secret redaction and the
 /sdapi URL fetcher."""
 
 import base64
+import contextlib
 import hashlib
 import io
 import re
@@ -248,6 +249,130 @@ def test_server_errors_do_not_reach_the_client(webui, tmp_path, caplog):
             assert body["id"] in caplog.text
 
 
+def test_assets_never_fall_back_to_the_shell(webui, tmp_path):
+    # /assets/ is public (the login page's assets): only existing build files
+    # are served there, never index.html for a missing one
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text('<!doctype html><html><head><script type="module" src="/assets/app.js"></script></head><body></body></html>')
+    (dist / "assets" / "app.js").write_text("console.log(1)")
+    with server_app(tmp_path / "data", auth=Auth({"ann": "1"}, b"k" * 32), spa_dir=dist) as server:
+        assert server.client.get("/").status_code == 401
+        assert server.client.get("/assets/app.js").status_code == 200
+        for path in ("/assets/", "/assets", "/assets/foo", "/assets/x.html", "/assets/sub/", "/assets/index.html"):
+            response = server.client.get(path)
+            assert response.status_code in (401, 404) and "__REMI_ROOT__" not in response.text, path
+        logged_in = server.client.get("/assets/foo", headers=basic("ann", "1"))
+        assert logged_in.status_code == 404 and "__REMI_ROOT__" not in logged_in.text
+
+
+@contextlib.contextmanager
+def sdapi_server(root):
+    """The full app (/api/v2, /internal and /sdapi) on fresh services; the
+    prompt tools its routes open (as dependencies, also for invalid bodies)
+    are closed with it."""
+
+    from remi import prompt_tools
+    from remi.jobs import run_inline
+    from remi.server import Services, create_app
+
+    services = Services.create(root, dispatch=run_inline, realtime=False, housekeeping=False)
+    try:
+        yield create_app(services=services, auth=Auth(), sdapi=True, start_services=False)
+    finally:
+        prompt_tools.forget(services)
+        services.close()
+
+
+def body_routes(app):
+    from fastapi.routing import APIRoute
+
+    for route in app.routes:
+        if isinstance(route, APIRoute) and route.body_field is not None:
+            for method in sorted(route.methods & {"POST", "PUT", "PATCH"}):
+                yield method, re.sub(r"\{([^}:]+)(:[^}]+)?\}", r"\1", route.path)
+
+
+NON_FINITE_BODIES = (b"1e999", b"-1e999", b"NaN", b"[1e999]", b'{"username": 1e999, "password": NaN, "tab": Infinity}')
+
+
+def test_non_finite_numbers_are_client_errors_without_a_traceback(webui, tmp_path, caplog):
+    # JSON numbers like 1e999 parse to inf: a validation error echoing them
+    # could not be encoded (500 and a logged traceback per request, also
+    # from the public login form)
+    with server_app(tmp_path, auth=Auth({"ann": "1"}, b"k" * 32)) as server:
+        client = TestClient(server.app, raise_server_exceptions=False, base_url="http://127.0.0.1:7860")
+        with caplog.at_level("ERROR"):
+            for body in NON_FINITE_BODIES:
+                response = client.post("/api/v2/auth/login", content=body, headers={"Content-Type": "application/json"})
+                assert response.status_code == 422 and response.json()["detail"], body
+        assert caplog.records == []
+        login = client.post("/api/v2/auth/login", content=b'{"username": 1e999}', headers={"Content-Type": "application/json"}).json()
+        assert {"inf"} <= {str(error.get("input")) for error in login["detail"]}
+    # nor does a float field of an /api/v2 model take one (api.md: no NaN or Infinity)
+    from pydantic import ValidationError
+
+    from remi.server import models as m
+
+    class Weighted(m.Model):
+        weight: float
+
+    for value in (float("inf"), float("-inf"), float("nan")):
+        with pytest.raises(ValidationError):
+            Weighted(weight=value)
+    assert Weighted(weight=1.5).weight == 1.5
+
+
+def test_no_route_answers_a_non_finite_body_with_a_server_error(webui, tmp_path, caplog):
+    # every body route of /api/v2, /internal and /sdapi: bodies that are not
+    # objects never validate, so nothing runs; each must be a 4xx
+    with sdapi_server(tmp_path) as app:
+        routes = list(body_routes(app))
+        assert ("POST", "/sdapi/v1/txt2img") in routes and ("POST", "/api/v2/jobs") in routes and len(routes) > 40
+        with TestClient(app, raise_server_exceptions=False, base_url="http://127.0.0.1:7860") as client, caplog.at_level("ERROR"):
+            failed = [(method, path, body, response.status_code) for method, path in routes for body in NON_FINITE_BODIES[:4] if (response := client.request(method, path, content=body, headers={"Content-Type": "application/json"})).status_code >= 500]
+        assert failed == [] and caplog.records == []
+
+
+def test_sdapi_options_refuse_unknown_settings_without_setting_any(webui, tmp_path):
+    from modules import shared
+
+    with sdapi_server(tmp_path) as app, TestClient(app, raise_server_exceptions=False, base_url="http://127.0.0.1:7860") as client:
+        before = shared.opts.data.get("samples_format")
+        response = client.post("/sdapi/v1/options", json={"samples_format": "jpg" if before != "jpg" else "png", "no_such_setting": 1})
+        assert response.status_code == 422 and "no_such_setting" in response.json()["detail"]
+        assert shared.opts.data.get("samples_format") == before
+
+
+# endregion
+
+# region Request bodies
+
+
+def test_request_bodies_are_capped_while_they_stream(webui, tmp_path, monkeypatch):
+    from remi.server import limits
+
+    assert limits.body_limit(64 * 1024 * 1024) == 128 * 1024 * 1024 and limits.body_limit(1) == limits.MIN_BODY_LIMIT
+    monkeypatch.setattr(limits, "MIN_BODY_LIMIT", 0)
+    with server_app(tmp_path) as server:
+        server.services.files.max_upload_bytes = 1000  # cap: 2000 bytes
+        big = b'{"tab": "txt2img", "core": {"prompt": "' + b"x" * 5000 + b'"}}'
+
+        def chunked():
+            for start in range(0, len(big), 512):
+                yield big[start : start + 512]
+
+        # announced by Content-Length, or chunked (no length): refused at 2000 bytes
+        sized = server.client.post("/api/v2/jobs", content=big, headers={"Content-Type": "application/json"})
+        assert sized.status_code == 413 and "larger than" in sized.json()["detail"]
+        streamed = server.client.post("/api/v2/jobs", content=chunked(), headers={"Content-Type": "application/json"})
+        assert streamed.status_code == 413
+        assert server.client.post("/api/v2/auth/login", content=chunked(), headers={"Content-Type": "application/json"}).status_code == 413
+        # within the cap: served as usual
+        small = server.client.post("/api/v2/jobs", json={"tab": "txt2img", "core": {"prompt": "x" * 100}})
+        assert small.status_code in (200, 201, 202), small.text
+
+
 # endregion
 
 # region Files
@@ -262,6 +387,14 @@ def test_uploads_are_pixel_capped_even_when_pillows_limit_is_off(webui, tmp_path
         assert server.client.post("/api/v2/uploads", files={"file": ("ok.png", png((32, 32)), "image/png")}).status_code == 201
         response = server.client.post("/api/v2/uploads", files={"file": ("bomb.png", png((33, 32)), "image/png")})
         assert response.status_code == 413 and "too large" in response.json()["detail"]
+
+
+def test_upload_errors_name_no_server_path(webui, tmp_path):
+    # Pillow's message for an unreadable image names the incoming file
+    with server_app(tmp_path) as server:
+        response = server.client.post("/api/v2/uploads", files={"file": ("x.gif", b"GIF89a" + b"\x00" * 64, "image/gif")})
+        assert response.status_code == 415 and response.json() == {"detail": "not a readable image"}
+        assert str(tmp_path) not in response.text and "incoming" not in response.text
 
 
 def test_folder_actions_are_for_a_browser_on_the_webui_machine(webui, tmp_path, monkeypatch):

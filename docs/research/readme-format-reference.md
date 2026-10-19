@@ -137,7 +137,7 @@ Diffusers 的[官方 README 顶部](https://github.com/huggingface/diffusers/blo
 </p>
 
 <p align="center">
-  <img src="html/ui.webp" width="720" alt="Forge Neo Remi WebUI">
+  <!-- a current screenshot of the Remi WebUI (html/ui.webp showed the old Gradio UI and was removed) -->
 </p>
 
 ## Overview

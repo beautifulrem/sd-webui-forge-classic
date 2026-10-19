@@ -81,7 +81,7 @@
 3. [Install](#install)
 4. [First-time setup](#first-time-setup)
 5. [Daily use](#daily-use)
-6. [Optional: language picker in the top bar](#optional-language-picker-in-the-top-bar)
+6. [The language picker in the top bar](#the-language-picker-in-the-top-bar)
 7. [What gets translated and what doesn't](#what-gets-translated-and-what-doesnt)
 8. [How it works internally](#how-it-works-internally)
 9. [File-by-file reference](#file-by-file-reference)
@@ -923,9 +923,9 @@ and prompts are untouched — the extension is purely a UI layer.
 ### Roadmap
 
 - **Native-speaker review pass** on each existing locale — see the
-  [Help Wanted banner](#-native-speakers--please-help-review) at
-  the top of this README. **This is the single biggest thing the
-  project needs.**
+  Help Wanted banner at the top of this README and
+  [Contributing translations](#contributing-translations). **This is
+  the single biggest thing the project needs.**
 - More locales when contributors step forward (Dutch, Turkish,
   Vietnamese, Arabic, Hindi, ...). Open an Issue suggesting which
   language to add next.

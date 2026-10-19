@@ -112,7 +112,7 @@ export function searchTerms(query: string): string[] {
 
 export type Translate = (text: string) => string
 
-/** What a search sees of one setting: its key, label, help and choice labels, in English and translated. */
+/** What a search sees of one setting: its key, label, help, choice labels and descriptions, in English and translated. */
 export function settingHaystack(node: SettingNode, translate: Translate): string {
   const parts: string[] = [node.name, node.name.replace(/_/g, " ")]
   const add = (text: string | null | undefined) => {
@@ -125,9 +125,11 @@ export function settingHaystack(node: SettingNode, translate: Translate): string
   add(node.info)
   for (const note of node.notes ?? []) add(note)
   for (const link of node.links ?? []) add(link.label)
+  for (const name of node.default_order ?? []) parts.push(name)
   if (node.html) parts.push(htmlText(node.html))
   if ((node.type === "choice" || node.type === "multichoice") && node.choices) {
     for (const choice of node.choices) add(choice.label)
+    for (const hint of Object.values(node.choice_hints ?? {})) add(hint)
   }
   return parts.join("\n").toLowerCase()
 }

@@ -86,6 +86,29 @@ class Report:
     def failed(self) -> int:
         return sum(not ok for _, ok, _ in self.rows)
 
+    def document(self, python: str, gradio: list[str], features: bool) -> dict:
+        """The run as committable evidence (``--report``): what ran, on which revision, and each check."""
+
+        def git(*args: str) -> str:
+            try:
+                return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=60, check=True).stdout.strip()
+            except (OSError, subprocess.SubprocessError):
+                return ""
+
+        return {
+            "tool": "tools/smoke_real.py",
+            "date": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "revision": git("rev-parse", "HEAD"),
+            "uncommitted_changes": bool(git("status", "--porcelain", "--untracked-files=no")),
+            "platform": sys.platform,
+            "server_python": python,
+            "server_python_gradio_modules": gradio,
+            "model": MODEL,
+            "features": features,
+            "passed": not self.failed,
+            "checks": [{"name": name, "ok": ok, "detail": detail} for name, ok, detail in self.rows],
+        }
+
 
 class Server:
     def __init__(self, python: str, port: int, data_dir: Path, log: Path, extra_args: list[str] | None = None) -> None:
@@ -492,6 +515,7 @@ def main() -> int:
     parser.add_argument("--startup-timeout", type=float, default=300)
     parser.add_argument("--keep-data", action="store_true", help="keep the temporary data folder")
     parser.add_argument("--features", action="store_true", help="also check the LoRA features, Sparse Attention and paste round-trips (step 6)")
+    parser.add_argument("--report", type=Path, help="also write the result as JSON here (evidence of a Gradio-free start and generation)")
     options = parser.parse_args()
 
     for path in baseline_files(options.baseline):
@@ -523,16 +547,18 @@ def main() -> int:
         write_test_loras(ROOT / "models" / "Stable-diffusion" / MODEL, lora_dir)
         extra_args = ["--lora-dir", str(lora_dir)]
     server = Server(options.python, options.port, data_dir, options.out / "server.log", extra_args)
+    started_ok = False
     try:
-        if not report.check("server starts", server.wait_ready(options.startup_timeout), f"{time.monotonic() - started:.1f} s"):
+        started_ok = report.check("server starts", server.wait_ready(options.startup_timeout), f"{time.monotonic() - started:.1f} s")
+        if not started_ok:
             print(Path(options.out / "server.log").read_text(errors="replace")[-4000:], file=sys.stderr)
-            return 2
-        try:
-            values = run(server, options.baseline, options.out, report)
-            if options.features:
-                run_features(server, options.out, report, values)
-        except Exception as error:  # a failed request ends the run but still stops the server
-            report.check("smoke run", False, f"{type(error).__name__}: {error}"[:2000])
+        else:
+            try:
+                values = run(server, options.baseline, options.out, report)
+                if options.features:
+                    run_features(server, options.out, report, values)
+            except Exception as error:  # a failed request ends the run but still stops the server
+                report.check("smoke run", False, f"{type(error).__name__}: {error}"[:2000])
     finally:
         print("Stopping the server", flush=True)
         server.stop()
@@ -544,6 +570,12 @@ def main() -> int:
     for name, ok, detail in report.rows:
         print(f"{name:<40} {'pass' if ok else 'FAIL':<7} {detail}")
     print(f"\nImages: {options.out}")
+    if options.report is not None:
+        options.report.parent.mkdir(parents=True, exist_ok=True)
+        options.report.write_text(json.dumps(report.document(options.python, found, options.features), indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"Report: {options.report}")
+    if not started_ok:
+        return 2
     return 1 if report.failed else 0
 
 

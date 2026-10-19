@@ -4,12 +4,18 @@
  * editor lists its own with "?" while it is in use.
  */
 import { useTranslation } from "react-i18next"
+import { useClientOption } from "@/api/app-options"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { formatShortcut, isMac } from "./commands"
 import { useShortcutsHelp } from "./shortcuts-help"
 
-type Entry = { label: string; keys: string[] }
+type Entry = {
+  label: string
+  keys: string[]
+  /** The label while the setting `ctrl_enter_interrupt` is on. */
+  interruptOnlyLabel?: string
+}
 
 /** English labels and keys (`Mod` is ⌘ on macOS, Ctrl elsewhere); one key per Kbd, alternatives as separate entries. */
 const SHORTCUT_GROUPS: { group: string; entries: Entry[] }[] = [
@@ -24,7 +30,12 @@ const SHORTCUT_GROUPS: { group: string; entries: Entry[] }[] = [
   {
     group: "Generate",
     entries: [
-      { label: "Generate (while running: queue another)", keys: ["Mod+Enter"] },
+      // features/progress/run-machine.ts: while this form's job runs, the shortcut interrupts it and generates again
+      {
+        label: "Generate (while running: interrupt and generate again)",
+        interruptOnlyLabel: "Generate (while running: interrupt)",
+        keys: ["Mod+Enter"],
+      },
       { label: "Add to queue", keys: ["Mod+Shift+Enter"] },
       { label: "Skip the current image", keys: ["Alt+Enter"] },
       { label: "Interrupt", keys: ["Esc"] },
@@ -83,6 +94,7 @@ export default function ShortcutsDialog() {
   const { t } = useTranslation()
   const open = useShortcutsHelp((s) => s.open)
   const setOpen = useShortcutsHelp((s) => s.setOpen)
+  const interruptOnly = useClientOption("ctrl_enter_interrupt")
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-h-[min(40rem,calc(100dvh-2rem))] overflow-y-auto sm:max-w-3xl">
@@ -97,7 +109,7 @@ export default function ShortcutsDialog() {
               <dl className="flex flex-col gap-1">
                 {entries.map((entry) => (
                   <div key={entry.label} className="flex items-center justify-between gap-3">
-                    <dt>{t(entry.label)}</dt>
+                    <dt>{t(interruptOnly && entry.interruptOnlyLabel ? entry.interruptOnlyLabel : entry.label)}</dt>
                     <dd className="shrink-0">
                       <KbdGroup>
                         {entry.keys.map((key) => (

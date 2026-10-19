@@ -111,5 +111,8 @@
  "[ADetailer] ADetailer Sampler": "[ADetailer] ADetailer 采样器",
  "[ADetailer] ADetailer Scheduler": "[ADetailer] ADetailer 调度器",
  "[ADetailer] Noise Multiplier": "[ADetailer] 噪声倍率",
- "[ADetailer] ControlNet Model": "[ADetailer] ControlNet 模型"
+ "[ADetailer] ControlNet Model": "[ADetailer] ControlNet 模型",
+ "Use the original generation resolution": "使用原始生成分辨率",
+ "Use the bounding box aspect ratio at 1 MP": "使用 bbox 的宽高比，总像素 1 MP",
+ "Use the bounding box aspect ratio at the original resolution": "使用 bbox 的宽高比，保持原始分辨率的像素量"
 }

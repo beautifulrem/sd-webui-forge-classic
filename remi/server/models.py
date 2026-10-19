@@ -17,7 +17,8 @@ T = TypeVar("T")
 
 
 class Model(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+    # No NaN / Infinity in or out (api.md): ``1e999`` in a body is a 422
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
 
 
 class Page(Model, Generic[T]):

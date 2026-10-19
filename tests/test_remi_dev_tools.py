@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -141,6 +143,34 @@ def test_recorder_refuses_without_gradio_or_legacy_tree(tmp_path, monkeypatch):
     (tmp_path / "modules").mkdir()
     (tmp_path / "modules" / "ui_components.py").write_text("")
     recorder.require_legacy_tree(tmp_path)
+
+
+def test_recorder_builds_the_ui_with_the_legacy_trees_gradio(monkeypatch):
+    """legacy_snapshot runs the ui() through the legacy tree's build_ui and remi.ui.legacy (this file has no Gradio import)."""
+
+    calls = []
+    controls = [object(), object()]
+
+    def build_ui(script, tab):
+        calls.append((tab, script.is_img2img, script.is_txt2img, script.infotext_fields))
+        return controls
+
+    presets = types.ModuleType("modules.anima_presets")
+    presets.preset_controls = lambda tab: (("Steps",), (controls[1],), (20,))
+    legacy = types.ModuleType("remi.ui.legacy")
+    legacy.legacy_layout = lambda owner, given, infotext: ("layout", owner, tuple(given))
+    monkeypatch.setitem(sys.modules, "modules.anima_presets", presets)
+    monkeypatch.setitem(sys.modules, "remi.ui.legacy", legacy)
+
+    def describe(layout):
+        assert layout == ("layout", "legacy", tuple(controls))
+        return [{"name": "a"}, {"name": "b"}]
+
+    entries = recorder.legacy_snapshot(types.SimpleNamespace(), "img2img", describe, build_ui)
+    assert calls == [("img2img", True, False, [])]
+    assert entries == [{"name": "a", "preset": None}, {"name": "b", "preset": "Steps"}]
+    source = (REPO / "tools" / "record_legacy_ui.py").read_text(encoding="utf-8")
+    assert "import gradio" not in source and "from gradio" not in source
 
 
 def test_recorder_uses_the_harness_snapshot_format():

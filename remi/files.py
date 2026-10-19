@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import dataclasses
 import hashlib
+import logging
 import os
 import re
 import secrets
@@ -25,6 +26,8 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image, PngImagePlugin
+
+log = logging.getLogger(__name__)
 
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 THUMB_WIDTHS = (64, 128, 192, 256, 320, 384, 512, 768, 1024)
@@ -567,7 +570,10 @@ def _image_size(path: str | os.PathLike, *, max_pixels: int | None = None) -> tu
     except Image.DecompressionBombError as error:
         raise FileError("the image is too large", 413) from error
     except Exception as error:
-        raise FileError(f"not a readable image: {error}", 415) from error
+        # Pillow's message names the file (a path in the data folder): logged,
+        # never sent to the client
+        log.debug("not a readable image: %s", error)
+        raise FileError("not a readable image", 415) from error
 
 
 def _walk_images(directories: Iterable[str | os.PathLike]) -> Iterator[str]:

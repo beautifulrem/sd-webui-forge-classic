@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from lib_adetailer import (
     PredictOutput,
     __version__,
+    download_model,
     get_models,
     mediapipe_predict,
     ultralytics_predict,
@@ -87,12 +88,15 @@ adetailer_dir = Path(paths.models_path, "adetailer")
 os.makedirs(adetailer_dir, exist_ok=True)
 
 
-def scan_models(download: bool = True) -> dict[str, str]:
+def scan_models(download: bool = False) -> dict[str, str]:
+    """Detector models by name (the stock ones listed before their download,
+    which happens when a unit first runs with one: never at startup)."""
+
     extra_models_dirs: str = opts.data.get("ad_extra_models_dir", "")
     return get_models(adetailer_dir, *extra_models_dirs.split("|"), download=download)
 
 
-model_mapping = scan_models()
+model_mapping = scan_models(download=False)
 """Detector models by name; replaced (never emptied) by the Refresh button."""
 
 print(f"Initialized - Version: {__version__} ; {len(model_mapping)} Models")
@@ -569,11 +573,13 @@ class AfterDetailerScript(scripts.Script):
         )
 
     def get_ad_model(self, name: str):
+        """The detector's file; a stock model is downloaded on its first use."""
+
         mapping = model_mapping  # one snapshot across a concurrent Refresh
         if name not in mapping:
             msg = f"[ADetailer]: Model {name!r} not found... Available models: {list(mapping.keys())}"
             raise ValueError(msg)
-        return mapping[name]
+        return download_model(name, mapping[name])
 
     def sort_bboxes(self, pred: PredictOutput) -> PredictOutput:
         sortby = opts.data.get("ad_bbox_sortby", BBOX_SORTBY[0])
@@ -990,14 +996,12 @@ def on_ui_settings():
             **args,
         )
         .info('only affects when "Use separate Width/Height" is off')
-        .html(
-            """
-<ul style="margin-left: 1.5em">
-    <li><b>Off</b>: Use the original generation resolution</li>
-    <li><b>Strict</b>: Use the bounding box aspect ratio at 1 MP</li>
-    <li><b>Free</b>: Use the bounding box aspect ratio at the original resolution</li>
-</ul>
-                """
+        .choice_info(
+            {
+                InpaintBBoxMatchMode.OFF.value: "Use the original generation resolution",
+                InpaintBBoxMatchMode.STRICT.value: "Use the bounding box aspect ratio at 1 MP",
+                InpaintBBoxMatchMode.FREE.value: "Use the bounding box aspect ratio at the original resolution",
+            }
         ),
     )
 

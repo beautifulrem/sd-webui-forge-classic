@@ -858,5 +858,8 @@
   "Multiply the txt2img dimension by this ratio, to serve as the target dimension": "把文生图尺寸乘以该倍率作为目标尺寸",
   "Resize image to this width; use \"Upscale by\" if 0": "把图像缩放到此宽度；为 0 时使用“放大倍率”",
   "Resize image to this height; use \"Upscale by\" if 0": "把图像缩放到此高度；为 0 时使用“放大倍率”",
-  "RescaleCFG": "CFG 重缩放"
+  "RescaleCFG": "CFG 重缩放",
+  "legacy preview method": "旧版预览方式",
+  "fast but low quality preview method": "快速但质量较低的预览方式",
+  "high quality preview method": "高质量预览方式"
 }

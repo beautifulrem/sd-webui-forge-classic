@@ -90,7 +90,10 @@ class Services:
     def close(self) -> None:
         """Stop everything and close the databases."""
 
+        from remi.library import close_gallery
+
         self.stop()
+        close_gallery(self.files)
         self.files.close()
         self.store.close()
 

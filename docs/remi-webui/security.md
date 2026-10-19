@@ -4,8 +4,10 @@ How the Remi WebUI protects itself and its user: the threat model, the
 controls and where they live, how to run the server where others can reach
 it, and what remains out of scope. The controls are tested in
 `tests/test_remi_security.py`, `tests/test_remi_server_auth.py`,
-`tests/test_extension_route_guard.py`, `tests/test_remi_server_files.py`
-and `webui/src/ui/{rich-text,image-ref}.test.*`.
+`tests/test_extension_route_guard.py`, `tests/test_remi_server_files.py`,
+`tests/test_remi_server_runtime.py` (startup makes no outbound
+connection), the ADetailer suite (detector downloads) and
+`webui/src/ui/{rich-text,image-ref}.test.*`.
 
 Contents: [Threat model](#threat-model) · [Controls](#controls) ·
 [Running exposed](#running-exposed) · [Residual risks](#residual-risks) ·
@@ -43,7 +45,9 @@ attackers who already have a login (they are administrators by design).
   and WebSocket), `/internal`, files and thumbnails, the SPA shell and the API
   docs (`/docs`, `/docs/*`, `/redoc`, `/openapi.json`) needs the session
   cookie or HTTP Basic credentials. Public: `/api/v2/auth/*`,
-  `/internal/ping`, `/favicon.svg`, `/assets/*` (the login page's assets).
+  `/internal/ping`, `/favicon.svg`, `/assets/*` (the login page's assets:
+  only existing build files; anything else there is a 404, never the SPA
+  shell).
 - Session cookie `remi_session`: `user.expiry.HMAC` signed with a
   per-installation secret (`secret.key`, mode 0600) and the user's password;
   30 days; `HttpOnly`, `SameSite=Lax`, `Secure` with `--tls-*` or an HTTPS
@@ -117,6 +121,12 @@ attackers who already have a login (they are administrators by design).
   X/Y/Z plot lifts). Stored as `uploads/<sha256><ext>`; the display name is
   cleaned (last path component, no control characters, ≤ 200 characters).
 - `/sdapi` images (base64 or URL) get the same pixel cap before decoding.
+- Upload errors are fixed messages ("not a readable image"): Pillow's own
+  message names the incoming file in the data folder, so it is only logged.
+- Every other request body (JSON jobs, `/sdapi` base64 images, extension
+  routes) is capped at twice `remi_upload_max_mb` (at least 16 MB),
+  enforced while it streams in, chunked bodies included
+  (`remi/server/limits.py`): 413 past it, without buffering more.
 - Unsafe deserialization: uploads can only be images, video, text or
   safetensors (a JSON header); nothing reachable from an upload or URL calls
   `pickle`/`torch.load`. Model files are only loaded from the model folders.
@@ -163,8 +173,9 @@ Nothing contacts the network unless the user configured or asked for it:
 | extension index (`raw.githubusercontent.com` or `WEBUI_EXTENSIONS_INDEX`) | opening Extensions → Available; another index URL typed there must be a public address (each redirect hop checked) |
 | `git fetch` / `clone` | checking for updates, installing, updating |
 | prompt translation | only with a network provider and its URL/key set (`prompt_tools_translation_*`); the key is write-only through the API |
+| prompt writing ("Write a prompt", `POST /api/v2/prompt-tools/generate`) | only when the user sends a description and the translation provider is the OpenAI-compatible one with its URL and model set; the description (and the current prompt, when changing it) goes to that provider's `/chat/completions` with the same write-only key |
 | booru grabber (Prompt Workshop) | on a grab; https only, the booru's own image hosts, public addresses checked per redirect hop, 64 MB cap |
-| model downloads (upscalers, face restorers, preprocessors, ADetailer, TAESD) | the first time the user runs a feature whose model is missing; fixed upstream URLs |
+| model downloads (upscalers, face restorers, preprocessors, ADetailer, TAESD) | the first time the user runs a feature whose model is missing; fixed upstream URLs. ADetailer lists its 10 stock detectors from the start and downloads one when a unit first runs with it (never at startup or on Refresh; `--ad-no-huggingface`: never). A test starts the whole WebUI with an empty data folder and fails on any connection to a non-local host |
 | `/sdapi` image URLs | an API request names one; off with `api_enable_requests`; with `api_forbid_local_requests` (default) every address of every redirect hop must be public; 64 MB cap. Both settings are `restrict_api`: `/sdapi/v1/options` cannot change them |
 | license texts | opening an entry in Settings → Licenses (fetched by the browser from `raw.githubusercontent.com`, the only outside host the CSP lets the page connect to, without cookies or referrer) |
 | remote images | only from hosts listed in "Remote image hosts" (`remi_image_hosts`, empty by default) |
@@ -190,6 +201,13 @@ no request or response body (a `ResponseValidationError` carries the whole
 response), no paths. The exception and traceback are logged with the same
 id. Exceptions that carry a 4xx `status_code` keep their `detail`, which is
 meant for the client.
+
+A request that fails its model is a 422, logged at debug level without a
+traceback, so no client (the public login form included) can flood the log.
+That holds for bodies with `1e999` or `NaN` too: the error responses encode
+non-finite numbers as text, and `/api/v2` models refuse them as values.
+`POST /sdapi/v1/options` with a setting that does not exist is a 422 that
+sets nothing (it was a `KeyError`, a 500).
 
 ### Secrets in logs
 
@@ -249,9 +267,9 @@ To let other machines in:
 - **DNS answers that change between the address check and the connection**
   are not caught for `/sdapi` image URLs; turn `api_enable_requests` off on
   servers that must not reach their network.
-- **Request bodies** other than uploads are not size-capped (JSON jobs,
-  `/sdapi` base64 images); anyone allowed to call the API can make the server
-  allocate memory.
+- **Request bodies** are buffered up to their cap (twice
+  `remi_upload_max_mb`): each concurrent request of a client allowed to call
+  the API can hold that much memory while it is parsed.
 - **Model downloads** come from fixed upstream URLs and trust those hosts and
   TLS; downloaded `.pth`/`.pt` files are loaded by their libraries
   (`torch.load` defaults to `weights_only=True` in the bundled PyTorch).
@@ -283,6 +301,11 @@ server with `--auth`, or a local server visited by a hostile page).
 | 16 | The error handler returned the exception text and its `body` (`GET /sdapi/v1/cmd-flags` echoed the whole flag set, with paths, in a `ResponseValidationError` because `--port` is an int with a `None` default) | medium | generic 500 with a correlation id, details only in the log; `FlagsModel` types from the parser's `type=`; the unused A1111 `api_middleware` (same leak, one call away from being re-enabled) removed |
 | 17 | CSP allowed `connect-src https: ws: wss:` and `img-src *`: an XSS could exfiltrate to any host, markup could load tracking pixels | medium | `connect-src 'self'` + the license host; `img-src 'self' data: blob:` + an opt-in host list |
 | 18 | `GET /api/v2/extensions/index?url=` fetched any client-named URL, including loopback and private addresses (port/service probe through the error text) | low | client-named index URLs and their redirects must be public addresses |
+| 19 | ADetailer downloaded its 10 detector models (about 240 MB from Hugging Face, GitHub and Google Storage) at startup, with no user action | medium | listed at startup, downloaded when a unit first runs with one; the startup test runs without `--ad-no-huggingface` |
+| 20 | JSON bodies (jobs, `/sdapi` base64 images) had no size cap | medium | twice the upload limit, enforced while streaming (`remi/server/limits.py`) |
+| 21 | `{"username": 1e999}` to the public login (and any body route) answered 500 with a logged traceback per request: the validation error could not be encoded | low | 422 through a non-finite-safe handler, debug log; `/api/v2` models refuse non-finite numbers |
+| 22 | `/assets/` and `/assets/<missing>` served the SPA shell without a login | low | 404 for anything under `/assets` that is not a build file |
+| 23 | An unreadable upload's 415 named the incoming file's path in the data folder (also the network preview, PNG Info and reveal errors could carry OS error text) | low | fixed messages; the details are logged |
 
 Checked and found sound: session signing and revocation, cookie flags,
 login timing, Origin/rebinding checks for writes and WebSockets, file serving

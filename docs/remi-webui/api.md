@@ -32,7 +32,9 @@ Contents: [Conventions](#conventions) · [Authentication](#authentication) ·
   `--server-name`). With `--subpath /sd` every path below is prefixed:
   `/sd/api/v2/app`. With `--nowebui` the default port is 7861.
 - **JSON** everywhere except uploads (multipart) and files. No `NaN` or
-  `Infinity` is accepted or produced.
+  `Infinity` is accepted or produced. A body may be at most twice the
+  upload limit `remi_upload_max_mb` (at least 16 MB; 413 above it, also on
+  `/sdapi`).
 - **Errors.** A rejected parameter value answers **422** with every problem
   at once:
 
@@ -231,9 +233,22 @@ for the detailed semantics of each route and `/docs` for the bodies.
 | models | `GET /models`, `POST /models/refresh\|unload\|reload`, `GET /models/loaded`, `GET/POST /models/hashes` |
 | networks (LoRA, embeddings, checkpoints, VAE, text encoders, extension pages) | `GET /networks`, `GET /networks/{kind}`, `GET /networks/{kind}/facets`, `GET/PATCH /networks/{kind}/{name}/meta`, `PUT /networks/{kind}/{name}/preview`, `POST /networks/{kind}/{name}/open-folder`, `POST /networks[/{kind}]/refresh` |
 | settings and styles | `GET/PATCH /options`, `POST /options/validate`, `GET /styles`, `PUT/DELETE /styles/{name}`, `POST /styles/apply`, `POST /prompt/tokens` |
-| prompt tools | `/prompt-tools/config`, `/complete`, `/usage`, `/lookup`, `/translate`, `/translation-key`, `/groups`, `/refresh`, `/history`, `/collections`, `/favorites`, `/favorites-export`, `/favorites-import` |
+| prompt tools | `/prompt-tools/config`, `/complete`, `/usage`, `/lookup`, `/translate`, `/generate`, `/translation-key`, `/groups`, `/refresh`, `/history`, `/collections`, `/favorites`, `/favorites-export`, `/favorites-import` |
 | extensions | `GET/PATCH /extensions`, `POST /extensions/check-updates`, `POST /extensions/{name}/check`, `POST /extensions/update\|install`, `DELETE /extensions/{name}`, `GET /extensions/index`, `/extensions/config-states[/{id}[/restore]]` |
 | server | `GET /auth/status`, `POST /auth/login\|logout`, `GET /server/status`, `POST /server/reload\|restart`, `GET /sysinfo`, `POST /sysinfo/check`, `GET /licenses`, `GET /user-assets/{name}` |
+
+`POST /prompt-tools/translate` (`{"texts", "target"}`) and `POST
+/prompt-tools/generate` (`{"description", "prompt"?, "negative"?}` →
+`{"prompt"}`: an LLM writes a prompt from a description, or changes
+`prompt` as described) call the translation provider configured in the
+settings (`prompt_tools_translation_*`); `/generate` needs the
+OpenAI-compatible provider with its URL and model and sends the description
+to its `/chat/completions` (system message: `prompt_tools_generate_instructions`
+or the built-in one). Both answer 409 when the prompt tools or the provider
+are not set up, 413 when the input is too long (`/translate`: over 200
+texts or 20,000 characters; `/generate`: description and prompt over 4,000
+characters) and 502 when the provider fails or answers something unusable;
+`/generate` answers 422 for an empty description.
 
 `/internal/ping` answers `{"instance"}` (an id that changes with every
 reload or restart), `/internal/progress` and `/internal/pending-tasks` keep

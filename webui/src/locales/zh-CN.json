@@ -1240,7 +1240,8 @@
   "Uses": "使用次数",
   "Everywhere": "全局",
   "Help": "帮助",
-  "Generate (while running: queue another)": "生成（运行中时：再排一个）",
+  "Generate (while running: interrupt and generate again)": "生成（运行中时：中断并重新生成）",
+  "Generate (while running: interrupt)": "生成（运行中时：仅中断）",
   "Skip the current image": "跳过当前图像",
   "Networks panel": "模型网络面板",
   "Results: select, open, remove": "结果：选择、打开、移除",
@@ -1291,5 +1292,6 @@
   "Increase": "增加",
   "Decrease": "减少",
   "Resize the parameters panel": "调整参数面板宽度",
-  "Resize the history panel": "调整历史面板宽度"
+  "Resize the history panel": "调整历史面板宽度",
+  "Default order": "默认顺序"
 }

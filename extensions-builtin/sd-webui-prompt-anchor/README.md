@@ -1,11 +1,10 @@
 # sd-webui-prompt-anchor
 
-Adds an **anchor prompt** editor right below the main prompts on the
+Adds an **anchor prompt** editor right above the main prompt on the
 **txt2img** and **img2img** forms. Whatever you put in the anchor gets
 prepended to your positive prompt at generation time -- *without* ever
-being written into the main prompt textarea.
-
-![diagram](docs/diagram.png) <!-- placeholder; not required -->
+being written into the main prompt textarea (the [Layout](#layout)
+section shows where it sits).
 
 ## Why
 
@@ -74,8 +73,9 @@ No additional Python packages required.
 
 ## Layout
 
-The panel sits in the prompt slot of the generation form, right below the
-prompts (its script `section` is `prompt`):
+The panel sits directly above the main positive prompt (its script
+`slot` is `prompt_before`; its `section`, `prompt`, keeps its arguments in
+the prompt category):
 
 ```
 +-------------------------------------------------+
@@ -83,6 +83,11 @@ prompts (its script `section` is `prompt`):
 +-------------------------------------------------+
 |  score_9, score_8_up, masterpiece, ...          |
 |  > Advanced (separator)                         |
++-------------------------------------------------+
+| Prompt                                          |
+|  1girl, smile, ...                              |
++-------------------------------------------------+
+| Negative Prompt                                 |
 +-------------------------------------------------+
 ```
 

@@ -664,7 +664,8 @@ def test_pose_rendering(cn, files):
     patch = call(script, "render_pose", {}, files, unit=2, pose=json.dumps(pose))
     out = patch["__outputs__"]["pose"]
     assert out["unit"] == 2 and out["pose"] == pose
-    assert Image.open(files.get(out["image"]).path).size == (64, 32)
+    with Image.open(files.get(out["image"]).path) as rendered:
+        assert rendered.size == (64, 32)
     assert call(script, "render_pose", {}, files, unit=0, pose="{")["__toast__"]["level"] == "error"
     assert call(script, "render_pose", {}, files, unit=0, pose={"people": []})["__toast__"]["level"] == "error"
 

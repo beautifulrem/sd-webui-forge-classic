@@ -1,5 +1,6 @@
 /**
- * Prompt, negative prompt and styles of the form, with "paste parameters"
+ * Prompt, negative prompt and styles of the form (below the scripts of the
+ * `prompt_before` slot, e.g. Prompt Anchor), with "paste parameters"
  * (from the prompt text, or the last generation when it is empty; off while
  * the negative prompt has text with `paste_safe_guard`), "clear"
  * (confirmed) and image drops that read the image's parameters.
@@ -23,7 +24,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { PromptField } from "@/features/prompt-editor/PromptField"
 import { StylesField } from "@/features/prompt-editor/styles/StylesField"
 import { findByInfotext } from "@/features/send-to/result-actions"
+import { PROMPT_BEFORE_SLOT } from "@/ui/form-index"
 import { useForm, useFormState } from "@/ui/hooks"
+import { Slot } from "@/ui/layout/Slot"
 import type { MultiChoiceNode, TextNode } from "@/ui/schema"
 import { usePasteParameters } from "./paste-parameters"
 
@@ -54,6 +57,7 @@ export function PromptsPanel({ prompt, negative, styles }: { prompt: TextNode | 
 
   return (
     <section aria-label={t("Prompts")} className="flex flex-col gap-3">
+      <Slot section={PROMPT_BEFORE_SLOT} />
       {prompt ? (
         <PromptField
           node={prompt}

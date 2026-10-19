@@ -1,4 +1,3 @@
-import html
 import sys
 
 from modules import script_callbacks, scripts
@@ -143,7 +142,7 @@ def callbacks_order_settings():
 
         option_info = OptionInfo([], f"{category} callback priority", ui.MultiChoice, {"choices": [x.name for x in callbacks]})
         option_info.needs_restart()
-        option_info.html("<div class='info'>Default order: <ol>" + "".join(f"<li>{html.escape(x.name)}</li>\n" for x in callbacks) + "</ol></div>")
+        option_info.default_order = [x.name for x in callbacks]
         options["prioritized_callbacks_" + category] = option_info
 
     return options

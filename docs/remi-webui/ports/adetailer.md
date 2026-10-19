@@ -29,6 +29,26 @@ The tests use fake detector names, so they pass with an empty `models/adetailer`
 - "Refresh models" rescans without downloading and swaps the detector mapping
   in one step (a running job never sees a partial list).
 
+## Detector downloads
+
+- Upstream downloads the 10 stock detectors (huggingface.co, github.com,
+  storage.googleapis.com) while the script loads, so a fresh data folder
+  held startup on the network. Here loading only scans
+  (`lib_adetailer/detection/common.py` `get_models`, `download=False`): the
+  stock detectors not in `models/adetailer` yet are listed anyway, and
+  `download_model` fetches one the first time a unit runs with it
+  (`AfterDetailerScript.get_ad_model`). Refresh rescans without downloading.
+- `--ad-no-huggingface` (`preload.py`) turns these downloads off: only the
+  files already in the model folders are listed, and a unit naming a missing
+  stock detector fails with a message naming the flag.
+- Tests: `test_scanning_never_downloads_and_lists_the_stock_models`,
+  `test_a_stock_detector_is_downloaded_when_a_unit_first_uses_it`,
+  `test_without_downloads_only_the_files_are_listed`,
+  `test_loading_the_script_makes_no_download`
+  (`extensions-builtin/ADetailer-Neo/tests/test_adetailer_params.py`) and the
+  offline startup in `tests/test_remi_server_runtime.py` (no flag, any
+  non-local connection fails it).
+
 ## Open core issue
 
 - Reusing a queued `/sdapi` job whose ADetailer args are dicts puts the dicts

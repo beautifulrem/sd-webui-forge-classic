@@ -1,5 +1,5 @@
 import os
-from concurrent.futures import Future, ThreadPoolExecutor
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final, Optional, TypeVar
@@ -13,7 +13,34 @@ from ..utils import NUM, print
 
 URL = TypeVar("URL", bound=str)
 
-no_huggingface: bool = getattr(cmd_opts, "ad_no_huggingface", False)
+DOWNLOADS: Final[dict[str, URL]] = {
+    # https://huggingface.co/Bingsu/adetailer
+    "face_yolov8n.pt": "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8n.pt?download=true",
+    "face_yolov8s.pt": "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8s.pt?download=true",
+    "hand_yolov8n.pt": "https://huggingface.co/Bingsu/adetailer/resolve/main/hand_yolov8n.pt?download=true",
+    "hand_yolov8s.pt": "https://huggingface.co/Bingsu/adetailer/resolve/main/hand_yolov8s.pt?download=true",
+    "person_yolov8n-seg.pt": "https://huggingface.co/Bingsu/adetailer/resolve/main/person_yolov8n-seg.pt?download=true",
+    "person_yolov8s-seg.pt": "https://huggingface.co/Bingsu/adetailer/resolve/main/person_yolov8s-seg.pt?download=true",
+    # https://github.com/ultralytics/assets
+    "yolov8x-worldv2.pt": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8x-worldv2.pt",
+    # https://ai.google.dev/edge/mediapipe/solutions/vision/face_detector#models
+    "mediapipe_face_short.tflite": "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite",
+    "mediapipe_face_full.tflite": "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_full_range/float16/latest/blaze_face_full_range.tflite",
+    # https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker#models
+    "face_landmarker.task": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
+}
+"""The stock detectors: listed before they are downloaded, and each one is
+downloaded into ``models/adetailer`` the first time a unit runs with it
+(never at startup or on Refresh: no network without a user action)."""
+
+_download_lock = threading.Lock()
+
+
+def downloads_allowed() -> bool:
+    """``--ad-no-huggingface`` turns the stock detector downloads off (read
+    when asked, so a flag set after import counts)."""
+
+    return not getattr(cmd_opts, "ad_no_huggingface", False)
 
 
 @dataclass
@@ -32,59 +59,44 @@ def _scan_models(path: Path) -> list[Path]:
     ]
 
 
-def _download_model(url: URL, filename: os.PathLike):
-    if not os.path.isfile(filename):
-        download_url_to_file(url=url, dst=filename, progress=False)
+def download_model(name: str, path: os.PathLike) -> str:
+    """``path`` of the detector ``name``, downloading a missing stock model
+    first (a unit is about to run with it; one download at a time, written
+    to a temporary file and moved into place by ``download_url_to_file``)."""
+
+    path = os.fspath(path)
+    if os.path.isfile(path):
+        return path
+    url = DOWNLOADS.get(name)
+    if url is None or not downloads_allowed():
+        hint = " (downloads are off: --ad-no-huggingface)" if url is not None else ""
+        raise FileNotFoundError(f'[ADetailer]: Model "{name}" is not in the models folder{hint}')
+    with _download_lock:
+        if not os.path.isfile(path):
+            print(f'Downloading "{name}"...')
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            download_url_to_file(url=url, dst=path, progress=False)
+    return path
 
 
-def _download(folder: os.PathLike, names: dict[str, URL]):
+def get_models(ad_dir: str, *extra_dirs: str, download: bool = False) -> dict[str, os.PathLike]:
+    """Detector models by file name: the files in the folders, then (unless
+    ``--ad-no-huggingface``) the stock models not downloaded yet, mapped to
+    where :func:`download_model` puts them. Only scans: ``download=True``
+    fetches every missing stock model now (an explicit request)."""
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures: list[Future] = [
-            executor.submit(
-                _download_model,
-                url=url,
-                filename=os.path.join(folder, file),
-            )
-            for file, url in names.items()
-        ]
-
-    for file, future in zip(names.keys(), futures):
-        try:
-            future.result()
-        except Exception:
-            print(f'Failed to download "{file}"')
-
-
-def get_models(ad_dir: str, *extra_dirs: str, download: bool = True) -> dict[str, os.PathLike]:
-    """Detector models by file name; ``download=False`` only scans (refresh)."""
-
-    TO_DOWNLOAD: Final[dict[str, URL]] = {
-        # https://huggingface.co/Bingsu/adetailer
-        "face_yolov8n.pt": "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8n.pt?download=true",
-        "face_yolov8s.pt": "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8s.pt?download=true",
-        "hand_yolov8n.pt": "https://huggingface.co/Bingsu/adetailer/resolve/main/hand_yolov8n.pt?download=true",
-        "hand_yolov8s.pt": "https://huggingface.co/Bingsu/adetailer/resolve/main/hand_yolov8s.pt?download=true",
-        "person_yolov8n-seg.pt": "https://huggingface.co/Bingsu/adetailer/resolve/main/person_yolov8n-seg.pt?download=true",
-        "person_yolov8s-seg.pt": "https://huggingface.co/Bingsu/adetailer/resolve/main/person_yolov8s-seg.pt?download=true",
-        # https://github.com/ultralytics/assets
-        "yolov8x-worldv2.pt": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8x-worldv2.pt",
-        # https://ai.google.dev/edge/mediapipe/solutions/vision/face_detector#models
-        "mediapipe_face_short.tflite": "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite",
-        "mediapipe_face_full.tflite": "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_full_range/float16/latest/blaze_face_full_range.tflite",
-        # https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker#models
-        "face_landmarker.task": "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
-    }
-
-    if download and not no_huggingface:
-        print("Loading Models...")
-        _download(ad_dir, TO_DOWNLOAD)
+    if download and downloads_allowed():
+        for name in DOWNLOADS:
+            try:
+                download_model(name, os.path.join(ad_dir, name))
+            except Exception:
+                print(f'Failed to download "{name}"')
 
     models: dict[str, os.PathLike] = {}
     model_paths: list[Path] = []
 
     for _dir in (ad_dir, *extra_dirs):
-        if not os.path.isdir(_dir):
+        if not _dir or not os.path.isdir(_dir):
             continue
         model_paths.extend(_scan_models(Path(_dir)))
 
@@ -92,6 +104,10 @@ def get_models(ad_dir: str, *extra_dirs: str, download: bool = True) -> dict[str
         if path.name in models:
             continue
         models[path.name] = str(path)
+
+    if downloads_allowed():
+        for name in DOWNLOADS:
+            models.setdefault(name, os.path.join(ad_dir, name))
 
     return models
 

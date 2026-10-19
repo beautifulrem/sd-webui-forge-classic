@@ -32,7 +32,7 @@ export class MockHttpError extends Error {
 const jobs: Job[] = []
 let seq = 0
 let uploadSeq = 0
-let running: { id: string; cancel: () => void } | null = null
+let running: { id: string; cancel: () => void; skip: () => void } | null = null
 const queue: { job: Job; request: JobRequest }[] = []
 const requests = new Map<string, JobRequest>()
 
@@ -304,25 +304,36 @@ export function queueStatus() {
 
 async function runJob(job: Job, request: JobRequest) {
   let cancelled = false
-  running = { id: job.id, cancel: () => (cancelled = true) }
+  let skipped = false
+  running = { id: job.id, cancel: () => (cancelled = true), skip: () => (skipped = true) }
   job.status = "running"
   job.started_at = new Date().toISOString()
   const steps = request.tab === "extras" ? 5 : Math.min(Number(request.scripts.sampler?.steps ?? 20), 60)
   const count = Math.max(1, Number(request.core.batch_size ?? 1))
+  // Batch count: batches made one after another (`p.n_iter`), each of `count` images.
+  const batches = request.tab === "extras" ? 1 : Math.max(1, Math.min(100, Number(request.core.batch_count ?? 1)))
   const hue = Math.floor(Math.random() * 360)
-  broadcast({ type: "job.started", job_id: job.id, seq: job.seq, steps, job_count: 1 })
+  broadcast({ type: "job.started", job_id: job.id, seq: job.seq, steps, job_count: batches })
   broadcast({ type: "queue.changed", ...queueStatus() })
 
+  let made = 0
   // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- the interrupt handler sets `cancelled` while this awaits
-  for (let step = 1; step <= steps && !cancelled; step++) {
-    await delay(90)
-    const eta = ((steps - step) * 90) / 1000
-    job.progress = { step, steps, eta, job_no: 0, job_count: 1 }
-    broadcast({ type: "job.progress", job_id: job.id, seq: job.seq, step, steps, eta, job_no: 0, job_count: 1 })
-    if (step % 3 === 0 || step === steps) {
-      const frame = await previewFrame(job.seq ?? 0, step, steps, hue)
-      if (frame) broadcastBinary(frame)
+  for (let batch = 0; batch < batches && !cancelled; batch++) {
+    // Like the WebUI's processing loop: Skip ends the current batch's sampling; the job goes on with the next one.
+    skipped = false
+    // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- the skip and interrupt handlers set the flags while this awaits
+    for (let step = 1; step <= steps && !cancelled && !skipped; step++) {
+      await delay(90)
+      const eta = ((steps - step) * 90 + (batches - batch - 1) * steps * 90) / 1000
+      job.progress = { step, steps, eta, job_no: batch, job_count: batches }
+      broadcast({ type: "job.progress", job_id: job.id, seq: job.seq, step, steps, eta, job_no: batch, job_count: batches })
+      if (step % 3 === 0 || step === steps) {
+        const frame = await previewFrame(job.seq ?? 0, step, steps, hue)
+        if (frame) broadcastBinary(frame)
+      }
     }
+    // A skipped batch still yields its (partly denoised) images, as the WebUI returns them.
+    if (!cancelled) made++
   }
 
   running = null
@@ -334,14 +345,15 @@ async function runJob(job: Job, request: JobRequest) {
   } else {
     const seedValue = Number(request.scripts.seed?.seed ?? -1)
     const seed = seedValue === -1 ? Math.floor(Math.random() * 2 ** 32) : seedValue
-    const outputs: JobOutput[] = Array.from({ length: count }, (_, i) => ({
+    // In batch order; each image has its own seed (seed + index, as the WebUI's `all_seeds`).
+    const outputs: JobOutput[] = Array.from({ length: made * count }, (_, i) => ({
       id: `mock-${job.seq}-${i}-${(hue + i * 40) % 360}`,
       kind: "image",
       ...outputSize(request),
+      infotext: request.tab === "extras" ? extrasInfotext(request) : infotext(request, seed + i),
     }))
-    const text = request.tab === "extras" ? extrasInfotext(request) : infotext(request, seed)
+    const text = outputs[0]?.infotext ?? (request.tab === "extras" ? extrasInfotext(request) : infotext(request, seed))
     for (const output of outputs) imageSizes.set(output.id, { width: output.width ?? 0, height: output.height ?? 0 })
-    for (const output of outputs) output.infotext = text
     if (request.tab !== "extras") lastInfotext = text // like params.txt: generations only
     job.status = "completed"
     job.outputs = outputs
@@ -675,7 +687,10 @@ const routes: [method: string, pattern: RegExp, handler: Handler][] = [
     "POST",
     /^\/jobs\/([^/]+)\/(interrupt|skip)$/,
     (m) => {
-      if (running && running.id === m[1]) running.cancel()
+      if (running && running.id === m[1]) {
+        if (m[2] === "skip") running.skip()
+        else running.cancel()
+      }
       return undefined
     },
   ],
