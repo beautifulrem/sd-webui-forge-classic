@@ -37,9 +37,13 @@ _opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 _STARTUP = re.compile(r"Startup time: ([\d.]+)s")
 
 
-def answers(url: str) -> bool:
+def answers(url: str, timeout: float = 120) -> bool:
+    """Whether ``url`` answers 200. Waits for a slow answer instead of giving up and asking again:
+    a probe that times out leaves the server rendering a page nobody reads, and on a busy machine
+    the old tree's Gradio page (seconds per request) then never catches up with the probes."""
+
     try:
-        with _opener.open(url, timeout=2) as response:
+        with _opener.open(url, timeout=timeout) as response:
             return response.status == 200
     except Exception:
         return False

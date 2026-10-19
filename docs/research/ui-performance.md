@@ -23,7 +23,7 @@ logs, without the large CDP traces) are committed under
 | 10,000 gallery items scroll at 60 fps | **59.9–60.0 fps**, p95 frame 16.7–16.8 ms at 2,400 px/s, all 10,000 loaded; frames over 20 ms: 0 (idle), 6 of 5,678 (loaded); over 33 ms: 0 / 4 | pass (occasional hitches under load, below) |
 | Preview frame latency p95 ≤ 150 ms | **p95 20.7 ms** (sampler → painted, idle machine); was 177 ms before this work. Under heavy load the server-side part grows (below) | pass |
 | UI overhead on generation speed ≤ 1 % it/s | 2026-10-15: +0.48 % (768×768) and −0.27 % (512×512), intervals reaching +1.5 %; the review's 512×512 runs: **+2.0 % and +3.8 %** (the second one's 95 % interval 2.4–6.1 %). Since then the page's per-step work was cut to **one React commit per step** (1.6–2.1 frames drawn per step in the measurement, was 3.3–3.9) and about a third less browser CPU ([below](#per-step-cost-of-the-page)); its effect on it/s is **not measured yet** (the real model was not loaded for this revision) | **not demonstrated** |
-| Server startup no slower than before the rewrite | UI mode **4.37 s** vs 12.02 s (Gradio); API only 4.19 s vs 6.58 s (medians of 5, idle machine). On a loaded machine both are slower (the review: 9.6 s for the new UI mode) | pass (relative; absolute times depend on load) |
+| Server startup no slower than before the rewrite | UI mode **4.37 s** vs 12.02 s (Gradio); API only 4.19 s vs 6.58 s (medians of 5, idle machine). On a loaded machine everything is slower (the review: 9.6 s for the new UI mode; 2026-10-19 at load average 13–16: UI 23.9 s vs 68.0 s, API 29.8 s vs 33.6 s, alternating runs) | pass (the ratio; absolute times depend on load) |
 
 Four things missed their budget or were found wasteful and were changed (see
 [Optimisations](#optimisations)): the preview encoder polled, so frames waited
@@ -63,7 +63,7 @@ for that reason.
 | `tools/perf/serve_traced.py` | runs `launch.py` with probes added at import time (no server change): sampler step times, preview image assignment, preview frame publication, to a JSONL file (`time.time()`); a mute file makes the WebSocket hub act as if no client were connected; `REMI_PERF_FAKE_SAMPLER=<blocks>` replaces the processing with a synthetic GPU sampler (no model: DiT-like blocks on MPS, about 3 s per step with 28 blocks, a live preview per step as the real callback makes it); `REMI_PERF_DIST` serves another SPA build |
 | `webui/tools/perf/bundle.mjs` | initial JS (scripts in `index.html` and their static imports) and every lazy entry, from the Vite manifest, gzip -6 and brotli -11 |
 | `webui/tools/perf/browser.mjs` | Playwright + CDP scenarios: `load`, `inp`, `networks`, `gallery`, `preview` (latency, frames drawn per step, the page's CPU per step), `overhead`, `interleaved` (below); `--headed` runs a visible browser |
-| `tools/perf/startup.py` | starts old and new trees five times each per mode, alternating (after an unrecorded warm-up start each), and times them; proxies are removed from the environment |
+| `tools/perf/startup.py` | starts old and new trees five times each per mode, alternating (after an unrecorded warm-up start each), and times them; proxies are removed from the environment; the readiness probe waits for a slow answer instead of retrying every 2 s (on a busy machine the old Gradio page takes seconds per request, and abandoned probes kept it from ever answering) |
 
 Commands, from the repository root. `$PY` is a Python with the WebUI's
 requirements and no Gradio, `$PERF` a scratch directory (fixtures, traces,
@@ -415,7 +415,7 @@ publishes it when the step counter changes, i.e. when the sampler has
 dispatched the next step) and the header's progress line, the stage's
 overlay and the Generate bar render again (a layout and another frame); the
 stage overlay's `backdrop-blur` sat over the changing preview, so its blur
-was redrawn with every frame. 3.7–3.9 frames drawn per step.
+was redrawn with every frame. 3.3–4.2 frames drawn per step.
 
 Changes (frontend only; the server sends the same messages):
 
@@ -507,7 +507,22 @@ measured a 9.6 s median for the new UI mode on a loaded machine, and on
 2026-10-19, with a load average of 13–16, single starts of the new server
 took 26–150 s ("forge init" alone 7–35 s). Compare the two trees only in
 the same conditions, alternating (as `startup.py` now does); the claim is
-the ratio, not the absolute time.{{STARTUP_LOADED}}
+the ratio, not the absolute time.
+
+Rerun under that load on 2026-10-19 (`startup.py --runs 3`, the trees
+alternating, the old tree with the environment built as in [Recreating the
+environments](#recreating-the-environments)):
+
+| tree | mode | ready, median (min–max) | RSS |
+|---|---|---|---|
+| old (Gradio) | UI | 67.95 s (66.27–73.22) | 1,136 MB |
+| **new** | UI | **23.93 s** (22.05–24.09) | 646 MB |
+| old | `--nowebui` | 33.64 s (33.54–90.85) | 707 MB |
+| **new** | `--nowebui` | **29.76 s** (20.45–46.97) | 649 MB |
+
+Everything takes five to six times as long as on the idle machine, but the
+new UI mode is still 2.8× faster than the old one (2.8× idle) and lighter;
+API-only stays ahead (1.1×, 1.6× idle). Raw: `perf-data/2026-10-19/startup.json`.
 
 ## Optimisations
 
@@ -520,7 +535,7 @@ the ratio, not the absolute time.{{STARTUP_LOADED}}
 | React in its own initial chunk | `webui/vite.config.ts` | no chunk over 150 KB gzip (largest 86.3 KB) |
 | 2026-10-19: a step's `job.progress` waits for its preview frame while previews come every step; the step's updates are applied in one animation frame, the preview decoded before it is swapped in | `webui/src/api/progress-gate.ts`, `webui/src/api/paint-batch.ts`, `webui/src/api/ws.ts`, `webui/src/app/ws-bridge.ts`, tests in `paint-batch.test.ts`, `progress-gate.test.ts`, `ws.test.ts` | frames drawn per step and the page's CPU per step: [Per-step cost of the page](#per-step-cost-of-the-page) |
 | 2026-10-19: no `backdrop-filter` on surfaces that change every step | `webui/src/pages/generate/Stage.tsx` (progress overlay), `webui/src/app/Header.tsx` | the blur is no longer redrawn with each preview / progress update |
-| 2026-10-19: measurement tools: synthetic sampler and SPA override in `serve_traced.py`; per-step page cost, distinct frame count and `--save-trace` in `preview`; `--batch-count`, consecutive steps only, one-sided bound, trimmed and median estimates in `interleaved`; alternating, proxy-free `startup.py` | `tools/perf/serve_traced.py`, `webui/tools/perf/browser.mjs`, `tools/perf/startup.py` | reproducible from the repository; the review's analysis is part of the output |
+| 2026-10-19: measurement tools: synthetic sampler and SPA override in `serve_traced.py`; per-step page cost, distinct frame count and `--save-trace` in `preview`; `--batch-count`, consecutive steps only, one-sided bound, trimmed and median estimates in `interleaved`; alternating, proxy-free `startup.py` whose probe waits for slow answers | `tools/perf/serve_traced.py`, `webui/tools/perf/browser.mjs`, `tools/perf/startup.py`, tests in `tests/test_remi_perf_tools.py` | reproducible from the repository; the review's analysis is part of the output |
 
 Docs updated: `architecture.md` (preview encoder, precompressed assets, one
 paint per step), `api.md` (preview and progress timing),
@@ -538,7 +553,7 @@ results):
 |---|---|
 | `2026-10-15/` | the original runs: `bundle-*.json`, `browser-load*.json` (load, INP, scrolling), `browser-inp*.json`, `browser-networks-gallery.json`, `before-preview*.json` and `final/` (preview latency before / after), `browser-overhead.json`, `browser-preview-overhead.json`, `il512/`, `il768/`, `final-il512/`, `final-il768/` (interleaved windows with every step time), `o512/`, `startup.json`, the console logs and `prompt300.txt` (the typing test's prompt) |
 | `2026-10-19-review/` | the review's interleaved runs (`il512/`, `il512b/`, `il768/`) and preview runs (`out1/`, `out2/`) |
-| `2026-10-19/` | the reruns of this revision: `fx-out/` (load, INP, INP at 4× throttling, scrolling, under load), `preview-ab/` (the before / after runs of the per-step cost, synthetic sampler), `interleaved-synthetic/` (the synthetic interleaved run){{STARTUP_FILE}} |
+| `2026-10-19/` | the reruns of this revision: `fx-out/` (load, INP, INP at 4× throttling, scrolling, under load), `preview-ab/` (the before / after runs of the per-step cost, synthetic sampler), `interleaved-synthetic/` (the synthetic interleaved run), `startup.json` / `startup.log` (startup under load), `preview-trace/` (a compressed CDP trace of the final build during a job) |
 
 ## Caveats
 
