@@ -56,7 +56,7 @@ def test_arguments_are_the_script_argument_table():
 
 
 def test_save_stores_the_settings_and_selects_the_name(presets):
-    values = {"preset_name": " fast ", **dict(zip(spectrum.PARAM_NAMES, SETTINGS))}
+    values = {"preset_name": " fast ", **dict(zip(spectrum.PARAM_NAMES, SETTINGS, strict=True))}
     patch = _call("save_preset", values)
     assert presets == {"fast": SETTINGS}
     assert patch["preset_name"] == {"choices": [{"value": "fast", "label": "fast"}], "value": "fast"}
@@ -81,7 +81,7 @@ def test_save_needs_a_name(presets):
 def test_apply_sets_every_setting(presets):
     presets["mine"] = SETTINGS
     patch = _call("apply_preset", {"preset_name": "mine"})
-    assert patch == {name: {"value": value} for name, value in zip(spectrum.PARAM_NAMES, SETTINGS)}
+    assert patch == {name: {"value": value} for name, value in zip(spectrum.PARAM_NAMES, SETTINGS, strict=True)}
     assert "enable" not in patch  # presets store the settings, never the switch
 
 

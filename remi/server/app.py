@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, Request
-from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 from remi.files import FileError
@@ -46,13 +47,29 @@ def auth_from_cmd_opts(root: Path) -> Auth:
     return Auth(credentials, load_secret(root / "secret.key"), secure_cookies=secure, cookie_path=path, revoked_path=root / "revoked-sessions.json")
 
 
-def handle_exception(request: Request, error: Exception) -> JSONResponse:
-    """Unhandled errors as JSON (``webui.py``'s handler)."""
+def _phrase(status: int) -> str:
+    try:
+        return HTTPStatus(status).phrase
+    except ValueError:
+        return "Error"
 
-    info = vars(error)
-    content = {"error": type(error).__name__, "detail": info.get("detail", ""), "body": info.get("body", ""), "message": str(error)}
-    log.error("%s %s failed", request.method, request.url.path, exc_info=error)
-    return JSONResponse(status_code=int(info.get("status_code", 500)), content=jsonable_encoder(content))
+
+def handle_exception(request: Request, error: Exception) -> JSONResponse:
+    """Unhandled errors as JSON. A server error (5xx) answers only a generic
+    message and a correlation id; the exception, its message and any body it
+    carries (a ``ResponseValidationError`` holds the whole response) go to
+    the server log under that id, never to the client. An exception that
+    carries a 4xx ``status_code`` is a client error: its ``detail`` is
+    meant for the client and is kept."""
+
+    status = getattr(error, "status_code", None)
+    status = status if isinstance(status, int) and 400 <= status < 600 else 500
+    if status < 500:
+        detail = getattr(error, "detail", None)
+        return JSONResponse(status_code=status, content={"detail": detail if isinstance(detail, str) and detail else _phrase(status)})
+    error_id = secrets.token_hex(6)
+    log.error("%s %s failed (error id %s)", request.method, request.url.path, error_id, exc_info=error)
+    return JSONResponse(status_code=status, content={"error": _phrase(status), "detail": f"Internal server error (id {error_id}); the details are in the server log", "id": error_id})
 
 
 def _validation_error(request: Request, error: ValidationError) -> JSONResponse:

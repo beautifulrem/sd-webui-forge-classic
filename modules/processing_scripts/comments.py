@@ -52,16 +52,7 @@ shared.options_templates.update(
     shared.options_section(
         ("ui_comments", "Comments", "ui"),
         {
-            "enable_prompt_comments": shared.OptionInfo(True, "Remove Comments from Prompts").html(
-                """
-<b>Comment Syntax:</b><br>
-<ul style='margin-left: 2em'>
-<li># ...</li>
-<li>// ...</li>
-<li>/* ... */</li>
-</ul>
-                """
-            ),
+            "enable_prompt_comments": shared.OptionInfo(True, "Remove Comments from Prompts").info("comment syntax: # ... ; // ... ; /* ... */"),
             "save_prompt_comments": shared.OptionInfo(False, "Save Raw Comments").info("include the comments in Infotext"),
         },
     )

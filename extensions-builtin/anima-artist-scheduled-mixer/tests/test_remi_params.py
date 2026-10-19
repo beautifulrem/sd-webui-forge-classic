@@ -9,7 +9,6 @@ import re
 from pathlib import Path
 
 import pytest
-
 from test_runtime_dispatch import _run_p, mixer
 
 ROOT = Path(__file__).parents[1]
@@ -171,7 +170,7 @@ def test_a_template_deleted_from_the_other_tab_does_not_block_a_job(monkeypatch)
     """Templates are shared by both tabs; a form still showing a deleted one
     submits it. The run ignores the dropdown: the name reads as the first
     template, or None when there is none left."""
-    monkeypatch.setattr(mixer, "_template_choices", lambda: [])
+    monkeypatch.setattr(mixer, "_template_choices", list)
     assert layout_of().coerce({"template": "a"})["template"] is None
     monkeypatch.setattr(mixer, "_template_choices", lambda: ["b", "c"])
     layout = layout_of()

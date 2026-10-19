@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { queryClient } from "@/api/queries"
 import { registerCompletionSource } from "@/features/prompt-editor/completion-registry"
 import { completionExtension, completionSlot } from "@/features/prompt-editor/extensions"
-import { promptKind } from "@/features/prompt-editor/facets"
+import { promptKind, type PromptScope, promptScope } from "@/features/prompt-editor/facets"
 import { type CompletionItem, type PromptToolsConfig, promptToolsApi } from "../api"
 import { toolKeys } from "../queries"
 import { TEST_CONFIG } from "../testing"
@@ -22,10 +22,10 @@ const TAGS: CompletionItem[] = [
 const views: EditorView[] = []
 let off: () => void = () => {}
 
-function editor(doc: string, kind: "positive" | "negative" = "positive") {
+function editor(doc: string, kind: "positive" | "negative" = "positive", scope: PromptScope = { form: "txt2img", extension: false }) {
   const view = new EditorView({
     parent: document.body,
-    state: EditorState.create({ doc, selection: { anchor: doc.length }, extensions: [promptKind.of(kind), completionSlot.of(completionExtension())] }),
+    state: EditorState.create({ doc, selection: { anchor: doc.length }, extensions: [promptKind.of(kind), promptScope.of(scope), completionSlot.of(completionExtension())] }),
   })
   views.push(view)
   return view
@@ -99,6 +99,62 @@ describe("tag completion source", () => {
     startCompletion(off)
     await settle()
     expect(complete).not.toHaveBeenCalled()
+  })
+
+  it("follows the per-form and extension-field switches (tac_activeIn_*)", async () => {
+    const complete = vi.spyOn(promptToolsApi, "complete").mockResolvedValue(TAGS)
+    queryClient.setQueryData(toolKeys.config, { ...CONFIG, tags: { ...CONFIG.tags, txt2img: false, third_party: false } })
+    for (const scope of [
+      { form: "txt2img", extension: false },
+      { form: "txt2img", extension: true },
+      { form: "img2img", extension: true },
+      { form: "page:prompt-workshop", extension: true },
+    ]) {
+      const view = editor("long ha", "positive", scope)
+      startCompletion(view)
+      await settle()
+      expect(completionStatus(view.state), JSON.stringify(scope)).toBeNull()
+    }
+    expect(complete).not.toHaveBeenCalled()
+    // img2img's main prompts and the style editor (no form) still complete
+    for (const scope of [
+      { form: "img2img", extension: false },
+      { form: null, extension: false },
+    ]) {
+      const view = editor("long ha", "positive", scope)
+      startCompletion(view)
+      await opened(view)
+    }
+    expect(complete).toHaveBeenCalledTimes(1) // the second answer came from the cache
+  })
+
+  it("labels a tag found by an alias with the alias alone when asked (tac_alias_onlyShowAlias)", async () => {
+    vi.spyOn(promptToolsApi, "complete").mockResolvedValue([{ type: "tag", text: "breasts", category: 0, count: 3_400_000, alias: "oppai" }])
+    vi.spyOn(promptToolsApi, "recordUse").mockResolvedValue({ ok: true, message: null })
+    const view = editor("opp")
+    startCompletion(view)
+    await opened(view)
+    expect(currentCompletions(view.state).map((c) => [c.label, c.detail])).toEqual([["breasts", "← oppai"]])
+    view.destroy()
+    clearCompletionCache()
+    queryClient.setQueryData(toolKeys.config, { ...CONFIG, tags: { ...CONFIG.tags, only_alias: true } })
+    const aliasOnly = editor("opp")
+    startCompletion(aliasOnly)
+    await opened(aliasOnly)
+    expect(currentCompletions(aliasOnly.state).map((c) => [c.label, c.detail])).toEqual([["oppai", undefined]])
+    press(aliasOnly, "Enter")
+    expect(aliasOnly.state.doc.toString()).toBe("breasts, ") // the tag is inserted
+  })
+
+  it("waits tac_delayTime before asking the server", async () => {
+    const complete = vi.spyOn(promptToolsApi, "complete").mockResolvedValue(TAGS)
+    queryClient.setQueryData(toolKeys.config, { ...CONFIG, tags: { ...CONFIG.tags, delay: 400 } })
+    const view = editor("long ha")
+    startCompletion(view)
+    await pause(200)
+    expect(complete).not.toHaveBeenCalled()
+    await opened(view)
+    expect(complete).toHaveBeenCalledTimes(1)
   })
 
   it("highlights the typed text in labels", () => {

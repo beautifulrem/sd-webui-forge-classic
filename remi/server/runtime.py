@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -30,11 +31,36 @@ def prepare(*, models: bool = True) -> None:
     script_callbacks.ui_settings_callback()
     shared.opts.data_labels.update(options_section(("callbacks", "Callbacks", "system"), {**shared_items.callbacks_order_settings()}))
     register_options()
+    apply_warning_filters(bool(getattr(shared.opts, "show_warnings", False)))
     shared.tab_names[:] = [title for _id, title in BUILTIN_TABS]
     initialize_runners()
     shared.tab_names.extend(_page_titles())  # extension pages, as their tabs were
     if models:
         initialize_model_selection()
+
+
+QUIET_WARNINGS = (UserWarning, FutureWarning)
+_warning_filters: list[tuple] = []
+
+
+def apply_warning_filters(show: bool) -> None:
+    """The setting "Show warnings in console" (``show_warnings``): when off,
+    Python's ``UserWarning`` / ``FutureWarning`` (library deprecation noise)
+    are not printed. Applied at every app build ("Reload UI")."""
+
+    for entry in _warning_filters:
+        if entry in warnings.filters:
+            warnings.filters.remove(entry)
+    _warning_filters.clear()
+    if not show:
+        for category in QUIET_WARNINGS:
+            warnings.filterwarnings("ignore", category=category)
+            _warning_filters.append(warnings.filters[0])
+    # Direct edits of ``warnings.filters`` must invalidate the per-module "already warned" caches
+    # (CPython's private hook; without it only the warnings already shown once stay cached)
+    mutated = getattr(warnings, "_filters_mutated", None)
+    if mutated is not None:
+        mutated()
 
 
 def _page_titles() -> list[str]:

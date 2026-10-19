@@ -4,7 +4,6 @@ pastes back into it, and the template actions' patches."""
 import logging
 from functools import partial
 
-from modules.anima_support import PasteKey, table_params
 from lib_stage_scheduler.options import (
     BUILDER_PRESET_LABELS,
     BUILTIN_TEMPLATES,
@@ -40,6 +39,7 @@ from lib_stage_scheduler.options import (
 )
 from lib_stage_scheduler.templates import _template_names
 from lib_stage_scheduler.ui import apply_template, panel_template_after, template_choices, templates_payload
+from modules.anima_support import PasteKey, table_params
 from remi import ui
 
 logger = logging.getLogger("anima_lora_stage_scheduler")
@@ -98,7 +98,7 @@ def _pasted_timing(pass_name, params):
     strength and curve (a curve the run did not use reads as smooth)."""
     if not _recorded(params, pass_name):
         return None
-    recorded = {key: params.get(_panel_key(pass_name, field)) for key, field in zip(TIMING_KEYS, TIMING_FIELDS)}
+    recorded = {key: params.get(_panel_key(pass_name, field)) for key, field in zip(TIMING_KEYS, TIMING_FIELDS, strict=True)}
     return _timing_value({key: value for key, value in recorded.items() if value is not None})
 
 

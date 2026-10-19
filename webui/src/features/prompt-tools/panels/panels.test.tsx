@@ -6,6 +6,7 @@ import { queryClient } from "@/api/queries"
 import { type Favorite, type FavoritesPage, promptToolsApi } from "../api"
 import { TEST_CONFIG } from "../testing"
 import FavoritesPanel from "./FavoritesPanel"
+import GeneratePanel from "./GeneratePanel"
 import GroupsPanel from "./GroupsPanel"
 import { groupTagText } from "./helpers"
 
@@ -106,4 +107,39 @@ describe("favorites", () => {
     fireEvent.change(input, { target: { files: [file] } })
     await waitFor(() => expect(imported).toHaveBeenCalledWith(data))
   }, 20_000)
+})
+
+describe("writing a prompt", () => {
+  it("sends the description, then replaces or extends the prompt with the edited answer", async () => {
+    const generate = vi.spyOn(promptToolsApi, "generate").mockResolvedValue("1girl, reading, cherry blossoms")
+    const setValue = vi.fn()
+    const props = panelProps("masterpiece", setValue)
+    const { unmount } = render(<GeneratePanel {...props} />, { wrapper })
+    fireEvent.change(screen.getByLabelText("Describe the image"), { target: { value: "  a girl reading under a cherry tree " } })
+    fireEvent.click(screen.getByRole("checkbox"))
+    fireEvent.click(screen.getByRole("button", { name: "Write" }))
+    const written = await screen.findByLabelText("Written prompt")
+    expect(generate).toHaveBeenCalledWith({ description: "a girl reading under a cherry tree", prompt: "masterpiece", negative: false })
+    fireEvent.change(written, { target: { value: "1girl, reading" } })
+    fireEvent.click(screen.getByRole("button", { name: "Add to the prompt" }))
+    expect(setValue).toHaveBeenLastCalledWith("masterpiece, 1girl, reading")
+    expect(props.close).toHaveBeenCalled()
+    unmount()
+
+    render(<GeneratePanel {...panelProps("", setValue)} kind="negative" />, { wrapper })
+    expect(screen.queryByRole("checkbox")).toBeNull() // nothing to build on
+    fireEvent.change(screen.getByLabelText("Describe the image"), { target: { value: "blur" } })
+    fireEvent.click(screen.getByRole("button", { name: "Write" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Replace the prompt" }))
+    expect(generate).toHaveBeenLastCalledWith({ description: "blur", prompt: "", negative: true })
+    expect(setValue).toHaveBeenLastCalledWith("1girl, reading, cherry blossoms")
+  })
+
+  it("shows the service's error", async () => {
+    vi.spyOn(promptToolsApi, "generate").mockRejectedValue(new Error("translation service unreachable"))
+    render(<GeneratePanel {...panelProps("")} />, { wrapper })
+    fireEvent.change(screen.getByLabelText("Describe the image"), { target: { value: "a cat" } })
+    fireEvent.click(screen.getByRole("button", { name: "Write" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("translation service unreachable")
+  })
 })

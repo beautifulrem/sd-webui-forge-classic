@@ -203,15 +203,29 @@ for key, metadata in opts.data_labels.items():
 
 OptionsModel = create_model("Options", **fields)
 
+def _flag_type(action) -> Any:
+    """The type a parsed command-line flag has: its ``type=`` when that is a
+    class (``--port`` is an int even though it defaults to None), a list for
+    repeatable / multi-value flags, else the default's type; always optional
+    (flags without a default are None)."""
+
+    import argparse
+
+    if isinstance(action, argparse._AppendAction) or action.nargs in ("*", "+") or isinstance(action.default, list):
+        return Optional[list[Any]]
+    if isinstance(action.type, type):
+        return Optional[action.type]
+    if action.default is not None:
+        return Optional[type(action.default)]
+    return Optional[str]
+
+
 flags = {}
 _options = vars(parser)["_option_string_actions"]
 for key in _options:
     if _options[key].dest != "help":
         flag = _options[key]
-        _type = str | None
-        if _options[key].default is not None:
-            _type = type(_options[key].default)
-        flags.update({flag.dest: (_type, Field(default=flag.default, description=flag.help))})
+        flags.update({flag.dest: (_flag_type(flag), Field(default=flag.default, description=flag.help))})
 
 FlagsModel = create_model("Flags", **flags)
 

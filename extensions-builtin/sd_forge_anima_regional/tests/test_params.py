@@ -63,7 +63,7 @@ def test_schema_export(tab):
 
 
 def test_argument_lists_with_and_without_the_editor_slot():
-    p, unet = harness.make_process()
+    _p, unet = harness.make_process()
     unet.model.predictor = SimpleNamespace(percent_to_sigma=lambda percent: 1.0 - percent)
     layout = harness.script_layout(regional.AnimaRegionalScript())
     args = layout.values_to_args({"enable": True, "region1_prompt": "a cat", "region_editor": {"anything": 1}})

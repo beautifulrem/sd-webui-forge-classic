@@ -55,10 +55,9 @@ def _top_level_imports(path: Path) -> set[str]:
                 found.update(alias.name.partition(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                 found.add(node.module.partition(".")[0])
-            elif isinstance(node, ast.If):
-                if not (isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING"):
-                    visit(node.body)
-                    visit(node.orelse)
+            elif isinstance(node, ast.If) and not (isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING"):
+                visit(node.body)
+                visit(node.orelse)
 
     visit(tree.body)
     return found

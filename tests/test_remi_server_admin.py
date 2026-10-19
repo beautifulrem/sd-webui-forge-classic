@@ -300,7 +300,8 @@ def test_index_is_normalised_marks_installed_and_is_cached(env, monkeypatch):
         fetched.append(request.full_url)
         return _Response(json.dumps(INDEX).encode())
 
-    monkeypatch.setattr(admin.urllib.request, "urlopen", opener)
+    monkeypatch.setattr(admin, "host_is_public", lambda host: host == "example.org")
+    monkeypatch.setattr(admin, "open_public_url", opener)
     data = env.client.get("/api/v2/extensions/index", params={"url": "https://example.org/index.json"}).json()
     assert [item["name"] for item in data["items"]] == ["Tagger", "Mine"]
     tagger, mine = data["items"]
@@ -319,11 +320,54 @@ def test_index_errors(env, monkeypatch):
     def offline(request, timeout):
         raise OSError("no route")
 
-    monkeypatch.setattr(admin.urllib.request, "urlopen", offline)
+    monkeypatch.setattr(admin, "host_is_public", lambda host: host == "example.org")
+    monkeypatch.setattr(admin, "open_public_url", offline)
     response = env.client.get("/api/v2/extensions/index", params={"url": "https://example.org/i.json"})
     assert response.status_code == 502 and "no route" in response.json()["detail"]
-    monkeypatch.setattr(admin.urllib.request, "urlopen", lambda request, timeout: _Response(b"[1, 2]"))
+    monkeypatch.setattr(admin, "open_public_url", lambda request, timeout: _Response(b"[1, 2]"))
     assert env.client.get("/api/v2/extensions/index", params={"url": "https://example.org/i.json"}).status_code == 502
+
+
+def test_client_named_index_urls_must_be_public(env, monkeypatch):
+    # A URL the client names must not make the server probe its own network
+    # (loopback, private, link-local addresses), neither directly nor through
+    # a redirect; the configured index (WEBUI_EXTENSIONS_INDEX) may be local.
+    fetched = []
+
+    def opener(request, timeout):
+        fetched.append(request.full_url)
+        return _Response(json.dumps(INDEX).encode())
+
+    monkeypatch.setattr(admin, "open_public_url", opener)
+    for url in ("http://127.0.0.1:7860/api/v2/options", "http://localhost/", "http://192.168.1.1/", "http://169.254.169.254/latest/meta-data", "http://[::1]/", "http://[::ffff:127.0.0.1]/"):
+        response = env.client.get("/api/v2/extensions/index", params={"url": url, "refresh": True})
+        assert response.status_code == 422, url
+        assert "public internet address" in response.json()["detail"]
+    assert fetched == []
+    monkeypatch.setattr(admin.urllib.request, "urlopen", opener)
+    monkeypatch.setenv("WEBUI_EXTENSIONS_INDEX", "http://127.0.0.1:9/index.json")
+    assert env.client.get("/api/v2/extensions/index", params={"url": "http://127.0.0.1:9/index.json"}).status_code == 200
+    assert env.client.get("/api/v2/extensions/index").status_code == 200
+    assert fetched == ["http://127.0.0.1:9/index.json"]  # (cached the second time)
+
+
+def test_index_redirects_are_checked_per_hop(monkeypatch):
+    import urllib.request
+
+    monkeypatch.setattr(admin, "host_is_public", lambda host: host == "example.org")
+    handler = admin._PublicRedirects()
+    request = urllib.request.Request("https://example.org/index.json")
+    with pytest.raises(admin.AdminError, match="public internet address"):
+        handler.redirect_request(request, None, 302, "Found", {}, "http://127.0.0.1:7860/api/v2/options")
+    with pytest.raises(admin.AdminError, match="http"):
+        handler.redirect_request(request, None, 302, "Found", {}, "file:///etc/passwd")
+    assert handler.redirect_request(request, None, 302, "Found", {}, "https://example.org/moved.json").full_url == "https://example.org/moved.json"
+
+
+def test_public_hosts_are_global_addresses():
+    assert not admin.host_is_public("127.0.0.1") and not admin.host_is_public("10.0.0.1") and not admin.host_is_public("::1")
+    assert not admin.host_is_public("") and not admin.host_is_public(None)
+    assert admin.host_is_public("8.8.8.8")
 
 
 # endregion

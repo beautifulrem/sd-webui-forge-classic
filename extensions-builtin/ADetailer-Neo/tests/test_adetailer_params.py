@@ -35,8 +35,8 @@ from types import SimpleNamespace
 
 import pytest
 from adetailer_testlib import EXT, FIXTURES, REPO, SCRIPT, contract, kit, load_adetailer
-
 from lib_adetailer import ui as adui
+
 from remi import ui
 from remi.testing import webui_state
 
@@ -528,8 +528,8 @@ def test_ported():
 
 
 def test_zh_cn_covers_every_string(ad, models, settings):
-    from remi.ui.settings import settings_schema
     from modules import shared
+    from remi.ui.settings import settings_schema
 
     models(ad.MAX_MODELS)
     strings = set()

@@ -72,14 +72,14 @@ function simulateModelLoad(model: string) {
   setTimeout(() => broadcast({ type: "model.loaded", model }), 150 + stages.length * 450)
 }
 
-/** The Hires. fix output line (`remi.core.actions.hires_resolution_html`). */
-function hiresLine(core: Values): string {
+/** The Hires. fix output line (`remi.core.actions.hires_resolution`): a translatable message. */
+function hiresLine(core: Values): { text: string; params: Record<string, string> } | "" {
   if (!core.enable_hr) return ""
   const width = Number(core.width ?? 1024)
   const height = Number(core.height ?? 1024)
   const scale = Number(core.hr_scale ?? 2)
   const snap = (n: number) => Math.round(n / 8) * 8
-  return `from <span class='resolution'>${width}x${height}</span> to <span class='resolution'>${snap(width * scale)}x${snap(height * scale)}</span>`
+  return { text: "from {{from}} to {{to}}", params: { from: `${width}×${height}`, to: `${snap(width * scale)}×${snap(height * scale)}` } }
 }
 
 /**
@@ -246,7 +246,41 @@ function infotext(request: JobRequest, seed: number): string {
   const c = request.core
   const sampler = request.scripts.sampler ?? {}
   const size = `${String(c.width ?? 1024)}x${String(c.height ?? 1024)}`
-  return `${String(c.prompt ?? "")}\nNegative prompt: ${String(c.negative_prompt ?? "")}\nSteps: ${String(sampler.steps ?? 20)}, Sampler: ${String(sampler.sampler_name ?? "Euler a")}, Schedule type: ${String(sampler.scheduler ?? "Automatic")}, CFG scale: ${String(c.cfg_scale ?? 5)}, Seed: ${seed}, Size: ${size}, Model: mock`
+  // Like the WebUI: the Hires. fix values only when it ran (txt2img).
+  const hires = request.tab === "txt2img" && c.enable_hr ? `, Denoising strength: ${String(c.denoising_strength ?? 0.7)}, Hires upscale: ${String(c.hr_scale ?? 2)}, Hires upscaler: ${String(c.hr_upscaler ?? "Latent")}` : ""
+  return `${String(c.prompt ?? "")}\nNegative prompt: ${String(c.negative_prompt ?? "")}\nSteps: ${String(sampler.steps ?? 20)}, Sampler: ${String(sampler.sampler_name ?? "Euler a")}, Schedule type: ${String(sampler.scheduler ?? "Automatic")}, CFG scale: ${String(c.cfg_scale ?? 5)}, Seed: ${seed}, Size: ${size}${hires}, Model: mock`
+}
+
+/** Sizes of uploads (where the browser could decode them) and of outputs, by file id: Extras scales them. */
+const imageSizes = new Map<string, { width: number; height: number }>()
+
+async function imageSize(file: Blob): Promise<{ width: number; height: number } | null> {
+  if (typeof createImageBitmap !== "function") return null
+  try {
+    const bitmap = await createImageBitmap(file)
+    const size = { width: bitmap.width, height: bitmap.height }
+    bitmap.close()
+    return size
+  } catch {
+    return null
+  }
+}
+
+/** An output's size: Extras scales its source, Hires. fix the generated size; else the requested size. */
+function outputSize(request: JobRequest): { width: number; height: number } {
+  const c = request.core
+  if (request.tab === "extras") {
+    const source = imageSizes.get(String(c.image ?? "")) ?? { width: 512, height: 512 }
+    const scale = Number(c.upscaling_resize ?? 2)
+    return { width: Math.round(source.width * scale), height: Math.round(source.height * scale) }
+  }
+  const scale = request.tab === "txt2img" && c.enable_hr ? Number(c.hr_scale ?? 2) : 1
+  return { width: Math.round(Number(c.width ?? 1024) * scale), height: Math.round(Number(c.height ?? 1024) * scale) }
+}
+
+/** Extras' infotext: the operations' parameters (as `run_extras_named` returns them). */
+function extrasInfotext(request: JobRequest): string {
+  return `Postprocess upscale by: ${String(request.core.upscaling_resize ?? 2)}, Postprocess upscaler: ${String(request.core.upscaler_1 ?? "None")}`
 }
 
 /** Like `GET /queue`; also sent to every socket right after its hello. */
@@ -261,12 +295,13 @@ async function runJob(job: Job, request: JobRequest) {
   running = { id: job.id, cancel: () => (cancelled = true) }
   job.status = "running"
   job.started_at = new Date().toISOString()
-  const steps = Math.min(Number(request.scripts.sampler?.steps ?? 20), 60)
+  const steps = request.tab === "extras" ? 5 : Math.min(Number(request.scripts.sampler?.steps ?? 20), 60)
   const count = Math.max(1, Number(request.core.batch_size ?? 1))
   const hue = Math.floor(Math.random() * 360)
   broadcast({ type: "job.started", job_id: job.id, seq: job.seq, steps, job_count: 1 })
   broadcast({ type: "queue.changed", ...queueStatus() })
 
+  // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- the interrupt handler sets `cancelled` while this awaits
   for (let step = 1; step <= steps && !cancelled; step++) {
     await delay(90)
     const eta = ((steps - step) * 90) / 1000
@@ -290,12 +325,12 @@ async function runJob(job: Job, request: JobRequest) {
     const outputs: JobOutput[] = Array.from({ length: count }, (_, i) => ({
       id: `mock-${job.seq}-${i}-${(hue + i * 40) % 360}`,
       kind: "image",
-      width: Number(request.core.width ?? 1024),
-      height: Number(request.core.height ?? 1024),
+      ...outputSize(request),
     }))
-    const text = infotext(request, seed)
+    const text = request.tab === "extras" ? extrasInfotext(request) : infotext(request, seed)
+    for (const output of outputs) imageSizes.set(output.id, { width: output.width ?? 0, height: output.height ?? 0 })
     for (const output of outputs) output.infotext = text
-    lastInfotext = text
+    if (request.tab !== "extras") lastInfotext = text // like params.txt: generations only
     job.status = "completed"
     job.outputs = outputs
     broadcast({ type: "job.completed", job_id: job.id, seq: job.seq, tab: job.tab, status: "completed", outputs, infotext: text })
@@ -647,7 +682,10 @@ const routes: [method: string, pattern: RegExp, handler: Handler][] = [
     async (_m, body) => {
       await delay(250)
       const file = body instanceof FormData ? body.get("file") : null
-      return { id: `upload-${++uploadSeq}`, name: file instanceof File ? file.name : "upload", width: null, height: null }
+      const id = `upload-${++uploadSeq}`
+      const size = file instanceof Blob ? await imageSize(file) : null
+      if (size) imageSizes.set(id, size)
+      return { id, name: file instanceof File ? file.name : "upload", width: size?.width ?? null, height: size?.height ?? null }
     },
   ],
 ]

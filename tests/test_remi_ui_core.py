@@ -261,7 +261,8 @@ def test_core_actions(webui):
     ctx = ui.ActionContext(tab="txt2img")
     assert ui.call_action(core_actions, "swap_dimensions", ctx, {"width": 832, "height": 1216}) == {"width": {"value": 1216}, "height": {"value": 832}}
     patch = ui.call_action(core_actions, "hr_resolution", ctx, {"enable_hr": True, "width": 832, "height": 1216, "hr_scale": 1.5})
-    assert "832x1216" in patch["__outputs__"]["hr_final_resolution"] and "1280x1856" in patch["__outputs__"]["hr_final_resolution"]
+    # Structured, translatable text (no HTML): the SPA fills the catalog's placeholders
+    assert patch["__outputs__"]["hr_final_resolution"] == {"text": "from {{from}} to {{to}}", "params": {"from": "832×1216", "to": "1280×1856"}}
     assert ui.call_action(core_actions, "hr_resolution", ctx, {"enable_hr": False})["__outputs__"]["hr_final_resolution"] == ""
     # Missing values are the form's defaults; bad ones are rejected
     assert ui.call_action(core_actions, "swap_dimensions", ctx, {"width": 512}) == {"width": {"value": 1024}, "height": {"value": 512}}

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
+from html.parser import HTMLParser
 from typing import Any
 
 from remi.ui import nodes
@@ -95,18 +96,63 @@ def setting_node(key: str, info, value: Any) -> nodes.Node:
 _MARKUP_RE = re.compile(r"<[A-Za-z/!][^>]*>|&[A-Za-z#0-9]+;")
 
 
+class _NoteText(HTMLParser):
+    """The text of an A1111 ``.info()`` note written with inline markup
+    (``<b>``, ``<code>``, ``<a href>``, entities), and its links."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.links: list[tuple[str, str]] = []
+        self._href: str | None = None
+        self._label: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "br":
+            self.parts.append("\n")
+        elif tag == "a":
+            self._href, self._label = dict(attrs).get("href"), []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a" and self._href:
+            label = " ".join("".join(self._label).split())
+            if label and self._href.startswith(("https://", "http://")):
+                self.links.append((label, self._href))
+            self._href = None
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+        if self._href is not None:
+            self._label.append(data)
+
+
+def plain_note(note: str) -> tuple[str, list[tuple[str, str]]]:
+    """``(text, links)`` of a setting note: notes are plain text (the SPA
+    translates them by their English text); markup is dropped and the
+    targets of ``<a href>`` become links of the setting."""
+
+    if not _MARKUP_RE.search(note):
+        return note, []
+    parser = _NoteText()
+    parser.feed(note)
+    parser.close()
+    text = "\n".join(" ".join(line.split()) for line in "".join(parser.parts).split("\n"))
+    return text.strip(), parser.links
+
+
 def _setting_extras(info) -> dict:
     data: dict[str, Any] = {}
-    # ``notes`` are plain text (translated); a note with markup joins ``html``
-    notes, html_blocks = [], list(getattr(info, "html_blocks", ()))
+    # ``notes`` are plain text (translated); links found in a note join ``links``
+    notes: list[str] = []
+    html_blocks = list(getattr(info, "html_blocks", ()))
+    links = list(getattr(info, "links", ()))
     for note in getattr(info, "notes", ()):
-        if _MARKUP_RE.search(str(note)):
-            html_blocks.append(f"<span class='info'>({note})</span>")
-        else:
-            notes.append(str(note))
+        text, found = plain_note(str(note))
+        if text:
+            notes.append(text)
+        links += [link for link in found if link not in links]
     if notes:
         data["notes"] = notes
-    links = list(getattr(info, "links", ()))
     if links:
         data["links"] = [{"label": label, "url": url} for label, url in links]
     html = "".join(html_blocks)

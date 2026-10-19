@@ -1579,6 +1579,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/prompt-tools/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Write a prompt from a description with the OpenAI-compatible provider */
+        post: operations["generate_api_v2_prompt_tools_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/prompt-tools/translation-key": {
         parameters: {
             query?: never;
@@ -3662,6 +3679,31 @@ export interface components {
             /** Added */
             added: number;
         };
+        /** PromptGenerateRequest */
+        PromptGenerateRequest: {
+            /**
+             * Description
+             * @description what the image should show, in any language
+             */
+            description: string;
+            /**
+             * Prompt
+             * @description the current prompt to build on (empty: write a new one)
+             * @default
+             */
+            prompt: string;
+            /**
+             * Negative
+             * @description write a negative prompt
+             * @default false
+             */
+            negative: boolean;
+        };
+        /** PromptGenerated */
+        PromptGenerated: {
+            /** Prompt */
+            prompt: string;
+        };
         /** PromptGroupTag */
         PromptGroupTag: {
             /** Tag */
@@ -3795,10 +3837,43 @@ export interface components {
         };
         /** PromptToolsTagSettings */
         PromptToolsTagSettings: {
-            /** Enabled */
+            /**
+             * Enabled
+             * @description completion is on (the extension, the setting and the checkpoint list allow it)
+             */
             enabled: boolean;
             /** Negative */
             negative: boolean;
+            /**
+             * Txt2Img
+             * @description complete in the txt2img form's prompt fields
+             * @default true
+             */
+            txt2img: boolean;
+            /**
+             * Img2Img
+             * @description complete in the img2img form's prompt fields
+             * @default true
+             */
+            img2img: boolean;
+            /**
+             * Third Party
+             * @description complete in the prompt fields of extensions (scripts and pages), not only the main prompts
+             * @default true
+             */
+            third_party: boolean;
+            /**
+             * Delay
+             * @description milliseconds to wait after a keystroke before asking the server
+             * @default 40
+             */
+            delay: number;
+            /**
+             * Only Alias
+             * @description label a tag found by an alias with the alias only
+             * @default false
+             */
+            only_alias: boolean;
             /**
              * Source
              * @description tag list family for category colours: danbooru, e621, derpibooru or merged
@@ -3868,6 +3943,12 @@ export interface components {
              * @default false
              */
             translation_key: boolean;
+            /**
+             * Generate
+             * @description prompts can be written from a description (the OpenAI-compatible provider is set up)
+             * @default false
+             */
+            generate: boolean;
             /** Language */
             language: string;
             /**
@@ -8026,6 +8107,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PromptTranslation"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+        };
+    };
+    generate_api_v2_prompt_tools_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptGenerated"];
                 };
             };
             /** @description Not Found */

@@ -9,12 +9,13 @@ such routes.
 Routes extensions add without opting in (:func:`guard_new_routes`) always get
 the cross-site checks. Under ``--nowebui`` (no WebUI) they require
 ``--api-auth`` HTTP Basic credentials whenever it is set, on any bind, exactly
-like ``/sdapi``. With the WebUI they require a login when the server is
-reachable beyond this machine (``--ngrok``, ``--listen`` or a non-loopback
-``--server-name``) and ``--auth`` / ``--auth-file`` is set: the WebUI login
-(``app.auth_dependency``), API clients (no session cookie) then
-authenticating with ``--api-auth`` credentials; loopback-only WebUI servers
-keep them open to local API clients.
+like ``/sdapi``. With the WebUI they require a login whenever ``--auth`` /
+``--auth-file`` is set, on any bind (a reverse proxy on this machine also
+connects from loopback): the WebUI login (``app.auth_dependency``), API
+clients (no session cookie) authenticating with HTTP Basic WebUI or
+``--api-auth`` credentials. ``--api-no-auth-on-localhost`` (without
+``--api-auth``) lets clients on this machine in without one, like ``/sdapi``
+(:func:`local_api_client_exempt`).
 """
 
 from __future__ import annotations
@@ -175,6 +176,20 @@ def is_cross_site(request) -> bool:
     return request.headers.get("sec-fetch-site") == "cross-site"
 
 
+def local_api_client_exempt(request) -> bool:
+    """``--api-no-auth-on-localhost`` (and no ``--api-auth``, which always
+    applies): an API client on this machine (a loopback peer that came
+    through no proxy, ``remi.server.deps.is_local_client``) needs no login
+    for ``/sdapi`` and extension API routes, as with the old WebUI. Without
+    the flag every API request needs the login the server has."""
+    cmd_opts = _cmd_opts()
+    if not getattr(cmd_opts, "api_no_auth_on_localhost", False) or getattr(cmd_opts, "api_auth", None):
+        return False
+    from remi.server.deps import is_local_client
+
+    return is_local_client(request)
+
+
 def _has_api_credentials(request) -> bool:
     """Valid ``--api-auth`` HTTP Basic credentials (how /sdapi clients log in)."""
     api_auth = getattr(_cmd_opts(), "api_auth", None)
@@ -194,14 +209,16 @@ def _has_api_credentials(request) -> bool:
     return matches
 
 
-def refusal(app, request, require_login: bool = True, accept_api_auth: bool = False) -> tuple[int, str] | None:
+def refusal(app, request, require_login: bool = True, accept_api_auth: bool = False, api_route: bool = False) -> tuple[int, str] | None:
     """(status, reason) when ``request`` must be refused, else None.
-    ``accept_api_auth``: valid --api-auth credentials stand in for the login."""
+    ``accept_api_auth``: valid --api-auth credentials stand in for the login.
+    ``api_route``: an extension API route, which --api-no-auth-on-localhost
+    opens to clients on this machine (:func:`local_api_client_exempt`)."""
     if is_rebound_host(request):
         return 403, "Unknown host refused"
     if is_cross_site(request):
         return 403, "Cross-site request refused"
-    if not require_login:
+    if not require_login or (api_route and local_api_client_exempt(request)):
         return None
     auth_dependency = getattr(app, "auth_dependency", None)
     api_auth = accept_api_auth and getattr(_cmd_opts(), "api_auth", None)
@@ -232,7 +249,7 @@ def _api_auth_refusal(request) -> tuple[int, str] | None:
     return api_auth_refusal(request)
 
 
-def _wrap(app, routes, require_login: bool, accept_api_auth: bool = False) -> int:
+def _wrap(app, routes, require_login: bool, accept_api_auth: bool = False, api_route: bool = False) -> int:
     from starlette.requests import HTTPConnection, Request
     from starlette.responses import PlainTextResponse
     from starlette.websockets import WebSocketClose
@@ -246,13 +263,13 @@ def _wrap(app, routes, require_login: bool, accept_api_auth: bool = False) -> in
         async def guarded(scope, receive, send, original=original):
             kind = scope.get("type")
             if kind == "http":
-                refused = refusal(app, Request(scope, receive), require_login, accept_api_auth)
+                refused = refusal(app, Request(scope, receive), require_login, accept_api_auth, api_route)
                 if refused is not None:
                     status, reason = refused
                     await PlainTextResponse(reason, status_code=status)(scope, receive, send)
                     return
             elif kind == "websocket":
-                refused = refusal(app, HTTPConnection(scope), require_login, accept_api_auth)
+                refused = refusal(app, HTTPConnection(scope), require_login, accept_api_auth, api_route)
                 if refused is not None:
                     await WebSocketClose(code=1008, reason=refused[1])(scope, receive, send)
                     return
@@ -283,33 +300,33 @@ def snapshot_routes(app) -> set:
     return {id(route) for route in _routes(app)}
 
 
-def _exposed_with_login(cmd_opts) -> bool:
+def _login_required(cmd_opts, app=None) -> bool:
     """Whether extension routes need a login. Under --nowebui (no WebUI):
     whenever --api-auth is set, on any bind, as /sdapi requires it. Otherwise
-    on a server reachable beyond this machine (--ngrok tunnel, or a
-    non-loopback bind such as --listen / --server-name 0.0.0.0) with a WebUI
-    login: others can reach it, and the admin asked for one."""
-    if cmd_opts is None:
-        return False
+    whenever the WebUI has a login (--auth / --auth-file), on any bind: the
+    admin asked for one, and a loopback-only server may still be reached
+    through a reverse proxy or tunnel on this machine. Local API clients get
+    in without one only with --api-no-auth-on-localhost
+    (:func:`local_api_client_exempt`, checked per request)."""
     if getattr(cmd_opts, "nowebui", False):
         return bool(getattr(cmd_opts, "api_auth", None))
-    if _is_loopback_only(cmd_opts):
-        return False
+    if getattr(getattr(getattr(app, "state", None), "auth", None), "required", False):
+        return True  # the app's own logins (remi.server.auth.Auth)
     return bool(getattr(cmd_opts, "auth", None) or getattr(cmd_opts, "auth_file", None))
 
 
 def guard_new_routes(app, before: set, exclude: Iterable[str] = ()) -> int:
     """Cross-site checks for every route added since ``before`` (i.e. by
-    extensions), except under ``exclude``. Login under --nowebui whenever
-    --api-auth is set (Basic credentials, as /sdapi), or on an exposed server
-    (--ngrok / non-loopback bind) with --auth (the WebUI session cookie,
-    or --api-auth Basic credentials); otherwise, e.g. on a loopback-only UI
-    server, extension APIs stay open to non-browser clients, which send no
-    Origin header."""
+    extensions), except under ``exclude``. Login (:func:`_login_required`)
+    under --nowebui whenever --api-auth is set (Basic credentials, as
+    /sdapi), and with the WebUI whenever --auth / --auth-file is set (the
+    WebUI session cookie or Basic credentials, or --api-auth Basic
+    credentials); without a login configured there is nothing to log in
+    with and only the cross-site checks apply."""
     exclude = tuple(exclude)
     routes = [
         route
         for route in _routes(app)
         if id(route) not in before and not (exclude and getattr(route, "path", "").startswith(exclude))
     ]
-    return _wrap(app, routes, _exposed_with_login(_cmd_opts()), accept_api_auth=True)
+    return _wrap(app, routes, _login_required(_cmd_opts(), app), accept_api_auth=True, api_route=True)

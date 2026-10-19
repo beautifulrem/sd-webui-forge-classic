@@ -8,8 +8,6 @@ the worker only indexes the files for ``/api/v2/files/{id}``.
 
 from __future__ import annotations
 
-import html
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -32,13 +30,6 @@ class JobResult:
 
 Executor = Callable[[Job, JobContext], JobResult]
 
-_TAG_RE = re.compile(r"<[^>]+>")
-
-
-def html_to_text(text: str | None) -> str:
-    return html.unescape(_TAG_RE.sub("", text or "")).strip()
-
-
 def run_job(job: Job, ctx: JobContext) -> JobResult:
     """Generate ``job`` with the WebUI's processing (txt2img, img2img or
     extras); raises ``remi.ui.ValidationError`` for bad values."""
@@ -54,8 +45,8 @@ def run_job(job: Job, ctx: JobContext) -> JobResult:
     if job.tab == "extras":
         from modules.postprocessing import run_extras_named
 
-        images, info_html = run_extras_named(job.core, job.scripts, ctx)
-        info = html_to_text(info_html)
+        images, info = run_extras_named(job.core, job.scripts, ctx)
+        info = (info or "").strip()
         result = JobResult(info=info or None)
         for item in images or []:
             if isinstance(item, str):

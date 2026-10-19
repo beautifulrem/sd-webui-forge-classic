@@ -7,19 +7,11 @@ TILE_MIN, TILE_MAX = 256, 2048
 
 
 def source_image_size(ctx: ui.ActionContext) -> tuple[int, int] | None:
-    """Width and height of the img2img source image (core ``init_img``), read
-    from the server's upload index; None without an indexed image. Needs the
-    server's request (``ctx.request``)."""
+    """Width and height of the img2img source image (core ``init_img``), as
+    the server indexed it (``ctx.files``, which the server fills); None
+    without an indexed image."""
 
-    from remi.server.deps import get_services
-
-    file_id = ctx.core.get("init_img")
-    if not isinstance(file_id, str) or not file_id:
-        return None
-    record = get_services(ctx.request).files.get(file_id)
-    if record is None or not record.width or not record.height:
-        return None
-    return record.width, record.height
+    return ctx.files.image_size(ctx.core.get("init_img"))
 
 
 class MultiDiffusionForForge(scripts.Script):

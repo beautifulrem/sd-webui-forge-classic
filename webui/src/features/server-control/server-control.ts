@@ -119,6 +119,7 @@ export async function runServerCommand(command: ServerCommand, deps: ServerContr
   }
   set({ phase: "waiting-down" })
   let downSince: number | null = null
+  // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- `generation` is bumped by a newer command while this awaits
   while (run === generation) {
     await deps.sleep(PING_INTERVAL)
     if (run !== generation) return
@@ -151,6 +152,7 @@ export function keepWaiting(deps: ServerControlDeps = defaultDeps) {
   const run = ++generation
   useServerControl.setState({ phase: "waiting-up", error: null, canWait: false })
   void (async () => {
+    // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- `generation` is bumped by a newer command while this awaits
     while (run === generation) {
       await deps.sleep(PING_INTERVAL)
       if (run !== generation) return

@@ -191,11 +191,14 @@ def test_sdapi_refuses_cross_site_and_rebound_requests(webui, tmp_path):
     assert client.post("/sdapi/v1/interrupt").json() == {"ok": True}  # API clients send no Origin
     assert client.post("/sdapi/v1/interrupt", headers={"Origin": "https://evil.example"}).status_code == 403
     assert client.post("/sdapi/v1/interrupt", headers={"Host": "evil.example"}).status_code == 403
-    # its login stays --api-auth's, not the WebUI login
+    # without --api-auth its login is the WebUI login, also on a loopback-only
+    # server (a reverse proxy on this machine connects from loopback too)
     with_login = FastAPI()
     with_login.post("/sdapi/v1/interrupt")(lambda: {"ok": True})
     with_login.add_middleware(SecurityMiddleware, auth=Auth({"ann": "1"}))
-    assert TestClient(with_login, base_url="http://127.0.0.1:7860").post("/sdapi/v1/interrupt").status_code == 200
+    locked = TestClient(with_login, base_url="http://127.0.0.1:7860")
+    assert locked.post("/sdapi/v1/interrupt").status_code == 401
+    assert locked.post("/sdapi/v1/interrupt", headers=basic("ann", "1")).json() == {"ok": True}
 
 
 def test_cors_allowed_origins_may_write(webui, tmp_path, monkeypatch):
@@ -214,9 +217,10 @@ def test_extension_routes_keep_the_route_guard(webui, tmp_path):
         before = extension_route_guard.snapshot_routes(server.app)
         server.app.add_api_route("/my-extension/do", lambda: {"ok": True}, methods=["POST"])
         assert extension_route_guard.guard_new_routes(server.app, before) == 1
-        # loopback server: no login required, cross-site writes refused
-        assert server.client.post("/my-extension/do").json() == {"ok": True}
-        assert server.client.post("/my-extension/do", headers={"Origin": "https://evil.example"}).status_code == 403
+        # a login is required (also on a loopback-only server), cross-site writes refused
+        assert server.client.post("/my-extension/do").status_code == 401
+        assert server.client.post("/my-extension/do", headers=basic("ann", "1")).json() == {"ok": True}
+        assert server.client.post("/my-extension/do", headers={"Origin": "https://evil.example", **basic("ann", "1")}).status_code == 403
         # the guard asks the app who is logged in
         request = type("Request", (), {"cookies": {}, "headers": Headers(basic("ann", "1"))})()
         assert server.app.auth_dependency(request) == "ann"

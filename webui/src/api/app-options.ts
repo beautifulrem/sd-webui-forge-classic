@@ -29,6 +29,13 @@ export const CLIENT_OPTION_DEFAULTS = {
   js_modal_lightbox_gamepad_repeat: 250,
   send_seed: true,
   send_size: true,
+  send_cfg: true,
+  allow_i2i_send_info: false,
+  paste_safe_guard: false,
+  confirm_leave: false,
+  img2img_autosize: false,
+  sd_webui_modal_lightbox_icon_opacity: 1,
+  sd_webui_modal_lightbox_toolbar_opacity: 0.9,
   disable_token_counters: false,
   include_styles_into_token_counters: true,
   // Image editor (src/canvas)

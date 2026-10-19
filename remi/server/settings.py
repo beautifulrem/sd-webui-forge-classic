@@ -21,6 +21,7 @@ def server_options() -> dict[str, Any]:
             {
                 "remi_upload_max_mb": OptionInfo(64, "Largest upload", ui.Slider, {"minimum": 1, "maximum": 2048, "step": 1}).info("in MB"),
                 "remi_upload_retention_days": OptionInfo(7, "Keep uploads and unsaved images for", ui.Slider, {"minimum": 1, "maximum": 365, "step": 1}).info("days; uploads still used by queued jobs are kept; images generated with saving turned off are deleted after this"),
+                "remi_image_hosts": OptionInfo("", "Remote image hosts").info("sites the pages may show images from, e.g. in extension help: https://example.com or https://*.example.com, space- or comma-separated; images from other sites are blocked; applies after reloading the page"),
             },
         ),
     }

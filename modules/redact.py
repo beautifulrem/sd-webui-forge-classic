@@ -22,7 +22,7 @@ def _known_flags() -> tuple[str, ...]:
 
     try:
         from modules.cmd_args import parser
-    except Exception:  # noqa: BLE001 - redaction must never fail
+    except Exception:
         return (*SECRET_FLAGS, *_OTHER_FLAGS)
     return tuple(option for action in parser._actions for option in action.option_strings if option.startswith("--"))
 

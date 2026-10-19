@@ -8,7 +8,6 @@ Images go to the file store as uploads, like any image the user uploads.
 
 from __future__ import annotations
 
-import io
 import json
 import math
 from typing import Any
@@ -24,33 +23,23 @@ from remi.ui.nodes import check_finite_json, to_number
 MAX_POSE_BYTES = 4 * 1024 * 1024
 
 
-def file_store(ctx: ui.ActionContext):
-    services = getattr(getattr(getattr(ctx.request, "app", None), "state", None), "services", None)
-    if services is None:
-        from remi.server.services import default_services
+def file_store(ctx: ui.ActionContext) -> ui.ActionFiles:
+    """The action's files (``ctx.files``, filled by the server)."""
 
-        services = default_services()
-    return services.files
+    if ctx.files is None:
+        raise bad_input(ctx.owner, "this action needs the server's file store")
+    return ctx.files
 
 
 def save_png(ctx: ui.ActionContext, image: np.ndarray, name: str) -> str:
-    from PIL import Image
-
-    buffer = io.BytesIO()
-    Image.fromarray(np.ascontiguousarray(image.clip(0, 255).astype(np.uint8))).save(buffer, format="PNG")
-    return file_store(ctx).add_upload_bytes(buffer.getvalue(), name).id
+    return file_store(ctx).store_image(image, name)
 
 
 def load_image(ctx: ui.ActionContext, file_id: str | None):
     """The PIL image of an upload or output id; ``None`` when there is none
     or the file is gone."""
 
-    if not file_id:
-        return None
-    try:
-        return file_store(ctx).resolve_upload(None, file_id)
-    except (ui.ParamError, OSError):
-        return None
+    return file_store(ctx).image(file_id) if file_id else None
 
 
 def bad_input(owner: str, message: str) -> ui.ValidationError:
@@ -172,6 +161,6 @@ def make_region_canvas(ctx: ui.ActionContext, index: int) -> dict[str, Any]:
     if shape not in region_canvas.SHAPES:
         raise bad_input(ctx.owner, f"shape is one of {list(region_canvas.SHAPES)}")
     width, height = core_size(ctx)
-    subjects = int(math.floor(_number(ctx, "subjects") + 0.5))
+    subjects = math.floor(_number(ctx, "subjects") + 0.5)
     image = region_canvas.generate_canvas(width, height, subjects, _number(ctx, "randomize"), _number(ctx, "vertical"), shape)
     return {"__outputs__": {"canvas": {"unit": index, "image": save_png(ctx, image, "controlnet-region.png")}}}

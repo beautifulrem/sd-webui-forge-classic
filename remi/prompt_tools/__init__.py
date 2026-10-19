@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import queue
+import re
 import sys
 import threading
 from collections.abc import Iterable, Sequence
@@ -28,7 +29,7 @@ from remi.prompt_tools.groups import TagGroups
 from remi.prompt_tools.sources import ChantIndex, WildcardCache, network_items, preferred_weight, prompt_text, wildcard_values
 from remi.prompt_tools.store import PromptToolsStore, StoreError
 from remi.prompt_tools.tags import FrequencyConfig, IndexCache, TagFiles, TagIndex, TagMatch, rank, tag_key, usage_bias
-from remi.prompt_tools.translate import ProviderConfig, TranslationError, translate
+from remi.prompt_tools.translate import ProviderConfig, TranslationError, generate_prompt, translate
 
 __all__ = ["PromptTools", "StoreError", "TranslationError", "attach", "register_tag_data", "register_tool_data", "tools_for", "unregister_tag_data", "unregister_tool_data"]
 
@@ -189,6 +190,48 @@ def is_anima_model() -> bool:
     return bool(getattr(model, "is_anima_engine", False))
 
 
+def _checkpoint_names() -> set[str]:
+    """How the tag autocomplete checkpoint list may name the selected
+    checkpoint (lowercase): its title, file name with and without the
+    extension, full and short hashes."""
+
+    title = str(opt.option("sd_model_checkpoint", "") or "").strip()
+    names: set[str] = set()
+    if title:
+        bare = re.sub(r"\s*\[[0-9a-fA-F]+\]$", "", title).strip()
+        file = os.path.basename(bare.replace("\\", "/"))
+        names |= {title, bare, file, os.path.splitext(file)[0]}
+    hashes = [str(opt.option("sd_checkpoint_hash", "") or "")]
+    sd_models = sys.modules.get("modules.sd_models")
+    info = None
+    if sd_models is not None and title:
+        try:
+            info = sd_models.get_closet_checkpoint_match(title)
+        except Exception:
+            info = None
+    if info is not None:
+        names |= {str(value) for value in (getattr(info, "name", None), getattr(info, "model_name", None)) if value}
+        hashes += [str(value) for value in (getattr(info, "sha256", None), getattr(info, "shorthash", None), getattr(info, "hash", None)) if value]
+    for value in hashes:
+        if value:
+            names |= {value, value[:10]}
+    return {name.lower() for name in names if name}
+
+
+def checkpoint_allowed() -> bool:
+    """``tac_activeIn_modelList``: whether completion is on for the selected
+    checkpoint (an empty list, or an unknown checkpoint, never turns it off)."""
+
+    listed = {name.strip().lower() for name in str(opt.option("tac_activeIn_modelList") or "").split(",") if name.strip()}
+    if not listed:
+        return True
+    names = _checkpoint_names()
+    if not names:
+        return True
+    hit = bool(listed & names)
+    return hit if str(opt.option("tac_activeIn_modelListMode")) == "Whitelist" else not hit
+
+
 def tag_source_name() -> str:
     """The family of the tag list for category colours: ``danbooru``,
     ``e621``, ``derpibooru`` or ``merged``."""
@@ -207,7 +250,7 @@ def client_config(translation: ProviderConfig | None = None) -> dict[str, Any]:
     ``translation``: the provider with its key (:meth:`PromptTools.translation_config`)."""
 
     o = opt.option
-    tags_on = registry.tags_enabled and bool(o("tac_active"))
+    tags_on = registry.tags_enabled and bool(o("tac_active")) and checkpoint_allowed()
     prefix = str(o("tac_animaArtistPrefix"))
     translation = translation or translation_config()
     toolbar = str(o("prompt_tools_toolbar"))
@@ -219,6 +262,11 @@ def client_config(translation: ProviderConfig | None = None) -> dict[str, Any]:
         "tags": {
             "enabled": tags_on,
             "negative": bool(o("tac_activeIn_negativePrompts")),
+            "txt2img": bool(o("tac_activeIn_txt2img")),
+            "img2img": bool(o("tac_activeIn_img2img")),
+            "third_party": bool(o("tac_activeIn_thirdParty")),
+            "delay": max(0, min(_int_option("tac_delayTime"), 1000)),
+            "only_alias": bool(o("tac_alias_onlyShowAlias")),
             "source": tag_source_name(),
             "max_results": max(3, min(_int_option("tac_maxResults"), 50)),
             "loras": bool(o("tac_useLoras")),
@@ -247,6 +295,7 @@ def client_config(translation: ProviderConfig | None = None) -> dict[str, Any]:
             "translation": translation.provider if registry.tools_enabled and translation.enabled else None,
             "translation_provider": translation.provider if registry.tools_enabled and translation.provider in opt.TRANSLATION_PROVIDER_IDS else "none",
             "translation_key": bool(translation.key.strip()),
+            "generate": registry.tools_enabled and translation.provider == "openai" and translation.enabled,
             "language": display_language(),
             "comments": comments,
             "toolbar": toolbar if toolbar in opt.TOOLBAR_SCOPES else opt.DEFAULTS["prompt_tools_toolbar"],
@@ -388,13 +437,16 @@ class PromptTools:
 
     def _complete_tags(self, query: str, negative: bool, limit: int) -> list[dict[str, Any]]:
         index = tag_index()
-        aliases = bool(opt.option("tac_alias_searchByAlias"))
+        # only showing aliases needs them searched (as the old extension did)
+        aliases = bool(opt.option("tac_alias_searchByAlias")) or bool(opt.option("tac_alias_onlyShowAlias"))
         translations = bool(opt.option("tac_translation_searchByTranslation"))
         matches = index.matches(query, limit, aliases=aliases, translations=translations) + index.extra_matches(query, aliases=aliases)
         # an extra tag replaces the same tag of the main list
         extra_names = {tag_key(match.entry.name) for match in matches if match.entry.extra}
         matches = [match for match in matches if match.entry.extra or tag_key(match.entry.name) not in extra_names]
-        uses = self._usage({match.entry.name for match in matches}, "tag", negative)
+        # tags found through an alias are only promoted by usage with tac_frequencyIncludeAlias
+        include_alias = bool(opt.option("tac_frequencyIncludeAlias"))
+        uses = self._usage({match.entry.name for match in matches if include_alias or not match.alias}, "tag", negative)
         ranked = rank(matches, uses, frequency_config(), extras_first=opt.option("tac_extra_addMode") != "Insert after", limit=limit)
         items = [_match_item(match, index) for match in ranked]
         if opt.option("tac_includeEmbeddingsInNormalResults") and opt.option("tac_useEmbeddings") and len(query.strip()) >= 2:
@@ -475,6 +527,15 @@ class PromptTools:
             cached=lambda missing: self.store.cached_translations(config.cache_key, target, missing),
             store=lambda pairs: self.store.cache_translations(config.cache_key, target, pairs),
         )
+
+    def generate(self, description: str, *, current: str = "", negative: bool = False) -> str:
+        """A prompt written from ``description`` by the OpenAI-compatible
+        translation provider (Prompt All-in-One's "ChatGPT prompt")."""
+
+        if not registry.tools_enabled:
+            raise TranslationError("the prompt tools are disabled", 409)
+        instructions = str(opt.option("prompt_tools_generate_instructions") or "")
+        return generate_prompt(self.translation_config(), description, current=current, negative=negative, instructions=instructions)
 
     def groups(self, locale: str | None) -> list[dict[str, Any]]:
         return _groups.groups(locale) if registry.tools_enabled else []

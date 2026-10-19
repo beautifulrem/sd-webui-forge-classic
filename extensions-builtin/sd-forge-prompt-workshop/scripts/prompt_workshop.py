@@ -2492,7 +2492,7 @@ class PromptWorkshopPage(pages.Page):
         if url == values.get("preview_url") and values.get("preview_image"):
             return {"__outputs__": {"handoff_status": ui.message("✅ Reusing already-downloaded preview (no re-fetch).")}}
         data, fname, err = _download_image(url, pid_hint, _BOORU_SOURCES[source]["image_hosts"])
-        store = pages.file_store(ctx)
+        store = ctx.files
         if err or data is None or store is None:
             status = ui.message("❌ {{error}}", error=err or "the server's file store is unavailable")
             return {
@@ -2501,9 +2501,8 @@ class PromptWorkshopPage(pages.Page):
                 "__outputs__": {"handoff_status": status},
                 **ui.toast(status, "error"),
             }
-        record = store.add_upload_bytes(data, fname)
         return {
-            "preview_image": {"value": record.id},
+            "preview_image": {"value": store.store_bytes(data, fname)},
             "preview_url": {"value": url},
             "__outputs__": {"handoff_status": ui.message("✅ Image downloaded ({{name}}).", name=fname)},
         }

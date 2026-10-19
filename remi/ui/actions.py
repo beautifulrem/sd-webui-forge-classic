@@ -46,7 +46,15 @@ class ActionContext:
     """Other owners' values, by owner id, when the caller sent them."""
     user: str | None = None
     request: Any = None
+    """The HTTP request (``fastapi.Request``) when the server runs the action."""
     extra: dict[str, Any] = field(default_factory=dict)
+    files: Any = None
+    """Uploads and outputs by id (``remi.ui.files.ActionFiles``: ``get``,
+    ``image``, ``image_size``, ``path``, ``store_image``, ``store_bytes``);
+    filled by the server, ``None`` elsewhere."""
+    generation_lock: Any = None
+    """The lock generation runs under (filled by the server; ``gpu=True``
+    page tasks hold it). ``None``: the WebUI's ``call_queue.queue_lock``."""
 
 
 def action(name: str | None = None, *, gpu: bool = False):

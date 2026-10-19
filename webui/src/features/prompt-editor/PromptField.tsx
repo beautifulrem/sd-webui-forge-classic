@@ -9,7 +9,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { describedBy, infoTextId } from "@/ui/a11y"
 import { FieldError, ModifiedDot } from "@/ui/Field"
-import { useParam } from "@/ui/hooks"
+import { useForm, useParam } from "@/ui/hooks"
 import type { TextNode } from "@/ui/schema"
 import { PromptDecorators } from "./PromptDecorators"
 import { LazyPromptEditor, type PromptEditorHandle } from "./index"
@@ -56,6 +56,7 @@ export function PromptField({ node, kind = "positive", steps, styles, actions, o
   const { t } = useTranslation()
   const id = useId()
   const param = useParam<string>(node)
+  const { formId } = useForm()
   const value = typeof param.value === "string" ? param.value : ""
   const label = t(param.label)
   const placeholder = node.placeholder ? t(node.placeholder) : undefined
@@ -133,6 +134,7 @@ export function PromptField({ node, kind = "positive", steps, styles, actions, o
             ref={handle}
             id={id}
             kind={kind}
+            scope={{ form: formId, extension: false }}
             value={value}
             onChange={param.setValue}
             placeholder={placeholder}

@@ -148,17 +148,14 @@ class FakeFiles:
 
 
 def fake_ctx(page, files=None, *, user=None):
-    """An action context whose request carries fake services (file store,
-    a generation lock)."""
+    """An action context as the server fills it: ``files`` over the given
+    file store, its own generation lock."""
 
     import threading
-    from types import SimpleNamespace
 
     from remi import ui
 
-    services = SimpleNamespace(files=files, queue=SimpleNamespace(lock=threading.Lock()))
-    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(services=services)))
-    return ui.ActionContext(tab=page.owner, owner=page.owner, user=user, request=request)
+    return ui.ActionContext(tab=page.owner, owner=page.owner, user=user, files=ui.ActionFiles(files) if files is not None else None, generation_lock=threading.Lock())
 
 
 def run_action(page, name: str, ctx, values=None, **extra):

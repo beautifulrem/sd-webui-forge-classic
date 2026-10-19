@@ -704,15 +704,18 @@ async function measureInterleaved(browser) {
   let done = false
   job.then(() => (done = true))
   // wait for the first step, then alternate
+  // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- `done` is set by the job promise while this awaits
   for (let i = 0; !done && i < 600; i++) {
     if (readTrace(Date.now() - 5000).some((e) => e.e === "step")) break
     await page.waitForTimeout(500)
   }
+  // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- `done` is set by the job promise while this awaits
   for (let i = 0; !done; i++) {
     const condition = order[i % order.length]
     if (condition === "off") writeFileSync(mute, "")
     else rmSync(mute, { force: true })
     const start = Date.now()
+    // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- `done` is set by the job promise while this awaits
     while (!done && Date.now() - start < windowMs) await page.waitForTimeout(100)
     windows.push({ condition, start, end: Date.now() })
   }

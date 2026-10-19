@@ -112,12 +112,16 @@ def test_the_source_area_is_translated():
     """The mode picker, the batch inputs and the inpaint options are in the
     core catalog (localizations/zh_CN.json); the Source panel shows them."""
 
+    import importlib.util
     from pathlib import Path
 
     from remi.core.tabs import tab_schema
-    from tests import legacy_ui_contract as contract
 
     root = Path(__file__).resolve().parent.parent
+    # Loaded by path: a top-level ``tests`` package from site-packages (ultralytics ships one) would shadow ``from tests import``.
+    spec = importlib.util.spec_from_file_location("legacy_ui_contract", root / "tests" / "legacy_ui_contract.py")
+    contract = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(contract)
     blocks = _source_blocks(tab_schema("img2img")["core"]["layout"])
     assert blocks, "no source blocks in the img2img layout"
     strings = set().union(*(contract.schema_strings(block) for block in blocks))

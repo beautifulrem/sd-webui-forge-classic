@@ -800,6 +800,11 @@ tree's width). Until a sort is chosen, `extra_networks_card_order_field` /
   to Generate / Process in every form: it posts the form as a job without
   making it the form's run (a toast links to the Queue). Generate forever and
   repeat N stay the run controller's (client-driven, see "Generate page").
+  The Agent Scheduler's queue settings live in Settings → System → Queue
+  under their old keys (history retention, queueing failed jobs again, the
+  action when the queue is done; server-side, `remi/jobs/queue.py`); its
+  layout settings are not carried over (see
+  `extensions-builtin/agent-scheduler/README.md`).
 
 ## Prompt tools (`features/prompt-tools`)
 
@@ -821,24 +826,37 @@ older server) nothing is shown.
   `__name__word` → that wildcard's values; nothing in weights, comments —
   every `#` / `//` to the end of the line and `/* … */`, as Forge strips
   them — or `BREAK`/`AND`; a typed `@artist` prefix is not searched but
-  kept for an artist tag). The server ranks (match tier, then posts, then the user's
-  usage); the client keeps that order (`filter: false`), caches queries
-  (LRU, 60 s; cleared on settings / network changes) and waits 40 ms before
-  an uncached request. `insert.ts` applies the insertion settings
+  kept for an artist tag). Where it runs: `tags.enabled` (also off for the
+  checkpoints of `tac_activeIn_modelList`), `tags.negative`, and per editor
+  the `promptScope` facet (`features/prompt-editor/facets.ts`: the form, and
+  whether it is an extension's prompt field — `Text` with `prompt: true` — or
+  a main prompt — `PromptField`; the style editor has no form) against
+  `tags.txt2img` / `tags.img2img` / `tags.third_party`. The server ranks
+  (match tier, then posts, then the user's usage; tags found by an alias
+  only with `tac_frequencyIncludeAlias`); the client keeps that order
+  (`filter: false`), caches queries (LRU, 60 s; cleared on settings / network
+  changes) and waits `tags.delay` (`tac_delayTime`, 40 ms) before an
+  uncached request. `insert.ts` applies the insertion settings
   (underscores and their exclusions, escaped brackets, `, ` after a tag but
   not before `,` `)` `]` `}` `>` `|` `:`, `<lora:alias:weight>`, activation
   text at the start / end / before / after, Anima's `@` artist prefix, Tab
   completing nested wildcards one folder or to the first difference). An
   accepted item is counted (`POST /usage`, per positive / negative prompt).
-  Options show the category colour, alias (`← alias`), translation, kind
-  and post count; the info panel has the LoRA preview, description,
+  Options show the category colour, alias (`← alias`; with
+  `tags.only_alias` the alias alone is the label), translation, kind and
+  post count; the info panel has the LoRA preview, description,
   activation text and wiki link.
 - **Decorator** (`PromptToolsDecorator.tsx`, in the shell): the editor stays
   mounted and is hidden in the tag view; the tools bar (`PromptToolbar`,
-  lazy) offers text ↔ tags, quick tags, history, favorites and translation
+  lazy) offers text ↔ tags, quick tags, history, favorites, translation
   (only with a configured provider; a network provider's API key is entered
   in its menu, `PUT /translation-key`, stored apart from the settings and
-  never sent back). `prompt_tools_toolbar` limits the bar to the main
+  never sent back) and, when the provider is the OpenAI-compatible one
+  (`tools.generate`), "Write a prompt" (`panels/GeneratePanel.tsx`: a
+  description in any language, optionally changing the current prompt, →
+  `POST /generate` with `prompt_tools_generate_instructions` or the built-in
+  instructions; the answer is editable, then replaces or extends the
+  prompt). `prompt_tools_toolbar` limits the bar to the main
   prompts (`PromptDecoratorProps.main`, set by `PromptField`). The view per
   prompt is persisted (`remi-prompt-tools`).
 - **Tag chips** (`chips/`): `parse.ts` turns a prompt into chips and
@@ -864,6 +882,14 @@ older server) nothing is shown.
   tags, all replaced on one parse, a translated list becomes several tags,
   weights kept, undoable) and "show the tags in …" (tag view, network
   providers); long lists are sent in chunks.
+- **What did not come over.** Tag Autocomplete settings without an
+  equivalent are listed with their reasons in the "Not carried over" table of
+  `extensions-builtin/sd-webui-tagcomplete-neo/README.md` (a test keeps it in
+  step with the old 58 `tac_*` keys); Prompt All-in-One features are mapped
+  one by one (kept, merged into a core feature, or dropped and why) in
+  `extensions-builtin/sd-webui-prompt-all-in-one-neo/README.md`. Their old
+  HTTP APIs (`/tacapi/v1/*`, `/physton_prompt/*`) answer `410 Gone`
+  (architecture.md).
 
 ## i18n
 

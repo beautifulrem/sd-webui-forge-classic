@@ -47,7 +47,7 @@ class CoreActions:
         from remi.core.forms import hires_resolution_layout
 
         current = hires_resolution_layout().coerce(values, unknown="ignore")
-        return {"__outputs__": {"hr_final_resolution": hires_resolution_html(current)}}
+        return {"__outputs__": {"hr_final_resolution": hires_resolution(current)}}
 
     @ui.action("__conflicts__")
     def conflicts(self, ctx: ui.ActionContext, values: dict) -> Patch:
@@ -75,8 +75,9 @@ class CoreActions:
         return {**forge_preset_patch(_tab(ctx), preset), "__settings__": settings}
 
 
-def hires_resolution_html(values: dict[str, Any]) -> str:
-    """``from <w>x<h> to <W>x<H>`` for the Hires. fix values (empty when off)."""
+def hires_resolution(values: dict[str, Any]) -> dict | str:
+    """"from <w>×<h> to <W>×<H>" for the Hires. fix values, as a translatable
+    :func:`remi.ui.message` (empty when off)."""
 
     if not values.get("enable_hr"):
         return ""
@@ -87,7 +88,7 @@ def hires_resolution_html(values: dict[str, Any]) -> str:
     p.calculate_target_resolution()
     width = snap_resolution(p.hr_resize_x or p.hr_upscale_to_x)
     height = snap_resolution(p.hr_resize_y or p.hr_upscale_to_y)
-    return f"from <span class='resolution'>{p.width}x{p.height}</span> to <span class='resolution'>{width}x{height}</span>"
+    return ui.message("from {{from}} to {{to}}", **{"from": f"{p.width}×{p.height}", "to": f"{width}×{height}"})
 
 
 core_actions = CoreActions()

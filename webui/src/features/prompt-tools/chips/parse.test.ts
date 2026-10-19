@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { appendChips, canToggle, moveChip, parsePrompt, removeChip, serializePrompt, setChipText, setChipTexts, setChipWeight, toggleChip, toggleTag } from "./parse"
+import { appendChips, canToggle, moveChip, parsePrompt, removeChip, serializePrompt, setChipText, setChipTexts, setChipWeight, tidyPrompt, toggleChip, toggleTag } from "./parse"
 
 const ROUND_TRIP = [
   "",
@@ -171,5 +171,16 @@ describe("several chip edits at once", () => {
       { index: 1, text: "cat" },
       { index: 3, text: "dog" },
     ])).toBe("blonde hair, blue eyes, (cat:1.2), smile, /*dog, */end")
+  })
+})
+
+describe("tidying the separators", () => {
+  it("writes one comma and space between tags and keeps lines, chips and comments", () => {
+    expect(tidyPrompt(" , 1girl,solo ,,  (long hair:1.2) ,<lora:style:0.8>, ")).toBe("1girl, solo, (long hair:1.2), <lora:style:0.8>")
+    expect(tidyPrompt("masterpiece,\n\n\n\n1girl BREAK smile,\nsky")).toBe("masterpiece,\n\n1girl BREAK smile,\nsky")
+    expect(tidyPrompt("a, /*b, */c,d # note\ne")).toBe("a, /*b, */ c, d # note\ne")
+    expect(tidyPrompt("a\\, b,c")).toBe("a\\, b, c")
+    expect(tidyPrompt(" ,, ")).toBe("")
+    expect(tidyPrompt("1girl, solo")).toBe("1girl, solo")
   })
 })

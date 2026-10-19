@@ -1,9 +1,11 @@
 /**
  * Unsaved-changes registry: views with pending edits (the settings page)
- * report how many they hold. The shell then asks before the page unloads,
- * and server commands warn that a reload drops them.
+ * report how many they hold. The shell then asks before the page unloads
+ * (always with the `confirm_leave` setting), and server commands warn that
+ * a reload drops them.
  */
 import { create } from "zustand"
+import { clientOption } from "@/api/app-options"
 
 type UnsavedState = {
   /** source → number of unsaved edits */
@@ -40,12 +42,12 @@ export function askBeforeLeaving() {
   bypass = false
 }
 
-/** Asks the browser to confirm leaving while edits are unsaved (installed once by the shell). */
+/** Asks the browser to confirm leaving while edits are unsaved, or always with the `confirm_leave` setting (installed once by the shell). */
 export function installBeforeUnloadGuard() {
   if (installed || typeof window === "undefined") return
   installed = true
   window.addEventListener("beforeunload", (event) => {
-    if (!bypass && unsavedTotal() > 0) {
+    if (!bypass && (unsavedTotal() > 0 || clientOption("confirm_leave"))) {
       event.preventDefault()
       // Legacy browsers need returnValue set.
       event.returnValue = ""

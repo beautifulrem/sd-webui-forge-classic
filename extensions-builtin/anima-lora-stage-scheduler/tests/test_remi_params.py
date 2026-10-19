@@ -45,7 +45,7 @@ def test_params_match_the_legacy_ui(tab):
         timing = ported[f"{prefix}_timing"]
         recorded = [legacy[f"{prefix}_{arg}"] for arg in options.TIMING_ARGS]
         assert timing["kind"] == "custom" and timing["widget"] == "stage-timeline"
-        assert timing["default"] == dict(zip(options.TIMING_KEYS, (entry["default"] for entry in recorded)))
+        assert timing["default"] == dict(zip(options.TIMING_KEYS, (entry["default"] for entry in recorded), strict=True))
         # Pasted from the recorded keys of all six (the first names the value)
         assert timing["infotext"] == recorded[0]["infotext"] and timing["paste"]
         assert all(entry["kind"] in ("toggle", "slider", "choice") for entry in recorded)

@@ -392,7 +392,8 @@ client has a bounded event queue and one preview slot.
   `remi.server.launch.bind_host`, also under `--nowebui`); `/docs`, `/redoc`
   and `/openapi.json` need the login too; `/sdapi` gets the host and
   cross-site checks, and its login is `--api-auth` when set, else the WebUI
-  login on an exposed server. Failed logins (form or Basic) are throttled;
+  login (clients on this machine exempt only with
+  `--api-no-auth-on-localhost`). Failed logins (form or Basic) are throttled;
   cross-site subresource `GET`s are refused (fetch metadata); responses carry
   `nosniff` and `Referrer-Policy`, HTML pages a hash-based CSP
   (`security.md`). Logging out revokes

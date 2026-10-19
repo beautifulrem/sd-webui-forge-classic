@@ -181,6 +181,7 @@ Pass options in `COMMANDLINE_ARGS` (`webui-user.bat`, `webui.settings.sh`) or to
 | `--auth-file PATH` | Read logins in the `--auth` format from a file, one or more per line (formerly `--gradio-auth-path`) |
 | `--api` | Also serve the A1111-compatible `/sdapi/v1` API |
 | `--api-auth user:pass[,…]` | HTTP Basic login for `/sdapi/v1` (and for extension routes from API clients) |
+| `--api-no-auth-on-localhost` | With `--auth` and no `--api-auth`: let API clients on this machine use `/sdapi/v1` and extension API routes without a login (the old WebUI behaviour) |
 | `--nowebui` | API only (`/api/v2`, `/sdapi/v1`, no web interface), default port 7861 |
 | `--cors-allow-origins URLS`, `--cors-allow-origins-regex RE` | Allow browser front-ends on other origins, and extra host names for a loopback-only server |
 | `--enable-insecure-extension-access` | Allow installing and updating extensions from the UI while listening on the network |
@@ -285,12 +286,12 @@ Agent Scheduler, Prompt Queue and Repeat Generate became the core Queue. Built-i
 
 By default the server listens on `127.0.0.1` only.
 
-- **Logins.** `--auth` / `--auth-file` protect everything: the interface, `/api/v2`, files, the WebSocket, `/internal` and the API docs. The browser gets a login page; sessions last 30 days and survive restarts, and logging out revokes them. Scripts can send HTTP Basic credentials instead. Ten failed logins from one client within a minute lock it out for a minute. `/sdapi/v1` uses `--api-auth` when set; without it, the `--auth` login once the server is reachable from other machines.
+- **Logins.** `--auth` / `--auth-file` protect everything: the interface, `/api/v2`, files, the WebSocket, `/internal` and the API docs. The browser gets a login page; sessions last 30 days and survive restarts, and logging out revokes them. Scripts can send HTTP Basic credentials instead. Ten failed logins from one client within a minute lock it out for a minute. `/sdapi/v1` uses `--api-auth` when set; without it, the `--auth` login (HTTP Basic for scripts), also on a loopback-only server, since a reverse proxy or tunnel on the same machine connects from loopback too. Local tools that cannot send credentials can be let in with `--api-no-auth-on-localhost` (requests from this machine that came through no proxy).
 - **Exposing the server.** Use `--listen` (or `--server-name`) together with `--auth`, ideally behind a TLS reverse proxy or with `--tls-keyfile` / `--tls-certfile`. `--share` is not supported. Installing and updating extensions from the UI is disabled while listening on the network unless `--enable-insecure-extension-access` is given; "Show in folder" in the Gallery only works for a browser on the same machine, and `--hide-ui-dir-config` removes every action that opens or reveals folders on the server.
 - **Cross-site requests are refused.** State-changing requests and WebSocket connections from pages on another site are rejected, so a malicious page cannot drive your WebUI. Scripts and API tools send no `Origin` header and are unaffected; browser front-ends on another origin must be allowed with `--cors-allow-origins`.
 - **DNS rebinding is refused.** A loopback-only server answers only to `localhost` / loopback host names (or hosts allowed with `--cors-allow-origins`). A local reverse proxy must pass one of those as `Host`, or allow its public origin.
 - **Files** are served by opaque id only, uploads are type- and size-checked (`remi_upload_max_mb`), and extension HTML, infotext and metadata are rendered as text or sanitized.
-- **Extension routes** (added by extensions to the server) get the same cross-site and host checks; on an exposed server with `--auth` they also require the login or `--api-auth` credentials.
+- **Extension routes** (added by extensions to the server) get the same cross-site and host checks; with `--auth` they also require the login or `--api-auth` credentials (local API clients are exempt only with `--api-no-auth-on-localhost`).
 - **Startup warnings** name risky combinations: reachable without a login, `--cors-allow-origins=*`, insecure extension access, logins without TLS. See [docs/remi-webui/security.md](docs/remi-webui/security.md) for the threat model and a checklist for running exposed.
 - **Outbound requests** happen only for what you use or configure: the extension index on the Extensions page, a translation provider you set up, and model downloads of features that need them on first use (CLIP Modulation, JoyCaption, ControlNet preprocessors, ADetailer).
 

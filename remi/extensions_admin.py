@@ -25,12 +25,14 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import ipaddress
 import json
 import logging
 import os
 import re
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -646,16 +648,66 @@ class _IndexCache:
 _index_cache: _IndexCache | None = None
 
 
-def fetch_index(url: str, *, opener: Callable[..., Any] | None = None) -> dict[str, Any]:
-    """Download and parse an extension index (``{"tags", "extensions"}``)."""
+def host_is_public(host: str | None) -> bool:
+    """Every address ``host`` resolves to (IPv4 and IPv6, mapped IPv4
+    unwrapped) is a global internet address: no loopback, private, link-local
+    or reserved target."""
+
+    if not host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        addresses = {info[4][0].split("%", 1)[0] for info in infos}
+        for address in addresses:
+            ip = ipaddress.ip_address(address)
+            if not (getattr(ip, "ipv4_mapped", None) or ip).is_global:
+                return False
+    except (OSError, UnicodeError, ValueError):
+        return False
+    return bool(addresses)
+
+
+def check_index_url(url: str, *, public: bool) -> None:
+    """An index URL is http(s); with ``public`` (a URL the client named, or
+    a redirect from one) its host must be a public internet address, so the
+    server cannot be made to probe its own network (``WEBUI_EXTENSIONS_INDEX``
+    may name a local index)."""
 
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         raise AdminError("the index URL must be http(s)://")
+    if public and not host_is_public(parsed.hostname):
+        raise AdminError("the index URL must be a public internet address (a local index can be set with WEBUI_EXTENSIONS_INDEX)")
+
+
+class _PublicRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows a redirect only to another public http(s) URL."""
+
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Any:
+        check_index_url(newurl, public=True)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def open_public_url(request: urllib.request.Request, timeout: float) -> Any:
+    """``urlopen`` for client-named URLs: every redirect hop is checked with
+    :func:`check_index_url`. (A DNS answer that changes between the check and
+    the connection is not caught.)"""
+
+    return urllib.request.build_opener(_PublicRedirects).open(request, timeout=timeout)
+
+
+def fetch_index(url: str, *, opener: Callable[..., Any] | None = None, public: bool = True) -> dict[str, Any]:
+    """Download and parse an extension index (``{"tags", "extensions"}``).
+    ``public``: the URL came from the client, so it and every redirect must
+    be public addresses (:func:`check_index_url`)."""
+
+    check_index_url(url, public=public)
     request = urllib.request.Request(url, headers={"User-Agent": "Remi-WebUI", "Accept": "application/json"})
     try:
-        with (opener or urllib.request.urlopen)(request, timeout=INDEX_TIMEOUT) as response:
+        with (opener or (open_public_url if public else urllib.request.urlopen))(request, timeout=INDEX_TIMEOUT) as response:
             text = response.read(INDEX_MAX_BYTES + 1)
+    except AdminError:
+        raise
     except Exception as error:
         raise AdminError("could not load the index: {{reason}}", status=502, reason=error) from error
     if len(text) > INDEX_MAX_BYTES:
@@ -714,7 +766,8 @@ def index_entries(data: dict[str, Any]) -> dict[str, Any]:
 
 def load_index(url: str | None = None, *, refresh: bool = False, opener: Callable[..., Any] | None = None) -> dict[str, Any]:
     """The index at ``url`` (default: ``WEBUI_EXTENSIONS_INDEX`` or the
-    A1111 index), cached for ten minutes."""
+    A1111 index), cached for ten minutes. Another URL the client names must
+    be a public internet address (:func:`check_index_url`)."""
 
     global _index_cache
 
@@ -722,7 +775,7 @@ def load_index(url: str | None = None, *, refresh: bool = False, opener: Callabl
     url = (url or "").strip() or default_index_url()
     cache = _index_cache
     if refresh or cache is None or cache.url != url or time.time() - cache.fetched > INDEX_CACHE_SECONDS:
-        data = fetch_index(url, opener=opener)
+        data = fetch_index(url, opener=opener, public=url != default_index_url())
         cache = _index_cache = _IndexCache(url, time.time(), data)
     return {"url": url, "fetched_at": iso(cache.fetched), **index_entries(cache.data)}
 

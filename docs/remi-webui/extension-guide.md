@@ -289,6 +289,29 @@ def refresh_models(self, ctx: ui.ActionContext, values: dict) -> dict:
   images and paths). `ctx.core` is the generation form, `ctx.scripts` the
   other scripts' values by id, `ctx.tab` the form (`txt2img`, `img2img`,
   `extras`, `page:<id>`), `ctx.user` the logged-in user.
+- **Files** (`ctx.files`, a `ui.ActionFiles` the server fills): uploads and
+  generated outputs by their opaque id, the only way an action reads or
+  makes files. `ctx.files.image(id)` (PIL image, or `None` when missing or
+  not an image), `ctx.files.image_size(id)` (`(w, h)` as indexed, no
+  decoding), `ctx.files.get(id)` (record: `name`, `path`, `mime`, `size`,
+  `width`, `height`, `infotext`, `is_image`), `ctx.files.path(id)`,
+  `ctx.files.store_image(image, "name.png")` and
+  `ctx.files.store_bytes(data, name)` (both return the new id, which image
+  inputs and `image` outputs accept). Network previews are not readable this
+  way. Never import `remi.server` or reach `ctx.request.app.state`: a test
+  (`tests/test_remi_layers.py`) refuses it. In unit tests pass
+  `ui.ActionContext(..., files=ui.ActionFiles(store))` around a
+  `remi.files.FileStore` (or a stand-in with `get`, `add_upload_bytes` and
+  `resolve_upload`).
+
+  ```python
+  @ui.action
+  def detect_size(self, ctx, values):
+      size = ctx.files.image_size(ctx.core.get("init_img"))
+      if size is None:
+          return ui.toast("Add a source image to read its size", "warning")
+      return {"tile_width": ui.update(value=size[0]), "tile_height": ui.update(value=size[1])}
+  ```
 - A patch entry is `{param: {"value"?, "choices"?, "visible"?, "enabled"?,
   "label"?, "info"?, "minimum"?, "maximum"?, "step"?}}`; `"owner.param"`
   patches another owner (`"core.width"`). Special keys: `__toast__` (use
@@ -309,7 +332,9 @@ def refresh_models(self, ctx: ui.ActionContext, values: dict) -> dict:
   expected problems.
 
 Built-in examples: `sd_forge_multidiffusion` (`detect_size`: reads the
-img2img source image size from `ctx.core`), `sd_forge_spectrum` (preset
+img2img source image size through `ctx.files`), `sd_forge_controlnet`
+(preprocessor previews stored with `ctx.files.store_image`),
+`sd-postprocess-suite` (LUT uploads read by path), `sd_forge_spectrum` (preset
 save / load / delete), `sd-forge-anima-resolutions` (choices refreshed from
 history).
 
@@ -720,16 +745,16 @@ Checklist for a port:
 | Gradio (`import gradio`, `ui()`, `gr.*` components, `gr.Blocks` tabs) | Gradio is not installed; the UI is a separate React app | `params()`, actions, pages |
 | `javascript/*.js` and `style.css` of extensions, `on_before_component` / `on_after_component`, DOM ids (`elem_id`, `gradioApp().querySelector`) | there is no server-rendered DOM to patch, and the SPA's DOM is not an API (it changes between releases and is virtualized) | conditions and patches for behaviour, actions for logic, widgets for new controls, pages for whole views |
 | arbitrary HTML/JS in the page (`gr.HTML` with `<script>`, inline handlers) | the SPA sanitizes all HTML (XSS protection) | `ui.Html` for static markup, a widget for interactive parts |
-| `/file=` URLs for files on disk | files are served by opaque id only | store the image (`remi.pages.file_store(ctx).add_upload_bytes(data, name)`) and return its id in `__outputs__`; an `image` output or `Gallery` also accepts `data:` URLs |
+| `/file=` URLs for files on disk | files are served by opaque id only | store the image (`ctx.files.store_image(image, name)` or `ctx.files.store_bytes(data, name)`) and return its id in `__outputs__`; an `image` output or `Gallery` also accepts `data:` URLs |
 | `gr.State` holding Python objects | values are JSON (they travel through the API, drafts and the queue database) | keep objects on the server (module state keyed by user / id) and pass ids |
 | `user.js` | no script injection | `user.css` in the data folder is still applied |
 
 **Extension HTTP routes** added in `on_app_started` keep working. They are
 wrapped by `modules/extension_route_guard.py`: cross-site browser writes and
-DNS-rebinding hosts are always refused. When the WebUI has logins (`--auth`)
-and is reachable beyond the machine (`--listen`, a non-loopback
-`--server-name`, `--share`, `--ngrok`), the routes also need the WebUI login
-or `--api-auth` HTTP Basic credentials; under `--nowebui` they need
+DNS-rebinding hosts are always refused. When the WebUI has logins (`--auth`
+/ `--auth-file`), on any bind, the routes also need the WebUI login (session
+cookie or HTTP Basic) or `--api-auth` HTTP Basic credentials (API clients on
+the same machine are exempt only with `--api-no-auth-on-localhost`); under `--nowebui` they need
 `--api-auth` credentials whenever it is set. A route can read the logged-in
 user through `app.auth_dependency`.
 

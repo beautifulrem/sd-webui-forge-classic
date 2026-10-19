@@ -182,8 +182,7 @@ def _scan_images(folder: str, recursive: bool) -> list[Path]:
 def _image_prompt(ctx, file_id) -> str:
     """The positive prompt recorded in an uploaded / generated image (WebUI
     PNG info, EXIF or stealth info), or ""."""
-    store = pages.file_store(ctx)
-    record = store.get(file_id) if store is not None and isinstance(file_id, str) and file_id else None
+    record = ctx.files.get(file_id) if ctx.files is not None else None
     if record is None or not record.is_image:
         return ""
     try:

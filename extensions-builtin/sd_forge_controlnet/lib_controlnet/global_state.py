@@ -4,7 +4,7 @@ from collections import OrderedDict
 from functools import lru_cache
 
 from modules import shared
-from modules_forge.shared import controlnet_dir, supported_preprocessors
+from modules_forge.shared import controlnet_dir, supported_preprocessors  # noqa: F401 - controlnet_dir: upstream module attribute other extensions may import
 
 CNET_MODEL_EXTS = {".pt", ".pth", ".ckpt", ".safetensors", ".bin"}
 

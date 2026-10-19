@@ -6,7 +6,7 @@
  */
 import { Dialog } from "@base-ui/react/dialog"
 import { ChevronLeft, ChevronRight, Grid2x2, Maximize, Minimize, X } from "lucide-react"
-import { type ReactNode, useEffect, useRef, useState } from "react"
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useClientOption } from "@/api/app-options"
 import { api } from "@/api/endpoints"
@@ -53,6 +53,10 @@ export function Lightbox({ open, onOpenChange, items, current, onNavigate, live,
   const zoomedByDefault = useClientOption("js_modal_lightbox_initially_zoomed")
   const gamepad = useClientOption("js_modal_lightbox_gamepad")
   const gamepadRepeat = useClientOption("js_modal_lightbox_gamepad_repeat")
+  // Opacity of the toolbar and the ← / → buttons until the mouse is over them (or they hold the focus).
+  const toolbarOpacity = useClientOption("sd_webui_modal_lightbox_toolbar_opacity")
+  const iconOpacity = useClientOption("sd_webui_modal_lightbox_icon_opacity")
+  const dim = (opacity: number) => ({ "--lightbox-dim": String(Math.min(1, Math.max(0, opacity))) }) as CSSProperties
   const [viewport, setViewport] = useState<HTMLDivElement | null>(null)
   const viewportSize = useViewportSize(viewport)
   const [natural, setNatural] = useState<Size | null>(null)
@@ -137,7 +141,10 @@ export function Lightbox({ open, onOpenChange, items, current, onNavigate, live,
           className="fixed inset-0 z-50 flex flex-col text-white outline-none duration-150 data-closed:animate-out data-closed:fade-out-0 data-open:animate-in data-open:fade-in-0"
         >
           <Dialog.Title className="sr-only">{t("Image viewer")}</Dialog.Title>
-          <div className="flex h-12 shrink-0 items-center gap-2 bg-gradient-to-b from-black/60 to-transparent px-3">
+          <div
+            style={dim(toolbarOpacity)}
+            className="flex h-12 shrink-0 items-center gap-2 bg-gradient-to-b from-black/60 to-transparent px-3 opacity-(--lightbox-dim) transition-opacity focus-within:opacity-100 hover:opacity-100"
+          >
             <span className="text-sm text-white/75 tabular-nums" aria-live="polite">
               {live ? t("Live preview") : items.length > 0 ? t("{{index}} of {{count}}", { index: index + 1, count: items.length }) : ""}
             </span>
@@ -242,7 +249,8 @@ export function Lightbox({ open, onOpenChange, items, current, onNavigate, live,
                   aria-keyshortcuts="ArrowLeft"
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => go(-1)}
-                  className="absolute top-1/2 left-2 -translate-y-1/2 rounded-full bg-black/35 text-white hover:bg-black/55 hover:text-white"
+                  style={dim(iconOpacity)}
+                  className="absolute top-1/2 left-2 -translate-y-1/2 rounded-full bg-black/35 text-white opacity-(--lightbox-dim) transition-opacity hover:bg-black/55 hover:text-white hover:opacity-100 focus-visible:opacity-100"
                 >
                   <ChevronLeft />
                 </Button>
@@ -253,7 +261,8 @@ export function Lightbox({ open, onOpenChange, items, current, onNavigate, live,
                   aria-keyshortcuts="ArrowRight"
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => go(1)}
-                  className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full bg-black/35 text-white hover:bg-black/55 hover:text-white"
+                  style={dim(iconOpacity)}
+                  className="absolute top-1/2 right-2 -translate-y-1/2 rounded-full bg-black/35 text-white opacity-(--lightbox-dim) transition-opacity hover:bg-black/55 hover:text-white hover:opacity-100 focus-visible:opacity-100"
                 >
                   <ChevronRight />
                 </Button>

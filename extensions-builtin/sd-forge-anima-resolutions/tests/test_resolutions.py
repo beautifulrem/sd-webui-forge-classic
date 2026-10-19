@@ -155,12 +155,11 @@ def test_the_infotext_size_wins_over_the_image_size():
 
 
 def test_the_source_is_read_from_the_file_store():
-    record = SimpleNamespace(is_image=True, infotext="p\nSteps: 20, Size: 1216x832", width=2432, height=1664, path="unused")
-    files = SimpleNamespace(get=lambda upload_id: record if upload_id == "out-1" else None)
-    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(services=SimpleNamespace(files=files))))
+    record = SimpleNamespace(kind="output", is_image=True, infotext="p\nSteps: 20, Size: 1216x832", width=2432, height=1664, path="unused")
+    store = SimpleNamespace(get=lambda upload_id: record if upload_id == "out-1" else None)
     from remi import ui
 
-    ctx = ui.ActionContext(tab="img2img", owner="x", core={"init_img": "out-1"}, request=request)
+    ctx = ui.ActionContext(tab="img2img", owner="x", core={"init_img": "out-1"}, files=ui.ActionFiles(store))
     assert res.source_size(ctx) == (1216, 832)
     record.infotext = None
     record.path = str(ROOT / "missing.png")  # unreadable: the image size

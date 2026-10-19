@@ -24,6 +24,7 @@ restricted_opts = {
     "outdir_save",
     "outdir_txt2img_grids",
     "outdir_txt2img_samples",
+    "queue_completion_action",
     "samples_filename_pattern",
     "temp_dir",
 }
@@ -68,7 +69,6 @@ options_templates.update(
             "target_side_length": OptionInfo(4096, "Width/Height limit for the above option", ui.Number).info("in pixels"),
             "img_max_size_mp": OptionInfo(100, "Maximum Grid Size", ui.Number).info("in megapixels; only affect <b>X/Y/Z Plot</b>"),
             "use_original_name_batch": OptionInfo(True, "During batch process in Extras tab, use the input filename for output filename"),
-            "save_selected_only": OptionInfo(True, 'When using the "Save" button, only save the selected image'),
             "save_write_log_csv": OptionInfo(True, 'Write the generation parameters to a log.csv when saving images using the "Save" button'),
             "temp_dir": OptionInfo(util.truncate_path(os.path.join(data_path, "tmp")), "Directory for temporary images; leave empty to use the system TEMP folder").info("only used for intermediate/interrupted images"),
             "clean_temp_dir_at_start": OptionInfo(True, "Clean up the temporary directory above when starting webui").info("only when the directory is not the system TEMP"),
@@ -175,9 +175,6 @@ options_templates.update(
             "list_hidden_files": OptionInfo(True, "List the models/files under hidden directories").info('directory is hidden if its name starts with "."'),
             "dump_stacks_on_signal": OptionInfo(False, "Print the stack trace before terminating the webui via Ctrl + C"),
             "confirm_leave": OptionInfo(False, "Show a browser confirmation before leaving the page"),
-            "no_spellcheck": OptionInfo(False, "Disable auto-correct / spellcheck for prompt fields").needs_reload_ui(),
-            "keep_alive": OptionInfo(False, "Keep generating even when the WebUI browser tab is not in focus").info('for "Generate forever"').needs_reload_ui(),
-            "undo_redo": OptionInfo(False, "Enable undo / redo history for prompt fields").needs_reload_ui(),
         },
     )
 )
@@ -214,13 +211,27 @@ options_templates.update(
     )
 )
 
+# The Queue page's settings keep the Agent Scheduler's keys, so saved values carry over (remi/jobs/queue.py).
+options_templates.update(
+    options_section(
+        ("queue", "Queue", "system"),
+        {
+            "queue_history_retention_days": OptionInfo("Keep forever", "Delete finished jobs from the history after", ui.Choice, {"choices": ("1 day", "3 days", "7 days", "14 days", "30 days", "90 days", "Keep forever")}).info("starred jobs are kept; their images stay in the gallery"),
+            "queue_automatic_requeue_failed_task": OptionInfo(False, "Queue failed jobs again").info("at the end of the queue, up to 3 attempts in all; cancelled and interrupted jobs are not retried"),
+            "queue_completion_action": OptionInfo("Do nothing", "When the queue is done", ui.Choice, {"choices": (("Do nothing", "Do nothing"), ("Stop the WebUI", "Stop webui"), ("Sleep", "Sleep"), ("Hibernate", "Hibernate"), ("Restart the computer", "Restart"), ("Shut down the computer", "Shut down"))}, restrict_api=True).info(
+                "once, after the last queued job finished (then it is \"Do nothing\" again); Sleep, Hibernate, Restart and Shut down act on this computer"
+            ),
+        },
+    )
+)
+
 options_templates.update(
     options_section(
         ("sd", "Stable Diffusion", "sd"),
         {
             "sd_model_checkpoint": OptionInfo("", "(Managed by Forge)", ui.State, infotext="Model"),
             "sd_unet": OptionInfo("Automatic", "SD UNet", ui.Choice, lambda: {"choices": shared_items.sd_unet_items()}, refresh=shared_items.refresh_unet_list),
-            "emphasis": OptionInfo("Original", "Emphasis Mode", ui.Choice, lambda: {"style": "radio", "choices": [x.name for x in sd_emphasis.options]}, infotext="Emphasis").info("pay (more:1.1) or (less:0.9) attention to prompts").html(sd_emphasis.get_options_descriptions()),
+            "emphasis": OptionInfo("Original", "Emphasis Mode", ui.Choice, lambda: {"style": "radio", "choices": [x.name for x in sd_emphasis.options]}, infotext="Emphasis").info("pay (more:1.1) or (less:0.9) attention to prompts").info(*sd_emphasis.get_options_descriptions()),
             "scaling_factor": OptionInfo(1.0, "Epsilon Scaling", ui.Slider, {"minimum": 1.0, "maximum": 1.05, "step": 0.005}, infotext="eps_scaling_factor").info("1.0 = disabled; higher = more detail").link("PR", "https://github.com/comfyanonymous/ComfyUI/pull/10132"),
             "CLIP_stop_at_last_layers": OptionInfo(2, "Clip Skip", ui.Slider, {"minimum": 1, "maximum": 12, "step": 1}, infotext="Clip skip").link("wiki", "https://github.com/AUTOMATIC1111/stable-diffusion-webui/wiki/Features#clip-skip").info("1 = disable, 2 = skip one layer, etc."),
             "comma_padding_backtrack": OptionInfo(16, "Token Wrap Length", ui.Slider, {"minimum": 0, "maximum": 74, "step": 1}).info("for prompts shorter than the threshold, move them to the next chunk of 75 tokens if they do not fit inside the current chunk"),
@@ -300,11 +311,6 @@ options_templates.update(
             "img2img_color_correction": OptionInfo(False, "Apply color correction to img2img results to match original colors"),
             "img2img_fix_steps": OptionInfo(False, "During img2img, do exactly the number of Steps the slider specifies").info("otherwise, only process <b>Sampling steps</b> x <b>Denoising strength</b> steps"),
             "img2img_background_color": OptionInfo("#808080", "For img2img, fill the transparent parts of the input image with this color", ui.Color, {}),
-            "img2img_sketch_default_brush_color": OptionInfo("#ff0000", "Initial Brush Color for Sketch", ui.Color, {}).needs_reload_ui(),
-            "img2img_inpaint_mask_brush_color": OptionInfo("#808080", "Brush Color for Inpaint Mask", ui.Color, {}).needs_reload_ui(),
-            "img2img_inpaint_sketch_default_brush_color": OptionInfo("#ff0000", "Initial Brush Color for Inpaint Sketch", ui.Color, {}).needs_reload_ui(),
-            "img2img_inpaint_mask_high_contrast": OptionInfo(True, "Use high-contrast brush for inpainting").info("use a checkerboard pattern instead of a solid color").needs_reload_ui(),
-            "img2img_inpaint_mask_scribble_alpha": OptionInfo(75, "Inpaint mask alpha (transparency)", ui.Slider, {"minimum": 0, "maximum": 100, "step": 1}).info("only affects solid color brush").needs_reload_ui(),
             "return_mask": OptionInfo(False, "For inpainting, append the greyscale mask to results"),
             "return_mask_composite": OptionInfo(False, "For inpainting, append the masked composite to results"),
             "img2img_batch_show_results_limit": OptionInfo(32, "Show the first N batch of img2img results in UI", ui.Slider, {"minimum": -1, "maximum": 256, "step": 1}).info("0 = disable; -1 = show all; too many images causes severe lag"),
@@ -320,7 +326,6 @@ options_templates.update(
     options_section(
         ("optimizations", "Optimizations", "sd"),
         {
-            "cross_attention_optimization": OptionInfo("Automatic", "Cross Attention Optimization", ui.Choice, {"choices": ("Automatic",), "interactive": False}),
             "batch_cond_uncond": OptionInfo(True, "Batch Cond/Uncond").info("do both positive and negative denoising in the same batch ; increase speed & VRAM usage").info("less effective on macOS"),
             "persistent_cond_cache": OptionInfo(True, "Persistent Cond Cache").info("do not re-encode prompts if only the Seed changes ; <b>Note:</b> may cause certain Infotext to be missing"),
             "skip_early_cond": OptionInfo(0.0, "Ignore Negative Prompt during Early Steps", ui.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.05}, infotext="Skip Early CFG").info("in percentage of total steps; 0 = disable; higher = faster"),
@@ -347,24 +352,14 @@ options_templates.update(
     options_section(
         ("extra_networks", "Extra Networks", "sd"),
         {
-            "extra_networks_tree_view_style": OptionInfo("Dirs", "Extra Networks UI Style", ui.Choice, {"style": "radio", "choices": ("Tree", "Dirs")}).needs_reload_ui(),
             "extra_networks_hidden_models": OptionInfo("When searched", "Show the Extra Networks in hidden directories", ui.Choice, {"style": "radio", "choices": ("Always", "When searched", "Never")}).info('"When searched" option will only show the item when the search string contains 4 characters or more'),
             "extra_networks_default_multiplier": OptionInfo(1.0, "Default Weight for Extra Networks", ui.Slider, {"minimum": 0.0, "maximum": 2.0, "step": 0.05}),
-            "extra_networks_card_width": OptionInfo(0, "Card Width for Extra Networks").info("in pixels; 0 = auto"),
-            "extra_networks_card_height": OptionInfo(0, "Card Height for Extra Networks").info("in pixels; 0 = auto"),
-            "extra_networks_card_text_scale": OptionInfo(1.0, "Card Text Scale", ui.Slider, {"minimum": 0.0, "maximum": 2.0, "step": 0.05}).info("1 = original size"),
-            "extra_networks_card_show_desc": OptionInfo(True, "Show description on cards"),
-            "extra_networks_card_description_is_html": OptionInfo(False, "Treat description as raw HTML"),
             "extra_networks_card_order_field": OptionInfo("Path", "Default sorting method for Extra Networks cards", ui.Choice, {"choices": ("Path", "Name", "Date Created", "Date Modified")}).needs_reload_ui(),
             "extra_networks_card_order": OptionInfo("Ascending", "Default sorting order for Extra Networks cards", ui.Choice, {"style": "radio", "choices": ("Ascending", "Descending")}).needs_reload_ui(),
             "extra_networks_add_text_separator": OptionInfo(" ", "Extra Networks Separator").info("additional text to insert before the Extra Networks syntax"),
             "ui_extra_networks_tab_reorder": OptionInfo("", "Extra Networks Tab Order").info('tab names separated by "," character; empty = default').needs_reload_ui(),
-            "extra_tree_div": OptionDiv(),
-            "extra_networks_tree_view_default_enabled": OptionInfo(True, "Show the Extra Networks Tree view by default").needs_reload_ui(),
-            "extra_networks_tree_view_default_width": OptionInfo(180, "Default Width for the Tree view", ui.Number).needs_reload_ui(),
             "extra_dirs_div": OptionDiv(),
             "extra_networks_show_hidden_directories": OptionInfo(True, "Show Dir buttons of hidden directories").info('directory is hidden if its name starts with "."'),
-            "extra_networks_dir_button_function": OptionInfo(False, 'Add a "/" to the Dir buttons').info("buttons will only display the contents of the directory, without acting as a search filter"),
         },
     )
 )
@@ -389,7 +384,6 @@ options_templates.update(
             "keyedit_delimiters": OptionInfo(r".,\/!?%^*;:{}=`~() ", "RegEx Delimiters when editing the prompt with Ctrl + Up/Down"),
             "keyedit_delimiters_whitespace": OptionInfo(["Tab", "Carriage Return", "Line Feed"], "Whitespace Delimiters when editing the prompt with Ctrl + Up/Down", ui.MultiChoice, {"style": "checkboxes", "choices": ("Tab", "Carriage Return", "Line Feed")}),
             "keyedit_move": OptionInfo(True, "Alt + Left/Right moves prompt chunks"),
-            "prompt_debounce": OptionInfo(0, "Delay before a prompt edit reaches extensions", ui.Slider, {"minimum": 0, "maximum": 500, "step": 50}).info("in ms ; for extensions that react to the prompt inputs; the Remi editor itself is not delayed").needs_reload_ui(),
             "disable_token_counters": OptionInfo(False, "Disable Token Counter"),
             "include_styles_into_token_counters": OptionInfo(True, "Include enabled Styles in Token Count"),
         },
@@ -400,8 +394,6 @@ options_templates.update(
     options_section(
         ("ui_gallery", "Gallery", "ui"),
         {
-            "do_not_show_images": OptionInfo(False, "Do not show any image in gallery"),
-            "gallery_height": OptionInfo("", "Gallery Height", ui.Text).info("in CSS value; <b>e.g.</b> 768px or 20em").needs_reload_ui(),
             "return_grid": OptionInfo(True, "Show Grids in gallery").info("<b>e.g.</b> for <b>X/Y/Z Plot</b>"),
             "js_modal_lightbox": OptionInfo(True, 'Enable "Lightbox"').info("Full Page Image Viewer"),
             "js_modal_lightbox_initially_zoomed": OptionInfo(True, "[Lightbox]: show images zoomed in by default"),
@@ -409,7 +401,6 @@ options_templates.update(
             "js_modal_lightbox_gamepad_repeat": OptionInfo(250, "[Lightbox]: gamepad repeat period").info("in ms"),
             "sd_webui_modal_lightbox_icon_opacity": OptionInfo(1.0, "[Lightbox]: control icon unfocused opacity", ui.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.05}).info("for mouse only"),
             "sd_webui_modal_lightbox_toolbar_opacity": OptionInfo(0.9, "[Lightbox]: tool bar opacity", ui.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.05}).info("for mouse only"),
-            "open_dir_button_choice": OptionInfo("Subdirectory", "What directory the [📂] button opens", ui.Choice, {"style": "radio", "choices": ("Output Root", "Subdirectory", "Subdirectory (even temp dir)")}),
         },
     )
 )
@@ -422,27 +413,13 @@ options_templates.update(
             "show_mahiro": OptionInfo(False, "Display the MaHiRo Toggle").info('see <a href="https://huggingface.co/spaces/yoinked/blue-arxiv">blue-arxiv</a> - <b>id:</b> <ins>2024-1208.1</ins>').needs_reload_ui(),
             "paste_safe_guard": OptionInfo(False, 'Disable the "Read generation parameters" button (↙️) when negative prompt is not empty'),
             "ctrl_enter_interrupt": OptionInfo(False, "Revert [Ctrl + Enter] to only interrupt the generation").info('the current "intended" behavior is to interrupt the current generation then immediately start a new one'),
-            "quicksettings_accordion": OptionInfo(False, "Place the Quicksettings under an Accordion").needs_reload_ui(),
-            "quicksettings_accordion_starts_closed": OptionInfo(False, "Close the Accordion on startup").info("for the above option").needs_reload_ui(),
-            "remove_image_on_hover": OptionInfo(True, "For image inputs in Extras and PNG Info, remove the current image when dragging another image over it").info("allow you to drag-and-drop images onto the input similar to AUTOMATIC1111 behavior").needs_reload_ui(),
             "forbidden_knowledge": OptionInfo(False, "Forbidden Knowledge").info('replace "<b>DPM++ 2s a RF</b>" with "<b>Flux Realistic</b>"').needs_restart(),
-            "div_prompt": OptionDiv(),
-            "prompt_box_style": OptionInfo("Default", "Prompt Layout", ui.Choice, {"style": "radio", "choices": ("Default", "Compact", "Scrollable", "Accordion")}).html("""
-<ul style='margin-left: 1.5em'>
-<li><b>Default:</b> the original Automatic1111 layout</li>
-<li><b>Compact:</b> put Prompts inside the Generate tab, leaving more space for the Gallery</li>
-<li><b>Scrollable:</b> put Prompts inside fixed-height containers with a scrollbar</li>
-<li><b>Accordion:</b> put Prompts inside an accordion that can be collapsed</li>
-</ul>
-                """).needs_reload_ui(),
             "div_classic": OptionDiv(),
             "dimensions_and_batch_together": OptionInfo(True, "Show Width/Height and Batch sliders in same row").needs_reload_ui(),
             "sd_checkpoint_dropdown_use_short": OptionInfo(False, "Show filenames without folder in the Checkpoint dropdown").info("if disabled, models under subdirectories will be listed like sdxl/anime.safetensors").needs_reload_ui(),
             "sd_modules_dropdown_use_short": OptionInfo(True, "Show filenames without folder in the VAE / Text Encoder dropdown").info("if disabled, modules under subdirectories will be listed like sdxl/clip-l-anime.safetensors").needs_reload_ui(),
             "hires_fix_show_sampler": OptionInfo(False, "[Hires. fix]: Show checkpoint, sampler, scheduler, and cfg options").needs_reload_ui(),
             "hires_fix_show_prompts": OptionInfo(False, "[Hires. fix]: Show prompt and negative prompt textboxes").needs_reload_ui(),
-            "txt2img_settings_accordion": OptionInfo(False, "Put txt2img parameters under Accordion").needs_reload_ui(),
-            "img2img_settings_accordion": OptionInfo(False, "Put img2img parameters under Accordion").needs_reload_ui(),
             "interrupt_after_current": OptionInfo(False, "Don't Interrupt in the middle").info("when using the Interrupt button, if generating more than one image, stop after the current generation of an image has finished instead of immediately"),
         },
     )
@@ -461,8 +438,7 @@ options_templates.update(
             "send_seed": OptionInfo(True, 'Send the Seed information when using the "Send to" buttons'),
             "send_cfg": OptionInfo(True, 'Send the CFG information when using the "Send to" buttons'),
             "send_size": OptionInfo(True, 'Send the Resolution information when using the "Send to" buttons'),
-            "send_image_info_not_ui": OptionInfo(False, 'Send the Parameters in the infotext instead of the UI fields when using the "Send to" buttons').info("<b>e.g.</b> send the result of Wildcards instead of the syntax").needs_reload_ui(),
-            "allow_i2i_send_info": OptionInfo(False, 'Send the Parameters too when using the "Send to" buttons in img2img tab').info("otherwise only the image is sent").needs_reload_ui(),
+            "allow_i2i_send_info": OptionInfo(False, 'Send the Parameters too when using the "Send to" buttons in img2img tab').info("otherwise only the image is sent"),
         },
     )
 )
@@ -482,14 +458,12 @@ options_templates.update(
             "disable_modules_auto_swap": OptionInfo(True, "Ignore the VAE / Text Encoder when reading infotext"),
             "strip_whitespaces": OptionInfo(True, "Remove leading and trailing whitespaces from the prompts"),
             "infotext_skip_pasting": OptionInfo([], "Ignore fields when reading infotext", ui.MultiChoice, lambda: {"choices": shared_items.get_infotext_names()}),
-            "infotext_styles": OptionInfo("Apply if any", "Infer Styles when reading infotext", ui.Choice, {"style": "radio", "choices": ("Ignore", "Apply", "Apply if any", "Discard")}).html("""
-<ul style='margin-left: 1.5em'>
-<li><b>Ignore:</b> keep prompt and styles dropdown as it is</li>
-<li><b>Apply:</b> remove style text from prompt; always replace styles dropdown value with found styles (even if none was found)</li>
-<li><b>Apply if any:</b> remove style text from prompt; if any styles are found in prompt, put them into styles dropdown, otherwise keep it as it is</li>
-<li><b>Discard:</b> remove style text from prompt, keep styles dropdown as it is</li>
-</ul>
-                """),
+            "infotext_styles": OptionInfo("Apply if any", "Infer Styles when reading infotext", ui.Choice, {"style": "radio", "choices": ("Ignore", "Apply", "Apply if any", "Discard")}).info(
+                "Ignore: keep prompt and styles dropdown as it is",
+                "Apply: remove style text from prompt; always replace styles dropdown value with found styles (even if none was found)",
+                "Apply if any: remove style text from prompt; if any styles are found in prompt, put them into styles dropdown, otherwise keep it as it is",
+                "Discard: remove style text from prompt, keep styles dropdown as it is",
+            ),
         },
     )
 )
@@ -512,7 +486,6 @@ options_templates.update(
             "live_preview_fast_interrupt": OptionInfo(False, "Return image with the selected preview method on interruption").info("speed up interruption"),
             "js_live_preview_in_modal_lightbox": OptionInfo(False, "Show the live previews in full page image viewer"),
             "show_progress_every_n_steps": OptionInfo(1, "Generate live preview every N step", ui.Slider, {"minimum": -1, "maximum": 32, "step": 1}).info("-1 = only after completion of a batch"),
-            "live_preview_refresh_period": OptionInfo(500, "Progress Bar and Preview update interval").info("in ms"),
             "prevent_screen_sleep_during_generation": OptionInfo(True, "Force the screen to stay awake during generation"),
         },
     )
@@ -563,7 +536,7 @@ options_templates.update(
     options_section(
         ("postprocessing", "Postprocessing", "postprocessing"),
         {
-            "postprocessing_enable_in_main_ui": OptionInfo([], "Enable Postprocessing operations in txt2img and img2img", ui.MultiChoice, lambda: {"choices": [x.name for x in shared_items.postprocessing_scripts()]}),
+            "postprocessing_enable_in_main_ui": OptionInfo([], "Enable Postprocessing operations in txt2img and img2img", ui.MultiChoice, lambda: {"choices": [x.name for x in shared_items.postprocessing_scripts()]}).needs_reload_ui(),
             "postprocessing_disable_in_extras": OptionInfo([], "Disable Postprocessing operations in Extras tab", ui.MultiChoice, lambda: {"choices": [x.name for x in shared_items.postprocessing_scripts()]}),
             "postprocessing_operation_order": OptionInfo([], "Order of Postprocessing operations", ui.MultiChoice, lambda: {"choices": [x.name for x in shared_items.postprocessing_scripts()]}),
         },

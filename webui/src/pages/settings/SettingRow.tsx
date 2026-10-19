@@ -23,7 +23,7 @@ import { safeUrl } from "@/ui/rich-text"
 import type { SettingNode } from "@/ui/schema"
 import { serverStatusQuery } from "./queries"
 import { setSettingsMode } from "./settings-filters"
-import { type SettingItem, translateHtml } from "./settings-model"
+import type { SettingItem } from "./settings-model"
 import { discardChanges, SETTINGS_FORM, SETTINGS_OWNER, settingsForm, useSettingsEditor } from "./settings-store"
 
 
@@ -99,7 +99,7 @@ function SettingHelp({ node }: { node: SettingNode }) {
       {node.locked ? <LockedNote reason={node.locked} /> : null}
       {node.notes?.map((note, index) => <p key={index}>{t(note)}</p>)}
       {quick ? <QuickSettingsHint /> : null}
-      {node.html ? <SafeHtml html={translateHtml(node.html, t)} className="[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:decoration-2" /> : null}
+      {node.html ? <SafeHtml html={t(node.html)} className="[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:decoration-2" /> : null}
       {(node.links?.length ?? 0) > 0 || badges.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
           {badges.map((badge) => (

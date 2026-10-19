@@ -101,15 +101,15 @@ export function deliver(tab: FormTab, entries: readonly PasteEntry[], filter: Pa
 
 export type SendItem = { fileId?: string | null; infotext?: string | null }
 
-/** The `send_seed` / `send_size` settings as a paste filter. */
+/** The `send_seed` / `send_size` / `send_cfg` settings as a paste filter. */
 export function sendFilter(): PasteFilter {
-  return { seed: clientOption("send_seed"), size: clientOption("send_size") }
+  return { seed: clientOption("send_seed"), size: clientOption("send_size"), cfg: clientOption("send_cfg") }
 }
 
 /**
  * Sends a result to a form: its image (output file ids are valid image
  * inputs) and, for the generation forms, its parameters (`send_seed` /
- * `send_size` respected).
+ * `send_size` / `send_cfg` respected).
  */
 export async function sendTo(target: SendTarget, item: SendItem, filter: PasteFilter = sendFilter()): Promise<number> {
   const tab = formOf(target)

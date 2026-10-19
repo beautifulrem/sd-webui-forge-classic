@@ -21,12 +21,14 @@ import os
 import re
 import sys
 import threading
+import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
 from remi.core import JobContext
 from remi.files import FileStore
+from remi.jobs import completion
 from remi.jobs.runner import Executor, JobResult, run_job, run_on_main_thread
 from remi.jobs.store import CANCELLED, COMPLETED, FAILED, INTERRUPTED, QUEUED, RUNNING, Job, JobStore
 from remi.realtime import EventBus, JobRef
@@ -40,6 +42,13 @@ Dispatch = Callable[..., Any]
 Validator = Callable[[str, Any, Any], None]
 
 MAX_WARNINGS = 5
+
+RETENTION_DAYS = {"1 day": 1, "3 days": 3, "7 days": 7, "14 days": 14, "30 days": 30, "90 days": 90, "Keep forever": 0}
+"""``queue_history_retention_days`` (the Agent Scheduler's choices)"""
+RETENTION_INTERVAL = 3600.0
+"""seconds between two history clean-ups"""
+MAX_ATTEMPTS = 3
+"""runs of a failed job, in all, with ``queue_automatic_requeue_failed_task``"""
 _SCRIPT_ERROR = re.compile(r"^Error running (\w+): (.+)$")
 
 
@@ -96,6 +105,41 @@ def _state() -> Any:
     from modules import shared
 
     return shared.state
+
+
+def _interrupt_after_current() -> bool:
+    """The setting "Don't Interrupt in the middle" (``interrupt_after_current``)."""
+
+    opts = getattr(sys.modules.get("modules.shared"), "opts", None)
+    try:
+        return bool(opts is not None and opts.interrupt_after_current)
+    except AttributeError:
+        return False
+
+
+def _option(name: str, default: Any) -> Any:
+    """A setting (``default`` without the WebUI or when unset)."""
+
+    opts = getattr(sys.modules.get("modules.shared"), "opts", None)
+    try:
+        value = getattr(opts, name) if opts is not None else None
+    except AttributeError:
+        value = None
+    return default if value is None else value
+
+
+def _set_option(name: str, value: Any) -> None:
+    """Changes and saves a setting (left as it is when settings are frozen)."""
+
+    shared = sys.modules.get("modules.shared")
+    opts = getattr(shared, "opts", None)
+    if opts is None:
+        return
+    try:
+        opts.set(name, value)
+        opts.save(shared.config_filename)
+    except Exception:
+        log.warning("could not reset the setting %s", name, exc_info=True)
 
 
 def _lock() -> Any:
@@ -155,6 +199,9 @@ class JobQueue:
         validate: Validator | None = None,
         state: Callable[[], Any] = _state,
         hash_layout: Callable[[str], str] = layout_hash,
+        option: Callable[[str, Any], Any] = _option,
+        set_option: Callable[[str, Any], None] = _set_option,
+        when_done: Callable[[str], None] = completion.perform_later,
     ) -> None:
         self.store, self.files, self.bus = store, files, bus
         self.executor, self.dispatch = executor, dispatch
@@ -162,6 +209,8 @@ class JobQueue:
         self.validate = validate if validate is not None else validate_values(files)
         self.state = state
         self.hash_layout = hash_layout
+        self.option, self.set_option, self.when_done = option, set_option, when_done
+        self._retention_checked = 0.0
         self._cv = threading.Condition()
         self._claimed: Job | None = None
         """taken from the queue (maybe still waiting for the lock)"""
@@ -170,6 +219,8 @@ class JobQueue:
         self._begun = False
         """``shared.state.begin()`` ran for the current job"""
         self._interrupted: set[str] = set()
+        self._after_current: set[str] = set()
+        """interrupts that stop after the current image (``interrupt_after_current``)"""
         self._cancelled: set[str] = set()
         self._skips: set[str] = set()
         self._holds = 0
@@ -185,6 +236,7 @@ class JobQueue:
         return self._lock if self._lock is not None else _lock()
 
     def start(self) -> None:
+        self.apply_retention(force=True)
         with self._cv:
             if self._thread is not None and self._thread.is_alive():
                 return
@@ -353,7 +405,7 @@ class JobQueue:
 
         job = self.get(job_id)
         if job.status == RUNNING:
-            self._signal(job_id, self._interrupted)
+            self._user_interrupt(job_id)
         elif job.status == QUEUED:
             self._cancel_queued(job)
         return self.get(job_id)
@@ -401,7 +453,7 @@ class JobQueue:
                 self._cancel_queued(job, notify=False)
         job = self._claimed
         if job is not None:
-            self._signal(job.id, self._interrupted)
+            self._user_interrupt(job.id)
         if job is None or self._current is None:
             self.state().interrupt()  # an /sdapi request or a GPU action
         self._changed()
@@ -442,9 +494,24 @@ class JobQueue:
                 self._apply_signals(job_id)
             return True
 
+    def _user_interrupt(self, job_id: str) -> None:
+        """Interrupt from the user. With ``interrupt_after_current`` the first
+        one lets the image being made finish when the job makes more than
+        one (A1111's "Don't Interrupt in the middle"); a second one stops at
+        once."""
+
+        with self._cv:
+            if job_id not in self._interrupted and _interrupt_after_current():
+                self._after_current.add(job_id)
+        self._signal(job_id, self._interrupted)
+
     def _apply_signals(self, job_id: str) -> None:
         state = self.state()
-        if job_id in self._interrupted or job_id in self._cancelled:
+        after_current = job_id in self._after_current
+        self._after_current.discard(job_id)
+        if job_id in self._interrupted and job_id not in self._cancelled and after_current and getattr(state, "job_count", 0) > 1 and not getattr(state, "stopping_generation", False):
+            state.stop_generating()
+        elif job_id in self._interrupted or job_id in self._cancelled:
             state.interrupt()
         elif job_id in self._skips:
             self._skips.discard(job_id)
@@ -515,10 +582,12 @@ class JobQueue:
                     self._claimed = self._current = None
                     self._begun = False
                     self._interrupted.discard(job.id)
+                    self._after_current.discard(job.id)
                     self._cancelled.discard(job.id)
                     self._skips.discard(job.id)
                     self._cv.notify_all()
                 self._changed()
+                self._after_job(job.id)
 
     def _run(self, job: Job) -> None:
         """Run ``job``; the caller holds the generation lock."""
@@ -568,6 +637,63 @@ class JobQueue:
         status = CANCELLED if job.id in self._cancelled else FAILED
         self.store.finish(job.id, status, error=message, errors=errors)
         self.bus.publish("job.failed", job_id=job.id, seq=job.seq, tab=job.tab, status=status, error=message, errors=errors)
+        if status == FAILED and not errors and self.option("queue_automatic_requeue_failed_task", False):
+            self._requeue_failed(job)
+
+    def _requeue_failed(self, job: Job) -> None:
+        """Queue a failed job again at the end (``queue_automatic_requeue_failed_task``),
+        until it ran :data:`MAX_ATTEMPTS` times. Parameters the form rejects
+        (``errors``) fail the same way every time: not retried."""
+
+        attempt = job.meta.get("attempt", 1)
+        attempt = attempt if isinstance(attempt, int) and attempt > 0 else 1
+        if attempt >= MAX_ATTEMPTS or not job.replayable:
+            return
+        try:
+            self.validate(job.tab, job.core, job.scripts)
+        except Exception:
+            return
+        meta = {key: job.meta[key] for key in ("name",) if job.meta.get(key)}
+        again = self.store.add(job.tab, job.core, job.scripts, priority=job.priority, layout_hash=job.layout_hash, schema_version=job.schema_version, summary=job.summary, forever=job.forever, user=job.user, retry_of=job.id, meta={**meta, "attempt": attempt + 1})
+        log.info("Queued failed job #%d again as #%d (attempt %d of %d)", job.seq, again.seq, attempt + 1, MAX_ATTEMPTS)
+        self._enqueued(again)
+
+    def apply_retention(self, *, force: bool = False, now: float | None = None) -> int:
+        """Deletes finished jobs older than ``queue_history_retention_days``
+        (starred ones are kept; at most once an hour unless ``force``);
+        returns how many went."""
+
+        now = time.time() if now is None else now
+        if not force and now - self._retention_checked < RETENTION_INTERVAL:
+            return 0
+        self._retention_checked = now
+        days = RETENTION_DAYS.get(str(self.option("queue_history_retention_days", "Keep forever")), 0)
+        if days <= 0:
+            return 0
+        count = self.store.clear_finished(keep_starred=True, before=now - days * 86400)
+        if count:
+            log.info("Deleted %d finished job(s) older than %d days from the queue history", count, days)
+            self._changed()
+        return count
+
+    def _after_job(self, job_id: str) -> None:
+        self.apply_retention()
+        with self._cv:
+            done = not self._stopping and self.store.count(QUEUED) == 0
+        last = self.store.get(job_id)
+        # someone stopping the run by hand is at the computer
+        if done and (last is None or last.status not in (INTERRUPTED, CANCELLED)):
+            self._queue_done()
+
+    def _queue_done(self) -> None:
+        """The last queued job finished: ``queue_completion_action``, once
+        (the setting goes back to "Do nothing", see remi/jobs/completion.py)."""
+
+        action = str(self.option("queue_completion_action", completion.NOTHING))
+        if action == completion.NOTHING or action not in completion.ACTIONS:
+            return
+        self.set_option("queue_completion_action", completion.NOTHING)
+        self.when_done(action)
 
     @staticmethod
     def _error_message(error: Exception) -> str:

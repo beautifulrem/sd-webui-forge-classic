@@ -96,7 +96,7 @@ export function Img2imgStage({ result, actions, leading, trailing, className }: 
             fill
             {...editor}
             onImageChange={(image) => {
-              void setSourceImage(binding, image?.id ?? null)
+              void setSourceImage(binding, image?.id ?? null, image)
             }}
             onLayerChange={(key, id) => setCoreValues({ [key]: id })}
             onUseImageSize={setSizeFromImage}

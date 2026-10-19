@@ -7,6 +7,7 @@ import { ArrowRightLeft, ClipboardPaste, Copy, Download, ExternalLink, FileArchi
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
+import { clientOption } from "@/api/app-options"
 import type { FormTab } from "@/api/types"
 import { Button } from "@/components/ui/button"
 import {
@@ -66,6 +67,9 @@ export function ResultActions({ item, tab, tone, removable = true, onSent, class
     sendWithFeedback(...args)
     onSent?.()
   }
+  // An img2img result sends its image only, unless `allow_i2i_send_info` (A1111's behaviour).
+  const sendImage = (target: "img2img" | "inpaint" | "extras", result: ResultItem) =>
+    send(target, tab === "img2img" && !clientOption("allow_i2i_send_info") ? { fileId: result.fileId } : result)
 
   return (
     <div role="toolbar" aria-label={t("Image actions")} className={cn("flex items-center gap-0.5", className)}>
@@ -150,15 +154,15 @@ export function ResultActions({ item, tab, tone, removable = true, onSent, class
           <span>{t("Send to")}</span>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-44">
-          <DropdownMenuItem onClick={() => item && send("img2img", item)}>
+          <DropdownMenuItem onClick={() => item && sendImage("img2img", item)}>
             <ImagePlus />
             {t("img2img")}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => item && send("inpaint", item)}>
+          <DropdownMenuItem onClick={() => item && sendImage("inpaint", item)}>
             <Paintbrush />
             {t("Inpaint")}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => item && send("extras", item)}>
+          <DropdownMenuItem onClick={() => item && sendImage("extras", item)}>
             <Wand />
             {t("Extras")}
           </DropdownMenuItem>

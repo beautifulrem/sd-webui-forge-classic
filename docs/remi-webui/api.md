@@ -71,9 +71,15 @@ without `--gradio-auth`). With logins configured:
   on every request (also on the WebSocket handshake).
 - `/sdapi/v1` (and extension routes under `/sdapi`) uses `--api-auth
   user:pass[,…]` (HTTP Basic, throttled the same way) when it is set; without
-  it, the `--auth` login when the server is reachable from other machines
-  (`--listen`, a non-loopback `--server-name`, `--ngrok`); on a loopback-only
-  server it stays open to local tools, as in A1111.
+  it, the `--auth` login (session cookie or HTTP Basic) on any bind, since a
+  reverse proxy or tunnel on the same machine also connects from loopback.
+  `--api-no-auth-on-localhost` restores the A1111 behaviour for local tools:
+  requests from a loopback peer that came through no proxy (no
+  `X-Forwarded-*` / `Forwarded` / `X-Real-IP` header) need no login. It has no
+  effect with `--api-auth`, which always applies.
+- Extension API routes (`/controlnet/*`, `/adetailer/*`, ...) follow the same
+  rule: with `--auth` they need the WebUI login or `--api-auth` credentials,
+  local clients exempt only with `--api-no-auth-on-localhost`.
 - The API docs need the `--auth` login, or `--api-auth` credentials when only
   that is set.
 

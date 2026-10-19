@@ -1,10 +1,12 @@
 """Real-server smoke test: start the WebUI with the real model, check generation, stop it.
 
-    /tmp/remi-testenv/bin/python tools/smoke_real.py
+    python tools/smoke_real.py      # an interpreter with requirements.txt and without Gradio
     python tools/smoke_real.py --port 7879 --out /tmp/remi-smoke --keep-data
 
 What it does (one model load, about three minutes on an M4 with Anima Turbo):
 
+0. Checks that the server's interpreter (``--python``) cannot import Gradio
+   (``gradio``, ``gradio_client``, ``gradio_rangeslider``), so the run proves a Gradio-free start.
 1. Starts ``launch.py --api`` on its own port with an isolated data folder: a copy of the
    repo's ``config.json`` (so the same settings apply), models read from ``models/``, outputs
    and ``remi-data`` in the temporary folder. The SPA is not rebuilt
@@ -113,6 +115,17 @@ class Server:
                 except subprocess.TimeoutExpired:
                     continue
         self.log.close()
+
+
+GRADIO_MODULES = ("gradio", "gradio_client", "gradio_rangeslider")
+
+
+def gradio_modules_in(python: str) -> list[str]:
+    """The Gradio packages ``python`` could import (none for a Gradio-free WebUI)."""
+
+    code = f"import importlib.util; print(' '.join(name for name in {GRADIO_MODULES!r} if importlib.util.find_spec(name)))"
+    result = subprocess.run([python, "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=120, check=True)
+    return result.stdout.split()
 
 
 def other_launchers() -> list[str]:
@@ -291,6 +304,8 @@ def main() -> int:
             shutil.copy2(ROOT / name, data_dir / name)
 
     report = Report()
+    found = gradio_modules_in(options.python)
+    report.check("server interpreter has no Gradio", not found, f"{options.python} can import {', '.join(found)}" if found else options.python)
     print(f"Starting the server on port {options.port} (log: {options.out / 'server.log'}, data: {data_dir})", flush=True)
     started = time.monotonic()
     server = Server(options.python, options.port, data_dir, options.out / "server.log")

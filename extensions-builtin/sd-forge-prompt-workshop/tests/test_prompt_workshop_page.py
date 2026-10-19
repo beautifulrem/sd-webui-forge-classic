@@ -315,7 +315,7 @@ def test_every_redirect_hop_is_checked(pw, monkeypatch, dns):
     }
     fetched = []
     monkeypatch.setattr(pw.requests, "get", lambda url, **kwargs: fetched.append(url) or hops[url])
-    data, name, error = pw._download_image("https://cdn.donmai.us/a.png", "", hosts)
+    data, _name, error = pw._download_image("https://cdn.donmai.us/a.png", "", hosts)
     assert error is None and data == _png_bytes() and fetched == ["https://cdn.donmai.us/a.png", "https://cdn.donmai.us/b.png"]
     assert "non-public address" in pw._download_image("https://cdn.donmai.us/to-inside.png", "", hosts)[2]
     assert "not an https URL" in pw._download_image("https://cdn.donmai.us/to-metadata.png", "", hosts)[2]

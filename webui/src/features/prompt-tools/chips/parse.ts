@@ -396,6 +396,25 @@ export function findTag(doc: PromptDoc, tag: string): number {
   return doc.chips.findIndex((chip) => chip.kind === "tag" && !chip.disabled && tagKey(chip.text) === key)
 }
 
+/**
+ * The prompt with tidy separators (Prompt All-in-One's prompt formatting):
+ * one ", " between the tags of a line, line breaks kept (at most one empty
+ * line, a comma before a break where there was one), repeated commas merged,
+ * no leading or trailing commas and spaces. The chips themselves (weights,
+ * networks, comments, `BREAK`) are not touched.
+ */
+export function tidyPrompt(text: string): string {
+  const doc = parsePrompt(text)
+  if (doc.chips.length === 0) return /^[\s,]*$/.test(text) ? "" : text
+  const seps = doc.seps.map((sep) => {
+    const breaks = sep.split("\n").length - 1
+    const comma = sep.includes(",")
+    if (breaks > 0) return `${comma ? "," : ""}${"\n".repeat(Math.min(breaks, 2))}`
+    return comma ? DEFAULT_SEPARATOR : " "
+  })
+  return serializePrompt({ lead: "", chips: doc.chips, seps, tail: "" })
+}
+
 /** Adds the tag at the end, or removes it when it is there (quick tag groups). */
 export function toggleTag(text: string, tag: string, separator = DEFAULT_SEPARATOR): string {
   const doc = parsePrompt(text)

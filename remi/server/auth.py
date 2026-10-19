@@ -11,8 +11,8 @@ Independently of login, :class:`SecurityMiddleware` refuses requests under a
 rebound ``Host`` (DNS rebinding), cross-site state-changing requests and
 WebSocket handshakes, and cross-site subresource reads (fetch metadata;
 ``modules.extension_route_guard`` semantics). ``/sdapi`` gets the same
-checks; its login is ``--api-auth`` when set, else the WebUI login on a
-server reachable from other machines. Every response carries ``nosniff``
+checks; its login is ``--api-auth`` when set, else the WebUI login (local
+clients exempt only with ``--api-no-auth-on-localhost``). Every response carries ``nosniff``
 and a same-origin referrer policy; HTML pages get a strict CSP.
 
 Session cookies are ``user.expiry.signature`` signed with a per-installation
@@ -58,7 +58,7 @@ DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
 """The API description (and ``/docs/*``): needs a login like the API itself."""
 
 SDAPI_PREFIX = "/sdapi"
-"""Host and cross-site checks; login: ``--api-auth``, or the WebUI login when exposed."""
+"""Host and cross-site checks; login: ``--api-auth``, else the WebUI login."""
 
 MAX_THROTTLED_CLIENTS = 4096
 MAX_FAILURES_PER_MINUTE = 10
@@ -339,15 +339,6 @@ def _api_auth() -> str | None:
     return getattr(guard._cmd_opts(), "api_auth", None) or None
 
 
-def _exposed() -> bool:
-    """Reachable from other machines (non-loopback bind, ``--ngrok``)."""
-
-    from modules import extension_route_guard as guard
-
-    cmd_opts = guard._cmd_opts()
-    return cmd_opts is not None and not guard._is_loopback_only(cmd_opts)
-
-
 def api_auth_refusal(conn: HTTPConnection) -> tuple[int, str] | None:
     """``--api-auth`` Basic login (``/sdapi``; the docs without ``--auth``),
     throttled per client like the WebUI login."""
@@ -366,12 +357,16 @@ def api_auth_refusal(conn: HTTPConnection) -> tuple[int, str] | None:
 
 def sdapi_refusal(auth: Auth, scope: Scope) -> tuple[int, str] | None:
     """``/sdapi`` (core and extension routes): host and cross-site checks;
-    the login is ``--api-auth`` when set, else the WebUI login on a server
-    reachable from other machines (on a loopback-only server local API
-    clients stay as free as with the old WebUI)."""
+    the login is ``--api-auth`` when set, else the WebUI login (session
+    cookie or HTTP Basic) whenever ``--auth`` / ``--auth-file`` is set, on
+    any bind: a loopback-only server is still reached through a reverse
+    proxy or tunnel on this machine. ``--api-no-auth-on-localhost`` lets API
+    clients on this machine in without it, as with the old WebUI."""
+
+    from modules import extension_route_guard as guard
 
     api_auth = _api_auth()
-    refused = refusal(auth, scope, require_login=not api_auth and _exposed())
+    refused = refusal(auth, scope, require_login=not api_auth and not guard.local_api_client_exempt(HTTPConnection(scope)))
     if refused is not None or not api_auth:
         return refused
     return api_auth_refusal(HTTPConnection(scope))
@@ -406,10 +401,37 @@ def frame_ancestors() -> str:
     return " ".join(["'self'", *origins])
 
 
+LICENSE_TEXT_ORIGIN = "https://raw.githubusercontent.com"
+"""where Settings → Licenses fetches license texts (``html/licenses.html``)"""
+
+_IMAGE_HOST_RE = re.compile(r"https?://(\*\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*(:\d{1,5})?/?")
+
+
+def image_hosts(value: Any = None) -> list[str]:
+    """The origins the ``remi_image_hosts`` setting allows images from
+    (``https://host``, ``https://*.host``, optional port); anything else in
+    it is ignored, so the setting cannot add other CSP sources or
+    directives."""
+
+    if value is None:
+        try:
+            from remi.server.settings import option
+
+            value = option("remi_image_hosts", "")
+        except Exception:  # no WebUI state (tools, unit tests)
+            value = ""
+    tokens = re.split(r"[\s,]+", str(value or ""))
+    return list(dict.fromkeys(token.rstrip("/") for token in tokens if _IMAGE_HOST_RE.fullmatch(token)))
+
+
 def html_headers(body: bytes) -> dict[str, str]:
     """Headers of a page the server renders (SPA shell, login page): a CSP
     that allows the page's own inline scripts by hash and nothing else
-    inline, no plugins, no framing by other sites."""
+    inline, no plugins, no framing by other sites; network requests only to
+    the server itself (``'self'`` covers its WebSocket) and the license
+    texts' host; images only from the server, ``data:``/``blob:`` and the
+    hosts the user allowed (``remi_image_hosts``), so injected markup could
+    neither send data away nor load tracking pixels."""
 
     hashes = " ".join(f"'sha256-{base64.b64encode(hashlib.sha256(script).digest()).decode()}'" for script in _INLINE_SCRIPT_RE.findall(body))
     policy = "; ".join(
@@ -417,10 +439,10 @@ def html_headers(body: bytes) -> dict[str, str]:
             "default-src 'self'",
             f"script-src 'self' {hashes}".strip(),
             "style-src 'self' 'unsafe-inline'",  # React style props, CodeMirror / toast style tags
-            "img-src * data: blob:",  # extension help and outputs may show remote images
+            " ".join(("img-src 'self' data: blob:", *image_hosts())),  # remote images (extension help) only from allowed hosts
             "media-src 'self' data: blob:",
             "font-src 'self' data:",
-            "connect-src 'self' ws: wss: https:",  # license texts are fetched from their repositories
+            f"connect-src 'self' {LICENSE_TEXT_ORIGIN}",  # license texts are fetched from their repositories
             "worker-src 'self' blob:",
             "object-src 'none'",
             "base-uri 'self'",

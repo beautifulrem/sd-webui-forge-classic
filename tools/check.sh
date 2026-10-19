@@ -6,18 +6,21 @@
 #   tools/check.sh --only ruff,pytest # run only these steps (prefixes: "pytest" = core + extensions)
 #   tools/check.sh --list             # list the steps
 #
-# Steps: ruff (Remi code strict, test suites, whole tree for syntax errors) - pytest for tests/
-# and for every extensions-builtin/*/tests directory separately - OpenAPI and settings
-# contracts - i18n coverage (server zh_CN catalog, SPA chrome catalog) - pnpm install
-# (frozen lockfile), build (tsc + vite), oxlint, vitest, Playwright end-to-end tests and
-# axe scans against the mock backend. Steps keep running after a failure; the script ends
-# with a summary table and exits 1 when any step failed.
+# Steps: a Gradio-free Python - ruff (Remi code strict, test suites, the built-in extensions'
+# scripts and libraries, the whole tree for syntax errors and Gradio imports) - pytest for
+# tests/ (with a coverage floor for remi/) and for every extensions-builtin/*/tests directory
+# separately - OpenAPI and settings contracts - i18n coverage (server zh_CN catalog, SPA
+# chrome catalog) - pnpm install (frozen lockfile), build (tsc + vite), oxlint, vitest (with
+# coverage floors), Playwright end-to-end tests and axe scans against the mock backend.
+# Steps keep running after a failure; the script ends with a summary table and exits 1
+# when any step failed.
 #
-# Python: $PYTHON, else venv/ or .venv/ in the repo, else the shared test env
-# /tmp/remi-testenv, else python3 (it needs requirements.txt plus pytest; ruff is taken
-# from that environment, then PATH, then `uvx ruff`). Logs: $REMI_CHECK_LOGS (default
-# a temporary directory, printed at the end). The real-model smoke test is separate:
-# tools/smoke_real.py.
+# Python: $PYTHON, else venv/ or .venv/ in the repo, else python3 - the first one with
+# requirements.txt and requirements-dev.txt (pytest, pytest-cov) installed, preferring one
+# without Gradio (env:gradio-free fails when the chosen one can import Gradio: the WebUI
+# must start without it). Ruff is taken from that environment, then PATH, then `uvx ruff`.
+# Logs: $REMI_CHECK_LOGS (default a temporary directory, printed at the end). The
+# real-model smoke test is separate: tools/smoke_real.py.
 
 set -uo pipefail
 
@@ -41,20 +44,29 @@ done
 
 # region Environment
 
+GRADIO_PROBE='import importlib.util, sys; found = [name for name in ("gradio", "gradio_client", "gradio_rangeslider") if importlib.util.find_spec(name)]; print(" ".join(found)); sys.exit(1 if found else 0)'
+
 pick_python() {
-  local candidate
-  for candidate in "${PYTHON:-}" "$ROOT/venv/bin/python" "$ROOT/.venv/bin/python" /tmp/remi-testenv/bin/python "$(command -v python3 || true)"; do
+  # $PYTHON is used as given; otherwise the first candidate without Gradio, else the first one.
+  local candidate fallback=""
+  if [ -n "${PYTHON:-}" ]; then
+    echo "$PYTHON"
+    return 0
+  fi
+  for candidate in "$ROOT/venv/bin/python" "$ROOT/.venv/bin/python" "$(command -v python3 || true)"; do
     [ -n "$candidate" ] && [ -x "$candidate" ] || continue
-    if "$candidate" -c "import fastapi, pytest, torch" >/dev/null 2>&1; then
+    "$candidate" -c "import fastapi, pytest, torch" >/dev/null 2>&1 || continue
+    if "$candidate" -c "$GRADIO_PROBE" >/dev/null 2>&1; then
       echo "$candidate"
       return 0
     fi
+    [ -n "$fallback" ] || fallback="$candidate"
   done
-  return 1
+  [ -n "$fallback" ] && echo "$fallback"
 }
 
 # Python steps fail (with this message) when there is none; frontend-only runs do not need it.
-PY="$(pick_python)" || PY=""
+PY="$(pick_python)"
 py() {
   if [ -z "$PY" ]; then
     echo "No Python with the WebUI requirements and pytest found: set PYTHON=/path/to/python" >&2
@@ -138,11 +150,29 @@ run_pytest() {
 
 # region Python
 
-step ruff:remi "${RUFF[@]}" check remi tools webui/tools tests/remi_*.py tests/test_remi_*.py
-step ruff:tests "${RUFF[@]}" check tests extensions-builtin/*/tests
-step ruff:syntax "${RUFF[@]}" check . --select E9 --output-format concise
+gradio_free() {
+  local found
+  if found="$(py -c "$GRADIO_PROBE")"; then
+    echo "$PY cannot import Gradio"
+    return 0
+  fi
+  [ -n "$found" ] || return 2
+  echo "$PY can import: $found" >&2
+  echo "The WebUI is Gradio-free; run the checks with an interpreter without Gradio (set PYTHON=...) so a Gradio import cannot hide." >&2
+  return 1
+}
 
-step pytest:tests run_pytest tests
+step env:gradio-free gradio_free
+
+# Which rules apply to which file is pyproject.toml's business (strict for Remi's files).
+step ruff:remi "${RUFF[@]}" check remi tools webui/tools tests/remi_*.py tests/test_remi_*.py modules/extra_networks_pages.py modules/redact.py
+step ruff:tests "${RUFF[@]}" check tests extensions-builtin/*/tests
+step ruff:extensions "${RUFF[@]}" check extensions-builtin/*/scripts extensions-builtin/*/lib_*
+step ruff:syntax "${RUFF[@]}" check . --select E9,TID251 --output-format concise
+
+# Coverage floor for remi/ (the measured line coverage of tests/, minus a small margin).
+COVERAGE_FLOOR_PYTHON=90
+step pytest:tests run_pytest tests --cov=remi --cov-report=term:skip-covered --cov-fail-under="$COVERAGE_FLOOR_PYTHON"
 for dir in extensions-builtin/*/tests; do
   [ -d "$dir" ] || continue
   ext="${dir#extensions-builtin/}"
@@ -164,7 +194,7 @@ step pnpm:install pnpm_in_webui install --frozen-lockfile
 step i18n:spa pnpm_in_webui exec vitest run src/locales
 step pnpm:build pnpm_in_webui build
 step pnpm:lint pnpm_in_webui lint
-step pnpm:vitest pnpm_in_webui exec vitest run
+step pnpm:vitest pnpm_in_webui exec vitest run --coverage
 step e2e pnpm_in_webui exec playwright test --reporter=line
 
 # endregion

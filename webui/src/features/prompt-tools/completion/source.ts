@@ -9,7 +9,7 @@ import { type Completion, type CompletionContext, type CompletionResult, startCo
 import type { EditorView } from "@codemirror/view"
 import { api } from "@/api/endpoints"
 import { completionAcceptKey, type DecoratedCompletion } from "@/features/prompt-editor/completion-registry"
-import { promptKind } from "@/features/prompt-editor/facets"
+import { promptKind, type PromptScope, promptScope } from "@/features/prompt-editor/facets"
 import { t } from "@/i18n"
 import { cn } from "@/lib/utils"
 import { type CompletionItem, type CompletionQuery, type PromptToolsConfig, promptToolsApi } from "../api"
@@ -18,7 +18,7 @@ import { categoryClass, categoryName, compactCount } from "./colors"
 import { type CompletionTarget, completionTarget, tokenEnd } from "./context"
 import { commonPrefix, insertion } from "./insert"
 
-/** Wait this long before asking the server for an uncached query (typing fast). */
+/** Wait this long before asking the server for an uncached query (typing fast), unless `tac_delayTime` says otherwise. */
 export const FETCH_DELAY_MS = 40
 const CACHE_SIZE = 400
 const CACHE_TTL_MS = 60_000
@@ -50,11 +50,11 @@ function remember(key: string, items: CompletionItem[]) {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-async function fetchItems(query: CompletionQuery, context: CompletionContext): Promise<CompletionItem[] | null> {
+async function fetchItems(query: CompletionQuery, context: CompletionContext, delay: number): Promise<CompletionItem[] | null> {
   const key = cacheKey(query)
   const hit = cached(key)
   if (hit) return hit
-  await sleep(FETCH_DELAY_MS)
+  if (delay > 0) await sleep(delay)
   if (context.aborted) return null
   const controller = new AbortController()
   context.addEventListener("abort", () => controller.abort(), { onDocChange: true })
@@ -65,6 +65,14 @@ async function fetchItems(query: CompletionQuery, context: CompletionContext): P
   } catch {
     return null
   }
+}
+
+/** `tac_activeIn_*`: completion in this editor's form and kind of field. */
+export function activeIn(scope: PromptScope, config: PromptToolsConfig): boolean {
+  const tags = config.tags
+  if (scope.form === "txt2img" && !tags.txt2img) return false
+  if (scope.form === "img2img" && !tags.img2img) return false
+  return !scope.extension || tags.third_party
 }
 
 function enabled(target: CompletionTarget, config: PromptToolsConfig): boolean {
@@ -157,11 +165,16 @@ function info(item: CompletionItem, config: PromptToolsConfig): (() => Node) | u
   }
 }
 
+function tagLabel(text: string, config: PromptToolsConfig): string {
+  return config.tags.replace_underscores && !config.tags.underscore_exclusions.includes(text) ? text.replaceAll("_", " ") : text
+}
+
 function label(item: CompletionItem, config: PromptToolsConfig): string {
   switch (item.type) {
     case "tag":
     case "extra":
-      return config.tags.replace_underscores && !config.tags.underscore_exclusions.includes(item.text) ? item.text.replaceAll("_", " ") : item.text
+      // `tac_alias_onlyShowAlias`: the alias that matched stands for the tag (the tag is still inserted)
+      return tagLabel(config.tags.only_alias && item.alias ? item.alias : item.text, config)
     case "lora":
     case "embedding":
     case "chant":
@@ -173,8 +186,8 @@ function label(item: CompletionItem, config: PromptToolsConfig): string {
   }
 }
 
-function detail(item: CompletionItem): string | undefined {
-  if (item.alias) return `← ${item.alias}`
+function detail(item: CompletionItem, config: PromptToolsConfig): string | undefined {
+  if (item.alias) return config.tags.only_alias ? undefined : `← ${item.alias}`
   if (item.type === "lora" && item.label && item.label !== item.text) return item.text
   return undefined
 }
@@ -205,7 +218,7 @@ function apply(view: EditorView, item: CompletionItem, config: PromptToolsConfig
 function toCompletion(item: CompletionItem, config: PromptToolsConfig, common: string | undefined): DecoratedCompletion {
   const completion: DecoratedCompletion = {
     label: label(item, config),
-    detail: detail(item),
+    detail: detail(item, config),
     info: info(item, config),
     // CodeMirror's option rows are blocks: a flex row puts the decoration on the right
     className: cn("flex items-center", item.type === "tag" || item.type === "extra" ? categoryClass(config.tags.source, item.category) : ""),
@@ -229,6 +242,7 @@ export async function promptToolsCompletions(context: CompletionContext): Promis
   if (!config?.tags.enabled || context.aborted) return null
   const negative = context.state.facet(promptKind) === "negative"
   if (negative && !config.tags.negative) return null
+  if (!activeIn(context.state.facet(promptScope), config)) return null
   const target = completionTarget(context.state.doc.toString(), context.pos)
   if (!target || !enabled(target, config)) return null
   // a tag needs a character typed (or Ctrl+Space)
@@ -236,6 +250,7 @@ export async function promptToolsCompletions(context: CompletionContext): Promis
   const items = await fetchItems(
     { mode: target.mode, q: target.query, negative, limit: target.mode === "tag" ? config.tags.max_results : undefined, wildcard: target.wildcard },
     context,
+    config.tags.delay ?? FETCH_DELAY_MS,
   )
   if (!items?.length || context.aborted) return null
   const common = target.mode === "wildcard" ? commonPrefix(items.map((item) => item.text)) : undefined

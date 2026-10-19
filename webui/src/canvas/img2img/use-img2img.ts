@@ -6,6 +6,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useMemo } from "react"
 import { useStore } from "zustand"
+import { clientOption } from "@/api/app-options"
 import { schemaQuery } from "@/api/queries"
 import { getFormStore } from "@/ui/form-store"
 import type { SliderNode } from "@/ui/schema"
@@ -53,11 +54,13 @@ export function setCoreValues(values: Record<string, unknown>) {
  * Sets the source image; the layers painted over the old one go with it
  * (undoable from a toast when they had paint, see `replaceBackground`).
  */
-export function setSourceImage(binding: EditorBinding, id: string | null): Promise<void> {
-  return replaceBackground(
+export async function setSourceImage(binding: EditorBinding, id: string | null, size?: { width: number; height: number } | null): Promise<void> {
+  await replaceBackground(
     { store: getFormStore(IMG2IMG), formId: IMG2IMG, owner: "core", background: binding.background, painted: binding.layers.filter((layer) => layer.painted).map((layer) => layer.param) },
     id,
   )
+  // "Automatically update the Width and Height when uploading image to img2img input"
+  if (id && size && size.width > 0 && size.height > 0 && clientOption("img2img_autosize")) setSizeFromImage(size)
 }
 
 /** The size sliders' step (the server's resolution step), from the schema and its overrides. */

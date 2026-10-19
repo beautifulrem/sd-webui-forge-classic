@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils"
 import { keyOptionsFrom, minimalChange, type PromptKeyOptions } from "@/ui/prompt/editing"
 import { subscribeCompletionSources } from "./completion-registry"
 import { bracketLint, completionExtension, completionSlot, promptCommands, promptHighlight } from "./extensions"
-import { type PromptKind, promptKind } from "./facets"
+import { type PromptKind, promptKind, type PromptScope, promptScope } from "./facets"
 
 export type PromptEditorHandle = {
   focus: () => void
@@ -35,6 +35,8 @@ export type PromptEditorProps = {
   ariaInvalid?: boolean
   className?: string
   kind?: PromptKind
+  /** Where the editor is (read by completion sources; fixed at creation). */
+  scope?: PromptScope
   /** Bracket-balance warnings (default on). */
   lint?: boolean
   /** Image files dropped on the editor (other drops are CodeMirror's). */
@@ -159,6 +161,7 @@ export default function PromptEditor(props: PromptEditorProps) {
           promptHighlight,
           theme,
           promptKind.of(props.kind ?? "positive"),
+          promptScope.of(props.scope ?? { form: null, extension: false }),
           c.lint.of(props.lint === false ? [] : bracketLint),
           completionSlot.of(completionExtension()),
           c.editable.of(editableExt(props.disabled)),

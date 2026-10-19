@@ -141,7 +141,6 @@ def test_extras_runner_passes_named_values(webui):
     """Extras operations receive keyword arguments named after their params."""
 
     from modules import scripts_postprocessing
-
     from remi.core.extras import assign_args, postprocessing_args, scripts_schema
 
     runner = scripts_postprocessing.ScriptPostprocessingRunner()
@@ -154,10 +153,10 @@ def test_extras_runner_passes_named_values(webui):
     assert set(assigned) == {"upscale", "degrid"}
     args = postprocessing_args(runner, {"upscale": {"upscale_mode": 1, "upscale_to_width": 512}, "degrid": {"degrid_threshold": 0.4}})
     upscale, _ = assigned["upscale"]
-    received = dict(zip(upscale.arg_names, args[upscale.args_from : upscale.args_to]))
+    received = dict(zip(upscale.arg_names, args[upscale.args_from : upscale.args_to], strict=True))
     assert received["upscale_mode"] == 1 and received["upscale_to_width"] == 512 and received["upscale_enabled"] is True
     degrid, _ = assigned["degrid"]
-    assert dict(zip(degrid.arg_names, args[degrid.args_from : degrid.args_to])) == {"degrid_enabled": True, "degrid_threshold": 0.4}
+    assert dict(zip(degrid.arg_names, args[degrid.args_from : degrid.args_to], strict=True)) == {"degrid_enabled": True, "degrid_threshold": 0.4}
     json.dumps(scripts_schema(runner), allow_nan=False)
 
 

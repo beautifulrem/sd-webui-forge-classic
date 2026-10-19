@@ -151,11 +151,11 @@ describe("form store", () => {
     ]
     localStorage.setItem(
       draftKey("t8"),
-      JSON.stringify({ state: { values: { core: { steps: 27.6, shift: 3.14159, internal: { v: 99 } } }, open: {}, tabs: {} }, version: 1 }),
+      JSON.stringify({ state: { values: { core: { steps: 27.6, shift: 2.34567, internal: { v: 99 } } }, open: {}, tabs: {} }, version: 1 }),
     )
     const store = createFormStore("t8")
     store.getState().load(numbers)
-    expect(store.getState().values.core).toEqual({ steps: 28, shift: 3.14, internal: { v: 1 } })
+    expect(store.getState().values.core).toEqual({ steps: 28, shift: 2.35, internal: { v: 1 } })
   })
 
   it("keeps validation errors per field, reveals them and clears them on edit", () => {

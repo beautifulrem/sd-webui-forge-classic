@@ -27,8 +27,6 @@ BOOTSTRAP_OPTIONS = (
     "hidden_tabs",
     "samples_format",
     "return_grid",
-    "do_not_show_images",
-    "gallery_height",
     "live_previews_enable",
     "live_previews_image_format",
     "live_preview_fps",
@@ -58,8 +56,13 @@ BOOTSTRAP_OPTIONS = (
     "prevent_screen_sleep_during_generation",
     "send_seed",
     "send_size",
-    "live_preview_refresh_period",
+    "send_cfg",
+    "allow_i2i_send_info",
+    "paste_safe_guard",
     "confirm_leave",
+    "img2img_autosize",
+    "sd_webui_modal_lightbox_icon_opacity",
+    "sd_webui_modal_lightbox_toolbar_opacity",
     # The image editor (webui/src/canvas)
     "forge_canvas_consistent_brush",
     "forge_canvas_plain",
@@ -232,7 +235,17 @@ def run_action(owner: str, action: str, body: m.ActionRequest, request: Request,
     if spec is None:
         raise not_found(f"{owner} has no action {action!r}")
     core = body.values if owner == "core" else (body.core or {})
-    ctx = ui.ActionContext(tab=body.tab, owner=owner, core=core, scripts=body.scripts or {}, user=user, request=request, extra=extra)
+    ctx = ui.ActionContext(
+        tab=body.tab,
+        owner=owner,
+        core=core,
+        scripts=body.scripts or {},
+        user=user,
+        request=request,
+        extra=extra,
+        files=ui.ActionFiles(services.files),
+        generation_lock=services.queue.lock,
+    )
 
     def call() -> dict[str, Any]:
         return ui.call_action(target, action, ctx, body.values)

@@ -24,6 +24,13 @@ webui/src/widgets/controlnet-unit, tested there):
   highlighted tab headers);
 - the batch directory is ignored under ``--hide-ui-dir-config`` (it was read
   from a hidden textbox).
+
+Not a difference: the Forge panel had no webcam. ``controlnet_ui_group.py``
+kept the tooltips "Enable webcam" / "Mirror webcam", ``camera_symbol``,
+``reverse_symbol`` and ``webcam_enabled`` / ``webcam_mirrored`` from
+sd-webui-controlnet, but no control used them (its image input was a
+ForgeCanvas, which has no camera source); the recorded unit controls have no
+webcam toggle (:func:`test_the_legacy_panel_had_no_webcam`).
 """
 
 import io
@@ -62,6 +69,7 @@ def registry(cn, monkeypatch):
     """A known preprocessor registry and model list (restored afterwards)."""
 
     from lib_controlnet import global_state
+
     from modules_forge.supported_preprocessor import Preprocessor, PreprocessorParameter
 
     class NoModel(Preprocessor):
@@ -123,8 +131,7 @@ def resolver(files):
 def call(script, action, values, files, tab="txt2img", core=None, **extra):
     from remi import ui
 
-    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(services=SimpleNamespace(files=files))))
-    ctx = ui.ActionContext(tab=tab, owner="controlnet", core=core or {"width": 512, "height": 512}, request=request, extra=extra)
+    ctx = ui.ActionContext(tab=tab, owner="controlnet", core=core or {"width": 512, "height": 512}, files=ui.ActionFiles(files), extra=extra)
     return ui.call_action(script, action, ctx, values)
 
 
@@ -210,6 +217,17 @@ def test_unit_controls_match_the_legacy_ui(cn, tab):
     # The infotext fields the Gradio controls were registered under are what a paste reads
     fields = {key.split(" ", 2)[2] for key in snapshot["infotext_keys"]}
     assert fields == set(ControlNetUnit.infotext_fields())
+
+
+@pytest.mark.parametrize("tab", harness.TABS)
+def test_the_legacy_panel_had_no_webcam(tab):
+    """The "Enable webcam" / "Mirror webcam" tooltips of the Gradio panel had
+    no controls: nothing to port (see the module docstring)."""
+
+    snapshot = harness.load_snapshot(SCRIPT, tab)
+    described = json.dumps([snapshot["unit_controls"], snapshot["args"], snapshot["unit_args"]]).lower()
+    assert "webcam" not in described and "camera" not in described and "mirror" not in described
+    assert len(snapshot["unit_controls"]) == (24 if tab == "img2img" else 23)
 
 
 @pytest.mark.parametrize(("count", "tab", "names"), [(1, "txt2img", ["unit_0"]), (5, "img2img", ["unit_0", "unit_1", "unit_2", "unit_3", "unit_4", "batch_input_dir"])])

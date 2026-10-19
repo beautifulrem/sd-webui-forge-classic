@@ -42,8 +42,13 @@ def _store_call(call: Any) -> Any:
 
 
 class PromptToolsTagSettings(m.Model):
-    enabled: bool
+    enabled: bool = Field(description="completion is on (the extension, the setting and the checkpoint list allow it)")
     negative: bool
+    txt2img: bool = Field(True, description="complete in the txt2img form's prompt fields")
+    img2img: bool = Field(True, description="complete in the img2img form's prompt fields")
+    third_party: bool = Field(True, description="complete in the prompt fields of extensions (scripts and pages), not only the main prompts")
+    delay: int = Field(40, description="milliseconds to wait after a keystroke before asking the server")
+    only_alias: bool = Field(False, description="label a tag found by an alias with the alias only")
     source: str = Field(description="tag list family for category colours: danbooru, e621, derpibooru or merged")
     max_results: int
     loras: bool
@@ -76,6 +81,7 @@ class PromptToolsToolSettings(m.Model):
     translation: str | None = Field(None, description="the usable provider; null: translation is off")
     translation_provider: str = Field("none", description="the chosen provider, usable or not (a network provider may still need its API key)")
     translation_key: bool = Field(False, description="an API key is stored (it is never sent back)")
+    generate: bool = Field(False, description="prompts can be written from a description (the OpenAI-compatible provider is set up)")
     language: str
     comments: bool = Field(description="prompt comments are stripped (disabled chips are written as /* … */)")
     toolbar: ToolbarScope = Field("All prompt fields", description="which prompt fields get the tools bar")
@@ -134,6 +140,16 @@ class PromptTranslateRequest(m.Model):
 class PromptTranslation(m.Model):
     provider: str
     translations: list[str | None]
+
+
+class PromptGenerateRequest(m.Model):
+    description: str = Field(min_length=1, max_length=4000, description="what the image should show, in any language")
+    prompt: str = Field("", max_length=4000, description="the current prompt to build on (empty: write a new one)")
+    negative: bool = Field(False, description="write a negative prompt")
+
+
+class PromptGenerated(m.Model):
+    prompt: str
 
 
 class PromptTranslationKey(m.Model):
@@ -295,6 +311,14 @@ def translate(body: PromptTranslateRequest, tools: ToolsDep) -> dict[str, Any]:
     except pt.TranslationError as error:
         raise HTTPException(status_code=error.status, detail=str(error)) from error
     return {"provider": tools.translation_config().provider, "translations": translations}
+
+
+@router.post("/generate", response_model=PromptGenerated, responses={**ERRORS, 413: {"model": m.Detail}, 502: {"model": m.Detail}}, summary="Write a prompt from a description with the OpenAI-compatible provider")
+def generate(body: PromptGenerateRequest, tools: ToolsDep) -> dict[str, Any]:
+    try:
+        return {"prompt": tools.generate(body.description, current=body.prompt, negative=body.negative)}
+    except pt.TranslationError as error:
+        raise HTTPException(status_code=error.status, detail=str(error)) from error
 
 
 @router.put("/translation-key", response_model=PromptTranslationKeyState, responses=ERRORS, summary="Store (or, empty, forget) the translation API key; it is never sent back")

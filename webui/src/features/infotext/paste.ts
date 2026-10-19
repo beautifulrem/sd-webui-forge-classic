@@ -1,7 +1,7 @@
 /**
  * Pasting parsed generation parameters (`POST /infotext/parse`, schema-format
  * §7) into a form: only params the form has are taken, optionally without
- * seed / size (the `send_seed` / `send_size` settings for "Send to"), and the
+ * seed / size / CFG (the `send_seed` / `send_size` / `send_cfg` settings for "Send to"), and the
  * edited params' `on_change` actions and conflict locks run once afterwards.
  */
 import type { InfotextParsed, ParamValues } from "@/api/types"
@@ -15,6 +15,8 @@ export type PasteFilter = {
   seed?: boolean
   /** Take the image size (Size-1 / Size-2). */
   size?: boolean
+  /** Take the CFG scale. */
+  cfg?: boolean
 }
 
 export type PastePlan = {
@@ -25,6 +27,7 @@ export type PastePlan = {
 
 const SEED_KEYS = new Set(["Seed", "Variation seed", "Variation seed strength", "Seed resize from-1", "Seed resize from-2"])
 const SIZE_KEYS = new Set(["Size-1", "Size-2"])
+const CFG_KEYS = new Set(["CFG scale"])
 
 /** Parsed values as one entry per owner (core first). */
 export function parsedEntries(parsed: Pick<InfotextParsed, "core" | "scripts">): PasteEntry[] {
@@ -46,6 +49,7 @@ export function planEntries(index: FormIndex, entries: readonly PasteEntry[], fi
       }
       if (filter.seed === false && node.infotext && SEED_KEYS.has(node.infotext)) continue
       if (filter.size === false && node.infotext && SIZE_KEYS.has(node.infotext)) continue
+      if (filter.cfg === false && node.infotext && CFG_KEYS.has(node.infotext)) continue
       taken[name] = value
     }
     if (Object.keys(taken).length > 0) planned.push({ owner, values: taken })

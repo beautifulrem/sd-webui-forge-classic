@@ -4,7 +4,7 @@ The frontend's contract tests (``src/ui/contract.test.tsx``) render these
 files, so a backend schema change that the renderer does not understand fails
 ``pnpm test``. Re-run after changing ``remi/ui`` or ``remi/core``:
 
-    /tmp/remi-testenv/bin/python webui/tools/dump_schemas.py
+    $PYTHON webui/tools/dump_schemas.py   # an interpreter with requirements.txt
 """
 import json
 import os
@@ -14,7 +14,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 OUT = os.path.join(ROOT, "webui", "src", "api", "mock", "contract")
 
 sys.argv = sys.argv[:1]  # modules.shared parses argv on import
-os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 os.chdir(ROOT)
 sys.path[:0] = [ROOT, os.path.join(ROOT, "modules_forge", "packages")]
 

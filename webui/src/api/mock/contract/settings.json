@@ -778,7 +778,8 @@
        "default": [],
        "choices": [],
        "style": "dropdown",
-       "allow_custom": false
+       "allow_custom": false,
+       "needs_reload_ui": true
       },
       {
        "type": "multichoice",
@@ -999,6 +1000,17 @@
        "notes": [
         "days; uploads still used by queued jobs are kept; images generated with saving turned off are deleted after this"
        ]
+      },
+      {
+       "type": "text",
+       "name": "remi_image_hosts",
+       "label": "Remote image hosts",
+       "default": "",
+       "lines": 1,
+       "prompt": false,
+       "notes": [
+        "sites the pages may show images from, e.g. in extension help: https://example.com or https://*.example.com, space- or comma-separated; images from other sites are blocked; applies after reloading the page"
+       ]
       }
      ]
     },
@@ -1089,6 +1101,100 @@
        "default": "",
        "lines": 1,
        "prompt": false,
+       "restricted": true
+      }
+     ]
+    },
+    {
+     "id": "queue",
+     "label": "Queue",
+     "items": [
+      {
+       "type": "choice",
+       "name": "queue_history_retention_days",
+       "label": "Delete finished jobs from the history after",
+       "default": "Keep forever",
+       "choices": [
+        {
+         "value": "1 day",
+         "label": "1 day"
+        },
+        {
+         "value": "3 days",
+         "label": "3 days"
+        },
+        {
+         "value": "7 days",
+         "label": "7 days"
+        },
+        {
+         "value": "14 days",
+         "label": "14 days"
+        },
+        {
+         "value": "30 days",
+         "label": "30 days"
+        },
+        {
+         "value": "90 days",
+         "label": "90 days"
+        },
+        {
+         "value": "Keep forever",
+         "label": "Keep forever"
+        }
+       ],
+       "style": "dropdown",
+       "allow_custom": false,
+       "notes": [
+        "starred jobs are kept; their images stay in the gallery"
+       ]
+      },
+      {
+       "type": "toggle",
+       "name": "queue_automatic_requeue_failed_task",
+       "label": "Queue failed jobs again",
+       "default": false,
+       "notes": [
+        "at the end of the queue, up to 3 attempts in all; cancelled and interrupted jobs are not retried"
+       ]
+      },
+      {
+       "type": "choice",
+       "name": "queue_completion_action",
+       "label": "When the queue is done",
+       "default": "Do nothing",
+       "choices": [
+        {
+         "value": "Do nothing",
+         "label": "Do nothing"
+        },
+        {
+         "value": "Stop webui",
+         "label": "Stop the WebUI"
+        },
+        {
+         "value": "Sleep",
+         "label": "Sleep"
+        },
+        {
+         "value": "Hibernate",
+         "label": "Hibernate"
+        },
+        {
+         "value": "Restart",
+         "label": "Restart the computer"
+        },
+        {
+         "value": "Shut down",
+         "label": "Shut down the computer"
+        }
+       ],
+       "style": "dropdown",
+       "allow_custom": false,
+       "notes": [
+        "after the last queued job finished (not while paused); Sleep, Hibernate, Restart and Shut down act on this computer"
+       ],
        "restricted": true
       }
      ]
@@ -4083,6 +4189,18 @@
          "label": "prompt_debounce"
         },
         {
+         "value": "queue_automatic_requeue_failed_task",
+         "label": "queue_automatic_requeue_failed_task"
+        },
+        {
+         "value": "queue_completion_action",
+         "label": "queue_completion_action"
+        },
+        {
+         "value": "queue_history_retention_days",
+         "label": "queue_history_retention_days"
+        },
+        {
          "value": "quicksettings_accordion",
          "label": "quicksettings_accordion"
         },
@@ -4245,6 +4363,10 @@
         {
          "value": "refiner_use_steps",
          "label": "refiner_use_steps"
+        },
+        {
+         "value": "remi_image_hosts",
+         "label": "remi_image_hosts"
         },
         {
          "value": "remi_upload_max_mb",
@@ -13635,6 +13757,9 @@
   "api_enable_requests": true,
   "api_forbid_local_requests": true,
   "api_useragent": "",
+  "queue_history_retention_days": "Keep forever",
+  "queue_automatic_requeue_failed_task": false,
+  "queue_completion_action": "Do nothing",
   "sd_model_checkpoint": "",
   "sd_unet": "Automatic",
   "emphasis": "Original",
@@ -14117,7 +14242,8 @@
   "save_prompt_comments": false,
   "live_preview_fps": 6,
   "remi_upload_max_mb": 64,
-  "remi_upload_retention_days": 7
+  "remi_upload_retention_days": 7,
+  "remi_image_hosts": ""
  },
  "defaults": {
   "samples_save": true,
@@ -14215,6 +14341,9 @@
   "api_enable_requests": true,
   "api_forbid_local_requests": true,
   "api_useragent": "",
+  "queue_history_retention_days": "Keep forever",
+  "queue_automatic_requeue_failed_task": false,
+  "queue_completion_action": "Do nothing",
   "sd_model_checkpoint": "",
   "sd_unet": "Automatic",
   "emphasis": "Original",
@@ -14697,6 +14826,7 @@
   "save_prompt_comments": false,
   "live_preview_fps": 6,
   "remi_upload_max_mb": 64,
-  "remi_upload_retention_days": 7
+  "remi_upload_retention_days": 7,
+  "remi_image_hosts": ""
  }
 }

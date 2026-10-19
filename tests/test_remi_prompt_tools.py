@@ -400,6 +400,43 @@ def test_old_dotted_setting_keys_are_migrated():
     assert data == {"tac_extra_addMode": "Insert after", "tac_alias_searchByAlias": True, "tac_maxResults": 5}
 
 
+LEGACY_TAC_SETTINGS = """
+tac_active tac_activeIn.img2img tac_activeIn.modelList tac_activeIn.modelListMode tac_activeIn.negativePrompts
+tac_activeIn.thirdParty tac_activeIn.txt2img tac_alias.onlyShowAlias tac_alias.searchByAlias tac_alwaysSpaceAtEnd
+tac_animaArtistPrefix tac_appendComma tac_appendSpace tac_chantFile tac_civitaiApiKey tac_colormap tac_delayTime
+tac_escapeParentheses tac_extra.addMode tac_extra.extraFile tac_forceRefreshEmbeddings tac_frequencyFunction
+tac_frequencyIncludeAlias tac_frequencyMaxAge tac_frequencyMinCount tac_frequencyRecommendCap tac_frequencySort
+tac_includeEmbeddingsInNormalResults tac_keymap tac_maxResults tac_modelKeywordCivitai tac_modelKeywordCompletion
+tac_modelKeywordLocation tac_modelSortOrder tac_refreshTempFiles tac_replaceUnderscores tac_resultStepLength
+tac_showAllResults tac_showExtraNetworkPreviews tac_showWikiLinks tac_skipWildcardRefresh tac_slidingPopup
+tac_sortWildcardResults tac_tagFile tac_translation.liveTranslation tac_translation.oldFormat
+tac_translation.searchByTranslation tac_translation.translationFile tac_undersocreReplacementExclusionList
+tac_useEmbeddings tac_useIndexedSearch tac_useLoraPrefixForLycos tac_useLoras tac_useLycos tac_useStyleVars
+tac_useWildcards tac_wildcardCompletionMode tac_wildcardExclusionList
+""".split()
+"""every setting the tag autocomplete extension registered before the port
+(``scripts/tag_autocomplete_helper.py`` at d5a71cad: 58 keys)"""
+
+
+def test_every_old_tag_autocomplete_setting_is_kept_or_explained():
+    import re
+    from pathlib import Path
+
+    from remi.prompt_tools import options
+
+    assert len(LEGACY_TAC_SETTINGS) == 58
+    readme = (Path(__file__).resolve().parents[1] / "extensions-builtin" / "sd-webui-tagcomplete-neo" / "README.md").read_text(encoding="utf8")
+    table = readme.split("### Not carried over", 1)[1]
+    explained = dict(re.findall(r"^\| `(tac_[\w.]+)` \| (.+) \|$", table, re.MULTILINE))
+    kept = {key for key in LEGACY_TAC_SETTINGS if options.RENAMED.get(key, key) in options.TAG_OPTION_KEYS}
+    assert sorted(set(LEGACY_TAC_SETTINGS) - kept - set(explained)) == []
+    # the table only lists what really is gone, each with a reason
+    assert kept.isdisjoint(explained) and set(explained) <= set(LEGACY_TAC_SETTINGS)
+    assert all(len(reason) > 30 for reason in explained.values())
+    # dotted keys are renamed, never dropped
+    assert all(options.RENAMED[key] in options.TAG_OPTION_KEYS for key in LEGACY_TAC_SETTINGS if "." in key and key not in explained)
+
+
 # region Translation
 
 
@@ -450,6 +487,32 @@ def test_openai_and_deepl_requests():
 
     with pytest.raises(TranslationError):
         translate(["猫"], "en", ProviderConfig("openai", url="http://x/v1", model="m"), {}, post=broken)
+
+
+def test_writing_a_prompt_from_a_description():
+    from remi.prompt_tools.translate import DEFAULT_INSTRUCTIONS, generate_prompt
+
+    config = ProviderConfig("openai", url="http://127.0.0.1:11434/v1", key="k", model="qwen")
+    sent = []
+
+    def chat(url, headers, body):
+        sent.append((url, headers, body))
+        return {"choices": [{"message": {"content": '```\nPrompt: "1girl, (long hair:1.2),\nbeach, sunset"\n```'}}]}
+
+    assert generate_prompt(config, "一个女孩在海边", post=chat) == "1girl, (long hair:1.2), beach, sunset"
+    url, headers, body = sent[-1]
+    assert url == "http://127.0.0.1:11434/v1/chat/completions" and headers["Authorization"] == "Bearer k" and body["model"] == "qwen"
+    assert body["messages"] == [{"role": "system", "content": DEFAULT_INSTRUCTIONS}, {"role": "user", "content": "一个女孩在海边"}]
+    generate_prompt(config, "make it night", current="1girl, beach", instructions="Only tags.", post=chat)
+    assert sent[-1][2]["messages"][0]["content"] == "Only tags." and "1girl, beach" in sent[-1][2]["messages"][1]["content"]
+    generate_prompt(config, "blurry things", negative=True, post=chat)
+    assert "negative" in sent[-1][2]["messages"][0]["content"]
+    for bad_config, description, status in ((ProviderConfig("deepl", key="x"), "cat", 409), (ProviderConfig("openai", url="http://x/v1"), "cat", 409), (config, "  ", 422), (config, "x" * 5000, 413)):
+        with pytest.raises(TranslationError) as error:
+            generate_prompt(bad_config, description, post=chat)
+        assert error.value.status == status
+    with pytest.raises(TranslationError):
+        generate_prompt(config, "cat", post=lambda *args: {"choices": [{"message": {"content": "  "}}]})
 
 
 # endregion
@@ -511,6 +574,28 @@ def test_settings_export_cleanly(webui, data):
     assert [choice["value"] for choice in tag_file["choices"]] == ["None", "danbooru.csv", "extra-quality-tags.csv"]
 
 
+def test_settings_are_translated_by_their_extensions(webui, data):
+    from pathlib import Path
+
+    from remi.prompt_tools import options
+    from remi.ui.settings import settings_schema
+
+    options.register_tag_options(pt.tag_dir, pt.refresh)
+    options.register_tool_options()
+    sections = {section["id"]: section for category in settings_schema(webui.opts)["categories"] for section in category["sections"]}
+    root = Path(__file__).resolve().parents[1] / "extensions-builtin"
+    for section_id, extension in (("tac", "sd-webui-tagcomplete-neo"), ("prompt_tools", "sd-webui-prompt-all-in-one-neo")):
+        catalog = json.loads((root / extension / "localizations" / "zh_CN.json").read_text(encoding="utf8"))
+        section = sections[section_id]
+        texts = {section["label"]}
+        for item in section["items"]:
+            texts |= {item["label"], *item.get("notes", [])}
+            if item["name"] not in ("tac_tagFile", "tac_extra_extraFile", "tac_translation_translationFile", "tac_chantFile"):  # file names
+                texts |= {choice["label"] for choice in item.get("choices") or []}
+        missing = sorted(text for text in texts if text and not catalog.get(text))
+        assert missing == [], f"{extension}/localizations/zh_CN.json lacks {missing}"
+
+
 def test_config_reflects_the_extensions_and_settings(server, webui, monkeypatch):
     config = server.client.get("/api/v2/prompt-tools/config").json()
     assert config["tags"]["enabled"] and config["tags"]["chants"] and config["tags"]["source"] == "danbooru"
@@ -521,6 +606,7 @@ def test_config_reflects_the_extensions_and_settings(server, webui, monkeypatch)
         "translation": None,
         "translation_provider": "none",
         "translation_key": False,
+        "generate": False,
         "language": "zh_CN",
         "comments": True,
         "toolbar": "All prompt fields",
@@ -533,6 +619,78 @@ def test_config_reflects_the_extensions_and_settings(server, webui, monkeypatch)
     config = server.client.get("/api/v2/prompt-tools/config").json()
     assert not config["tags"]["enabled"] and not config["tools"]["enabled"]
     assert server.client.get("/api/v2/prompt-tools/complete", params={"q": "hair"}).json() == {"items": []}
+
+
+def test_where_completion_runs_follows_the_old_settings(server, webui, monkeypatch):
+    def tags():
+        return server.client.get("/api/v2/prompt-tools/config").json()["tags"]
+
+    config = tags()
+    assert (config["txt2img"], config["img2img"], config["third_party"], config["delay"], config["only_alias"]) == (True, True, True, 40, False)
+    for key, value in (("tac_activeIn_txt2img", False), ("tac_activeIn_img2img", False), ("tac_activeIn_thirdParty", False), ("tac_delayTime", 5000), ("tac_alias_onlyShowAlias", True)):
+        monkeypatch.setitem(webui.opts.data, key, value)
+    config = tags()
+    assert (config["txt2img"], config["img2img"], config["third_party"], config["delay"], config["only_alias"]) == (False, False, False, 1000, True)
+
+    # the checkpoint list: names with or without extension, or hashes
+    monkeypatch.setitem(webui.opts.data, "sd_model_checkpoint", "anime/animagine.safetensors [1a2b3c4d5e]")
+    monkeypatch.setitem(webui.opts.data, "sd_checkpoint_hash", "1a2b3c4d5e6f7a8b9c0d")
+    for listed, mode, enabled in (
+        ("", "Blacklist", True),
+        ("realistic.safetensors, animagine", "Blacklist", False),
+        ("animagine.safetensors", "Blacklist", False),
+        ("1A2B3C4D5E", "Blacklist", False),
+        ("realistic", "Blacklist", True),
+        ("realistic", "Whitelist", False),
+        ("1a2b3c4d5e6f7a8b9c0d", "Whitelist", True),
+    ):
+        monkeypatch.setitem(webui.opts.data, "tac_activeIn_modelList", listed)
+        monkeypatch.setitem(webui.opts.data, "tac_activeIn_modelListMode", mode)
+        assert tags()["enabled"] is enabled, (listed, mode)
+    # an unknown checkpoint never turns completion off
+    monkeypatch.setitem(webui.opts.data, "sd_model_checkpoint", "")
+    monkeypatch.setitem(webui.opts.data, "sd_checkpoint_hash", "")
+    assert tags()["enabled"] is True
+
+
+def test_usage_of_tags_found_by_an_alias_counts_only_when_asked(server, webui, monkeypatch):
+    def first(q):
+        return server.client.get("/api/v2/prompt-tools/complete", params={"q": q, "limit": 3}).json()["items"][0]
+
+    monkeypatch.setitem(webui.opts.data, "tac_frequencyMinCount", 1)
+    monkeypatch.setitem(webui.opts.data, "tac_frequencyFunction", "Usage first")
+    for _ in range(3):
+        server.client.post("/api/v2/prompt-tools/usage", json={"name": "breasts", "type": "tag"})
+    # "boo" finds breasts by its alias "boobs" only
+    assert first("boo")["text"] == "breasts" and first("boo")["alias"] == "boobs"
+    assert first("boo").get("uses") is None
+    monkeypatch.setitem(webui.opts.data, "tac_frequencyIncludeAlias", True)
+    assert first("boo")["uses"] == 3
+
+
+def test_generate_route_uses_the_openai_compatible_provider(server, webui, monkeypatch):
+    api = "/api/v2/prompt-tools"
+    assert server.client.get(f"{api}/config").json()["tools"]["generate"] is False
+    response = server.client.post(f"{api}/generate", json={"description": "a cat"})
+    assert response.status_code == 409 and "OpenAI-compatible" in response.json()["detail"]
+    monkeypatch.setitem(webui.opts.data, "prompt_tools_translation_provider", "openai")
+    monkeypatch.setitem(webui.opts.data, "prompt_tools_translation_url", "http://127.0.0.1:11434/v1")
+    monkeypatch.setitem(webui.opts.data, "prompt_tools_translation_model", "qwen")
+    monkeypatch.setitem(webui.opts.data, "prompt_tools_generate_instructions", "Tags only.")
+    assert server.client.get(f"{api}/config").json()["tools"]["generate"] is True
+    calls = []
+
+    def fake(config, description, **kwargs):
+        calls.append((config, description, kwargs))
+        return "cat, sitting"
+
+    monkeypatch.setattr(pt, "generate_prompt", fake)
+    answer = server.client.post(f"{api}/generate", json={"description": "a cat", "prompt": "1girl", "negative": True}).json()
+    assert answer == {"prompt": "cat, sitting"}
+    config, description, kwargs = calls[0]
+    assert config.provider == "openai" and config.model == "qwen" and description == "a cat"
+    assert kwargs == {"current": "1girl", "negative": True, "instructions": "Tags only."}
+    assert server.client.post(f"{api}/generate", json={"description": ""}).status_code == 422
 
 
 def test_unloading_an_extension_turns_its_feature_off(data):

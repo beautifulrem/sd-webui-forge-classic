@@ -148,6 +148,66 @@ def _deepl(config: ProviderConfig, texts: Sequence[str], target: str, post: Post
 
 NETWORK = {"libretranslate": _libretranslate, "openai": _openai, "deepl": _deepl}
 
+# region Prompt writing (Prompt All-in-One's "ChatGPT prompt")
+
+MAX_DESCRIPTION = 4000
+
+DEFAULT_INSTRUCTIONS = (
+    "You write prompts for Stable Diffusion image models. Turn the user's description into one prompt: comma-separated "
+    "English booru-style tags and short phrases, the most important first (subject, appearance, clothing, pose, setting, "
+    "lighting, style), with (tag:1.2) weights only where emphasis matters. Answer with the prompt only, on one line, "
+    "without explanations or quotes."
+)
+NEGATIVE_INSTRUCTIONS = (
+    "You write negative prompts for Stable Diffusion image models: comma-separated English tags of what the image must "
+    "not show. Answer with the negative prompt only, on one line, without explanations or quotes."
+)
+
+
+def _clean_prompt(text: str) -> str:
+    """The model's answer as a prompt: code fences, a "Prompt:" label and
+    enclosing quotes dropped, lines joined with commas."""
+
+    text = re.sub(r"^```[\w-]*\s*|\s*```$", "", text.strip())
+    text = re.sub(r"^(?:negative\s+)?prompt\s*:\s*", "", text, flags=re.IGNORECASE)
+    if len(text) >= 2 and (text[0], text[-1]) in (('"', '"'), ("'", "'"), ("“", "”"), ("「", "」")):
+        text = text[1:-1]
+    lines = [line.strip().strip(",").strip() for line in text.splitlines()]
+    return ", ".join(line for line in lines if line)
+
+
+def generate_prompt(config: ProviderConfig, description: str, *, current: str = "", negative: bool = False, instructions: str = "", post: Post = _http_post) -> str:
+    """A prompt written by the OpenAI-compatible model of ``config`` (the
+    translation provider) from ``description``; ``current``: the prompt to
+    build on. ``instructions`` replaces the built-in system message."""
+
+    if config.provider != "openai" or not config.enabled:
+        raise TranslationError("writing prompts needs the OpenAI-compatible translation provider with its URL and model", 409)
+    description = description.strip()
+    if not description:
+        raise TranslationError("describe the image first", 422)
+    if len(description) + len(current) > MAX_DESCRIPTION:
+        raise TranslationError("the description is too long", 413)
+    system = instructions.strip() or (NEGATIVE_INSTRUCTIONS if negative else DEFAULT_INSTRUCTIONS)
+    request = description if not current.strip() else f"Current prompt: {current.strip()}\n\nChange it as follows: {description}"
+    headers = {"Content-Type": "application/json"}
+    if config.key.strip():
+        headers["Authorization"] = f"Bearer {config.key.strip()}"
+    body = {"model": config.model.strip(), "temperature": 0.7, "messages": [{"role": "system", "content": system}, {"role": "user", "content": request}]}
+    base = config.url.rstrip("/")
+    data = post(base if base.endswith("/chat/completions") else f"{base}/chat/completions", headers, body)
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as error:
+        raise TranslationError("unexpected chat completion answer") from error
+    prompt = _clean_prompt(str(content or ""))
+    if not prompt:
+        raise TranslationError("the model answered with an empty prompt")
+    return prompt
+
+
+# endregion
+
 
 def dictionary_translate(texts: Sequence[str], forward: Mapping[str, str], target: str) -> dict[str, str]:
     """Exact-tag translations from ``forward`` (``tag → label``): English

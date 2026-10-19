@@ -139,7 +139,7 @@ function coreLayout(tab: "txt2img" | "img2img"): Node {
                 on_change: "hr_resolution",
               },
               children: [
-                { type: "output", name: "hr_final_resolution", kind: "html" },
+                { type: "output", name: "hr_final_resolution", kind: "text" },
                 {
                   type: "row",
                   children: [
@@ -596,10 +596,11 @@ export const extrasSchema: TabSchema = {
       type: "column",
       children: [
         { type: "image", name: "image", label: "Source" },
+        { type: "choice", name: "upscaler_1", label: "Upscaler", choices: options(["None", "Lanczos", "Nearest", "R-ESRGAN 4x+"]) },
         { type: "slider", name: "upscaling_resize", label: "Scale by", minimum: 1, maximum: 8, step: 0.05 },
       ],
     },
-    defaults: { image: null, upscaling_resize: 2 },
+    defaults: { image: null, upscaler_1: "Lanczos", upscaling_resize: 2 },
   },
   scripts: [],
 }

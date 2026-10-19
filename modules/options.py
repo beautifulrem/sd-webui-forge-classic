@@ -51,9 +51,12 @@ class OptionInfo:
 
         return self
 
-    def info(self, info):
-        self.comment_after += f"<span class='info'>({info})</span>"
-        self.notes.append(info)
+    def info(self, *infos):
+        """Help notes, one per argument (plain text; A1111's inline markup is reduced to text)."""
+
+        for info in infos:
+            self.comment_after += f"<span class='info'>({info})</span>"
+            self.notes.append(info)
         return self
 
     def html(self, html):

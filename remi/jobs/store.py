@@ -405,14 +405,19 @@ class JobStore:
             ).rowcount
         return self.get(job_id) if changed else None
 
-    def clear_finished(self, *, keep_starred: bool = True) -> int:
-        """Delete finished jobs (but the starred ones, with ``keep_starred``)."""
+    def clear_finished(self, *, keep_starred: bool = True, before: float | None = None) -> int:
+        """Delete finished jobs (but the starred ones, with ``keep_starred``;
+        with ``before``, only those that finished before that time)."""
 
+        args: list[Any] = sorted(FINISHED)
         with self._lock:
             sql = f"DELETE FROM jobs WHERE status IN ({','.join('?' * len(FINISHED))})"
             if keep_starred:
                 sql += " AND starred = 0"
-            return self._db.execute(sql, tuple(sorted(FINISHED))).rowcount
+            if before is not None:
+                sql += " AND COALESCE(finished, created) < ?"
+                args.append(before)
+            return self._db.execute(sql, tuple(args)).rowcount
 
     def imported_job(self, source: str, source_id: str) -> str | None:
         """The job an importer made of ``source_id`` (while it exists)."""

@@ -64,7 +64,6 @@ __all__ = [
     "page_schema",
     "register",
     "registered",
-    "services",
     "tab_titles",
     "unregister",
 ]
@@ -185,9 +184,9 @@ def _prune_tasks(now: float) -> None:
 
 
 def _generation_lock(ctx: Any) -> Any:
-    found = services(ctx)
+    found = getattr(ctx, "generation_lock", None)
     if found is not None:
-        return found.queue.lock
+        return found
     from modules.call_queue import queue_lock
 
     return queue_lock
@@ -527,30 +526,14 @@ def page_schema(page_id: str) -> dict[str, Any]:
 
 # endregion
 
-# region Server services
+# region Files
 
 
-def services(ctx: ui.ActionContext | None) -> Any:
-    """The server's services for an action (``None`` outside a server)."""
+def file_store(ctx: ui.ActionContext | None) -> ui.ActionFiles | None:
+    """The action's files (``ctx.files``: uploads and outputs by id), or
+    ``None`` outside a server."""
 
-    request = getattr(ctx, "request", None)
-    found = getattr(getattr(getattr(request, "app", None), "state", None), "services", None)
-    if found is not None:
-        return found
-    try:
-        from remi.server.services import default_services
-
-        return default_services()
-    except Exception:
-        log.debug("no server services", exc_info=True)
-        return None
-
-
-def file_store(ctx: ui.ActionContext | None) -> Any:
-    """The server's file index (uploads, outputs), or ``None``."""
-
-    found = services(ctx)
-    return getattr(found, "files", None)
+    return getattr(ctx, "files", None)
 
 
 # endregion

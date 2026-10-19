@@ -201,9 +201,9 @@ function SourceImages({ binding }: { binding: EditorBinding }) {
   const layerError = useFormState((s) => (active ? s.errors.core?.[active.param] : undefined))
   const setView = useStageView((s) => s.setView)
 
-  const uploadTo = async (uploader: ReturnType<typeof useUploader>, file: File, apply: (id: string) => void) => {
+  const uploadTo = async (uploader: ReturnType<typeof useUploader>, file: File, apply: (id: string, size: { width: number; height: number } | null) => void) => {
     const [first] = await uploader.upload([file])
-    if (first) apply(first.id)
+    if (first) apply(first.id, first.width && first.height ? { width: first.width, height: first.height } : null)
   }
 
   return (
@@ -214,7 +214,7 @@ function SourceImages({ binding }: { binding: EditorBinding }) {
         error={imageError}
         emptyText={t("Drop an image here or on the stage")}
         busy={source.busy}
-        onFile={(file) => uploadTo(source, file, (id) => void setSourceImage(binding, id))}
+        onFile={(file) => uploadTo(source, file, (id, size) => void setSourceImage(binding, id, size))}
         onRemove={() => void setSourceImage(binding, null)}
         extra={(size) => (
           <>

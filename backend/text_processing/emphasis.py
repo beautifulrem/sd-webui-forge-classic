@@ -54,12 +54,10 @@ def get_current_option(emphasis_option_name: str) -> Emphasis:
     return next(iter([x for x in options if x.name == emphasis_option_name]), EmphasisOriginal)
 
 
-def get_options_descriptions() -> str:
-    return f"""
-        <ul style='margin-left: 1.5em'><li>
-            {"</li><li>".join(f"<b>{x.name}</b>: {x.description}" for x in options)}
-        </li></ul>
-            """
+def get_options_descriptions() -> list[str]:
+    """One plain-text line per mode (the setting's notes)."""
+
+    return [f"{x.name}: {x.description}" for x in options]
 
 
 # region Utils

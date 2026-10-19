@@ -223,7 +223,7 @@ def _hires_fix() -> ui.Node:
         "Hires. fix",
         enable=_enable_hr(),
         children=[
-            ui.Output("hr_final_resolution", "html", "Upscaled resolution"),
+            ui.Output("hr_final_resolution", "text", "Upscaled resolution"),
             ui.Row(
                 ui.Choice("hr_upscaler", _upscaler_names, "Latent", label="Upscaler", infotext="Hires upscaler"),
                 ui.Slider("hr_second_pass_steps", 0, 150, 0, 1, label="Hires steps", infotext="Hires steps"),
@@ -373,7 +373,7 @@ def img2img_form(runner: ScriptRunner | None = None) -> ui.Node:
                     ui.Choice("resize_tab", RESIZE_TABS, "Resize to", type="index", label="Resize", hidden=True),
                     ui.Tabs(
                         ui.Tab("Resize to", ui.Row(*_size("img2img")), value="Resize to"),
-                        ui.Tab("Resize by", ui.Slider("scale_by", 0.5, 4.0, 1.0, 0.05, label="Scale"), ui.Output("scale_by_resolution", "html"), value="Resize by"),
+                        ui.Tab("Resize by", ui.Slider("scale_by", 0.5, 4.0, 1.0, 0.05, label="Scale"), ui.Output("scale_by_resolution", "text"), value="Resize by"),
                         bind="resize_tab",
                     ),
                     ui.Row(*_batch()) if together else None,

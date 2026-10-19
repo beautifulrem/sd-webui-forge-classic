@@ -58,8 +58,9 @@ function useSystemDark() {
 export function useTheme() {
   const theme = useAppearance((s) => s.theme)
   const systemDark = useSystemDark()
+  const setTheme = useAppearance((s) => s.setTheme)
   const resolved: "light" | "dark" = theme === "system" ? (systemDark ? "dark" : "light") : theme
-  return { theme: resolved, setTheme: useAppearance.getState().setTheme }
+  return { theme: resolved, setTheme }
 }
 
 /** Mirrors the appearance preferences onto <html> (class + data attributes). */

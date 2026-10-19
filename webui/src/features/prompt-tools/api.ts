@@ -77,6 +77,10 @@ export const promptToolsApi = {
   /** Translations in the order of `texts` (any number: sent in chunks). */
   translate: translateAll,
 
+  /** A prompt written from a description by the OpenAI-compatible provider (`prompt`: the one to build on). */
+  generate: (body: { description: string; prompt?: string; negative?: boolean }) =>
+    unwrap(client.POST("/api/v2/prompt-tools/generate", { body: { prompt: "", negative: false, ...body } })).then((answer) => answer.prompt),
+
   /** Stores the translation API key (`""` forgets it); it is never sent back. */
   setTranslationKey: (key: string) => unwrap(client.PUT("/api/v2/prompt-tools/translation-key", { body: { key } })),
 

@@ -6,7 +6,6 @@ from PIL import Image
 from tqdm import tqdm
 
 from modules import devices, images, infotext_utils, scripts, scripts_postprocessing, shared
-from modules.util import plaintext_to_html
 from modules.shared import opts
 
 
@@ -109,7 +108,7 @@ def run_postprocessing(extras_mode, image, image_folder, input_dir, output_dir, 
 
     devices.torch_gc()
     shared.state.end()
-    return outputs, plaintext_to_html(infotext), ""
+    return outputs, infotext
 
 
 def run_postprocessing_video(_mode, _img, _folder, _in_dir, _out_dir, _show, video_input, *args, save_output: bool = True):
@@ -168,14 +167,7 @@ def run_postprocessing_video(_mode, _img, _folder, _in_dir, _out_dir, _show, vid
     container.close()
     devices.torch_gc()
     shared.state.end()
-    return outputs[-1:], plaintext_to_html(infotext), ""
-
-
-def run_postprocessing_webui(id_task, *args, **kwargs):
-    if args[0] == 3:
-        return run_postprocessing_video(*args, **kwargs)
-    else:
-        return run_postprocessing(*args, **kwargs)
+    return outputs[-1:], infotext or ""
 
 
 def run_extras(extras_mode, resize_mode, image, image_folder, input_dir, output_dir, show_extras_results, gfpgan_visibility, codeformer_visibility, codeformer_weight, upscaling_resize, upscaling_resize_w, upscaling_resize_h, upscaling_crop, extras_upscaler_1, extras_upscaler_2, extras_upscaler_2_visibility, upscale_first: bool, save_output: bool = True, max_side_length: int = 0):
@@ -213,7 +205,8 @@ def run_extras(extras_mode, resize_mode, image, image_folder, input_dir, output_
 def run_extras_named(core: dict | None, scripts_values: dict | None = None, job=None, *, save_output: bool = True):
     """Extras from named values (``core``: the extras form with upload ids,
     ``scripts_values``: ``{operation id: {param: value}}``); returns
-    ``(images, info_html)``. Raises ``remi.ui.ValidationError``."""
+    ``(images, infotext)`` (the operations' parameters as plain text).
+    Raises ``remi.ui.ValidationError``."""
 
     from remi.core import JobContext
     from remi.core.job import job_state
@@ -224,5 +217,5 @@ def run_extras_named(core: dict | None, scripts_values: dict | None = None, job=
     run_args = (core_args["mode"], core_args["image"], core_args["image_batch"], core_args["input_dir"], core_args["output_dir"], core_args["show_extras_results"], core_args["video_input"], *script_args)
     run = run_postprocessing_video if core_args["mode"] == 3 else run_postprocessing
     with job_state(job):
-        images_out, info_html, _ = run(*run_args, save_output=save_output)
-    return images_out, info_html
+        images_out, infotext = run(*run_args, save_output=save_output)
+    return images_out, infotext

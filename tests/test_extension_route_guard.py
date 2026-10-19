@@ -262,8 +262,24 @@ def test_lan_bound_servers_require_the_webui_login_for_extension_routes(monkeypa
         assert client.post("/ext/api").json() == "ext"
     client = _exposed_app(monkeypatch, listen=True, api_auth="bot:secret")
     assert client.post("/ext/api", headers=_basic("bot", "secret")).json() == "ext"
-    # a loopback --server-name stays local
-    assert _exposed_app(monkeypatch, server_name="127.0.0.1").post("/ext/api").json() == "ext"
+
+
+def test_loopback_servers_with_a_login_require_it_for_extension_routes(monkeypatch):
+    # a reverse proxy or tunnel on this machine also connects from loopback
+    for bind in (dict(share=False, ngrok=None), dict(server_name="127.0.0.1")):
+        client = _exposed_app(monkeypatch, **bind)
+        assert client.post("/ext/api").status_code == 401, bind
+        client.cookies.set("session", "good")
+        assert client.post("/ext/api").json() == "ext"
+
+
+def test_api_no_auth_on_localhost_opens_extension_api_routes_to_local_clients(monkeypatch):
+    client = _exposed_app(monkeypatch, api_no_auth_on_localhost=True)  # the test client is a loopback peer
+    assert client.post("/ext/api").json() == "ext"
+    assert client.post("/ext/api", headers={"x-forwarded-for": "203.0.113.9"}).status_code == 401  # through a proxy
+    assert client.post("/ext/api", headers={"origin": "https://evil.example"}).status_code == 403
+    # --api-auth always applies
+    assert _exposed_app(monkeypatch, api_no_auth_on_localhost=True, api_auth="bot:secret").post("/ext/api").status_code == 401
 
 
 def test_exposed_servers_accept_api_auth_credentials(monkeypatch):
@@ -280,9 +296,9 @@ def test_api_auth_credentials_do_not_count_without_api_auth(monkeypatch):
     assert client.post("/ext/api", headers=_basic("user", "pw")).status_code == 401
 
 
-def test_local_or_login_free_servers_keep_extension_apis_open(monkeypatch):
-    # loopback-only: local API clients keep working; exposed without --auth: nothing to log in with
-    for options in (dict(share=False, ngrok=None), dict(share=True, auth=None), dict(listen=True, auth=None)):
+def test_login_free_servers_keep_extension_apis_open(monkeypatch):
+    # without --auth there is nothing to log in with
+    for options in (dict(share=False, ngrok=None, auth=None), dict(share=True, auth=None), dict(listen=True, auth=None)):
         assert _exposed_app(monkeypatch, **options).post("/ext/api").json() == "ext"
     assert _exposed_app(monkeypatch, share=True, auth=None, auth_file="auth.txt").post("/ext/api").status_code == 401
 

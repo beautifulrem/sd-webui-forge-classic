@@ -22,6 +22,7 @@ export async function runChecks(
   const progress: CheckProgress = { done: 0, total: names.length, current: [], failed: [] }
   const report = () => onProgress?.({ ...progress, current: [...progress.current], failed: [...progress.failed] })
   const worker = async () => {
+    // oxlint-disable-next-line eslint/no-unmodified-loop-condition -- the caller aborts `signal` while the workers await
     while (queue.length > 0 && !signal?.aborted) {
       const name = queue.shift()!
       progress.current.push(name)

@@ -32,7 +32,7 @@ class FakeState:
     """The parts of ``shared.state`` the server reads and flips."""
 
     def __init__(self) -> None:
-        self.interrupted = self.skipped = False
+        self.interrupted = self.skipped = self.stopping_generation = False
         self.job_count = self.job_no = 0
         self.sampling_step = self.sampling_steps = 0
         self.time_start: float | None = None
@@ -52,6 +52,9 @@ class FakeState:
 
     def interrupt(self) -> None:
         self.interrupted = True
+
+    def stop_generating(self) -> None:
+        self.stopping_generation = True
 
     def skip(self) -> None:
         self.skipped = True
@@ -75,7 +78,7 @@ class StubExecutor:
     def __call__(self, job: Job, ctx: JobContext) -> JobResult:
         self.calls.append((job, ctx))
         state = self.state
-        state.interrupted = state.skipped = False  # as shared.state.begin()
+        state.interrupted = state.skipped = state.stopping_generation = False  # as shared.state.begin()
         if ctx.on_begin is not None:
             ctx.on_begin()
         state.time_start, state.job_count, state.job_no = time.time(), 1, 0

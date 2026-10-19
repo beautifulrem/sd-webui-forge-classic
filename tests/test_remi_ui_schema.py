@@ -135,7 +135,7 @@ def _options():
                 "row_close": options_module.OptionRow(),
                 "div": options_module.OptionDiv(),
                 "colors": options_module.OptionInfo(["red"], "Colors", ui.MultiChoice, lambda: {"choices": ["red", "blue"], "style": "checkboxes"}, refresh=lambda: None),
-                "flag": options_module.OptionInfo(False, "Flag", onchange=lambda: None).info("see <b>X/Y/Z Plot</b>").info("plain").needs_restart(),
+                "flag": options_module.OptionInfo(False, "Flag", onchange=lambda: None).info("see <b>X/Y/Z Plot</b>").info("plain").info('read the <a href="https://example.org/faq">FAQ</a> &amp; <code>|</code>').needs_restart(),
                 "locked": options_module.OptionInfo("Automatic", "Locked", ui.Choice, {"choices": ("Automatic",), "interactive": False}, restrict_api=True),
             },
         )
@@ -164,8 +164,9 @@ def test_settings_schema():
     assert items["row"]["children"][1]["hidden"] is True
     assert items["colors"]["style"] == "checkboxes" and items["colors"]["refresh"] is True
     assert items["flag"]["onchange"] is True and items["flag"]["needs_restart"] is True
-    # Notes are plain text; a note with markup moves to the trusted html help
-    assert items["flag"]["notes"] == ["plain"] and items["flag"]["html"] == "<span class='info'>(see <b>X/Y/Z Plot</b>)</span>"
+    # Notes are plain text (no Gradio-era markup): tags are dropped, entities decoded, link targets become links
+    assert items["flag"]["notes"] == ["see X/Y/Z Plot", "plain", "read the FAQ & |"] and "html" not in items["flag"]
+    assert items["flag"]["links"] == [{"label": "FAQ", "url": "https://example.org/faq"}]
     assert items["locked"]["enabled_if"] is False and items["locked"]["restricted"] is True
     assert schema["quicksettings"] == ["steps"]
     assert schema["values"]["steps"] == 30 and schema["values"]["secret"] == "s" and "hint" not in schema["values"]

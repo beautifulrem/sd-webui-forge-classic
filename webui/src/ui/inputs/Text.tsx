@@ -1,10 +1,10 @@
-import { lazy, Suspense, useId, useRef } from "react"
+import { lazy, Suspense, use, useId, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { PromptDecorators } from "@/features/prompt-editor/PromptDecorators"
 import type { PromptEditorHandle } from "@/features/prompt-editor/PromptEditor"
-import { useParam } from "../hooks"
+import { FormContext, useParam } from "../hooks"
 import { describedBy } from "../a11y"
 import { Field } from "../Field"
 import type { TextNode } from "../schema"
@@ -26,6 +26,7 @@ export function Text({ node }: { node: TextNode }) {
   const ariaDescribedBy = describedBy(id, info, param.error)
   const invalid = param.error ? true : undefined
   const handle = useRef<PromptEditorHandle | null>(null)
+  const formId = use(FormContext)?.formId ?? null
 
   let control
   if (node.prompt) {
@@ -47,6 +48,7 @@ export function Text({ node }: { node: TextNode }) {
           <PromptEditor
             ref={handle}
             kind={kind}
+            scope={{ form: formId, extension: true }}
             id={id}
             value={value}
             onChange={param.setValue}

@@ -129,10 +129,11 @@ A new core control (a new txt2img/img2img parameter) touches:
    key differs from the API field.
 5. The SPA only when the control needs more than the schema renderer (the
    curated generate view frames blocks by content: `pages/generate/curate.ts`).
-6. Refresh what the frontend tests and the typed client read: in `webui/`,
-   `python tools/dump_schemas.py` (and `tools/dump_settings.py` for
-   settings), and `python tools/export_openapi.py` at the repository root
-   followed by `pnpm gen:api` when a route or model changed (frontend.md
+6. Refresh what the frontend tests and the typed client read, from the
+   repository root: `python webui/tools/dump_schemas.py` (the tab schemas),
+   `python tools/dump_settings.py` for settings (`tools/check.sh` runs it
+   with `--check`), and `python tools/export_openapi.py` followed by
+   `pnpm gen:api` in `webui/` when a route or model changed (frontend.md
    "Scripts").
 
 ### 2.4 A JavaScript or styling change

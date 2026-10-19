@@ -253,6 +253,33 @@ def test_interrupting_the_running_job_keeps_its_results(webui, tmp_path):
         assert job["status"] == INTERRUPTED and len(job["outputs"]) == 1
 
 
+def test_interrupt_after_current_lets_the_current_image_finish_first(webui, tmp_path, monkeypatch):
+    # The setting "Don't Interrupt in the middle": the first interrupt of a
+    # job making several images stops after the current one; a second stops at once
+    from modules import shared
+
+    monkeypatch.setitem(shared.opts.data, "interrupt_after_current", True)
+    with blocked_server(tmp_path) as server:
+        job_id = submit(server)["job_id"]
+        assert server.executor.started.wait(5)
+        server.state.job_count = 3
+        assert server.client.post(f"/api/v2/jobs/{job_id}/interrupt").status_code == 200
+        assert server.state.stopping_generation and not server.state.interrupted
+        assert server.client.post("/api/v2/interrupt", json={}).status_code in (200, 204)
+        assert server.state.interrupted
+        assert server.services.queue.wait_idle()
+        assert server.client.get(f"/api/v2/jobs/{job_id}").json()["status"] == INTERRUPTED
+
+    monkeypatch.setitem(shared.opts.data, "interrupt_after_current", False)
+    with blocked_server(tmp_path / "off") as server:
+        job_id = submit(server)["job_id"]
+        assert server.executor.started.wait(5)
+        server.state.job_count = 3
+        assert server.client.post(f"/api/v2/jobs/{job_id}/interrupt").status_code == 200
+        assert server.state.interrupted and not server.state.stopping_generation
+        assert server.services.queue.wait_idle()
+
+
 def test_skip_flips_the_skip_flag_of_the_running_job_only(webui, tmp_path):
     with blocked_server(tmp_path) as server:
         job_id = submit(server)["job_id"]
@@ -399,6 +426,122 @@ def test_queued_jobs_survive_a_restart_and_running_ones_become_interrupted(webui
         assert server.services.store.get(left_running.id).error
         assert server.services.store.get(waiting.id).status == COMPLETED
         assert [job.core["prompt"] for job, _ctx in server.executor.calls] == ["still queued"]
+
+
+# region Queue settings (the Agent Scheduler's keys)
+
+
+def settings(queue, **values):
+    """Point the queue at these settings; returns what it changed and ran."""
+
+    changed, ran = {}, []
+    queue.option = lambda name, default: values.get(name, default)
+
+    def set_option(name, value):
+        values[name] = value
+        changed[name] = value
+
+    queue.set_option = set_option
+    queue.when_done = ran.append
+    return changed, ran
+
+
+def test_failed_jobs_are_queued_again_up_to_three_attempts(webui, tmp_path):
+    state = FakeState()
+    executor = StubExecutor(state, error=RuntimeError("boom"))
+    with server_app(tmp_path, state=state, executor=executor) as server:
+        settings(server.services.queue, queue_automatic_requeue_failed_task=True)
+        first = submit(server, "flaky")
+        assert wait_until(lambda: len(executor.calls) == 3 and server.services.store.count(QUEUED) == 0)
+        assert server.services.queue.wait_idle()
+        jobs = server.client.get("/api/v2/jobs", params={"status": "failed"}).json()["items"]
+        assert len(jobs) == 3 and all(job["summary"] == "flaky" for job in jobs)
+        chain = {job["id"]: job.get("retry_of") for job in jobs}
+        assert chain[first["job_id"]] is None and len([value for value in chain.values() if value]) == 2
+
+    # off (the default): failed once, stays failed
+    executor = StubExecutor(state, error=RuntimeError("boom"))
+    with server_app(tmp_path / "off", state=state, executor=executor) as server:
+        settings(server.services.queue)
+        submit(server)
+        assert server.services.queue.wait_idle() and len(executor.calls) == 1
+
+
+def test_history_retention_deletes_old_unstarred_jobs(server):
+    queue, store = server.services.queue, server.services.store
+    ids = [submit(server, f"p{index}")["job_id"] for index in range(3)]
+    assert queue.wait_idle()
+    old = time.time() - 10 * 86400
+    with store._lock:
+        store._db.execute("UPDATE jobs SET finished = ? WHERE id IN (?, ?)", (old, ids[0], ids[1]))
+    store.set_starred([ids[1]], True)
+    settings(queue)
+    assert queue.apply_retention(force=True) == 0  # "Keep forever" by default
+    settings(queue, queue_history_retention_days="7 days")
+    assert queue.apply_retention(force=True) == 1
+    assert store.get(ids[0]) is None and store.get(ids[1]) is not None and store.get(ids[2]) is not None
+    assert queue.apply_retention() == 0  # at most once an hour
+
+
+def test_the_completion_action_runs_once_when_the_queue_is_done(webui, tmp_path):
+    state = FakeState()
+    gate = threading.Event()
+    executor = StubExecutor(state, gate=gate)
+    with server_app(tmp_path, state=state, executor=executor) as server:
+        changed, ran = settings(server.services.queue, queue_completion_action="Shut down")
+        submit(server, "one")
+        submit(server, "two")
+        assert wait_until(lambda: len(executor.calls) == 1)
+        assert ran == []
+        gate.set()
+        assert server.services.queue.wait_idle() and wait_until(lambda: ran == ["Shut down"])
+        assert changed == {"queue_completion_action": "Do nothing"} and len(executor.calls) == 2
+        submit(server, "three")
+        assert server.services.queue.wait_idle() and ran == ["Shut down"]
+
+    # a run stopped by hand does not end in the action
+    executor = StubExecutor(state, gate=threading.Event())
+    with server_app(tmp_path / "interrupted", state=state, executor=executor) as server:
+        changed, ran = settings(server.services.queue, queue_completion_action="Stop webui")
+        created = submit(server)
+        assert wait_until(lambda: len(executor.calls) == 1)
+        server.client.post(f"/api/v2/jobs/{created['job_id']}/interrupt")
+        executor.gate.set()
+        assert server.services.queue.wait_idle() and ran == [] and changed == {}
+
+
+def test_completion_actions_run_the_systems_commands():
+    from remi.jobs import completion
+
+    calls, stops = [], []
+
+    def perform(action, platform):
+        return completion.perform(action, platform=platform, run=calls.append, stop_server=lambda: stops.append(action))
+
+    assert not perform("Do nothing", "linux") and not perform("Format the disk", "linux")
+    assert perform("Stop webui", "win32") and calls == [] and stops == ["Stop webui"]
+    assert perform("Shut down", "linux") and calls[-1] == ["systemctl", "poweroff"] and stops[-1] == "Shut down"
+    assert perform("Restart", "win32") and calls[-1] == ["shutdown", "/r", "/t", "0"]
+    assert perform("Sleep", "darwin") and calls[-1] == ["pmset", "sleepnow"] and stops[-1] == "Restart"  # sleeping keeps the server
+    assert perform("Hibernate", "linux") and calls[-1] == ["systemctl", "hibernate"]
+    assert set(completion.ACTIONS) == {"Do nothing", "Stop webui", "Sleep", "Hibernate", "Restart", "Shut down"}
+
+
+def test_queue_settings_keep_the_agent_scheduler_keys(webui):
+    from modules import shared, shared_options
+
+    from remi.jobs import completion
+    from remi.jobs.queue import RETENTION_DAYS
+
+    labels = shared.opts.data_labels
+    assert labels["queue_history_retention_days"].default == "Keep forever"
+    assert list(labels["queue_history_retention_days"].component_args["choices"]) == list(RETENTION_DAYS)
+    assert [value for _label, value in labels["queue_completion_action"].component_args["choices"]] == list(completion.ACTIONS)
+    assert labels["queue_completion_action"].restrict_api and "queue_completion_action" in shared_options.restricted_opts
+    assert labels["queue_automatic_requeue_failed_task"].default is False
+
+
+# endregion
 
 
 def test_store_round_trips_a_job(tmp_path):

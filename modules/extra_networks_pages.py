@@ -132,7 +132,7 @@ class ExtraNetworksPage:
                 continue
 
             try:
-                with open(file, "r", encoding="utf-8", errors="replace") as f:
+                with open(file, encoding="utf-8", errors="replace") as f:
                     return f.read()
             except OSError:
                 pass

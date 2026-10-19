@@ -56,13 +56,20 @@ attackers who already have a login (they are administrators by design).
   unchecked.
 - `/sdapi/v1` (core and extension routes under it): `--api-auth` Basic
   credentials when set (throttled the same way); without `--api-auth`, the
-  WebUI login when the server is reachable from other machines; open on a
-  loopback-only server (A1111 compatibility for local tools).
+  WebUI login (cookie or Basic) on any bind — a loopback-only server is
+  still reached through a reverse proxy or tunnel on the same machine. The
+  explicit opt-out `--api-no-auth-on-localhost` restores the A1111
+  behaviour for local tools: a loopback peer that came through no proxy (no
+  `X-Forwarded-For`/`-Host`, `X-Real-IP` or `Forwarded` header) needs no
+  login for `/sdapi` and extension API routes; it never applies with
+  `--api-auth`, nor to `/api/v2`, files, pages or the docs.
 - Docs without `--auth` but with `--api-auth` need the API credentials.
 - Extension routes outside these prefixes (`/controlnet/*`, `/adetailer/*`):
-  `modules/extension_route_guard.py` — cross-site checks always; a login when
-  the server is exposed and `--auth` is set (session, or `--api-auth`
-  credentials); under `--nowebui`, `--api-auth` whenever it is set.
+  `modules/extension_route_guard.py` — cross-site checks always; a login
+  whenever `--auth` / `--auth-file` is set, on any bind (session, Basic, or
+  `--api-auth` credentials; local clients exempt only with
+  `--api-no-auth-on-localhost`); under `--nowebui`, `--api-auth` whenever it
+  is set.
 
 ### Browser-based attacks (`modules/extension_route_guard.py`, `remi/server/auth.py`)
 
@@ -84,9 +91,16 @@ attackers who already have a login (they are administrators by design).
   scripts only from the server plus the page's own inline scripts by SHA-256
   hash (no `unsafe-inline`/`unsafe-eval` scripts), no plugins, `base-uri` /
   `form-action` `'self'`, `frame-ancestors 'self'` plus the literal
-  `--cors-allow-origins` (clickjacking). Images may come from anywhere
-  (extension help and outputs show remote images); `connect-src` allows
-  `https:` for license texts fetched on demand.
+  `--cors-allow-origins` (clickjacking). `connect-src` is `'self'` (the
+  API and its WebSocket; CSP Level 3 browsers, which the SPA's ES2023 build
+  requires anyway, match `ws:`/`wss:` to the page's own origin) plus
+  `https://raw.githubusercontent.com` for the license texts of Settings →
+  Licenses, so an injected script could not send data elsewhere. `img-src`
+  is `'self' data: blob:` plus the hosts the user lists in Settings → System
+  → "Remote image hosts" (`remi_image_hosts`; only `http(s)://host[:port]`
+  and `https://*.host` tokens are taken, so the setting cannot add other
+  sources or directives); remote images in extension help or outputs are
+  blocked otherwise, so injected markup cannot load tracking pixels.
 
 ### Files and uploads (`remi/files.py`, `remi/server/routes/files.py`)
 
@@ -135,7 +149,10 @@ attackers who already have a login (they are administrators by design).
   submodules (no `file://` or `ext::` helpers). Uninstall only deletes a
   direct child of `extensions/`.
 - The index is fetched only over http(s), at most 16 MB, entries whose URL
-  fails the same validation are dropped.
+  fails the same validation are dropped. An index URL the client names
+  (other than the default or `WEBUI_EXTENSIONS_INDEX`) must resolve to public
+  internet addresses only, and so must every redirect hop (422 otherwise),
+  so the field cannot be used to probe the server's own network.
 
 ### Outbound network calls
 
@@ -143,13 +160,14 @@ Nothing contacts the network unless the user configured or asked for it:
 
 | call | when |
 |---|---|
-| extension index (`raw.githubusercontent.com` or `WEBUI_EXTENSIONS_INDEX`) | opening Extensions → Available |
+| extension index (`raw.githubusercontent.com` or `WEBUI_EXTENSIONS_INDEX`) | opening Extensions → Available; another index URL typed there must be a public address (each redirect hop checked) |
 | `git fetch` / `clone` | checking for updates, installing, updating |
 | prompt translation | only with a network provider and its URL/key set (`prompt_tools_translation_*`); the key is write-only through the API |
 | booru grabber (Prompt Workshop) | on a grab; https only, the booru's own image hosts, public addresses checked per redirect hop, 64 MB cap |
 | model downloads (upscalers, face restorers, preprocessors, ADetailer, TAESD) | the first time the user runs a feature whose model is missing; fixed upstream URLs |
 | `/sdapi` image URLs | an API request names one; off with `api_enable_requests`; with `api_forbid_local_requests` (default) every address of every redirect hop must be public; 64 MB cap. Both settings are `restrict_api`: `/sdapi/v1/options` cannot change them |
-| license texts | opening an entry in Settings → Licenses (fetched by the browser, without cookies or referrer) |
+| license texts | opening an entry in Settings → Licenses (fetched by the browser from `raw.githubusercontent.com`, the only outside host the CSP lets the page connect to, without cookies or referrer) |
+| remote images | only from hosts listed in "Remote image hosts" (`remi_image_hosts`, empty by default) |
 
 ### XSS (`webui/src/ui/rich-text.tsx`, `webui/src/ui/image-ref.ts`)
 
@@ -163,6 +181,15 @@ Nothing contacts the network unless the user configured or asked for it:
   with the browser's URL parser, so `java\tscript:` and entity tricks fail);
   output images pass `safeImageUrl` (http(s), blob, `data:image/*`, same-site
   paths). The CSP is the second line of defence.
+
+### Error responses (`remi/server/app.py`)
+
+An unhandled exception answers `500 {"error": "Internal Server Error",
+"detail": "Internal server error (id …); …", "id": "…"}`: no exception text,
+no request or response body (a `ResponseValidationError` carries the whole
+response), no paths. The exception and traceback are logged with the same
+id. Exceptions that carry a 4xx `status_code` keep their `detail`, which is
+meant for the client.
 
 ### Secrets in logs
 
@@ -186,7 +213,9 @@ To let other machines in:
    forward; the session cookie becomes `Secure` when the proxy reports
    HTTPS). Without TLS, passwords and cookies cross the network in clear text.
 3. **API:** `--api` exposes `/sdapi/v1`; set `--api-auth` for it (otherwise
-   it uses the WebUI login when exposed). Scripts can send Basic credentials.
+   it uses the WebUI login). Scripts can send Basic credentials. Do not use
+   `--api-no-auth-on-localhost` when other people can run programs on the
+   machine or when a proxy that adds no forwarding headers fronts it.
 4. **Keep extension access off** (the default when exposed). Only add
    `--enable-insecure-extension-access` if every user may run code on the
    machine.
@@ -210,8 +239,12 @@ To let other machines in:
   rebinding (the `Host` check only protects loopback-only servers). Use a
   login.
 - **Same-machine tunnels without forwarding headers** (`ssh -L`, plain TCP
-  forwarders) look like local clients to the folder actions; use
-  `--hide-ui-dir-config` when sharing that way.
+  forwarders) look like local clients to the folder actions and, with
+  `--api-no-auth-on-localhost`, to the API; use `--hide-ui-dir-config` and
+  leave that flag off when sharing that way.
+- **DNS answers that change between the address check and the connection**
+  are not caught for a client-named extension index URL either (it is only
+  reachable where extension access is allowed).
 - **DNS answers that change between the address check and the connection**
   are not caught for `/sdapi` image URLs; turn `api_enable_requests` off on
   servers that must not reach their network.
@@ -245,6 +278,10 @@ server with `--auth`, or a local server visited by a hostile page).
 | 12 | `/docs/oauth2-redirect` was outside the docs login; docs open under `--api-auth` without `--auth` | low | docs prefix check, `--api-auth` for docs |
 | 13 | Unbounded login field sizes; the login page interpolated `--subpath` into a script unescaped | low | 1024-character cap; JSON-escaped root |
 | 14 | No warning when the server is exposed without a login, with `--cors-allow-origins=*`, insecure extension access or without TLS | low | startup warnings (`remi.server.launch.exposure_warnings`) |
+| 15 | With `--auth` and no `--api-auth`, `/sdapi` and extension API routes (`/controlnet/*`, `/adetailer/*`) were open on a loopback-only server, which a reverse proxy on the same machine makes reachable from anywhere | high | the WebUI login on any bind; explicit `--api-no-auth-on-localhost` opt-out for local tools |
+| 16 | The error handler returned the exception text and its `body` (`GET /sdapi/v1/cmd-flags` echoed the whole flag set, with paths, in a `ResponseValidationError` because `--port` is an int with a `None` default) | medium | generic 500 with a correlation id, details only in the log; `FlagsModel` types from the parser's `type=` |
+| 17 | CSP allowed `connect-src https: ws: wss:` and `img-src *`: an XSS could exfiltrate to any host, markup could load tracking pixels | medium | `connect-src 'self'` + the license host; `img-src 'self' data: blob:` + an opt-in host list |
+| 18 | `GET /api/v2/extensions/index?url=` fetched any client-named URL, including loopback and private addresses (port/service probe through the error text) | low | client-named index URLs and their redirects must be public addresses |
 
 Checked and found sound: session signing and revocation, cookie flags,
 login timing, Origin/rebinding checks for writes and WebSockets, file serving

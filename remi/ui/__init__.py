@@ -19,6 +19,7 @@ from remi.ui.actions import ActionContext, ActionSpec, action, actions_of, call_
 from remi.ui.conditions import all_of, any_of, evaluate, not_, param
 from remi.ui.context import Context
 from remi.ui.errors import ParamError, SchemaError, ValidationError
+from remi.ui.files import ActionFiles
 from remi.ui.layout import ScriptLayout
 from remi.ui.nodes import (
     Button,
@@ -57,6 +58,7 @@ from remi.ui.schema import SCHEMA_VERSION, jsonable, to_schema
 __all__ = [
     "SCHEMA_VERSION",
     "ActionContext",
+    "ActionFiles",
     "ActionSpec",
     "Button",
     "Choice",

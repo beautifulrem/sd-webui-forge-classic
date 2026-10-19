@@ -38,9 +38,10 @@ function useGlobalShortcuts() {
 }
 
 function useShellCommands(nav: NavItem[], locales: ReturnType<typeof availableLocales>) {
+  const setTheme = useAppearance((s) => s.setTheme)
+  const setDensity = useAppearance((s) => s.setDensity)
+  const setLocale = useLocale((s) => s.setLocale)
   const commands = useMemo<Command[]>(() => {
-    const { setTheme, setDensity } = useAppearance.getState()
-    const { setLocale } = useLocale.getState()
     return [
       ...nav.map((item) => ({
         id: `nav:${item.id}`,
@@ -64,7 +65,7 @@ function useShellCommands(nav: NavItem[], locales: ReturnType<typeof availableLo
         run: () => setLocale(locale.id),
       })),
     ]
-  }, [nav, locales])
+  }, [nav, locales, setTheme, setDensity, setLocale])
   useRegisterCommands("shell", commands)
 }
 

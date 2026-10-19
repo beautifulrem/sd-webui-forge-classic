@@ -831,6 +831,24 @@ def _current_arch() -> str | None:
         return None
 
 
+def tab_order(setting: Any) -> list[str]:
+    """The names of the "Extra Networks Tab Order" setting
+    (``ui_extra_networks_tab_reorder``: comma-separated, case-insensitive)."""
+
+    return [name.strip().casefold() for name in str(setting or "").split(",") if name.strip()]
+
+
+def tab_rank(info: KindInfo, preferred: list[str]) -> int:
+    """Where a kind goes by that setting: the first name its title or id
+    contains (as A1111 matched tab names); unnamed kinds after them."""
+
+    title, kind = info.title.casefold(), info.id.casefold()
+    for index, name in enumerate(preferred):
+        if name in title or name in kind:
+            return index
+    return len(preferred)
+
+
 def _option(name: str, default: Any) -> Any:
     try:
         return getattr(_opts(), name, default)
@@ -886,7 +904,8 @@ class NetworkIndex:
         for kind, provider in self._providers().items():
             info = kind_info(kind, provider)
             infos.append(info if info.id == kind else KindInfo(kind, info.title, info.action, info.negative, info.fields, info.order, info.builtin))
-        return sorted(infos, key=lambda info: (info.order, info.title.casefold()))
+        preferred = tab_order(self._option("ui_extra_networks_tab_reorder", ""))
+        return sorted(infos, key=lambda info: (tab_rank(info, preferred), info.order, info.title.casefold()))
 
     def info(self, kind: str) -> KindInfo:
         return kind_info(kind, self._provider(kind))

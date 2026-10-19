@@ -70,7 +70,7 @@ def differences(layout, snapshot: dict[str, Any], *, expected: dict[int, dict[st
         problems.append(f"params after the legacy ones: {names[len(legacy):]} (expected {list(extra)})")
     if len(entries) < len(legacy):
         problems.append(f"{len(entries)} params, the legacy ui() had {len(legacy)}")
-    for position, (old, new) in enumerate(zip(legacy, entries)):
+    for position, (old, new) in enumerate(zip(legacy, entries, strict=False)):  # a length mismatch is reported above
         want = dict(old)
         want.pop("name", None)
         if "info" not in old:

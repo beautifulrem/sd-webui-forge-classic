@@ -103,7 +103,7 @@ def default_value(is_img2img: bool) -> dict[str, Any]:
 
     unit = ControlNetUnit(enabled=False, module="None", model="None")
     value = {name: _plain(getattr(unit, name)) for name in SETTINGS}
-    value.update({name: None for name in IMAGES})
+    value.update(dict.fromkeys(IMAGES))
     value.update(mask_upload=False, pose=None)
     if is_img2img:
         value["upload_independent"] = False
@@ -156,7 +156,7 @@ def coerce_field(name: str, value: Any) -> Any:
         return _clamped(value, 0.0, 1.0)
     if name == "processor_res":
         number = to_number(value)
-        return -1 if number < 0 else int(math.floor(number + 0.5))
+        return -1 if number < 0 else math.floor(number + 0.5)
     if name in ("threshold_a", "threshold_b"):
         number = to_number(value)
         return -1 if number < 0 else number

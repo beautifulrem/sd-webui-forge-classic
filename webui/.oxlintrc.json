@@ -1,9 +1,29 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["react", "typescript", "oxc"],
+  // `pnpm lint` runs with --deny-warnings and --report-unused-disable-directives: a warning or a
+  // stale suppression fails tools/check.sh like an error.
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+    "react/exhaustive-deps": "error",
+    "typescript/no-explicit-any": "error",
+    "react/only-export-components": ["warn", { "allowConstantExport": true }],
+    // Render props (`aside={(item) => ...}`) are called, not mounted as components.
+    "react/no-unstable-nested-components": ["error", { "allowAsProps": true }],
+    // The automatic JSX runtime (React 17+) needs no React in scope.
+    "react/react-in-jsx-scope": "off",
+    // Style rules of the suspicious category, not bug finders: shadowing a name in a nested
+    // callback (`(item) => items.map((item) => ...)`) and leading underscores are house style.
+    "eslint/no-shadow": "off",
+    "eslint/no-underscore-dangle": "off",
+    // The React Compiler's dependency check: effects here list deliberate re-run triggers (a
+    // form revision, a retry counter) and unmount-only cleanups ([]); react/exhaustive-deps
+    // (above) still catches missing dependencies.
+    "react/exhaustive-effect-dependencies": "off"
   },
   "overrides": [
     {

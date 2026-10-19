@@ -4,12 +4,13 @@ panel, the preset actions (with the LUT file) and "Apply PP → Send to img2img"
 
 import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from pp_suite_testlib import EXT, SCRIPT, contract, load_suite
 from PIL import Image
+from pp_suite_testlib import EXT, SCRIPT, contract, load_suite
 
 from remi import ui
 from remi.testing import webui_state
@@ -49,8 +50,7 @@ def make(module, tab="txt2img"):
 
 
 def call(script, action, values, store, **extra):
-    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(services=SimpleNamespace(files=store))))
-    return ui.call_action(script, action, ui.ActionContext(tab="txt2img", owner="post_processing_suite", request=request, extra=extra), values)
+    return ui.call_action(script, action, ui.ActionContext(tab="txt2img", owner="post_processing_suite", files=ui.ActionFiles(store), extra=extra), values)
 
 
 @pytest.mark.parametrize(("tab", "extra"), [("txt2img", ("send", "preset")), ("img2img", ("preset",))])
@@ -70,7 +70,7 @@ def test_positional_arguments_are_the_pipeline_layout(pp):
     preset = {"master": True, "stages": {"tone": {"enabled": True, "order": 7, "params": {"exposure": 0.5}}, "noise": {"enabled": True, "params": {"kind": "uniform", "seed": 3}}}}
     flat = pp.P.deserialize_to_values(preset)
     script = make(pp, "img2img")
-    values = dict(zip(pp.pipeline_names(), flat))
+    values = dict(zip(pp.pipeline_names(), flat, strict=True))
     args = script.layout.values_to_args({**values, "apply_mode": "Both", "preset": "mine"})
     assert args[: len(flat)] == flat and args[len(flat):] == ["Both", "mine"]
     master, states = pp.P.unflatten(args)
@@ -88,7 +88,7 @@ def test_the_pipeline_runs_in_the_last_hook(pp):
     p = SimpleNamespace(extra_generation_params={})
     pp_image = SimpleNamespace(image=Image.new("RGB", (8, 8), (0, 0, 255)))
     script.postprocess_image_after_composite(p, pp_image, *args)
-    r, g, b = pp_image.image.getpixel((0, 0))
+    r, _g, b = pp_image.image.getpixel((0, 0))
     assert r > b  # sepia
     assert json.loads(p.extra_generation_params["PP Suite"])["sepia"]["strength"] == 1.0
 
@@ -117,13 +117,13 @@ def test_presets_save_load_and_delete_with_the_lut(pp, files, presets):
     assert patch["preset"]["value"] == "My Look" and {"value": "My Look", "label": "My Look"} in patch["preset"]["choices"]
     saved = json.loads((presets / "My Look.json").read_text(encoding="utf-8"))
     kept = saved["stages"]["lut"]["params"]["lut_file"]
-    assert kept.startswith(str(presets / "luts")) and open(kept, encoding="utf-8").read() == CUBE  # a copy owned by the preset
+    assert kept.startswith(str(presets / "luts")) and Path(kept).read_text(encoding="utf-8") == CUBE  # a copy owned by the preset
 
     patch = call(script, "preset_load", {"preset": "My Look"}, files)
     assert patch["tone_exposure"] == {"value": 1.25} and patch["enable"] == {"value": True} and patch["sepia_enabled"] == {"value": False}
     reloaded = files.get(patch["lut_lut_file"]["value"])
     # The preset's copy becomes an upload again (the same content: the store keeps one record)
-    assert reloaded is not None and reloaded.path.endswith(".cube") and open(reloaded.path, encoding="utf-8").read() == CUBE
+    assert reloaded is not None and reloaded.path.endswith(".cube") and Path(reloaded.path).read_text(encoding="utf-8") == CUBE
 
     assert call(script, "preset_save", {"preset": "  "}, files)["__toast__"]["level"] == "warning"
     assert call(script, "preset_load", {"preset": "Nope"}, files)["__toast__"]["level"] == "warning"

@@ -10,7 +10,6 @@ from pathlib import Path
 
 from modules import script_callbacks, scripts
 from modules.paths_internal import data_path
-
 from remi import prompt_tools
 from remi.prompt_tools import options
 

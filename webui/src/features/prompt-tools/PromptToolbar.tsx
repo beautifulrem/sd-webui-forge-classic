@@ -1,9 +1,10 @@
 /**
  * The prompt tools bar under a prompt editor: text ↔ tag view, quick tag
- * groups, prompt history, favorites and translation (each panel is its own
- * lazy chunk, loaded when first opened).
+ * groups, prompt history, favorites, translation and, with an
+ * OpenAI-compatible provider, writing a prompt from a description (each
+ * panel is its own lazy chunk, loaded when first opened).
  */
-import { History, KeyRound, Languages, LayoutGrid, Star, Tags, TextCursorInput } from "lucide-react"
+import { BrushCleaning, History, KeyRound, Languages, LayoutGrid, Sparkles, Star, Tags, TextCursorInput } from "lucide-react"
 import { lazy, type ReactNode, Suspense, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -16,7 +17,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { PromptDecoratorProps } from "@/features/prompt-editor/decorators"
 import { cn } from "@/lib/utils"
 import type { PromptToolsConfig } from "./api"
-import { parsePrompt } from "./chips/parse"
+import { parsePrompt, tidyPrompt } from "./chips/parse"
 import type { PanelProps } from "./panels/helpers"
 import { translatePromptToEnglish, translateTags } from "./translate"
 import { type PromptView, usePromptViews } from "./view-store"
@@ -25,6 +26,7 @@ const TranslationKeyDialog = lazy(() => import("./TranslationKeyDialog").then((m
 const GroupsPanel = lazy(() => import("./panels/GroupsPanel"))
 const HistoryPanel = lazy(() => import("./panels/HistoryPanel"))
 const FavoritesPanel = lazy(() => import("./panels/FavoritesPanel"))
+const GeneratePanel = lazy(() => import("./panels/GeneratePanel"))
 
 export type PromptToolbarProps = PromptDecoratorProps & { config: PromptToolsConfig; viewKey: string; view: PromptView }
 
@@ -204,6 +206,21 @@ export default function PromptToolbar(props: PromptToolbarProps) {
       <ToolButton label={chips ? t("Edit as text") : t("Show as tags")} pressed={chips} onClick={() => setView(viewKey, chips ? "text" : "chips")}>
         {chips ? <TextCursorInput /> : <Tags />}
       </ToolButton>
+      <ToolButton
+        label={t("Tidy up the separators")}
+        disabled={props.disabled || !props.value.trim()}
+        onClick={() => {
+          const tidy = tidyPrompt(props.value)
+          if (tidy === props.value) {
+            toast.info(t("The prompt is already tidy."))
+            return
+          }
+          props.setValue(tidy)
+          toast.success(t("Separators tidied up"), { description: t("Undo with Ctrl+Z in the editor.") })
+        }}
+      >
+        <BrushCleaning />
+      </ToolButton>
       {config.tools.groups ? (
         <PanelTool label={t("Quick tags")} icon={<LayoutGrid />} disabled={props.disabled} wide>
           {(close) => <GroupsPanel {...panel(close)} />}
@@ -218,6 +235,11 @@ export default function PromptToolbar(props: PromptToolbarProps) {
         {(close) => <FavoritesPanel {...panel(close)} />}
       </PanelTool>
       {config.tools.translation || NETWORK_PROVIDERS.has(config.tools.translation_provider) ? <TranslateTool {...props} /> : null}
+      {config.tools.generate ? (
+        <PanelTool label={props.kind === "negative" ? t("Write a negative prompt") : t("Write a prompt")} icon={<Sparkles />} disabled={props.disabled}>
+          {(close) => <GeneratePanel {...panel(close)} />}
+        </PanelTool>
+      ) : null}
     </div>
   )
 }

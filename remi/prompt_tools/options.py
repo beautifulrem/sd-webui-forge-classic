@@ -3,7 +3,12 @@ the ``tac_*`` keys of the tag autocomplete extension (saved values carry
 over; its dotted keys, which settings names cannot have, are renamed with
 ``_`` and their values moved), the other tools use ``prompt_tools_*``. The extensions register them
 (:func:`register_tag_options`, :func:`register_tool_options`); everything
-else reads them through :func:`option` with these defaults."""
+else reads them through :func:`option` with these defaults.
+
+The old extension's settings that have no ``tac_*`` key here are listed,
+each with the reason, in the "Settings of the old extension" table of
+``extensions-builtin/sd-webui-tagcomplete-neo/README.md`` (checked by
+tests/test_remi_prompt_tools.py)."""
 
 from __future__ import annotations
 
@@ -17,6 +22,8 @@ TOOLS_SECTION = ("prompt_tools", "Prompt Tools", "ui")
 FREQUENCY_FUNCTIONS = ("Logarithmic (weak)", "Logarithmic (strong)", "Usage first")
 WILDCARD_MODES = ("To next folder level", "To first difference", "Always fully")
 KEYWORD_LOCATIONS = ("Start of prompt", "End of prompt", "Before LORA/LyCO", "After LORA/LyCO")
+MODEL_LIST_MODES = ("Blacklist", "Whitelist")
+"""``tac_activeIn_modelList`` is a list of checkpoints without completion, or the only ones with it"""
 TRANSLATION_PROVIDERS = (("None", "none"), ("Offline dictionary", "dictionary"), ("LibreTranslate", "libretranslate"), ("OpenAI-compatible API", "openai"), ("DeepL", "deepl"))
 TRANSLATION_PROVIDER_IDS = tuple(value for _, value in TRANSLATION_PROVIDERS)
 TOOLBAR_SCOPES = ("All prompt fields", "Main prompts only")
@@ -28,14 +35,21 @@ UNDERSCORE_EXCLUSIONS = "0_0,(o)_(o),+_+,+_-,._.,<o>_<o>,<|>_<|>,=_=,>_<,3_3,6_9
 
 DEFAULTS: dict[str, Any] = {
     "tac_active": True,
+    "tac_activeIn_txt2img": True,
+    "tac_activeIn_img2img": True,
     "tac_activeIn_negativePrompts": True,
+    "tac_activeIn_thirdParty": True,
+    "tac_activeIn_modelList": "",
+    "tac_activeIn_modelListMode": "Blacklist",
     "tac_tagFile": "danbooru.csv",
     "tac_extra_extraFile": "extra-quality-tags.csv",
     "tac_extra_addMode": "Insert before",
     "tac_translation_translationFile": "None",
     "tac_translation_searchByTranslation": True,
     "tac_alias_searchByAlias": True,
+    "tac_alias_onlyShowAlias": False,
     "tac_maxResults": 12,
+    "tac_delayTime": 40,
     "tac_useWildcards": True,
     "tac_sortWildcardResults": True,
     "tac_wildcardExclusionList": "",
@@ -51,6 +65,7 @@ DEFAULTS: dict[str, Any] = {
     "tac_frequencyMinCount": 3,
     "tac_frequencyMaxAge": 30,
     "tac_frequencyRecommendCap": 10,
+    "tac_frequencyIncludeAlias": False,
     "tac_replaceUnderscores": True,
     "tac_undersocreReplacementExclusionList": UNDERSCORE_EXCLUSIONS,
     "tac_escapeParentheses": True,
@@ -67,6 +82,7 @@ DEFAULTS: dict[str, Any] = {
     "prompt_tools_translation_url": "",
     "prompt_tools_translation_model": "",
     "prompt_tools_translation_language": "zh_CN",
+    "prompt_tools_generate_instructions": "",
 }
 
 TAG_OPTION_KEYS = tuple(key for key in DEFAULTS if key.startswith("tac_"))
@@ -105,14 +121,21 @@ def tag_options(tag_dir: Callable[[], str | None], refresh: Callable[[], None]) 
         TAG_SECTION,
         {
             "tac_active": OptionInfo(d["tac_active"], "Enable tag autocompletion").info("in every prompt field; Tab or Enter accepts, ↑/↓ choose, Esc closes"),
+            "tac_activeIn_txt2img": OptionInfo(d["tac_activeIn_txt2img"], "Complete in txt2img"),
+            "tac_activeIn_img2img": OptionInfo(d["tac_activeIn_img2img"], "Complete in img2img"),
             "tac_activeIn_negativePrompts": OptionInfo(d["tac_activeIn_negativePrompts"], "Complete in negative prompts"),
+            "tac_activeIn_thirdParty": OptionInfo(d["tac_activeIn_thirdParty"], "Complete in the prompt fields of extensions").info("ADetailer, MultiDiffusion, Prompt Workshop and the other prompt fields of extensions, besides the main prompts"),
+            "tac_activeIn_modelList": OptionInfo(d["tac_activeIn_modelList"], "Checkpoint list").info("checkpoint names (with or without the file extension) or hashes, separated by commas; empty: every checkpoint"),
+            "tac_activeIn_modelListMode": OptionInfo(d["tac_activeIn_modelListMode"], "The checkpoint list is", ui.Choice, {"choices": (("Without completion", "Blacklist"), ("The only ones with completion", "Whitelist")), "style": "radio"}),
             "tac_tagFile": OptionInfo(d["tac_tagFile"], "Tag list", ui.Choice, lambda: {"choices": csvs()}, refresh=refresh).info("CSV files in the tags folder of the tag autocomplete extension"),
             "tac_extra_extraFile": OptionInfo(d["tac_extra_extraFile"], "Extra tags", ui.Choice, lambda: {"choices": csvs()}, refresh=refresh).info("a small list of custom tags"),
             "tac_extra_addMode": OptionInfo(d["tac_extra_addMode"], "Extra tags are listed", ui.Choice, {"choices": ("Insert before", "Insert after"), "style": "radio"}),
             "tac_translation_translationFile": OptionInfo(d["tac_translation_translationFile"], "Tag translations", ui.Choice, lambda: {"choices": translation_files()}, refresh=refresh).info("shown next to the tags; \"Tag groups\" uses the labels of the quick tag groups"),
             "tac_translation_searchByTranslation": OptionInfo(d["tac_translation_searchByTranslation"], "Search by translation"),
             "tac_alias_searchByAlias": OptionInfo(d["tac_alias_searchByAlias"], "Search by alias"),
+            "tac_alias_onlyShowAlias": OptionInfo(d["tac_alias_onlyShowAlias"], "Show only the alias that matched").info("instead of the alias and the tag; the tag is still what gets inserted"),
             "tac_maxResults": OptionInfo(d["tac_maxResults"], "Suggestions shown", ui.Slider, {"minimum": 3, "maximum": 50, "step": 1}),
+            "tac_delayTime": OptionInfo(d["tac_delayTime"], "Wait before asking for suggestions", ui.Slider, {"minimum": 0, "maximum": 500, "step": 10}).info("milliseconds after a keystroke; suggestions seen before show at once"),
             "tac_useLoras": OptionInfo(d["tac_useLoras"], "Complete LoRA names after \"<\""),
             "tac_useEmbeddings": OptionInfo(d["tac_useEmbeddings"], "Complete embeddings after \"<e:\""),
             "tac_includeEmbeddingsInNormalResults": OptionInfo(d["tac_includeEmbeddingsInNormalResults"], "Also suggest embeddings among tags"),
@@ -127,6 +150,7 @@ def tag_options(tag_dir: Callable[[], str | None], refresh: Callable[[], None]) 
             "tac_frequencyMinCount": OptionInfo(d["tac_frequencyMinCount"], "Uses before a tag counts as frequent", ui.Slider, {"minimum": 1, "maximum": 20, "step": 1}),
             "tac_frequencyMaxAge": OptionInfo(d["tac_frequencyMaxAge"], "Forget uses older than", ui.Slider, {"minimum": 0, "maximum": 365, "step": 1}).info("days; 0 keeps them forever"),
             "tac_frequencyRecommendCap": OptionInfo(d["tac_frequencyRecommendCap"], "Most frequent tags promoted", ui.Slider, {"minimum": 0, "maximum": 50, "step": 1}).info("0: no limit"),
+            "tac_frequencyIncludeAlias": OptionInfo(d["tac_frequencyIncludeAlias"], "Promote frequent tags found by an alias too").info("off: only tags whose own name matches what you type move up"),
             "tac_replaceUnderscores": OptionInfo(d["tac_replaceUnderscores"], "Insert spaces instead of underscores"),
             "tac_undersocreReplacementExclusionList": OptionInfo(d["tac_undersocreReplacementExclusionList"], "Keep underscores in").info("tags separated by commas (emoticons such as ^_^)"),
             "tac_escapeParentheses": OptionInfo(d["tac_escapeParentheses"], "Escape parentheses in inserted tags"),
@@ -162,6 +186,9 @@ def tool_options() -> dict[str, Any]:
                 "LibreTranslate: the server, e.g. http://127.0.0.1:5000; OpenAI-compatible: the API base, e.g. http://127.0.0.1:11434/v1; DeepL: optional"
             ),
             "prompt_tools_translation_model": OptionInfo(d["prompt_tools_translation_model"], "Translation model").info("OpenAI-compatible APIs only"),
+            "prompt_tools_generate_instructions": OptionInfo(d["prompt_tools_generate_instructions"], "Instructions for writing prompts", ui.Text, {"lines": 3}).info(
+                "what the OpenAI-compatible model is told before your description (the prompt tools bar's \"Write a prompt\"); empty: the built-in instructions"
+            ),
         },
     )
 
@@ -174,7 +201,23 @@ def _add(options: dict[str, Any]) -> None:
             shared.opts.add_option(key, info)
 
 
-RENAMED = {old: old.replace(".", "_") for old in ("tac_activeIn.negativePrompts", "tac_extra.extraFile", "tac_extra.addMode", "tac_translation.translationFile", "tac_translation.searchByTranslation", "tac_alias.searchByAlias")}
+RENAMED = {
+    old: old.replace(".", "_")
+    for old in (
+        "tac_activeIn.txt2img",
+        "tac_activeIn.img2img",
+        "tac_activeIn.negativePrompts",
+        "tac_activeIn.thirdParty",
+        "tac_activeIn.modelList",
+        "tac_activeIn.modelListMode",
+        "tac_extra.extraFile",
+        "tac_extra.addMode",
+        "tac_translation.translationFile",
+        "tac_translation.searchByTranslation",
+        "tac_alias.searchByAlias",
+        "tac_alias.onlyShowAlias",
+    )
+}
 
 
 def migrate_values(data: dict[str, Any]) -> list[str]:

@@ -1175,6 +1175,7 @@
   "built-in extensions cannot be uninstalled; disable them instead": "内置扩展无法卸载，请改为禁用",
   "the extension is not inside the extensions folder": "该扩展不在 extensions 文件夹中",
   "the index URL must be http(s)://": "索引地址必须以 http(s):// 开头",
+  "the index URL must be a public internet address (a local index can be set with WEBUI_EXTENSIONS_INDEX)": "索引地址必须是公网地址（本地索引可以用 WEBUI_EXTENSIONS_INDEX 设置）",
   "could not load the index: {{reason}}": "无法加载索引：{{reason}}",
   "the index is too large": "索引文件过大",
   "the index is not JSON: {{reason}}": "索引不是有效的 JSON：{{reason}}",
@@ -1265,5 +1266,17 @@
   "The image editor lists its own: press ? while it is in use.": "图像编辑器有自己的快捷键：使用编辑器时按 ? 查看。",
   "{{seconds}} s": "{{seconds}} 秒",
   "{{minutes}} min {{seconds}} s": "{{minutes}} 分 {{seconds}} 秒",
-  "{{hours}} h {{minutes}} min": "{{hours}} 小时 {{minutes}} 分"
+  "{{hours}} h {{minutes}} min": "{{hours}} 小时 {{minutes}} 分",
+  "Write a prompt": "AI 撰写提示词",
+  "Write a negative prompt": "AI 撰写反向提示词",
+  "Describe the image": "描述画面",
+  "in any language, e.g. a girl reading under a cherry tree at dusk": "可用任意语言，例如：黄昏时在樱花树下看书的女孩",
+  "Change the current prompt instead of writing a new one": "在当前提示词的基础上修改，而不是重新撰写",
+  "Write": "撰写",
+  "Sent to the OpenAI-compatible service set up for translation.": "将发送到翻译设置中配置的 OpenAI 兼容服务。",
+  "Written prompt": "撰写结果",
+  "Replace the prompt": "替换提示词",
+  "Tidy up the separators": "整理分隔符",
+  "The prompt is already tidy.": "提示词已经很整齐了。",
+  "Separators tidied up": "已整理分隔符"
 }

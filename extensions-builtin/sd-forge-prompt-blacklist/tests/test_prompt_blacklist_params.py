@@ -116,7 +116,7 @@ def test_schema_export(env):
     schema = json.loads(dumps(tab_schema("txt2img")))
     entry = next(script for script in schema["scripts"] if script["id"] == "prompt_blacklist")
     assert entry["section"] == "prompt" and entry["args"] == ["blacklist", "remove_dupes"]
-    buttons = [node for node in entry["layout"]["children"] if node["type"] == "row"][0]["children"]
+    buttons = next(node for node in entry["layout"]["children"] if node["type"] == "row")["children"]
     assert [(button["label"], button["action"]) for button in buttons] == [("Clean Prompt", "clean"), ("Save Blacklist", "save"), ("Reload", "reload")]
     assert {"type": "output", "name": "status", "kind": "text"} in entry["layout"]["children"]
 

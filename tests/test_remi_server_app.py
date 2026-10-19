@@ -287,6 +287,28 @@ def test_the_spa_is_served_with_cache_headers_and_client_route_fallback(webui, t
         assert server.client.post("/").status_code == 404
 
 
+def test_removed_extension_apis_answer_gone_instead_of_the_spa(webui, tmp_path):
+    """Tag Autocomplete's /tacapi/v1, Prompt All-in-One's /physton_prompt,
+    Agent Scheduler's and Prompt Queue's APIs are not kept (architecture.md):
+    their clients get 410 naming the replacement, not the SPA shell."""
+
+    dist = make_dist(tmp_path)
+    with server_app(tmp_path / "data", spa_dir=dist) as server:
+        for method, path, replacement in (
+            ("get", "/tacapi/v1/lora-info/x", "/api/v2/prompt-tools"),
+            ("post", "/tacapi/v1/increase-use-count", "/api/v2/prompt-tools"),
+            ("get", "/physton_prompt/get_version", "/api/v2/prompt-tools"),
+            ("post", "/physton_prompt/translate", "/api/v2/prompt-tools"),
+            ("get", "/agent-scheduler/v1/queue", "/api/v2/jobs"),
+            ("get", "/prompt-queue/state", "/api/v2/jobs"),
+        ):
+            response = getattr(server.client, method)(path)
+            assert response.status_code == 410, path
+            assert replacement in response.json()["detail"] and "<html" not in response.text
+        # look-alike client routes still get the shell
+        assert server.client.get("/tacapix").status_code == 200
+
+
 def test_assets_are_served_precompressed_when_the_client_accepts_it(webui, tmp_path):
     import gzip
 

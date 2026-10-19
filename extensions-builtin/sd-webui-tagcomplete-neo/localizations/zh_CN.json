@@ -64,5 +64,20 @@
     "Auto": "自动",
     "Auto: with Anima checkpoints (their artist tag convention)": "自动：使用 Anima 模型时（其画师标签约定）",
     "Link tags to their wiki page": "为标签提供百科链接",
-    "opens danbooru or e621 in a new tab": "在新标签页中打开 danbooru 或 e621"
+    "opens danbooru or e621 in a new tab": "在新标签页中打开 danbooru 或 e621",
+    "Complete in txt2img": "在文生图中补全",
+    "Complete in img2img": "在图生图中补全",
+    "Complete in the prompt fields of extensions": "在扩展的提示词输入框中补全",
+    "ADetailer, MultiDiffusion, Prompt Workshop and the other prompt fields of extensions, besides the main prompts": "ADetailer、MultiDiffusion、Prompt Workshop 等扩展的提示词输入框（主提示词以外）",
+    "Checkpoint list": "模型列表",
+    "checkpoint names (with or without the file extension) or hashes, separated by commas; empty: every checkpoint": "模型名称（可带或不带扩展名）或哈希值，用逗号分隔；留空：所有模型",
+    "The checkpoint list is": "模型列表中的模型",
+    "Without completion": "不补全",
+    "The only ones with completion": "仅这些模型补全",
+    "Show only the alias that matched": "只显示匹配到的别名",
+    "instead of the alias and the tag; the tag is still what gets inserted": "而不是同时显示别名和标签；插入的仍是标签本身",
+    "Wait before asking for suggestions": "请求候选前的等待时间",
+    "milliseconds after a keystroke; suggestions seen before show at once": "按键后的毫秒数；之前出现过的候选会立即显示",
+    "Promote frequent tags found by an alias too": "通过别名找到的常用标签也排到前面",
+    "off: only tags whose own name matches what you type move up": "关闭：只有名称本身与输入匹配的标签才会排到前面"
 }

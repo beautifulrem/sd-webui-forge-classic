@@ -72,7 +72,7 @@
         {
          "type": "output",
          "name": "hr_final_resolution",
-         "kind": "html",
+         "kind": "text",
          "label": "Upscaled resolution"
         },
         {

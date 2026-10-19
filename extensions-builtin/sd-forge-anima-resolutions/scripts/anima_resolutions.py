@@ -442,12 +442,11 @@ def upscale_target(width, height):
 
 
 def _source_record(ctx, upload_id):
-    """The file record of an upload/output id, through the server's file
-    store (None outside a request, or for an unknown id)."""
+    """The file record of an upload/output id (``ctx.files``; None outside
+    the server, or for an unknown id)."""
 
-    services = getattr(getattr(getattr(getattr(ctx, "request", None), "app", None), "state", None), "services", None)
-    files = getattr(services, "files", None)
-    return files.get(upload_id) if files is not None and isinstance(upload_id, str) else None
+    files = getattr(ctx, "files", None)
+    return files.get(upload_id) if files is not None else None
 
 
 def _record_infotext(record):

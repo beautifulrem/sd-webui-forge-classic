@@ -25,6 +25,16 @@ from remi.server.auth import Auth, html_headers, refusal, refuse, route_path
 
 DIST = Path(__file__).resolve().parents[2] / "webui" / "dist"
 API_PREFIXES = ("/api/", "/sdapi/", "/internal/")
+RETIRED_APIS = {
+    "/tacapi/": "/api/v2/prompt-tools",
+    "/physton_prompt/": "/api/v2/prompt-tools",
+    "/agent-scheduler/": "/api/v2/jobs and /api/v2/queue",
+    "/prompt-queue/": "/api/v2/jobs and /api/v2/queue",
+}
+"""HTTP APIs of built-in extensions that Remi replaced (architecture.md,
+"Decision: their HTTP APIs are not kept"): ``410 Gone`` naming the
+replacement instead of the SPA shell. A route an extension registers under
+one of these prefixes still wins (this is the fallback)."""
 IMMUTABLE = "public, max-age=31536000, immutable"
 PRECOMPRESSED = (("br", ".br"), ("gzip", ".gz"))
 """content codings of the build's precompressed copies, preferred first"""
@@ -101,6 +111,11 @@ class Spa:
         if scope["type"] != "http":
             return
         path = route_path(scope)
+        retired = next((replacement for prefix, replacement in RETIRED_APIS.items() if path.startswith(prefix) or path == prefix.rstrip("/")), None)
+        if retired is not None:
+            detail = f"this API of the old WebUI was removed; use {retired} (see docs/remi-webui/architecture.md)"
+            await JSONResponse({"detail": detail}, status_code=410)(scope, receive, send)
+            return
         if scope.get("method") not in ("GET", "HEAD") or path.startswith(API_PREFIXES):
             await JSONResponse({"detail": "Not Found"}, status_code=404)(scope, receive, send)
             return

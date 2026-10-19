@@ -1,6 +1,7 @@
 /**
  * Prompt, negative prompt and styles of the form, with "paste parameters"
- * (from the prompt text, or the last generation when it is empty), "clear"
+ * (from the prompt text, or the last generation when it is empty; off while
+ * the negative prompt has text with `paste_safe_guard`), "clear"
  * (confirmed) and image drops that read the image's parameters.
  */
 import { ClipboardPaste, Eraser } from "lucide-react"
@@ -16,6 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { useClientOption } from "@/api/app-options"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { PromptField } from "@/features/prompt-editor/PromptField"
@@ -25,10 +27,10 @@ import { useForm, useFormState } from "@/ui/hooks"
 import type { MultiChoiceNode, TextNode } from "@/ui/schema"
 import { usePasteParameters } from "./paste-parameters"
 
-function IconAction({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+function IconAction({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
     <Tooltip>
-      <TooltipTrigger render={<Button variant="ghost" size="icon-xs" aria-label={label} onClick={onClick} />}>{children}</TooltipTrigger>
+      <TooltipTrigger render={<Button variant="ghost" size="icon-xs" aria-label={label} onClick={onClick} disabled={disabled} />}>{children}</TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
   )
@@ -43,6 +45,9 @@ export function PromptsPanel({ prompt, negative, styles }: { prompt: TextNode | 
   const stepsRef = findByInfotext(index, "Steps")
   const steps = useFormState((s) => (stepsRef ? Number(s.values[stepsRef[0]]?.[stepsRef[1]] ?? 0) || undefined : undefined))
   const selectedStyles = useFormState((s) => s.values.core?.styles)
+  // `paste_safe_guard`: reading parameters is off while the negative prompt has text (it would be replaced).
+  const safeGuard = useClientOption("paste_safe_guard")
+  const negativeFilled = useFormState((s) => (negative ? String(s.values.core?.[negative.name] ?? "").trim() !== "" : false))
   const styleList = Array.isArray(selectedStyles) ? (selectedStyles as string[]) : []
 
   if (!prompt && !negative) return null
@@ -61,6 +66,7 @@ export function PromptsPanel({ prompt, negative, styles }: { prompt: TextNode | 
             <>
               <IconAction
                 label={t("Read parameters from the prompt, or from the last generation when it is empty")}
+                disabled={safeGuard && negativeFilled}
                 onClick={() => void paste.fromText(String(store.getState().values.core?.[prompt.name] ?? ""))}
               >
                 <ClipboardPaste />

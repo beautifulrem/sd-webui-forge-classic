@@ -575,7 +575,7 @@
           {
            "type": "output",
            "name": "scale_by_resolution",
-           "kind": "html"
+           "kind": "text"
           }
          ]
         }

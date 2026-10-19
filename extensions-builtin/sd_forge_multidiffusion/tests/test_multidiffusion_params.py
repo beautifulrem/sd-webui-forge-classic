@@ -39,12 +39,17 @@ def test_arguments_are_the_processing_signature(multidiffusion):
     assert layout.names == [name for name in hook.parameters if name not in ("self", "p", "kwargs")]
 
 
-def _context(init_img="upload-1", record=SimpleNamespace(width=1216, height=832)):
+def _record(width, height):
+    return SimpleNamespace(kind="upload", is_image=True, width=width, height=height)
+
+
+def _context(init_img="upload-1", record=None):
     from remi import ui
 
-    files = SimpleNamespace(get=lambda file_id: record if file_id == "upload-1" else None)
-    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(services=SimpleNamespace(files=files))))
-    return ui.ActionContext(tab="img2img", owner="multidiffusion_integrated", core={"init_img": init_img}, request=request)
+    record = record or _record(1216, 832)
+
+    store = SimpleNamespace(get=lambda file_id: record if file_id == "upload-1" else None)
+    return ui.ActionContext(tab="img2img", owner="multidiffusion_integrated", core={"init_img": init_img}, files=ui.ActionFiles(store))
 
 
 def test_detect_size_sets_the_tiles_to_the_source_image(multidiffusion):
@@ -58,11 +63,11 @@ def test_detect_size_sets_the_tiles_to_the_source_image(multidiffusion):
 def test_detect_size_keeps_the_tiles_inside_the_slider_bounds(multidiffusion):
     from remi import ui
 
-    patch = ui.call_action(multidiffusion.MultiDiffusionForForge(), "detect_size", _context(record=SimpleNamespace(width=4096, height=128)), {})
+    patch = ui.call_action(multidiffusion.MultiDiffusionForForge(), "detect_size", _context(record=_record(4096, 128)), {})
     assert patch == {"tile_width": {"value": 2048}, "tile_height": {"value": 256}}
 
 
-@pytest.mark.parametrize("context", [_context(init_img=None), _context(init_img="unknown"), _context(record=SimpleNamespace(width=None, height=None))])
+@pytest.mark.parametrize("context", [_context(init_img=None), _context(init_img="unknown"), _context(record=_record(None, None))])
 def test_detect_size_without_a_source_image_changes_nothing(multidiffusion, context):
     from remi import ui
 

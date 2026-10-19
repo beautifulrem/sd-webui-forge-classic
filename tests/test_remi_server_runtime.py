@@ -82,12 +82,20 @@ def run_python(code: str, timeout: int = 300) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True, timeout=timeout)
 
 
+GRADIO = ("gradio", "gradio_client", "gradio_rangeslider")
+
+
 def test_the_webui_starts_and_generates(tmp_path):
     # Startup (forge init, imports, scripts), the app with /sdapi and every
     # module a job runs, in a fresh interpreter (the suites also run in an
-    # environment with nothing but requirements.txt installed).
+    # environment with nothing but requirements.txt installed). Gradio is
+    # made unimportable first (as if it were not installed, whatever this
+    # interpreter has): nothing on the startup path, in remi/ or in a built-in
+    # extension may need it.
     code = f"""
 import sys
+for name in {GRADIO!r}:
+    sys.modules[name] = None  # "import gradio" raises ImportError
 sys.argv = ["launch.py", "--skip-prepare-environment", "--skip-version-check", "--skip-torch-cuda-test", "--data-dir", {str(tmp_path)!r}]
 import webui
 from modules import scripts
@@ -101,6 +109,12 @@ app = create_app(services=Services.create({str(tmp_path / "remi")!r}, dispatch=r
 assert any(getattr(route, "path", "") == "/sdapi/v1/txt2img" for route in app.routes)
 # every built-in script and Extras operation loads
 assert runtime.not_ported() == [], runtime.not_ported()
+# every module of the remi package imports
+import importlib, pkgutil, remi
+for module in pkgutil.walk_packages(remi.__path__, "remi."):
+    importlib.import_module(module.name)
+loaded = sorted(name for name, module in sys.modules.items() if name.split(".")[0] in {GRADIO!r} and module is not None)
+assert not loaded, loaded
 print("ok")
 """
     result = run_python(code)

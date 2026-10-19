@@ -37,7 +37,7 @@ def options(webui, monkeypatch):
         for key, value in values.items():
             monkeypatch.setattr(shared.cmd_opts, key, value, raising=False)
 
-    set_options(listen=False, server_name=None, ngrok=None, share=False, nowebui=False, api_auth=None, auth=None, auth_file=None, cors_allow_origins=None, cors_allow_origins_regex=None)
+    set_options(listen=False, server_name=None, ngrok=None, share=False, nowebui=False, api_auth=None, auth=None, auth_file=None, api_no_auth_on_localhost=False, cors_allow_origins=None, cors_allow_origins_regex=None)
     return set_options
 
 
@@ -92,15 +92,45 @@ def test_api_auth_guards_every_sdapi_route_and_is_throttled(options):
     API_AUTH_THROTTLE._failures.clear()
 
 
-def test_exposed_sdapi_needs_the_webui_login_without_api_auth(options):
+def test_sdapi_needs_the_webui_login_without_api_auth(options):
     locked = Auth({"ann": "1"}, b"k" * 32)
-    assert sdapi_app(locked).post("/sdapi/v1/interrupt").status_code == 200  # loopback-only: as before
-    options(listen=True)
-    client = sdapi_app(locked)
-    assert client.post("/sdapi/v1/interrupt").status_code == 401
-    assert client.get("/sdapi/v1/loras").status_code == 401
-    assert client.post("/sdapi/v1/interrupt", headers=basic("ann", "1")).json() == {"ok": True}
+    # on any bind: a loopback-only server is still reached through a reverse
+    # proxy or tunnel on this machine
+    for bind in ({}, {"listen": True}, {"server_name": "127.0.0.1"}):
+        options(**bind)
+        client = sdapi_app(locked)
+        assert client.post("/sdapi/v1/interrupt").status_code == 401, bind
+        assert client.get("/sdapi/v1/loras").status_code == 401
+        assert client.post("/sdapi/v1/interrupt", headers=basic("ann", "1")).json() == {"ok": True}
     assert sdapi_app().post("/sdapi/v1/interrupt").status_code == 200  # no --auth: nothing to log in with
+
+
+def test_api_no_auth_on_localhost_lets_local_api_clients_in(options):
+    locked = Auth({"ann": "1"}, b"k" * 32)
+    options(api_no_auth_on_localhost=True)
+    client = sdapi_app(locked)  # the test client is a loopback peer
+    assert client.post("/sdapi/v1/interrupt").json() == {"ok": True}
+    assert client.get("/sdapi/v1/loras").json() == ["an extension route"]
+    # a reverse proxy on this machine is not a local client
+    for header in ("X-Forwarded-For", "X-Real-IP", "Forwarded", "X-Forwarded-Host"):
+        assert client.post("/sdapi/v1/interrupt", headers={header: "203.0.113.9"}).status_code == 401, header
+    # the browser checks still apply, and the WebUI pages keep their login
+    assert client.post("/sdapi/v1/interrupt", headers={"Origin": "https://evil.example"}).status_code == 403
+    assert client.get("/openapi.json").status_code == 401
+    # --api-auth always applies
+    options(api_auth="api:key")
+    assert sdapi_app(locked).post("/sdapi/v1/interrupt").status_code == 401
+    API_AUTH_THROTTLE._failures.clear()
+
+
+def test_api_no_auth_on_localhost_ignores_remote_peers(options):
+    from fastapi.testclient import TestClient
+
+    options(api_no_auth_on_localhost=True, listen=True)
+    app = sdapi_app(Auth({"ann": "1"}, b"k" * 32)).app
+    remote = TestClient(app, base_url="http://192.168.1.5:7860", client=("192.168.1.7", 50000))
+    assert remote.post("/sdapi/v1/interrupt").status_code == 401
+    assert remote.post("/sdapi/v1/interrupt", headers=basic("ann", "1")).json() == {"ok": True}
 
 
 def test_the_docs_need_a_login_including_their_subpages(options):
@@ -173,6 +203,49 @@ def test_the_login_page_has_a_csp_and_an_escaped_root(webui, tmp_path):
         inline = re.search(r"<script>(.*?)</script>", response.text, re.S).group(1)
         assert script_hashes(response.headers["content-security-policy"]) == {sha(inline)}
     assert script_hashes(html_headers(b"<p>no scripts</p>")["Content-Security-Policy"]) == set()
+
+
+def csp_directive(csp, name):
+    return next(part.split()[1:] for part in csp.split(";") if part.split() and part.split()[0] == name)
+
+
+def test_the_csp_keeps_requests_and_images_on_the_server(webui, monkeypatch):
+    # an injected script could not send data to another host, nor injected
+    # markup load tracking pixels: requests go to the server (and the license
+    # texts' host), images come from the server or hosts the user allowed
+    from remi.server.auth import LICENSE_TEXT_ORIGIN, html_headers, image_hosts
+
+    csp = html_headers(b"<p>page</p>")["Content-Security-Policy"]
+    assert csp_directive(csp, "connect-src") == ["'self'", LICENSE_TEXT_ORIGIN]
+    assert csp_directive(csp, "img-src") == ["'self'", "data:", "blob:"]
+    assert csp_directive(csp, "default-src") == ["'self'"]
+    monkeypatch.setattr(webui.opts, "remi_image_hosts", "https://cdn.example, https://*.imgs.example:8443/ ; script-src * 'unsafe-inline' javascript:x", raising=False)
+    csp = html_headers(b"<p>page</p>")["Content-Security-Policy"]
+    assert csp_directive(csp, "img-src") == ["'self'", "data:", "blob:", "https://cdn.example", "https://*.imgs.example:8443"]
+    assert csp.count("script-src") == 1 and "unsafe-inline" not in csp.split("style-src")[0]
+    assert image_hosts("http://a.example https://b.example:99 * https: 'self' https://x.example;y") == ["http://a.example", "https://b.example:99"]
+
+
+def test_server_errors_do_not_reach_the_client(webui, tmp_path, caplog):
+    # an unhandled exception (here: a response that fails its model, which
+    # carries the whole response body) answers a generic message and an id;
+    # the details are logged under that id
+    from pydantic import BaseModel
+
+    class Small(BaseModel):
+        n: int
+
+    with server_app(tmp_path) as server:
+        server.app.get("/api/v2/test-boom", response_model=Small)(lambda: {"n": "secret /data/dir path"})
+        server.app.get("/api/v2/test-raise")(lambda: (_ for _ in ()).throw(RuntimeError("internal /private/path")))
+        client = TestClient(server.app, raise_server_exceptions=False, base_url="http://127.0.0.1:7860")
+        for path, secret in (("/api/v2/test-boom", "/data/dir"), ("/api/v2/test-raise", "/private/path")):
+            with caplog.at_level("ERROR"):
+                response = client.get(path)
+            body = response.json()
+            assert response.status_code == 500 and secret not in response.text, path
+            assert set(body) == {"error", "detail", "id"} and body["id"] in body["detail"]
+            assert body["id"] in caplog.text
 
 
 # endregion
@@ -301,6 +374,20 @@ def test_sysinfo_and_cmd_flags_hide_logins(options, monkeypatch):
     assert "ann:pw" not in text and "api:key" not in text and "tok" not in text
     flags = Api.get_cmd_flags(SimpleNamespace())
     assert flags["auth"] == flags["api_auth"] == flags["ngrok"] == "<hidden>"
+
+
+def test_cmd_flags_validate_against_their_model(options):
+    # /sdapi/v1/cmd-flags answered 500 (ResponseValidationError) because
+    # --port is an int whose default is None
+    from modules import shared
+    from modules.api.api import Api
+    from modules.api.models import FlagsModel
+
+    parsed = shared.parser.parse_args(["--port", "7881", "--auth", "ann:pw", "--api", "--styles-file", "a.csv", "--data-dir", "/tmp/x"])
+    for name, value in vars(parsed).items():
+        options(**{name: value})
+    flags = FlagsModel.model_validate(Api.get_cmd_flags(SimpleNamespace()))
+    assert flags.port == 7881 and flags.auth == "<hidden>" and flags.styles_file == ["a.csv"]
 
 
 # endregion

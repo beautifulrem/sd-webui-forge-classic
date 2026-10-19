@@ -5024,6 +5024,84 @@
         }
       }
     },
+    "/api/v2/prompt-tools/generate": {
+      "post": {
+        "summary": "Write a prompt from a description with the OpenAI-compatible provider",
+        "operationId": "generate_api_v2_prompt_tools_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromptGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromptGenerated"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Content Too Large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/prompt-tools/translation-key": {
       "put": {
         "summary": "Store (or, empty, forget) the translation API key; it is never sent back",
@@ -10979,6 +11057,48 @@
         ],
         "title": "PromptFavoritesImported"
       },
+      "PromptGenerateRequest": {
+        "properties": {
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Description",
+            "description": "what the image should show, in any language"
+          },
+          "prompt": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Prompt",
+            "description": "the current prompt to build on (empty: write a new one)",
+            "default": ""
+          },
+          "negative": {
+            "type": "boolean",
+            "title": "Negative",
+            "description": "write a negative prompt",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "description"
+        ],
+        "title": "PromptGenerateRequest"
+      },
+      "PromptGenerated": {
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "prompt"
+        ],
+        "title": "PromptGenerated"
+      },
       "PromptGroupTag": {
         "properties": {
           "tag": {
@@ -11318,11 +11438,42 @@
         "properties": {
           "enabled": {
             "type": "boolean",
-            "title": "Enabled"
+            "title": "Enabled",
+            "description": "completion is on (the extension, the setting and the checkpoint list allow it)"
           },
           "negative": {
             "type": "boolean",
             "title": "Negative"
+          },
+          "txt2img": {
+            "type": "boolean",
+            "title": "Txt2Img",
+            "description": "complete in the txt2img form's prompt fields",
+            "default": true
+          },
+          "img2img": {
+            "type": "boolean",
+            "title": "Img2Img",
+            "description": "complete in the img2img form's prompt fields",
+            "default": true
+          },
+          "third_party": {
+            "type": "boolean",
+            "title": "Third Party",
+            "description": "complete in the prompt fields of extensions (scripts and pages), not only the main prompts",
+            "default": true
+          },
+          "delay": {
+            "type": "integer",
+            "title": "Delay",
+            "description": "milliseconds to wait after a keystroke before asking the server",
+            "default": 40
+          },
+          "only_alias": {
+            "type": "boolean",
+            "title": "Only Alias",
+            "description": "label a tag found by an alias with the alias only",
+            "default": false
           },
           "source": {
             "type": "string",
@@ -11472,6 +11623,12 @@
             "type": "boolean",
             "title": "Translation Key",
             "description": "an API key is stored (it is never sent back)",
+            "default": false
+          },
+          "generate": {
+            "type": "boolean",
+            "title": "Generate",
+            "description": "prompts can be written from a description (the OpenAI-compatible provider is set up)",
             "default": false
           },
           "language": {

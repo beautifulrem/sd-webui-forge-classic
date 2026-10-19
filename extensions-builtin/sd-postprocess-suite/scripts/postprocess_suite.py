@@ -15,7 +15,6 @@ section per stage, inside one collapsed section per category (the SPA only
 mounts what is open), with every stage's params named ``<stage>_<param>``.
 """
 
-import io
 import os
 import shutil
 import sys
@@ -163,20 +162,16 @@ def stage_section(stage: dict):
 # ---------------------------------------------------------------------------
 # Uploads (LUT files, the image sent to img2img) live in the server's file store
 # ---------------------------------------------------------------------------
-def _file_store(ctx):
-    services = getattr(getattr(getattr(ctx.request, "app", None), "state", None), "services", None)
-    if services is None:
-        from remi.server.services import default_services
+def _file_store(ctx) -> ui.ActionFiles:
+    """The action's files (``ctx.files``, filled by the server)."""
 
-        services = default_services()
-    return services.files
+    if ctx.files is None:
+        raise ui.ValidationError([ui.ParamError("this action needs the server's file store", owner=ctx.owner or None)])
+    return ctx.files
 
 
 def _upload_path(ctx, file_id) -> str | None:
-    if not isinstance(file_id, str) or not file_id:
-        return None
-    record = _file_store(ctx).get(file_id)
-    return record.path if record is not None and record.kind in ("upload", "output") else None
+    return _file_store(ctx).path(file_id)
 
 
 def _lut_to_preset(ctx, file_id, preset: str) -> str | None:
@@ -229,7 +224,7 @@ def _lut_from_preset(ctx, path) -> str | None:
     if os.path.getsize(path) > P._LUT_MAX_BYTES:
         return None
     with open(path, "rb") as file:
-        return _file_store(ctx).add_upload_bytes(file.read(), os.path.basename(path)).id
+        return _file_store(ctx).store_bytes(file.read(), os.path.basename(path))
 
 
 # ---------------------------------------------------------------------------
@@ -370,10 +365,7 @@ class PostProcessSuite(scripts.Script):
         except Exception as e:
             print(f"[PP Suite] send-to-img2img failed: {e}")
             result = image
-        buffer = io.BytesIO()
-        result.save(buffer, format="PNG")
-        record = _file_store(ctx).add_upload_bytes(buffer.getvalue(), "post-processed.png")
-        return {"__outputs__": {"sent": record.id}}
+        return {"__outputs__": {"sent": _file_store(ctx).store_image(result, "post-processed.png")}}
 
     # ---- processing --------------------------------------------------------
     def _apply_mode(self, args):

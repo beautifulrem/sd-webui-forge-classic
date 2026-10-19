@@ -1,7 +1,6 @@
 """The prompt-schedule rescaler's math (verified Forge neo semantics)."""
 
 import pytest
-
 from lib_anima_rescale.rescale import executed_steps, find_schedule_whens, remap_when, rescale_prompt_schedule
 
 
