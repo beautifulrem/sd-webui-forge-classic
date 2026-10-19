@@ -70,6 +70,8 @@ class ScriptPostprocessingUpscale(scripts_postprocessing.ScriptPostprocessing):
                     ),
                     bind="upscale_mode",
                 ),
+                # Two equal cells in both rows: "Upscaler 2 visibility" sits under "Upscaler 2"
+                # and "Color Correction" under "Upscaler 1" (the Refresh button gets its own line)
                 ui.Row(
                     ui.Choice("upscaler_1_name", upscaler_names, None, label="Upscaler 1", on_change="upscaler_scale"),
                     ui.Choice(
@@ -79,8 +81,8 @@ class ScriptPostprocessingUpscale(scripts_postprocessing.ScriptPostprocessing):
                         label="Upscaler 2",
                         enabled_if={"param": "upscaler_2_visibility", "gt": 0.04},
                     ),
-                    ui.Button("Refresh", "refresh_upscalers", "tool"),
                 ),
+                ui.Button("Refresh", "refresh_upscalers", "tool"),
                 ui.Row(
                     ui.Toggle("upscale_cc", False, label="Color Correction"),
                     ui.Slider("upscaler_2_visibility", 0.0, 1.0, 0.0, 0.05, label="Upscaler 2 visibility"),

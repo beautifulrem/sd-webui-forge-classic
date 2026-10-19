@@ -32,6 +32,7 @@ import re
 import stat
 import sys
 import threading
+import time
 import weakref
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -746,6 +747,14 @@ class PlaceholderCache:
             except queue.Empty:
                 break
             self._process(*item)
+        # the background worker may have taken an item just before: wait for it
+        # (it only writes the file when idle), then write what is computed
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            with self._lock:
+                if not self._pending:
+                    break
+            time.sleep(0.01)
         self.flush()
 
     def _run(self) -> None:

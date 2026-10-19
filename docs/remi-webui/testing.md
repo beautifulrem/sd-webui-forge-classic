@@ -98,7 +98,7 @@ pages do not race for them. Most flow tests also fail on console errors or uncau
 ## Real-server smoke test
 
 ```sh
-$PYTHON tools/smoke_real.py   # --python $PYTHON --port 7879 --out /tmp/remi-smoke --baseline /tmp/remi-parity
+$PYTHON tools/smoke_real.py   # --python $PYTHON --port 7879 --out /tmp/remi-smoke --baseline tests/fixtures/parity
 ```
 
 `$PYTHON` is an interpreter with requirements.txt and without Gradio: the
@@ -107,7 +107,8 @@ running the script) can import `gradio`, `gradio_client` or
 `gradio_rangeslider`, so a passing run proves a Gradio-free start and
 generation. Starts `launch.py --api` with the real model in an isolated data folder (a
 copy of `config.json`, models from `models/`), then checks txt2img parity
-against the pre-rewrite baseline through `/sdapi/v1/txt2img` and
+against the pre-rewrite baseline (the committed fixture
+`tests/fixtures/parity/anima_turbo_txt2img_seed12345.png` by default) through `/sdapi/v1/txt2img` and
 `/api/v2/jobs` (pixel-identical image, infotext equal except `Version`),
 img2img at denoising 0.5, inpaint (the unmasked half unchanged, the masked
 half changed) and an Extras Lanczos upscale, stops the server and prints a
@@ -120,7 +121,8 @@ paste round-trips (about five more minutes). It writes two tiny deterministic
 test LoRAs for the checkpoint (`tools/anima_test_loras.py`, rank 4, only the
 checkpoint's safetensors header is read) into the temporary data folder and
 starts the server with `--lora-dir` there, then checks at 512x512: a LoRA
-changes the image; LoRA Layer Weight at block weight 0 undoes it; LoRA Stage
+changes the image; LoRA Layer Weight at block weight 0 undoes it (pixel-identical
+to the prompt without the tag, whose leftover `, ` is a token too); LoRA Stage
 Scheduler changes it; Anima FreeFuse routes the two LoRAs (infotext
 `Anima FreeFuse: 2 subjects ...`); Sparse Attention records its settings on a
 CUDA GPU with sol_attn and elsewhere leaves the image unchanged with the job

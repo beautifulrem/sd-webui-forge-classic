@@ -278,6 +278,10 @@ def apply_refiner(cfg_denoiser: "CFGDenoiser", x: torch.Tensor, sigma: torch.Ten
         print("\n\n[Error]Refiner does not support Hires. fix\n\n")
         return False
 
+    # The short title carries the hash once it is known: compute it first, so the
+    # infotext does not depend on whether this checkpoint was hashed before
+    # (a pasted "Refiner: name" would otherwise regenerate as "name [hash]").
+    refiner_checkpoint_info.calculate_shorthash()
     cfg_denoiser.p.extra_generation_params["Refiner"] = refiner_checkpoint_info.short_title
     cfg_denoiser.p.extra_generation_params["Refiner switch at"] = refiner_switch_at
 

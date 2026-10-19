@@ -85,3 +85,23 @@ def test_an_off_panel_records_nothing_and_replays_its_defaults(freefuse):
     layout = harness.script_layout(freefuse.AnimaFreeFuseScript())
     args = [False, True, *ALICE, True, *BOB, True, *CAROL, *SETTINGS]
     harness.assert_infotext_round_trip(layout, args, _recorder(freefuse), layout.values_to_args({}))
+
+
+@pytest.mark.parametrize(
+    "params, sampler",
+    [
+        # the run replaced the user's sampler: paste that one back
+        ({"Sampler": "Anima FreeFuse Euler", "Anima FreeFuse replaced sampler": "Euler a"}, "Euler a"),
+        # the user had chosen FreeFuse's sampler themselves: nothing was replaced
+        ({"Sampler": "Anima FreeFuse Euler", "Anima FreeFuse sampler": "Anima FreeFuse Euler"}, "Anima FreeFuse Euler"),
+        ({"Sampler": "DPM++ 2M"}, "DPM++ 2M"),
+    ],
+)
+def test_paste_restores_the_sampler_the_run_replaced(freefuse, params, sampler):
+    """Pasting "Sampler: Anima FreeFuse Euler" kept FreeFuse's sampler selected, so the
+    pasted run did not replace a sampler and wrote no "Anima FreeFuse replaced
+    sampler": the same image, a different infotext."""
+
+    params = dict(params)
+    freefuse._on_infotext_pasted("", params)
+    assert params["Sampler"] == sampler

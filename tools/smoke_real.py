@@ -40,8 +40,10 @@ What it does (one model load, about three minutes on an M4 with Anima Turbo):
 7. Stops the server (Ctrl+C, then terminate) and prints a result table; exit 1 when a check
    failed, 2 when the server could not be started.
 
-Baseline: ``--baseline`` folder with ``baseline_1.png`` and ``baseline_txt2img.json`` (the
-pre-rewrite ``/sdapi/v1/txt2img`` request and response; default ``/tmp/remi-parity``).
+Baseline: ``--baseline`` folder, by default the committed pre-rewrite fixture
+``tests/fixtures/parity`` (``anima_turbo_txt2img_seed12345.png`` and its request values and
+infotext); a folder with ``baseline_1.png`` and ``baseline_txt2img.json`` (a recorded
+``/sdapi/v1/txt2img`` request and response) works too.
 """
 
 from __future__ import annotations
@@ -221,17 +223,42 @@ def wait_job(server: Server, job_id: str, timeout: float = 900) -> dict:
     raise TimeoutError(f"job {job_id} still running after {timeout} s")
 
 
+FIXTURE = ROOT / "tests" / "fixtures" / "parity"
+FIXTURE_NAME = "anima_turbo_txt2img_seed12345"
+
+
+def load_baseline(baseline_dir: Path) -> tuple[dict, str, Path]:
+    """The baseline's ``/sdapi/v1/txt2img`` request, infotext and image: a recorded
+    request/response pair (``baseline_txt2img.json``, ``baseline_1.png``), or the
+    committed fixture (``tests/fixtures/parity``: the request's values and infotext
+    in ``anima_turbo_txt2img_seed12345.json``, the image next to it)."""
+
+    if (baseline_dir / "baseline_txt2img.json").is_file():
+        recorded = json.loads((baseline_dir / "baseline_txt2img.json").read_text())
+        info = recorded.get("info")
+        info = json.loads(info)["infotexts"][0] if isinstance(info, str) else info["infotexts"][0]
+        return recorded["parameters"], info, baseline_dir / "baseline_1.png"
+    fixture = json.loads((baseline_dir / f"{FIXTURE_NAME}.json").read_text())
+    keys = ("prompt", "negative_prompt", "seed", "steps", "cfg_scale", "width", "height", "sampler_name", "scheduler")
+    # The recorded request left the distilled CFG at the API default (written as "Shift: 3.5")
+    params = {**{key: fixture[key] for key in keys}, "distilled_cfg_scale": 3.5, "batch_size": 1, "n_iter": 1}
+    return params, fixture["infotexts"][0], baseline_dir / f"{FIXTURE_NAME}.png"
+
+
+def baseline_files(baseline_dir: Path) -> list[Path]:
+    if (baseline_dir / "baseline_txt2img.json").is_file():
+        return [baseline_dir / "baseline_txt2img.json", baseline_dir / "baseline_1.png"]
+    return [baseline_dir / f"{FIXTURE_NAME}.json", baseline_dir / f"{FIXTURE_NAME}.png"]
+
+
 def run(server: Server, baseline_dir: Path, out: Path, report: Report) -> dict:
     """Steps 2-5; the baseline request's values (the feature checks reuse them)."""
 
     from PIL import Image
 
-    recorded = json.loads((baseline_dir / "baseline_txt2img.json").read_text())
-    baseline = Image.open(baseline_dir / "baseline_1.png")
+    params, want_info, image_path = load_baseline(baseline_dir)
+    baseline = Image.open(image_path)
     baseline.load()
-    want_info = recorded.get("info")
-    want_info = json.loads(want_info)["infotexts"][0] if isinstance(want_info, str) else want_info["infotexts"][0]
-    params = recorded["parameters"]
 
     print("Selecting the model", flush=True)
     server.request("PATCH", "/api/v2/options", {"sd_model_checkpoint": MODEL, "forge_additional_modules": [str(ROOT / path) for path in MODULES]})
@@ -363,17 +390,20 @@ def run_features(server: Server, out: Path, report: Report, base_values: dict) -
 
     lora = f"{FEATURE_PROMPT}, <lora:remi-test-a:1>"
     _, plain, _ = generate("no_lora", FEATURE_PROMPT)
+    # The prompt the model sees once the tag is taken out ("..., best quality, "): a
+    # LoRA at weight 0 must give exactly this image (the trailing ", " is a token too)
+    _, untagged, _ = generate("no_lora_tag_removed", re.sub(r"<(\w+):([^>]+)>", "", lora))
     _, with_lora, lora_info = generate("lora", lora)
-    if plain is None or with_lora is None:
+    if plain is None or untagged is None or with_lora is None:
         return
-    lora_effect, _ = diff(with_lora, plain)
+    lora_effect, _ = diff(with_lora, untagged)
     report.check("LoRA changes the image", lora_effect > 1.0 and "remi-test-a" in lora_info, f"mean diff {lora_effect:.2f}; " + lora_info.splitlines()[-1][:200])
 
     # LoRA Layer Weight: every block at 0 undoes the LoRA
     _, zeroed, info = generate("layer_weight", lora, {layer: {"lora_enabled": True, "lora_block_enabled": True, "lora_block_weights": "0-27=0"}})
     if zeroed is not None:
-        to_plain, _ = diff(zeroed, plain)
-        report.check("Layer Weight 0 removes the LoRA's effect", to_plain < lora_effect / 10, f"mean diff to no LoRA {to_plain:.3f} (the LoRA: {lora_effect:.2f})")
+        to_plain, peak = diff(zeroed, untagged)
+        report.check("Layer Weight 0 removes the LoRA's effect", to_plain == 0 and peak == 0, f"mean diff to no LoRA {to_plain:.3f}, max {peak} (the LoRA: {lora_effect:.2f})")
         report.check("Layer Weight infotext", "Anima LoRA layer lora enabled: True" in info and "Anima LoRA layer lora blocks: " in info, info.splitlines()[-1][:300])
         check_round_trip(server, report, "Layer Weight", "txt2img", zeroed, info)
 
@@ -392,7 +422,8 @@ def run_features(server: Server, out: Path, report: Report, base_values: dict) -
     _, routed, info = generate("freefuse", two, {freefuse: subjects})
     if routed is not None and unrouted is not None:
         to_unrouted, _ = diff(routed, unrouted)
-        report.check("FreeFuse infotext", "Anima FreeFuse: 2 subjects" in info and "error:" not in info, info.splitlines()[-1][:300])
+        summary = parse_infotext(info).get("Anima FreeFuse", "").strip('"')  # quoted: it holds a comma
+        report.check("FreeFuse infotext", summary.startswith("2 subjects") and "error:" not in info, summary or info.splitlines()[-1][:300])
         report.check("FreeFuse changes the image", to_unrouted > 0.5, f"mean diff to the unrouted LoRAs {to_unrouted:.2f}")
         check_round_trip(server, report, "FreeFuse", "txt2img", routed, info)
 
@@ -456,16 +487,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--python", default=sys.executable, help="interpreter for launch.py (default: this one)")
     parser.add_argument("--port", type=int, default=7879)
-    parser.add_argument("--baseline", type=Path, default=Path("/tmp/remi-parity"))
+    parser.add_argument("--baseline", type=Path, default=FIXTURE, help="a recorded request/response pair (baseline_txt2img.json, baseline_1.png) or the committed fixture folder (default)")
     parser.add_argument("--out", type=Path, default=Path(tempfile.gettempdir()) / "remi-smoke", help="images and the server log")
     parser.add_argument("--startup-timeout", type=float, default=300)
     parser.add_argument("--keep-data", action="store_true", help="keep the temporary data folder")
     parser.add_argument("--features", action="store_true", help="also check the LoRA features, Sparse Attention and paste round-trips (step 6)")
     options = parser.parse_args()
 
-    for name in ("baseline_1.png", "baseline_txt2img.json"):
-        if not (options.baseline / name).is_file():
-            print(f"missing {options.baseline / name}", file=sys.stderr)
+    for path in baseline_files(options.baseline):
+        if not path.is_file():
+            print(f"missing {path}", file=sys.stderr)
             return 2
     if busy := other_launchers():
         print("another launch.py is running (only one process may load the model):\n  " + "\n  ".join(busy), file=sys.stderr)

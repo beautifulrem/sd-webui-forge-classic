@@ -14,7 +14,7 @@ from lib_anima_freefuse import (
     concept_token_positions,
 )
 from lib_anima_freefuse.runtime import has_untagged_patches, install_patch_metadata_hook
-from modules import scripts
+from modules import script_callbacks, scripts
 from modules.anima_lora_support import REFERENCE_BLOCKS, anima_model_block, model_block_set
 from modules.anima_online_lora import acquire_online_lora, release_online_lora
 from modules.anima_feature_conflicts import (
@@ -37,6 +37,9 @@ setup_logger(logger)
 ONLINE_LORA_OWNER = "anima_freefuse"
 
 SUBJECTS = range(1, 4)
+# The sampler a FreeFuse run switches to (its two-pass Euler)
+FREEFUSE_SAMPLER = "Anima FreeFuse Euler"
+
 # One subject's controls: (name suffix, infotext field, type written to infotext)
 _SUBJECT_FIELDS = (("active", "active", bool), ("selector", "LoRA", str), ("concept", "concept", str))
 
@@ -224,10 +227,10 @@ class AnimaFreeFuseScript(scripts.Script):
         acquire_online_lora(p, ONLINE_LORA_OWNER)
 
         old_sampler = str(getattr(p, "sampler_name", ""))
-        p.sampler_name = "Anima FreeFuse Euler"
+        p.sampler_name = FREEFUSE_SAMPLER
         if getattr(p, "enable_hr", False):
-            p.hr_sampler_name = "Anima FreeFuse Euler"
-        p.extra_generation_params["Anima FreeFuse sampler"] = "Anima FreeFuse Euler"
+            p.hr_sampler_name = FREEFUSE_SAMPLER
+        p.extra_generation_params["Anima FreeFuse sampler"] = FREEFUSE_SAMPLER
         if old_sampler and old_sampler != p.sampler_name:
             p.extra_generation_params["Anima FreeFuse replaced sampler"] = old_sampler
 
@@ -386,3 +389,17 @@ class AnimaFreeFuseScript(scripts.Script):
 
     def cleanup(self, p, *args, **kwargs):
         self._cleanup_runtime(p)
+
+
+def _on_infotext_pasted(infotext, params):
+    """Paste the sampler the user had chosen: the run switched it to FreeFuse's own
+    and wrote it as "Anima FreeFuse replaced sampler". Pasting "Sampler: Anima
+    FreeFuse Euler" left the choice there, so the pasted run no longer recorded the
+    replaced sampler and its infotext differed."""
+
+    replaced = params.get("Anima FreeFuse replaced sampler")
+    if replaced and params.get("Sampler") == FREEFUSE_SAMPLER:
+        params["Sampler"] = replaced
+
+
+script_callbacks.on_infotext_pasted(_on_infotext_pasted, name="anima_freefuse")

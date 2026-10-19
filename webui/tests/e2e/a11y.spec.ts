@@ -27,6 +27,15 @@ const PAGES = [
 ] as const
 
 async function scan(page: Page) {
+  // Scan the settled page: colours read mid-transition (a toast fading in or
+  // stacking behind a newer one, a popover opening) are not what anyone reads
+  // and made the contrast rule fail at random. Endless animations (spinners)
+  // are left running.
+  await page.waitForFunction(
+    () => document.getAnimations().every((animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity),
+    null,
+    { timeout: 5_000 },
+  )
   const results = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"])
     .analyze()

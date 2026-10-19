@@ -661,6 +661,7 @@ def test_collect_similarity_matches_a_direct_computation():
     rows = [2, 3]
     attention = torch.softmax(torch.einsum("bshd,blhd->bhsl", q[rows, :spatial], k[rows]) / dim**0.5, dim=-1)
     hidden = x[rows, :spatial]
+    hidden = hidden / hidden.pow(2).mean(dim=-1, keepdim=True).sqrt()  # compared at unit RMS
 
     def score(indices):  # mean attention of each image token to the phrase, over heads
         return attention[..., indices].mean(dim=(1, 3))
@@ -681,6 +682,56 @@ def test_collect_similarity_matches_a_direct_computation():
     state.current_step = 1  # other steps are not collected
     state.collect_similarity(x, q, k, {"cond_or_uncond": [1, 0]})
     assert len(state.background_samples) == 1
+
+
+def test_collect_similarity_takes_the_keys_of_anima_conditioning_with_its_singleton_axis():
+    """The real model's conditioning is [batch, 1, 512, dim], so the cross-attention
+    keys are [batch, 1, 512, heads, head_dim]: the text length is 512, not 1 (every
+    FreeFuse run failed with "positions exceed the active conditioning length")."""
+
+    runtime, _, _ = _load()
+
+    def collected(keys):
+        state = _state(runtime)
+        state.adapters = [runtime.AdapterSpec("A", "cat", "cat"), runtime.AdapterSpec("B", "dog", "dog")]
+        state.token_positions = {"A": [0, 1], "B": [3]}
+        state.background_positions = [4]
+        state.grid_height, state.grid_width = 4, 4
+        state.begin_collect()
+        state.collect_similarity(x, q, keys, {"cond_or_uncond": [0]})
+        return state
+
+    torch.manual_seed(0)
+    q, x = torch.randn(1, 16, 2, 4), torch.randn(1, 16, 6)
+    k = torch.randn(1, 6, 2, 4)
+    flat, singleton = collected(k), collected(k.unsqueeze(1))
+    for name in ("A", "B"):
+        assert torch.equal(singleton.similarity_samples[name][0], flat.similarity_samples[name][0])
+    assert torch.equal(singleton.background_samples[0], flat.background_samples[0])
+    assert runtime._token_keys(k.unsqueeze(1)).shape == k.shape
+
+
+def test_self_concept_maps_do_not_depend_on_the_activation_scale():
+    """Anima's adaLN-modulated cross-attention input runs at an RMS of about 8:
+    compared raw, every map collapsed onto one token (masks of ~1 % of the image)."""
+
+    runtime, _, _ = _load()
+
+    def collected(scale):
+        state = _state(runtime)
+        state.adapters = [runtime.AdapterSpec("A", "cat", "cat"), runtime.AdapterSpec("B", "dog", "dog")]
+        state.token_positions = {"A": [0], "B": [1]}
+        state.background_positions = [2]
+        state.temperature = 300.0  # the panel's default
+        state.grid_height, state.grid_width = 4, 4
+        state.begin_collect()
+        state.collect_similarity(x * scale, q, k, {"cond_or_uncond": [0]})
+        return state.similarity_samples["A"][0]
+
+    torch.manual_seed(0)
+    q, k, x = torch.randn(1, 16, 2, 4), torch.randn(1, 3, 2, 4), torch.randn(1, 16, 64)
+    assert torch.allclose(collected(1.0), collected(8.0), atol=1e-6)
+    assert float(collected(8.0).max()) < 0.5  # not one-hot
 
 
 def test_complete_releases_the_cached_tensors():

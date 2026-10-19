@@ -82,6 +82,34 @@ def test_unknown_refiner_checkpoint_is_left_alone(webui, checkpoints):
     assert "checkpoint" not in result["scripts"]["refiner"] and result["problems"] == []
 
 
+def test_refiner_infotext_has_the_hash_even_before_the_checkpoint_was_hashed(webui, monkeypatch):
+    """A refiner checkpoint not hashed yet wrote "Refiner: anima-copy", the same run
+    pasted back "Refiner: anima-copy [fba1195327]" (hashed by then): the infotext
+    did not round-trip. apply_refiner hashes it before writing the key."""
+    from modules import sd_samplers_common, shared
+
+    info = SimpleNamespace(name_for_extra="anima-copy", short_title="anima-copy", shorthash=None, filename="/models/anima-copy.safetensors")
+
+    def calculate_shorthash():
+        info.shorthash, info.short_title = "fba1195327", "anima-copy [fba1195327]"
+        return info.shorthash
+
+    info.calculate_shorthash = calculate_shorthash
+    p = SimpleNamespace(refiner_switch_at=0.5, refiner_checkpoint_info=info, enable_hr=False, extra_generation_params={})
+    denoiser = SimpleNamespace(p=p, step=8, total_steps=8)
+    monkeypatch.setattr(shared, "sd_model", SimpleNamespace(sd_checkpoint_info=object(), forge_objects=SimpleNamespace(unet=None)), raising=False)
+    # the module's own opts (other suites may swap shared.opts)
+    monkeypatch.setattr(sd_samplers_common.opts, "refiner_use_steps", True, raising=False)
+    monkeypatch.setattr(sd_samplers_common.opts, "refiner_fast_sd", False, raising=False)
+    monkeypatch.setattr(sd_samplers_common, "ORIGINAL_CHECKPOINT", None)
+    monkeypatch.setattr(sd_samplers_common, "sampling_cleanup", lambda unet: None)
+    # stop before any model is loaded
+    monkeypatch.setattr(sd_samplers_common.main_entry, "checkpoint_change", lambda *args, **kwargs: False)
+
+    assert sd_samplers_common.apply_refiner(denoiser, None, 0.0) is False  # past the switch either way
+    assert p.extra_generation_params["Refiner"] == "anima-copy [fba1195327]"
+
+
 # endregion
 
 # region Inpaint area

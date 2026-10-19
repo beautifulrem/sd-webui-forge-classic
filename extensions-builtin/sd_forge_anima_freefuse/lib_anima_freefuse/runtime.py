@@ -203,6 +203,16 @@ def _selector_matches(selector: str, filename: str | None) -> bool:
     return wanted == actual
 
 
+def _token_keys(k: torch.Tensor) -> torch.Tensor:
+    """Cross-attention keys as ``[batch, tokens, heads, head_dim]``. Anima's
+    conditioning reaches the blocks as ``[batch, 1, 512, dim]``, so its keys
+    carry a singleton axis (``[batch, 1, 512, heads, head_dim]``) that the
+    attention backends fold into the token axis; FreeFuse's token positions
+    index that same flattened axis."""
+
+    return k if k.ndim == 4 else k.reshape(k.shape[0], -1, k.shape[-2], k.shape[-1])
+
+
 def _conditioning_indices(markers, batch: int, device) -> torch.Tensor:
     return torch.tensor(branch_rows(markers, batch) or [], device=device, dtype=torch.long)
 
@@ -385,7 +395,7 @@ class AnimaFreeFuseState:
         if cond_indices.numel() == 0:
             return
         q = q.index_select(0, cond_indices)
-        k = k.index_select(0, cond_indices)
+        k = _token_keys(k).index_select(0, cond_indices)
         hidden = hidden.index_select(0, cond_indices)
         text_length = k.shape[1]
         positions = {
@@ -417,7 +427,14 @@ class AnimaFreeFuseState:
 
         concept_scores = {name: scores[name] for name in positions}
         count = len(concept_scores)
+        # SelfConcept compares image tokens at unit RMS: the cross-attention
+        # input is LayerNormed and then adaLN-modulated, which scales it by
+        # about 8 on Anima (dot products of 2e4-7e4). Raw, every similarity
+        # map collapsed onto a single token at the default temperature and the
+        # masks covered ~1 % of the image, so the concept bias suppressed both
+        # subjects everywhere.
         hidden = hidden.float()
+        hidden = hidden * torch.rsqrt(hidden.pow(2).mean(dim=-1, keepdim=True) + 1e-6)
         selected = max(1, int(spatial_tokens * clamp(to_float(self.top_k_ratio, 0.10), 0.01, 0.5)))
         temperature = clamp(to_float(self.temperature, 300.0), 1e-3)
 
@@ -564,7 +581,7 @@ def _make_cross_attention_forward(
             if NEGPIP_CONTEXT_MASK_KEY not in options:
                 if collect:
                     state.collect_similarity(x, q, k, options)
-                bias = state.attention_bias(q, k.shape[1], options) if bias_block else None
+                bias = state.attention_bias(q, _token_keys(k).shape[1], options) if bias_block else None
                 if bias is not None:
                     mask = bias if mask is None else mask + bias
             return compute_attention(q, k, v, transformer_options=transformer_options, mask=mask)

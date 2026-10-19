@@ -10,6 +10,10 @@ This is a real two-pass implementation:
    the configured collection step with the selected subject LoRAs bypassed.
 2. The configured Anima cross-attention block supplies concept attention;
    CrossAttn + SelfConcept top-k maps are converted into balanced, cleaned masks.
+   SelfConcept compares the image tokens at unit RMS (the block's adaLN
+   modulation would otherwise scale the dot products by ~60 and collapse every
+   map onto one token), so the self-concept temperature does not depend on the
+   model's activation scale.
 3. The sampler resets stateful guidance and restarts from the exact same initial
    noise. Each selected online LoRA's additive output is routed through its own
    mask, while an optional additive cross-attention bias suppresses wrong

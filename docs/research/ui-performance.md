@@ -22,7 +22,7 @@ logs, without the large CDP traces) are committed under
 | 5,000 network cards scroll at 60 fps | **59.8–60.0 fps**, p95 frame 16.7 ms at 2,400 px/s over the whole list; frames over 20 ms: 0 (idle), 6, 9 of 3,257 (loaded); over 33 ms: 0 / 2; worst single frame 250 ms (warm pass, loaded) | pass (occasional hitches under load, below) |
 | 10,000 gallery items scroll at 60 fps | **59.9–60.0 fps**, p95 frame 16.7–16.8 ms at 2,400 px/s, all 10,000 loaded; frames over 20 ms: 0 (idle), 6 of 5,678 (loaded); over 33 ms: 0 / 4 | pass (occasional hitches under load, below) |
 | Preview frame latency p95 ≤ 150 ms | **p95 20.7 ms** (sampler → painted, idle machine); was 177 ms before this work. Under heavy load the server-side part grows (below) | pass |
-| UI overhead on generation speed ≤ 1 % it/s | 2026-10-15: +0.48 % (768×768) and −0.27 % (512×512), intervals reaching +1.5 %; the review's 512×512 runs: **+2.0 % and +3.8 %** (the second one's 95 % interval 2.4–6.1 %). Since then the page's per-step work was cut to **one React commit per step** (1.6–2.1 frames drawn per step in the measurement, was 3.3–3.9) and about a third less browser CPU ([below](#per-step-cost-of-the-page)); its effect on it/s is **not measured yet** (the real model was not loaded for this revision) | **not demonstrated** |
+| UI overhead on generation speed ≤ 1 % it/s | 2026-10-15: +0.48 % (768×768) and −0.27 % (512×512), intervals reaching +1.5 %; the review's 512×512 runs: +2.0 % and +3.8 %. After the per-step work was cut to **one React commit per step** ([below](#per-step-cost-of-the-page)), the real model, 2026-10-19 ([verify runs](#verify-runs-of-2026-10-19)): **768×768 −1.53 %, one-sided upper 95 % bound −0.05 %** (pass); **512×512 +0.28 % and +0.30 %** overall, window pairs +1.47 ± 2.17 % and +0.53 ± 1.02 %, **upper bounds 3.29 % and 1.39 %** (load average 7–26 from other work on the machine) | **pass at 768×768; not demonstrated at 512×512** (point estimates +0.3 %, the bound stays above 1 % on this loaded machine) |
 | Server startup no slower than before the rewrite | UI mode **4.37 s** vs 12.02 s (Gradio); API only 4.19 s vs 6.58 s (medians of 5, idle machine). On a loaded machine everything is slower (the review: 9.6 s for the new UI mode; 2026-10-19 at load average 13–16: UI 23.9 s vs 68.0 s, API 29.8 s vs 33.6 s, alternating runs) | pass (the ratio; absolute times depend on load) |
 
 Four things missed their budget or were found wasteful and were changed (see
@@ -405,6 +405,31 @@ step of each window; the 768×768 runs are consistent with no overhead, and
 shorter step). The overhead budget is therefore **not demonstrated**, and
 the result table says so. Raw: `perf-data/2026-10-19-review/`.
 
+### Verify runs of 2026-10-19
+
+`interleaved` with the real model after the per-step changes (the
+documented commands: 512×512 150 steps, 15 s windows, `--batch-count 4`;
+768×768 100 steps, 30 s windows, `--batch-count 2`), all 45 built-in
+extensions on, headless Chromium, on the same machine with other heavy work
+running (load average 13–26 during the first 512×512 run, 4–10 during the
+others):
+
+| run | window pairs | overall | pairs: mean ± 95 % CI | one-sided upper 95 % | first step dropped | medians | Hodges–Lehmann (upper 95 %) |
+|---|---|---|---|---|---|---|---|
+| 512×512 (load 13–26) | 65 | +0.28 % | +1.47 ± 2.17 % | +3.29 % | +0.66 ± 1.92 % | +0.17 % | +0.12 % (+1.19 %) |
+| 512×512 (load 5–10) | 64 | +0.30 % | +0.53 ± 1.02 % | +1.39 % | +0.86 ± 1.42 % | +0.46 % | +0.57 % (+1.35 %) |
+| **768×768** (load 4–8) | 24 | −1.53 % | −1.44 ± 1.68 % | **−0.05 %** | −1.83 ± 2.28 % | −0.93 % | −0.79 % (+0.07 %) |
+
+At 768×768 the budget is met by the criterion set above (the one-sided
+upper bound of the window pairs, with and without each window's first step,
+≤ 1 %). At 512×512 every point estimate is +0.1 to +0.9 % (overall +0.28 %
+and +0.30 %, i.e. about 9 ms of a 3.2 s step), but individual window pairs
+swing by ±5–40 % when the other work on the machine spikes, and the bound
+stays at 1.4 % even in the quieter run; the budget is **not demonstrated**
+at 512×512 on this machine. Rerun the 512×512 command on an otherwise idle
+machine to settle it. Raw: `perf-data/2026-10-19-verify/` (`il512/`,
+`il512b/`, `il768/`).
+
 ### Per-step cost of the page
 
 A trace of the Generate page during a job (2026-10-19, synthetic sampler,
@@ -466,7 +491,8 @@ the screen about 10–15 ms later than before (decoded first, then drawn in
 the next animation frame), well inside the 150 ms budget. Raw:
 `perf-data/2026-10-19/preview-ab/` (`pv5-*` is the final code).
 
-What this does to it/s is **not measured yet**. The model was not loaded for
+What this does to it/s was measured afterwards with the real model
+([verify runs](#verify-runs-of-2026-10-19)). When this section was written the model was not loaded for
 this revision, and the machine was too busy for the `interleaved` scenario
 to resolve 1 %: a synthetic run before the changes (150 steps, 17 window
 pairs) gave −0.87 ± 6.36 %, step times varying ±20 % with the other work on
@@ -553,6 +579,7 @@ results):
 |---|---|
 | `2026-10-15/` | the original runs: `bundle-*.json`, `browser-load*.json` (load, INP, scrolling), `browser-inp*.json`, `browser-networks-gallery.json`, `before-preview*.json` and `final/` (preview latency before / after), `browser-overhead.json`, `browser-preview-overhead.json`, `il512/`, `il768/`, `final-il512/`, `final-il768/` (interleaved windows with every step time), `o512/`, `startup.json`, the console logs and `prompt300.txt` (the typing test's prompt) |
 | `2026-10-19-review/` | the review's interleaved runs (`il512/`, `il512b/`, `il768/`) and preview runs (`out1/`, `out2/`) |
+| `2026-10-19-verify/` | the verify stage's interleaved runs with the real model (`il512/`, `il512b/`, `il768/`) |
 | `2026-10-19/` | the reruns of this revision: `fx-out/` (load, INP, INP at 4× throttling, scrolling, under load), `preview-ab/` (the before / after runs of the per-step cost, synthetic sampler), `interleaved-synthetic/` (the synthetic interleaved run), `startup.json` / `startup.log` (startup under load), `preview-trace/` (a compressed CDP trace of the final build during a job) |
 
 ## Caveats
