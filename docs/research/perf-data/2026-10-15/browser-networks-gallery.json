@@ -1,0 +1,160 @@
+{
+ "base": "http://127.0.0.1:7861",
+ "date": "2026-10-15T11:49:40.978Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "networks": {
+  "total": 5000,
+  "idleFps": 60,
+  "runs": [
+   {
+    "pxPerFrame": 40,
+    "frames": 3258,
+    "seconds": 54.28,
+    "fps": 60,
+    "interval": {
+     "n": 3257,
+     "mean": 16.7,
+     "p50": 16.7,
+     "p95": 16.7,
+     "p99": 16.8,
+     "max": 16.8
+    },
+    "over20ms": 0,
+    "over33ms": 0,
+    "scrollHeight": 131232,
+    "pipeline": {},
+    "taskDurationS": 5.45,
+    "layoutDurationS": 0.16,
+    "recalcStyleDurationS": 1.25,
+    "nodesAfter": 995,
+    "trace": "/tmp/remi-perf-out/trace-networks-40.json"
+   },
+   {
+    "pxPerFrame": 160,
+    "frames": 815,
+    "seconds": 13.58,
+    "fps": 59.9,
+    "interval": {
+     "n": 814,
+     "mean": 16.7,
+     "p50": 16.7,
+     "p95": 16.8,
+     "p99": 16.8,
+     "max": 33.4
+    },
+    "over20ms": 1,
+    "over33ms": 1,
+    "scrollHeight": 131232,
+    "pipeline": {},
+    "taskDurationS": 3.31,
+    "layoutDurationS": 0.13,
+    "recalcStyleDurationS": 0.7,
+    "nodesAfter": 2367,
+    "trace": "/tmp/remi-perf-out/trace-networks-160.json"
+   },
+   {
+    "pxPerFrame": 40,
+    "frames": 3258,
+    "seconds": 54.28,
+    "fps": 60,
+    "interval": {
+     "n": 3257,
+     "mean": 16.7,
+     "p50": 16.7,
+     "p95": 16.7,
+     "p99": 16.8,
+     "max": 16.8
+    },
+    "over20ms": 0,
+    "over33ms": 0,
+    "scrollHeight": 131232,
+    "pipeline": {},
+    "taskDurationS": 7.26,
+    "layoutDurationS": 0.22,
+    "recalcStyleDurationS": 1.72,
+    "nodesAfter": 2051,
+    "trace": "/tmp/remi-perf-out/trace-networks-40-warm.json"
+   }
+  ],
+  "dom": 1758
+ },
+ "gallery": {
+  "loadAllMs": 16459,
+  "scrollHeight": 228118,
+  "countText": "10000",
+  "idleFps": 60,
+  "runs": [
+   {
+    "pxPerFrame": 40,
+    "frames": 3602,
+    "seconds": 60.01,
+    "fps": 60,
+    "interval": {
+     "n": 3601,
+     "mean": 16.7,
+     "p50": 16.7,
+     "p95": 16.7,
+     "p99": 16.8,
+     "max": 16.8
+    },
+    "over20ms": 0,
+    "over33ms": 0,
+    "scrollHeight": 228118,
+    "pipeline": {},
+    "taskDurationS": 7.86,
+    "layoutDurationS": 0.39,
+    "recalcStyleDurationS": 0.33,
+    "nodesAfter": 1403,
+    "trace": "/tmp/remi-perf-out/trace-gallery-40.json"
+   },
+   {
+    "pxPerFrame": 160,
+    "frames": 1420,
+    "seconds": 23.65,
+    "fps": 60,
+    "interval": {
+     "n": 1419,
+     "mean": 16.7,
+     "p50": 16.7,
+     "p95": 16.8,
+     "p99": 16.8,
+     "max": 16.8
+    },
+    "over20ms": 0,
+    "over33ms": 0,
+    "scrollHeight": 228118,
+    "pipeline": {},
+    "taskDurationS": 5.48,
+    "layoutDurationS": 0.33,
+    "recalcStyleDurationS": 0.35,
+    "nodesAfter": 1120,
+    "trace": "/tmp/remi-perf-out/trace-gallery-160.json"
+   },
+   {
+    "pxPerFrame": 40,
+    "frames": 3602,
+    "seconds": 60.03,
+    "fps": 60,
+    "interval": {
+     "n": 3601,
+     "mean": 16.7,
+     "p50": 16.7,
+     "p95": 16.8,
+     "p99": 16.8,
+     "max": 33.3
+    },
+    "over20ms": 1,
+    "over33ms": 0,
+    "scrollHeight": 228118,
+    "pipeline": {},
+    "taskDurationS": 7.97,
+    "layoutDurationS": 0.38,
+    "recalcStyleDurationS": 0.32,
+    "nodesAfter": 1403,
+    "trace": "/tmp/remi-perf-out/trace-gallery-40-warm.json"
+   }
+  ],
+  "dom": 1394
+ }
+}

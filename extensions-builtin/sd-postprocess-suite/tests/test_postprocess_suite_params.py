@@ -57,9 +57,14 @@ def call(script, action, values, store, **extra):
 def test_params_keep_the_legacy_contract(pp, tab, extra):
     script = make(pp, tab)
     snapshot = contract.load_snapshot(EXT / "tests" / "fixtures" / f"legacy_ui_{tab}.json")
-    # The .cube upload was a gr.File (a JSON param on the legacy path); it is a file upload now
-    lut = script.layout.names.index("lut_lut_file")
-    expected = {lut: {"kind": "file", "default": None}}
+    # Intended: every pipeline param (and img2img's apply mode) is pasted from
+    # the "PP Suite" infotext record, which the legacy ui() never read back
+    names = script.layout.names
+    pasted = [*pp.pipeline_names(), *(("apply_mode",) if tab == "img2img" else ())]
+    expected = {names.index(name): {"paste": True} for name in pasted if name != "lut_lut_file"}
+    # The .cube upload was a gr.File (a JSON param on the legacy path); it is a file upload now (not pasted)
+    lut = names.index("lut_lut_file")
+    expected[lut] = {"kind": "file", "default": None}
     assert contract.differences(script.layout, snapshot, expected=expected, extra=extra) == []
     assert len(pp.pipeline_names()) == pp.P.PIPELINE_ARG_COUNT
 
@@ -91,6 +96,67 @@ def test_the_pipeline_runs_in_the_last_hook(pp):
     r, _g, b = pp_image.image.getpixel((0, 0))
     assert r > b  # sepia
     assert json.loads(p.extra_generation_params["PP Suite"])["sepia"]["strength"] == 1.0
+
+
+def _run_and_write_infotext(script, values, image):
+    """postprocess on ``image`` with named ``values``; the infotext processing.create_infotext writes."""
+    from modules.infotext_utils import quote
+
+    args = script.layout.values_to_args(values)
+    p = SimpleNamespace(extra_generation_params={})
+    pp_image = SimpleNamespace(image=image.copy())
+    script.postprocess_image_after_composite(p, pp_image, *args)
+    params = {"Steps": 20, "Sampler": "Euler", "Seed": 1, **p.extra_generation_params}
+    return pp_image.image, "cat\nNegative prompt: \n" + ", ".join(f"{key}: {quote(value)}" for key, value in params.items())
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        # feat_pps_0.png
+        {"enable": True, "vignette_enabled": True, "vignette_amount": 0.8},
+        # several stages, a custom order, colors, dropdowns, toggles and seeds
+        {"enable": True, "tone_enabled": True, "tone_exposure": 0.35, "tone_contrast": 1.2, "sepia_enabled": True, "sepia_strength": 0.6, "sepia_order": 1,
+         "duotone_enabled": True, "duotone_dark": "#102030", "noise_enabled": True, "noise_kind": "uniform", "noise_seed": 7, "edge_enabled": True, "edge_invert": True},
+    ],
+)
+def test_pasted_infotext_regenerates_the_same_image(pp, values):
+    """The "PP Suite" record pastes back (POST /api/v2/infotext/parse) into the
+    values that produce the same image and infotext."""
+    from modules import scripts
+    from remi.core.infotext import parse_infotext
+
+    image = Image.linear_gradient("L").convert("RGB").resize((48, 32))
+    first_image, text = _run_and_write_infotext(make(pp), values, image)
+    assert "PP Suite: " in text
+
+    data = scripts.ScriptClassData(pp.PostProcessSuite, str(SCRIPT), str(EXT), pp)
+    with webui_state(script_classes=[data]):
+        parsed = parse_infotext(text, "txt2img")
+    assert parsed["problems"] == []
+    pasted = parsed["scripts"]["post_processing_suite"]
+    assert pasted["enable"] is True
+    enabled = {name for name, value in pasted.items() if name.endswith("_enabled") and value}
+    assert enabled == {name for name, value in values.items() if name.endswith("_enabled") and value}
+
+    # A form left with other stages on is reset to the recorded pipeline
+    again_image, again_text = _run_and_write_infotext(make(pp), {"blur_enabled": True, "pixelate_enabled": True, **pasted}, image)
+    assert again_text == text
+    assert np.array_equal(np.asarray(again_image), np.asarray(first_image))
+
+
+def test_paste_without_a_record_turns_the_suite_off(pp):
+    script = make(pp, "img2img")
+    from modules.infotext_utils import parse_generation_parameters
+
+    values, problems = script.layout.paste(parse_generation_parameters("cat\nSteps: 20, Sampler: Euler, Seed: 1"))
+    assert values == {"enable": False} and problems == []
+    record = '{"sepia":{"order":21.0,"strength":0.5}}'
+    values, _ = script.layout.paste({"PP Suite (input)": record})
+    assert values["apply_mode"] == "img2img input (pre-diffusion)" and values["sepia_strength"] == 0.5 and values["tone_enabled"] is False
+    assert script.layout.paste({"PP Suite": record, "PP Suite (input)": record})[0]["apply_mode"] == "Both"
+    # An unreadable record is not an error and changes nothing but the switch
+    assert script.layout.paste({"PP Suite": "{broken"}) == ({"enable": False}, [])
 
 
 def test_the_panel_is_collapsed_and_lazy(pp):

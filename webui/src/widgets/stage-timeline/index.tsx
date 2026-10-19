@@ -215,7 +215,7 @@ function TemplateHelp(props: { template: Template | undefined; name: string; res
       <PopoverTrigger render={<Button variant="ghost" size="icon-xs" aria-label={tw("About this template")} title={tw("About this template")} />}>
         <HelpCircle />
       </PopoverTrigger>
-      <PopoverContent className="w-80 text-xs">
+      <PopoverContent aria-label={tw("About this template")} className="w-80 text-xs">
         <p className="font-medium">{props.template ? tw(props.template.label) : props.name}</p>
         {parts.length ? (
           <ul className="mt-1 flex flex-col gap-1">

@@ -83,7 +83,7 @@ function coreLayout(tab: "txt2img" | "img2img"): Node {
   return {
     type: "column",
     children: [
-      { type: "text", name: "prompt", label: "Prompt", lines: 3, max_lines: 12, prompt: true, placeholder: "Prompt (Ctrl+Enter to generate)" },
+      { type: "text", name: "prompt", label: "Prompt", lines: 3, max_lines: 12, prompt: true, placeholder: "Prompt\n({{generate}} to Generate ; {{skip}} to Skip ; {{interrupt}} to Interrupt)" },
       { type: "text", name: "negative_prompt", label: "Negative prompt", lines: 2, max_lines: 8, prompt: true, placeholder: "Negative prompt" },
       { type: "multichoice", name: "styles", label: "Styles", choices: styles.map((style) => ({ value: style.name, label: style.name })) },
       ...img2img,
@@ -193,7 +193,7 @@ function coreLayout(tab: "txt2img" | "img2img"): Node {
 
 function coreDefaults(tab: "txt2img" | "img2img") {
   return {
-    prompt: "1girl, solo, (masterpiece:1.2), cherry blossoms, <lora:anima_style:0.8>",
+    prompt: "1girl, solo, (masterpiece:1.2), cherry blossoms, <lora:watercolor_pastel_v1_0:0.8>",
     negative_prompt: "lowres, bad anatomy, watermark",
     width: 1024,
     height: 1024,
@@ -618,9 +618,35 @@ export const toolboxPage: PageSchema = {
       { type: "choice", name: "transform", label: "Transform", style: "radio", choices: options(["upper", "lower", "reverse"]) },
       { type: "button", label: "Run", action: "run", variant: "primary" },
       { type: "output", name: "result", kind: "text", label: "Result" },
+      // Like Prompt Workshop: an action row mixing buttons and send widgets, two columns of fields, a status line.
+      {
+        type: "section",
+        title: "Prompt kit",
+        open: true,
+        children: [
+          { type: "text", name: "kit_prompt", label: "Consolidated prompt", lines: 2 },
+          {
+            type: "row",
+            children: [
+              { type: "button", label: "Build prompt", action: "kit_build", variant: "primary" },
+              { type: "custom", name: "kit_send", widget: "send-button", label: "", persist: false, submit: false, props: { to: "prompt", source: "kit_prompt", label: "Send to txt2img Prompt" } },
+              { type: "custom", name: "kit_replace", widget: "send-button", label: "", persist: false, submit: false, props: { to: "prompt", source: "kit_prompt", mode: "replace", label: "Replace txt2img Prompt" } },
+              { type: "button", label: "Clear all fields", action: "kit_clear", variant: "danger" },
+            ],
+          },
+          {
+            type: "row",
+            children: [
+              { type: "column", children: [{ type: "text", name: "kit_quality", label: "Quality" }, { type: "text", name: "kit_subject", label: "Subject" }] },
+              { type: "column", children: [{ type: "text", name: "kit_series", label: "Series" }, { type: "text", name: "kit_general", label: "General tags" }] },
+            ],
+          },
+          { type: "output", name: "kit_status", kind: "text" },
+        ],
+      },
     ],
   },
-  defaults: { text: "Hello Remi", transform: "upper" },
+  defaults: { text: "Hello Remi", transform: "upper", kit_prompt: "", kit_send: null, kit_replace: null, kit_quality: "masterpiece", kit_subject: "1girl", kit_series: "", kit_general: "smile" },
 }
 
 // ---------------------------------------------------------------- app
@@ -706,6 +732,7 @@ export const styles: PromptStyle[] = [
 /** A sample of the server catalog for zh_CN (schema labels). */
 export const serverCatalogZh: Record<string, string> = {
   Prompt: "提示词",
+  "Prompt\n({{generate}} to Generate ; {{skip}} to Skip ; {{interrupt}} to Interrupt)": "提示词\n（{{generate}} 生成；{{skip}} 跳过；{{interrupt}} 中断）",
   "Negative prompt": "反向提示词",
   "Sampling method": "采样方法",
   "Schedule type": "调度类型",

@@ -7,7 +7,7 @@ import { ImageDown } from "lucide-react"
 import { type ReactNode, type Ref, Suspense, useId, useImperativeHandle, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { describedBy, infoTextId } from "@/ui/a11y"
+import { describedBy, hintRef, infoTextId } from "@/ui/a11y"
 import { FieldError, ModifiedDot } from "@/ui/Field"
 import { useForm, useParam } from "@/ui/hooks"
 import type { TextNode } from "@/ui/schema"
@@ -17,6 +17,7 @@ import type { PromptKind } from "./facets"
 import { TokenCounter } from "./TokenCounter"
 import { bracketProblems } from "./tokenize"
 import { useDebouncedValue } from "./use-debounced-value"
+import { placeholderText } from "@/ui/placeholder"
 
 type PromptFieldProps = {
   node: TextNode
@@ -59,7 +60,7 @@ export function PromptField({ node, kind = "positive", steps, styles, actions, o
   const { formId } = useForm()
   const value = typeof param.value === "string" ? param.value : ""
   const label = t(param.label)
-  const placeholder = node.placeholder ? t(node.placeholder) : undefined
+  const placeholder = placeholderText(t, node.placeholder)
   const lines = minLines ?? Math.max(node.lines ?? 2, 2)
   const [dragging, setDragging] = useState(false)
   const depth = useRef(0)
@@ -75,7 +76,7 @@ export function PromptField({ node, kind = "positive", steps, styles, actions, o
     }),
     [],
   )
-  const ariaDescribedBy = describedBy(id, param.info, param.error, bracketId)
+  const ariaDescribedBy = describedBy(id, param.info, param.error, hintRef(id, param.hint), bracketId)
 
   const hasImage = (event: React.DragEvent) => [...event.dataTransfer.items].some((item) => item.kind === "file" && item.type.startsWith("image/"))
   const dropImages = (files: File[]) => {

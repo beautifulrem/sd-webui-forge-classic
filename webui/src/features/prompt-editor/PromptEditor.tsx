@@ -69,7 +69,8 @@ const theme = EditorView.theme({
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
     backgroundColor: "color-mix(in oklch, var(--primary) 28%, transparent) !important",
   },
-  ".cm-prompt-weight": { color: "var(--primary)", fontVariantNumeric: "tabular-nums", fontWeight: "500" },
+  // token colours are mixed with the text colour: ≥ 4.5:1 on the editor (and on an extra's tint) in both themes
+  ".cm-prompt-weight": { color: "color-mix(in oklch, var(--primary) 78%, var(--foreground))", fontVariantNumeric: "tabular-nums", fontWeight: "500" },
   ".cm-prompt-bracket": { fontWeight: "600" },
   ".cm-prompt-bracket-0": { color: "color-mix(in oklch, var(--primary) 70%, var(--muted-foreground))" },
   ".cm-prompt-bracket-1": { color: "color-mix(in oklch, var(--chart-2) 72%, var(--foreground))" },
@@ -82,7 +83,7 @@ const theme = EditorView.theme({
   },
   ".cm-prompt-schedule": { color: "color-mix(in oklch, var(--chart-3) 72%, var(--foreground))", fontWeight: "600" },
   ".cm-prompt-extra": {
-    color: "color-mix(in oklch, var(--chart-2) 72%, var(--foreground))",
+    color: "color-mix(in oklch, var(--chart-2) 55%, var(--foreground))",
     backgroundColor: "color-mix(in oklch, var(--chart-2) 10%, transparent)",
     borderRadius: "3px",
   },

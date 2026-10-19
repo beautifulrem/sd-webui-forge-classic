@@ -65,7 +65,14 @@ export default function GalleryPage() {
   const list = useInfiniteQuery(galleryListQuery(query))
   const items = list.data?.pages.flatMap((page) => page.items) ?? []
   const order = items.map((item) => item.id)
-  const total = list.data?.pages[0]?.total ?? null
+  // Once every page is in, the count is what the pages hold: it can never disagree with the tiles.
+  const total = list.data && !list.hasNextPage ? items.length : (list.data?.pages[0]?.total ?? null)
+  // Pages that came back empty (the server skipped files that are gone) are not the end: read on.
+  const { fetchNextPage, isFetchingNextPage } = list
+  const readingOn = items.length === 0 && list.hasNextPage && !list.isFetchNextPageError
+  useEffect(() => {
+    if (readingOn && !isFetchingNextPage) void fetchNextPage()
+  }, [readingOn, isFetchingNextPage, fetchNextPage])
   const [stored, setSelection] = useState<Selection>(EMPTY_SELECTION)
   // Selected ids that left the list (deleted, filtered out) do not count.
   const selection = prune(stored, order)
@@ -124,7 +131,7 @@ export default function GalleryPage() {
   )
 
   let body: React.ReactNode
-  if (list.isPending) {
+  if (list.isPending || readingOn) {
     body = (
       <div className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-1.5 p-3" aria-busy="true">
         {Array.from({ length: 18 }, (_, index) => (

@@ -24,7 +24,11 @@ section in either tab's generation controls.
    first. Defaults are spaced (5, 10, 20, …) so you can slot stages between
    existing ones. Disabled stages are skipped.
 
-Active stages are recorded into the PNG metadata under `PP Suite` for reference.
+Active stages are recorded into the PNG metadata under `PP Suite` (`PP Suite (input)`
+for img2img input processing). Pasting the parameters restores them: the suite
+switches on with exactly the recorded stages, orders and values (stages not in the
+record are switched off; an image without the record switches the suite off). A
+LUT file is not restored (the metadata only records where it was): pick it again.
 
 ## Presets
 Open the **Presets** group at the top of the suite.

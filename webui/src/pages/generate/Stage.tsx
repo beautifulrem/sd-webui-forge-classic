@@ -27,7 +27,8 @@ function ProgressOverlay({ job }: { job: RunningJob }) {
   const fraction = progressFraction(job) ?? 0
   const eta = formatEta(job.eta)
   return (
-    <div className="absolute inset-x-3 bottom-3 rounded-lg bg-background/80 p-2.5 shadow-sm backdrop-blur">
+    // No backdrop-filter: the preview under it changes every step, and a blur would be redrawn with it.
+    <div className="absolute inset-x-3 bottom-3 rounded-lg bg-background/90 p-2.5 shadow-sm">
       <div className="mb-1.5 flex items-center justify-between gap-2 text-xs tabular-nums">
         <span className="truncate">
           {stepText(job)}
@@ -196,7 +197,7 @@ export function Stage({ tab, onOpenViewer, className, leading, trailing, toolbar
 
   if (tab === "img2img") {
     return (
-      <section ref={section} aria-label={t("Stage")} className={cn("flex min-h-0 flex-col gap-2", className)}>
+      <section ref={section} aria-label={t("Image area")} className={cn("flex min-h-0 flex-col gap-2", className)}>
         {toolbarRow}
         <Img2imgStage
           className="min-h-0 flex-1"

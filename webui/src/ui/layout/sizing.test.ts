@@ -11,4 +11,12 @@ describe("cellProps", () => {
     expect(span.className).toBe("remi-cell remi-cell-span remi-cell-top")
     expect(span.style).toEqual({ "--span": 6 })
   })
+
+  it("lets action widgets hug their content like buttons", () => {
+    for (const widget of ["send-button", "task-runner", "pp-send"]) {
+      expect(cellProps({ type: "custom", name: "a", widget, label: "" } as unknown as Node).className).toBe("remi-cell remi-cell-content")
+    }
+    expect(cellProps({ type: "custom", name: "a", widget: "sigma-curve", label: "" } as unknown as Node).className).toBe("remi-cell remi-cell-auto")
+    expect(cellProps({ type: "custom", name: "a", widget: "send-button", width: 6, label: "" } as unknown as Node).className).toBe("remi-cell remi-cell-span")
+  })
 })

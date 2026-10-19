@@ -5,7 +5,10 @@ Hashed files under ``/assets`` are cached for a year and served from their
 precompressed ``.br`` / ``.gz`` copies (written by the build) when the client
 accepts them; ``index.html`` (also served for client routes) is never cached.
 Behind ``--subpath`` the shell's absolute asset URLs get the prefix and
-``window.__REMI_ROOT__`` tells the app where its API lives.
+``window.__REMI_ROOT__`` tells the app where its API lives;
+``window.__REMI_THEME__`` carries ``--theme`` (the theme of browsers that
+have not picked one in the Appearance menu). Both are set at the top of
+``<head>``, before the shell's own script applies the theme.
 """
 
 from __future__ import annotations
@@ -35,6 +38,8 @@ RETIRED_APIS = {
 "Decision: their HTTP APIs are not kept"): ``410 Gone`` naming the
 replacement instead of the SPA shell. A route an extension registers under
 one of these prefixes still wins (this is the fallback)."""
+THEMES = ("light", "dark", "system")
+"""``--theme`` values the SPA knows (anything else: its own default, dark)"""
 IMMUTABLE = "public, max-age=31536000, immutable"
 PRECOMPRESSED = (("br", ".br"), ("gzip", ".gz"))
 """content codings of the build's precompressed copies, preferred first"""
@@ -66,9 +71,11 @@ def accepted_codings(header: str) -> set[str]:
 
 
 class Spa:
-    def __init__(self, auth: Auth, dist: Path | None = None) -> None:
+    def __init__(self, auth: Auth, dist: Path | None = None, *, theme: str | None = None) -> None:
         self.auth = auth
         self.dist = (dist or DIST).resolve()
+        theme = theme.strip().lower() if isinstance(theme, str) else None
+        self.theme = theme if theme in THEMES else None
         self._index: tuple[float, str, bytes] | None = None
         self._lock = threading.Lock()
 
@@ -88,8 +95,10 @@ class Spa:
         text = path.read_text(encoding="utf8")
         if root:
             text = text.replace('="/assets/', f'="{root}/assets/').replace('="/favicon', f'="{root}/favicon')
-        script = f"<script>window.__REMI_ROOT__={json.dumps(root)}</script>"
-        text = text.replace("</head>", f'<meta name="remi-root" content="{html.escape(root)}">{script}</head>', 1)
+        script = f"<script>window.__REMI_ROOT__={json.dumps(root)};window.__REMI_THEME__={json.dumps(self.theme)}</script>"
+        injected = f'<meta name="remi-root" content="{html.escape(root)}">{script}'
+        # first in <head>: the shell's inline script reads __REMI_THEME__ before the first paint
+        text = text.replace("<head>", f"<head>{injected}", 1) if "<head>" in text else text.replace("</head>", f"{injected}</head>", 1)
         data = text.encode()
         with self._lock:
             self._index = (mtime, root, data)

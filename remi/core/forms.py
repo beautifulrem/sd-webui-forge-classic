@@ -16,14 +16,16 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from remi import ui
+from remi.core import hints
 
 if TYPE_CHECKING:
     from modules.scripts import ScriptRunner
 
 TABS = ("txt2img", "img2img", "extras")
 
-PROMPT_PLACEHOLDER = "Prompt\n(Ctrl+Enter to Generate ; Alt+Enter to Skip ; Esc to Interrupt)"
-NEGATIVE_PLACEHOLDER = "Negative Prompt\n(Ctrl+Enter to Generate ; Alt+Enter to Skip ; Esc to Interrupt)"
+# The SPA fills {{generate}} / {{skip}} / {{interrupt}} with the platform's shortcut text (⌘Enter on macOS).
+PROMPT_PLACEHOLDER = "Prompt\n({{generate}} to Generate ; {{skip}} to Skip ; {{interrupt}} to Interrupt)"
+NEGATIVE_PLACEHOLDER = "Negative Prompt\n({{generate}} to Generate ; {{skip}} to Skip ; {{interrupt}} to Interrupt)"
 
 IMG2IMG_MODES = ("img2img", "Sketch", "Inpaint", "Inpaint sketch", "Inpaint upload", "Batch")
 """Values of the img2img ``mode`` param; the processing argument is the index."""
@@ -119,6 +121,18 @@ def _paste_enable_hr(params: dict) -> bool:
     return "Denoising strength" in params and ("Hires upscale" in params or "Hires upscaler" in params or "Hires resize-1" in params)
 
 
+def _paste_inpaint_area(params: dict):
+    """``Inpaint area``; an inpaint infotext without it ran on the whole
+    picture: "Only masked" always wrote the key, and before it was written for
+    "Whole picture" too, its absence was the only trace of that choice."""
+
+    if "Inpaint area" in params:
+        return params["Inpaint area"]
+    if any(key in params for key in ("Mask blur", "Mask mode", "Masked content")):
+        return "Whole picture"
+    return None
+
+
 def _paste_hr_sampler(params: dict):
     from modules import sd_samplers
 
@@ -149,15 +163,15 @@ def _prompts(tab: str, runner: ScriptRunner | None = None) -> ui.Node:
 
 def _batch() -> list[ui.Node]:
     return [
-        ui.Slider("batch_count", 1, 128, 1, 1, label="Batch Count"),
-        ui.Slider("batch_size", 1, 8, 1, 1, label="Batch Size", infotext="Batch size"),
+        ui.Slider("batch_count", 1, 128, 1, 1, label="Batch Count", hint=hints.BATCH_COUNT),
+        ui.Slider("batch_size", 1, 8, 1, 1, label="Batch Size", hint=hints.BATCH_SIZE, infotext="Batch size"),
     ]
 
 
 def _cfg(tab: str) -> list[ui.Node]:
     return [
         ui.Slider("distilled_cfg_scale", 0.0 if tab == "img2img" else 1.0, 24.0, 3.0, 0.5, label="Distilled CFG Scale", infotext="Distilled CFG Scale", preset="native.distilled_cfg"),
-        ui.Slider("cfg_scale", 1.0, 24.0, 6.0, 0.5, label="CFG Scale", infotext="CFG scale", preset="native.cfg"),
+        ui.Slider("cfg_scale", 1.0, 24.0, 6.0, 0.5, label="CFG Scale", hint=hints.CFG_SCALE, infotext="CFG scale", preset="native.cfg"),
     ]
 
 
@@ -176,15 +190,15 @@ def _size(tab: str) -> list[ui.Node]:
 
 
 def _enable_hr() -> ui.Toggle:
-    return ui.Toggle("enable_hr", False, label="Hires. fix", paste=_paste_enable_hr, preset="native.hires", exclusive=("pid_hires", "hires"), on_change="hr_resolution")
+    return ui.Toggle("enable_hr", False, label="Hires. fix", hint=hints.HIRES_FIX, paste=_paste_enable_hr, preset="native.hires", exclusive=("pid_hires", "hires"), on_change="hr_resolution")
 
 
 def _hr_target() -> list[ui.Input]:
     step = resolution_step()
     return [
-        ui.Slider("hr_scale", 1.0, 4.0, 2.0, 0.05, label="Upscale by", infotext="Hires upscale", on_change="hr_resolution"),
-        ui.Slider("hr_resize_x", 0, 4096, 0, step, label="Resize width to", infotext="Hires resize-1", on_change="hr_resolution"),
-        ui.Slider("hr_resize_y", 0, 4096, 0, step, label="Resize height to", infotext="Hires resize-2", on_change="hr_resolution"),
+        ui.Slider("hr_scale", 1.0, 4.0, 2.0, 0.05, label="Upscale by", hint=hints.UPSCALE_BY, infotext="Hires upscale", on_change="hr_resolution"),
+        ui.Slider("hr_resize_x", 0, 4096, 0, step, label="Resize width to", hint=hints.RESIZE_WIDTH_TO, infotext="Hires resize-1", on_change="hr_resolution"),
+        ui.Slider("hr_resize_y", 0, 4096, 0, step, label="Resize height to", hint=hints.RESIZE_HEIGHT_TO, infotext="Hires resize-2", on_change="hr_resolution"),
     ]
 
 
@@ -226,8 +240,8 @@ def _hires_fix() -> ui.Node:
             ui.Output("hr_final_resolution", "text", "Upscaled resolution"),
             ui.Row(
                 ui.Choice("hr_upscaler", _upscaler_names, "Latent", label="Upscaler", infotext="Hires upscaler"),
-                ui.Slider("hr_second_pass_steps", 0, 150, 0, 1, label="Hires steps", infotext="Hires steps"),
-                ui.Slider("denoising_strength", 0.0, 1.0, 0.6, 0.05, label="Denoising strength", infotext="Denoising strength"),
+                ui.Slider("hr_second_pass_steps", 0, 150, 0, 1, label="Hires steps", hint=hints.HIRES_STEPS, infotext="Hires steps"),
+                ui.Slider("denoising_strength", 0.0, 1.0, 0.6, 0.05, label="Denoising strength", hint=hints.DENOISING_STRENGTH, infotext="Denoising strength"),
             ),
             ui.Row(*_hr_target()),
             ui.Row(
@@ -236,7 +250,7 @@ def _hires_fix() -> ui.Node:
             ),
             ui.Group(
                 ui.Row(
-                    ui.Choice("hr_checkpoint_name", _hr_checkpoints, SAME_CHECKPOINT, label="Hires Checkpoint", infotext="Hires checkpoint"),
+                    ui.Choice("hr_checkpoint_name", _hr_checkpoints, SAME_CHECKPOINT, same=ui.without_model_hash, label="Hires Checkpoint", infotext="Hires checkpoint"),
                     ui.MultiChoice("hr_additional_modules", _hr_modules, [SAME_MODULES], label="Hires VAE / Text Encoder", infotext="Hires VAE/TE"),
                 ),
                 ui.Row(
@@ -338,17 +352,17 @@ def _img2img_image() -> ui.Node:
         ui.Image("sketch", "sketch", "init_img", mode="RGBA", label="Sketch", visible_if=ui.param("mode", in_=["Sketch", "Inpaint sketch"])),
         ui.Image("mask", "mask", "init_img", label="Mask", visible_if=ui.param("mode", eq="Inpaint")),
         ui.Image("mask_upload", "mask", label="Mask", visible_if=ui.param("mode", eq="Inpaint upload")),
-        ui.Choice("resize_mode", RESIZE_MODES, "Crop and Resize", type="index", style="radio", label="Resize Mode"),
+        ui.Choice("resize_mode", RESIZE_MODES, "Crop and Resize", type="index", style="radio", label="Resize Mode", hints=hints.RESIZE_MODES),
     )
 
 
 def _img2img_inpaint() -> ui.Node:
     return ui.Group(
-        ui.Slider("mask_blur", 0, 64, 4, 4, label="Mask blur", infotext="Mask blur"),
+        ui.Slider("mask_blur", 0, 64, 4, 4, label="Mask blur", hint=hints.MASK_BLUR, infotext="Mask blur"),
         ui.Choice("inpainting_mask_invert", MASK_MODES, "Inpaint masked", type="index", style="radio", label="Mask mode", infotext="Mask mode"),
-        ui.Choice("inpainting_fill", MASKED_CONTENT, "original", type="index", style="radio", label="Masked content", infotext="Masked content"),
+        ui.Choice("inpainting_fill", MASKED_CONTENT, "original", type="index", style="radio", label="Masked content", hints=hints.MASKED_CONTENT, infotext="Masked content"),
         ui.Row(
-            ui.Choice("inpaint_full_res", INPAINT_AREAS, "Only masked", type="index", style="radio", label="Inpaint area", infotext="Inpaint area"),
+            ui.Choice("inpaint_full_res", INPAINT_AREAS, "Only masked", type="index", style="radio", label="Inpaint area", infotext="Inpaint area", paste=_paste_inpaint_area),
             ui.Slider("inpaint_full_res_padding", 0, 256, 32, 8, label="Only masked padding, pixels", infotext="Masked area padding"),
         ),
         visible_if=ui.param("mode", in_=list(INPAINT_MODES)),
@@ -383,7 +397,7 @@ def img2img_form(runner: ScriptRunner | None = None) -> ui.Node:
         elif category == "cfg":
             sections.append(ui.Row(*_cfg("img2img"), ui.Slider("image_cfg_scale", 0, 3.0, 1.5, 0.05, label="Image CFG Scale", infotext="Image CFG scale", hidden=True), ui.Slot(category)))
         elif category == "denoising":
-            sections.append(ui.Group(ui.Slider("denoising_strength", 0.0, 1.0, 0.6, 0.01, label="Denoising Strength", infotext="Denoising strength"), ui.Slot(category)))
+            sections.append(ui.Group(ui.Slider("denoising_strength", 0.0, 1.0, 0.6, 0.01, label="Denoising Strength", hint=hints.DENOISING_STRENGTH, infotext="Denoising strength"), ui.Slot(category)))
         elif category == "accordions":
             sections.append(ui.Column(ui.Slot(category)))
         elif category == "batch":

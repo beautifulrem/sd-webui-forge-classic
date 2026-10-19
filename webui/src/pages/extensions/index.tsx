@@ -5,12 +5,12 @@
  */
 import { useQuery } from "@tanstack/react-query"
 import { Archive, Download, Link2, Package, ShieldAlert } from "lucide-react"
-import { lazy, Suspense, useRef } from "react"
+import { lazy, Suspense } from "react"
 import { useTranslation } from "react-i18next"
 import { navigate, type Route } from "@/app/router"
+import { FitTabsList } from "@/components/FitTabsList"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useScrollFade } from "@/lib/use-scroll-fade"
+import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { InstalledView } from "./InstalledView"
 import { installedQuery } from "./queries"
 
@@ -31,29 +31,36 @@ function parseTab(value: string | null | undefined): TabId {
   return TABS.some((tab) => tab.id === value) ? (value as TabId) : "installed"
 }
 
+function openTab(value: TabId) {
+  navigate({ name: "extensions", query: value === "installed" ? undefined : new URLSearchParams({ tab: value }) }, { replace: true })
+}
+
 export default function ExtensionsPage({ route }: { route: Route }) {
   const { t } = useTranslation()
   const tab = parseTab(route.query?.get("tab"))
   const list = useQuery(installedQuery)
   const access = list.data?.access ?? true
-  const tabsRef = useRef<HTMLDivElement>(null)
-  const tabsFade = useScrollFade(tabsRef, tab)
 
   return (
     <div data-scroll-root className="h-full overflow-y-auto">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-5 sm:px-6">
-        <Tabs
-          value={tab}
-          onValueChange={(value) => navigate({ name: "extensions", query: value === "installed" ? undefined : new URLSearchParams({ tab: String(value) }) }, { replace: true })}
-        >
-          <TabsList ref={tabsRef} style={tabsFade} variant="line" className="w-full justify-start overflow-x-auto border-b pb-px [scrollbar-width:none]">
+        <Tabs value={tab} onValueChange={(value) => openTab(value as TabId)}>
+          {/* on a phone the four tabs do not fit: they become a select */}
+          <FitTabsList
+            aria-label={t("Extensions")}
+            variant="line"
+            className="border-b pb-px"
+            options={TABS.map(({ id, label, icon: Icon }) => ({ value: id, label: t(label), icon: <Icon aria-hidden /> }))}
+            value={tab}
+            onValueChange={openTab}
+          >
             {TABS.map(({ id, label, icon: Icon }) => (
               <TabsTrigger key={id} value={id} className="flex-none px-2.5">
                 <Icon aria-hidden />
                 {t(label)}
               </TabsTrigger>
             ))}
-          </TabsList>
+          </FitTabsList>
 
           {list.data && !list.data.access ? (
             <p role="status" className="mt-2 flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">

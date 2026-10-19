@@ -1,0 +1,11 @@
+  browser: 0.3361 it/s (16 steps, 49538 ms, 15 previews painted, browser CPU 5.1 %, server CPU 5.3 %)
+  api: 0.3553 it/s (16 steps, 46875 ms, server CPU 4.2 %)
+  api: 0.3544 it/s (16 steps, 46871 ms, server CPU 4.8 %)
+  browser: 0.3447 it/s (16 steps, 48220 ms, 15 previews painted, browser CPU 5.4 %, server CPU 5.3 %)
+overhead failed: locator.click: Target page, context or browser has been closed
+    at uiJob (/Volumes/Remi/Anima/sd-webui-forge-classic/webui/tools/perf/browser.mjs:492:16)
+    at measureOverhead (/Volumes/Remi/Anima/sd-webui-forge-classic/webui/tools/perf/browser.mjs:620:21)
+    at async file:///Volumes/Remi/Anima/sd-webui-forge-classic/webui/tools/perf/browser.mjs:678:7 {
+  log: []
+}
+results: /tmp/remi-perf-out/o512/browser-overhead.json

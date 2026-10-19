@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { MAX_INFLATED_BYTES, readExifUserComment, readImageParameters, readPngText } from "./read-image-info"
+import { isImageFile, looksLikeImage, MAX_INFLATED_BYTES, readExifUserComment, readImageParameters, readPngText } from "./read-image-info"
 
 async function deflate(bytes: Uint8Array): Promise<Uint8Array> {
   const stream = new Response(bytes as BodyInit).body!.pipeThrough(new CompressionStream("deflate"))
@@ -121,3 +121,19 @@ describe("EXIF UserComment", () => {
     expect(await readImageParameters(new Blob([png()]))).toBeNull()
   })
 })
+
+describe("image signatures", () => {
+  it("knows the formats the server reads and refuses other files", async () => {
+    const riff = (kind: string) => concat(latin1("RIFF"), new Uint8Array(4), latin1(kind))
+    const iso = (brand: string) => concat(new Uint8Array(4), latin1("ftyp"), latin1(brand))
+    for (const head of [SIGNATURE, Uint8Array.of(0xff, 0xd8, 0xff, 0xe0), latin1("GIF89a"), latin1("BM...."), riff("WEBP"), latin1("II*\0"), latin1("MM\0*"), iso("avif"), iso("heic")]) {
+      expect(looksLikeImage(head), Array.from(head).join(",")).toBe(true)
+    }
+    for (const head of [latin1("hello world"), latin1("%PDF-1.7"), riff("WAVE"), iso("isom"), new Uint8Array()]) {
+      expect(looksLikeImage(head), Array.from(head).join(",")).toBe(false)
+    }
+    expect(await isImageFile(new Blob([png() as BlobPart]))).toBe(true)
+    expect(await isImageFile(new Blob(["not an image"], { type: "image/png" }))).toBe(false)
+  })
+})
+

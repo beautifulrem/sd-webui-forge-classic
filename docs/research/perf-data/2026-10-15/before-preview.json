@@ -1,0 +1,118 @@
+{
+ "base": "http://127.0.0.1:7861",
+ "date": "2026-10-15T11:59:24.721Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "preview": {
+  "jobs": [
+   {
+    "jobId": "6ddd4babdbf14681",
+    "ms": 90899,
+    "status": "completed"
+   },
+   {
+    "jobId": "1af4f60e54d6ab8e",
+    "ms": 111824,
+    "status": "completed"
+   },
+   {
+    "jobId": "4a81f68691c953e1",
+    "ms": 152777,
+    "status": "completed"
+   }
+  ],
+  "steps": 24,
+  "clockOffsetMs": -0.4,
+  "framesReceived": 69,
+  "framesPainted": 69,
+  "framesPublished": 69,
+  "imagesAssigned": 69,
+  "matched": 69,
+  "total": {
+   "n": 69,
+   "mean": 238.1,
+   "p50": 104.3,
+   "p95": 177,
+   "p99": 4509.6,
+   "max": 5530.5
+  },
+  "imageToPublish": {
+   "n": 69,
+   "mean": 227,
+   "p50": 88.7,
+   "p95": 165.3,
+   "p99": 4499.5,
+   "max": 5524.6
+  },
+  "encode": {
+   "n": 69,
+   "mean": 0.2,
+   "p50": 0.2,
+   "p95": 0.4,
+   "p99": 0.5,
+   "max": 0.5
+  },
+  "publishToReceive": {
+   "n": 69,
+   "mean": 0.5,
+   "p50": 0.4,
+   "p95": 1.2,
+   "p99": 1.6,
+   "max": 1.9
+  },
+  "receiveToPaint": {
+   "n": 69,
+   "mean": 10.6,
+   "p50": 11.2,
+   "p95": 17.8,
+   "p99": 19.2,
+   "max": 19.3
+  },
+  "encodedToPaint": {
+   "n": 69,
+   "mean": 11,
+   "p50": 11.5,
+   "p95": 18,
+   "p99": 19.6,
+   "max": 20.5
+  },
+  "its": [
+   {
+    "steps": 24,
+    "its": 0.2713,
+    "stepMs": {
+     "n": 23,
+     "mean": 3685.6,
+     "p50": 3642.8,
+     "p95": 4051,
+     "p99": 4149.2,
+     "max": 4174.4
+    }
+   },
+   {
+    "steps": 24,
+    "its": 0.2216,
+    "stepMs": {
+     "n": 23,
+     "mean": 4512.9,
+     "p50": 4381.1,
+     "p95": 5327.3,
+     "p99": 5405.7,
+     "max": 5420.6
+    }
+   },
+   {
+    "steps": 24,
+    "its": 0.1603,
+    "stepMs": {
+     "n": 23,
+     "mean": 6236.9,
+     "p50": 6209.3,
+     "p95": 6718.8,
+     "p99": 6787.9,
+     "max": 6807.3
+    }
+   }
+  ]
+ }
+}

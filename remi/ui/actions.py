@@ -22,7 +22,7 @@ from typing import Any
 from remi.ui.errors import ParamError, SchemaError, ValidationError
 from remi.ui.types import Patch, PatchEntry
 
-PATCH_KEYS = frozenset({"value", "choices", "visible", "enabled", "label", "info", "minimum", "maximum", "step"})
+PATCH_KEYS = frozenset({"value", "choices", "visible", "enabled", "label", "info", "hint", "minimum", "maximum", "step"})
 SPECIAL_KEYS = frozenset({"__toast__", "__outputs__", "__settings__"})
 TOAST_LEVELS = ("info", "success", "warning", "error")
 

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import APIRouter, Query, Response
 
+from remi.files import FileStore
 from remi.jobs import Job, Submission
 from remi.jobs.store import RUNNING
 from remi.realtime import progress_snapshot
@@ -51,6 +53,27 @@ def job_json(job: Job, *, detail: bool = False, running: bool = False) -> dict[s
     return data
 
 
+def with_missing_outputs(items: list[dict[str, Any]], files: FileStore) -> list[dict[str, Any]]:
+    """Mark the outputs whose file is gone (``missing``), so clients show a
+    placeholder instead of requesting a thumbnail that answers 404."""
+
+    gone: dict[str, bool] = {}
+    for item in items:
+        outputs = item.get("outputs") or []
+        marked = []
+        for output in outputs:
+            file_id = output.get("id") if isinstance(output, dict) else None
+            if not file_id:
+                marked.append(output)
+                continue
+            if file_id not in gone:
+                record = files.get(file_id)
+                gone[file_id] = record is None or not os.path.isfile(record.path)
+            marked.append({**output, "missing": True} if gone[file_id] else output)
+        item["outputs"] = marked
+    return items
+
+
 @router.post("/jobs", response_model=m.JobCreated, status_code=201, responses={422: {"model": m.ValidationErrorBody}}, summary="Queue a generation (validated first)")
 def create_job(body: m.JobRequest, services: ServicesDep, user: UserDep) -> dict[str, Any]:
     jobs = services.queue.submit(Submission(body.tab, body.core, body.scripts, priority=body.priority, repeat=body.repeat, forever=body.forever, upscale_from=body.upscale_from), user=user)
@@ -68,12 +91,13 @@ def list_jobs(
     tab: m.FormTab | None = None,
 ) -> dict[str, Any]:
     jobs, next_cursor, total = services.store.history(cursor=cursor, limit=limit, status=status, query=q, starred=starred, tab=tab)
-    return {"items": [job_json(job, running=True) for job in jobs], "next_cursor": next_cursor, "total": total}
+    items = with_missing_outputs([job_json(job, running=True) for job in jobs], services.files)
+    return {"items": items, "next_cursor": next_cursor, "total": total}
 
 
 @router.get("/jobs/{job_id}", response_model=m.JobDetail, responses=ERRORS, summary="One job with its parameters")
 def get_job(job_id: str, services: ServicesDep) -> dict[str, Any]:
-    return job_json(services.queue.get(job_id), detail=True, running=True)
+    return with_missing_outputs([job_json(services.queue.get(job_id), detail=True, running=True)], services.files)[0]
 
 
 @router.patch("/jobs/{job_id}", response_model=m.Job, responses=ERRORS, summary="Change a job's priority or its generate-forever flag")

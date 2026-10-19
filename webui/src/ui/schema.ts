@@ -42,6 +42,8 @@ export type InputBase = NodeBase & {
   /** "" renders the control without a label. */
   label: string
   info?: string | null
+  /** Tooltip on the label (also the control's accessible description). */
+  hint?: string | null
   default?: Json
   on_change?: string | null
   /** Runs only after a user edit of this control (not pastes, presets or action patches). */
@@ -87,12 +89,15 @@ export type ChoiceNode = InputBase & {
   choices: ChoiceOption[]
   style?: "dropdown" | "radio"
   allow_custom?: boolean
+  /** Tooltips by (untranslated) choice label. */
+  choice_hints?: Record<string, string>
 }
 export type MultiChoiceNode = InputBase & {
   type: "multichoice"
   choices: ChoiceOption[]
   style?: "dropdown" | "checkboxes"
   allow_custom?: boolean
+  choice_hints?: Record<string, string>
 }
 export type SeedNode = InputBase & { type: "seed" }
 export type ColorNode = InputBase & { type: "color" }

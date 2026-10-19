@@ -1,0 +1,134 @@
+{
+ "base": "http://127.0.0.1:7893",
+ "date": "2026-10-19T07:43:05.667Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "preview": {
+  "jobs": [
+   {
+    "jobId": "38347f6c2e763a7a",
+    "ms": 55588,
+    "status": "completed"
+   },
+   {
+    "jobId": "175e7aaec031a2e6",
+    "ms": 52393,
+    "status": "completed"
+   }
+  ],
+  "steps": 16,
+  "framesPerStep": 3.29,
+  "frameReportsPerStep": 3.43,
+  "frameStates": {
+   "STATE_NO_UPDATE_DESIRED": 28,
+   "STATE_PRESENTED_ALL": 46,
+   "STATE_DROPPED": 12,
+   "STATE_PRESENTED_PARTIAL": 2
+  },
+  "pageIdlePerSecond": {
+   "steps": 10,
+   "seconds": 10.1,
+   "taskMs": 0.2,
+   "scriptMs": 0.01,
+   "layoutMs": 0,
+   "recalcStyleMs": 0,
+   "layouts": 0,
+   "chromiumCpuMs": 1
+  },
+  "pageCostPerStep": {
+   "steps": 14,
+   "seconds": 45.2,
+   "taskMs": 7.94,
+   "scriptMs": 1.9,
+   "layoutMs": 0.3,
+   "recalcStyleMs": 0.21,
+   "layouts": 1.14,
+   "chromiumCpuMs": 42.9,
+   "overIdle": {
+    "taskMs": 7.29,
+    "chromiumCpuMs": 39.7
+   }
+  },
+  "framesPresentedFirstJob": 46,
+  "clockOffsetMs": -0.7,
+  "framesReceived": 32,
+  "framesPainted": 32,
+  "framesPublished": 32,
+  "imagesAssigned": 32,
+  "matched": 32,
+  "total": {
+   "n": 32,
+   "mean": 12.7,
+   "p50": 11,
+   "p95": 18.8,
+   "p99": 48.4,
+   "max": 61.6
+  },
+  "imageToPublish": {
+   "n": 32,
+   "mean": 1.3,
+   "p50": 0.2,
+   "p95": 0.4,
+   "p99": 23.5,
+   "max": 33.8
+  },
+  "encode": {
+   "n": 32,
+   "mean": 1.2,
+   "p50": 0.1,
+   "p95": 0.4,
+   "p99": 23.3,
+   "max": 33.7
+  },
+  "publishToReceive": {
+   "n": 32,
+   "mean": 0.3,
+   "p50": 0.2,
+   "p95": 0.8,
+   "p99": 1.5,
+   "max": 1.8
+  },
+  "receiveToPaint": {
+   "n": 32,
+   "mean": 11.1,
+   "p50": 10.7,
+   "p95": 18.5,
+   "p99": 23.8,
+   "max": 25.9
+  },
+  "encodedToPaint": {
+   "n": 32,
+   "mean": 11.4,
+   "p50": 10.8,
+   "p95": 18.6,
+   "p99": 25.1,
+   "max": 27.7
+  },
+  "its": [
+   {
+    "steps": 16,
+    "its": 0.3079,
+    "stepMs": {
+     "n": 15,
+     "mean": 3247.4,
+     "p50": 3222.3,
+     "p95": 3885.2,
+     "p99": 3899.6,
+     "max": 3903.2
+    }
+   },
+   {
+    "steps": 16,
+    "its": 0.3085,
+    "stepMs": {
+     "n": 15,
+     "mean": 3241.6,
+     "p50": 3248.1,
+     "p95": 3762.5,
+     "p99": 3837.3,
+     "max": 3856
+    }
+   }
+  ]
+ }
+}

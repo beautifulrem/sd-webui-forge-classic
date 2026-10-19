@@ -57,7 +57,7 @@ export function LayersPopover({ layer, inpaint, onlyMasked }: LayersPopoverProps
           <Layers />
         </PopoverTrigger>
       </Hint>
-      <PopoverContent side="top" align="end" className="w-72 gap-3">
+      <PopoverContent aria-label={t("Layers and view")} side="top" align="end" className="w-72 gap-3">
         <section aria-label={t("Layers")} className="flex flex-col gap-1">
           <h3 className="text-xs font-medium text-muted-foreground">{t("Layers")}</h3>
           {layer ? (

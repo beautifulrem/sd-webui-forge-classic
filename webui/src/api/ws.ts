@@ -8,6 +8,7 @@ import { create } from "zustand"
 import { API_BASE } from "./http"
 import { normalizeEvent, type WsEvent, type WsEventType } from "./events"
 import { FrameError, parseFrame } from "./frames"
+import { flushPaintBatch, holdPaint, paintBatch } from "./paint-batch"
 
 /** What this client understands; sent in the hello message. */
 export const CLIENT_FEATURES = ["events.v1", "preview.binary", "preview.jpeg", "preview.webp"] as const
@@ -69,6 +70,13 @@ async function openSocket(): Promise<SocketLike> {
 }
 
 const handlers = new Map<WsEventType | "*", Set<AnyHandler>>()
+const frameListeners = new Set<(frame: { jobSeq: number; step: number }) => void>()
+
+/** Called for each preview frame as it arrives (before it is decoded and shown); returns the unsubscribe function. */
+export function onPreviewFrame(listener: (frame: { jobSeq: number; step: number }) => void): () => void {
+  frameListeners.add(listener)
+  return () => frameListeners.delete(listener)
+}
 
 /** Subscribes to one event type (or "*" for all); returns the unsubscribe function. */
 export function onWsEvent<K extends WsEventType>(type: K, handler: Handler<K>): () => void
@@ -104,7 +112,28 @@ let wanted = false
  */
 let attemptToken = 0
 
+/**
+ * Resolves once `url`'s image is decoded (and in the memory cache), so the
+ * `<img>` that switches to it draws it in the same frame; at once where the
+ * browser cannot decode ahead.
+ */
+function decoded(url: string): Promise<void> {
+  if (typeof Image === "undefined") return Promise.resolve()
+  const image = new Image()
+  if (typeof image.decode !== "function") return Promise.resolve()
+  image.src = url
+  return image.decode().catch(() => {})
+}
+
+/** Older than `current` (a frame of the same job and an earlier step, arriving late). */
+function stale(frame: { jobSeq: number; step: number }, current: LivePreview | null): boolean {
+  return current !== null && current.jobSeq === frame.jobSeq && frame.step < current.step
+}
+
 export const useWs = create<WsState>()((set, get) => {
+  /** Bumped by `clearPreview`: a frame still decoding from before must not show. */
+  let epoch = 0
+
   function setPreview(next: LivePreview | null) {
     const previous = get().preview
     set({ preview: next })
@@ -114,11 +143,20 @@ export const useWs = create<WsState>()((set, get) => {
   function handleBinary(buffer: ArrayBuffer) {
     try {
       const frame = parseFrame(buffer)
-      const current = get().preview
       // Frames for an older job or step can arrive late; keep the newest.
-      if (current && current.jobSeq === frame.jobSeq && frame.step < current.step) return
+      if (stale(frame, get().preview)) return
       const url = URL.createObjectURL(new Blob([frame.bytes], { type: frame.mime }))
-      setPreview({ jobSeq: frame.jobSeq, step: frame.step, url })
+      const from = epoch
+      // Decoded first, then shown with the step's progress in one frame (api/paint-batch).
+      const release = holdPaint()
+      for (const listener of frameListeners) listener({ jobSeq: frame.jobSeq, step: frame.step })
+      void decoded(url).then(() => {
+        paintBatch(() => {
+          if (from !== epoch || stale(frame, get().preview)) URL.revokeObjectURL(url)
+          else setPreview({ jobSeq: frame.jobSeq, step: frame.step, url })
+        })
+        release()
+      })
     } catch (error) {
       if (error instanceof FrameError) console.warn("[ws]", error.message)
       else throw error
@@ -212,6 +250,9 @@ export const useWs = create<WsState>()((set, get) => {
       return true
     },
     clearPreview() {
+      // Queued updates first: a frame of the ended job must not show after this.
+      flushPaintBatch()
+      epoch++
       setPreview(null)
     },
   }

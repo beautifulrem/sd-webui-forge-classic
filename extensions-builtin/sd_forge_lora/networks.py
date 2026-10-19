@@ -151,10 +151,12 @@ def load_network(name: str, network_on_disk: network.NetworkOnDisk):
     return net
 
 
-def load_networks(names: list[str], te_multipliers: list[float] = None, unet_multipliers: list[float] = None):
+def load_networks(names: list[str], te_multipliers: list[float] = None, unet_multipliers: list[float] = None) -> list[str]:
+    """Load ``names`` onto the current model; returns the names that could
+    not be loaded (not found, or failed to load)."""
     current_sd = sd_models.model_data.get_sd_model()
     if current_sd is None:
-        return
+        return []
 
     loaded_networks.clear()
 
@@ -173,7 +175,12 @@ def load_networks(names: list[str], te_multipliers: list[float] = None, unet_mul
         list_available_networks()
         networks_on_disk = [available_networks.get(name, None) if name.lower() in forbidden_network_aliases else available_network_aliases.get(name, None) for name in names]
 
+    failed: list[str] = []
     for network_on_disk, name in zip(networks_on_disk, names):
+        if network_on_disk is None:
+            logger.error(f'LoRA not found: "{name}"')
+            failed.append(name)
+            continue
         try:
             net = load_network(name, network_on_disk)
             net.mentioned_name = name
@@ -181,6 +188,7 @@ def load_networks(names: list[str], te_multipliers: list[float] = None, unet_mul
             loaded_networks.append(net)
         except Exception:
             logger.error(f'Failed to load LoRA: "{name}"')
+            failed.append(name)
             continue
 
     online_mode = dynamic_args.online_lora or False
@@ -193,7 +201,7 @@ def load_networks(names: list[str], te_multipliers: list[float] = None, unet_mul
 
     compiled_lora_targets_hash = str(compiled_lora_targets)
     if current_sd.current_lora_hash == compiled_lora_targets_hash:
-        return
+        return failed
 
     current_sd.current_lora_hash = compiled_lora_targets_hash
     current_sd.forge_objects.unet = current_sd.forge_objects_original.unet
@@ -209,6 +217,7 @@ def load_networks(names: list[str], te_multipliers: list[float] = None, unet_mul
         current_sd.forge_objects.unet, current_sd.forge_objects.clip = load_lora_for_models(current_sd.forge_objects.unet, current_sd.forge_objects.clip, lora_sd, strength_model, strength_clip, filename=filename, online_mode=online_mode)
 
     current_sd.forge_objects_after_applying_lora = current_sd.forge_objects.shallow_copy()
+    return failed
 
 
 def process_network_files(names: Optional[list[str]] = None):

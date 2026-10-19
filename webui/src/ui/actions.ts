@@ -12,7 +12,7 @@ import type { FormStore } from "./form-store"
 import { isMessage, messageText } from "./messages"
 
 const TOAST_LEVELS = new Set(["info", "success", "warning", "error"])
-const PATCH_KEYS = new Set(["value", "choices", "visible", "enabled", "label", "info", "minimum", "maximum", "step"])
+const PATCH_KEYS = new Set(["value", "choices", "visible", "enabled", "label", "info", "hint", "minimum", "maximum", "step"])
 
 export type SplitResponse = {
   params: [owner: string, name: string, patch: ParamPatch][]

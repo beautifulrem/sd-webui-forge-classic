@@ -1,7 +1,7 @@
 /**
  * Full-screen image viewer over the session results: wheel zoom at the
  * cursor, two-finger pinch zoom, drag to pan, double-click toggles fit ↔ actual size,
- * ←/→ (or a gamepad, `js_modal_lightbox_gamepad`) previous / next, S downloads, +/−/0/1 zoom, Esc closes. While a job
+ * ←/→ (a sideways wheel, or a gamepad with `js_modal_lightbox_gamepad`) previous / next, S downloads, +/−/0/1 zoom, Esc closes. While a job
  * runs it can follow the live preview (`js_live_preview_in_modal_lightbox`).
  */
 import { Dialog } from "@base-ui/react/dialog"
@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils"
 import { downloadFile } from "@/features/gallery/files"
 import type { ResultItem } from "@/features/gallery/session-store"
 import { ResultActions } from "@/features/send-to/ResultActions"
-import { useGamepadNavigation } from "./gamepad"
+import { useGamepadNavigation, useWheelNavigation } from "./gamepad"
 import { clampPan, fitScale, initialView, pinchView, type Point, type Size, type ViewState, wheelFactor, zoomAt } from "./zoom"
 
 type LightboxProps = {
@@ -94,6 +94,7 @@ export function Lightbox({ open, onOpenChange, items, current, onNavigate, live,
     if (next) onNavigate(next.key)
   }
   useGamepadNavigation(open && gamepad, gamepadRepeat, go)
+  const wheelNavigate = useWheelNavigation(gamepadRepeat, go)
   const setClamped = (next: ViewState) => setView(natural ? clampPan(next, natural, viewportSize) : next)
   const zoomBy = (factor: number) => setClamped(zoomAt(view, factor))
   const toggleZoom = () => setView(isFitted ? { scale: 1, x: 0, y: 0 } : { scale: fitted, x: 0, y: 0 })
@@ -190,7 +191,11 @@ export function Lightbox({ open, onOpenChange, items, current, onNavigate, live,
             ref={setViewport}
             tabIndex={-1}
             className={cn("relative min-h-0 flex-1 touch-none overflow-hidden outline-none select-none", dragging ? "cursor-grabbing" : "cursor-grab")}
-            onWheel={(event) => setClamped(zoomAt(view, wheelFactor(event.deltaY, event.deltaMode), relative(event)))}
+            onWheel={(event) => {
+              // Sideways (tilt wheel, horizontal swipe): previous / next; vertical: zoom at the cursor.
+              if (wheelNavigate(event)) return
+              setClamped(zoomAt(view, wheelFactor(event.deltaY, event.deltaMode), relative(event)))
+            }}
             onDoubleClick={toggleZoom}
             onPointerDown={(event) => {
               if (event.button !== 0) return

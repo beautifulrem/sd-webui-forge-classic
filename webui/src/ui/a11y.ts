@@ -2,6 +2,10 @@
 export const labelId = (id: string) => `${id}-label`
 export const infoTextId = (id: string) => `${id}-info`
 export const errorTextId = (id: string) => `${id}-error`
+export const hintTextId = (id: string) => `${id}-tooltip`
+
+/** The id of a field's hint (tooltip) text when it has one: an `extra` id for `describedBy`. */
+export const hintRef = (id: string, hint?: string | null) => (hint ? hintTextId(id) : undefined)
 
 /** aria-describedby of a field's control: its info and error texts, plus `extra` ids. */
 export function describedBy(id: string, info?: string | null, error?: string | null, ...extra: (string | undefined)[]) {

@@ -73,10 +73,12 @@ LEGACY_MAP = {
 def test_layout_matches_the_legacy_tab(page):
     snapshot = harness.load_snapshot(SCRIPT)
     assert snapshot["title"] == page.title == "Prompt Workshop"
-    # api_key fields are masked inputs now (write-only: a saved key is never sent back)
-    secret = {"kind": "custom"}
+    # api_key fields are masked inputs now (write-only: a saved key is never sent back);
+    # the credential fields read "API key" / "User ID" (translatable) instead of the raw API parameter names
+    secret = {"kind": "custom", "label": "API key"}
+    user = {"label": "User ID"}
     # "Source" alone is the SPA's own word for a source image ("源图")
-    harness.assert_page_matches(page.layout(), snapshot, LEGACY_MAP, {15: secret, 17: secret, 19: {"label": "Booru source"}})
+    harness.assert_page_matches(page.layout(), snapshot, LEGACY_MAP, {15: secret, 16: user, 17: secret, 18: user, 19: {"label": "Booru source"}})
     names = page.layout().names
     order = [names.index(name) for name in LEGACY_MAP.values()]
     assert order == sorted(order)

@@ -19,7 +19,7 @@ function ViewSwitch({ view, onChange }: { view: "source" | "result"; onChange: (
     { value: "result" as const, label: t("Result"), icon: Images },
   ]
   return (
-    <div role="tablist" aria-label={t("Stage")} className="inline-flex shrink-0 items-center gap-0.5 rounded-lg bg-muted p-0.5">
+    <div role="tablist" aria-label={t("Image view")} className="inline-flex shrink-0 items-center gap-0.5 rounded-lg bg-muted p-0.5">
       {options.map(({ value, label, icon: Icon }) => (
         <button
           key={value}

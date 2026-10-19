@@ -205,7 +205,7 @@ Pass options in `COMMANDLINE_ARGS` (`webui-user.bat`, `webui.settings.sh`) or to
 | `--sage` / `--flash` | Install optional attention packages; availability does not guarantee selection |
 | `--disable-extra-extensions`, `--disable-all-extensions` | Start without user extensions, or without any |
 
-**Changed options.** The Gradio-only options are gone: replace `--gradio-auth` / `--gradio-auth-path` with `--auth` / `--auth-file`, and drop `--gradio-debug`, `--gradio-allowed-path` and `--no-gradio-queue`. The WebUI refuses to start with an unknown option, so an old login option can never be silently ignored. `--share` is accepted but only logs a warning (use `--listen`, a reverse proxy or `--ngrok`); `--theme` and `--use-textbox-seed` have no effect (the theme is chosen in the Appearance menu); `--agent-scheduler-sqlite-file` tells the queue importer where an old Agent Scheduler database is. Do not install every attention backend blindly; native PyTorch attention is often the most compatible choice, see the upstream [extra installation guide](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Extra-Installations).
+**Changed options.** The Gradio-only options are gone: replace `--gradio-auth` / `--gradio-auth-path` with `--auth` / `--auth-file`, and drop `--gradio-debug`, `--gradio-allowed-path` and `--no-gradio-queue`. The WebUI refuses to start with an unknown option, so an old login option can never be silently ignored. `--share` is accepted but only logs a warning (use `--listen`, a reverse proxy or `--ngrok`); `--use-textbox-seed` has no effect; `--theme light|dark|system` is the theme of browsers that have not picked one in the Appearance menu (`?__theme=light` in the URL picks one, as before); `--agent-scheduler-sqlite-file` tells the queue importer where an old Agent Scheduler database is. Do not install every attention backend blindly; native PyTorch attention is often the most compatible choice, see the upstream [extra installation guide](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Extra-Installations).
 
 ## Where Data Is Stored
 
@@ -263,7 +263,7 @@ Remi's interface is new; the generation engine, models, settings file, styles, o
 | Settings tab, "Defaults" and "Actions" | **Settings** page; server actions under "Server and models". `ui-config.json` is no longer read: forms start from defaults, the UI preset and your browser's saved values |
 | Extensions tab | **Extensions** page |
 | JoyCaption and Prompt Workshop tabs | pages of the same name |
-| Checkpoint Merger tab | not available in the Remi UI |
+| Checkpoint Merger tab | **Checkpoint Merger** page (the same controls; merges and saves run behind generation with progress and Cancel) |
 | `/file=` links | files are served by id (`/api/v2/files/{id}`) |
 | `/agent-scheduler/v1/*`, `/prompt-queue/*` APIs | `POST /api/v2/jobs` and `/api/v2/queue/*` ([API guide](docs/remi-webui/api.md)); the old routes answer `410 Gone` |
 | `/tacapi/v1/*`, `/physton_prompt/*` APIs | `/api/v2/prompt-tools` (the old routes answer `410 Gone`) |

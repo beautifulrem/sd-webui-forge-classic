@@ -5,11 +5,12 @@
  * is already there (pressed).
  */
 import { useQuery } from "@tanstack/react-query"
-import { useDeferredValue, useMemo, useState } from "react"
+import { useDeferredValue, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
 import { toServerLocale, useLocale } from "@/i18n"
+import { useScrollFade } from "@/lib/use-scroll-fade"
 import { cn } from "@/lib/utils"
 import { promptToolsApi, type TagCategory } from "../api"
 import { findTag, parsePrompt, tagKey, toggleTag } from "../chips/parse"
@@ -103,38 +104,7 @@ export default function GroupsPanel({ value, setValue, disabled, config }: Panel
         </div>
       ) : (
         <>
-          <div
-            role="tablist"
-            aria-label={t("Tag categories")}
-            className="flex shrink-0 gap-1 overflow-x-auto border-b px-2 py-1.5"
-            onKeyDown={(event) => {
-              const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0
-              if (!step && event.key !== "Home" && event.key !== "End") return
-              event.preventDefault()
-              const at = categories.indexOf(current!)
-              const next = event.key === "Home" ? 0 : event.key === "End" ? categories.length - 1 : (at + step + categories.length) % categories.length
-              setCategory(next)
-              const tabs = event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=tab]")
-              tabs[next]?.focus()
-            }}
-          >
-            {categories.map((cat, index) => (
-              <button
-                key={cat.name}
-                type="button"
-                role="tab"
-                aria-selected={cat === current}
-                tabIndex={cat === current ? 0 : -1}
-                onClick={() => setCategory(index)}
-                className={cn(
-                  "shrink-0 rounded-md px-2 py-1 text-xs font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
-                  cat === current ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-              >
-                {cat.name}
-              </button>
-            ))}
-          </div>
+          <CategoryStrip categories={categories} current={current} onSelect={setCategory} />
           <div role="tabpanel" aria-label={current?.name} className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
             {current?.groups.map((group) => (
               <section key={group.name} aria-label={group.name} className="space-y-1.5">
@@ -157,6 +127,50 @@ export default function GroupsPanel({ value, setValue, disabled, config }: Panel
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/** The tag categories: a strip that scrolls sideways, fading at the edges where more categories are. */
+function CategoryStrip({ categories, current, onSelect: setCategory }: { categories: readonly TagCategory[]; current: TagCategory | undefined; onSelect: (index: number) => void }) {
+  const { t } = useTranslation()
+  const strip = useRef<HTMLDivElement>(null)
+  const fade = useScrollFade(strip, current?.name)
+  return (
+    <div
+      ref={strip}
+      style={fade}
+      role="tablist"
+      aria-label={t("Tag categories")}
+      className="flex shrink-0 gap-1 overflow-x-auto border-b px-2 py-1.5 [scrollbar-width:none]"
+      onKeyDown={(event) => {
+        const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0
+        if (!step && event.key !== "Home" && event.key !== "End") return
+        event.preventDefault()
+        const at = categories.indexOf(current!)
+        const next = event.key === "Home" ? 0 : event.key === "End" ? categories.length - 1 : (at + step + categories.length) % categories.length
+        setCategory(next)
+        const tabs = event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=tab]")
+        tabs[next]?.focus()
+      }}
+    >
+      {categories.map((cat, index) => (
+        <button
+          key={cat.name}
+          type="button"
+          role="tab"
+          aria-selected={cat === current}
+          data-active={cat === current || undefined}
+          tabIndex={cat === current ? 0 : -1}
+          onClick={() => setCategory(index)}
+          className={cn(
+            "shrink-0 rounded-md px-2 py-1 text-xs font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+            cat === current ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+          )}
+        >
+          {cat.name}
+        </button>
+      ))}
     </div>
   )
 }

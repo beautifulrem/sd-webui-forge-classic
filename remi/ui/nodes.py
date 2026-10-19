@@ -155,7 +155,9 @@ class Input(Node):
     """A node holding one value; ``name`` is its param id within the owner.
 
     Common keyword arguments (architecture.md): ``label`` (English; default
-    from the name, ``""`` hides it), ``info``, ``visible_if``, ``enabled_if``,
+    from the name, ``""`` hides it), ``info`` (a note shown under the
+    control), ``hint`` (a tooltip on the label, A1111's ``tooltip=``),
+    ``visible_if``, ``enabled_if``,
     ``infotext`` (infotext key), ``paste`` (``params -> value`` for derived
     paste; ``None`` skips), ``preset`` (Anima preset field, or ``(field,
     value)`` when this control's preset value differs from the table's),
@@ -181,6 +183,7 @@ class Input(Node):
         *,
         label: str | None = None,
         info: str | None = None,
+        hint: str | None = None,
         visible_if: conditions.Condition | None = None,
         enabled_if: conditions.Condition | None = None,
         infotext: str | None = None,
@@ -208,6 +211,9 @@ class Input(Node):
         self.default = default
         self.label = _humanize(name) if label is None else str(label)
         self.info = info
+        if hint is not None and not isinstance(hint, str):
+            raise SchemaError(f"{name}: hint must be a string")
+        self.hint = hint
         self.infotext = infotext
         self.paste = paste
         self.preset_key, self.preset_value = self._preset(preset)
@@ -291,6 +297,8 @@ class Input(Node):
         data: dict[str, Any] = {"name": self.name, "label": self.label}
         if self.info:
             data["info"] = self.info
+        if self.hint:
+            data["hint"] = self.hint
         data["default"] = self.resolve_default(ctx)
         data.update(self._input_schema(ctx))
         if self.on_change:
@@ -476,9 +484,30 @@ def _same_value(choice: Any, value: Any) -> bool:
     return choice == value and isinstance(choice, bool) == isinstance(value, bool)
 
 
-def match_choice(pairs: Sequence[tuple[str, Any]], value: Any, allow_custom: bool) -> Any:
+_MODEL_HASH_SUFFIX = re.compile(r"\s*\[[0-9a-fA-F]{8,64}\]$")
+
+
+def without_model_hash(value: Any) -> Any:
+    """A model title without its ``" [shorthash]"`` suffix: ``same=`` key for
+    model choices (``checkpoint_tiles(use_short=True)``), whose titles gain the
+    hash once it has been computed, so a title picked or pasted before (or
+    after) that still names the same model."""
+
+    return _MODEL_HASH_SUFFIX.sub("", value) if isinstance(value, str) else value
+
+
+def _key(same: Callable[[Any], Any], value: Any) -> Any:
+    try:
+        return same(value)
+    except Exception:
+        return None
+
+
+def match_choice(pairs: Sequence[tuple[str, Any]], value: Any, allow_custom: bool, same: Callable[[Any], Any] | None = None) -> Any:
     """The choice value equal to ``value`` (numeric strings match numeric
-    choices), any string when ``allow_custom``, else :class:`ParamError`."""
+    choices; with ``same``, the one choice whose ``same(choice)`` equals
+    ``same(value)``), any string when ``allow_custom``, else
+    :class:`ParamError`."""
 
     for _label, choice in pairs:
         if _same_value(choice, value):
@@ -491,6 +520,11 @@ def match_choice(pairs: Sequence[tuple[str, Any]], value: Any, allow_custom: boo
                         return choice
                 except ParamError:
                     break
+    if same is not None and value is not None:
+        key = _key(same, value)
+        hits = [choice for _label, choice in pairs if key is not None and _key(same, choice) == key]
+        if len(hits) == 1:
+            return hits[0]
     if allow_custom and isinstance(value, str):
         return value
     shown = ", ".join(repr(choice) for _label, choice in pairs[:8]) + (", ..." if len(pairs) > 8 else "")
@@ -500,11 +534,15 @@ def match_choice(pairs: Sequence[tuple[str, Any]], value: Any, allow_custom: boo
 class _ChoiceBase(Input):
     """Shared by :class:`Choice` and :class:`MultiChoice`. ``type="index"``
     hands the script choice indices (Gradio's ``type="index"``); the wire
-    value stays the choice value."""
+    value stays the choice value. ``same`` (server side only) is a key
+    function: a value that is no choice but has the same key as exactly one
+    choice is taken as that choice (e.g. :func:`without_model_hash` for
+    model titles that change once their hash is known). ``hints`` maps
+    choice labels to tooltips (schema ``choice_hints``)."""
 
     styles: ClassVar[tuple[str, ...]] = ()
 
-    def __init__(self, name: str, choices: Choices, default: Any, *, style: str, allow_custom: bool, type: str, **common):
+    def __init__(self, name: str, choices: Choices, default: Any, *, style: str, allow_custom: bool, type: str, same: Callable[[Any], Any] | None = None, hints: Mapping[str, str] | None = None, **common):
         if not callable(choices) and (isinstance(choices, (str, bytes)) or not isinstance(choices, Iterable)):
             raise SchemaError(f"{name}: choices is a list or a callable returning one")
         if style not in self.styles:
@@ -513,10 +551,16 @@ class _ChoiceBase(Input):
             raise SchemaError(f"{name}: type is 'value' or 'index'")
         if type == "index" and allow_custom:
             raise SchemaError(f"{name}: an index choice cannot allow custom values")
+        if same is not None and not callable(same):
+            raise SchemaError(f"{name}: same is a key function")
         self.choices = choices if callable(choices) else list(choices)
         self.style = style
         self.allow_custom = bool(allow_custom)
         self.returns = type
+        self.same = same
+        if hints is not None and not (isinstance(hints, Mapping) and all(isinstance(key, str) and isinstance(text, str) for key, text in hints.items())):
+            raise SchemaError(f"{name}: hints maps choice labels to tooltip texts")
+        self.hints = dict(hints or {})
         super().__init__(name, default, **common)
 
     def resolve_choices(self, ctx: Context) -> list[tuple[str, Any]]:
@@ -538,7 +582,10 @@ class _ChoiceBase(Input):
 
     def _input_schema(self, ctx: Context) -> dict[str, Any]:
         choices = [{"value": value, "label": label} for label, value in self.resolve_choices(ctx)]
-        return {"choices": choices, "style": self.style, "allow_custom": self.allow_custom}
+        data = {"choices": choices, "style": self.style, "allow_custom": self.allow_custom}
+        if self.hints:
+            data["choice_hints"] = dict(self.hints)
+        return data
 
 
 class Choice(_ChoiceBase):
@@ -549,8 +596,8 @@ class Choice(_ChoiceBase):
     type = "choice"
     styles = ("dropdown", "radio")
 
-    def __init__(self, name: str, choices: Choices, default: Any = None, *, style: str = "dropdown", allow_custom: bool = False, type: str = "value", **common):
-        super().__init__(name, choices, default, style=style, allow_custom=allow_custom, type=type, **common)
+    def __init__(self, name: str, choices: Choices, default: Any = None, *, style: str = "dropdown", allow_custom: bool = False, type: str = "value", same: Callable[[Any], Any] | None = None, **common):
+        super().__init__(name, choices, default, style=style, allow_custom=allow_custom, type=type, same=same, **common)
 
     def coerce(self, value: Any, ctx: Context) -> Any:
         pairs = self.resolve_choices(ctx)
@@ -558,7 +605,7 @@ class Choice(_ChoiceBase):
             if not pairs:
                 return None
             raise ParamError("a choice is required")
-        return match_choice(pairs, value, self.allow_custom)
+        return match_choice(pairs, value, self.allow_custom, self.same)
 
     def fallback_default(self, value: Any, ctx: Context) -> Any:
         values = self.values(ctx)
@@ -581,8 +628,8 @@ class MultiChoice(_ChoiceBase):
     type = "multichoice"
     styles = ("dropdown", "checkboxes")
 
-    def __init__(self, name: str, choices: Choices, default: Iterable[Any] = (), *, style: str = "dropdown", allow_custom: bool = False, type: str = "value", **common):
-        super().__init__(name, choices, default, style=style, allow_custom=allow_custom, type=type, **common)
+    def __init__(self, name: str, choices: Choices, default: Iterable[Any] = (), *, style: str = "dropdown", allow_custom: bool = False, type: str = "value", same: Callable[[Any], Any] | None = None, **common):
+        super().__init__(name, choices, default, style=style, allow_custom=allow_custom, type=type, same=same, **common)
 
     def coerce(self, value: Any, ctx: Context) -> list[Any]:
         if value is None:
@@ -590,7 +637,7 @@ class MultiChoice(_ChoiceBase):
         if isinstance(value, (str, bytes, Mapping)) or not isinstance(value, Iterable):
             raise ParamError(f"expected a list, got {type(value).__name__}")
         pairs = self.resolve_choices(ctx)
-        return [match_choice(pairs, item, self.allow_custom) for item in value]
+        return [match_choice(pairs, item, self.allow_custom, self.same) for item in value]
 
     def fallback_default(self, value: Any, ctx: Context) -> list[Any]:
         # Drop the stale entries of a declared default
@@ -598,7 +645,7 @@ class MultiChoice(_ChoiceBase):
         kept = []
         for item in value or ():
             try:
-                kept.append(match_choice(pairs, item, self.allow_custom))
+                kept.append(match_choice(pairs, item, self.allow_custom, self.same))
             except ParamError:
                 pass
         return kept

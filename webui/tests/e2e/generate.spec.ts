@@ -29,6 +29,22 @@ test.describe("generate", () => {
     await expect(page.getByText("1girl, cherry blossoms").first()).toBeVisible()
   })
 
+  test("generates twice in a row from the same page", async ({ page }) => {
+    // The second job is posted with the values the page loaded before the first one ran
+    // (a real server once rejected it: a checkpoint title had gained its hash meanwhile).
+    await open(page)
+    await setPrompt(page, "1girl, twice")
+    const generate = page.getByRole("button", { name: /^Generate/ }).first()
+    const history = page.getByRole("listbox", { name: "History" }).getByRole("option")
+    for (const count of [1, 2]) {
+      await generate.click()
+      await expect(page.getByRole("button", { name: "Interrupt" })).toBeVisible()
+      await expect(page.getByRole("button", { name: "Interrupt" })).toBeHidden({ timeout: 15_000 })
+      await expect(history).toHaveCount(count)
+    }
+    await expect(page.getByRole("alert")).toHaveCount(0)
+  })
+
   test("Escape interrupts a running job", async ({ page }) => {
     await open(page)
     await page.getByRole("button", { name: /^Generate/ }).first().click()

@@ -165,12 +165,15 @@ def test_an_unmounted_drive_hides_its_images_until_it_is_back(library, server, w
 
     page = server.client.get("/api/v2/gallery").json()
     assert record.id not in [item["id"] for item in page["items"]] and len(page["items"]) == 5
+    # the counts match what can be shown: no "Images: 6" over five tiles
+    assert page["total"] == 5 and server.client.get("/api/v2/gallery/facets").json()["total"] == 5
     assert server.client.get(f"/api/v2/gallery/{record.id}").status_code == 404
     assert not files.is_removed(path) and list(files.thumbs_dir.glob(f"{record.id}-*.webp"))
 
     os.rename(unmounted, folder)
+    server.services.files.register_output(write_png(tmp_path / "touch.png"))  # any index change looks again at once
     back = server.client.get("/api/v2/gallery", params={"starred": True}).json()
-    assert [item["id"] for item in back["items"]] == [record.id] and back["items"][0]["starred"] is True
+    assert [item["id"] for item in back["items"]] == [record.id] and back["items"][0]["starred"] is True and back["total"] == 1
     assert files.scan_outputs([str(folder)]) == 0  # still indexed: nothing to add
 
 
@@ -372,3 +375,26 @@ def test_png_info_bounds_the_text_entries(server, tmp_path):
 
 
 # endregion
+
+
+def test_totals_leave_out_a_whole_missing_output_folder(server, webui, tmp_path):
+    """Thousands of index rows under a folder that is gone (moved, unmounted):
+    the first page says 0 images, not a count of tiles that never load."""
+
+    files = server.services.files
+    folder = webui.root / "gone" / tmp_path.name / "2026-10-01"
+    made = [files.register_output(write_png(folder / f"{index}.png")).id for index in range(3)]
+    kept = files.register_output(write_png(webui.root / "kept" / tmp_path.name / "here.png")).id
+    before = server.client.get("/api/v2/gallery").json()["total"]
+    for path in sorted(folder.parent.rglob("*"), reverse=True):
+        path.unlink() if path.is_file() else path.rmdir()
+    folder.parent.rmdir()
+    page = server.client.get("/api/v2/gallery", params={"limit": 200}).json()
+    assert page["total"] == before - 3 == len(page["items"]) and kept in ids_of(page)
+    assert not set(made) & set(ids_of(page))
+    assert files._db.execute(f"SELECT COUNT(*) FROM files WHERE id IN ({','.join('?' * 3)})", made).fetchone()[0] == 3  # kept for when it is back
+
+
+def ids_of(page):
+    return [item["id"] for item in page["items"]]
+

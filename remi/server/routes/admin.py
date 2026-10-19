@@ -29,13 +29,24 @@ router = APIRouter()
 # region Server status
 
 
+def _loaded_info() -> Any:
+    sd_models = sys.modules.get("modules.sd_models")
+    model = getattr(getattr(sd_models, "model_data", None), "sd_model", None)
+    return getattr(model, "sd_checkpoint_info", None)
+
+
 def loaded_model() -> str | None:
     """Title of the checkpoint in memory (None when nothing is loaded)."""
 
-    sd_models = sys.modules.get("modules.sd_models")
-    model = getattr(getattr(sd_models, "model_data", None), "sd_model", None)
-    info = getattr(model, "sd_checkpoint_info", None)
+    info = _loaded_info()
     return getattr(info, "title", None) or getattr(info, "name", None)
+
+
+def loaded_model_hash() -> str | None:
+    """SHA256 of the checkpoint in memory (None until it has been hashed)."""
+
+    sha256 = getattr(_loaded_info(), "sha256", None)
+    return sha256 if isinstance(sha256, str) and sha256 else None
 
 
 @router.get("/server/status", response_model=m.ServerStatus, summary="What the server allows (restart, extension access, settings changes) and the loaded model")
@@ -49,6 +60,7 @@ def server_status() -> dict[str, Any]:
         "extension_access": extensions_admin.access_allowed(),
         "settings_frozen": bool(getattr(shared.cmd_opts, "freeze_settings", False)),
         "model_loaded": loaded_model(),
+        "model_hash": loaded_model_hash(),
         "version": version(),
     }
 

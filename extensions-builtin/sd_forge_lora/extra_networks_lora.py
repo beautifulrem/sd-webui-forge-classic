@@ -43,7 +43,10 @@ class ExtraNetworkLora(extra_networks.ExtraNetwork):
             te_multipliers.append(te_multiplier)
             unet_multipliers.append(unet_multiplier)
 
-        networks.load_networks(names, te_multipliers, unet_multipliers)
+        failed = networks.load_networks(names, te_multipliers, unet_multipliers)
+        if failed:
+            # a job warning (and a note under the image), not just a console line
+            p.comment("LoRA not found or failed to load: " + ", ".join(dict.fromkeys(failed)))
 
         if shared.opts.lora_add_hashes_to_infotext:
             if not getattr(p, "is_hr_pass", False) or not hasattr(p, "lora_hashes"):

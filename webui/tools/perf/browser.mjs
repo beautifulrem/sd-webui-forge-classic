@@ -3,7 +3,7 @@
 //   node tools/perf/browser.mjs --base http://127.0.0.1:7861 --out /tmp/remi-perf-out \
 //     [--only load,inp,networks,gallery,preview,overhead] [--trace /tmp/remi-perf-trace.jsonl] \
 //     [--prompt prompt300.txt] [--steps 24] [--size 768x768] [--jobs 4] [--pairs 6] [--gap 20]
-//     [--headed] [--cpu-throttle 4]
+//     [--headed] [--cpu-throttle 4] [--window 15] [--batch-count 1] [--mute /tmp/remi-perf-mute] [--save-trace]
 //
 // Drives Chromium through Playwright and the DevTools protocol:
 // - load: JS fetched until the Generate view is idle (gzip size of each script from webui/dist),
@@ -141,8 +141,8 @@ async function newPage(browser) {
   return { context, page, cdp }
 }
 
-async function metrics(cdp) {
-  await cdp.send("HeapProfiler.collectGarbage").catch(() => {})
+async function metrics(cdp, { gc = true } = {}) {
+  if (gc) await cdp.send("HeapProfiler.collectGarbage").catch(() => {})
   const { metrics } = await cdp.send("Performance.getMetrics")
   return Object.fromEntries(metrics.map((m) => [m.name, m.value]))
 }
@@ -488,17 +488,26 @@ function itsFrom(trace, from, to) {
   return { steps: steps.length, its: round((steps.length - 1) / (steps.at(-1).t - steps[0].t), 4), stepMs: summary(deltas.map((d) => d * 1000)) }
 }
 
-async function uiJob(page, steps) {
+async function uiJob(page, steps, { batchCount = 1 } = {}) {
   const prompt = page.getByRole("textbox", { name: "Prompt", exact: true })
   await prompt.click()
   await page.keyboard.press("Meta+A")
   await page.keyboard.insertText(infotext(steps))
   await page.getByRole("button", { name: /^Read parameters from the prompt/ }).click()
   await page.waitForTimeout(300)
+  // more images (steps) in the one job the page owns: the form's request with another batch count
+  const batch = (route) => {
+    const request = route.request()
+    if (request.method() !== "POST") return route.continue()
+    const body = request.postDataJSON()
+    return route.continue({ postData: JSON.stringify({ ...body, core: { ...body.core, batch_count: batchCount } }) })
+  }
+  if (batchCount > 1) await page.route("**/api/v2/jobs", batch)
   const posted = page.waitForResponse((r) => r.url().endsWith("/api/v2/jobs") && r.request().method() === "POST")
   const start = Date.now()
   await page.getByRole("button", { name: /^Generate/ }).first().click()
   const response = await posted
+  if (batchCount > 1) await page.unroute("**/api/v2/jobs", batch)
   const body = response.request().postDataJSON()
   if (!response.ok()) throw new Error(`POST /api/v2/jobs: ${response.status()} ${await response.text()}`)
   const { job_id: jobId } = await response.json()
@@ -515,11 +524,42 @@ async function apiJob(body) {
   return { jobId, start, end: Date.now(), status: job.status }
 }
 
+/** Renderer main-thread metrics (CDP) and the CPU time of every Chromium process (ps), now. */
+async function pageCounters(cdp) {
+  return { metrics: await metrics(cdp, { gc: false }), cpu: treeCpu(process.pid, { includeRoot: false }), at: Date.now() }
+}
+
+/** What the page cost between two counters, per step (and per second while idle). */
+function pageCost(a, b, steps, idle = null) {
+  const per = (value) => value / Math.max(1, steps)
+  const seconds = (b.at - a.at) / 1000
+  const cost = {
+    steps,
+    seconds: round(seconds, 1),
+    taskMs: round(per((b.metrics.TaskDuration - a.metrics.TaskDuration) * 1000), 2),
+    scriptMs: round(per((b.metrics.ScriptDuration - a.metrics.ScriptDuration) * 1000), 2),
+    layoutMs: round(per((b.metrics.LayoutDuration - a.metrics.LayoutDuration) * 1000), 2),
+    recalcStyleMs: round(per((b.metrics.RecalcStyleDuration - a.metrics.RecalcStyleDuration) * 1000), 2),
+    layouts: round(per(b.metrics.LayoutCount - a.metrics.LayoutCount), 2),
+    chromiumCpuMs: round(per((b.cpu - a.cpu) * 1000), 1),
+  }
+  if (idle) {
+    // over what the same open page costs while nothing runs
+    const stepSeconds = seconds / Math.max(1, steps)
+    cost.overIdle = { taskMs: round(cost.taskMs - idle.taskMs * stepSeconds, 2), chromiumCpuMs: round(cost.chromiumCpuMs - idle.chromiumCpuMs * stepSeconds, 1) }
+  }
+  return cost
+}
+
 async function measurePreview(browser) {
   await waitIdle()
   const { context, page, cdp } = await newPage(browser)
   await openGenerate(page)
   const clock = await page.evaluate(() => window.__perf.clock())
+  // the open page's own cost while nothing runs (per second), the reference for the per-step cost
+  const idleFrom = await pageCounters(cdp)
+  await page.waitForTimeout(10_000)
+  const idle = pageCost(idleFrom, await pageCounters(cdp), 10)
   const jobs = []
   // compositor frames the page draws while the first job samples (from its second step to its last)
   const chunks = []
@@ -536,9 +576,33 @@ async function measurePreview(browser) {
   await traced
   const tracedSteps = stepsSince(tracedFrom).length
   jobs.push(await first)
-  const presented = chunks.filter((e) => e.name === "PipelineReporter" && e.ph === "b" && /PRESENTED/.test(e.args?.frame_reporter?.state ?? "")).length
+  if (args["save-trace"]) writeFileSync(path.join(OUT, "trace-preview.json"), JSON.stringify({ traceEvents: chunks }))
+  const reports = chunks.filter((e) => e.name === "PipelineReporter" && e.ph === "b")
+  const presentedReports = reports.filter((e) => /PRESENTED/.test(e.args?.frame_reporter?.state ?? ""))
+  const presented = presentedReports.length
+  // a frame can be reported twice (fully presented, and "partial": without that frame's main-thread update)
+  const sequences = new Set(presentedReports.map((e) => e.args?.frame_reporter?.frame_sequence ?? e.id))
+  const states = {}
+  for (const e of reports) {
+    const state = e.args?.frame_reporter?.state ?? "?"
+    states[state] = (states[state] ?? 0) + 1
+  }
   const firstJobSteps = Math.max(1, tracedSteps)
-  for (let i = 1; i < JOBS; i++) jobs.push(await uiJob(page, STEPS))
+  // the page's cost per step over a job that is not traced (tracing costs CPU itself)
+  let cost = null
+  for (let i = 1; i < JOBS; i++) {
+    const submittedAt = Date.now()
+    const next = uiJob(page, STEPS)
+    if (i === 1) {
+      while (stepsSince(submittedAt).length < 2) await page.waitForTimeout(100)
+      const from = await pageCounters(cdp)
+      const fromSteps = stepsSince(submittedAt).length
+      while (stepsSince(submittedAt).length < STEPS) await page.waitForTimeout(100)
+      const to = await pageCounters(cdp)
+      cost = pageCost(from, to, stepsSince(submittedAt).length - fromSteps, idle)
+    }
+    jobs.push(await next)
+  }
   const data = await page.evaluate(() => ({ frames: window.__perf.frames, paints: window.__perf.paints }))
   await context.close()
   const since = jobs[0].start - 1000
@@ -565,8 +629,12 @@ async function measurePreview(browser) {
   results.preview = {
     jobs: jobs.map(({ jobId, start, end, status }) => ({ jobId, ms: end - start, status })),
     steps: STEPS,
-    framesPerStep: round(presented / Math.max(1, firstJobSteps), 1),
-    framesPresentedFirstJob: presented,
+    framesPerStep: round(sequences.size / Math.max(1, firstJobSteps), 2),
+    frameReportsPerStep: round(presented / Math.max(1, firstJobSteps), 2),
+    frameStates: states,
+    pageIdlePerSecond: idle,
+    pageCostPerStep: cost,
+    framesPresentedFirstJob: sequences.size,
     clockOffsetMs: round(clock.date - clock.wall, 2),
     framesReceived: data.frames.length,
     framesPainted: data.paints.length,
@@ -582,7 +650,7 @@ async function measurePreview(browser) {
     its: jobs.map((j) => itsFrom(trace, j.start, j.end)),
   }
   writeFileSync(path.join(OUT, "preview-rows.json"), JSON.stringify(rows, null, 1))
-  log(`preview: ${rows.length} frames matched (${data.frames.length} received, ${data.paints.length} painted); total p50 ${results.preview.total.p50} p95 ${results.preview.total.p95} ms; image→publish p95 ${results.preview.imageToPublish.p95}, publish→receive p95 ${results.preview.publishToReceive.p95}, receive→paint p95 ${results.preview.receiveToPaint.p95}; clock offset ${results.preview.clockOffsetMs} ms; ${results.preview.framesPerStep} frames drawn per step`)
+  log(`preview: ${rows.length} frames matched (${data.frames.length} received, ${data.paints.length} painted); total p50 ${results.preview.total.p50} p95 ${results.preview.total.p95} ms; image→publish p95 ${results.preview.imageToPublish.p95}, publish→receive p95 ${results.preview.publishToReceive.p95}, receive→paint p95 ${results.preview.receiveToPaint.p95}; clock offset ${results.preview.clockOffsetMs} ms; ${results.preview.framesPerStep} frames drawn per step (${results.preview.frameReportsPerStep} reports); per step: renderer tasks ${cost?.taskMs} ms, ${cost?.layouts} layouts, Chromium CPU ${cost?.chromiumCpuMs} ms (over idle ${cost?.overIdle?.chromiumCpuMs} ms)`)
 }
 
 /** CPU seconds (user + system) of a process and its descendants, from `ps`. */
@@ -608,7 +676,24 @@ function treeCpu(rootPid, { includeRoot = true } = {}) {
 }
 
 // two-sided 95 % Student t quantiles by degrees of freedom
-const T95 = [12.71, 4.3, 3.18, 2.78, 2.57, 2.45, 2.36, 2.31, 2.26, 2.23, 2.2, 2.18, 2.16, 2.14, 2.13]
+const T95 = [12.71, 4.3, 3.18, 2.78, 2.57, 2.45, 2.36, 2.31, 2.26, 2.23, 2.2, 2.18, 2.16, 2.14, 2.13, 2.12, 2.11, 2.1, 2.09, 2.09, 2.08, 2.07, 2.07, 2.06, 2.06, 2.06, 2.05, 2.05, 2.05, 2.04]
+// one-sided 95 % Student t quantiles by degrees of freedom (the upper bound of the overhead)
+const T95_ONE_SIDED = [6.31, 2.92, 2.35, 2.13, 2.02, 1.94, 1.89, 1.86, 1.83, 1.81, 1.8, 1.78, 1.77, 1.76, 1.75, 1.75, 1.74, 1.73, 1.73, 1.72, 1.72, 1.72, 1.71, 1.71, 1.71, 1.71, 1.7, 1.7, 1.7, 1.7]
+
+/** Mean of per-pair differences with its two-sided 95 % interval and one-sided 95 % upper bound. */
+function pairStats(values) {
+  const n = values.length
+  if (!n) return { n, mean: null, ci95: null, upper95: null, median: null }
+  const m = mean(values)
+  const se = n > 1 ? Math.sqrt(values.reduce((total, v) => total + (v - m) ** 2, 0) / (n - 1)) / Math.sqrt(n) : null
+  return {
+    n,
+    mean: round(m, 2),
+    ci95: se == null ? null : round((T95[n - 2] ?? 1.96) * se, 2),
+    upper95: se == null ? null : round(m + (T95_ONE_SIDED[n - 2] ?? 1.645) * se, 2),
+    median: round(quantile(values, 0.5), 2),
+  }
+}
 
 async function measureOverhead(browser) {
   await waitIdle()
@@ -693,12 +778,13 @@ async function measureInterleaved(browser) {
   const mute = args.mute ?? "/tmp/remi-perf-mute"
   const windowMs = Number(args.window ?? 15) * 1000
   const steps = Number(args.steps ?? 160)
+  const batchCount = Number(args["batch-count"] ?? 1)
   rmSync(mute, { force: true })
   const { context, page } = await newPage(browser)
   await openGenerate(page)
   await page.waitForTimeout(5000)
   const cpu0 = treeCpu(process.pid, { includeRoot: false })
-  const job = uiJob(page, steps)
+  const job = uiJob(page, steps, { batchCount })
   const windows = []
   const order = ["on", "off", "off", "on"]
   let done = false
@@ -727,6 +813,8 @@ async function measureInterleaved(browser) {
   const trace = readTrace(windows[0].start - 1000).filter((e) => e.e === "step")
   for (const w of windows) w.steps = []
   for (let i = 1; i < trace.length; i++) {
+    // consecutive sampler steps only (not across the images of a batch: decoding and saving in between)
+    if (trace[i].step !== trace[i - 1].step + 1) continue
     const a = trace[i - 1].t * 1000
     const z = trace[i].t * 1000
     const w = windows.find((w) => a >= w.start && z <= w.end)
@@ -744,6 +832,15 @@ async function measureInterleaved(browser) {
   }
   const sd = Math.sqrt(pairs.reduce((n, v) => n + (v - mean(pairs)) ** 2, 0) / Math.max(1, pairs.length - 1))
   const ci = (T95[pairs.length - 2] ?? 2) * (sd / Math.sqrt(pairs.length))
+  // the same without each window's first step (the first one served after a mute, or muted after serving)
+  const trimmedPairs = []
+  for (let i = 0; i + 1 < windows.length; i += 2) {
+    const [x, y] = [windows[i], windows[i + 1]]
+    if (x.steps.length < 2 || y.steps.length < 2) continue
+    const on = (x.condition === "on" ? x : y).steps.slice(1)
+    const off = (x.condition === "on" ? y : x).steps.slice(1)
+    trimmedPairs.push((mean(on) / mean(off) - 1) * 100)
+  }
   const on = by("on")
   const off = by("off")
   results.interleaved = {
@@ -756,12 +853,16 @@ async function measureInterleaved(browser) {
     stepMsOn: summary(on),
     stepMsOff: summary(off),
     overheadPct: round((mean(on) / mean(off) - 1) * 100, 2),
+    batchCount,
     pairs: pairs.map((v) => round(v, 2)),
     pairMeanPct: round(mean(pairs), 2),
     pairCi95Pct: round(ci, 2),
+    pairStats: pairStats(pairs),
+    trimmedPairStats: pairStats(trimmedPairs),
+    medianOverheadPct: round((quantile(on, 0.5) / quantile(off, 0.5) - 1) * 100, 2),
     windows: windows.map((w) => ({ condition: w.condition, steps: w.steps.map((v) => Math.round(v)) })),
   }
-  log(`interleaved: on ${round(mean(on))} ms/step (n ${on.length}) vs off ${round(mean(off))} ms/step (n ${off.length}) -> ${results.interleaved.overheadPct} %; ${pairs.length} window pairs ${results.interleaved.pairMeanPct} ± ${results.interleaved.pairCi95Pct} % (95 % CI); ${painted} previews painted`)
+  log(`interleaved: on ${round(mean(on))} ms/step (n ${on.length}) vs off ${round(mean(off))} ms/step (n ${off.length}) -> ${results.interleaved.overheadPct} %; ${pairs.length} window pairs ${results.interleaved.pairMeanPct} ± ${results.interleaved.pairCi95Pct} % (95 % CI, one-sided upper bound ${results.interleaved.pairStats.upper95} %); first step of each window dropped: ${results.interleaved.trimmedPairStats.mean} ± ${results.interleaved.trimmedPairStats.ci95} %; medians ${results.interleaved.medianOverheadPct} %; ${painted} previews painted`)
 }
 
 // ---------------------------------------------------------------------------- main

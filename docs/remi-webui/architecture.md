@@ -46,7 +46,7 @@ Inputs (each has a `name` unique within its script; that name is the param id):
 | `RangeSlider(name, minimum, maximum, default=None, step=0.01, integer=None)` | `[low, high]` | Gradio's RangeSlider (the `range-slider` widget); integer like `Slider`; values are clamped and ordered; the default is the full range |
 | `Number(name, default, minimum=None, maximum=None, step=None, precision=None)` | float/int | |
 | `Text(name, default="", lines=1, max_lines=None, placeholder=None, prompt=False)` | str | `prompt=True` → CodeMirror prompt editor (weights, LoRA, tag completion) |
-| `Choice(name, choices, default, style="dropdown" or "radio", allow_custom=False)` | str/int | `choices` list (values or `(label, value)`) or a callable resolved per request; `type="index"` gives the script the index (the wire value stays the choice value); a `None` default is the first choice |
+| `Choice(name, choices, default, style="dropdown" or "radio", allow_custom=False)` | str/int | `choices` list (values or `(label, value)`) or a callable resolved per request; `type="index"` gives the script the index (the wire value stays the choice value); a `None` default is the first choice; `same=` (server side) is a key function under which a value that is no choice still names exactly one, e.g. `ui.without_model_hash` for checkpoint titles that gain `" [hash]"` once it is computed |
 | `MultiChoice(name, choices, default=())` | list | dropdown multiselect or `style="checkboxes"`; `type="index"` gives the script indices |
 | `Seed(name, default=-1)` | int | dice / recycle buttons; `-1` or `0 … 2^63-1` |
 | `Color(name, default="#000000")` | str | |
@@ -346,7 +346,8 @@ of a running job); `job.queued{job_id, seq, tab, position}`,
 eta, job_no (0-based), job_count, progress, text}`, `job.completed{job_id, seq,
 tab, status ("completed"|"interrupted"|"cancelled"), outputs, infotext,
 warnings?}` (`warnings`: notes on script hooks that raised during the run and
-were skipped — also kept on the job),
+were skipped, and the processing's `p.comment()` notes — e.g. a feature
+skipped on this device — also kept on the job),
 `job.failed{job_id, seq, tab, status, error, errors?}`, `queue.changed{size,
 paused, running}`, `options.changed{keys}`, `networks.changed{kind}`,
 `outputs.changed{ids}` (gallery stars / removals), `toast`,
@@ -361,7 +362,11 @@ dedicated encoder thread keeps only the newest frame: `shared.state`'s
 `live_preview_listeners` wake it when a preview is assigned, so a frame
 leaves within its encoding time, and `live_preview_fps` (default 6) only
 throttles (JPEG when `live_previews_image_format` is JPEG, else WebP; nothing
-is encoded while no client is connected). Each
+is encoded while no client is connected). The SPA draws a step once: a
+`job.progress` that arrives while previews come every step waits for the
+next frame (`webui/src/api/progress-gate.ts`), and both are applied in one
+animation frame once the image has decoded (`webui/src/api/paint-batch.ts`).
+Each
 client has a bounded event queue and one preview slot.
 
 ## Server (`remi/server`, `remi/jobs`)
@@ -564,13 +569,13 @@ Kept, each for a non-UI reason:
 | `modules/ui_extra_networks.py` | three-line import alias of `modules/extra_networks_pages.py`: A1111 extensions register their extra-network pages through `modules.ui_extra_networks.register_page`; the Networks page lists them (`remi.networks`) |
 | `modules/extra_networks_pages.py` | the data API of extra-network pages (`ExtraNetworksPage.list_items()`, `register_page`), without any HTML |
 | `modules_forge/main_entry.py` | model selection state and changes (`checkpoint_change`, `modules_change`, `dtype_change`, `refresh_model_loading_parameters`) used by processing, Hires. fix, the refiner, X/Y/Z and the server |
-| `modules/extras.py` `run_modelmerger` | the checkpoint merge itself (no WebUI page calls it yet); returns its status message |
+| `modules/extras.py` `run_modelmerger` | the checkpoint merge itself, run by the Checkpoint Merger page (`remi/core/merger.py`, registered by `scripts/checkpoint_merger.py`) as a page task with `progress=`; returns its status message |
 | `html/licenses.html` | read by `GET /api/v2/licenses` |
 | `modules/util.plaintext_to_html` | the A1111 `/sdapi/v1/extra-single-image` and `extra-batch-images` responses carry `html_info` (HTML) for API compatibility; Remi's own API and UI get plain infotext (`run_extras_named`) |
 | `html/ui.webp` | README screenshot |
 | `OptionInfo.js()`, `comment_before` / `comment_after` | A1111 extension API; `.js()` is ignored |
 | `util.open_folder`, `ScriptRunner.set_named_arg` | A1111 helpers extensions call; Gradio-free now (`set_named_arg` takes param names) |
-| `--use-textbox-seed`, `--add-stop-route`, `--ngrok-region`, `--theme`, `--ui-config-file` | accepted so existing launch commands keep working; they do nothing (`--theme`: the Appearance menu picks light / dark / system and the browser remembers it; `--ui-config-file`: form drafts live in the browser, defaults come from `params()` and the UI presets) |
+| `--use-textbox-seed`, `--add-stop-route`, `--ngrok-region`, `--ui-config-file` | accepted so existing launch commands keep working; they do nothing (`--ui-config-file`: form drafts live in the browser, defaults come from `params()` and the UI presets) |
 | `--share` | accepted so existing launch commands keep working, but there is no public tunnel: the server logs a warning at startup (use `--listen`, a reverse proxy or `--ngrok`). Like those, it marks the server as non-local (`cmd_opts.webui_is_non_local`), so the protections of an exposed server stay on (installing extensions needs `--enable-insecure-extension-access`; the browser is not opened automatically) |
 | `legacy_ui_<tab>.json` test fixtures | the argument contract recorded from each script's Gradio `ui()` before its port (the control class is the `legacy_control` key in some); the ports are tested against them. New ones are recorded with `tools/record_legacy_ui.py` (in the format of `tests/remi_port_harness.describe`), which builds the `ui()` in an export of the last Gradio-era revision |
 
@@ -578,6 +583,7 @@ Settings: every core option (`modules/shared_options.py`) and every UI
 preset option (`modules_forge/presets.py`) has a reader — processing, the
 server, a script or the SPA (`CLIENT_OPTION_DEFAULTS`, sent in the bootstrap
 `options`). The Gradio-only settings (theme, accordion, card layout, brush
-colour, gallery height, …) were removed; `tests/test_remi_option_consumers.py`
-fails when a setting has no reader (its `KEPT` list, empty today, would name
+colour, gallery height, …) were removed — frontend.md ("Gradio-era settings
+that were removed") lists each with the SPA control that replaces it;
+`tests/test_remi_option_consumers.py` fails when a setting has no reader (its `KEPT` list, empty today, would name
 any setting kept on purpose with its reason).

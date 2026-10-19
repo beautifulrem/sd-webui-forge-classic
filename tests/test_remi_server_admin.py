@@ -496,10 +496,21 @@ def test_install_reports_git_errors_as_502(env, monkeypatch):
 # region System
 
 
-def test_server_status(env):
+def test_server_status(env, monkeypatch):
     data = env.client.get("/api/v2/server/status").json()
     assert data["extension_access"] is True and data["settings_frozen"] is False and data["version"]
     assert data["model_loaded"] is None or isinstance(data["model_loaded"], str)
+    # the loaded checkpoint and its hash (the old footer's CivitAI link)
+    import types
+
+    from modules import sd_models
+
+    info = types.SimpleNamespace(title="anima.safetensors [abcdef1234]", sha256="abcdef1234" + "0" * 54)
+    monkeypatch.setattr(sd_models, "model_data", types.SimpleNamespace(sd_model=types.SimpleNamespace(sd_checkpoint_info=info)), raising=False)
+    data = env.client.get("/api/v2/server/status").json()
+    assert (data["model_loaded"], data["model_hash"]) == ("anima.safetensors [abcdef1234]", info.sha256)
+    info.sha256 = None  # not hashed yet
+    assert env.client.get("/api/v2/server/status").json()["model_hash"] is None
 
 
 def test_licenses_are_structured_from_the_html_file(env):

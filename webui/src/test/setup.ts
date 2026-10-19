@@ -26,6 +26,10 @@ if (!globalThis.ResizeObserver) {
   }
 }
 
+// jsdom has no 2D canvas (it logs "Not implemented" and returns null): return null quietly.
+// Tests that draw spy on getContext themselves.
+HTMLCanvasElement.prototype.getContext = (() => null) as unknown as HTMLCanvasElement["getContext"]
+
 if (!URL.createObjectURL) {
   let n = 0
   URL.createObjectURL = () => `blob:mock/${++n}`

@@ -164,3 +164,25 @@ export async function readImageParameters(file: Blob): Promise<string | null> {
   const exif = jpegExif(bytes) ?? webpExif(bytes)
   return exif ? readExifUserComment(exif) : null
 }
+
+const ascii = (bytes: Uint8Array, from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to))
+
+/**
+ * Whether the bytes start like an image the server reads (PNG, JPEG, GIF,
+ * WebP, BMP, TIFF, AVIF/HEIF): checked before an upload, so a wrong file is
+ * refused at once instead of by a 415 from the server.
+ */
+export function looksLikeImage(head: Uint8Array): boolean {
+  if (PNG_SIGNATURE.every((byte, index) => head[index] === byte)) return true
+  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return true // JPEG
+  const start = ascii(head, 0, 4)
+  if (start === "GIF8" || start.startsWith("BM")) return true
+  if (start === "RIFF" && ascii(head, 8, 12) === "WEBP") return true
+  if (start === "II*\0" || start === "MM\0*") return true // TIFF
+  return ascii(head, 4, 8) === "ftyp" && ["avif", "avis", "heic", "heix", "mif1"].includes(ascii(head, 8, 12)) // ISO media
+}
+
+/** {@link looksLikeImage} for a file (reads its first bytes only). */
+export async function isImageFile(file: Blob): Promise<boolean> {
+  return looksLikeImage(new Uint8Array(await file.slice(0, 16).arrayBuffer()))
+}

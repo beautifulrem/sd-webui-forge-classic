@@ -1,0 +1,154 @@
+{
+ "old-api": {
+  "runs": [
+   {
+    "ready_s": 6.56,
+    "reported_s": 6.5,
+    "rss_mb": 703,
+    "detail": "Startup time: 6.5s (launcher: 0.1s, forge init: 1.6s, misc. imports: 1.7s, load scripts: 0.9s, adetailer.py: 2.1s)."
+   },
+   {
+    "ready_s": 6.58,
+    "reported_s": 6.5,
+    "rss_mb": 705,
+    "detail": "Startup time: 6.5s (launcher: 0.1s, forge init: 1.6s, misc. imports: 1.7s, load scripts: 0.9s, adetailer.py: 2.1s)."
+   },
+   {
+    "ready_s": 6.57,
+    "reported_s": 6.5,
+    "rss_mb": 701,
+    "detail": "Startup time: 6.5s (launcher: 0.1s, forge init: 1.6s, misc. imports: 1.7s, load scripts: 1.0s, adetailer.py: 2.1s)."
+   },
+   {
+    "ready_s": 6.6,
+    "reported_s": 6.5,
+    "rss_mb": 701,
+    "detail": "Startup time: 6.5s (launcher: 0.1s, forge init: 1.6s, misc. imports: 1.7s, load scripts: 0.9s, adetailer.py: 2.1s)."
+   },
+   {
+    "ready_s": 6.73,
+    "reported_s": 6.6,
+    "rss_mb": 703,
+    "detail": "Startup time: 6.6s (launcher: 0.1s, forge init: 1.6s, misc. imports: 1.7s, load scripts: 0.9s, adetailer.py: 2.2s)."
+   }
+  ],
+  "ready_median_s": 6.58,
+  "ready_min_s": 6.56,
+  "reported_median_s": 6.5,
+  "rss_median_mb": 703
+ },
+ "new-api": {
+  "runs": [
+   {
+    "ready_s": 4.17,
+    "reported_s": 4.1,
+    "rss_mb": 641,
+    "detail": "Startup time: 4.1s (forge init: 1.0s, shared init: 0.2s, misc. imports: 1.3s, load scripts: 0.7s, create app: 0.3s, start server: 0.5s)."
+   },
+   {
+    "ready_s": 4.17,
+    "reported_s": 4.1,
+    "rss_mb": 647,
+    "detail": "Startup time: 4.1s (forge init: 0.9s, shared init: 0.2s, misc. imports: 1.3s, load scripts: 0.7s, create app: 0.3s, start server: 0.6s)."
+   },
+   {
+    "ready_s": 4.22,
+    "reported_s": 4.2,
+    "rss_mb": 648,
+    "detail": "Startup time: 4.2s (forge init: 1.0s, shared init: 0.2s, misc. imports: 1.3s, load scripts: 0.7s, create app: 0.4s, start server: 0.5s)."
+   },
+   {
+    "ready_s": 4.19,
+    "reported_s": 4.1,
+    "rss_mb": 642,
+    "detail": "Startup time: 4.1s (forge init: 1.0s, shared init: 0.2s, misc. imports: 1.3s, load scripts: 0.7s, create app: 0.3s, start server: 0.5s)."
+   },
+   {
+    "ready_s": 4.3,
+    "reported_s": 4.3,
+    "rss_mb": 650,
+    "detail": "Startup time: 4.3s (forge init: 1.0s, shared init: 0.2s, misc. imports: 1.3s, load scripts: 0.7s, create app: 0.4s, start server: 0.6s)."
+   }
+  ],
+  "ready_median_s": 4.19,
+  "ready_min_s": 4.17,
+  "reported_median_s": 4.1,
+  "rss_median_mb": 647
+ },
+ "old-ui": {
+  "runs": [
+   {
+    "ready_s": 11.59,
+    "reported_s": null,
+    "rss_mb": 1160,
+    "detail": "del-keyword extension, Lora trigger word completion will be limited to those added through the extra networks menu.\nControlNet preprocessor location: /Volumes/Remi/Anima/sd-webui-forge-classic/models/ControlNetPreprocessor\n[anima-resolution] prompt-history logger wired on txt2img_generate (log-only; use Refresh to update dropdown)\n[anima-resolution] picker embedded in txt2img dimensions section\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_img2img (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_inpaint (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[ControlNet] - \u001b[0;32mINFO\u001b[0m - ControlNet UI callback registered.\n[joycaption] registered 'Send to JoyCaption' button on PNG-info tab\n[prompt-workshop] UI tab built\nModel Selected:                                        main_entry.py :: INFO    \n{\n  \"checkpoint\": \"anima-turbo-v1.1.safetensors\",\n  \"modules\": [\n    \"qwen_image_vae.safetensors\",\n    \"qwen_3_06b_base.safetensors\"\n  ],\n  \"dtype\": \"[torch.float16, torch.bfloat16]\"\n}\nPatch LoRAs on-the-fly: False                          main_entry.py :: INFO    \nRunning on local URL:  http://127.0.0.1:7871\n\nTo create a public link, set `share=True` in `launch()`.\nInterrupted with signal 2 in <frame at 0x17875b100, file '~/miniconda3/lib/python3.13/threading.py', line 363, code wait>"
+   },
+   {
+    "ready_s": 12.13,
+    "reported_s": null,
+    "rss_mb": 1155,
+    "detail": "el-keyword extension, Lora trigger word completion will be limited to those added through the extra networks menu.\nControlNet preprocessor location: /Volumes/Remi/Anima/sd-webui-forge-classic/models/ControlNetPreprocessor\n[anima-resolution] prompt-history logger wired on txt2img_generate (log-only; use Refresh to update dropdown)\n[anima-resolution] picker embedded in txt2img dimensions section\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_img2img (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_inpaint (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[ControlNet] - \u001b[0;32mINFO\u001b[0m - ControlNet UI callback registered.\n[joycaption] registered 'Send to JoyCaption' button on PNG-info tab\n[prompt-workshop] UI tab built\nModel Selected:                                        main_entry.py :: INFO    \n{\n  \"checkpoint\": \"anima-turbo-v1.1.safetensors\",\n  \"modules\": [\n    \"qwen_image_vae.safetensors\",\n    \"qwen_3_06b_base.safetensors\"\n  ],\n  \"dtype\": \"[torch.float16, torch.bfloat16]\"\n}\nPatch LoRAs on-the-fly: False                          main_entry.py :: INFO    \nRunning on local URL:  http://127.0.0.1:7871\n\nTo create a public link, set `share=True` in `launch()`.\nInterrupted with signal 2 in <frame at 0x702a4673d0, file '~/miniconda3/lib/python3.13/threading.py', line 363, code wait>"
+   },
+   {
+    "ready_s": 12.02,
+    "reported_s": null,
+    "rss_mb": 1172,
+    "detail": "el-keyword extension, Lora trigger word completion will be limited to those added through the extra networks menu.\nControlNet preprocessor location: /Volumes/Remi/Anima/sd-webui-forge-classic/models/ControlNetPreprocessor\n[anima-resolution] prompt-history logger wired on txt2img_generate (log-only; use Refresh to update dropdown)\n[anima-resolution] picker embedded in txt2img dimensions section\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_img2img (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_inpaint (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[ControlNet] - \u001b[0;32mINFO\u001b[0m - ControlNet UI callback registered.\n[joycaption] registered 'Send to JoyCaption' button on PNG-info tab\n[prompt-workshop] UI tab built\nModel Selected:                                        main_entry.py :: INFO    \n{\n  \"checkpoint\": \"anima-turbo-v1.1.safetensors\",\n  \"modules\": [\n    \"qwen_image_vae.safetensors\",\n    \"qwen_3_06b_base.safetensors\"\n  ],\n  \"dtype\": \"[torch.float16, torch.bfloat16]\"\n}\nPatch LoRAs on-the-fly: False                          main_entry.py :: INFO    \nRunning on local URL:  http://127.0.0.1:7871\n\nTo create a public link, set `share=True` in `launch()`.\nInterrupted with signal 2 in <frame at 0x7000f04040, file '~/miniconda3/lib/python3.13/threading.py', line 363, code wait>"
+   },
+   {
+    "ready_s": 13.97,
+    "reported_s": null,
+    "rss_mb": 1180,
+    "detail": "del-keyword extension, Lora trigger word completion will be limited to those added through the extra networks menu.\nControlNet preprocessor location: /Volumes/Remi/Anima/sd-webui-forge-classic/models/ControlNetPreprocessor\n[anima-resolution] prompt-history logger wired on txt2img_generate (log-only; use Refresh to update dropdown)\n[anima-resolution] picker embedded in txt2img dimensions section\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_img2img (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_inpaint (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[ControlNet] - \u001b[0;32mINFO\u001b[0m - ControlNet UI callback registered.\n[joycaption] registered 'Send to JoyCaption' button on PNG-info tab\n[prompt-workshop] UI tab built\nModel Selected:                                        main_entry.py :: INFO    \n{\n  \"checkpoint\": \"anima-turbo-v1.1.safetensors\",\n  \"modules\": [\n    \"qwen_image_vae.safetensors\",\n    \"qwen_3_06b_base.safetensors\"\n  ],\n  \"dtype\": \"[torch.float16, torch.bfloat16]\"\n}\nPatch LoRAs on-the-fly: False                          main_entry.py :: INFO    \nRunning on local URL:  http://127.0.0.1:7871\n\nTo create a public link, set `share=True` in `launch()`.\nInterrupted with signal 2 in <frame at 0x175cf5120, file '~/miniconda3/lib/python3.13/threading.py', line 363, code wait>"
+   },
+   {
+    "ready_s": 11.86,
+    "reported_s": null,
+    "rss_mb": 1160,
+    "detail": "n, Lora trigger word completion will be limited to those added through the extra networks menu.\nControlNet preprocessor location: /Volumes/Remi/Anima/sd-webui-forge-classic/models/ControlNetPreprocessor\n[anima-resolution] prompt-history logger wired on txt2img_generate (log-only; use Refresh to update dropdown)\n[anima-resolution] picker embedded in txt2img dimensions section\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_img2img (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_inpaint (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[ControlNet] - \u001b[0;32mINFO\u001b[0m - ControlNet UI callback registered.\n[joycaption] registered 'Send to JoyCaption' button on PNG-info tab\n[prompt-workshop] UI tab built\nModel Selected:                                        main_entry.py :: INFO    \n{\n  \"checkpoint\": \"anima-turbo-v1.1.safetensors\",\n  \"modules\": [\n    \"qwen_image_vae.safetensors\",\n    \"qwen_3_06b_base.safetensors\"\n  ],\n  \"dtype\": \"[torch.float16, torch.bfloat16]\"\n}\nPatch LoRAs on-the-fly: False                          main_entry.py :: INFO    \nRunning on local URL:  http://127.0.0.1:7871\n\nTo create a public link, set `share=True` in `launch()`.\nInterrupted with signal 2 in <frame at 0x174104040, file '~/miniconda3/lib/python3.13/threading.py', line 363, code wait>\nException in thread"
+   }
+  ],
+  "ready_median_s": 12.02,
+  "ready_min_s": 11.59,
+  "reported_median_s": null,
+  "rss_median_mb": 1160
+ },
+ "new-ui": {
+  "runs": [
+   {
+    "ready_s": 4.32,
+    "reported_s": 4.3,
+    "rss_mb": 644,
+    "detail": "Startup time: 4.3s (forge init: 1.1s, shared init: 0.2s, misc. imports: 1.4s, load scripts: 0.7s, create app: 0.3s, start server: 0.5s)."
+   },
+   {
+    "ready_s": 4.23,
+    "reported_s": 4.2,
+    "rss_mb": 645,
+    "detail": "Startup time: 4.2s (forge init: 1.0s, shared init: 0.2s, misc. imports: 1.3s, load scripts: 0.7s, create app: 0.3s, start server: 0.5s)."
+   },
+   {
+    "ready_s": 4.37,
+    "reported_s": 4.3,
+    "rss_mb": 642,
+    "detail": "Startup time: 4.3s (forge init: 1.1s, shared init: 0.2s, misc. imports: 1.4s, load scripts: 0.8s, create app: 0.3s, app_started_callback: 0.1s, start server: 0.4s)."
+   },
+   {
+    "ready_s": 4.58,
+    "reported_s": 4.6,
+    "rss_mb": 640,
+    "detail": "Startup time: 4.6s (forge init: 1.1s, shared init: 0.2s, misc. imports: 1.4s, load scripts: 0.8s, create app: 0.4s, start server: 0.7s)."
+   },
+   {
+    "ready_s": 4.77,
+    "reported_s": 4.7,
+    "rss_mb": 643,
+    "detail": "Startup time: 4.7s (forge init: 1.1s, shared init: 0.2s, misc. imports: 1.5s, load scripts: 0.8s, create app: 0.4s, start server: 0.6s)."
+   }
+  ],
+  "ready_median_s": 4.37,
+  "ready_min_s": 4.23,
+  "reported_median_s": 4.3,
+  "rss_median_mb": 643
+ }
+}

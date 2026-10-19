@@ -11,9 +11,13 @@
     <script>
       // Apply persisted appearance before first paint (see src/lib/theme.ts).
       try {
+        // Theme: ?__theme=… in the URL, else the user's pick, else the server's --theme, else dark.
         var s = JSON.parse(localStorage.getItem("remi-appearance") || "{}").state || {}
         var d = document.documentElement
-        var dark = s.theme === "light" ? false : s.theme === "system" ? matchMedia("(prefers-color-scheme: dark)").matches : true
+        var themes = { light: 1, dark: 1, system: 1 }
+        var q = new URLSearchParams(location.search).get("__theme")
+        var t = themes[q] ? q : themes[s.theme] && s.themeChosen !== false ? s.theme : themes[window.__REMI_THEME__] ? window.__REMI_THEME__ : "dark"
+        var dark = t === "light" ? false : t === "system" ? matchMedia("(prefers-color-scheme: dark)").matches : true
         d.classList.toggle("dark", dark)
         if (s.density) d.dataset.density = s.density
         if (s.accent) d.dataset.accent = s.accent

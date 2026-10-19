@@ -17,9 +17,15 @@ Use this setting to load different LoRAs between the normal pass and the refiner
 LORA_REPLACEMENTS_PLACEHOLDER = "\n".join(["high_noise=low_noise", "high-noise=low-noise", "-lora_to_remove", "lora_to_add+1.0"])
 
 
+def checkpoint_tile(info) -> str:
+    """The Checkpoint choice for ``info``, in the same form ``checkpoint_choices()`` lists it."""
+    return info.short_title if shared.opts.sd_checkpoint_dropdown_use_short else info.name
+
+
 def lookup_checkpoint(title):
+    """Paste: map the infotext's ``Refiner: <short title>`` onto a Checkpoint choice."""
     info = sd_models.get_closet_checkpoint_match(title)
-    return None if info is None else info.short_title
+    return None if info is None else checkpoint_tile(info)
 
 
 def checkpoint_choices() -> list[str]:
@@ -45,7 +51,7 @@ class ScriptRefiner(scripts.ScriptBuiltinUI):
             "Refiner",
             enable=ui.Toggle("enable", False, label="Refiner", paste=lambda d: "Refiner" in d, preset="native.refiner"),
             children=[
-                ui.Choice("checkpoint", checkpoint_choices, "None", label="Checkpoint", info=architecture, paste=lambda d: lookup_checkpoint(d.get("Refiner"))),
+                ui.Choice("checkpoint", checkpoint_choices, "None", same=ui.without_model_hash, label="Checkpoint", info=architecture, paste=lambda d: lookup_checkpoint(d.get("Refiner"))),
                 ui.Row(
                     ui.Slider("switch_at", 0.0, 1.0, 0.875, 0.025, label="Switch at", info=switch_info, infotext="Refiner switch at"),
                     ui.Slider("cfg", 0.0, 24.0, 0.0, 0.5, label="Refiner CFG Scale", info="use original if < 1.0", infotext="Refiner CFG scale"),

@@ -28,6 +28,7 @@ export function Custom({ node }: { node: WidgetNode }) {
       id={id}
       label={label}
       info={param.info}
+      hint={param.hint}
       error={param.error}
       modified={param.modified}
       defaultValue={param.defaultValue}

@@ -88,7 +88,7 @@ export function StyleEditorDialog({ open, onOpenChange, currentPrompts, initial 
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
             <div className="flex flex-col gap-1.5">
               <label id={`${id}-name`} className="text-[0.8rem] font-medium">
-                {t("Style")}
+                {t("Style", { context: "prompt" })}
               </label>
               <SearchSelect
                 aria-labelledby={`${id}-name`}

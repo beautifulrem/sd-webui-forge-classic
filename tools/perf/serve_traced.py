@@ -16,6 +16,14 @@ browser's ``Date.now()`` also reads on the same host):
 
 While the file ``$REMI_PERF_MUTE`` (default ``/tmp/remi-perf-mute``) exists, the WebSocket hub
 acts as if no client were connected (no preview encoded, nothing sent).
+
+``REMI_PERF_FAKE_SAMPLER=<blocks>`` replaces ``processing.process_images`` with a synthetic
+sampler that loads no model: every step runs ``<blocks>`` DiT-like transformer blocks (1,024
+tokens, width 2,048, fp16) on the GPU (MPS / CUDA, else CPU), then makes a live preview from the
+"latent" as the real callback does (``.cpu()``, RGB, ``assign_current_image``). 28 blocks take
+about 3 s per step on an M4 (Anima Turbo at 512×512: 3.1 s). It measures the UI's overhead on a
+GPU-bound sampling loop without the model (``browser.mjs --only interleaved``); ``REMI_PERF_DIST``
+serves another SPA build (to compare two frontends against the same server).
 """
 
 from __future__ import annotations
@@ -122,7 +130,105 @@ def _patch_ws(module) -> None:
     hub._fan_frame = lambda self, frame: None if muted() else fan_frame(self, frame)
 
 
-PATCHES = {"modules.shared_state": _patch_shared_state, "modules.sd_samplers_common": _patch_samplers, "remi.realtime": _patch_realtime, "remi.server.ws": _patch_ws}
+class _FakeSampler:
+    """The synthetic sampling loop of ``REMI_PERF_FAKE_SAMPLER`` (weights shared by the blocks)."""
+
+    TOKENS, WIDTH, MLP, HEADS = 1024, 2048, 8192, 16
+
+    def __init__(self, blocks: int) -> None:
+        import torch
+
+        self.torch, self.blocks = torch, blocks
+        self.device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
+        dtype = torch.float16 if self.device.type != "cpu" else torch.float32
+        generator = torch.Generator(device="cpu").manual_seed(0)
+        shapes = {"q": (self.WIDTH, self.WIDTH), "k": (self.WIDTH, self.WIDTH), "v": (self.WIDTH, self.WIDTH), "o": (self.WIDTH, self.WIDTH), "up": (self.WIDTH, self.MLP), "down": (self.MLP, self.WIDTH)}
+        self.weights = {key: (torch.randn(*shape, generator=generator) * 0.02).to(self.device, dtype) for key, shape in shapes.items()}
+        self.dtype = dtype
+
+    def block(self, x):
+        functional, w = self.torch.nn.functional, self.weights
+        tokens, width, heads = self.TOKENS, self.WIDTH, self.HEADS
+        h = functional.layer_norm(x, (width,))
+        q, k, v = (h @ w[key] for key in ("q", "k", "v"))
+        attention = functional.scaled_dot_product_attention(*(t.view(1, tokens, heads, width // heads).transpose(1, 2) for t in (q, k, v)))
+        x = x + attention.transpose(1, 2).reshape(1, tokens, width) @ w["o"]
+        h = functional.layer_norm(x, (width,))
+        return x + functional.gelu(h @ w["up"]) @ w["down"]
+
+    def __call__(self, p):
+        import numpy as np
+        from PIL import Image
+
+        from modules import sd_models, shared
+
+        torch, state = self.torch, shared.state
+        # as after a real load: the selected checkpoint counts as loaded (no "model.loading" for the
+        # whole job, which would keep the model bar's spinner turning)
+        data = getattr(sd_models, "model_data", None)
+        if getattr(data, "forge_loading_parameters", None):
+            data.forge_hash = str(data.forge_loading_parameters)
+        steps = max(1, int(getattr(p, "steps", 20) or 20))
+        width, height = int(getattr(p, "width", 512) or 512), int(getattr(p, "height", 512) or 512)
+        images = max(1, int(getattr(p, "n_iter", 1) or 1))  # batch count: images one after another
+        state.job_count, state.job_no, state.sampling_steps = images, 0, steps
+        side = max(8, min(width, height) // 8)  # a latent-sized preview, as the RGB approximation makes
+        with torch.inference_mode():
+            for job_no in range(images):
+                if state.interrupted:
+                    break
+                state.job_no, state.sampling_step, state.skipped = job_no, 0, False
+                x = torch.randn(1, self.TOKENS, self.WIDTH, device=self.device, dtype=self.dtype) * 0.1
+                for step in range(steps):
+                    if state.interrupted or state.skipped:
+                        break
+                    for _ in range(self.blocks):
+                        x = self.block(x) * 0.5
+                    # the k-diffusion callback: step counter, then the live preview (Sampler.callback_state)
+                    emit(e="step", t=time.time(), step=step)
+                    state.sampling_step = step
+                    if shared.opts.live_previews_enable and shared.opts.show_progress_every_n_steps > 0:
+                        grid = int(self.TOKENS**0.5)
+                        pixels = x[0, : grid * grid, :3].float().reshape(grid, grid, 3)
+                        pixels = ((pixels - pixels.amin()) / (pixels.amax() - pixels.amin() + 1e-6) * 255).to(torch.uint8).cpu().numpy()
+                        state.assign_current_image(Image.fromarray(np.ascontiguousarray(pixels)).resize((side, side)))
+                        state.current_image_sampling_step = step
+        info = f"{getattr(p, 'prompt', '')}\nSteps: {steps}, Sampler: synthetic ({self.blocks} blocks), Seed: {getattr(p, 'seed', -1)}, Size: {width}x{height}"
+        image = Image.new("RGB", (width, height), (96, 96, 128))
+        from types import SimpleNamespace
+
+        return SimpleNamespace(images=[image], infotexts=[info], info=info, index_of_first_image=0, extra_images=[], js=lambda: "{}")
+
+
+def _patch_processing(module) -> None:
+    blocks = os.environ.get("REMI_PERF_FAKE_SAMPLER")
+    if not blocks:
+        return
+    sampler = None
+
+    def process_images(p):
+        nonlocal sampler
+        if sampler is None:
+            sampler = _FakeSampler(int(blocks))
+        return sampler(p)
+
+    module.process_images = process_images
+
+
+def _patch_spa(module) -> None:
+    dist = os.environ.get("REMI_PERF_DIST")
+    if dist:
+        module.DIST = Path(dist).resolve()
+
+
+PATCHES = {
+    "modules.shared_state": _patch_shared_state,
+    "modules.sd_samplers_common": _patch_samplers,
+    "modules.processing": _patch_processing,
+    "remi.realtime": _patch_realtime,
+    "remi.server.ws": _patch_ws,
+    "remi.server.spa": _patch_spa,
+}
 
 
 class _PostImport(importlib.abc.MetaPathFinder):

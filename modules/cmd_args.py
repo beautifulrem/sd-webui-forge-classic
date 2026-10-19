@@ -44,7 +44,7 @@ parser.add_argument("--auth-file", type=normalized_filepath, help="file with log
 parser = _parser.add_argument_group(description="misc")
 parser.add_argument("--styles-file", type=str, action="append", help="path or wildcard path of styles files, allow multiple entries.", default=[])
 parser.add_argument("--autolaunch", action="store_true", help="open the webui URL in the system's default browser upon launch", default=False)
-parser.add_argument("--theme", type=str, help="does not do anything (choose light, dark or system in the Appearance menu; the browser remembers it)", default=None)
+parser.add_argument("--theme", type=str, help="the WebUI theme (light, dark or system) of browsers that have not picked one in the Appearance menu; ?__theme=light|dark|system in the URL picks one", default=None)
 parser.add_argument("--use-textbox-seed", action="store_true", help="does not do anything (seed inputs take any 64-bit seed)", default=False)
 parser.add_argument("--disable-console-progressbars", action="store_true", help="do not output progressbars to console", default=False)
 parser.add_argument("--api", action="store_true", help="use api=True to launch the API together with the webui (use --nowebui instead for only the API)")

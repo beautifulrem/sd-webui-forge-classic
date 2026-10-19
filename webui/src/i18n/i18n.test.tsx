@@ -35,4 +35,16 @@ describe("locale switching", () => {
     await act(() => activateLocale("en"))
     expect(screen.getByText("Load more / Sampling method / Untranslated label")).toBeInTheDocument()
   })
+
+  it("keeps one English word with two meanings apart (context keys)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { headers: { "Content-Type": "application/json" } }))
+    expect(i18n.t("System", { context: "theme" })).toBe("System")
+    await activateLocale("zh_CN")
+    i18n.addResourceBundle("zh-CN", "server", { System: "系统", Start: "起始" }, true, true)
+    expect(i18n.t("System", { context: "theme" })).toBe("跟随系统") // the theme option
+    expect(i18n.t("System")).toBe("系统") // the settings category
+    expect(i18n.t("Start", { context: "runs" })).toBe("开始")
+    expect(i18n.t("Start")).toBe("起始") // a slider's start, from the server catalog
+  })
 })
+

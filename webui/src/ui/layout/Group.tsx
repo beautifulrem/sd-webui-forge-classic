@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { useForm, useFormState, useOwner } from "../hooks"
 import { groupKey } from "../form-index"
+import { ContainerTitleContext } from "../fallback-name"
 import { RenderChildren } from "../Renderer"
 import type { GroupNode } from "../schema"
 
@@ -36,7 +37,9 @@ export function Group({ node }: { node: GroupNode }) {
       </Collapsible.Trigger>
       <Collapsible.Panel className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-out-soft data-ending-style:h-0 data-starting-style:h-0">
         <div className="flex flex-col gap-3 pt-2">
-          <RenderChildren nodes={node.children} />
+          <ContainerTitleContext value={t(node.title)}>
+            <RenderChildren nodes={node.children} />
+          </ContainerTitleContext>
         </div>
       </Collapsible.Panel>
     </Collapsible.Root>

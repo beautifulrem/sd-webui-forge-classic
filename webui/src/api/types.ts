@@ -131,6 +131,7 @@ export type ParamPatch = {
   enabled?: boolean
   label?: string | null
   info?: string | null
+  hint?: string | null
   minimum?: number
   maximum?: number
   step?: number

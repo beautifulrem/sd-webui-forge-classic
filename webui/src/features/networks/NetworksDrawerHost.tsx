@@ -83,7 +83,8 @@ export function NetworksDrawerHost({ tab }: { tab: GenerateTab }) {
         >
           <Layers aria-hidden />
           <span className="hidden lg:inline">{t("Networks")}</span>
-          <Kbd className="hidden xl:inline-flex">{formatShortcut(NETWORKS_SHORTCUT)}</Kbd>
+          {/* the hint needs room: at 1280 px the header also holds the full model bar */}
+          <Kbd className="hidden 2xl:inline-flex">{formatShortcut(NETWORKS_SHORTCUT)}</Kbd>
         </Button>
       </HeaderSlot>
       {open ? (

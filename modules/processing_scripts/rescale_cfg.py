@@ -5,6 +5,7 @@ import torch
 from modules import scripts
 from modules.shared import opts
 from remi import ui
+from remi.core import hints
 
 
 class ScriptRescaleCFG(scripts.ScriptBuiltinUI):
@@ -17,7 +18,7 @@ class ScriptRescaleCFG(scripts.ScriptBuiltinUI):
         return scripts.AlwaysVisible if opts.show_rescale_cfg else None
 
     def params(self, is_img2img):
-        return ui.Slider("cfg", 0.0, 1.0, 0.0, 0.05, label="Rescale CFG", infotext="Rescale CFG")
+        return ui.Slider("cfg", 0.0, 1.0, 0.0, 0.05, label="Rescale CFG", hint=hints.RESCALE_CFG, infotext="Rescale CFG")
 
     def after_extra_networks_activate(self, p, cfg, *args, **kwargs):
         if cfg > 0.0:

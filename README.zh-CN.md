@@ -205,7 +205,7 @@ export COMMANDLINE_ARGS="--uv"
 | `--sage` / `--flash` | 安装可选 attention 依赖；安装成功不代表一定会被选用 |
 | `--disable-extra-extensions`、`--disable-all-extensions` | 不加载用户扩展，或不加载任何扩展 |
 
-**已变更的参数。** 仅用于 Gradio 的参数已移除：请把 `--gradio-auth` / `--gradio-auth-path` 改为 `--auth` / `--auth-file`，并删除 `--gradio-debug`、`--gradio-allowed-path` 和 `--no-gradio-queue`。遇到未知参数时 WebUI 会拒绝启动，因此旧的登录参数不会被悄悄忽略。`--share` 仍被接受，但只会输出警告（请改用 `--listen`、反向代理或 `--ngrok`）；`--theme` 和 `--use-textbox-seed` 不再起作用（主题在外观菜单中选择）；`--agent-scheduler-sqlite-file` 告诉队列导入器旧 Agent Scheduler 数据库的位置。不要盲目安装所有 attention 后端；原生 PyTorch attention 往往兼容性最好，详见上游[额外安装说明](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Extra-Installations)。
+**已变更的参数。** 仅用于 Gradio 的参数已移除：请把 `--gradio-auth` / `--gradio-auth-path` 改为 `--auth` / `--auth-file`，并删除 `--gradio-debug`、`--gradio-allowed-path` 和 `--no-gradio-queue`。遇到未知参数时 WebUI 会拒绝启动，因此旧的登录参数不会被悄悄忽略。`--share` 仍被接受，但只会输出警告（请改用 `--listen`、反向代理或 `--ngrok`）；`--use-textbox-seed` 不再起作用；`--theme light|dark|system` 是尚未在外观菜单中选择主题的浏览器所用的主题（与以前一样，URL 中的 `?__theme=light` 会选定主题）；`--agent-scheduler-sqlite-file` 告诉队列导入器旧 Agent Scheduler 数据库的位置。不要盲目安装所有 attention 后端；原生 PyTorch attention 往往兼容性最好，详见上游[额外安装说明](https://github.com/Haoming02/sd-webui-forge-classic/wiki/Extra-Installations)。
 
 ## 数据存储位置
 
@@ -263,7 +263,7 @@ Remi 的界面是全新的；生成引擎、模型、设置文件、样式、输
 | 设置标签页及其“默认值”和“操作” | **设置**页面；服务器操作位于“服务器与模型”。不再读取 `ui-config.json`：表单从默认值、界面预设和浏览器保存的值开始 |
 | 扩展标签页 | **扩展**页面 |
 | JoyCaption 和 Prompt Workshop 标签页 | 同名页面 |
-| 模型合并（Checkpoint Merger）标签页 | Remi 界面中不提供 |
+| 模型合并（Checkpoint Merger）标签页 | **模型融合** 页面（控件相同；合并与保存在生成之后排队执行，显示进度并可取消） |
 | `/file=` 链接 | 文件通过 id 提供（`/api/v2/files/{id}`） |
 | `/agent-scheduler/v1/*`、`/prompt-queue/*` API | `POST /api/v2/jobs` 和 `/api/v2/queue/*`（[API 指南](docs/remi-webui/api.md)）；旧路由返回 `410 Gone` |
 | `/tacapi/v1/*`、`/physton_prompt/*` API | `/api/v2/prompt-tools`（旧路由返回 `410 Gone`） |

@@ -39,7 +39,7 @@ export function ShortcutsPopover({ open, onOpenChange }: { open: boolean; onOpen
           <Keyboard />
         </PopoverTrigger>
       </Hint>
-      <PopoverContent side="top" align="end" className="max-h-[min(32rem,70vh)] w-[min(34rem,calc(100vw-2rem))] overflow-y-auto">
+      <PopoverContent aria-label={t("Keyboard shortcuts")} side="top" align="end" className="max-h-[min(32rem,70vh)] w-[min(34rem,calc(100vw-2rem))] overflow-y-auto">
         <h3 className="text-sm font-medium">{t("Keyboard shortcuts")}</h3>
         <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
           {GROUPS.map((group) => (

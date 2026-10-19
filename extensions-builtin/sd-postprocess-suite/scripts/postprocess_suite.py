@@ -15,6 +15,7 @@ section per stage, inside one collapsed section per category (the SPA only
 mounts what is open), with every stage's params named ``<stage>_<param>``.
 """
 
+import json
 import os
 import shutil
 import sys
@@ -129,34 +130,93 @@ def pipeline_names() -> list[str]:
     return names
 
 
-def _input(name: str, spec: dict):
+def _input(name: str, spec: dict, paste=None):
     kw = spec.get("kw", {})
     label = kw.get("label")
     kind = spec["type"]
     if kind == "slider":
-        return ui.Slider(name, kw["minimum"], kw["maximum"], spec["default"], kw["step"], label=label)
+        return ui.Slider(name, kw["minimum"], kw["maximum"], spec["default"], kw["step"], label=label, paste=paste)
     if kind == "number":
-        return ui.Number(name, spec["default"], step=kw.get("step"), precision=kw.get("precision"), label=label)
+        return ui.Number(name, spec["default"], step=kw.get("step"), precision=kw.get("precision"), label=label, paste=paste)
     if kind == "checkbox":
-        return ui.Toggle(name, spec["default"], label=label)
+        return ui.Toggle(name, spec["default"], label=label, paste=paste)
     if kind == "color":
-        return ui.Color(name, spec["default"], label=label)
+        return ui.Color(name, spec["default"], label=label, paste=paste)
     if kind == "dropdown":
-        return ui.Choice(name, kw["choices"], spec["default"], label=label)
+        return ui.Choice(name, kw["choices"], spec["default"], label=label, paste=paste)
     if kind == "file":
+        # The LUT is an upload: the infotext only records where it was, which
+        # is not pasted (a path from an image's metadata is not an upload)
         return ui.File(name, accept=",".join(kw.get("file_types", ())) or None, label=label)
     raise ValueError(f"unknown component type {kind}")
+
+
+# ---------------------------------------------------------------------------
+# Infotext paste: ``PP Suite`` (and ``PP Suite (input)``, img2img) record the
+# active stages as JSON (``P.summarize``); pasting restores them, so a pasted
+# image regenerates with the same effects.
+# ---------------------------------------------------------------------------
+INPUT_INFOTEXT_KEY = INFOTEXT_KEY + " (input)"
+
+
+def pasted_summary(params) -> dict | None:
+    """The stages recorded in the infotext ``params``: ``{stage key: {"order", <param id>...}}``;
+    None without (a readable) record."""
+
+    raw = params.get(INFOTEXT_KEY, params.get(INPUT_INFOTEXT_KEY))
+    value = raw
+    for _ in range(2):  # the value may still be JSON-quoted once
+        if not isinstance(value, str):
+            break
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return None
+    return value if isinstance(value, dict) else None
+
+
+def _paste_enable(params):
+    # Like Refiner / Hires. fix: an image without the record ran without the suite
+    return pasted_summary(params) is not None
+
+
+def _paste_stage_enabled(stage: dict):
+    def paste(params):
+        summary = pasted_summary(params)
+        return None if summary is None else stage["key"] in summary
+
+    return paste
+
+
+def _paste_stage_value(stage: dict, field: str):
+    def paste(params):
+        recorded = (pasted_summary(params) or {}).get(stage["key"])
+        return recorded.get(field) if isinstance(recorded, dict) else None
+
+    return paste
+
+
+def _paste_apply_mode(params):
+    if pasted_summary(params) is None:
+        return None
+    final, before = INFOTEXT_KEY in params, INPUT_INFOTEXT_KEY in params
+    if final and before:
+        return "Both"
+    if before:
+        return "img2img input (pre-diffusion)"
+    return "Final output" if final else None
 
 
 def stage_section(stage: dict):
     """One stage: its toggle in the header, the order and the first two params
     in the first row, then two params per row."""
 
-    created = [_input(stage_param_name(stage, spec), spec) for spec in stage["params"]]
-    order = ui.Number(f"{stage['key']}_order", float(stage["order"]), minimum=0, step=1, precision=2, label="Order")
+    created = [_input(stage_param_name(stage, spec), spec, _paste_stage_value(stage, spec["id"])) for spec in stage["params"]]
+    order = ui.Number(f"{stage['key']}_order", float(stage["order"]), minimum=0, step=1, precision=2, label="Order", paste=_paste_stage_value(stage, "order"))
     rows = [ui.Row(order, *created[:2])]
     rows += [ui.Row(*created[i : i + 2]) for i in range(2, len(created), 2)]
-    return ui.Section(stage["label"], enable=ui.Toggle(f"{stage['key']}_enabled", False, label=stage["label"]), children=rows)
+    enable = ui.Toggle(f"{stage['key']}_enabled", False, label=stage["label"], paste=_paste_stage_enabled(stage))
+    return ui.Section(stage["label"], enable=enable, children=rows)
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +309,7 @@ class PostProcessSuite(scripts.Script):
                 style="radio",
                 label="Apply post-processing to",
                 info="'input' cleans/grades the (upscaled) init image right before it is encoded and diffused.",
+                paste=_paste_apply_mode,
             )
         else:
             where = ui.Custom("send", "pp-send", None, props={"action": "apply_send", "target": "img2img"}, label="")
@@ -274,7 +335,7 @@ class PostProcessSuite(scripts.Script):
         categories = [ui.Section(category, children=[stage_section(stage) for stage in members]) for category, members in P.grouped_stages()]
         return ui.Section(
             "Post Processing Suite",
-            enable=ui.Toggle("enable", False, label="Post Processing Suite"),
+            enable=ui.Toggle("enable", False, label="Post Processing Suite", paste=_paste_enable),
             children=[
                 where,
                 ui.Markdown("Enable a stage by ticking its toggle. Set each stage's **Order** (lower runs first) to reorder the pipeline."),

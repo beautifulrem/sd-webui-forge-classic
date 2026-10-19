@@ -159,6 +159,7 @@ function PaneToggle({ collapsed, side, onToggle }: { collapsed: boolean; side: "
 }
 
 function DesktopLayout({ tab, openViewer, wide }: { tab: GenerateTab; openViewer: (key?: string) => void; wide: boolean }) {
+  const { t } = useTranslation()
   const layout = useDefaultLayout({ id: wide ? "remi-generate-3" : "remi-generate-2", panelIds: wide ? ["params", "stage", "history"] : ["params", "stage"] })
   const paramsRef = usePanelRef()
   const historyRef = usePanelRef()
@@ -189,7 +190,7 @@ function DesktopLayout({ tab, openViewer, wide }: { tab: GenerateTab; openViewer
           </Suspense>
         </div>
       </ResizablePanel>
-      <ResizableHandle withHandle />
+      <ResizableHandle withHandle aria-label={t("Resize the parameters panel")} />
       <ResizablePanel id="stage" minSize={320}>
         <div className="flex h-full flex-col gap-2 p-3">
           <Stage
@@ -205,7 +206,7 @@ function DesktopLayout({ tab, openViewer, wide }: { tab: GenerateTab; openViewer
       </ResizablePanel>
       {wide ? (
         <>
-          <ResizableHandle withHandle />
+          <ResizableHandle withHandle aria-label={t("Resize the history panel")} />
           <ResizablePanel
             id="history"
             panelRef={historyRef}

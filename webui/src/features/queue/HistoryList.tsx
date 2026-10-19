@@ -41,17 +41,20 @@ function IconAction(props: { label: string; onClick: () => void; children: React
   )
 }
 
-/** An output thumbnail; an image deleted since (e.g. from the gallery) shows a placeholder, not a broken image. */
-function OutputThumb({ id }: { id: string }) {
+/**
+ * An output thumbnail; an image deleted since (e.g. from the gallery) shows a placeholder, not a broken image.
+ * The server marks files it knows are gone (`missing`), so those are not even requested (no 404 in the console).
+ */
+function OutputThumb({ id, gone = false }: { id: string; gone?: boolean }) {
   const { t } = useTranslation()
-  const [missing, setMissing] = useState(false)
-  if (missing)
+  const [failed, setFailed] = useState(false)
+  if (gone || failed)
     return (
       <span className="grid size-full place-items-center bg-muted text-muted-foreground" title={t("The image is no longer available")}>
         <ImageOff className="size-4" aria-hidden />
       </span>
     )
-  return <img src={api.thumbUrl(id, 128)} alt="" loading="lazy" className="size-full object-cover" onError={() => setMissing(true)} />
+  return <img src={api.thumbUrl(id, 128)} alt="" loading="lazy" className="size-full object-cover" onError={() => setFailed(true)} />
 }
 
 function HistoryRow({ job, onView }: { job: Job; onView: (job: Job, index: number) => void }) {
@@ -74,7 +77,7 @@ function HistoryRow({ job, onView }: { job: Job; onView: (job: Job, index: numbe
               aria-label={t("View image {{index}} of job #{{seq}}", { index: index + 1, seq: job.seq })}
               className={cn("relative size-14 overflow-hidden rounded-md bg-checker outline-none focus-visible:ring-3 focus-visible:ring-ring", index > 0 && "hidden sm:block")}
             >
-              <OutputThumb id={output.id} />
+              <OutputThumb id={output.id} gone={output.missing === true} />
               {index === THUMBS - 1 && images.length > THUMBS ? (
                 <span className="absolute inset-0 grid place-items-center bg-black/55 text-xs font-semibold text-white">+{images.length - THUMBS + 1}</span>
               ) : null}

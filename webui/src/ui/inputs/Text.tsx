@@ -5,9 +5,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { PromptDecorators } from "@/features/prompt-editor/PromptDecorators"
 import type { PromptEditorHandle } from "@/features/prompt-editor/PromptEditor"
 import { FormContext, useParam } from "../hooks"
-import { describedBy } from "../a11y"
+import { describedBy, hintRef } from "../a11y"
 import { Field } from "../Field"
+import { placeholderText } from "../placeholder"
 import type { TextNode } from "../schema"
+import { useFallbackName } from "../fallback-name"
 
 // CodeMirror is a separate chunk, fetched when the first prompt field mounts.
 const PromptEditor = lazy(() => import("../prompt/PromptEditor"))
@@ -20,10 +22,11 @@ export function Text({ node }: { node: TextNode }) {
   const param = useParam<string>(node)
   const value = typeof param.value === "string" ? param.value : ""
   const info = param.info
-  const placeholder = node.placeholder ? t(node.placeholder) : undefined
+  const placeholder = placeholderText(t, node.placeholder)
   const lines = Math.max(1, node.lines ?? 1)
   const label = t(param.label)
-  const ariaDescribedBy = describedBy(id, info, param.error)
+  const fallbackName = useFallbackName(node.name)
+  const ariaDescribedBy = describedBy(id, info, param.error, hintRef(id, param.hint))
   const invalid = param.error ? true : undefined
   const handle = useRef<PromptEditorHandle | null>(null)
   const formId = use(FormContext)?.formId ?? null
@@ -38,7 +41,7 @@ export function Text({ node }: { node: TextNode }) {
         setValue={param.setValue}
         kind={kind}
         editor={() => handle.current}
-        label={label || node.name}
+        label={label || fallbackName}
         disabled={!param.enabled}
         fieldId={id}
       >
@@ -56,7 +59,7 @@ export function Text({ node }: { node: TextNode }) {
             disabled={!param.enabled}
             minLines={lines}
             maxLines={node.max_lines ?? undefined}
-            ariaLabel={label || node.name}
+            ariaLabel={label || fallbackName}
             ariaDescribedBy={ariaDescribedBy}
             ariaInvalid={invalid}
           />
@@ -71,7 +74,7 @@ export function Text({ node }: { node: TextNode }) {
         placeholder={placeholder}
         onChange={(event) => param.setValue(event.target.value)}
         disabled={!param.enabled}
-        aria-label={label ? undefined : node.name}
+        aria-label={label ? undefined : fallbackName}
         aria-describedby={ariaDescribedBy}
         aria-invalid={invalid}
         spellCheck={false}
@@ -85,7 +88,7 @@ export function Text({ node }: { node: TextNode }) {
         placeholder={placeholder}
         onChange={(event) => param.setValue(event.target.value)}
         disabled={!param.enabled}
-        aria-label={label ? undefined : node.name}
+        aria-label={label ? undefined : fallbackName}
         aria-describedby={ariaDescribedBy}
         aria-invalid={invalid}
         spellCheck={false}
@@ -103,6 +106,7 @@ export function Text({ node }: { node: TextNode }) {
       id={id}
       label={label}
       info={info}
+      hint={param.hint}
       error={param.error}
       modified={param.modified}
       defaultValue={param.defaultValue}

@@ -1,10 +1,36 @@
-/** Shared chrome for inputs: label, modified dot (click = reset), trailing slot, info text. */
+/** Shared chrome for inputs: label (with its hint tooltip), modified dot (click = reset), trailing slot, info text. */
 import { CircleAlert, RotateCcw } from "lucide-react"
-import type { ReactNode } from "react"
+import type { ReactElement, ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { errorTextId, infoTextId, labelId as labelIdOf } from "./a11y"
+import { errorTextId, hintTextId, infoTextId, labelId as labelIdOf } from "./a11y"
+
+/** Dotted underline: the label has a tooltip. */
+export const HINTED = "cursor-help underline decoration-muted-foreground/50 decoration-dotted underline-offset-[3px]"
+
+/**
+ * A field label with the param's `hint` (A1111's tooltips): shown on hover
+ * of the label, and given to assistive technology as the hidden text
+ * `hintTextId(id)` the control lists in its aria-describedby (`hintRef`).
+ * `hint` is untranslated; without one the label renders as is.
+ */
+export function HintedLabel({ id, hint, label }: { id: string; hint?: string | null; label: ReactElement }) {
+  const { t } = useTranslation()
+  if (!hint) return label
+  const text = t(hint)
+  return (
+    <>
+      <Tooltip>
+        <TooltipTrigger render={label} />
+        <TooltipContent className="max-w-sm">{text}</TooltipContent>
+      </Tooltip>
+      <span id={hintTextId(id)} className="sr-only">
+        {text}
+      </span>
+    </>
+  )
+}
 
 function formatDefault(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—"
@@ -48,6 +74,8 @@ type FieldProps = {
   /** Already translated; empty hides the label row (unless `trailing`). */
   label: string
   info?: string | null
+  /** Untranslated tooltip of the label; the control lists `hintRef(id, hint)` in its aria-describedby. */
+  hint?: string | null
   /** Server validation message; the control must reference it (`describedBy`) and set aria-invalid. */
   error?: string | null
   modified?: boolean
@@ -76,15 +104,24 @@ export function Field(props: FieldProps) {
       {showHeader ? (
         <div className="flex min-h-5 items-center gap-1">
           {props.label ? (
-            <label
-              id={labelId}
-              htmlFor={props.labelFor === false ? undefined : props.id}
-              title={props.label}
-              // wraps (two lines at most) rather than hiding the end of long or translated labels
-              className="line-clamp-2 min-w-0 text-[0.8rem] leading-5 font-medium break-words hyphens-auto text-foreground/85 select-none"
-            >
-              {props.label}
-            </label>
+            <HintedLabel
+              id={props.id}
+              hint={props.hint}
+              label={
+                <label
+                  id={labelId}
+                  htmlFor={props.labelFor === false ? undefined : props.id}
+                  title={props.hint ? undefined : props.label}
+                  // wraps (two lines at most) rather than hiding the end of long or translated labels
+                  className={cn(
+                    "line-clamp-2 min-w-0 text-[0.8rem] leading-5 font-medium break-words hyphens-auto text-foreground/85 select-none",
+                    props.hint && HINTED,
+                  )}
+                >
+                  {props.label}
+                </label>
+              }
+            />
           ) : null}
           {props.modified && props.onReset ? (
             <ModifiedDot onReset={props.onReset} defaultValue={props.defaultValue} label={props.label} disabled={props.disabled} />

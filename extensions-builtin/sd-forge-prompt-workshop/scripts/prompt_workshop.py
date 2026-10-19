@@ -2182,8 +2182,8 @@ def _credentials_section(source_key: str, title: str, help_text: str):
         children=[
             ui.Markdown(help_text),
             ui.Row(
-                ui.Custom(f"{prefix}_api_key", "secret-text", "", props={"placeholder": "Saved keys are not shown; leave empty to keep"}, label="api_key", persist=False, submit=False),
-                ui.Text(f"{prefix}_user_id", lambda: _get_credentials(source_key)[1], label="user_id", persist=False, submit=False),
+                ui.Custom(f"{prefix}_api_key", "secret-text", "", props={"placeholder": "Saved keys are not shown; leave empty to keep"}, label="API key", persist=False, submit=False),
+                ui.Text(f"{prefix}_user_id", lambda: _get_credentials(source_key)[1], label="User ID", persist=False, submit=False),
             ),
             ui.Row(
                 ui.Button("Save", f"save_{source_key}", "primary"),

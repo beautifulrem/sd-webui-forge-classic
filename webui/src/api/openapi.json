@@ -8181,7 +8181,7 @@
             },
             "type": "array",
             "title": "Warnings",
-            "description": "script errors during the run (the job went on without that script's step)",
+            "description": "script errors during the run (the job went on without that script's step) and the notes the processing left (p.comment(), e.g. a feature skipped on this device)",
             "default": []
           }
         },
@@ -8427,7 +8427,7 @@
             },
             "type": "array",
             "title": "Warnings",
-            "description": "script errors during the run (the job went on without that script's step)",
+            "description": "script errors during the run (the job went on without that script's step) and the notes the processing left (p.comment(), e.g. a feature skipped on this device)",
             "default": []
           },
           "core": {
@@ -8537,6 +8537,18 @@
             ],
             "title": "Role",
             "description": "an image that is not one of the batch: the grid, or an extra image (e.g. a ControlNet detected map)"
+          },
+          "missing": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing",
+            "description": "true when the file is gone (deleted, moved): there is no thumbnail or image to fetch (history listings only)"
           }
         },
         "type": "object",
@@ -12103,6 +12115,18 @@
             ],
             "title": "Model Loaded",
             "description": "the checkpoint in memory, if any"
+          },
+          "model_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Hash",
+            "description": "SHA256 of the checkpoint in memory, once it has been hashed (the old footer linked it to a CivitAI search)"
           },
           "version": {
             "type": "string",

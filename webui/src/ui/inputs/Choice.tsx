@@ -5,9 +5,10 @@ import { Segmented } from "@/components/Segmented"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useParam } from "../hooks"
-import { describedBy } from "../a11y"
+import { describedBy, hintRef } from "../a11y"
 import { Field } from "../Field"
 import type { ChoiceNode, ChoiceOption } from "../schema"
+import { useFallbackName } from "../fallback-name"
 
 /** Up to this many short options render as a segmented control (radio style). */
 const SEGMENTED_MAX = 5
@@ -22,12 +23,14 @@ export function Choice({ node }: { node: ChoiceNode }) {
   const id = useId()
   const param = useParam<Value | null>(node)
   const choices: ChoiceOption[] = param.override.choices ?? node.choices ?? []
-  const options = choices.map((c) => ({ value: c.value, label: t(c.label) }))
+  // choice tooltips are keyed by the untranslated label
+  const options = choices.map((c) => ({ value: c.value, label: t(c.label), hint: node.choice_hints?.[c.label] ? t(node.choice_hints[c.label]!) : undefined }))
   const label = t(param.label)
+  const fallbackName = useFallbackName(node.name)
   const labelId = `${id}-label`
   const value = param.value ?? null
   const disabled = !param.enabled
-  const aria = { "aria-describedby": describedBy(id, param.info, param.error), "aria-invalid": param.error ? true : undefined }
+  const aria = { "aria-describedby": describedBy(id, param.info, param.error, hintRef(id, param.hint)), "aria-invalid": param.error ? true : undefined }
 
   let control
   if (node.style === "radio") {
@@ -39,7 +42,7 @@ export function Choice({ node }: { node: ChoiceNode }) {
         onValueChange={param.setValue}
         disabled={disabled}
         aria-labelledby={label ? labelId : undefined}
-        aria-label={label ? undefined : node.name}
+        aria-label={label ? undefined : fallbackName}
         {...aria}
         className="w-full"
       />
@@ -49,7 +52,7 @@ export function Choice({ node }: { node: ChoiceNode }) {
         onValueChange={(next) => param.setValue(next as Value)}
         disabled={disabled}
         aria-labelledby={label ? labelId : undefined}
-        aria-label={label ? undefined : node.name}
+        aria-label={label ? undefined : fallbackName}
         {...aria}
         className="flex flex-wrap gap-x-4 gap-y-2"
       >
@@ -59,7 +62,7 @@ export function Choice({ node }: { node: ChoiceNode }) {
           return (
             <div key={String(option.value)} className="flex items-center gap-2">
               <RadioGroupItem id={optionId} value={option.value} />
-              <label htmlFor={optionId} className="text-sm select-none">
+              <label htmlFor={optionId} title={option.hint} className="text-sm select-none">
                 {option.label}
               </label>
             </div>
@@ -75,12 +78,12 @@ export function Choice({ node }: { node: ChoiceNode }) {
         onValueChange={(next) => next !== null && param.setValue(next)}
         disabled={disabled}
       >
-        <SelectTrigger id={id} aria-label={label ? undefined : node.name} {...aria} className="w-full">
+        <SelectTrigger id={id} aria-label={label ? undefined : fallbackName} {...aria} className="w-full">
           <SelectValue placeholder={t("Select…")} />
         </SelectTrigger>
         <SelectContent>
           {options.map((option) => (
-            <SelectItem key={String(option.value)} value={option.value}>
+            <SelectItem key={String(option.value)} value={option.value} title={option.hint}>
               {option.label}
             </SelectItem>
           ))}
@@ -98,7 +101,7 @@ export function Choice({ node }: { node: ChoiceNode }) {
         onValueChange={(next) => param.setValue(byString.get(next) ?? next)}
         allowCustom={node.allow_custom}
         disabled={disabled}
-        aria-label={label ? undefined : node.name}
+        aria-label={label ? undefined : fallbackName}
         {...aria}
       />
     )
@@ -109,6 +112,7 @@ export function Choice({ node }: { node: ChoiceNode }) {
       id={id}
       label={label}
       info={param.info}
+      hint={param.hint}
       error={param.error}
       modified={param.modified}
       defaultValue={param.defaultValue}

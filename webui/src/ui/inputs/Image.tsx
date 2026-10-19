@@ -4,9 +4,10 @@ import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useParam } from "../hooks"
-import { describedBy, labelId } from "../a11y"
+import { describedBy, hintRef, labelId } from "../a11y"
 import { Field } from "../Field"
 import type { ImageListNode, ImageNode } from "../schema"
+import { usePasteTarget } from "../paste-targets"
 import { imageFiles, releaseUpload, useUploader, useUploadInfo } from "../uploads"
 import { DropZone } from "./DropZone"
 import { useImageRole } from "@/canvas/form/image-role"
@@ -63,12 +64,15 @@ function UploadImageInput({ node }: { node: ImageNode }) {
     param.setValue(first.id)
     if (value) releaseUpload(value)
   }
+  // A paste with no image field hovered or focused goes to the first empty one on screen.
+  usePasteTarget(!disabled, { element: () => document.getElementById(id), empty: () => !value, deliver: (files) => void onFiles(files) })
 
   return (
     <Field
       id={id}
       label={label}
       info={param.info}
+      hint={param.hint}
       error={param.error}
       modified={param.modified}
       defaultValue={param.defaultValue}
@@ -84,7 +88,7 @@ function UploadImageInput({ node }: { node: ImageNode }) {
           disabled={disabled}
           aria-labelledby={label ? labelId(id) : undefined}
           aria-label={label ? undefined : value ? t("Replace image") : t("Upload image")}
-          aria-describedby={describedBy(id, param.info, param.error, hintId)}
+          aria-describedby={describedBy(id, param.info, param.error, hintRef(id, param.hint), hintId)}
           aria-invalid={Boolean(param.error)}
           className="overflow-hidden"
         >
@@ -143,12 +147,14 @@ export function ImageListInput({ node }: { node: ImageListNode }) {
     const uploaded = await upload(imageFiles(files))
     if (uploaded.length > 0) param.setValue([...ids, ...uploaded.map((u) => u.id)])
   }
+  usePasteTarget(!disabled, { element: () => document.getElementById(id), empty: () => ids.length === 0, deliver: (files) => void onFiles(files) })
 
   return (
     <Field
       id={id}
       label={label}
       info={param.info}
+      hint={param.hint}
       error={param.error}
       modified={param.modified}
       defaultValue={param.defaultValue}
@@ -186,7 +192,7 @@ export function ImageListInput({ node }: { node: ImageListNode }) {
         disabled={disabled}
         aria-labelledby={label ? labelId(id) : undefined}
         aria-label={label ? undefined : t("Add images")}
-        aria-describedby={describedBy(id, param.info, param.error, hintId)}
+        aria-describedby={describedBy(id, param.info, param.error, hintRef(id, param.hint), hintId)}
         aria-invalid={Boolean(param.error)}
       >
         <UploadHint id={hintId} busy={busy} multiple />

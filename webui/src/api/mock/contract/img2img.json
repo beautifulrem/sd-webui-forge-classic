@@ -16,7 +16,7 @@
        "label": "Prompt",
        "default": "",
        "lines": 3,
-       "placeholder": "Prompt\n(Ctrl+Enter to Generate ; Alt+Enter to Skip ; Esc to Interrupt)",
+       "placeholder": "Prompt\n({{generate}} to Generate ; {{skip}} to Skip ; {{interrupt}} to Interrupt)",
        "prompt": true,
        "infotext": "Prompt"
       },
@@ -26,7 +26,7 @@
        "label": "Negative Prompt",
        "default": "",
        "lines": 3,
-       "placeholder": "Negative Prompt\n(Ctrl+Enter to Generate ; Alt+Enter to Skip ; Esc to Interrupt)",
+       "placeholder": "Negative Prompt\n({{generate}} to Generate ; {{skip}} to Skip ; {{interrupt}} to Interrupt)",
        "prompt": true,
        "infotext": "Negative prompt",
        "enabled_if": {
@@ -348,7 +348,14 @@
           }
          ],
          "style": "radio",
-         "allow_custom": false
+         "allow_custom": false,
+         "choice_hints": {
+          "Just Resize": "Resize the input image directly to the target resolution",
+          "Crop and Resize": "Resize the image while maintaining the aspect ratio: Crop the excessive parts",
+          "Resize and Fill": "Resize the image while maintaining the aspect ratio: Fill the empty parts with neighboring colors",
+          "Latent Upscale": "Same as \"Just Resize\" but resize the input latent instead of the input image",
+          "Preserve Aspect Ratio": "Resize the image while maintaining the aspect ratio; Scale the short-side using the same ratio as the long-side"
+         }
         }
        ]
       },
@@ -370,6 +377,7 @@
          "type": "slider",
          "name": "mask_blur",
          "label": "Mask blur",
+         "hint": "How much feathering to apply to the mask (in pixels)",
          "default": 4,
          "minimum": 0,
          "maximum": 64,
@@ -421,6 +429,12 @@
          ],
          "style": "radio",
          "allow_custom": false,
+         "choice_hints": {
+          "fill": "Fill the masked areas with neighboring colors",
+          "original": "Keep whatever was within the masked areas",
+          "latent noise": "Fill the masked areas with noise (requires high Denoising strength)",
+          "latent nothing": "Fill the masked areas with zero values (requires high Denoising strength)"
+         },
          "infotext": "Masked content"
         },
         {
@@ -588,6 +602,7 @@
          "type": "slider",
          "name": "batch_count",
          "label": "Batch Count",
+         "hint": "How many batches of images to generate (in sequence)",
          "default": 1,
          "minimum": 1,
          "maximum": 128,
@@ -598,6 +613,7 @@
          "type": "slider",
          "name": "batch_size",
          "label": "Batch Size",
+         "hint": "How many images to generate in a single batch (in parallel)",
          "default": 1,
          "minimum": 1,
          "maximum": 8,
@@ -633,6 +649,7 @@
        "type": "slider",
        "name": "cfg_scale",
        "label": "CFG Scale",
+       "hint": "The strength used to calculate conditionings",
        "default": 6.0,
        "minimum": 1.0,
        "maximum": 24.0,
@@ -667,6 +684,7 @@
        "type": "slider",
        "name": "denoising_strength",
        "label": "Denoising Strength",
+       "hint": "How strong should the image be changed",
        "default": 0.6,
        "minimum": 0.0,
        "maximum": 1.0,
@@ -795,6 +813,7 @@
         "type": "seed",
         "name": "seed",
         "label": "Seed",
+        "hint": "Given the same prompts and parameters, you \"should\" generate the same image if the Seed is also the same",
         "default": -1,
         "infotext": "Seed"
        },
@@ -898,6 +917,7 @@
       "type": "choice",
       "name": "sampler_name",
       "label": "Sampling Method",
+      "hint": "The algorithm used to refine each step of the image",
       "default": "Euler a",
       "choices": [
        {
@@ -1017,6 +1037,7 @@
       "type": "choice",
       "name": "scheduler",
       "label": "Schedule Type",
+      "hint": "The algorithm used to adjust the magnitude of refinement",
       "default": "Automatic",
       "choices": [
        {
@@ -1104,6 +1125,7 @@
       "type": "slider",
       "name": "steps",
       "label": "Sampling Steps",
+      "hint": "The number of times the image is iteratively refined",
       "default": 32,
       "minimum": 1,
       "maximum": 150,

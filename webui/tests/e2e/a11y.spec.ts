@@ -70,6 +70,16 @@ for (const theme of ["light", "dark"] satisfies Theme[]) {
       expect(await scan(page)).toEqual([])
     })
 
+    test("prompt highlighting keeps every token readable", async ({ page }) => {
+      await openRoute(page, "txt2img")
+      const prompt = page.getByRole("textbox", { name: "Prompt", exact: true })
+      await prompt.click()
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+A`)
+      await page.keyboard.type("((a cat:1.2)), [day:night:0.5], <lora:watercolor_pastel_v1_0:0.8>, __colors__, BREAK, \\(paren\\), [[b]]")
+      await page.locator("body").click({ position: { x: 5, y: 5 } }) // no selection highlight
+      expect(await scan(page)).toEqual([])
+    })
+
     test("library states: gallery details, PNG Info result, queue with jobs", async ({ page }) => {
       await openRoute(page, "gallery")
       await page.getByRole("list", { name: "Images" }).getByRole("button").first().click()
@@ -116,8 +126,72 @@ for (const theme of ["light", "dark"] satisfies Theme[]) {
       await expect(page.getByRole("dialog")).toBeVisible()
       expect(await scan(page)).toEqual([])
     })
+
+    test("header and form popups are named dialogs without violations", async ({ page }) => {
+      // Quick settings appear once a setting is pinned.
+      await openRoute(page, "settings")
+      await page.getByRole("button", { name: "Pin Automatically save every generated image to quick settings" }).click()
+      await page.evaluate(() => (location.hash = "#/txt2img"))
+      await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toBeVisible()
+      const popups = [
+        { trigger: page.getByRole("button", { name: "Quick settings" }), dialog: "Quick settings" },
+        { trigger: page.getByRole("button", { name: "VAE / Text encoders" }), dialog: "VAE / Text encoders" },
+        { trigger: page.getByRole("combobox", { name: "Checkpoint" }), dialog: "Checkpoint" },
+        { trigger: page.getByRole("main").getByRole("combobox", { name: "Sampling method" }), dialog: "Sampling method" },
+      ]
+      for (const popup of popups) {
+        await popup.trigger.click()
+        await expect(page.getByRole("dialog", { name: popup.dialog })).toBeVisible()
+        expect(await scan(page), popup.dialog).toEqual([])
+        await page.keyboard.press("Escape")
+        await expect(page.getByRole("dialog", { name: popup.dialog })).toBeHidden()
+      }
+    })
   })
 }
+
+/** Tabs through a page and lists the tab stops that show no focus indicator (outline or ring). */
+async function stopsWithoutFocusRing(page: Page, presses: number): Promise<string[]> {
+  const missing = new Set<string>()
+  const check = () =>
+    page.evaluate(() => {
+      const element = document.activeElement as HTMLElement | null
+      if (!element || element === document.body) return null
+      const shows = (node: Element) => {
+        const style = getComputedStyle(node)
+        return (style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0) || (style.boxShadow !== "none" && style.boxShadow !== "")
+      }
+      // a ring may be drawn by a wrapper that has the focus inside it (inputs in a group, the prompt editor)
+      for (let node: Element | null = element, depth = 0; node && depth < 5; node = node.parentElement, depth++) {
+        if (shows(node) && (node === element || node.matches(":focus-within"))) return null
+      }
+      const name = element.getAttribute("aria-label") || element.textContent?.trim().slice(0, 40) || element.tagName
+      return `${element.tagName.toLowerCase()}[${element.getAttribute("role") ?? ""}] ${name}`
+    })
+  for (let i = 0; i < presses; i++) {
+    await page.keyboard.press("Tab")
+    let problem = await check()
+    if (problem) {
+      // some widgets mark focus a frame later (CodeMirror's .cm-focused): look again
+      await page.waitForTimeout(150)
+      problem = await check()
+    }
+    if (problem) missing.add(problem)
+  }
+  return [...missing]
+}
+
+test.describe("visible focus", () => {
+  for (const route of ["txt2img", "extensions", "settings", "gallery", "queue", "png-info", "networks"]) {
+    test(`every tab stop on #/${route} shows where the focus is`, async ({ page }) => {
+      await openRoute(page, route)
+      await page.waitForLoadState("networkidle")
+      // rings fade in (box-shadow transitions): read their end state
+      await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; animation: none !important; }" })
+      expect(await stopsWithoutFocusRing(page, 70)).toEqual([])
+    })
+  }
+})
 
 test.describe("axe on a phone", () => {
   for (const route of ["txt2img", "img2img", "gallery", "queue", "settings", "networks"]) {

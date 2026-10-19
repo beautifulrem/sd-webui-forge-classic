@@ -78,6 +78,22 @@ def test_a_job_runs_and_its_outputs_are_served(server):
     assert completed["job_id"] == created["job_id"] and completed["seq"] == created["seq"] and completed["outputs"][0]["id"] == output["id"]
 
 
+def test_outputs_whose_file_is_gone_are_marked_missing(server):
+    """History rows tell the client which thumbnails no longer exist, so it shows
+    a placeholder instead of requesting them (a 404 in the browser console each)."""
+
+    import os
+
+    created = submit(server, "a fox")
+    assert server.services.queue.wait_idle()
+    [output] = server.client.get(f"/api/v2/jobs/{created['job_id']}").json()["outputs"]
+    assert not output.get("missing")
+    os.remove(server.services.files.get(output["id"]).path)
+    listed = next(job for job in server.client.get("/api/v2/jobs").json()["items"] if job["id"] == created["job_id"])
+    assert [item["missing"] for item in listed["outputs"]] == [True]
+    assert server.client.get(f"/api/v2/jobs/{created['job_id']}").json()["outputs"][0]["missing"] is True
+
+
 def test_the_executor_gets_the_named_values_and_an_upload_resolver(server):
     submit(server, "dog", priority=3)
     assert server.services.queue.wait_idle()
@@ -146,6 +162,36 @@ def test_script_errors_during_a_job_become_its_warnings(webui, tmp_path):
         clean = submit(server)
         assert server.services.queue.wait_idle()
         assert server.client.get(f"/api/v2/jobs/{clean['job_id']}").json()["warnings"] == []
+
+
+def test_processing_comments_become_job_warnings(webui, tmp_path):
+    """``p.comment()`` notes (e.g. Sparse Attention skipped on this device)
+    reach the job's warnings instead of being dropped."""
+    from types import SimpleNamespace
+
+    from remi.jobs.runner import _from_processed, comment_notes
+
+    state = FakeState()
+    stub = StubExecutor(state)
+    skipped = "Sparse Attention Integrated was skipped: CUDA device is required"
+
+    def executor(job, ctx):
+        result = stub(job, ctx)
+        result.warnings = comment_notes(f"{skipped}\n{skipped}\n")
+        return result
+
+    with server_app(tmp_path, state=state, executor=executor) as server:
+        events = events_of(server.services)
+        created = submit(server)
+        assert server.services.queue.wait_idle()
+        job = server.client.get(f"/api/v2/jobs/{created['job_id']}").json()
+        note = {"message": "{{note}}", "values": {"note": skipped}}
+        assert job["status"] == COMPLETED and job["warnings"] == [note]
+        assert [event["warnings"] for event in events if isinstance(event, dict) and event["type"] == "job.completed"] == [[note]]
+
+    processed = SimpleNamespace(images=[], infotexts=[], info="", comments=f"{skipped}\n")
+    assert _from_processed(processed).warnings == [note]
+    assert _from_processed(SimpleNamespace(images=[], infotexts=[], info="", comments="")).warnings == []
 
 
 def test_repeat_queues_copies(server):

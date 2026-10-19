@@ -422,7 +422,8 @@ def run_pipeline(image, args: list):
 
 
 def summarize(args: list) -> str:
-    """Compact JSON of active stages for PNG infotext (record, not round-trip)."""
+    """Compact JSON of active stages for PNG infotext; the script's paste
+    functions read it back (``postprocess_suite.pasted_summary``)."""
     master_enabled, states = unflatten(args)
     if not master_enabled:
         return ""

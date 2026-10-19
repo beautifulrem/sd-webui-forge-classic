@@ -9,6 +9,7 @@ import { useForm, useFormState, useOwner, useParam } from "../hooks"
 import { ModifiedDot } from "../Field"
 import { inputsIn, sectionKey } from "../form-index"
 import { anyModified } from "../form-store"
+import { ContainerTitleContext } from "../fallback-name"
 import { RenderChildren } from "../Renderer"
 import type { SectionNode, ToggleNode } from "../schema"
 import { summarizeSection } from "../section-summary"
@@ -97,7 +98,9 @@ export function Section({ node }: { node: SectionNode }) {
         )}
       >
         <div className="flex flex-col gap-3 px-3 pt-1 pb-3">
-          <RenderChildren nodes={node.children} />
+          <ContainerTitleContext value={title}>
+            <RenderChildren nodes={node.children} />
+          </ContainerTitleContext>
         </div>
       </Collapsible.Panel>
     </Collapsible.Root>

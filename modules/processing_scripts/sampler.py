@@ -1,5 +1,6 @@
 from modules import scripts, sd_samplers, sd_schedulers
 from remi import ui
+from remi.core import hints
 from remi.core.presets import preset_default
 
 
@@ -27,9 +28,9 @@ class ScriptSampler(scripts.ScriptBuiltinUI):
             return lambda: preset_default(tab, f"sampler.{name}", fallback)
 
         return ui.Row(
-            ui.Choice("sampler_name", sampler_names, from_preset("sampler_name", None), label="Sampling Method", paste=sd_samplers.get_sampler_from_infotext, preset="native.sampler"),
-            ui.Choice("scheduler", scheduler_names, from_preset("scheduler", None), label="Schedule Type", paste=sd_samplers.get_scheduler_from_infotext, preset="native.scheduler"),
-            ui.Slider("steps", 1, 150, from_preset("steps", 20), 1, label="Sampling Steps", infotext="Steps", preset="native.steps"),
+            ui.Choice("sampler_name", sampler_names, from_preset("sampler_name", None), label="Sampling Method", hint=hints.SAMPLER, paste=sd_samplers.get_sampler_from_infotext, preset="native.sampler"),
+            ui.Choice("scheduler", scheduler_names, from_preset("scheduler", None), label="Schedule Type", hint=hints.SCHEDULER, paste=sd_samplers.get_scheduler_from_infotext, preset="native.scheduler"),
+            ui.Slider("steps", 1, 150, from_preset("steps", 20), 1, label="Sampling Steps", hint=hints.STEPS, infotext="Steps", preset="native.steps"),
         )
 
     def setup(self, p, steps, sampler_name, scheduler):

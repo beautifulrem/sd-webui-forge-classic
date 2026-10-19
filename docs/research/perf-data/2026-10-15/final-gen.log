@@ -1,0 +1,15 @@
+preview: 60 frames matched (60 received, 60 painted); total p50 9.3 p95 19.2 ms; image→publish p95 0.3, publish→receive p95 1, receive→paint p95 20.3; clock offset -0.3 ms
+  browser: 0.1349 it/s (16 steps, 122003 ms, 15 previews painted, browser CPU 2.3 %, server CPU 3.1 %)
+  api: 0.1387 it/s (16 steps, 119406 ms, server CPU 2.9 %)
+  api: 0.1367 it/s (16 steps, 120598 ms, server CPU 3.1 %)
+  browser: 0.1405 it/s (16 steps, 117549 ms, 16 previews painted, browser CPU 2.5 %, server CPU 3.6 %)
+  browser: 0.1274 it/s (16 steps, 128996 ms, 15 previews painted, browser CPU 2.2 %, server CPU 3.3 %)
+  api: 0.1389 it/s (16 steps, 118786 ms, server CPU 2.6 %)
+  api: 0.142 it/s (16 steps, 116073 ms, server CPU 2.8 %)
+  browser: 0.1411 it/s (16 steps, 117129 ms, 16 previews painted, browser CPU 2.4 %, server CPU 3.5 %)
+  browser: 0.1428 it/s (16 steps, 115311 ms, 15 previews painted, browser CPU 2.4 %, server CPU 3.3 %)
+  api: 0.1438 it/s (16 steps, 114587 ms, server CPU 2.8 %)
+  api: 0.1473 it/s (16 steps, 111925 ms, server CPU 2.9 %)
+  browser: 0.1432 it/s (16 steps, 115049 ms, 16 previews painted, browser CPU 2.3 %, server CPU 3.2 %)
+overhead: browser 0.1383 it/s vs api 0.1412 it/s -> 2.07 %; per pair 2.06 ± 3.84 % (95 % CI)
+results: /tmp/remi-perf-out/browser-preview-overhead.json

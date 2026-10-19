@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { copyText } from "@/features/gallery/files"
-import { splitInfotext } from "./display"
+import { infotextKeyLabel, splitInfotext } from "./display"
 
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false)
@@ -53,7 +53,9 @@ export function InfotextPanel({ infotext, className }: { infotext: string | null
         <dl className="flex flex-wrap gap-1">
           {parts.params.map(([key, value], index) => (
             <div key={`${key}-${index}`} className="flex max-w-full min-w-0 items-baseline gap-1 rounded-md bg-muted px-1.5 py-0.5">
-              <dt className="shrink-0 text-muted-foreground">{key}</dt>
+              <dt className="shrink-0 text-muted-foreground" title={infotextKeyLabel(t, key) === key ? undefined : key}>
+                {infotextKeyLabel(t, key)}
+              </dt>
               <dd className="min-w-0 truncate font-medium tabular-nums select-text" title={value}>
                 {value}
               </dd>

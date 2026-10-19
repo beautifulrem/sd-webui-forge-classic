@@ -49,7 +49,7 @@ function RepeatPopover({ tab, disabled }: { tab: GenerateTab; disabled?: boolean
       <PopoverTrigger render={<Button variant="outline" size="icon-lg" className="size-10" aria-label={t("Generate several times")} disabled={disabled} />}>
         <Repeat />
       </PopoverTrigger>
-      <PopoverContent side="top" align="end" className="w-60">
+      <PopoverContent aria-label={t("Generate several times")} side="top" align="end" className="w-60">
         <form
           className="flex flex-col gap-2"
           onSubmit={(event) => {
@@ -73,7 +73,7 @@ function RepeatPopover({ tab, disabled }: { tab: GenerateTab; disabled?: boolean
               className="h-8 tabular-nums"
             />
             <Button type="submit" size="sm">
-              {t("Start")}
+              {t("Start", { context: "runs" })}
             </Button>
           </div>
         </form>
@@ -159,7 +159,8 @@ export function GenerateBar({ tab, className }: { tab: GenerateTab; className?: 
     <div className={cn("flex flex-col gap-2", className)}>
       <QueueEditBanner tab={tab} />
       <div className="flex items-center gap-1.5">
-        <div className="flex min-w-0 flex-1">
+        {/* a size container: the shortcut hint shows only when the label fits beside it */}
+        <div className="@container/generate flex min-w-0 flex-1">
           <Button
             size="lg"
             className="h-10 min-w-0 flex-1 gap-2 rounded-r-none text-sm font-semibold shadow-sm"
@@ -169,7 +170,11 @@ export function GenerateBar({ tab, className }: { tab: GenerateTab; className?: 
           >
             {phase === "submitting" ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
             <span className="truncate">{busy ? t("Queue another") : t("Generate")}</span>
-            <Kbd className="ml-1 hidden border border-primary-foreground/45 bg-transparent text-primary-foreground sm:inline-flex">{formatShortcut("Mod+Enter")}</Kbd>
+            {busy ? null : (
+              <Kbd className="ml-1 hidden border border-primary-foreground/45 bg-transparent text-primary-foreground @min-[14rem]/generate:inline-flex">
+                {formatShortcut("Mod+Enter")}
+              </Kbd>
+            )}
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger

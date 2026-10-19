@@ -287,6 +287,22 @@ def test_the_spa_is_served_with_cache_headers_and_client_route_fallback(webui, t
         assert server.client.post("/").status_code == 404
 
 
+def test_the_shell_carries_the_theme_of_launch_flag_before_its_own_script(tmp_path):
+    """``--theme`` reaches the SPA as ``window.__REMI_THEME__``, set at the
+    top of <head> so the shell's pre-paint script can read it."""
+
+    from remi.server.auth import Auth
+    from remi.server.spa import Spa
+
+    dist = make_dist(tmp_path)
+    (dist / "index.html").write_text("<!doctype html><html><head><script>applyTheme()</script></head><body></body></html>")
+    auth = Auth({}, b"k" * 32)
+    shell = Spa(auth, dist, theme="Light").index("").decode()
+    assert shell.index('window.__REMI_THEME__="light"') < shell.index("applyTheme()")
+    assert 'window.__REMI_THEME__=null' in Spa(auth, dist, theme="purple").index("").decode()
+    assert 'window.__REMI_THEME__=null' in Spa(auth, dist).index("").decode()
+
+
 def test_removed_extension_apis_answer_gone_instead_of_the_spa(webui, tmp_path):
     """Tag Autocomplete's /tacapi/v1, Prompt All-in-One's /physton_prompt,
     Agent Scheduler's and Prompt Queue's APIs are not kept (architecture.md):

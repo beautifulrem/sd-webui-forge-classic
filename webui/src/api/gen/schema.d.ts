@@ -2653,7 +2653,7 @@ export interface components {
             notes: components["schemas"]["Note"][];
             /**
              * Warnings
-             * @description script errors during the run (the job went on without that script's step)
+             * @description script errors during the run (the job went on without that script's step) and the notes the processing left (p.comment(), e.g. a feature skipped on this device)
              * @default []
              */
             warnings: components["schemas"]["Note"][];
@@ -2749,7 +2749,7 @@ export interface components {
             notes: components["schemas"]["Note"][];
             /**
              * Warnings
-             * @description script errors during the run (the job went on without that script's step)
+             * @description script errors during the run (the job went on without that script's step) and the notes the processing left (p.comment(), e.g. a feature skipped on this device)
              * @default []
              */
             warnings: components["schemas"]["Note"][];
@@ -2784,6 +2784,11 @@ export interface components {
              * @description an image that is not one of the batch: the grid, or an extra image (e.g. a ControlNet detected map)
              */
             role?: ("grid" | "extra") | null;
+            /**
+             * Missing
+             * @description true when the file is gone (deleted, moved): there is no thumbnail or image to fetch (history listings only)
+             */
+            missing?: boolean | null;
         };
         /** JobParams */
         JobParams: {
@@ -4149,6 +4154,11 @@ export interface components {
              * @description the checkpoint in memory, if any
              */
             model_loaded?: string | null;
+            /**
+             * Model Hash
+             * @description SHA256 of the checkpoint in memory, once it has been hashed (the old footer linked it to a CivitAI search)
+             */
+            model_hash?: string | null;
             /** Version */
             version: string;
         };

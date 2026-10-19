@@ -10,8 +10,34 @@ export type Accent = (typeof ACCENTS)[number]
 /** Storage key; index.html reads it before first paint to avoid a theme flash. */
 export const APPEARANCE_KEY = "remi-appearance"
 
+declare global {
+  interface Window {
+    /** `--theme`, set by the server in the shell (remi/server/spa.py). */
+    __REMI_THEME__?: string | null
+  }
+}
+
+const isTheme = (value: unknown): value is Theme => value === "light" || value === "dark" || value === "system"
+
+/** The server's `--theme`: the theme of a browser that has not picked one. */
+export function serverTheme(): Theme | null {
+  const value = typeof window === "undefined" ? null : window.__REMI_THEME__
+  return isTheme(value) ? value : null
+}
+
+/** `?__theme=light|dark|system` in the page URL (A1111's theme link): picks that theme. */
+export function urlTheme(search: string = typeof window === "undefined" ? "" : window.location.search): Theme | null {
+  const value = new URLSearchParams(search).get("__theme")
+  return isTheme(value) ? value : null
+}
+
+/** What the browser keeps (`partialize`). */
+type StoredAppearance = Pick<AppearanceState, "theme" | "themeChosen" | "density" | "accent">
+
 type AppearanceState = {
   theme: Theme
+  /** The user picked `theme` (Appearance menu, command, URL); otherwise it follows `--theme`. */
+  themeChosen: boolean
   density: Density
   accent: Accent
   setTheme: (theme: Theme) => void
@@ -22,20 +48,40 @@ type AppearanceState = {
 export const useAppearance = create<AppearanceState>()(
   persist(
     (set) => ({
-      theme: "dark",
+      theme: serverTheme() ?? "dark",
+      themeChosen: false,
       density: "comfortable",
       accent: "iris",
-      setTheme: (theme) => set({ theme }),
+      setTheme: (theme) => set({ theme, themeChosen: true }),
       setDensity: (density) => set({ density }),
       setAccent: (accent) => set({ accent }),
     }),
     {
       name: APPEARANCE_KEY,
-      version: 1,
-      partialize: ({ theme, density, accent }) => ({ theme, density, accent }),
+      version: 2,
+      partialize: ({ theme, themeChosen, density, accent }) => ({ theme, themeChosen, density, accent }),
+      // Version 1 stored the theme in effect without telling whether it was picked: keep it as picked.
+      // (missing keys are filled by `merge`)
+      migrate: (persisted, version) => {
+        const state = (persisted ?? {}) as Partial<StoredAppearance>
+        return (version < 2 ? { ...state, themeChosen: isTheme(state.theme) } : state) as StoredAppearance
+      },
+      // A theme never picked follows the server's `--theme` (it may have changed since).
+      merge: (persisted, current) => {
+        const state = (persisted ?? {}) as Partial<AppearanceState>
+        const chosen = state.themeChosen === true && isTheme(state.theme)
+        return { ...current, ...state, theme: chosen ? state.theme! : current.theme, themeChosen: chosen }
+      },
     },
   ),
 )
+
+/** Opening the UI with `?__theme=…` picks that theme, as the Appearance menu would. */
+export function applyUrlTheme(search?: string) {
+  const theme = urlTheme(search)
+  if (theme) useAppearance.getState().setTheme(theme)
+}
+applyUrlTheme()
 
 const darkQuery = () => window.matchMedia("(prefers-color-scheme: dark)")
 

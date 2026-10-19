@@ -4,6 +4,15 @@
  * layout). Display only; the server parses for pasting.
  */
 
+/**
+ * The display label of an infotext key: its translation where the catalogs
+ * have one ("Steps" → "步数"), else the key itself. The raw key stays what is
+ * copied and pasted; show it as a tooltip next to a translated label.
+ */
+export function infotextKeyLabel(t: (key: string) => string, key: string): string {
+  return t(key)
+}
+
 export type InfotextParts = { prompt: string; negative: string; params: [key: string, value: string][] }
 
 const PARAM = /\s*(\w[\w \-/]+):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)/g

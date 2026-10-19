@@ -12,6 +12,15 @@ function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {
   return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
 }
 
+/**
+ * The popup is a `role="dialog"`: it needs an accessible name (axe
+ * `aria-dialog-name`), so callers must pass `aria-label` or `aria-labelledby`
+ * (for example the id of the panel's visible title).
+ */
+type PopoverName =
+  | { "aria-label": string; "aria-labelledby"?: never }
+  | { "aria-labelledby": string; "aria-label"?: never }
+
 function PopoverContent({
   className,
   align = "center",
@@ -19,7 +28,8 @@ function PopoverContent({
   side = "bottom",
   sideOffset = 4,
   ...props
-}: PopoverPrimitive.Popup.Props &
+}: Omit<PopoverPrimitive.Popup.Props, "aria-label" | "aria-labelledby"> &
+  PopoverName &
   Pick<
     PopoverPrimitive.Positioner.Props,
     "align" | "alignOffset" | "side" | "sideOffset"

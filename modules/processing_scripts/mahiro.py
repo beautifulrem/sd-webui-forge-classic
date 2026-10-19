@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from modules import scripts
 from modules.shared import opts
 from remi import ui
+from remi.core import hints
 
 
 class ScriptMahiro(scripts.ScriptBuiltinUI):
@@ -19,7 +20,7 @@ class ScriptMahiro(scripts.ScriptBuiltinUI):
         return scripts.AlwaysVisible if opts.show_mahiro else None
 
     def params(self, is_img2img):
-        return ui.Toggle("enable", False, label="MaHiRo", infotext="MaHiRo")
+        return ui.Toggle("enable", False, label="MaHiRo", hint=hints.MAHIRO, infotext="MaHiRo")
 
     def after_extra_networks_activate(self, p, enable, *args, **kwargs):
         if enable:

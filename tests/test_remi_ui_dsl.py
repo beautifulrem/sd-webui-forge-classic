@@ -164,6 +164,27 @@ class TestValues:
         assert ui.Choice("empty", []).coerce(None, ctx) is None
         assert ui.Choice("stale", ["a", "b"], "gone").resolve_default(ctx) == "a"
 
+    def test_same_key_maps_a_model_title_onto_its_current_choice(self):
+        # A checkpoint title gains " [hash]" once the hash is known: a form
+        # that still holds the title from before (or a pasted hashed title)
+        # names the same model.
+        ctx = ui.Context()
+        hashed = ui.Choice("ckpt", ["anima [fba1195327]", "other [0123abcd]"], same=ui.without_model_hash)
+        assert hashed.coerce("anima", ctx) == "anima [fba1195327]"
+        assert ui.Choice("ckpt", ["anima", "other"], same=ui.without_model_hash).coerce("anima [fba1195327]", ctx) == "anima"
+        assert ui.MultiChoice("ckpts", ["anima [fba1195327]"], same=ui.without_model_hash).coerce(["anima"], ctx) == ["anima [fba1195327]"]
+        with pytest.raises(ui.ParamError):
+            hashed.coerce("missing", ctx)
+        # ambiguous: two choices with the same key
+        with pytest.raises(ui.ParamError):
+            ui.Choice("ckpt", ["m [0123abcd]", "m [89abcdef]"], same=ui.without_model_hash).coerce("m", ctx)
+        # without the key the stale title is rejected, as before
+        with pytest.raises(ui.ParamError):
+            ui.Choice("ckpt", ["anima [fba1195327]"]).coerce("anima", ctx)
+        assert ui.without_model_hash("a [b]") == "a [b]" and ui.without_model_hash(3) == 3
+        with pytest.raises(ui.SchemaError):
+            ui.Choice("ckpt", ["a"], same="key")
+
     def test_text_seed_color(self):
         ctx = ui.Context()
         assert ui.Text("t").coerce(None, ctx) == "" and ui.Text("t").coerce(12, ctx) == "12"

@@ -3,7 +3,7 @@ import { useId } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { useParam } from "../hooks"
-import { describedBy, labelId } from "../a11y"
+import { describedBy, hintRef, labelId } from "../a11y"
 import { Field } from "../Field"
 import type { FileNode } from "../schema"
 import { releaseUpload, useUploader, useUploadInfo } from "../uploads"
@@ -33,6 +33,7 @@ export function FileInput({ node }: { node: FileNode }) {
       id={id}
       label={label}
       info={param.info}
+      hint={param.hint}
       error={param.error}
       modified={param.modified}
       defaultValue={param.defaultValue}
@@ -48,7 +49,7 @@ export function FileInput({ node }: { node: FileNode }) {
           disabled={disabled}
           aria-labelledby={label ? `${labelId(id)} ${hintId}` : undefined}
           aria-label={label ? undefined : value ? t("Replace file") : t("Choose a file")}
-          aria-describedby={describedBy(id, param.info, param.error)}
+          aria-describedby={describedBy(id, param.info, param.error, hintRef(id, param.hint))}
           aria-invalid={Boolean(param.error)}
           className="flex h-8 min-w-0 flex-1 items-center gap-2 px-2.5 text-sm"
         >

@@ -1,0 +1,181 @@
+{
+ "base": "http://127.0.0.1:7893",
+ "date": "2026-10-19T07:12:36.347Z",
+ "throttle": 4,
+ "browser": "156.0.8078.4",
+ "inp": {
+  "chars": 1203,
+  "typeDelayMs": 100,
+  "elapsedMs": 167752,
+  "typedMatches": true,
+  "autocompletePopups": 65,
+  "completionRequests": 866,
+  "interactions": 1203,
+  "reportedOver16ms": 1203,
+  "p50": 32,
+  "p95": 48,
+  "p99": 64,
+  "max": 144,
+  "inpWebVitals": 56,
+  "worst": [
+   {
+    "id": 4936,
+    "name": "keydown",
+    "start": 4496.399999976158,
+    "duration": 144,
+    "delay": 0.3999999761581421,
+    "processing": 1.2000000476837158
+   },
+   {
+    "id": 4936,
+    "name": "keypress",
+    "start": 4496.399999976158,
+    "duration": 144,
+    "delay": 1.600000023841858,
+    "processing": 48.89999997615814
+   },
+   {
+    "id": 4936,
+    "name": "keyup",
+    "start": 4548.399999976158,
+    "duration": 112,
+    "delay": 90.79999995231628,
+    "processing": 0.10000002384185791
+   },
+   {
+    "id": 7386,
+    "name": "keydown",
+    "start": 53191.10000002384,
+    "duration": 96,
+    "delay": 1.1999999284744263,
+    "processing": 1
+   },
+   {
+    "id": 7386,
+    "name": "keypress",
+    "start": 53191.10000002384,
+    "duration": 96,
+    "delay": 2.1999999284744263,
+    "processing": 23.600000023841858
+   },
+   {
+    "id": 9801,
+    "name": "keydown",
+    "start": 100678.10000002384,
+    "duration": 88,
+    "delay": 1.1999999284744263,
+    "processing": 0.10000002384185791
+   },
+   {
+    "id": 9801,
+    "name": "keypress",
+    "start": 100678.10000002384,
+    "duration": 88,
+    "delay": 1.2999999523162842,
+    "processing": 23.299999952316284
+   },
+   {
+    "id": 6070,
+    "name": "keydown",
+    "start": 27368.100000023842,
+    "duration": 80,
+    "delay": 14.799999952316284,
+    "processing": 1.600000023841858
+   }
+  ],
+  "longAnimationFrames": {
+   "count": 5,
+   "durations": {
+    "n": 5,
+    "mean": 80.8,
+    "p50": 74.1,
+    "p95": 124.8,
+    "p99": 130.8,
+    "max": 132.3
+   },
+   "worst": [
+    {
+     "start": 4496.799999952316,
+     "duration": 132.30000007152557,
+     "blocking": 81.5,
+     "scripts": [
+      {
+       "src": "react-C0WMy7cJ.js",
+       "fn": "_h",
+       "d": 40
+      },
+      {
+       "src": "dist-kQRq5OSE.js",
+       "fn": "",
+       "d": 6
+      }
+     ]
+    },
+    {
+     "start": 172247.69999992847,
+     "duration": 95,
+     "blocking": 0,
+     "scripts": []
+    },
+    {
+     "start": 11795.100000023842,
+     "duration": 74.09999990463257,
+     "blocking": 0.9,
+     "scripts": [
+      {
+       "src": "dist-BHqlJqzp.js",
+       "fn": "",
+       "d": 23
+      },
+      {
+       "src": "react-C0WMy7cJ.js",
+       "fn": "_h",
+       "d": 23
+      },
+      {
+       "src": "dist-kQRq5OSE.js",
+       "fn": "",
+       "d": 11
+      }
+     ]
+    },
+    {
+     "start": 53192.199999928474,
+     "duration": 51.5,
+     "blocking": 1.4,
+     "scripts": [
+      {
+       "src": "react-C0WMy7cJ.js",
+       "fn": "_h",
+       "d": 19
+      },
+      {
+       "src": "dist-kQRq5OSE.js",
+       "fn": "",
+       "d": 14
+      }
+     ]
+    },
+    {
+     "start": 100679.19999992847,
+     "duration": 51.10000002384186,
+     "blocking": 0.9,
+     "scripts": [
+      {
+       "src": "react-C0WMy7cJ.js",
+       "fn": "_h",
+       "d": 18
+      },
+      {
+       "src": "dist-kQRq5OSE.js",
+       "fn": "",
+       "d": 13
+      }
+     ]
+    }
+   ]
+  },
+  "taskDurationS": 53.78,
+  "scriptDurationS": 21.52
+ }
+}

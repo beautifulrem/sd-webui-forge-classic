@@ -172,5 +172,7 @@ def create_app(
     initialize_util.setup_middleware(app)
 
     if webui:
-        app.router.default = Spa(auth, spa_dir)  # type: ignore[assignment]
+        from modules import shared
+
+        app.router.default = Spa(auth, spa_dir, theme=getattr(shared.cmd_opts, "theme", None))  # type: ignore[assignment]
     return app

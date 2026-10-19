@@ -179,6 +179,15 @@ describe("history list", () => {
     expect(thumb.querySelector("img")).toBeNull()
     expect(thumb.querySelector("[title='The image is no longer available']")).not.toBeNull()
   })
+
+  it("does not request the thumbnail of an output the server marks missing", () => {
+    mockFetch({})
+    const done: Job = { ...jobOf("done", "completed", [{ id: "gone2", kind: "image", missing: true }]), seq: 4 }
+    renderWithClient(<HistoryList jobs={[done]} total={1} hasMore={false} loadingMore={false} onLoadMore={() => {}} onView={() => {}} />)
+    const thumb = screen.getByRole("button", { name: "View image 1 of job #4" })
+    expect(thumb.querySelector("img")).toBeNull()
+    expect(thumb.querySelector("[title='The image is no longer available']")).not.toBeNull()
+  })
 })
 
 describe("import dialog", { timeout: 20_000 }, () => {

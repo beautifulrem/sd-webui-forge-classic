@@ -542,12 +542,13 @@ def test_forge_preset_patch():
     patch = forge_preset_patch("txt2img", "anima", opts)
     assert patch["sampler.steps"] == {"value": 30} and "hr_second_pass_steps" not in patch
     assert patch["sampler.sampler_name"] == {"value": "ER SDE"} and patch["width"] == {"value": 832} and "height" not in patch
-    assert patch["batch_size"] == {"minimum": 1, "maximum": 8, "step": 1, "label": "Batch Size", "value": 2}
+    assert patch["batch_size"] == {"minimum": 1, "maximum": 8, "step": 1, "label": "Batch Size", "hint": "How many images to generate in a single batch (in parallel)", "value": 2}
     assert patch["distilled_cfg_scale"]["value"] == 3.0 and "visible" in patch["distilled_cfg_scale"]
     assert not any(key.startswith("__") for key in patch)
     assert forge_preset_settings("anima", opts) == {"forge_preset": "anima", "sd_model_checkpoint": "anima.safetensors", "forge_additional_modules": ["anima_vae.safetensors"], "forge_unet_storage_dtype": "Automatic"}
     img2img = forge_preset_patch("img2img", "wan", SimpleNamespace(wan_i2i_batch_size=17))
     assert img2img["batch_size"]["label"] == "Frames" and img2img["batch_size"]["step"] > 1 and "hr_cfg" not in img2img
+    assert img2img["batch_size"]["hint"] == "How many frames to generate for the video"  # the tooltip follows the label
 
 
 def _find(node, name):
@@ -573,7 +574,7 @@ def test_tab_schema_and_validation_follow_the_ui_preset(webui):
 
         webui.opts.data.update(forge_preset="wan")
         batch = _find(tab_schema("img2img")["core"]["layout"], "batch_size")
-        assert (batch["label"], batch["maximum"], batch["step"]) == ("Frames", 241, 16)
+        assert (batch["label"], batch["maximum"], batch["step"], batch["hint"]) == ("Frames", 241, 16, "How many frames to generate for the video")
         assert processing_args("img2img", {"batch_size": 33, "init_img": Image.new("RGB", (8, 8))}, {})[0]["batch_size"] == 33
 
         webui.opts.data.update(forge_preset="sd")

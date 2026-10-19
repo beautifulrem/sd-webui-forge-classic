@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button"
 import { NumberField } from "@/components/ui/number-field"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { SeedSourceContext, useForm, useParam } from "../hooks"
-import { describedBy } from "../a11y"
+import { describedBy, hintRef } from "../a11y"
 import { Field } from "../Field"
 import { infotextValue } from "../infotext"
 import type { SeedNode } from "../schema"
+import { useFallbackName } from "../fallback-name"
 
 function IconButton(props: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
@@ -44,6 +45,7 @@ export function Seed({ node }: { node: SeedNode }) {
   const param = useParam<number>(node)
   const { formId } = useForm()
   const label = t(param.label)
+  const fallbackName = useFallbackName(node.name)
   const info = param.info
   const selected = use(SeedSourceContext)
   const key = node.infotext || "Seed"
@@ -55,6 +57,7 @@ export function Seed({ node }: { node: SeedNode }) {
       id={id}
       label={label}
       info={info}
+      hint={param.hint}
       error={param.error}
       modified={param.modified}
       defaultValue={param.defaultValue}
@@ -64,8 +67,8 @@ export function Seed({ node }: { node: SeedNode }) {
       <div className="flex items-center gap-1.5">
         <NumberField
           id={id}
-          aria-label={label ? undefined : node.name}
-          aria-describedby={describedBy(id, info, param.error)}
+          aria-label={label ? undefined : fallbackName}
+          aria-describedby={describedBy(id, info, param.error, hintRef(id, param.hint))}
           aria-invalid={Boolean(param.error)}
           className="flex-1"
           value={typeof param.value === "number" ? param.value : -1}

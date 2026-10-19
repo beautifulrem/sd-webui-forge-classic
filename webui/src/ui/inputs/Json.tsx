@@ -2,9 +2,10 @@ import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Textarea } from "@/components/ui/textarea"
 import { useParam } from "../hooks"
-import { describedBy } from "../a11y"
+import { describedBy, hintRef } from "../a11y"
 import { Field } from "../Field"
 import type { InputNode } from "../schema"
+import { useFallbackName } from "../fallback-name"
 
 /** JSON escape hatch: edited as text, committed whenever it parses. */
 export function JsonInput({ node }: { node: InputNode }) {
@@ -15,6 +16,7 @@ export function JsonInput({ node }: { node: InputNode }) {
   const [error, setError] = useState<string | null>(null)
   const info = param.info
   const label = t(param.label)
+  const fallbackName = useFallbackName(node.name)
   const text = draft ?? JSON.stringify(param.value ?? null, null, 2)
 
   return (
@@ -22,6 +24,7 @@ export function JsonInput({ node }: { node: InputNode }) {
       id={id}
       label={label}
       info={info}
+      hint={param.hint}
       error={param.error}
       modified={param.modified}
       defaultValue={param.defaultValue}
@@ -36,9 +39,9 @@ export function JsonInput({ node }: { node: InputNode }) {
         id={id}
         value={text}
         spellCheck={false}
-        aria-label={label ? undefined : node.name}
+        aria-label={label ? undefined : fallbackName}
         aria-invalid={error !== null || Boolean(param.error)}
-        aria-describedby={describedBy(id, info, param.error, error ? `${id}-parse` : undefined)}
+        aria-describedby={describedBy(id, info, param.error, hintRef(id, param.hint), error ? `${id}-parse` : undefined)}
         onChange={(event) => {
           setDraft(event.target.value)
           try {

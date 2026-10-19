@@ -35,6 +35,9 @@ MAX_QUERY_TERMS = 8
 MAX_ZIP_FILES = 2000
 EXPORT_MAX_AGE = 3600.0
 MAX_SCAN_ROUNDS = 10
+MISSING_DIRS_TTL = 10.0
+"""seconds :meth:`GalleryIndex._missing_roots` trusts its last look at the
+output folders (a drive that comes back shows up within this time)"""
 """pages of rows :meth:`GalleryIndex.list` reads past missing files before it
 returns a short page (with a cursor to go on)"""
 
@@ -139,6 +142,8 @@ class GalleryIndex:
         self._synced: int | None = None
         """``PRAGMA data_version`` at the last complete :meth:`sync` (it
         changes when another connection — the file store's — commits)"""
+        self._missing: tuple[float, int, tuple[str, ...]] | None = None
+        """``(checked at, data_version, roots)`` of :meth:`_missing_roots`"""
 
     def close(self) -> None:
         with self._lock:
@@ -172,6 +177,53 @@ class GalleryIndex:
                     return added + len(rows)
             added += len(rows)
 
+    def _missing_roots(self) -> tuple[str, ...]:
+        """The topmost missing folders that hold indexed outputs (a drive that
+        is not mounted, an output folder that was moved away). Their rows stay
+        in the index (stars and all, for when they come back) but are left out
+        of every count and page, so the totals match what can be shown."""
+
+        now = time.monotonic()
+        with self._lock:
+            version = self._db.execute("PRAGMA data_version").fetchone()[0]
+            cached = self._missing
+            if cached is not None and cached[1] == version and now - cached[0] < MISSING_DIRS_TTL:
+                return cached[2]
+            folders = {os.path.dirname(path) for (path,) in self._db.execute("SELECT DISTINCT path FROM files WHERE kind = 'output'")}
+        roots: set[str] = set()
+        known: dict[str, bool] = {}
+
+        def exists(folder: str) -> bool:
+            if folder not in known:
+                known[folder] = os.path.isdir(folder)
+            return known[folder]
+
+        for folder in folders:
+            if not folder or exists(folder):
+                continue
+            top = folder
+            while True:
+                parent = os.path.dirname(top)
+                if parent == top or not parent or exists(parent):
+                    break
+                top = parent
+            roots.add(top)
+        result = tuple(sorted(roots))
+        with self._lock:
+            self._missing = (now, version, result)
+        return result
+
+    def _available(self) -> tuple[list[str], list[Any]]:
+        """SQL conditions leaving out the outputs under :meth:`_missing_roots`."""
+
+        where: list[str] = []
+        args: list[Any] = []
+        for root in self._missing_roots():
+            prefix = root.rstrip(os.sep) + os.sep
+            where.append("substr(f.path, 1, ?) <> ?")  # exact (LIKE ignores case)
+            args += [len(prefix), prefix]
+        return where, args
+
     def _prune_meta(self) -> None:
         with self._lock:
             self._db.execute("DELETE FROM gallery_meta WHERE file_id NOT IN (SELECT id FROM files WHERE kind = 'output')")
@@ -193,7 +245,8 @@ class GalleryIndex:
     # region Queries
 
     def _filters(self, q: GalleryQuery) -> tuple[list[str], list[Any]]:
-        where, args = ["f.kind = 'output'"], []
+        available, available_args = self._available()
+        where, args = ["f.kind = 'output'", *available], list(available_args)
         if q.category:
             where.append("g.category = ?")
             args.append(q.category)
@@ -226,13 +279,11 @@ class GalleryIndex:
         op = "<" if direction == "DESC" else ">"
         after = _position(cursor, text=sort == "name")
         limit = min(max(int(limit), 1), 200)
-        total: int | None = None
-        if cursor is None:
-            with self._lock:
-                total = self._db.execute(f"SELECT COUNT(*) FROM files f JOIN gallery_meta g ON g.file_id = f.id WHERE {' AND '.join(where)}", args).fetchone()[0]
+        total = self._count(where, args) if cursor is None else None
 
         items: list[GalleryItem] = []
         deleted: list[str] = []
+        unavailable = False
         last: tuple[Any, int] | None = None
         more = False
         for _round in range(MAX_SCAN_ROUNDS):
@@ -260,6 +311,8 @@ class GalleryIndex:
                     items.append(GalleryItem(record, row[12], row[13], bool(row[14])))
                 elif os.path.isdir(os.path.dirname(record.path)):
                     deleted.append(record.id)
+                else:
+                    unavailable = True  # its folder went away since the last look
             if len(items) == limit or not more:
                 break
             after = last
@@ -267,10 +320,19 @@ class GalleryIndex:
             more = True  # gave up reading past missing files: the client goes on with the cursor
         if deleted:
             self._forget(deleted)
-            if total is not None:
-                total = max(0, total - len(deleted))
+        if unavailable:
+            with self._lock:
+                self._missing = None
+        if total is not None and (deleted or unavailable):
+            # count again, so the total matches the pages ("Images: 10006" over no tiles helps no one)
+            where, args = self._filters(q)
+            total = self._count(where, args)
         next_cursor = _cursor(*last) if more and last is not None else None
         return items, next_cursor, total
+
+    def _count(self, where: list[str], args: list[Any]) -> int:
+        with self._lock:
+            return self._db.execute(f"SELECT COUNT(*) FROM files f JOIN gallery_meta g ON g.file_id = f.id WHERE {' AND '.join(where)}", args).fetchone()[0]
 
     def get(self, file_id: str) -> GalleryItem | None:
         self.sync()
@@ -287,14 +349,15 @@ class GalleryIndex:
         """Filter values with counts: models, categories, date bounds, stars."""
 
         self.sync()
+        available, args = self._available()
+        where = " AND ".join(["f.kind = 'output'", *available])
         with self._lock:
             models = self._db.execute(
-                "SELECT g.model, COUNT(*) FROM files f JOIN gallery_meta g ON g.file_id = f.id WHERE f.kind = 'output' AND g.model IS NOT NULL GROUP BY g.model ORDER BY COUNT(*) DESC, g.model LIMIT 500"
+                f"SELECT g.model, COUNT(*) FROM files f JOIN gallery_meta g ON g.file_id = f.id WHERE {where} AND g.model IS NOT NULL GROUP BY g.model ORDER BY COUNT(*) DESC, g.model LIMIT 500",
+                args,
             ).fetchall()
-            categories = dict(self._db.execute("SELECT g.category, COUNT(*) FROM files f JOIN gallery_meta g ON g.file_id = f.id WHERE f.kind = 'output' GROUP BY g.category").fetchall())
-            oldest, newest, total, starred = self._db.execute(
-                "SELECT MIN(f.created), MAX(f.created), COUNT(*), COALESCE(SUM(g.starred), 0) FROM files f JOIN gallery_meta g ON g.file_id = f.id WHERE f.kind = 'output'"
-            ).fetchone()
+            categories = dict(self._db.execute(f"SELECT g.category, COUNT(*) FROM files f JOIN gallery_meta g ON g.file_id = f.id WHERE {where} GROUP BY g.category", args).fetchall())
+            oldest, newest, total, starred = self._db.execute(f"SELECT MIN(f.created), MAX(f.created), COUNT(*), COALESCE(SUM(g.starred), 0) FROM files f JOIN gallery_meta g ON g.file_id = f.id WHERE {where}", args).fetchone()
         return {
             "models": [{"name": name, "count": count} for name, count in models],
             "categories": [{"name": name, "count": categories.get(name, 0)} for name in CATEGORIES],

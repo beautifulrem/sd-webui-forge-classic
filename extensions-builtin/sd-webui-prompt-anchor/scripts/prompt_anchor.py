@@ -84,6 +84,8 @@ SEPARATOR_INFO = (
 # Infotext key. Quoted so multi-line / comma-laden values survive the
 # AUTOMATIC1111 "key: value, key: value" infotext parser.
 INFOTEXT_KEY = "Anchor prompt"
+# Written only when the separator is not the default ", " (same quoting).
+SEPARATOR_INFOTEXT_KEY = "Anchor separator"
 
 
 def _default_separator() -> str:
@@ -167,7 +169,7 @@ class PromptAnchorScript(scripts.Script):
         return ui.Section(
             "Anchor prompt",
             open=not collapsed,
-            enable=ui.Toggle("enabled", True, label=ENABLE_LABEL),
+            enable=ui.Toggle("enabled", True, label=ENABLE_LABEL, paste=_paste_enabled),
             children=[
                 ui.Text(
                     "anchor",
@@ -187,6 +189,7 @@ class PromptAnchorScript(scripts.Script):
                         lines=1,
                         label="Separator between anchor and main prompt",
                         info=SEPARATOR_INFO,
+                        paste=_paste_separator,
                     ),
                     open=False,
                 ),
@@ -284,8 +287,9 @@ class PromptAnchorScript(scripts.Script):
             # paste-fields code on the receiving end will decode them.
             extra = getattr(p, "extra_generation_params", None)
             if extra is not None:
-                escaped = text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-                extra[INFOTEXT_KEY] = f'"{escaped}"'
+                extra[INFOTEXT_KEY] = _encode_infotext_value(text)
+                if sep != _default_separator():
+                    extra[SEPARATOR_INFOTEXT_KEY] = _encode_infotext_value(sep)
 
         except Exception:
             # Never crash a generation just because the anchor failed.
@@ -301,6 +305,20 @@ class PromptAnchorScript(scripts.Script):
 # The value we wrote is wrapped in double quotes with escape sequences, and
 # the standard parser hands us the raw text between the colon and the next
 # comma, so the paste function does the unescape.
+
+def _encode_infotext_value(text):
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    return f'"{escaped}"'
+
+
+def _decode_infotext_value(raw):
+    # The infotext parser already removed the quotes of a value written with
+    # json quoting; whitespace inside a value (a separator) is significant.
+    stripped = raw.strip()
+    if stripped.startswith('"') and stripped.endswith('"') and len(stripped) >= 2:
+        raw = stripped[1:-1]
+    return raw.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
+
 
 def _decode_infotext_anchor(infotext_dict):
     """Given the parsed infotext (a dict of key -> raw string value),
@@ -318,11 +336,52 @@ def _decode_infotext_anchor(infotext_dict):
     raw = infotext_dict.get(INFOTEXT_KEY)
     if raw is None:
         return None
-    raw = raw.strip()
-    if raw.startswith('"') and raw.endswith('"') and len(raw) >= 2:
-        raw = raw[1:-1]
-    decoded = raw.replace("\\n", "\n").replace('\\"', '"').replace("\\\\", "\\")
-    return decoded
+    return _decode_infotext_value(raw)
+
+
+def _paste_enabled(infotext_dict):
+    """An anchored image turns the anchor on (else the pasted, de-anchored
+    prompt would run without it); other infotexts leave the switch alone."""
+    return True if INFOTEXT_KEY in infotext_dict else None
+
+
+def _paste_separator(infotext_dict):
+    """The separator the image was joined with: the recorded one, or the
+    default ", " (only a non-default separator is written)."""
+    if INFOTEXT_KEY not in infotext_dict:
+        return None
+    raw = infotext_dict.get(SEPARATOR_INFOTEXT_KEY)
+    return _default_separator() if raw is None else _decode_infotext_value(raw)
+
+
+def _strip_anchor(prompt, anchor, separator):
+    """``prompt`` without the leading ``anchor + separator`` that
+    ``process()`` joined onto it (the inverse of ``_join``); None when the
+    prompt was not joined that way (e.g. hand-edited)."""
+    if not isinstance(prompt, str) or not anchor.strip():
+        return None
+    head = _TRAILING_PUNCT.sub("", anchor)
+    if not prompt.startswith(head):
+        return None
+    rest = prompt[len(head):]
+    if not rest:
+        return ""  # the main prompt was empty: the join is the anchor alone
+    if rest.startswith(separator):
+        return rest[len(separator):]
+    return None
+
+
+def _on_infotext_pasted(infotext, params):
+    """Pasting an anchored image's parameters restores the main prompt as
+    the user typed it: the infotext's ``Prompt`` is the joined text, and
+    the pasted anchor is prepended again on the next run, so leaving it in
+    would double the anchor (a different image and infotext)."""
+    anchor = _decode_infotext_anchor(params)
+    if not anchor:
+        return
+    main = _strip_anchor(params.get("Prompt"), anchor, _paste_separator(params))
+    if main is not None:
+        params["Prompt"] = main
 
 
 # ---------------------------------------------------------------------------
@@ -358,3 +417,4 @@ def _on_ui_settings():
 
 
 script_callbacks.on_ui_settings(_on_ui_settings)
+script_callbacks.on_infotext_pasted(_on_infotext_pasted, name="prompt_anchor")

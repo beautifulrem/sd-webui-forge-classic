@@ -28,6 +28,9 @@ class JobResult:
     """other output files (videos) by path"""
     roles: list[str | None] = field(default_factory=list)
     """per image: ``"grid"``, ``"extra"`` (e.g. ControlNet's detected maps) or None (an image of the batch)"""
+    warnings: list[dict[str, Any]] = field(default_factory=list)
+    """notes the processing left (``p.comment()``, e.g. a feature skipped on
+    this device), as job warnings ``{"message", "values"}``"""
 
 
 Executor = Callable[[Job, JobContext], JobResult]
@@ -122,7 +125,21 @@ def _from_processed(processed: Any) -> JobResult:
     texts = [infotexts[index] if index < len(infotexts) else (_image_infotext(image) or info) for index, image in enumerate(images)]
     video = getattr(processed, "video_path", None)
     files = [video] if isinstance(video, str) and video else []
-    return JobResult(images=images, infotexts=texts, info=info if isinstance(info, str) else None, files=files, roles=[role for _, role in pairs])
+    return JobResult(images=images, infotexts=texts, info=info if isinstance(info, str) else None, files=files, roles=[role for _, role in pairs], warnings=comment_notes(getattr(processed, "comments", None)))
+
+
+def comment_notes(comments: Any) -> list[dict[str, Any]]:
+    """``Processed.comments`` (one ``p.comment()`` per line; the old UI showed
+    them under the image) as job warnings."""
+
+    lines = comments.splitlines() if isinstance(comments, str) else list(comments or [])
+    notes: list[dict[str, Any]] = []
+    for line in lines:
+        text = str(line).strip()
+        note = {"message": "{{note}}", "values": {"note": text}}
+        if text and note not in notes:
+            notes.append(note)
+    return notes
 
 
 def run_on_main_thread(func: Callable[..., Any], *args: Any) -> Any:

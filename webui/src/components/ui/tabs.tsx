@@ -72,7 +72,8 @@ function TabsContent({ className, ...props }: TabsPrimitive.Panel.Props) {
   return (
     <TabsPrimitive.Panel
       data-slot="tabs-content"
-      className={cn("flex-1 text-sm outline-none", className)}
+      // Base UI makes the panel a tab stop: keyboard users must see when it has focus
+      className={cn("flex-1 rounded-md text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50", className)}
       {...props}
     />
   )

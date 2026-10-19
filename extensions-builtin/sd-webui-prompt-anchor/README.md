@@ -42,8 +42,11 @@ into a single positive prompt.
   that one, so styles carry through both passes.
 
 - **Saved with the image.** The anchor text goes into the PNG metadata
-  as `Anchor prompt: "..."`, so it round-trips: "Send to txt2img"
-  on any image generated with this extension restores both halves.
+  as `Anchor prompt: "..."` (and a non-default separator as
+  `Anchor separator`), so it round-trips: "Send to txt2img" on any image
+  generated with this extension restores both halves -- the anchor box
+  (switched on) and the main prompt without the anchor, so regenerating
+  gives the same prompt instead of prepending the anchor twice.
 
 - **Survives reloads.** The anchor is part of the form draft the
   WebUI keeps in your browser, restored on page load. (No server-side
@@ -109,7 +112,9 @@ The anchor is the `anchor` param of the `prompt_anchor` script (with
 `enabled` and `separator`): an action can patch it as
 `"prompt_anchor.anchor"`. The infotext key for round-tripping is
 `Anchor prompt` (value is double-quoted with backslash-escapes for
-embedded quotes / newlines).
+embedded quotes / newlines); `Anchor separator` (same encoding) is written
+only when the separator is not `, `. An `on_infotext_pasted` callback strips
+the leading anchor + separator from the pasted `Prompt`.
 
 ## License
 

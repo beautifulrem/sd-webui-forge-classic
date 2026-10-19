@@ -3,9 +3,10 @@ import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import { useParam } from "../hooks"
-import { describedBy } from "../a11y"
-import { FieldError, ModifiedDot } from "../Field"
+import { describedBy, hintRef } from "../a11y"
+import { FieldError, HINTED, HintedLabel, ModifiedDot } from "../Field"
 import type { ToggleNode } from "../schema"
+import { useFallbackName } from "../fallback-name"
 
 /**
  * Switch with an inline label. Conflict locks (`exclusive` groups and the
@@ -16,6 +17,7 @@ export function Toggle({ node }: { node: ToggleNode }) {
   const id = useId()
   const param = useParam<boolean>(node)
   const label = t(param.label)
+  const fallbackName = useFallbackName(node.name)
   const info = param.info
 
   return (
@@ -26,14 +28,24 @@ export function Toggle({ node }: { node: ToggleNode }) {
           checked={Boolean(param.value)}
           onCheckedChange={param.setValue}
           disabled={!param.enabled}
-          aria-describedby={describedBy(id, info, param.error)}
+          aria-describedby={describedBy(id, info, param.error, hintRef(id, param.hint))}
           aria-invalid={param.error ? true : undefined}
-          aria-label={label ? undefined : node.name}
+          aria-label={label ? undefined : fallbackName}
         />
         {label ? (
-          <label htmlFor={id} title={label} className="line-clamp-2 min-w-0 text-sm leading-5 break-words hyphens-auto select-none">
-            {label}
-          </label>
+          <HintedLabel
+            id={id}
+            hint={param.hint}
+            label={
+              <label
+                htmlFor={id}
+                title={param.hint ? undefined : label}
+                className={cn("line-clamp-2 min-w-0 text-sm leading-5 break-words hyphens-auto select-none", param.hint && HINTED)}
+              >
+                {label}
+              </label>
+            }
+          />
         ) : null}
         {param.modified ? <ModifiedDot onReset={param.reset} defaultValue={param.defaultValue} label={label} /> : null}
       </div>

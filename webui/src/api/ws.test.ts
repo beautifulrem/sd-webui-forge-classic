@@ -59,17 +59,28 @@ describe("useWs", () => {
     })
     vi.spyOn(URL, "revokeObjectURL").mockImplementation((url) => void revoked.push(url))
     const { useWs, socket, encodeFrame, FrameFormat } = await setup()
+    // A frame shows once decoded, in the next animation frame (api/paint-batch).
+    const painted = () => vi.advanceTimersByTimeAsync(20)
     socket.open()
     socket.receive(encodeFrame(FrameFormat.Jpeg, 1, 5, new Uint8Array([1, 2, 3])))
+    await painted()
     expect(useWs.getState().preview).toEqual({ jobSeq: 1, step: 5, url: "blob:test/0" })
     // A late, older frame of the same job is ignored.
     socket.receive(encodeFrame(FrameFormat.Jpeg, 1, 3, new Uint8Array([9])))
+    await painted()
     expect(useWs.getState().preview?.step).toBe(5)
     socket.receive(encodeFrame(FrameFormat.Webp, 1, 6, new Uint8Array([4])))
+    await painted()
     expect(useWs.getState().preview?.url).toBe("blob:test/1")
     expect(revoked).toEqual(["blob:test/0"])
     useWs.getState().clearPreview()
     expect(revoked).toEqual(["blob:test/0", "blob:test/1"])
+    // A frame still on its way when the preview is cleared (the job ended) never shows.
+    socket.receive(encodeFrame(FrameFormat.Jpeg, 2, 1, new Uint8Array([5])))
+    useWs.getState().clearPreview()
+    await painted()
+    expect(useWs.getState().preview).toBeNull()
+    expect(revoked).toEqual(["blob:test/0", "blob:test/1", "blob:test/2"])
     useWs.getState().disconnect()
   })
 

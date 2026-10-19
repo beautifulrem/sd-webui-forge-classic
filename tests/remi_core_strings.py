@@ -1,7 +1,7 @@
 """The English strings of the core UI the server catalog must translate
 (``localizations/<locale>.json``): the generation forms (core params and the
 built-in processing scripts), every setting (category, section, label, info,
-notes, link labels, choice labels), and the server's translatable messages
+notes, link labels, choice labels, tooltips), and the server's translatable messages
 (action toasts and texts, page task messages, extension admin errors).
 
 Not a test module: ``tests/test_remi_core_zh_cn.py`` checks the zh_CN
@@ -41,9 +41,12 @@ def _text_strings(node, found: set[str]) -> None:
     if not isinstance(node, dict):
         return
     if node.get("type") != "html":
-        for key in ("label", "info", "title", "placeholder"):
+        for key in ("label", "info", "hint", "title", "placeholder"):
             if isinstance(node.get(key), str) and node[key].strip():
                 found.add(node[key])
+        for hint in (node.get("choice_hints") or {}).values():
+            if isinstance(hint, str) and hint.strip():
+                found.add(hint)
         if node.get("type") == "markdown" and isinstance(node.get("text"), str):
             found.add(node["text"])
     for note in node.get("notes") or ():

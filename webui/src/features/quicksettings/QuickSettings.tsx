@@ -55,7 +55,7 @@ export default function QuickSettings() {
         </TooltipTrigger>
         <TooltipContent>{t("Quick settings")}</TooltipContent>
       </Tooltip>
-      <PopoverContent align="end" className="w-[min(24rem,calc(100vw-2rem))] gap-2 p-2">
+      <PopoverContent aria-label={t("Quick settings")} align="end" className="w-[min(24rem,calc(100vw-2rem))] gap-2 p-2">
         <div className="flex items-center justify-between gap-2 px-2 pt-1">
           <p className="text-sm font-medium">{t("Quick settings")}</p>
           <Button

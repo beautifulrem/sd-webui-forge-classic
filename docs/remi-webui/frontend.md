@@ -89,6 +89,12 @@ imperatively).
   (light/dark/system), density (comfortable/compact), accent
   (`iris|blue|teal|green|amber|coral|rose`). `index.html` applies the stored
   values before first paint; `useApplyAppearance` keeps `<html>` in sync.
+  The theme comes from, first to last: `?__theme=light|dark|system` in the
+  URL (A1111's theme link: it picks that theme, as the menu would, and is
+  remembered), the user's pick (`themeChosen`), the server's `--theme`
+  (`window.__REMI_THEME__`, written into the shell by `remi/server/spa.py`
+  before the pre-paint script), then dark. A browser that never picked a
+  theme follows `--theme` when it changes.
 
 ## Design system
 
@@ -110,6 +116,12 @@ imperatively).
   animation makes the compositor redraw at display rate for the whole job,
   which measurably slows sampling where the browser shares the GPU
   (docs/research/ui-performance.md). Spinners are for short waits only.
+  A generation step is one React commit and one drawn frame: while previews
+  come every step, `api/progress-gate.ts` holds a `job.progress` until the
+  next preview frame, and `api/paint-batch.ts` applies both in one animation
+  frame once the image has decoded. No `backdrop-filter` on surfaces that
+  change every step (the stage's progress overlay, the header with its
+  progress line).
 - Scrollbars: thin, theme-aware (`--scrollbar`). Focus: visible rings from
   `--ring` everywhere (`outline-ring/50`, `focus-visible:ring-3`).
 - shadcn components import `cn` from the `cn` package (what the base-nova
@@ -186,9 +198,10 @@ pages). `jobRequest(store, schema)` (`ui/tab.ts`) builds the `POST /jobs` body.
 |---|---|
 | `schema.ts` | TypeScript mirror of schema-format.md |
 | `Renderer.tsx` | `RenderNode`: dispatch by `type`, `visible_if`/`enabled_if`, patch visibility, row cells |
-| `inputs/*` | one component per input kind: Toggle, Slider (+ number box), Number, Text (`prompt` → lazy `PromptEditor`), Choice (select / segmented or radio list / searchable), MultiChoice (chips or checkboxes), Seed (dice / recycle), Color, Image, ImageList, File (`DropZone`: drop, paste, click → `POST /uploads`), Json, Custom |
+| `inputs/*` | one component per input kind: Toggle, Slider (+ number box), Number, Text (`prompt` → lazy `PromptEditor`), Choice (select / segmented or radio list / searchable; `choice_hints` as option tooltips), MultiChoice (chips or checkboxes), Seed (dice / recycle), Color, Image, ImageList, File (`DropZone`: drop, paste, click → `POST /uploads`), Json, Custom |
+| `paste-targets.ts` | a pasted image goes to the image field under the pointer or holding the focus (`DropZone`, the image editor); with none, to the first empty image field on screen, else the last one on screen (A1111's `dragdrop.js` rule). Image inputs and the editor register while mounted |
 | `layout/*` | Section (enable toggle in header, open state, section reset), Group, Tabs (`bind`), ActionButton, Gallery/Output, Slot, row sizing |
-| `Field.tsx` | label row, modified dot (click = reset to default, tooltip shows the default), info text, server validation message (`FieldError`) |
+| `Field.tsx` | label row, modified dot (click = reset to default, tooltip shows the default), info text, server validation message (`FieldError`); `HintedLabel`: the param's `hint` as the label's tooltip (dotted underline) and as the control's accessible description (`hintRef`) — the former `hints.js` map and `tooltip=` |
 | `a11y.ts` | ids of label / info / error texts and `describedBy(id, info, error)` for controls |
 | `conditions.ts` | condition evaluator (`param` / `eq` / `ne` / `in` / `gt…lte` / `all` / `any` / `not`, `"owner.param"`) |
 | `form-store.ts` | per-form Zustand store (`getFormStore(formId)`); `setValues`/`applyPatches` skip params locked by a toggle's `locks` (`locks.ts`), `persist: false` inputs are never drafted |
@@ -341,6 +354,13 @@ that widget) returning translated text or `null`. It is imported eagerly
   `persist=False, submit=False`).
 - Extension page icons are names from the curated map in `app/icons.ts`
   (unknown → puzzle piece).
+- The **Checkpoint Merger** (A1111's `modelmerger` tab) is such a
+  schema-rendered page, from core: `remi/core/merger.py`, registered by
+  `scripts/checkpoint_merger.py` so it follows "Reload UI" like extension
+  pages (and "UI Tab Order" / "Hide UI Tabs" by its title). Its merge and
+  the two "Save Current Model" buttons are `task-runner` tasks behind
+  generation (progress per stage and per tensor, Cancel between steps); the
+  new file reaches the checkpoint lists through `networks.changed`.
 
 ## Generate page (`pages/generate`, `features/`)
 
@@ -436,7 +456,9 @@ mode's schema is prefetched).
   result, or the live preview while a job runs unless an older result was
   picked ("Show live preview" returns). The lightbox (lazy chunk): wheel zoom
   at the cursor, two-finger pinch zoom around the fingers' midpoint, drag to
-  pan, double-click fit ↔ actual size, ←/→ (or a gamepad's left stick / d-pad
+  pan, double-click fit ↔ actual size, ←/→ (or a sideways wheel — tilt
+  wheel, horizontal two-finger swipe — at most once per
+  `js_modal_lightbox_gamepad_repeat`; or a gamepad's left stick / d-pad
   with `js_modal_lightbox_gamepad`, repeating per
   `js_modal_lightbox_gamepad_repeat`), Home/End,
   S downloads, +/−/0/1, T tile preview, middle click opens in a new tab,
@@ -673,7 +695,11 @@ tree's width). Until a sort is chosen, `extra_networks_card_order_field` /
   with the matching command. Export (changed or all values, JSON) and import
   (ours or an A1111 `config.json`; differences validated with
   `POST /options/validate`, then staged as edits). System views: server and
-  models (Reload UI, restart, unload / load / load again from disk, the
+  models (the old footer's version and API documentation link `/docs`, the
+  loaded checkpoint's hash with its CivitAI search link — `model_hash` of
+  `GET /server/status`, a link the user follows, nothing is fetched —; the
+  footer's startup profile is System info → "Startup"; Reload
+  UI, restart, unload / load / load again from disk, the
   weights in memory, hash every checkpoint with progress, notification
   permission, settings file, localization template download), system info
   (summary, collapsible sections, download, copy, file check), licenses
@@ -699,6 +725,31 @@ tree's width). Until a sort is chosen, `extra_networks_card_order_field` /
     a popup of all setting names) is replaced by the pin buttons on every row
     and a "Show pinned settings" link under that setting (the Pinned
     filter); the settings search covers keys and labels.
+- **Gradio-era settings that were removed, and what replaces each.** Every
+  setting left has a reader (`tests/test_remi_option_consumers.py`); these
+  only configured the Gradio page and are covered by controls of the SPA
+  that the browser remembers:
+
+  | removed setting(s) | replacement |
+  |---|---|
+  | `prompt_box_style` (Default / Compact / Scrollable / Accordion) | the prompt editors grow with their text up to 24 rem and then scroll (the former Scrollable); the form column of Generate is a resizable pane; the extra networks open in the Networks drawer beside the prompts (Alt+N) rather than the Compact layout's tabs |
+  | `txt2img_settings_accordion`, `img2img_settings_accordion` | every section of the form collapses on its own and keeps its open state (`sectionKey`) |
+  | `gallery_height` | the result stage fills the page height beside the form (the split between them is a drag-resizable pane) |
+  | `do_not_show_images` | not carried over: the Generate page is built around the result stage (turn saving off with `samples_save` to keep results out of the output folder) |
+  | `quicksettings_accordion`, `quicksettings_accordion_starts_closed` | quick settings live in the header's ⚡ popover, closed until opened |
+  | `extra_networks_card_width`, `_card_height`, `_card_text_scale` | the S / M / L card size and grid / list switches of the network browser, remembered per surface (`remi-networks`) |
+  | `extra_networks_card_show_desc`, `extra_networks_card_description_is_html` | descriptions show in the item's metadata dialog as plain text (raw HTML from model files is never rendered) |
+  | `extra_networks_tree_view_default_enabled`, `_tree_view_default_width`, `_tree_view_style` (Tree / Dirs), `extra_networks_dir_button_function` | the folder tree pane (toggle and drag-resizable width, remembered) on wide layouts and a folder popover elsewhere; picking a folder filters to it, as the Dirs buttons did |
+  | `img2img_sketch_default_brush_color`, `img2img_inpaint_sketch_default_brush_color` | the image editor's colour control (the last colour and eight recent ones are remembered) |
+  | `img2img_inpaint_mask_brush_color`, `img2img_inpaint_mask_scribble_alpha`, `img2img_inpaint_mask_high_contrast` | the mask overlay colour (six presets, white and black for contrast) and opacity in the editor's Layers popover, remembered |
+  | `keep_alive` | Generate forever is a server-side queue flag: it keeps going with the tab in the background or closed |
+  | `live_preview_refresh_period` | previews are pushed over the WebSocket at `live_preview_fps` |
+  | `no_spellcheck`, `undo_redo`, `prompt_debounce` | the prompt editor never spellchecks or autocorrects, always has undo / redo (Ctrl/Cmd+Z, Shift+Ctrl/Cmd+Z), and is never delayed (extensions no longer read the DOM) |
+  | `remove_image_on_hover` | dropping an image on a filled image field always replaces it |
+  | `save_selected_only` | "Save" saves the image on screen; "Save this generation as zip" saves all of it |
+  | `send_image_info_not_ui` | "Send to" always sends the parameters recorded in the image (e.g. the expanded wildcards) |
+  | `open_dir_button_choice` | "Show in folder" opens the folder of the image itself (local browsers only) |
+  | `cross_attention_optimization` (a read-only "Automatic") | the attention backend is chosen by launch flags |
 - **Quick settings** (`features/quicksettings`): the header's ⚡ button lists
   `quicksettings_list` minus the model bar's keys (checkpoint, VAE / TE,
   dtype, preset), rendered by the schema renderer in a lazy popover and

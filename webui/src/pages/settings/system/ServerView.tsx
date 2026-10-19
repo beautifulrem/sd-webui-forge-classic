@@ -1,14 +1,17 @@
 /**
- * Settings → Server and models: reload / restart, model memory (unload, load
- * or load again, the weights in memory), checkpoint hashes, browser
- * notifications, the settings file and the localization template.
+ * Settings → Server and models: version and API documentation link (the old
+ * footer), reload / restart, model memory (unload, load or load again, the
+ * weights in memory, the loaded checkpoint's hash with a CivitAI search link),
+ * checkpoint hashes, browser notifications, the settings file and the
+ * localization template.
  */
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { Bell, Box, Download, FileUp, Fingerprint, HardDriveDownload, Languages, ListTree, Loader2, Power, RefreshCw, Upload } from "lucide-react"
+import { Bell, BookOpen, Box, Download, ExternalLink, FileUp, Fingerprint, HardDriveDownload, Languages, ListTree, Loader2, Power, RefreshCw, Upload } from "lucide-react"
 import { type ReactNode, useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { api } from "@/api/endpoints"
+import { ROOT } from "@/api/http"
 import { useProgress } from "@/api/progress"
 import { queryClient } from "@/api/queries"
 import { Badge } from "@/components/ui/badge"
@@ -116,6 +119,28 @@ function LoadedWeights() {
   )
 }
 
+/** The loaded checkpoint's SHA256 (short form; full on hover) and a CivitAI search for it, as the old footer linked it. */
+function CheckpointHash({ hash }: { hash: string }) {
+  const { t } = useTranslation()
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+      <span>{t("Checkpoint hash")}</span>
+      <code className="font-mono text-foreground/85" title={hash}>
+        {hash.slice(0, 10)}
+      </code>
+      <a
+        href={`https://civitai.com/search/models?query=${encodeURIComponent(hash)}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 underline-offset-4 hover:text-foreground hover:underline"
+      >
+        {t("Search on CivitAI")}
+        <ExternalLink className="size-3" aria-hidden />
+      </a>
+    </p>
+  )
+}
+
 const THREADS = [1, 2, 4, 8, 16]
 
 /** Hash every checkpoint (the former "Calculate hash for all checkpoints"), with progress. */
@@ -196,7 +221,13 @@ export function ServerView({ onImport, onExport }: { onImport: () => void; onExp
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6 sm:px-6">
       <header>
         <h1 className="text-lg font-semibold tracking-tight">{t("Server and models")}</h1>
-        <p className="text-sm text-muted-foreground">{status.data ? t("Version {{version}}", { version: status.data.version }) : " "}</p>
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+          <span>{status.data ? t("Version {{version}}", { version: status.data.version }) : " "}</span>
+          <a href={`${ROOT}/docs`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 underline-offset-4 hover:text-foreground hover:underline">
+            <BookOpen className="size-3.5" aria-hidden />
+            {t("API documentation")}
+          </a>
+        </p>
       </header>
 
       <Panel icon={RefreshCw} title="Reload UI" description="Reloads scripts and extensions and rebuilds the app in this process. Use it after enabling, installing or updating extensions, or after editing a script.">
@@ -230,7 +261,12 @@ export function ServerView({ onImport, onExport }: { onImport: () => void; onExp
             {modelLoading ? t("Loading…") : loaded ? loaded.replace(/\s*\[[0-9a-f]{6,}\]$/i, "") : t("No model loaded")}
           </Badge>
         }
-        footer={<LoadedWeights />}
+        footer={
+          <>
+            {loaded && status.data?.model_hash ? <CheckpointHash hash={status.data.model_hash} /> : null}
+            <LoadedWeights />
+          </>
+        }
       >
         <Button variant="outline" disabled={model.isPending || !loaded} onClick={() => model.mutate("unload")}>
           {model.isPending && model.variables === "unload" ? <Loader2 className="animate-spin" aria-hidden /> : <HardDriveDownload aria-hidden />}

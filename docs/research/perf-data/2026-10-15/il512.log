@@ -1,0 +1,2 @@
+interleaved: on 2702 ms/step (n 60) vs off 2661.4 ms/step (n 62) -> 1.53 %; 13 window pairs 2.26 ± 2.87 % (95 % CI); 78 previews painted
+results: /tmp/remi-perf-out/il512/browser-interleaved.json

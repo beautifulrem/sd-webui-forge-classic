@@ -157,7 +157,7 @@ Labels are English text; the frontend translates them
 | `ui.Slider(name, minimum, maximum, default, step, integer=None)` | `int` when bounds, step and default are ints, else `float`; clamped | `ui.Slider("steps", 1, 150, 20, 1)` |
 | `ui.Number(name, default, minimum=None, maximum=None, step=None, precision=None)` | `int`/`float`; out of bounds is rejected | `ui.Number("seed_offset", 0, precision=0)` |
 | `ui.Text(name, default="", lines=1, max_lines=None, placeholder=None, prompt=False)` | `str`; `prompt=True` gives the prompt editor (weights, LoRA, completion) | `ui.Text("negative", "", lines=3, prompt=True)` |
-| `ui.Choice(name, choices, default=None, style="dropdown" \| "radio", allow_custom=False, type="value")` | the choice value, or its index with `type="index"` | `ui.Choice("mode", ["fast", "best"], "fast", style="radio")` |
+| `ui.Choice(name, choices, default=None, style="dropdown" \| "radio", allow_custom=False, type="value", same=None)` | the choice value, or its index with `type="index"` | `ui.Choice("mode", ["fast", "best"], "fast", style="radio")`; model titles: `ui.Choice("ckpt", lambda: checkpoint_tiles(use_short=True), same=ui.without_model_hash)` (a title from before its hash was known still matches) |
 | `ui.MultiChoice(name, choices, default=(), style="dropdown" \| "checkboxes", allow_custom=False, type="value")` | `list` of values (or indices) | `ui.MultiChoice("blocks", ["in", "mid", "out"], ["mid"], style="checkboxes")` |
 | `ui.Seed(name, default=-1)` | `int` (−1 = random); dice and recycle buttons | `ui.Seed("noise_seed")` |
 | `ui.Color(name, default="#000000")` | `"#rrggbb"` | `ui.Color("tint", "#ffcc00")` |
@@ -180,6 +180,7 @@ Keyword arguments every input takes:
 | keyword | meaning |
 |---|---|
 | `label`, `info` | English label (default: from the name; `""` hides it) and help text under the control |
+| `hint` | tooltip on the label, also the control's accessible description (Gradio's `tooltip=`); `Choice` / `MultiChoice` also take `hints={choice label: tooltip}` for their options |
 | `visible_if`, `enabled_if` | [conditions](#5-conditions) evaluated in the browser |
 | `on_change="action"` | run that [action](#6-actions) after any change of the value (user edit, paste, preset, reset) |
 | `on_input="action"` | run it only after the user's own edit (Gradio's `.input`): for derived values an infotext paste already restores |

@@ -1,0 +1,119 @@
+{
+ "base": "http://127.0.0.1:7861",
+ "date": "2026-10-15T13:22:50.063Z",
+ "throttle": 4,
+ "browser": "156.0.8078.4",
+ "inp": {
+  "chars": 1203,
+  "typeDelayMs": 100,
+  "elapsedMs": 137577,
+  "typedMatches": true,
+  "autocompletePopups": 103,
+  "completionRequests": 860,
+  "interactions": 1203,
+  "reportedOver16ms": 1196,
+  "p50": 16,
+  "p95": 24,
+  "p99": 24,
+  "max": 56,
+  "inpWebVitals": 24,
+  "worst": [
+   {
+    "id": 7248,
+    "name": "keydown",
+    "start": 2871.2999999523163,
+    "duration": 56,
+    "delay": 0.8000000715255737,
+    "processing": 0.19999992847442627
+   },
+   {
+    "id": 7248,
+    "name": "keypress",
+    "start": 2871.2999999523163,
+    "duration": 56,
+    "delay": 1,
+    "processing": 21.100000023841858
+   },
+   {
+    "id": 7458,
+    "name": "keydown",
+    "start": 6344.899999976158,
+    "duration": 48,
+    "delay": 33.39999997615814,
+    "processing": 0.3999999761581421
+   },
+   {
+    "id": 7458,
+    "name": "keypress",
+    "start": 6344.899999976158,
+    "duration": 48,
+    "delay": 33.799999952316284,
+    "processing": 6.800000071525574
+   },
+   {
+    "id": 7248,
+    "name": "keyup",
+    "start": 2893.6999999284744,
+    "duration": 32,
+    "delay": 29.800000071525574,
+    "processing": 0
+   },
+   {
+    "id": 12386,
+    "name": "keydown",
+    "start": 86210.10000002384,
+    "duration": 32,
+    "delay": 3.1999999284744263,
+    "processing": 0
+   },
+   {
+    "id": 12386,
+    "name": "keypress",
+    "start": 86210.10000002384,
+    "duration": 32,
+    "delay": 3.1999999284744263,
+    "processing": 7.600000023841858
+   },
+   {
+    "id": 7472,
+    "name": "keydown",
+    "start": 6610.5,
+    "duration": 24,
+    "delay": 0.6999999284744263,
+    "processing": 0.30000007152557373
+   }
+  ],
+  "longAnimationFrames": {
+   "count": 1,
+   "durations": {
+    "n": 1,
+    "mean": 79.4,
+    "p50": 79.4,
+    "p95": 79.4,
+    "p99": 79.4,
+    "max": 79.4
+   },
+   "worst": [
+    {
+     "start": 6309.399999976158,
+     "duration": 79.39999997615814,
+     "blocking": 20.8,
+     "scripts": [
+      {
+       "src": "vendor-DUDMDrFk.js",
+       "fn": "",
+       "d": 68
+      },
+      {
+       "src": "vendor-DUDMDrFk.js",
+       "fn": "_h",
+       "d": 6
+      }
+     ]
+    }
+   ]
+  },
+  "taskDurationS": 24.73,
+  "scriptDurationS": 8.11
+ }
+}

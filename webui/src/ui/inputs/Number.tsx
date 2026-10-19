@@ -2,10 +2,11 @@ import { useId } from "react"
 import { useTranslation } from "react-i18next"
 import { NumberField } from "@/components/ui/number-field"
 import { useParam } from "../hooks"
-import { describedBy } from "../a11y"
+import { describedBy, hintRef } from "../a11y"
 import { Field } from "../Field"
 import type { NumberNode } from "../schema"
 import { coerceNumber, stepDecimals } from "../values"
+import { useFallbackName } from "../fallback-name"
 
 export function NumberInput({ node }: { node: NumberNode }) {
   const { t } = useTranslation()
@@ -15,6 +16,7 @@ export function NumberInput({ node }: { node: NumberNode }) {
   const decimals = node.integer ? 0 : (node.precision ?? (step ? stepDecimals(step) : 6))
   const info = param.info
   const label = t(param.label)
+  const fallbackName = useFallbackName(node.name)
   const minimum = param.override.minimum ?? node.minimum
   const maximum = param.override.maximum ?? node.maximum
 
@@ -23,6 +25,7 @@ export function NumberInput({ node }: { node: NumberNode }) {
       id={id}
       label={label}
       info={info}
+      hint={param.hint}
       error={param.error}
       modified={param.modified}
       defaultValue={param.defaultValue}
@@ -31,8 +34,8 @@ export function NumberInput({ node }: { node: NumberNode }) {
     >
       <NumberField
         id={id}
-        aria-label={label ? undefined : node.name}
-        aria-describedby={describedBy(id, info, param.error)}
+        aria-label={label ? undefined : fallbackName}
+        aria-describedby={describedBy(id, info, param.error, hintRef(id, param.hint))}
         aria-invalid={Boolean(param.error)}
         value={typeof param.value === "number" ? param.value : null}
         min={minimum ?? undefined}

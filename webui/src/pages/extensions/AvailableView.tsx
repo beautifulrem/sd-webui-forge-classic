@@ -263,7 +263,7 @@ export function AvailableView() {
               <InputGroupInput type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("Search extensions")} aria-label={t("Search extensions")} />
             </InputGroup>
             <Select<IndexSort> items={SORTS.map((value) => ({ value, label: t(SORT_LABELS[value]) }))} value={sort} onValueChange={(value) => value && setSort(value)}>
-              <SelectTrigger size="sm" aria-label={t("Order")} className="min-w-40">
+              <SelectTrigger size="sm" aria-label={t("Sort order")} className="min-w-40">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

@@ -30,6 +30,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "
 import { Kbd } from "@/components/ui/kbd"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useFittingPlaceholder } from "@/lib/use-fitting-placeholder"
 import { requestServerCommand } from "@/features/server-control/server-control"
 import { useUnsaved } from "@/features/server-control/unsaved"
 import { QUICKSETTINGS_KEY } from "@/features/quicksettings/pinned"
@@ -113,6 +114,7 @@ export default function SettingsPage({ route }: { route: Route }) {
   const bootstrap = useQuery(bootstrapQuery)
   const listRef = useRef<SettingsListHandle>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const searchHint = useFittingPlaceholder(searchRef, [t("Search settings by name, help or key"), t("Search settings")])
 
   const query = useSettingsFilters((s) => s.query)
   const mode = useSettingsFilters((s) => s.mode)
@@ -284,7 +286,7 @@ export default function SettingsPage({ route }: { route: Route }) {
                       setQuery("")
                     }
                   }}
-                  placeholder={t("Search settings by name, help or key")}
+                  placeholder={searchHint}
                   aria-label={t("Search settings")}
                   aria-controls="settings-results"
                 />

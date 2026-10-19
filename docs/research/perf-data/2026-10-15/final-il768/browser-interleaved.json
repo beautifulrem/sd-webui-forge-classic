@@ -1,0 +1,247 @@
+{
+ "base": "http://127.0.0.1:7861",
+ "date": "2026-10-15T15:06:03.614Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "interleaved": {
+  "steps": 100,
+  "size": "768x768",
+  "windowS": 30,
+  "jobMs": 737460,
+  "painted": 56,
+  "browserCpuPct": 0.4,
+  "stepMsOn": {
+   "n": 37,
+   "mean": 7357.5,
+   "p50": 7353.3,
+   "p95": 7864.2,
+   "p99": 8068.6,
+   "max": 8103.4
+  },
+  "stepMsOff": {
+   "n": 37,
+   "mean": 7322.6,
+   "p50": 7293.2,
+   "p95": 7758.8,
+   "p99": 8001.7,
+   "max": 8113.3
+  },
+  "overheadPct": 0.48,
+  "pairs": [
+   -3.99,
+   2.97,
+   -2.29,
+   1.87,
+   -0.91,
+   2.6,
+   2.05,
+   4.68,
+   -0.94,
+   1.25,
+   -2.67,
+   1.29
+  ],
+  "pairMeanPct": 0.49,
+  "pairCi95Pct": 1.66,
+  "windows": [
+   {
+    "condition": "on",
+    "steps": [
+     6627,
+     6759,
+     6679
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     6709,
+     6956,
+     7235
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     6892,
+     6969,
+     7246
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     7282,
+     6785,
+     7554,
+     7356
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     7198,
+     7494,
+     7173
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     7084,
+     7748,
+     7544
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     7213,
+     7307,
+     7384
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     7277,
+     7591,
+     7446
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     7442,
+     7122,
+     7353
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     7031,
+     7507,
+     7580
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     7477,
+     7161,
+     7516
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     7626,
+     7715,
+     7389
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     7818,
+     7067,
+     7280
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     7332,
+     7314,
+     7075
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     7293,
+     7032,
+     7212,
+     7404
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     8007,
+     7363,
+     7353
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     7346,
+     7807,
+     7098
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     8113,
+     7110,
+     7239
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     7123,
+     7258,
+     7540
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     7141,
+     7829,
+     7226
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     7110,
+     7014,
+     7719
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     7255,
+     7526,
+     7663
+    ]
+   },
+   {
+    "condition": "off",
+    "steps": [
+     7431,
+     7653,
+     7803
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": [
+     8103,
+     7592,
+     7487
+    ]
+   },
+   {
+    "condition": "on",
+    "steps": []
+   }
+  ]
+ }
+}

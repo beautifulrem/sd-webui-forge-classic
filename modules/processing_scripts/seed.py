@@ -1,6 +1,7 @@
 
 from modules import scripts
 from remi import ui
+from remi.core import hints
 
 
 def _subseed_shown(params: dict) -> bool:
@@ -20,7 +21,7 @@ class ScriptSeed(scripts.ScriptBuiltinUI):
         shown = ui.param("subseed_show")
         return ui.Group(
             ui.Row(
-                ui.Seed("seed", -1, label="Seed", infotext="Seed"),
+                ui.Seed("seed", -1, label="Seed", hint=hints.SEED, infotext="Seed"),
                 ui.Toggle("subseed_show", False, label="Extra", paste=_subseed_shown, width="auto"),
             ),
             ui.Group(

@@ -71,7 +71,8 @@ export default function AppearanceMenu({ locales }: { locales: LocaleInfo[] }) {
             {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
               <DropdownMenuRadioItem key={value} value={value}>
                 <Icon aria-hidden />
-                {t(label)}
+                {/* "System" here means "follow the system", not the settings category */}
+                {value === "system" ? t("System", { context: "theme" }) : t(label)}
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>

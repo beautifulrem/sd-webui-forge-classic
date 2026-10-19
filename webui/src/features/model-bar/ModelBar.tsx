@@ -64,6 +64,8 @@ function CheckpointPicker({ className }: { className?: string }) {
   const busy = write.isPending || loading !== null
   return (
     <SearchSelect
+      // the loading stage sits inside the pill, so a crowded header never cuts it off
+      suffix={loading ? loadingText(t, loading) : null}
       aria-label={t("Checkpoint")}
       size="sm"
       className={className}
@@ -142,7 +144,7 @@ function ModulesPicker({ className }: { className?: string }) {
           {selected.length}
         </Badge>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(26rem,calc(100vw-2rem))] gap-2 p-2">
+      <PopoverContent aria-labelledby={`${id}-title`} align="end" className="w-[min(26rem,calc(100vw-2rem))] gap-2 p-2">
         <div className="flex items-center justify-between gap-2 px-1">
           <p id={`${id}-title`} className="text-sm font-medium">
             {t("VAE / Text encoders")}
@@ -154,23 +156,23 @@ function ModulesPicker({ className }: { className?: string }) {
           ) : null}
         </div>
         <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("Search…")} aria-label={t("Search modules")} className="h-8" />
-        <ul role="group" aria-labelledby={`${id}-title`} className="flex max-h-72 flex-col gap-0.5 overflow-y-auto overscroll-contain">
+        <div role="group" aria-labelledby={`${id}-title`} className="flex max-h-72 flex-col gap-0.5 overflow-y-auto overscroll-contain">
           {[...missing.map((value) => ({ value, label: value, size: null, missing: true })), ...visible.map((m) => ({ ...m, missing: false }))].map(
             (m, index) => {
               const checkId = `${id}-module-${index}` // paths contain spaces and slashes
               return (
-                <li key={m.value} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent">
+                <div key={m.value} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent">
                   <Checkbox id={checkId} checked={selected.includes(m.value)} onCheckedChange={(on) => toggle(m.value, on)} />
                   <label htmlFor={checkId} className={cn("min-w-0 flex-1 truncate text-sm", m.missing && "text-muted-foreground line-through")}>
                     {m.label}
                   </label>
                   {m.size ? <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{m.size}</span> : null}
-                </li>
+                </div>
               )
             },
           )}
-          {modules.length === 0 ? <li className="px-2 py-4 text-center text-sm text-muted-foreground">{t("No modules found")}</li> : null}
-        </ul>
+          {modules.length === 0 ? <p className="px-2 py-4 text-center text-sm text-muted-foreground">{t("No modules found")}</p> : null}
+        </div>
         <p className="px-1 text-xs text-muted-foreground">{t("Applied when this panel closes.")}</p>
       </PopoverContent>
     </Popover>
@@ -202,15 +204,18 @@ function DtypeSelect({ className }: { className?: string }) {
   )
 }
 
+function loadingText(t: (key: string) => string, loading: NonNullable<ReturnType<typeof useModelBusy>>): string {
+  const percent = typeof loading.progress === "number" ? Math.round(loading.progress * 100) : null
+  return percent !== null ? `${t(loading.stage)} ${percent}%` : t(loading.stage)
+}
+
+/** The model loading stage as a live region (visible in the stacked bar, announced only in the header). */
 function LoadingStatus({ className }: { className?: string }) {
   const { t } = useTranslation()
   const loading = useModelBusy()
-  if (!loading) return null
-  const percent = typeof loading.progress === "number" ? Math.round(loading.progress * 100) : null
   return (
-    <span role="status" className={cn("max-w-40 truncate text-xs text-muted-foreground", className)}>
-      {t(loading.stage)}
-      {percent !== null ? ` ${percent}%` : ""}
+    <span role="status" className={cn("text-xs text-muted-foreground empty:hidden", className)}>
+      {loading ? loadingText(t, loading) : null}
     </span>
   )
 }
@@ -223,7 +228,7 @@ function ModelSettingsPopover({ className }: { className?: string }) {
       <PopoverTrigger render={<Button variant="ghost" size="icon-sm" className={className} aria-label={t("Model settings")} />}>
         <SlidersHorizontal />
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[min(22rem,calc(100vw-2rem))] gap-3">
+      <PopoverContent aria-label={t("Model settings")} align="end" className="w-[min(22rem,calc(100vw-2rem))] gap-3">
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-muted-foreground">{t("UI preset")}</span>
           <PresetSelect className="w-full" />
@@ -250,7 +255,7 @@ export default function ModelBar() {
       <ModulesPicker className="hidden xl:inline-flex" />
       <DtypeSelect className="hidden xl:flex" />
       <ModelSettingsPopover className="xl:hidden" />
-      <LoadingStatus className="hidden xl:inline" />
+      <LoadingStatus className="sr-only" />
     </div>
   )
 }

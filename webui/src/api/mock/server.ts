@@ -13,7 +13,7 @@ import type { ActionRequest, FormTab, InfotextParsed, Job, JobOutput, JobRequest
 import { bootstrap, extrasSchema, models, serverCatalogZh, styles, tabSchema, toolboxPage } from "./fixtures"
 import { broadcast, broadcastBinary } from "./socket"
 import { adminRoutes } from "./admin"
-import { networkRoutes } from "./networks"
+import { missingLoras, networkRoutes } from "./networks"
 import { libraryRoutes } from "./library"
 
 type Handler = (match: RegExpExecArray, body: unknown, url: URL) => unknown | Promise<unknown>
@@ -166,6 +166,15 @@ function actionPatch(owner: string, action: string, body: ActionRequest & { sele
         values.transform === "lower" ? text.toLowerCase() : values.transform === "reverse" ? [...text].reverse().join("") : text.toUpperCase()
       return { __outputs__: { result } }
     }
+    case "page:toolbox/kit_build": {
+      const parts = ["kit_quality", "kit_subject", "kit_series", "kit_general"].map((name) => String(values[name] ?? "").trim()).filter(Boolean)
+      return { kit_prompt: { value: parts.join(", ") }, __outputs__: { kit_status: "✅ Prompt built" } }
+    }
+    case "page:toolbox/kit_clear":
+      return {
+        ...Object.fromEntries(["kit_prompt", "kit_quality", "kit_subject", "kit_series", "kit_general"].map((name) => [name, { value: "" }])),
+        __outputs__: { kit_status: "⚪ Fields cleared" },
+      }
     default:
       return { __toast__: { level: "warning", message: `Mock: no handler for ${owner}/${action}` } }
   }
@@ -336,7 +345,10 @@ async function runJob(job: Job, request: JobRequest) {
     if (request.tab !== "extras") lastInfotext = text // like params.txt: generations only
     job.status = "completed"
     job.outputs = outputs
-    broadcast({ type: "job.completed", job_id: job.id, seq: job.seq, tab: job.tab, status: "completed", outputs, infotext: text })
+    // like sd_forge_lora: a LoRA that is not there is noted (p.comment) and becomes a job warning
+    const missing = missingLoras(String(request.core.prompt ?? ""))
+    job.warnings = missing.length ? [{ message: "{{note}}", values: { note: `LoRA not found or failed to load: ${missing.join(", ")}` } }] : []
+    broadcast({ type: "job.completed", job_id: job.id, seq: job.seq, tab: job.tab, status: "completed", outputs, infotext: text, warnings: job.warnings })
   }
   broadcast({ type: "queue.changed", ...queueStatus() })
   startNext()

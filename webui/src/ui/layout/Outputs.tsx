@@ -1,10 +1,33 @@
-import { ImageOff } from "lucide-react"
+import { CircleAlert, CircleCheck, CircleX, ImageOff, Info } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { cn } from "@/lib/utils"
 import { useFormState, useOwner } from "../hooks"
 import { SafeHtml } from "../RichText"
 import { type ImageRef, toImageRef } from "../image-ref"
 import { isMessage, messageText } from "../messages"
 import type { GalleryNode, OutputNode } from "../schema"
+import { parseStatus, type StatusTone } from "../status-text"
+
+const TONES: Record<StatusTone, { icon: typeof Info; className: string }> = {
+  success: { icon: CircleCheck, className: "bg-success/10 text-foreground [&>svg]:text-success" },
+  info: { icon: Info, className: "bg-muted/60 text-foreground [&>svg]:text-muted-foreground" },
+  warning: { icon: CircleAlert, className: "bg-warning/12 text-foreground [&>svg]:text-warning" },
+  error: { icon: CircleX, className: "bg-destructive/10 text-foreground [&>svg]:text-destructive" },
+}
+
+/** A text output; a leading status emoji becomes the shared status styling (icon and tone). */
+function TextOutput({ text }: { text: string }) {
+  const status = parseStatus(text)
+  if (!status.tone) return <div className="rounded-md bg-muted/60 px-2.5 py-2 text-sm whitespace-pre-wrap">{text}</div>
+  const tone = TONES[status.tone]
+  const Icon = tone.icon
+  return (
+    <div data-tone={status.tone} className={cn("flex items-start gap-2 rounded-md px-2.5 py-2 text-sm", tone.className)}>
+      <Icon aria-hidden className="mt-0.5 size-4 shrink-0" />
+      <span className="min-w-0 break-words whitespace-pre-wrap">{status.text}</span>
+    </div>
+  )
+}
 
 function useOutput(name: string): unknown {
   const owner = useOwner()
@@ -66,7 +89,7 @@ export function OutputView({ node }: { node: OutputNode }) {
       break
     default: {
       const text = value === undefined || value === null ? "" : isMessage(value) || typeof value === "string" ? messageText(i18n, value) : String(value)
-      body = text ? <div className="rounded-md bg-muted/60 px-2.5 py-2 text-sm whitespace-pre-wrap">{text}</div> : null
+      body = text ? <TextOutput text={text} /> : null
     }
   }
   if (!body && !node.label) return null

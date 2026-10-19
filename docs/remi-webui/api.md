@@ -262,7 +262,7 @@ server sends `hello`, then a snapshot: `queue.changed`, and `job.started` +
 | `job.queued` | `job_id`, `seq`, `tab`, `position` | a job was added |
 | `job.started` | `job_id`, `seq`, `tab` | the worker holds the generation lock and starts it |
 | `job.progress` | `job_id`, `seq`, `tab`, `step`, `steps`, `eta` (s), `job_no` (0-based), `job_count`, `progress` (0–1), `text` | while running |
-| `job.completed` | `job_id`, `seq`, `tab`, `status` (`completed`, `interrupted`, `cancelled`), `outputs`, `infotext`, `warnings` (only when a script step raised and was skipped; also the job's `warnings`) | finished with results (possibly none) |
+| `job.completed` | `job_id`, `seq`, `tab`, `status` (`completed`, `interrupted`, `cancelled`), `outputs`, `infotext`, `warnings` (only when a script step raised and was skipped, or the processing left a note with `p.comment()`, e.g. a feature skipped on this device; also the job's `warnings`) | finished with results (possibly none) |
 | `job.failed` | `job_id`, `seq`, `tab`, `status` (`failed`, `cancelled`), `error`, `errors`? | failed, or cancelled before it ran |
 | `options.changed` | `keys` | settings changed (by anyone) |
 | `networks.changed` | `kind`? | a network list was rescanned |
@@ -293,7 +293,11 @@ offset  size  field
 A dedicated encoder thread sends each new preview as soon as the sampler
 produces it, at most `live_preview_fps` frames per second (setting, default
 6), JPEG when the live preview format setting is
-JPEG, else WebP, and nothing while no client is connected. Each client has
+JPEG, else WebP, and nothing while no client is connected. `job.progress`
+is published when the step counter changes (checked every 0.2 s), so it
+reports the step being sampled and arrives shortly after the previous
+step's frame; a client that wants one update per step can show it with the
+next frame, as the SPA does. Each client has
 one preview slot: a newer frame replaces one not yet sent, so slow clients
 skip frames instead of lagging. Events have a bounded queue per client
 (256); on overflow the client gets `resync`.

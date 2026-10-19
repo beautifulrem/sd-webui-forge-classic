@@ -46,6 +46,25 @@ describe("input kinds", () => {
     expect(core(store).steps).toBe(42)
   })
 
+  it("hints: a tooltip on the label, the control's description, choice tooltips", () => {
+    renderSchema(
+      schemaOf({
+        type: "column",
+        children: [
+          { type: "slider", name: "cfg", label: "CFG Scale", hint: "The strength used to calculate conditionings", minimum: 1, maximum: 30, step: 0.5, integer: false },
+          { type: "toggle", name: "hr", label: "Hires. fix", hint: "Automatically perform an additional pass of img2img" },
+          { type: "choice", name: "fill", label: "Masked content", style: "radio", choices: [{ value: "fill", label: "fill" }, { value: "original", label: "original" }], choice_hints: { fill: "Fill the masked areas with neighboring colors" } },
+        ],
+      }, { cfg: 7, hr: false, fill: "fill" }),
+    )
+    const box = screen.getByLabelText("CFG Scale", { selector: "input:not([type=range])" })
+    expect(box).toHaveAccessibleDescription("The strength used to calculate conditionings")
+    expect(screen.getByText("CFG Scale", { selector: "label" }).className).toContain("decoration-dotted")
+    expect(screen.getByRole("switch", { name: "Hires. fix" })).toHaveAccessibleDescription("Automatically perform an additional pass of img2img")
+    expect(screen.getByRole("radio", { name: "fill" })).toHaveAttribute("title", "Fill the masked areas with neighboring colors")
+    expect(screen.getByRole("radio", { name: "original" })).not.toHaveAttribute("title")
+  })
+
   it("number", () => {
     const store = one({ type: "number", name: "shift", label: "Shift", minimum: 0, maximum: 10, step: 0.1, precision: 2 }, { shift: 3 })
     const input = screen.getByLabelText("Shift")

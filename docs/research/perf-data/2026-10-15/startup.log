@@ -1,0 +1,30 @@
+old-api: warm-up
+  old-api #1: ready 6.56 s, reported 6.5 s, RSS 703 MB
+  old-api #2: ready 6.58 s, reported 6.5 s, RSS 705 MB
+  old-api #3: ready 6.57 s, reported 6.5 s, RSS 701 MB
+  old-api #4: ready 6.6 s, reported 6.5 s, RSS 701 MB
+  old-api #5: ready 6.73 s, reported 6.6 s, RSS 703 MB
+new-api: warm-up
+  new-api #1: ready 4.17 s, reported 4.1 s, RSS 641 MB
+  new-api #2: ready 4.17 s, reported 4.1 s, RSS 647 MB
+  new-api #3: ready 4.22 s, reported 4.2 s, RSS 648 MB
+  new-api #4: ready 4.19 s, reported 4.1 s, RSS 642 MB
+  new-api #5: ready 4.3 s, reported 4.3 s, RSS 650 MB
+old-ui: warm-up
+  old-ui #1: ready 11.59 s, reported None s, RSS 1160 MB
+  old-ui #2: ready 12.13 s, reported None s, RSS 1155 MB
+  old-ui #3: ready 12.02 s, reported None s, RSS 1172 MB
+  old-ui #4: ready 13.97 s, reported None s, RSS 1180 MB
+  old-ui #5: ready 11.86 s, reported None s, RSS 1160 MB
+new-ui: warm-up
+  new-ui #1: ready 4.32 s, reported 4.3 s, RSS 644 MB
+  new-ui #2: ready 4.23 s, reported 4.2 s, RSS 645 MB
+  new-ui #3: ready 4.37 s, reported 4.3 s, RSS 642 MB
+  new-ui #4: ready 4.58 s, reported 4.6 s, RSS 640 MB
+  new-ui #5: ready 4.77 s, reported 4.7 s, RSS 643 MB
+
+tree-mode   ready (median)   reported      RSS
+old-api             6.58 s      6.5 s   703 MB
+new-api             4.19 s      4.1 s   647 MB
+old-ui             12.02 s     None s  1160 MB
+new-ui              4.37 s      4.3 s   643 MB

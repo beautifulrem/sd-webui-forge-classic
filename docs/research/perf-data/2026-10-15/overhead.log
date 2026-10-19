@@ -1,0 +1,12 @@
+  browser: 0.1494 it/s (24 steps, 163596 ms, 23 previews painted)
+  api: 0.1547 it/s (24 steps, 158027 ms)
+  api: 0.1579 it/s (24 steps, 154596 ms)
+  browser: 0.1515 it/s (24 steps, 161732 ms, 23 previews painted)
+  browser: 0.1537 it/s (24 steps, 159264 ms, 23 previews painted)
+  api: 0.1602 it/s (24 steps, 152811 ms)
+  api: 0.1561 it/s (24 steps, 156753 ms)
+  browser: 0.1473 it/s (24 steps, 166176 ms, 23 previews painted)
+  browser: 0.1437 it/s (24 steps, 170136 ms, 23 previews painted)
+  api: 0.1516 it/s (24 steps, 160837 ms)
+overhead: browser 0.1491 it/s vs api 0.1561 it/s -> 4.47 % (median 4.29 %)
+results: /tmp/remi-perf-out/browser-overhead.json

@@ -28,6 +28,7 @@ class NodeSchema(TypedDict, total=False):
     name: str
     label: str
     info: str
+    hint: str
     default: Any
     on_change: str
     on_input: str
@@ -46,6 +47,7 @@ class NodeSchema(TypedDict, total=False):
     placeholder: str
     prompt: bool
     choices: list[ChoiceEntry]
+    choice_hints: dict[str, str]
     style: str
     allow_custom: bool
     kind: str
@@ -79,6 +81,7 @@ class PatchEntry(TypedDict, total=False):
     enabled: bool
     label: str
     info: str
+    hint: str
     minimum: float
     maximum: float
     step: float

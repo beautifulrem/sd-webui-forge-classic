@@ -5,11 +5,30 @@
  */
 import { Combobox } from "@base-ui/react/combobox"
 import { Check, ChevronsUpDown, CornerDownLeft } from "lucide-react"
-import { useState, type ReactNode } from "react"
+import { useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 
 export type SelectOption = { value: string; label: string; hint?: string }
+
+/**
+ * The trigger's accessible name as the user hears it: `aria-label`, then the
+ * `aria-labelledby` targets, then a `<label for>`. The popup (a `role="dialog"`
+ * because its search field lives inside it) is named after it.
+ */
+function triggerName(trigger: HTMLElement | null): string {
+  if (!trigger) return ""
+  const own = trigger.getAttribute("aria-label")?.trim()
+  if (own) return own
+  const ids = trigger.getAttribute("aria-labelledby")?.split(/\s+/).filter(Boolean) ?? []
+  const byIds = ids
+    .map((id) => trigger.ownerDocument.getElementById(id)?.textContent?.trim() ?? "")
+    .filter(Boolean)
+    .join(" ")
+  if (byIds) return byIds
+  const labels = (trigger as HTMLButtonElement).labels
+  return labels?.[0]?.textContent?.trim() ?? ""
+}
 
 type SearchSelectProps = {
   options: readonly SelectOption[]
@@ -26,6 +45,8 @@ type SearchSelectProps = {
   "aria-invalid"?: boolean
   /** Extra content in the trigger before the value (e.g. an icon). */
   prefix?: ReactNode
+  /** Short text after the value that never truncates (e.g. a loading stage); decorative, announce it elsewhere. */
+  suffix?: ReactNode
   size?: "sm" | "default"
 }
 
@@ -33,6 +54,8 @@ export function SearchSelect(props: SearchSelectProps) {
   const { t } = useTranslation()
   const { options, value, onValueChange, allowCustom = false, size = "default" } = props
   const [query, setQuery] = useState("")
+  const trigger = useRef<HTMLButtonElement>(null)
+  const [popupName, setPopupName] = useState("")
   const selected = options.find((o) => o.value === value) ?? (value ? { value, label: value } : null)
   const trimmed = query.trim()
   const offerCustom = allowCustom && trimmed !== "" && !options.some((o) => o.label === trimmed || o.value === trimmed)
@@ -56,11 +79,15 @@ export function SearchSelect(props: SearchSelectProps) {
       // Enter picks the first match (with custom values, Enter commits the typed text instead).
       autoHighlight={!allowCustom}
       onOpenChange={(open) => {
-        if (!open) setQuery("")
+        if (open) setPopupName(triggerName(trigger.current))
+        else setQuery("")
       }}
     >
       <Combobox.Trigger
+        ref={trigger}
         id={props.id}
+        // the value may be truncated in a narrow trigger: hovering shows all of it
+        title={selected?.label}
         aria-label={props["aria-label"]}
         aria-labelledby={props["aria-labelledby"]}
         aria-describedby={props["aria-describedby"]}
@@ -78,11 +105,17 @@ export function SearchSelect(props: SearchSelectProps) {
         <span className={cn("min-w-0 flex-1 truncate", !selected && "text-muted-foreground")}>
           {selected ? selected.label : (props.placeholder ?? t("Select…"))}
         </span>
+        {props.suffix ? (
+          <span aria-hidden className="max-w-[60%] shrink-0 truncate text-xs text-muted-foreground tabular-nums">
+            {props.suffix}
+          </span>
+        ) : null}
         <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
       </Combobox.Trigger>
       <Combobox.Portal>
         <Combobox.Positioner sideOffset={4} align="start" className="isolate z-50">
           <Combobox.Popup
+            aria-label={popupName || props.placeholder || t("Options")}
             className={cn(
               "cn-menu-translucent flex max-h-[min(24rem,var(--available-height))] w-(--anchor-width) min-w-56 max-w-[min(32rem,var(--available-width))] origin-(--transform-origin) flex-col overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10",
               "duration-100 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",

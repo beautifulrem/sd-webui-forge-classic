@@ -115,6 +115,23 @@ table (exit 1 on a failed check, 2 when the server did not start). It
 refuses to run while another `launch.py` holds the model. Not part of
 `tools/check.sh` or CI (it needs the model and a GPU / MPS).
 
+`--features` also checks the Anima features that need LoRA files and the
+paste round-trips (about five more minutes). It writes two tiny deterministic
+test LoRAs for the checkpoint (`tools/anima_test_loras.py`, rank 4, only the
+checkpoint's safetensors header is read) into the temporary data folder and
+starts the server with `--lora-dir` there, then checks at 512x512: a LoRA
+changes the image; LoRA Layer Weight at block weight 0 undoes it; LoRA Stage
+Scheduler changes it; Anima FreeFuse routes the two LoRAs (infotext
+`Anima FreeFuse: 2 subjects ...`); Sparse Attention records its settings on a
+CUDA GPU with sol_attn and elsewhere leaves the image unchanged with the job
+warning "... was skipped: CUDA device is required"; inpaint with "Masked
+content: latent noise" finishes and keeps the unmasked half. Each feature
+job's infotext (and Prompt Anchor's, PP Suite's and, with a second
+checkpoint installed, the Refiner's) goes through `POST /api/v2/infotext/parse`
+without problems and, queued again, gives the same pixels and infotext.
+The same LoRAs can be written into a LoRA folder by hand:
+`$PYTHON tools/anima_test_loras.py models/Stable-diffusion/<anima>.safetensors models/Lora`.
+
 ## Browser audit of the real server
 
 `docs/remi-webui/integration-checklist.md` records the full walk-through

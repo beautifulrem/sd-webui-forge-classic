@@ -78,7 +78,7 @@ function QuickSettingsHint() {
   return (
     <p>
       {t("Pin a setting with the pin button next to it to add it here.")}{" "}
-      <button type="button" className="text-primary underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none" onClick={() => setSettingsMode("pinned")}>
+      <button type="button" className="text-primary underline-offset-2 hover:underline rounded-sm focus-visible:underline focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none" onClick={() => setSettingsMode("pinned")}>
         {t("Show pinned settings")}
       </button>
     </p>
@@ -113,7 +113,7 @@ function SettingHelp({ node }: { node: SettingNode }) {
               href={safeUrl(link.url) ?? undefined}
               target="_blank"
               rel="noreferrer noopener"
-              className="inline-flex items-center gap-0.5 text-primary underline-offset-2 hover:underline focus-visible:underline focus-visible:outline-none"
+              className="inline-flex items-center gap-0.5 text-primary underline-offset-2 hover:underline rounded-sm focus-visible:underline focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
             >
               {t(link.label)}
               <ExternalLink className="size-3" aria-hidden />

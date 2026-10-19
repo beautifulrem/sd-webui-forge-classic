@@ -1,0 +1,9 @@
+{
+ "base": "http://127.0.0.1:7861",
+ "date": "2026-10-15T14:02:21.094Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "overhead": {
+  "error": "locator.click: Target page, context or browser has been closed\n    at uiJob (/Volumes/Remi/Anima/sd-webui-forge-classic/webui/tools/perf/browser.mjs:492:16)\n    at measureOverhead (/Volumes/Remi/Anima/sd-webui-forge-classic/webui/tools/perf/browser.mjs:620:21)\n    at async file:///Volumes/Remi/Anima/sd-webui-forge-classic/webui/tools/perf/browser.mjs:678:7"
+ }
+}

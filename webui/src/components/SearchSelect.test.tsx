@@ -26,4 +26,23 @@ describe("SearchSelect", () => {
     await user.keyboard("dpm{Enter}")
     await waitFor(() => expect(onValueChange).toHaveBeenCalledWith("DPM++ 2M"))
   })
+
+  it("names its popup dialog after the trigger's label", async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <label htmlFor="sampler">Sampling method</label>
+        <SearchSelect id="sampler" options={options} value="Euler" onValueChange={() => {}} />
+      </>,
+    )
+    await user.click(screen.getByRole("combobox", { name: "Sampling method" }))
+    expect(await screen.findByRole("dialog", { name: "Sampling method" })).toBeInTheDocument()
+  })
+
+  it("names its popup dialog after an aria-label", async () => {
+    const user = userEvent.setup()
+    render(<SearchSelect options={options} value="Euler" onValueChange={() => {}} aria-label="Checkpoint" />)
+    await user.click(screen.getByRole("combobox", { name: "Checkpoint" }))
+    expect(await screen.findByRole("dialog", { name: "Checkpoint" })).toBeInTheDocument()
+  })
 })

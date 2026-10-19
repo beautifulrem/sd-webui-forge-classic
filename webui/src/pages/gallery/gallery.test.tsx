@@ -183,6 +183,22 @@ describe("gallery page", { timeout: 20_000 }, () => {
     expect(screen.getByRole("button", { name: "Clear filters" })).toBeInTheDocument()
   })
 
+  it("reads past pages left empty by missing files and counts only what it shows", async () => {
+    // the server's first page skipped files that are gone: no items, a cursor, and a stale total
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = new URL((input as Request).url)
+      const path = url.pathname.replace("/api/v2", "")
+      let data: unknown = {}
+      if (path === "/gallery") data = url.searchParams.get("cursor") ? { items: [item(7)], next_cursor: null, total: null } : { items: [], next_cursor: "c1", total: 10006 }
+      else if (path === "/gallery/facets") data = { models: [], categories: [], oldest: null, newest: null, total: 1, starred: 0 }
+      return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } })
+    })
+    renderPage()
+    expect(await screen.findByRole("button", { name: "prompt number 7" })).toBeInTheDocument()
+    expect(screen.getByText("Images: 1")).toBeInTheDocument()
+    expect(screen.queryByText("No images yet")).not.toBeInTheDocument()
+  })
+
   it("explains an empty library", async () => {
     mockServer([])
     renderPage()

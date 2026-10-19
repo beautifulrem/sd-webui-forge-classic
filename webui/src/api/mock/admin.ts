@@ -181,7 +181,7 @@ export const adminRoutes: [method: string, pattern: RegExp, handler: Handler][] 
     if (Date.now() < downUntil) throw new MockHttpError(503, { detail: "Mock: restarting" })
     return { instance }
   }],
-  ["GET", /^\/server\/status$/, () => ({ restartable: true, extension_access: true, settings_frozen: false, model_loaded: modelLoaded, version: "mock" })],
+  ["GET", /^\/server\/status$/, () => ({ restartable: true, extension_access: true, settings_frozen: false, model_loaded: modelLoaded, model_hash: modelLoaded ? "4f1c2a9d8e7b6c5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a" : null, version: "mock" })],
   [
     "POST",
     /^\/server\/(reload|restart)$/,

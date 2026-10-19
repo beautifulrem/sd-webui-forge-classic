@@ -1,0 +1,101 @@
+{
+ "base": "http://127.0.0.1:7861",
+ "date": "2026-10-15T11:47:20.736Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "inp": {
+  "chars": 1203,
+  "typeDelayMs": 100,
+  "elapsedMs": 134015,
+  "typedMatches": true,
+  "autocompletePopups": 103,
+  "completionRequests": 857,
+  "interactions": 1203,
+  "reportedOver16ms": 633,
+  "p50": 16,
+  "p95": 24,
+  "p99": 24,
+  "max": 32,
+  "inpWebVitals": 24,
+  "worst": [
+   {
+    "id": 4134,
+    "name": "keydown",
+    "start": 2628.2999999523163,
+    "duration": 32,
+    "delay": 0.10000002384185791,
+    "processing": 0.20000004768371582
+   },
+   {
+    "id": 4134,
+    "name": "keypress",
+    "start": 2628.2999999523163,
+    "duration": 32,
+    "delay": 0.30000007152557373,
+    "processing": 4
+   },
+   {
+    "id": 4624,
+    "name": "keydown",
+    "start": 10356,
+    "duration": 32,
+    "delay": 0,
+    "processing": 0.10000002384185791
+   },
+   {
+    "id": 4624,
+    "name": "keypress",
+    "start": 10356,
+    "duration": 32,
+    "delay": 0.10000002384185791,
+    "processing": 1.7999999523162842
+   },
+   {
+    "id": 4624,
+    "name": "keyup",
+    "start": 10358.299999952316,
+    "duration": 32,
+    "delay": 0,
+    "processing": 0
+   },
+   {
+    "id": 8908,
+    "name": "keydown",
+    "start": 78011.89999997616,
+    "duration": 32,
+    "delay": 3.600000023841858,
+    "processing": 0.2999999523162842
+   },
+   {
+    "id": 8908,
+    "name": "keypress",
+    "start": 78011.89999997616,
+    "duration": 32,
+    "delay": 3.899999976158142,
+    "processing": 6.700000047683716
+   },
+   {
+    "id": 10280,
+    "name": "keydown",
+    "start": 99718.60000002384,
+    "duration": 32,
+    "delay": 3,
+    "processing": 0.2999999523162842
+   }
+  ],
+  "longAnimationFrames": {
+   "count": 0,
+   "durations": {
+    "n": 0,
+    "mean": null,
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "max": null
+   },
+   "worst": []
+  },
+  "taskDurationS": 15.36,
+  "scriptDurationS": 5.06
+ }
+}

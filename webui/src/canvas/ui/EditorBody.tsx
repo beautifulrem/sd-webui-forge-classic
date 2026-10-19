@@ -30,6 +30,7 @@ import { createStore, useStore } from "zustand"
 import { Button } from "@/components/ui/button"
 import { useAppearance } from "@/lib/theme"
 import { cn } from "@/lib/utils"
+import { usePasteTarget } from "@/ui/paste-targets"
 import { fitView, isEmptyRect, nextZoomStep, type Rect, type View, zoomAt } from "../core/geometry"
 import { aspectFrame, inpaintArea, RESIZE_MODES, scaledSize } from "../core/overlays"
 import { parseHex, toHex } from "../core/pixels"
@@ -186,6 +187,8 @@ export function EditorBody({ doc, editor, screenBrush, plainColor, toolbarAlways
   useEffect(() => {
     latest.current = snapshot()
   })
+  // A paste with no image field hovered or focused goes to the first empty one on screen (this editor while it has no image).
+  usePasteTarget(!editor.noUpload, { element: () => rootRef.current, empty: () => !hasImage, deliver: (files) => onFiles(files) })
 
   // ------------------------------------------------------------ renderer, input, view
 

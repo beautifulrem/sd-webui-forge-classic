@@ -47,6 +47,18 @@ describe("lightbox", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false, expect.anything())
   })
 
+  it("turns the page on a sideways wheel (once per swipe) and zooms on a vertical one", () => {
+    const { onNavigate, image } = renderViewer()
+    const viewport = image.parentElement!
+    fireEvent.wheel(viewport, { deltaX: 40, deltaY: 2 })
+    fireEvent.wheel(viewport, { deltaX: 40, deltaY: 2 }) // the same swipe
+    expect(onNavigate).toHaveBeenCalledTimes(1)
+    expect(onNavigate).toHaveBeenLastCalledWith("job:1")
+    expect(zoomText()).toContain("100%")
+    fireEvent.wheel(viewport, { deltaY: -100 })
+    expect(zoomText()).not.toContain(" 100%")
+  })
+
   it("zooms with + / − and resets with 1", () => {
     const { dialog } = renderViewer()
     expect(zoomText()).toContain("100%")

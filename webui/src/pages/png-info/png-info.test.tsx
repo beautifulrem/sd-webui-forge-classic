@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { queryClient } from "@/api/queries"
 import type { ImageMetadata } from "@/api/types"
+import { toast } from "sonner"
 import { groupEntries } from "@/features/pnginfo/group"
 import PngInfoPage from "./index"
 
@@ -58,10 +59,21 @@ describe("PNG Info page", () => {
     const calls = mockServer()
     renderPage()
     const zone = screen.getByRole("button", { name: "Choose an image to read" })
-    const file = new File([new Uint8Array([137, 80, 78, 71])], "cat.png", { type: "image/png" })
+    const file = new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], "cat.png", { type: "image/png" })
     fireEvent.drop(zone, { dataTransfer: { files: [file] } })
     await waitFor(() => expect(calls.some((call) => call.path === "/uploads")).toBe(true))
     await waitFor(() => expect(location.hash).toBe("#/png-info?file=up1"))
+  })
+
+  it("refuses a file that is not an image without uploading it", async () => {
+    const calls = mockServer()
+    const error = vi.spyOn(toast, "error")
+    renderPage()
+    const zone = screen.getByRole("button", { name: "Choose an image to read" })
+    // named and typed like a PNG, but text inside: the server would answer 415
+    fireEvent.drop(zone, { dataTransfer: { files: [new File(["just some notes"], "notes.png", { type: "image/png" })] } })
+    await waitFor(() => expect(error).toHaveBeenCalledWith("Not an image: notes.png"))
+    expect(calls.some((call) => call.path === "/uploads")).toBe(false)
   })
 
   it("shows the parameters, every metadata entry and the PNG chunks", async () => {

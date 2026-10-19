@@ -276,6 +276,24 @@ def test_form_values_pack_into_the_legacy_dicts(ad, models):
     assert ad.pack_args(flat[:-4]) == args
 
 
+def test_checkpoint_title_from_before_its_hash_was_known_is_accepted(ad, models, monkeypatch):
+    """A page loaded before the checkpoint's hash was computed holds
+    ``anima`` as every tab's default; once the first generation hashed it the
+    choice reads ``anima [fba1195327]``. A second Generate from that page must
+    not be rejected (422 ``'anima' is not one of the choices``)."""
+
+    script = make(ad)
+    monkeypatch.setattr(ad.WEBUI_INFO, "checkpoints_list", lambda: ["anima"])
+    stale = script.layout.coerce({})
+    assert {stale[ad.param_name("ad_checkpoint", n)] for n in range(4)} == {"anima"}
+    monkeypatch.setattr(ad.WEBUI_INFO, "checkpoints_list", lambda: ["anima [fba1195327]", "other [0123abcd]"])
+    values = script.layout.coerce(stale)
+    assert {values[ad.param_name("ad_checkpoint", n)] for n in range(4)} == {"anima [fba1195327]"}
+    # and the hashed title of an infotext from another machine before this one hashed it
+    monkeypatch.setattr(ad.WEBUI_INFO, "checkpoints_list", lambda: ["anima", "other"])
+    assert script.layout.coerce({"ad_checkpoint": "other [0123abcd]"})["ad_checkpoint"] == "other"
+
+
 def test_world_flag_follows_the_detector(ad, models):
     script = make(ad)
     layout = script.layout

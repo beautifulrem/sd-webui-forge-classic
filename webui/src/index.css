@@ -288,6 +288,11 @@
     align-self: flex-start;
   }
 
+  /* Containers side by side (two columns of fields) only while each gets ~20rem: phones stack them. */
+  .remi-cell-auto.remi-cell-top {
+    flex-basis: 19rem;
+  }
+
   @container (max-width: 30rem) {
     .remi-cell-span,
     .remi-cell-fill {

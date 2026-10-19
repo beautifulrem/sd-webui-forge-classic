@@ -52,7 +52,7 @@ export function ColorControl({ color, recent, onChange, onEyedropper }: { color:
           }
         />
       </Hint>
-      <PopoverContent className="w-60" side="bottom" align="start">
+      <PopoverContent aria-label={t("Brush color")} className="w-60" side="bottom" align="start">
         <div className="flex items-center gap-2">
           <label htmlFor={`${id}-native`} className="sr-only">
             {t("Pick a color")}

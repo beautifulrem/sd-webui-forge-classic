@@ -7,8 +7,8 @@ and the tab/settings exporters described below. Keep this file in sync with
 `tests/test_remi_ui_schema.py` snapshots the output
 (`tests/fixtures/remi_ui_schema_snapshot.json`, one node of every kind).
 
-All strings meant for people (`label`, `info`, `title`, `text`, choice
-`label`s, `notes`) are **English source strings**. The SPA translates them
+All strings meant for people (`label`, `info`, `hint`, `title`, `text`,
+choice `label`s and `choice_hints`, `notes`) are **English source strings**. The SPA translates them
 through the locale catalog (key = the English text) and must fall back to the
 English text when a key is missing. `text` of `markdown` nodes is translated
 as one key; `html` text is never translated.
@@ -37,6 +37,7 @@ holds a value) or a **layout/display** node.
 | `name` | string | param id, unique within its owner (`[A-Za-z_][A-Za-z0-9_]*`) |
 | `label` | string | always present; `""` means "render without a label" |
 | `info` | string? | help text under the control |
+| `hint` | string? | tooltip on the label (A1111's `tooltip=` and the core hint map of `hints.js`); also the control's accessible description |
 | `default` | JSON | the value a fresh form starts with (already resolved; never a function) |
 | `on_change` | string? | action name to call (`POST /actions/{owner}/{action}`) after the user changes the value; also after a paste / "Send to" / bulk reset that changes it |
 | `on_input` | string? | action name to call only after the user edits this control (Gradio's `.input`): never after pastes, presets, resets of several params or action patches. For derived updates a pasted infotext already records (e.g. a template's timing) |
@@ -58,8 +59,8 @@ Wire value = what the client keeps in its form state and submits.
 | `slider` | `minimum`, `maximum`, `step` (numbers), `integer` (bool) | number (integer when `integer`) |
 | `number` | `minimum`?, `maximum`?, `step`?, `precision`? (int), `integer` (bool) | number |
 | `text` | `lines` (int ≥ 1), `max_lines`?, `placeholder`?, `prompt` (bool) | string. `prompt: true` = prompt editor (weights, LoRA, tag completion) |
-| `choice` | `choices`, `style` (`"dropdown"`\|`"radio"`), `allow_custom` (bool) | the chosen choice `value` (string or number), or any string when `allow_custom` |
-| `multichoice` | `choices`, `style` (`"dropdown"`\|`"checkboxes"`), `allow_custom` (bool) | array of choice values |
+| `choice` | `choices`, `style` (`"dropdown"`\|`"radio"`), `allow_custom` (bool), `choice_hints`? (`{choice label: tooltip}`) | the chosen choice `value` (string or number), or any string when `allow_custom` |
+| `multichoice` | `choices`, `style` (`"dropdown"`\|`"checkboxes"`), `allow_custom` (bool), `choice_hints`? | array of choice values |
 | `seed` | – | integer: `-1` (random) or `0` … `2^63-1`. Renderer adds dice (set -1) and recycle (last seed) buttons. Values above `2^53` lose precision in JavaScript numbers |
 | `color` | – | string `#rrggbb` (or `#rgb`, `#rrggbbaa`) |
 | `image` | `kind` (`"image"`\|`"mask"`\|`"sketch"`), `source`? (name of the `image` param this layer is painted over), `mode`? (`"RGB"`\|`"RGBA"`\|`"L"`) | upload id string (`POST /api/v2/uploads`) or `null` |
@@ -272,7 +273,7 @@ returns a patch:
 ```jsonc
 {
   "<param>": {"value"?, "choices"?, "visible"?, "enabled"?, "label"?, "info"?,
-              "minimum"?, "maximum"?, "step"?},
+              "hint"?, "minimum"?, "maximum"?, "step"?},
   "<other_owner>.<param>": {...},          // patch another owner (e.g. "core.width")
   "__toast__": {"level": "info" | "success" | "warning" | "error", "message": str | {"text": str, "params"?: {...}}},  // a message (ui.message) is translated, then its {{name}} placeholders filled
   "__outputs__": {"<output name>": value},

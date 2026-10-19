@@ -2,10 +2,11 @@ import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
 import { useParam } from "../hooks"
-import { describedBy } from "../a11y"
+import { describedBy, hintRef } from "../a11y"
 import { Field } from "../Field"
 import type { ColorNode } from "../schema"
 import { isHexColor } from "../values"
+import { useFallbackName } from "../fallback-name"
 
 /** #rgb → #rrggbb; strips alpha (the native picker has none). */
 function toPickerValue(color: string): string {
@@ -23,12 +24,14 @@ export function Color({ node }: { node: ColorNode }) {
   const info = param.info
   const disabled = !param.enabled
   const label = t(param.label)
+  const fallbackName = useFallbackName(node.name)
 
   return (
     <Field
       id={id}
       label={label}
       info={info}
+      hint={param.hint}
       error={param.error}
       modified={param.modified}
       defaultValue={param.defaultValue}
@@ -55,8 +58,8 @@ export function Color({ node }: { node: ColorNode }) {
           id={id}
           value={draft ?? value}
           spellCheck={false}
-          aria-label={label ? undefined : node.name}
-          aria-describedby={describedBy(id, info, param.error)}
+          aria-label={label ? undefined : fallbackName}
+          aria-describedby={describedBy(id, info, param.error, hintRef(id, param.hint))}
           aria-invalid={(draft !== null && !isHexColor(draft)) || Boolean(param.error)}
           onChange={(event) => {
             const next = event.target.value.trim()

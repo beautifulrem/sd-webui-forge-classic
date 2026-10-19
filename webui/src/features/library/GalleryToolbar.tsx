@@ -1,7 +1,7 @@
 /** Gallery filters: search, form / folder, model, date range, stars, sort, layout and tile size. */
 import { useQuery } from "@tanstack/react-query"
 import { CalendarRange, FilterX, LayoutGrid, Rows3, Search, Star, X } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { GalleryCategory, GallerySort } from "@/api/types"
 import { SearchSelect } from "@/components/SearchSelect"
@@ -9,6 +9,7 @@ import { Segmented } from "@/components/Segmented"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { useFittingPlaceholder } from "@/lib/use-fitting-placeholder"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Toggle } from "@/components/ui/toggle"
 import { cn } from "@/lib/utils"
@@ -58,6 +59,8 @@ function SearchBox() {
     const timer = setTimeout(() => set({ q: text }), 300)
     return () => clearTimeout(timer)
   }, [text, q, set])
+  const input = useRef<HTMLInputElement>(null)
+  const placeholder = useFittingPlaceholder(input, [t("Search prompts, parameters, file names…"), t("Search…")])
   return (
     <div className="relative min-w-60 flex-1 sm:max-w-80">
       <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
@@ -66,7 +69,8 @@ function SearchBox() {
         value={text}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => event.key === "Enter" && set({ q: text })}
-        placeholder={t("Search prompts, parameters, file names…")}
+        ref={input}
+        placeholder={placeholder}
         aria-label={t("Search the gallery")}
         className="h-7 pl-7 text-[0.8rem]"
       />
@@ -87,7 +91,7 @@ function DateRange() {
         <CalendarRange aria-hidden />
         <span className="max-w-36 truncate">{summary}</span>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-72">
+      <PopoverContent aria-label={t("Date range")} align="start" className="w-72">
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-2">
             <label className="flex flex-col gap-1 text-xs font-medium">

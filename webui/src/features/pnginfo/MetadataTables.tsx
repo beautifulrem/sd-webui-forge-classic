@@ -6,6 +6,7 @@ import type { ImageMetadata, MetadataEntry } from "@/api/types"
 import { Button } from "@/components/ui/button"
 import { copyText } from "@/features/gallery/files"
 import { cn } from "@/lib/utils"
+import { infotextKeyLabel } from "@/features/infotext/display"
 import { groupEntries } from "./group"
 
 function CopyValue({ value, label }: { value: string; label: string }) {
@@ -30,7 +31,8 @@ function CopyValue({ value, label }: { value: string; label: string }) {
   )
 }
 
-function Rows({ rows, caption }: { rows: { key: string; value: string; kind?: string }[]; caption: string }) {
+/** `label`: what the key column shows (a translated infotext key); the raw key is its tooltip. */
+function Rows({ rows, caption }: { rows: { key: string; label?: string; value: string; kind?: string }[]; caption: string }) {
   const { t } = useTranslation()
   if (rows.length === 0) return <p className="px-1 py-3 text-sm text-muted-foreground">{t("Nothing found in the image.")}</p>
   return (
@@ -44,13 +46,13 @@ function Rows({ rows, caption }: { rows: { key: string; value: string; kind?: st
       <tbody>
         {rows.map((row, index) => (
           <tr key={`${row.key}-${index}`} className="group/row border-b border-border/60 last:border-0 hover:bg-muted/40">
-            <th scope="row" className="py-1.5 pr-3 text-left align-top font-medium break-words text-muted-foreground">
-              {row.key}
+            <th scope="row" className="py-1.5 pr-3 text-left align-top font-medium break-words text-muted-foreground" title={row.label && row.label !== row.key ? row.key : undefined}>
+              {row.label ?? row.key}
             </th>
             <td className={cn("py-1.5 align-top break-words whitespace-pre-wrap select-text", row.kind === "binary" && "font-mono text-xs text-muted-foreground", row.kind === "number" && "tabular-nums")}>
               {row.value.length > 4000 ? `${row.value.slice(0, 4000)}…` : row.value}
             </td>
-            <td className="py-1 align-top">{row.kind === "binary" ? null : <CopyValue value={row.value} label={row.key} />}</td>
+            <td className="py-1 align-top">{row.kind === "binary" ? null : <CopyValue value={row.value} label={row.label ?? row.key} />}</td>
           </tr>
         ))}
       </tbody>
@@ -60,7 +62,7 @@ function Rows({ rows, caption }: { rows: { key: string; value: string; kind?: st
 
 export function ParametersTable({ params }: { params: ImageMetadata["params"] }) {
   const { t } = useTranslation()
-  const rows = Object.entries(params).map(([key, value]) => ({ key, value }))
+  const rows = Object.entries(params).map(([key, value]) => ({ key, label: infotextKeyLabel(t, key), value }))
   return <Rows rows={rows} caption={t("Generation parameters")} />
 }
 

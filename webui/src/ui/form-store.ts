@@ -28,6 +28,7 @@ export type Override = {
   /** `null` clears the static text. */
   label?: string | null
   info?: string | null
+  hint?: string | null
   choices?: ChoiceOption[]
   minimum?: number
   maximum?: number

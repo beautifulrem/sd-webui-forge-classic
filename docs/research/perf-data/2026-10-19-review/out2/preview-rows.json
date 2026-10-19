@@ -1,0 +1,152 @@
+[
+ {
+  "seq": 3,
+  "step": 0,
+  "imageToPublish": 0.3020763397216797,
+  "encode": 0.2579689025878906,
+  "publishToReceive": 1.36181640625,
+  "receiveToPaint": 22.800048828125,
+  "total": 24.4638671875,
+  "encodedToPaint": 24.161865234375
+ },
+ {
+  "seq": 3,
+  "step": 1,
+  "imageToPublish": 0.36406517028808594,
+  "encode": 0.28705596923828125,
+  "publishToReceive": 2.376708984375,
+  "receiveToPaint": 13.800048828125,
+  "total": 16.541015625,
+  "encodedToPaint": 16.1767578125
+ },
+ {
+  "seq": 3,
+  "step": 2,
+  "imageToPublish": 0.2601146697998047,
+  "encode": 0.2090930938720703,
+  "publishToReceive": 1.808837890625,
+  "receiveToPaint": 10.5,
+  "total": 12.569091796875,
+  "encodedToPaint": 12.308837890625
+ },
+ {
+  "seq": 3,
+  "step": 3,
+  "imageToPublish": 0.33593177795410156,
+  "encode": 0.28395652770996094,
+  "publishToReceive": 2.4658203125,
+  "receiveToPaint": 13.800048828125,
+  "total": 16.601806640625,
+  "encodedToPaint": 16.265869140625
+ },
+ {
+  "seq": 3,
+  "step": 4,
+  "imageToPublish": 0.28586387634277344,
+  "encode": 0.23603439331054688,
+  "publishToReceive": 1.9091796875,
+  "receiveToPaint": 10.099853515625,
+  "total": 12.294921875,
+  "encodedToPaint": 12.009033203125
+ },
+ {
+  "seq": 3,
+  "step": 4,
+  "imageToPublish": 0.22292137145996094,
+  "encode": 0.1800060272216797,
+  "publishToReceive": 1.87890625,
+  "receiveToPaint": 10.900146484375,
+  "total": 13.001953125,
+  "encodedToPaint": 12.779052734375
+ },
+ {
+  "seq": 3,
+  "step": 6,
+  "imageToPublish": 0.3352165222167969,
+  "encode": 0.28896331787109375,
+  "publishToReceive": 1.27490234375,
+  "receiveToPaint": 9.5,
+  "total": 11.110107421875,
+  "encodedToPaint": 10.77490234375
+ },
+ {
+  "seq": 3,
+  "step": 7,
+  "imageToPublish": 0.26702880859375,
+  "encode": 0.22220611572265625,
+  "publishToReceive": 1.57470703125,
+  "receiveToPaint": 13.7001953125,
+  "total": 15.541748046875,
+  "encodedToPaint": 15.27490234375
+ },
+ {
+  "seq": 3,
+  "step": 8,
+  "imageToPublish": 0.3020763397216797,
+  "encode": 0.26106834411621094,
+  "publishToReceive": 1.3798828125,
+  "receiveToPaint": 3.60009765625,
+  "total": 5.281982421875,
+  "encodedToPaint": 4.97998046875
+ },
+ {
+  "seq": 3,
+  "step": 9,
+  "imageToPublish": 0.29015541076660156,
+  "encode": 0.2472400665283203,
+  "publishToReceive": 2.005859375,
+  "receiveToPaint": 17.89990234375,
+  "total": 20.19580078125,
+  "encodedToPaint": 19.90576171875
+ },
+ {
+  "seq": 3,
+  "step": 10,
+  "imageToPublish": 0.26488304138183594,
+  "encode": 0.225067138671875,
+  "publishToReceive": 1.508056640625,
+  "receiveToPaint": 19.39990234375,
+  "total": 21.1728515625,
+  "encodedToPaint": 20.907958984375
+ },
+ {
+  "seq": 3,
+  "step": 11,
+  "imageToPublish": 0.2570152282714844,
+  "encode": 0.21195411682128906,
+  "publishToReceive": 1.954833984375,
+  "receiveToPaint": 3.5,
+  "total": 5.7119140625,
+  "encodedToPaint": 5.454833984375
+ },
+ {
+  "seq": 3,
+  "step": 12,
+  "imageToPublish": 0.26607513427734375,
+  "encode": 0.22411346435546875,
+  "publishToReceive": 1.751708984375,
+  "receiveToPaint": 4.39990234375,
+  "total": 6.417724609375,
+  "encodedToPaint": 6.151611328125
+ },
+ {
+  "seq": 3,
+  "step": 13,
+  "imageToPublish": 0.45418739318847656,
+  "encode": 0.3933906555175781,
+  "publishToReceive": 1.831787109375,
+  "receiveToPaint": 3.199951171875,
+  "total": 5.48583984375,
+  "encodedToPaint": 5.03173828125
+ },
+ {
+  "seq": 3,
+  "step": 14,
+  "imageToPublish": 0.26917457580566406,
+  "encode": 0.21600723266601562,
+  "publishToReceive": 1.61083984375,
+  "receiveToPaint": 16.699951171875,
+  "total": 18.580078125,
+  "encodedToPaint": 18.310791015625
+ }
+]

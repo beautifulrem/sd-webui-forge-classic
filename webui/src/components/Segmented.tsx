@@ -4,7 +4,8 @@ import { RadioGroup } from "@base-ui/react/radio-group"
 import { cn } from "@/lib/utils"
 
 type SegmentedProps<V extends string | number> = {
-  options: readonly { value: V; label: string }[]
+  /** `hint`: the option's tooltip (also its accessible description). */
+  options: readonly { value: V; label: string; hint?: string }[]
   value: V | null
   onValueChange: (value: V) => void
   disabled?: boolean
@@ -38,6 +39,7 @@ export function Segmented<V extends string | number>(props: SegmentedProps<V>) {
         <Radio.Root
           key={String(option.value)}
           value={option.value}
+          title={option.hint}
           nativeButton
           render={<button type="button" />}
           className={cn(

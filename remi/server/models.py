@@ -259,6 +259,7 @@ class JobOutput(Model):
     height: int | None = None
     infotext: str | None = None
     role: Literal["grid", "extra"] | None = Field(None, description='an image that is not one of the batch: the grid, or an extra image (e.g. a ControlNet detected map)')
+    missing: bool | None = Field(None, description="true when the file is gone (deleted, moved): there is no thumbnail or image to fetch (history listings only)")
 
 
 class JobProgress(Model):
@@ -300,7 +301,7 @@ class Job(Model):
     name: str | None = Field(None, description="a name the job was given (imported tasks)")
     source: str | None = Field(None, description='the importer that brought the job in ("agent-scheduler", "prompt-queue")')
     notes: list[Note] = Field([], description="what an importer could not map exactly")
-    warnings: list[Note] = Field([], description="script errors during the run (the job went on without that script's step)")
+    warnings: list[Note] = Field([], description="script errors during the run (the job went on without that script's step) and the notes the processing left (p.comment(), e.g. a feature skipped on this device)")
 
 
 class OpaqueArgs(Model):
@@ -507,6 +508,7 @@ class ServerStatus(Model):
     extension_access: bool
     settings_frozen: bool = Field(description="--freeze-settings: PATCH /options refuses every change")
     model_loaded: str | None = Field(None, description="the checkpoint in memory, if any")
+    model_hash: str | None = Field(None, description="SHA256 of the checkpoint in memory, once it has been hashed (the old footer linked it to a CivitAI search)")
     version: str
 
 

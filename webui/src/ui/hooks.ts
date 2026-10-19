@@ -49,7 +49,7 @@ const CONTINUOUS = new Set(["slider", "number", "text", "color", "json"])
 const EMPTY_OVERRIDE: Override = {}
 
 /** A patch override wins over the node's static text; `null` in the patch clears it. */
-function displayText(override: Override, key: "label" | "info", fallback: string | null | undefined): string {
+function displayText(override: Override, key: "label" | "info" | "hint", fallback: string | null | undefined): string {
   if (Object.hasOwn(override, key)) return override[key] ?? ""
   return fallback ?? ""
 }
@@ -60,9 +60,10 @@ export type ParamBinding<T> = {
   defaultValue: unknown
   modified: boolean
   override: Override
-  /** Untranslated label and info, after patch overrides ("" = none). */
+  /** Untranslated label, info and hint (tooltip), after patch overrides ("" = none). */
   label: string
   info: string
+  hint: string
   /** Server validation message from the last rejected submit. */
   error: string | undefined
   /** Node enablement: inherited × enabled_if × patch override. */
@@ -107,6 +108,7 @@ export function useParam<T = unknown>(node: InputNode): ParamBinding<T> {
     override,
     label: displayText(override, "label", node.label),
     info: displayText(override, "info", node.info),
+    hint: displayText(override, "hint", node.hint),
     error,
     enabled,
     setValue: (next) => {

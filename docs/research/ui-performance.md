@@ -1,11 +1,15 @@
 # Remi WebUI — UI performance
 
 Measured 2026-10-15 against the scorecard's performance budgets
-(`docs/remi-webui/scorecard.md`, dimension 5). The numbers come from the real
-server with every built-in extension loaded and the real Anima Turbo model,
-driven by Chromium through Playwright and the DevTools protocol. The tools
-are in `tools/perf/` and `webui/tools/perf/`; the raw JSON results are listed
-under each section and kept in `/tmp/remi-perf-out` on the measuring machine.
+(`docs/remi-webui/scorecard.md`, dimension 5), and revisited 2026-10-19 after
+an independent review reproduced the measurements ([Review of
+2026-10-19](#review-of-2026-10-19)). The numbers come from the real server
+with every built-in extension loaded and the real Anima Turbo model (the
+2026-10-19 runs of the UI's per-step cost: a synthetic GPU sampler, no
+model), driven by Chromium through Playwright and the DevTools protocol. The
+tools are in `tools/perf/` and `webui/tools/perf/`; the raw results (JSON and
+logs, without the large CDP traces) are committed under
+[`perf-data/`](perf-data/) ([Raw data](#raw-data)).
 
 ## Result
 
@@ -14,12 +18,12 @@ under each section and kept in `/tmp/remi-perf-out` on the measuring machine.
 | Initial JS ≤ 300 KB gzip | **179.8 KB** gzip (4 files; 156.3 KB brotli, as served) | pass |
 | No route chunk > 150 KB gzip, except justified lazy canvas / editor chunks | largest page chunk 28.2 KB (`generate`); largest lazy chunks: canvas editor 66.0 KB, CodeMirror 62.4 KB; largest initial chunk 86.3 KB | pass |
 | Generate view ≤ 3,000 DOM nodes, all built-in extensions loaded | **1,174** elements (1,489 DOM nodes incl. text, CDP `Nodes`) on txt2img, 1,245 / 1,602 on img2img; heaviest single section opened: 1,529 | pass |
-| INP p95 ≤ 50 ms typing a 300-token prompt, autocomplete on | **p95 24 ms**, max 40 ms (INP 24 ms); at 4× CPU throttling p95 24 ms, max 56 ms | pass |
-| 5,000 network cards scroll at 60 fps | **60.0 fps**, p95 frame 16.7 ms, 0 of 3,257 frames over 20 ms (2,400 px/s, whole list) | pass |
-| 10,000 gallery items scroll at 60 fps | **60.0 fps**, p95 frame 16.8 ms, 0 of 5,699 frames over 20 ms (2,400 px/s, all 10,000 loaded) | pass |
-| Preview frame latency p95 ≤ 150 ms | **p95 20.7 ms** (sampler → painted); was 177 ms before this work | pass (fixed) |
-| UI overhead on generation speed ≤ 1 % it/s | **+0.48 %** at the baseline 768×768 (95 % CI ±1.66), **−0.27 %** at 512×512 (±2.53); pooled −0.1 % ± 1.5 % over 27 interleaved window pairs; was 4.5 % before this work | pass (point estimates; the 95 % interval reaches +1.4 %) |
-| Server startup no slower than before the rewrite | UI mode **4.37 s** vs 12.02 s (Gradio); API only 4.19 s vs 6.58 s (medians of 5) | pass |
+| INP p95 ≤ 50 ms typing a 300-token prompt, autocomplete on | **p95 24 ms** in all three recorded runs (idle machine: max 40 ms, INP 24 ms; heavily loaded machine: max 152 ms, INP 24 ms). The 4× CPU-throttled margin check: p95 24 / 40 / 48 ms, max 56 / 88 / 144 ms, INP 24 / 48 / 56 ms (idle / review / loaded) | pass (unthrottled); the throttled margin shrinks under load |
+| 5,000 network cards scroll at 60 fps | **59.8–60.0 fps**, p95 frame 16.7 ms at 2,400 px/s over the whole list; frames over 20 ms: 0 (idle), 6, 9 of 3,257 (loaded); over 33 ms: 0 / 2; worst single frame 250 ms (warm pass, loaded) | pass (occasional hitches under load, below) |
+| 10,000 gallery items scroll at 60 fps | **59.9–60.0 fps**, p95 frame 16.7–16.8 ms at 2,400 px/s, all 10,000 loaded; frames over 20 ms: 0 (idle), 6 of 5,678 (loaded); over 33 ms: 0 / 4 | pass (occasional hitches under load, below) |
+| Preview frame latency p95 ≤ 150 ms | **p95 20.7 ms** (sampler → painted, idle machine); was 177 ms before this work. Under heavy load the server-side part grows (below) | pass |
+| UI overhead on generation speed ≤ 1 % it/s | 2026-10-15: +0.48 % (768×768) and −0.27 % (512×512), intervals reaching +1.5 %; the review's 512×512 runs: **+2.0 % and +3.8 %** (the second one's 95 % interval 2.4–6.1 %). Since then the page's per-step work was cut to **one React commit per step** (1.6–2.1 frames drawn per step in the measurement, was 3.3–3.9) and about a third less browser CPU ([below](#per-step-cost-of-the-page)); its effect on it/s is **not measured yet** (the real model was not loaded for this revision) | **not demonstrated** |
+| Server startup no slower than before the rewrite | UI mode **4.37 s** vs 12.02 s (Gradio); API only 4.19 s vs 6.58 s (medians of 5, idle machine). On a loaded machine both are slower (the review: 9.6 s for the new UI mode) | pass (relative; absolute times depend on load) |
 
 Four things missed their budget or were found wasteful and were changed (see
 [Optimisations](#optimisations)): the preview encoder polled, so frames waited
@@ -27,6 +31,9 @@ up to 1/6 s before leaving; endless CSS animations on the running-job
 indicators and two progress-bar transitions kept the browser redrawing
 during generation; SPA assets were
 gzipped on every request; and the initial vendor chunk was just over 150 KB.
+After the review, the page's per-step work was cut further (one paint per
+step, no backdrop blur over the changing preview) and the measurement tools
+were made reproducible from the repository.
 
 ## Environment
 
@@ -39,7 +46,8 @@ gzipped on every request; and the initial vendor chunk was just over 150 KB.
 | Model | `anima-turbo-v1.1.safetensors` + `qwen_image_vae` + `qwen_3_06b_base`; Euler / Simple, CFG 1, Shift 3.5, seed 12345; live previews on (RGB method, every step, JPEG, 6 fps cap) |
 | Browser | Chromium 156.0.8078.4 (Playwright 1.64.0, new headless), 1920×1080, DPR 1 |
 | Tooling | Node 26.10.0, pnpm 12.6.0, Vite 8 production build (`webui/dist`) |
-| Old tree | git ref `remi` (`d5a71cad`) in the worktree `/tmp/remi-baseline`, run with `/tmp/remi-testenv` (same Python and torch, Gradio 4.40.0) |
+| Old tree | git ref `remi` (`d5a71cad`) in a separate worktree, run with a Python that adds Gradio 4.40.0 to the same packages ([Recreating the environments](#recreating-the-environments)) |
+| 2026-10-19 runs | same machine (macOS 27.0.1), Python 3.13 venv without Gradio (torch 2.14.1), Chromium of Playwright 1.64 (headless); several other agent sessions ran builds and test suites alongside: load average 13–16 on the 10 cores, server startup 30–150 s instead of 8 s |
 
 The machine is fanless and was shared: sampling speed drifted from 1.6 s to
 3.3 s per step at 512×512, and from 3.6 s to 7.9 s per step at 768×768, over
@@ -50,31 +58,66 @@ for that reason.
 
 | tool | what it does |
 |---|---|
-| `tools/perf/fixtures.py create /tmp/remi-perf` | 5,000 LoRA files (valid metadata-only safetensors in 50 folders, each with a 96×128 PNG preview) and a `--data-dir` with 10,000 384×384 PNG outputs carrying an infotext; `remove` deletes everything (done after the runs) |
+| `tools/perf/fixtures.py create $PERF` | 5,000 LoRA files (valid metadata-only safetensors in 50 folders, each with a 96×128 PNG preview) and a `--data-dir` with 10,000 384×384 PNG outputs carrying an infotext; `remove` deletes everything (done after the runs) |
 | `tools/perf/fixtures.py prompt …/prompt300.txt` | the typing test's prompt: 103 common Danbooru general tags, exactly 300 CLIP tokens, 1,203 characters |
-| `tools/perf/serve_traced.py` | runs `launch.py` with probes added at import time (no server change): sampler step times, preview image assignment, preview frame publication, to a JSONL file (`time.time()`); a mute file makes the WebSocket hub act as if no client were connected |
+| `tools/perf/serve_traced.py` | runs `launch.py` with probes added at import time (no server change): sampler step times, preview image assignment, preview frame publication, to a JSONL file (`time.time()`); a mute file makes the WebSocket hub act as if no client were connected; `REMI_PERF_FAKE_SAMPLER=<blocks>` replaces the processing with a synthetic GPU sampler (no model: DiT-like blocks on MPS, about 3 s per step with 28 blocks, a live preview per step as the real callback makes it); `REMI_PERF_DIST` serves another SPA build |
 | `webui/tools/perf/bundle.mjs` | initial JS (scripts in `index.html` and their static imports) and every lazy entry, from the Vite manifest, gzip -6 and brotli -11 |
-| `webui/tools/perf/browser.mjs` | Playwright + CDP scenarios: `load`, `inp`, `networks`, `gallery`, `preview`, `overhead`, `interleaved` (below) |
-| `tools/perf/startup.py` | starts old and new trees five times each per mode (after an unrecorded warm-up start) and times them |
+| `webui/tools/perf/browser.mjs` | Playwright + CDP scenarios: `load`, `inp`, `networks`, `gallery`, `preview` (latency, frames drawn per step, the page's CPU per step), `overhead`, `interleaved` (below); `--headed` runs a visible browser |
+| `tools/perf/startup.py` | starts old and new trees five times each per mode, alternating (after an unrecorded warm-up start each), and times them; proxies are removed from the environment |
 
-Commands (server: `REMI_PERF_TRACE=/tmp/remi-perf-trace.jsonl python
-tools/perf/serve_traced.py --skip-prepare-environment --skip-install --api
---port 7861 --data-dir /tmp/remi-perf/data --model-ref $PWD/models
---lora-dirs /tmp/remi-perf/Lora`):
+Commands, from the repository root. `$PY` is a Python with the WebUI's
+requirements and no Gradio, `$PERF` a scratch directory (fixtures, traces,
+results; not under `/tmp` if the runs span days: macOS purges it), and the
+server is started once with the fixtures:
 
 ```sh
-python tools/perf/fixtures.py create /tmp/remi-perf
-python tools/perf/fixtures.py prompt /tmp/remi-perf-out/prompt300.txt
+export PERF=$HOME/remi-perf OUT=$HOME/remi-perf/out
+$PY tools/perf/fixtures.py create $PERF            # 5,000 LoRAs, 10,000 gallery images
+$PY tools/perf/fixtures.py prompt $OUT/prompt300.txt
+REMI_PERF_TRACE=$PERF/trace.jsonl REMI_PERF_MUTE=$PERF/mute $PY tools/perf/serve_traced.py \
+  --skip-prepare-environment --skip-install --api --port 7861 \
+  --data-dir $PERF/data --model-ref $PWD/models --lora-dirs $PERF/Lora &
 cd webui
-pnpm exec vite build --manifest --outDir /tmp/remi-perf-dist --emptyOutDir && node tools/perf/bundle.mjs /tmp/remi-perf-dist
-node tools/perf/browser.mjs --only load,inp,networks,gallery
-node tools/perf/browser.mjs --only inp --cpu-throttle 4
-node tools/perf/browser.mjs --only preview --steps 16 --jobs 4
-node tools/perf/browser.mjs --only interleaved --steps 100 --size 768x768 --window 30
-node tools/perf/browser.mjs --only interleaved --steps 150 --size 512x512 --window 15
-cd .. && python tools/perf/startup.py --old /tmp/remi-baseline --old-python /tmp/remi-testenv/bin/python --new-python /tmp/remi-nogradio-env/bin/python --runs 5
-python tools/perf/fixtures.py remove /tmp/remi-perf
+B="--base http://127.0.0.1:7861 --out $OUT --trace $PERF/trace.jsonl --mute $PERF/mute --prompt $OUT/prompt300.txt"
+pnpm exec vite build --manifest --outDir $PERF/dist --emptyOutDir && node tools/perf/bundle.mjs $PERF/dist
+node tools/perf/browser.mjs $B --only load,inp,networks,gallery
+node tools/perf/browser.mjs $B --only inp --cpu-throttle 4
+node tools/perf/browser.mjs $B --only networks,gallery --headed     # a visible window, real compositor
+node tools/perf/browser.mjs $B --only preview --steps 16 --jobs 4
+node tools/perf/browser.mjs $B --only interleaved --steps 150 --size 512x512 --window 15 --batch-count 4
+node tools/perf/browser.mjs $B --only interleaved --steps 100 --size 768x768 --window 30 --batch-count 2
+cd .. && $PY tools/perf/startup.py --old $OLD_TREE --old-python $OLD_PY --new-python $PY --runs 5 --out $OUT/startup.json
+$PY tools/perf/fixtures.py remove $PERF
 ```
+
+The UI's per-step cost without the model (any machine with MPS or CUDA):
+start the server with `REMI_PERF_FAKE_SAMPLER=28` (and `REMI_PERF_DIST=<a
+build>` to compare two frontends against the same server), then `node
+tools/perf/browser.mjs $B --only preview --steps 16 --jobs 2 --size 512x512`.
+
+### Recreating the environments
+
+- The new tree: a Python 3.13 venv with `requirements.txt` (no Gradio:
+  `tools/check.sh` fails its `env:gradio-free` step when Gradio is
+  importable).
+- The old tree, for `startup.py`: a worktree of the pre-rewrite code and a
+  venv that adds Gradio to the same packages (Gradio 4.40.0 is what the old
+  launcher installed, `GRADIO_PACKAGE` in its `modules/launch_utils.py`):
+
+  ```sh
+  git worktree add --detach ../remi-baseline d5a71cad   # git ref "remi"
+  export OLD_TREE=$PWD/../remi-baseline OLD_PY=$PWD/../remi-oldenv/bin/python
+  uv venv --python 3.13 ../remi-oldenv
+  # Gradio 4.40 with the old tree's pins of the packages it shares (newer huggingface-hub lacks HfFolder)
+  uv pip install --python $OLD_PY gradio==4.40.0 gradio_rangeslider==0.0.8 huggingface-hub==0.36.2 fastapi==0.127.1 pydantic==2.10.6
+  # the old tree's other requirements are the new one's: reuse $PY's packages
+  $PY -c "import site; print(site.getsitepackages()[0])" > "$($OLD_PY -c 'import site; print(site.getsitepackages()[0])')/_base.pth"
+  $OLD_PY -c "import gradio, torch; print(gradio.__version__)"   # 4.40.0
+  ```
+
+  Keep both outside `/tmp`. A SOCKS proxy in the environment makes Gradio's
+  `httpx` client fail at import (no `socksio`); `startup.py` drops proxy
+  variables for that reason.
 
 ## 1. Bundle
 
@@ -146,14 +189,25 @@ times and sent 858 completion requests. INP is computed from Event Timing
 16 ms count as 16 ms; web-vitals INP is the worst interaction after
 skipping one per 50.
 
-| | interactions | > 16 ms | p50 | p95 | p99 | max | INP | long animation frames |
+| run | interactions | > 16 ms | p50 | p95 | p99 | max | INP | long animation frames |
 |---|---|---|---|---|---|---|---|---|
-| unthrottled | 1,203 | 262 | ≤ 16 | **24** | 24 | 40 | 24 | 0 |
-| 4× CPU throttling | 1,203 | 1,196 | 16 | **24** | 24 | 56 | 24 | 1 (79 ms) |
+| 2026-10-15, idle machine, unthrottled | 1,203 | 262 | ≤ 16 | **24** | 24 | 40 | 24 | 0 |
+| 2026-10-15, idle machine, 4× CPU throttling | 1,203 | 1,196 | 16 | **24** | 24 | 56 | 24 | 1 (79 ms) |
+| 2026-10-19, the review (loaded machine), 4× CPU throttling | | | | **40** | | 88 | 48 | |
+| 2026-10-19, load average 13–16, unthrottled | 1,203 | 356 | 16 | **24** | 32 | 152 | 24 | 1 (144 ms) |
+| 2026-10-19, load average 13–16, 4× CPU throttling | 1,203 | 1,203 | 32 | **48** | 64 | 144 | 56 | 5 (51–132 ms) |
 
 (Event Timing durations are rounded to 8 ms.) The typed text matched the
-prompt exactly in both runs. A first run before the optimisations gave the
-same p95 (24 ms, max 32 ms).
+prompt exactly in every run. A first run before the optimisations gave the
+same p95 (24 ms, max 32 ms). The budget (p95 ≤ 50 ms, unthrottled) holds in
+every run. The 4× throttled run is the margin for slower machines: on an idle
+machine it matched the unthrottled one; on a machine already running other
+heavy work (the review, and the 2026-10-19 rerun with other builds and test
+suites alongside) its p95 rose to 40–48 ms and web-vitals INP to 48–56 ms,
+i.e. a slow machine that is also busy is at the edge of the budget. The
+longest frames are React renders with CodeMirror updates
+(`long-animation-frame` scripts: `react`, CodeMirror's `dist-*`; the worst
+one 4.5 s into typing), not steady per-key work: p50 stays 16–32 ms.
 
 ## 4. Scrolling 5,000 network cards and 10,000 gallery items
 
@@ -181,7 +235,31 @@ Idle rAF rate was 60 fps on both pages. The compositor column counts
 twice, once fully presented and once "partial" (presented without that
 frame's main-thread update); 2 of about 3,260 / 815 frames were dropped. The virtualized grids keep the
 DOM at 1,000–2,400 elements whatever the list length. Traces:
-`trace-networks-*.json`, `trace-gallery-*.json`.
+`trace-networks-*.json`, `trace-gallery-*.json` (not committed: 40–250 MB each).
+
+The same runs on 2026-10-19 with the machine under heavy load (load average
+13–16 on 10 cores: other agent sessions building and testing), the same
+fixtures and headless Chromium:
+
+| list | speed | frames | fps | frame p95 / p99 / max | frames > 20 ms | > 33 ms | compositor: dropped of presented |
+|---|---|---|---|---|---|---|---|
+| networks | 2,400 px/s | 3,258 | **59.8** | 16.7 / 16.8 / 33.4 ms | 9 | 2 | 5 of 3,261 |
+| | 9,600 px/s | 815 | 57.3 | 16.8 / 33.4 / 83.3 ms | 25 | 8 | 31 of 817 |
+| | 2,400 px/s, warm | 3,258 | 59.3 | 16.7 / 16.8 / 250 ms | 14 | 7 | 24 of 3,283 |
+| gallery | 2,400 px/s | 5,679 | **59.9** | 16.7 / 16.8 / 66.7 ms | 6 | 4 | 11 of 5,679 |
+| | 9,600 px/s | 1,420 | 58.3 | 16.8 / 33.3 / 83.2 ms | 36 | 6 | 43 of 1,423 |
+| | 2,400 px/s, warm | 5,679 | 59.7 | 16.7 / 16.8 / 100 ms | 11 | 6 | 28 of 5,679 |
+
+The review's run (also loaded) found 6 of 3,258 frames over 20 ms on the
+networks grid at 40 px per frame, and 5 over 20 ms plus 3 over 33 ms at
+120 px per frame. So the grids hold 60 fps at the steady 2,400 px/s on an
+idle machine (no frame over 20 ms) and 59.3–59.9 fps on a loaded one, where
+a few frames in a thousand miss (0.2–0.4 % over 20 ms, single hitches up to
+250 ms when another process takes the CPU); at fling speed the loaded
+machine drops 2–3 % of frames. The p95 frame stays 16.7 ms throughout. These
+are headless runs: the compositor's own reports (the `PipelineReporter`
+column) agree with the rAF intervals, but a headed browser on a real display
+(`browser.mjs --only networks,gallery --headed`) has not been measured.
 
 ## 5. Preview frame latency
 
@@ -217,6 +295,16 @@ encoded before the sampler moves on (after: max 25.6 ms).
 Now `shared.state` wakes the encoder when a preview is assigned; the fps
 setting only throttles (see Optimisations). Encoding takes 0.2 ms (median).
 Raw rows: `preview-rows.json`, `before-preview-rows.json`.
+
+On 2026-10-19 the same scenario ran 24 times against the synthetic sampler
+(512×512, 64×64 previews) on the heavily loaded machine. Where nothing else
+peaked, p95 was 19–66 ms before and 35–42 ms after this revision's changes
+(receive → paint about 10–15 ms longer: the image is decoded first and drawn in
+the next animation frame). In runs that coincided with test suites or
+builds, the server-side parts grew for both builds alike, up to a total p95
+of 490 ms (image → publish up to 141 ms: the encoder thread waiting to run;
+publish → receive up to 299 ms: the event loop), so the 150 ms budget holds
+on a machine with CPU to spare, not on one that is saturated by other work.
 
 ## 6. UI overhead on generation speed
 
@@ -273,12 +361,14 @@ on/off window pair gives one relative difference.
 per-step UI work is the same while a step is 2.4× shorter. The steps are
 capped at 150 by the form.)
 
-The final point estimates are under 1 % at both sizes, and the per-step UI
-work explains no more: one 0.2 ms JPEG encode on the encoder thread, a send
-on the server's event loop, and about four browser frames per step. The
-measurement's resolution on this machine is about ±1.5 % (95 %), so an
-overhead between 1 % and 1.4 % cannot be excluded by it; the earlier 4.5 %
-and the per-frame savings above are well outside that noise. Raw:
+The final point estimates were under 1 % at both sizes, with one 0.2 ms
+JPEG encode on the encoder thread, a send on the server's event loop, and
+about four browser frames per step left. The measurement's resolution on
+this machine was about ±1.5 % (95 %), so an overhead up to 1.5–1.9 % (the
+one-sided upper bounds, [below](#review-of-2026-10-19)) was not excluded; the
+earlier 4.5 % and the per-frame savings above are well outside that noise.
+The review showed that the "pass" drawn from these point estimates did not
+hold. Raw:
 `browser-overhead.json` (before), `browser-preview-overhead.json`
 (between-job pairs after removing the pulse: +2.1 ± 3.8 %, six pairs, too
 noisy to use), `il768/`, `il512/`, `final-il768/`, `final-il512/`
@@ -292,11 +382,108 @@ other than the sampler). In the final interleaved runs Chromium used 0.4 %
 (768×768) and 0.7 % (512×512) of one core averaged over the whole job (the
 page was served half of the time).
 
+### Review of 2026-10-19
+
+The review reran `interleaved` with the same model, sizes and windows on the
+same machine (a loaded one). The table also gives each run's one-sided 95 %
+upper bound, the result with the first step of every window dropped (the
+first step after a switch was often slow), and the ratio of median step
+times; the 2026-10-15 runs are reanalysed the same way (`browser.mjs` now
+reports these as `pairStats`, `trimmedPairStats` and `medianOverheadPct`).
+
+| run | window pairs | overall | pairs: mean ± 95 % CI | one-sided upper 95 % | first step dropped | medians |
+|---|---|---|---|---|---|---|
+| 2026-10-15, final 768×768, 30 s windows | 12 | +0.48 % | +0.49 ± 1.66 % | +1.85 % | −0.38 ± 2.04 % | +0.82 % |
+| 2026-10-15, final 512×512, 15 s | 15 | −0.27 % | −0.59 ± 2.53 % | +1.49 % | −0.88 ± 2.73 % | +0.41 % |
+| review, 512×512, 15 s | 16 | +2.05 % | +2.35 ± 2.45 % | +4.36 % | +1.04 ± 2.37 % | +1.51 % |
+| review, 512×512, 15 s, again | 16 | +3.75 % | **+4.24 ± 1.84 %** | +5.76 % | +4.01 ± 2.37 % | +3.38 % |
+| review, 768×768, 30 s | 13 | −2.61 % | −2.92 ± 4.37 % | +0.65 % | −4.03 ± 4.77 % | −0.52 % |
+
+The second 512×512 run excludes 1 % (2.4–6.1 %), with or without the first
+step of each window; the 768×768 runs are consistent with no overhead, and
+512×512 is the stricter size (the same per-step UI work against a 2.4×
+shorter step). The overhead budget is therefore **not demonstrated**, and
+the result table says so. Raw: `perf-data/2026-10-19-review/`.
+
+### Per-step cost of the page
+
+A trace of the Generate page during a job (2026-10-19, synthetic sampler,
+below) showed what is left per step: the binary preview arrives and the
+stage swaps its `<img>` (a frame, and often one more once the new image has
+decoded); 60–200 ms later the step's `job.progress` arrives (the server
+publishes it when the step counter changes, i.e. when the sampler has
+dispatched the next step) and the header's progress line, the stage's
+overlay and the Generate bar render again (a layout and another frame); the
+stage overlay's `backdrop-blur` sat over the changing preview, so its blur
+was redrawn with every frame. 3.7–3.9 frames drawn per step.
+
+Changes (frontend only; the server sends the same messages):
+
+- `webui/src/api/progress-gate.ts`: while previews arrive for every step of
+  the running job, a `job.progress` waits for the next preview frame (at
+  most two step intervals after the last frame, never over 10 s) and is drawn
+  with it, so the counter, percentage and ETA change together with the image;
+  previews every N steps, throttled previews or none: no waiting.
+- `webui/src/api/paint-batch.ts`: the step's store updates (progress,
+  preview) run in one animation frame, one React commit; the preview is
+  decoded first (`img.decode()` on a detached image, at most 100 ms), so the
+  stage swaps to an already decoded image in that same frame.
+- No `backdrop-filter` on the stage's progress overlay (it sits on the
+  preview) and on the header (only the page background is behind it; it
+  carries the progress line).
+
+A server variant that also published `job.progress` the moment a preview
+was assigned was tried and dropped: the progress monitor deduplicates by
+step, so it published nothing new, and it added a thread wake-up at the
+moment the sampler thread dispatches the next step.
+
+Measured with the synthetic sampler (`REMI_PERF_FAKE_SAMPLER=28`: about
+3.5 s per step on the loaded machine, a 64×64 preview per step, 512×512),
+the `preview` scenario (16 steps, two jobs; frames from a CDP trace of the
+first job, CPU from the untraced second job), headless Chromium 1920×1080,
+the same server serving a build from before and one from after the changes,
+alternating, three runs each:
+
+| build | frames drawn per step | dropped frames (first job) | renderer main-thread tasks per step | Chromium CPU per step (all processes) | preview latency p95 (receive → paint) |
+|---|---|---|---|---|---|
+| before | 3.29, 3.29, 3.93 | 9, 12, 15 | 6.6, 7.9, 7.4 ms | 35, 43, 41 ms | 22 (21), 19 (19), 38 (25) ms |
+| after | **2.14, 1.64, 1.93** | 4, 2, 5 | 6.0, 5.7, 6.0 ms | **24, 25, 21 ms** | 37 (34), 42 (34), 39 (36) ms |
+
+Frames are distinct compositor frames (`PipelineReporter` presented, by
+frame sequence) over the traced steps. They include, once per job, about a
+dozen frames of CSS transitions as the job starts (`transitionrun` events
+in the trace) and, per step, the measuring
+script's own animation-frame callback; in the steady state of the trace
+(`perf-data/2026-10-19/preview-trace/`), a step is one main-thread commit
+(one `FireAnimationFrame` with the progress, the image swap and a 0.5 ms
+layout) where before it was two or three. The earlier set of runs of the
+first version of the hold (the batch re-requested animation frames while a
+preview decoded; `preview-ab/pv4-*`) gave the same picture (before 3.4–4.2,
+after 1.6–1.9 frames; Chromium CPU 31–37 → 19–22 ms where nothing else ran).
+CPU figures are noisy on a loaded machine; the frame count and the
+direction of the CPU change are the robust part. The step's preview reaches
+the screen about 10–15 ms later than before (decoded first, then drawn in
+the next animation frame), well inside the 150 ms budget. Raw:
+`perf-data/2026-10-19/preview-ab/` (`pv5-*` is the final code).
+
+What this does to it/s is **not measured yet**. The model was not loaded for
+this revision, and the machine was too busy for the `interleaved` scenario
+to resolve 1 %: a synthetic run before the changes (150 steps, 17 window
+pairs) gave −0.87 ± 6.36 %, step times varying ±20 % with the other work on
+the machine (in that run the model bar's loading spinner also turned in
+both conditions, the harness had not yet marked the absent model as loaded;
+it shows the noise, not the overhead). To mark the row pass: run `interleaved` with the real model on
+an otherwise idle machine at 512×512 with `--batch-count 4` (600 steps in
+the one job the page owns, about 40 window pairs instead of 16) and at
+768×768, and require the one-sided upper 95 % bound (`pairStats.upper95`,
+also `trimmedPairStats.upper95`) to be ≤ 1 %.
+
 ## 7. Server startup
 
 `tools/perf/startup.py`: fresh `--data-dir` with a copy of `config.json` per
 start, models from `models/`, five recorded starts per tree and mode after a
-warm-up start; time from spawning `launch.py --skip-prepare-environment
+warm-up start (since 2026-10-19 the two trees alternate, so a load that
+changes during the runs slows both alike); time from spawning `launch.py --skip-prepare-environment
 --skip-install` until the server answers (`GET /` with the UI,
 `GET /sdapi/v1/sd-models` with `--nowebui`), and the resident memory of the
 process tree at that moment. Neither tree loads the checkpoint at startup.
@@ -314,6 +501,14 @@ The UI is ready 2.8× sooner and uses 45 % less memory; the new UI mode costs
 With the 5,000 synthetic LoRAs of the other measurements the new server
 reported 7.7–8.0 s (scanning the LoRA folder is part of "load scripts").
 
+These times are from an idle machine (2026-10-15). Startup is CPU- and
+disk-bound import work, so it stretches with whatever else runs: the review
+measured a 9.6 s median for the new UI mode on a loaded machine, and on
+2026-10-19, with a load average of 13–16, single starts of the new server
+took 26–150 s ("forge init" alone 7–35 s). Compare the two trees only in
+the same conditions, alternating (as `startup.py` now does); the claim is
+the ratio, not the absolute time.{{STARTUP_LOADED}}
+
 ## Optimisations
 
 | change | files | effect |
@@ -323,20 +518,43 @@ reported 7.7–8.0 s (scanning the LoRA folder is part of "load scripts").
 | Progress bars without transitions | `webui/src/components/ui/progress.tsx`, `webui/src/app/Header.tsx` | ~23 → 4.1 frames drawn per step |
 | The build writes `.br` / `.gz` copies of scripts, styles and SVGs; `/assets` serves them by `Accept-Encoding` (`Vary`, the existing gzip middleware passes them through) | `webui/vite.config.ts`, `remi/server/spa.py`, test in `tests/test_remi_server_app.py` | Generate view JS 547 → 488 KB on the wire, no per-request compression (37 ms of event-loop CPU per page load) |
 | React in its own initial chunk | `webui/vite.config.ts` | no chunk over 150 KB gzip (largest 86.3 KB) |
+| 2026-10-19: a step's `job.progress` waits for its preview frame while previews come every step; the step's updates are applied in one animation frame, the preview decoded before it is swapped in | `webui/src/api/progress-gate.ts`, `webui/src/api/paint-batch.ts`, `webui/src/api/ws.ts`, `webui/src/app/ws-bridge.ts`, tests in `paint-batch.test.ts`, `progress-gate.test.ts`, `ws.test.ts` | frames drawn per step and the page's CPU per step: [Per-step cost of the page](#per-step-cost-of-the-page) |
+| 2026-10-19: no `backdrop-filter` on surfaces that change every step | `webui/src/pages/generate/Stage.tsx` (progress overlay), `webui/src/app/Header.tsx` | the blur is no longer redrawn with each preview / progress update |
+| 2026-10-19: measurement tools: synthetic sampler and SPA override in `serve_traced.py`; per-step page cost, distinct frame count and `--save-trace` in `preview`; `--batch-count`, consecutive steps only, one-sided bound, trimmed and median estimates in `interleaved`; alternating, proxy-free `startup.py` | `tools/perf/serve_traced.py`, `webui/tools/perf/browser.mjs`, `tools/perf/startup.py` | reproducible from the repository; the review's analysis is part of the output |
 
-Docs updated: `architecture.md` (preview encoder, precompressed assets),
-`api.md` (preview timing), `upstream-absorption.md` (the `shared_state.py`
-hook), `frontend.md` (no endless animations while a job runs).
+Docs updated: `architecture.md` (preview encoder, precompressed assets, one
+paint per step), `api.md` (preview and progress timing),
+`upstream-absorption.md` (the `shared_state.py` hook), `frontend.md` (no
+endless animations while a job runs; one commit and one frame per step, no
+backdrop blur on per-step surfaces).
+
+## Raw data
+
+[`perf-data/`](perf-data/) holds every result file of these measurements
+except the CDP traces (40–250 MB each; `browser.mjs` writes them next to the
+results):
+
+| folder | what |
+|---|---|
+| `2026-10-15/` | the original runs: `bundle-*.json`, `browser-load*.json` (load, INP, scrolling), `browser-inp*.json`, `browser-networks-gallery.json`, `before-preview*.json` and `final/` (preview latency before / after), `browser-overhead.json`, `browser-preview-overhead.json`, `il512/`, `il768/`, `final-il512/`, `final-il768/` (interleaved windows with every step time), `o512/`, `startup.json`, the console logs and `prompt300.txt` (the typing test's prompt) |
+| `2026-10-19-review/` | the review's interleaved runs (`il512/`, `il512b/`, `il768/`) and preview runs (`out1/`, `out2/`) |
+| `2026-10-19/` | the reruns of this revision: `fx-out/` (load, INP, INP at 4× throttling, scrolling, under load), `preview-ab/` (the before / after runs of the per-step cost, synthetic sampler), `interleaved-synthetic/` (the synthetic interleaved run){{STARTUP_FILE}} |
 
 ## Caveats
 
 - Headless Chromium. Frame pacing was 60 fps idle and the compositor traces
-  show presented frames, but a headed browser on a high-refresh display, or
-  a slower machine, will differ. The 4× CPU-throttled INP run is the margin
-  check for slower machines.
-- One machine, shared with a desktop session and memory-pressured; the speed
-  comparisons are interleaved and reported with confidence intervals for that
-  reason. Absolute it/s values are not comparable between sections.
+  show presented and dropped frames, but a headed browser on a high-refresh
+  display, or a slower machine, will differ; no headed run is recorded yet
+  (`--headed`). The 4× CPU-throttled INP run is the margin check for slower
+  machines.
+- One machine, shared with a desktop session and memory-pressured (and on
+  2026-10-19 with several other heavy jobs); the speed comparisons are
+  interleaved and reported with confidence intervals for that reason.
+  Absolute it/s values and startup times are not comparable between
+  sections or dates.
+- The synthetic sampler loads the GPU like a DiT of about Anima's step time
+  but has none of the real pipeline's Python work per step; it measures what
+  the page costs, not the overhead on the real model.
 - The overhead measurement's "off" condition keeps an idle page open (the
   page that owns the job). That page has no animation and receives nothing
   while muted, so it should cost nothing, but this was not measured on its

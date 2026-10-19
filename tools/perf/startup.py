@@ -1,10 +1,14 @@
 """Server startup time of this tree against the pre-rewrite tree (docs/research/ui-performance.md).
 
-    python tools/perf/startup.py --old /tmp/remi-baseline --old-python /tmp/remi-testenv/bin/python \
-        --new-python /tmp/remi-nogradio-env/bin/python --runs 5 --out /tmp/remi-perf-out/startup.json
+    python tools/perf/startup.py --old "$OLD_TREE" --old-python "$OLD_PY" --new-python "$NEW_PY" \
+        --runs 5 --out "$PERF_OUT/startup.json"
+
+``$OLD_TREE`` is a worktree of the pre-rewrite code and ``$OLD_PY`` a Python with Gradio 4.40.0;
+docs/research/ui-performance.md ("Recreating the environments") builds both.
 
 For each tree and mode (``ui``: the web interface, ``api``: ``--nowebui``) it starts ``launch.py``
-``runs`` times (plus one unrecorded warm-up start that fills the OS file cache) with a fresh
+``runs`` times, old and new alternating (after one unrecorded warm-up start each that fills the
+OS file cache) with a fresh
 ``--data-dir`` holding a copy of this repo's ``config.json``, the models from ``--model-ref``, and
 measures the wall time from spawning the process until the server answers (``GET /`` for the UI,
 ``GET /sdapi/v1/sd-models`` for the API) and the process's own ``Startup time`` line, then
@@ -51,13 +55,22 @@ def tree_rss(pid: int) -> int:
         return 0
 
 
+def server_env(environ: dict[str, str]) -> dict[str, str]:
+    """The servers' environment: no proxy (both trees start offline alike; Gradio's httpx client
+    refuses a SOCKS proxy without socksio, so the old tree would not start at all), no SPA build."""
+
+    env = {key: value for key, value in environ.items() if not key.lower().endswith("_proxy")}
+    env.update({"REMI_SKIP_WEBUI_BUILD": "1", "PYTHONUNBUFFERED": "1", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"})
+    return env
+
+
 def start_once(tree: Path, python: str, mode: str, port: int, timeout: float) -> dict:
     data = Path(tempfile.mkdtemp(prefix="remi-startup-"))
     if (ROOT / "config.json").is_file():
         shutil.copy2(ROOT / "config.json", data / "config.json")
     args = [python, "launch.py", "--skip-prepare-environment", "--skip-install", "--port", str(port), "--data-dir", str(data), "--model-ref", str(ROOT / "models")]
     args += ["--nowebui"] if mode == "api" else []
-    env = {**os.environ, "REMI_SKIP_WEBUI_BUILD": "1", "PYTHONUNBUFFERED": "1", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
+    env = server_env(os.environ)
     url = f"http://127.0.0.1:{port}" + ("/sdapi/v1/sd-models" if mode == "api" else "/")
     log_path = data / "server.log"
     with open(log_path, "wb") as log:
@@ -87,6 +100,21 @@ def start_once(tree: Path, python: str, mode: str, port: int, timeout: float) ->
     return {"ready_s": round(ready, 2) if ready else None, "reported_s": reported, "rss_mb": round(rss / 1048576), "detail": detail.strip()}
 
 
+def summarise(runs: list[dict]) -> dict:
+    """Medians (and range) of one tree and mode's starts."""
+
+    ready = [run["ready_s"] for run in runs if run["ready_s"]]
+    reported = [run["reported_s"] for run in runs if run["reported_s"]]
+    return {
+        "runs": runs,
+        "ready_median_s": round(statistics.median(ready), 2) if ready else None,
+        "ready_min_s": min(ready) if ready else None,
+        "ready_max_s": max(ready) if ready else None,
+        "reported_median_s": round(statistics.median(reported), 2) if reported else None,
+        "rss_median_mb": round(statistics.median(run["rss_mb"] for run in runs)) if runs else None,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--old", type=Path, required=True, help="worktree of the pre-rewrite code (git ref 'remi')")
@@ -107,25 +135,22 @@ def main() -> int:
         return 2
 
     results: dict[str, dict] = {}
+    trees = {"old": (options.old, options.old_python), "new": (ROOT, options.new_python)}
     for mode in options.modes.split(","):
-        for name, tree, python in (("old", options.old, options.old_python), ("new", ROOT, options.new_python)):
-            key = f"{name}-{mode}"
-            print(f"{key}: warm-up", flush=True)
+        for name, (tree, python) in trees.items():
+            print(f"{name}-{mode}: warm-up", flush=True)
             start_once(tree, python, mode, options.port, options.timeout)
-            runs = []
-            for index in range(options.runs):
+        # interleaved (old, new / new, old, ...): a machine whose load changes during the runs
+        # slows both trees alike instead of the one that happens to run later
+        runs: dict[str, list[dict]] = {name: [] for name in trees}
+        for index in range(options.runs):
+            for name in ("old", "new") if index % 2 == 0 else ("new", "old"):
+                tree, python = trees[name]
                 run = start_once(tree, python, mode, options.port, options.timeout)
-                runs.append(run)
-                print(f"  {key} #{index + 1}: ready {run['ready_s']} s, reported {run['reported_s']} s, RSS {run['rss_mb']} MB", flush=True)
-            ready = [run["ready_s"] for run in runs if run["ready_s"]]
-            reported = [run["reported_s"] for run in runs if run["reported_s"]]
-            results[key] = {
-                "runs": runs,
-                "ready_median_s": round(statistics.median(ready), 2) if ready else None,
-                "ready_min_s": min(ready) if ready else None,
-                "reported_median_s": round(statistics.median(reported), 2) if reported else None,
-                "rss_median_mb": round(statistics.median(run["rss_mb"] for run in runs)),
-            }
+                runs[name].append(run)
+                print(f"  {name}-{mode} #{index + 1}: ready {run['ready_s']} s, reported {run['reported_s']} s, RSS {run['rss_mb']} MB", flush=True)
+        for name in trees:
+            results[f"{name}-{mode}"] = summarise(runs[name])
     print(f"\n{'tree-mode':<10} {'ready (median)':>15} {'reported':>10} {'RSS':>8}")
     for key, row in results.items():
         print(f"{key:<10} {row['ready_median_s']!s:>13} s {row['reported_median_s']!s:>8} s {row['rss_median_mb']:>5} MB")

@@ -64,7 +64,7 @@ class PiDForForge(scripts.Script):
                 ui.Markdown(DESCRIPTION),
                 ui.Text("prompt", "", lines=3, max_lines=3, placeholder="(leave empty to use main prompt)", label="Prompt", infotext="pid_prompt"),
                 ui.Row(
-                    ui.Choice("ckpt", pid_checkpoints, label="PiD", infotext="pid_ckpt"),
+                    ui.Choice("ckpt", pid_checkpoints, same=ui.without_model_hash, label="PiD", infotext="pid_ckpt"),
                     ui.Choice("vae", vae_choices, label="VAE", infotext="pid_vae"),
                     ui.Choice("tec", text_encoder_choices, label="Gemma2 2B IT ELM", infotext="pid_tec"),
                 ),

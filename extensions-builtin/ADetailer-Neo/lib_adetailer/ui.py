@@ -315,7 +315,7 @@ def _inpainting(t: _Tab, webui_info: WebuiInfo) -> list[ui.Node]:
         ui.Row(
             ui.Column(
                 ui.Toggle(name("ad_use_checkpoint"), False, label="Use separate Checkpoint", **t("ad_use_checkpoint")),
-                ui.Choice(name("ad_checkpoint"), lambda: list(webui_info.checkpoints_list()), lambda: webui_info.checkpoint_default, label="ADetailer Checkpoint", visible_if=t.on("ad_use_checkpoint"), **t("ad_checkpoint")),
+                ui.Choice(name("ad_checkpoint"), lambda: list(webui_info.checkpoints_list()), lambda: webui_info.checkpoint_default, same=ui.without_model_hash, label="ADetailer Checkpoint", visible_if=t.on("ad_use_checkpoint"), **t("ad_checkpoint")),
             ),
             ui.Column(
                 ui.Toggle(name("ad_use_vae"), False, label="Use separate VAE", **t("ad_use_vae")),

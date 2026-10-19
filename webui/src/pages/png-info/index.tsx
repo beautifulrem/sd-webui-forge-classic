@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { errorText } from "@/features/errors/error-text"
 import { copyText } from "@/features/gallery/files"
 import { InfotextPanel } from "@/features/infotext/InfotextPanel"
+import { isImageFile } from "@/features/infotext/read-image-info"
 import { ChunksTable, EntriesTable, ParametersTable } from "@/features/pnginfo/MetadataTables"
 import { applyParameters, sendWithFeedback } from "@/features/send-to/result-actions"
 import { PageSendButtons } from "@/pages/ext/send-targets"
@@ -30,12 +31,13 @@ function useUpload(onDone: (id: string) => void) {
   const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
   const upload = async (file: File) => {
-    if (!file.type.startsWith("image/") && file.type !== "") {
-      toast.error(t("Not an image: {{name}}", { name: file.name }))
-      return
-    }
     setBusy(true)
     try {
+      // checked here (its first bytes), so a wrong file never reaches the server (a 415 in the console)
+      if ((!file.type.startsWith("image/") && file.type !== "") || !(await isImageFile(file))) {
+        toast.error(t("Not an image: {{name}}", { name: file.name }))
+        return
+      }
       const uploaded = await api.upload(file)
       onDone(uploaded.id)
     } catch (error) {

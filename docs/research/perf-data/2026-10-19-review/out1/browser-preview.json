@@ -1,0 +1,86 @@
+{
+ "base": "http://127.0.0.1:7880",
+ "date": "2026-10-19T04:19:08.093Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "preview": {
+  "jobs": [
+   {
+    "jobId": "d72a2c6e5ecf07ea",
+    "ms": 101388,
+    "status": "completed"
+   }
+  ],
+  "steps": 16,
+  "framesPerStep": 3.8,
+  "framesPresentedFirstJob": 53,
+  "clockOffsetMs": -0.1,
+  "framesReceived": 15,
+  "framesPainted": 15,
+  "framesPublished": 15,
+  "imagesAssigned": 15,
+  "matched": 15,
+  "total": {
+   "n": 15,
+   "mean": 14.1,
+   "p50": 14.8,
+   "p95": 19.9,
+   "p99": 20.3,
+   "max": 20.5
+  },
+  "imageToPublish": {
+   "n": 15,
+   "mean": 0.2,
+   "p50": 0.2,
+   "p95": 0.3,
+   "p99": 0.3,
+   "max": 0.3
+  },
+  "encode": {
+   "n": 15,
+   "mean": 0.2,
+   "p50": 0.2,
+   "p95": 0.3,
+   "p99": 0.3,
+   "max": 0.3
+  },
+  "publishToReceive": {
+   "n": 15,
+   "mean": 0.9,
+   "p50": 0.9,
+   "p95": 1.4,
+   "p99": 1.4,
+   "max": 1.4
+  },
+  "receiveToPaint": {
+   "n": 15,
+   "mean": 13,
+   "p50": 14.1,
+   "p95": 18.9,
+   "p99": 19.2,
+   "max": 19.3
+  },
+  "encodedToPaint": {
+   "n": 15,
+   "mean": 13.9,
+   "p50": 14.6,
+   "p95": 19.7,
+   "p99": 20.1,
+   "max": 20.2
+  },
+  "its": [
+   {
+    "steps": 16,
+    "its": 0.1665,
+    "stepMs": {
+     "n": 15,
+     "mean": 6006.7,
+     "p50": 5921.5,
+     "p95": 7663.1,
+     "p99": 7817.6,
+     "max": 7856.2
+    }
+   }
+  ]
+ }
+}

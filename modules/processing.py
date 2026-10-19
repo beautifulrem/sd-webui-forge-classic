@@ -616,6 +616,25 @@ def create_random_tensors(shape, seeds, subseeds=None, subseed_strength=0.0, see
     return g.next()
 
 
+def fill_latent_noise(init_latent, mask, nmask, seeds):
+    """Inpaint "latent noise": replace the masked region of ``init_latent`` with seeded noise.
+
+    The noise is drawn per image as ``(C, H, W)`` (the same draws as the 4D SD case) and
+    reshaped to the latent's layout. Video-style 5D latents ``(B, C, T, H, W)`` (Anima,
+    Wan, ...) get the frame axis back before blending; without it ``(1, C, 1, H, W)``
+    broadcasts against ``(B, C, H, W)`` into ``(1, C, C, H, W)`` -- a C-frame latent
+    that silently multiplies memory and sampling cost by C.
+    """
+    shape = (init_latent.shape[1], init_latent.shape[-2], init_latent.shape[-1])
+    noise = create_random_tensors(shape, seeds[0 : init_latent.shape[0]]).to(init_latent.device)
+    if init_latent.ndim == 5:
+        noise = noise.unsqueeze(2).expand(-1, -1, init_latent.shape[2], -1, -1)
+    filled = init_latent * mask + noise * nmask
+    if filled.shape != init_latent.shape:
+        raise RuntimeError(f"latent noise fill changed the latent shape: {tuple(init_latent.shape)} -> {tuple(filled.shape)}")
+    return filled
+
+
 class DecodedSamples(list):
     already_decoded = True
 
@@ -1773,6 +1792,8 @@ class StableDiffusionProcessingImg2Img(StableDiffusionProcessing):
                     self.sd_model.comments.append(massage)
                     logger.warning(massage)
             else:
+                # written so a pasted inpaint job keeps "Whole picture" (the form's default is "Only masked")
+                self.extra_generation_params["Inpaint area"] = "Whole picture"
                 image_mask = images.resize_image(self.resize_mode, image_mask, self.width, self.height)
                 np_mask = np.array(image_mask, dtype=np.float32) / 255.0
                 np_mask = np.clip((np.power(np_mask, 0.5) * 255.0).round(), 0, 255).astype(np.uint8)
@@ -1900,8 +1921,7 @@ class StableDiffusionProcessingImg2Img(StableDiffusionProcessing):
             if self.inpainting_fill == 0:
                 self.extra_generation_params["Masked content"] = "fill"
             elif self.inpainting_fill == 2:
-                _dim = (self.init_latent.shape[1], self.init_latent.shape[-2], self.init_latent.shape[-1])
-                self.init_latent = self.init_latent * self.mask + create_random_tensors(_dim, all_seeds[0 : self.init_latent.shape[0]]) * self.nmask
+                self.init_latent = fill_latent_noise(self.init_latent, self.mask, self.nmask, all_seeds)
                 self.extra_generation_params["Masked content"] = "latent noise"
             elif self.inpainting_fill == 3:
                 self.init_latent = self.init_latent * self.mask

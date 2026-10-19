@@ -24,12 +24,14 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react"
-import { type ReactNode, type Ref, useEffect, useImperativeHandle, useRef, useState } from "react"
+import { type ReactNode, type Ref, type RefObject, useEffect, useImperativeHandle, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { api } from "@/api/endpoints"
 import { queryClient } from "@/api/queries"
 import type { NetworkItem, NetworkKind } from "@/api/types"
+import { FadeStrip } from "@/components/FadeStrip"
+import { FitTabsList } from "@/components/FitTabsList"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -45,12 +47,12 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsTrigger } from "@/components/ui/tabs"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { presetLabel } from "@/features/model-bar/model-options"
 import { useDebouncedValue } from "@/features/prompt-editor/use-debounced-value"
+import { useFittingPlaceholder } from "@/lib/use-fitting-placeholder"
 import { useMediaQuery } from "@/lib/use-media-query"
-import { useScrollFade } from "@/lib/use-scroll-fade"
 import { cn } from "@/lib/utils"
 import { applyItem, copyPath, openFolder, useActiveTest, useNetworkSettings } from "./actions"
 import { EditMetadataDialog } from "./EditMetadataDialog"
@@ -145,10 +147,13 @@ function SortMenu({ sort, order, onChange }: { sort: SortKey; order: SortOrder; 
   )
 }
 
-function SearchBox({ value, onChange, inputRef, count }: { value: string; onChange: (value: string) => void; inputRef: Ref<HTMLInputElement>; count: number | null }) {
+function SearchBox({ value, onChange, inputRef, count }: { value: string; onChange: (value: string) => void; inputRef: RefObject<HTMLInputElement | null>; count: number | null }) {
   const { t } = useTranslation()
+  // the long hint only where it fits; a narrow box (phone, slim drawer) says just "Search…"
+  const placeholder = useFittingPlaceholder(inputRef, [t("Search names, folders, tags…"), t("Search…")])
   return (
-    <div className="relative min-w-0 flex-1">
+    // on a phone the search takes its own row and the view controls wrap below it
+    <div className="relative min-w-48 flex-1 basis-48">
       <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
       <input
         ref={inputRef}
@@ -162,7 +167,7 @@ function SearchBox({ value, onChange, inputRef, count }: { value: string; onChan
             onChange("")
           }
         }}
-        placeholder={t("Search names, folders, tags…")}
+        placeholder={placeholder}
         aria-label={t("Search networks")}
         aria-keyshortcuts="/"
         className="h-8 w-full min-w-0 rounded-lg border border-input bg-transparent pr-16 pl-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30 [&::-webkit-search-cancel-button]:hidden"
@@ -266,8 +271,6 @@ export function NetworkBrowser({ surface, form, toolbarEnd, toastOnApply, classN
   const kindList = kinds.data ?? []
   const kind = kindList.find((candidate) => candidate.id === state.kind) ?? kindList[0]
   const kindId = kind?.id ?? state.kind
-  const kindsRef = useRef<HTMLDivElement>(null)
-  const kindsFade = useScrollFade(kindsRef, kindId)
 
   // The store keeps the search; typing reaches it debounced. Only a new
   // debounced value is written, so "Clear filters" (which clears the store
@@ -422,18 +425,26 @@ export function NetworkBrowser({ surface, form, toolbarEnd, toastOnApply, classN
       <div className="flex flex-col gap-2 border-b px-3 pt-2 pb-2">
         {kindList.length > 0 ? (
           <Tabs value={kindId} onValueChange={(value) => update(surface, { kind: String(value) })}>
-            <TabsList ref={kindsRef} style={kindsFade} variant="line" className="h-8 w-full justify-start overflow-x-auto [scrollbar-width:none]" aria-label={t("Network kinds")}>
+            {/* a narrow drawer or phone shows the kinds as a select rather than cutting labels */}
+            <FitTabsList
+              aria-label={t("Network kinds")}
+              variant="line"
+              className="h-8"
+              options={kindList.map((candidate) => ({ value: candidate.id, label: kindTitle(candidate) }))}
+              value={kindId}
+              onValueChange={(value) => update(surface, { kind: value })}
+            >
               {kindList.map((candidate) => (
                 <TabsTrigger key={candidate.id} value={candidate.id} className="flex-none px-2 text-[0.8rem]">
                   {kindTitle(candidate)}
                 </TabsTrigger>
               ))}
-            </TabsList>
+            </FitTabsList>
           </Tabs>
         ) : (
           <Skeleton className="h-8 w-64" />
         )}
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           <SearchBox value={search} onChange={setSearch} inputRef={searchRef} count={list.isPending ? null : total} />
           <SortMenu sort={sort} order={order} onChange={(sort, order) => update(surface, { sort, order })} />
           <ToggleGroup
@@ -475,7 +486,7 @@ export function NetworkBrowser({ surface, form, toolbarEnd, toastOnApply, classN
               <PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("Folders")} title={t("Folders")} className={cn(folder && "text-primary")} />}>
                 <FolderTreeIcon />
               </PopoverTrigger>
-              <PopoverContent align="end" className="max-h-[60dvh] w-72 overflow-y-auto p-1">
+              <PopoverContent aria-label={t("Folders")} align="end" className="max-h-[60dvh] w-72 overflow-y-auto p-1">
                 {folderTree}
               </PopoverContent>
             </Popover>
@@ -486,7 +497,7 @@ export function NetworkBrowser({ surface, form, toolbarEnd, toastOnApply, classN
           {toolbarEnd}
         </div>
         {kind && (archFacets.length > 1 || folder || compatible || (archFacets.length === 1 && archFacets[0]!.id !== "unknown")) ? (
-          <div className="-mx-3 flex items-center gap-1.5 overflow-x-auto px-3 [scrollbar-width:thin]" role="group" aria-label={t("Filters")}>
+          <FadeStrip active={kindId} className="-mx-3 flex items-center gap-1.5 px-3" role="group" aria-label={t("Filters")}>
             {kind.action === "prompt" || kind.action === "checkpoint" ? (
               <Chip on={compatible} onClick={() => setKindFilter(surface, "compatible", kindId, !compatible)}>
                 <ShieldCheck className="size-3" aria-hidden />
@@ -513,7 +524,7 @@ export function NetworkBrowser({ surface, form, toolbarEnd, toastOnApply, classN
                 {t("Clear filters")}
               </Button>
             ) : null}
-          </div>
+          </FadeStrip>
         ) : null}
       </div>
 

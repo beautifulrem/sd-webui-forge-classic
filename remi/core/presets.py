@@ -15,6 +15,7 @@ import sys
 from collections.abc import Mapping
 from typing import Any
 
+from remi.core import hints
 from remi.ui import Context, ParamError, ValidationError
 from remi.ui.nodes import _NO_VALUE
 from remi.ui.types import Patch
@@ -90,9 +91,9 @@ def forge_preset_patch(tab: str, preset: str | None = None, opts: Any = None) ->
         put("hr_distilled_cfg", value=get(f"{preset}_t2i_hr_dcfg", 3.0), **distilled)
 
     if (fps := is_video(preset)) > 1:
-        put("batch_size", minimum=1, maximum=fps * 15 + 1, step=fps, label="Frames", value=get(f"{preset}_{prefix}_batch_size", 1))
+        put("batch_size", minimum=1, maximum=fps * 15 + 1, step=fps, label="Frames", hint=hints.FRAMES, value=get(f"{preset}_{prefix}_batch_size", 1))
     else:
-        put("batch_size", minimum=1, maximum=8, step=1, label="Batch Size", value=get(f"{preset}_{prefix}_batch_size", 1))
+        put("batch_size", minimum=1, maximum=8, step=1, label="Batch Size", hint=hints.BATCH_SIZE, value=get(f"{preset}_{prefix}_batch_size", 1))
     return patch
 
 
@@ -116,6 +117,8 @@ def apply_form_patch(layout: Any, patch: Mapping[str, Any]) -> None:
             node.default = entry["value"]
         if "label" in entry:
             node.label = str(entry["label"])
+        if "hint" in entry:
+            node.hint = entry["hint"] or None
         for bound in ("minimum", "maximum", "step"):
             if bound in entry and hasattr(node, bound):
                 setattr(node, bound, entry[bound])

@@ -103,6 +103,18 @@ describe("settings page", { timeout: 20_000 }, () => {
     expect(await screen.findByText("ComfyUI", {}, { timeout: 8000 })).toBeInTheDocument()
   })
 
+  it("links the API documentation and the loaded checkpoint's hash (the old footer)", async () => {
+    const hash = "0123456789abcdef".repeat(4)
+    vi.spyOn(api.system, "status").mockResolvedValue({ restartable: true, extension_access: true, settings_frozen: false, model_loaded: "anima.safetensors [0123456789]", model_hash: hash, version: "test" })
+    renderPage("view=server")
+    const docs = await screen.findByRole("link", { name: "API documentation" }, { timeout: 8000 })
+    expect(docs).toHaveAttribute("href", "/docs")
+    const civitai = await screen.findByRole("link", { name: "Search on CivitAI" })
+    expect(civitai).toHaveAttribute("href", `https://civitai.com/search/models?query=${hash}`)
+    expect(civitai).toHaveAttribute("rel", "noopener noreferrer")
+    expect(screen.getByText("0123456789", { selector: "code" })).toHaveAttribute("title", hash)
+  })
+
   it("keeps the search when the page is left, and follows a search from the route", async () => {
     const first = renderPage()
     const search = await screen.findByRole("searchbox", { name: "Search settings" }, { timeout: 8000 })

@@ -87,6 +87,13 @@ function build(): Map<string, Entry[]> {
 let data: Map<string, Entry[]> | null = null
 const store = () => (data ??= build())
 
+/** The `<lora:name:…>` names of a prompt that no LoRA answers to (like the server, by name or alias). */
+export function missingLoras(prompt: string): string[] {
+  const known = new Set(store().get("lora")!.flatMap(({ item }) => [item.name, item.alias]))
+  const names = [...prompt.matchAll(/<lora:([^:>]+)/g)].map((match) => match[1]!.trim())
+  return [...new Set(names.filter((name) => !known.has(name)))]
+}
+
 /** Resets the mock (tests). */
 export function resetMockNetworks() {
   data = null

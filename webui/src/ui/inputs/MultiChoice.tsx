@@ -14,9 +14,10 @@ import {
   useComboboxAnchor,
 } from "@/components/ui/combobox"
 import { useParam } from "../hooks"
-import { describedBy } from "../a11y"
+import { describedBy, hintRef } from "../a11y"
 import { Field } from "../Field"
 import type { MultiChoiceNode } from "../schema"
+import { useFallbackName } from "../fallback-name"
 
 type Value = string | number
 type Option = { value: Value; label: string }
@@ -28,15 +29,16 @@ export function MultiChoice({ node }: { node: MultiChoiceNode }) {
   const selected = Array.isArray(param.value) ? param.value : []
   const options: Option[] = (param.override.choices ?? node.choices ?? []).map((c) => ({ value: c.value, label: t(c.label) }))
   const label = t(param.label)
+  const fallbackName = useFallbackName(node.name)
   const disabled = !param.enabled
-  const ariaDescribedBy = describedBy(id, param.info, param.error)
+  const ariaDescribedBy = describedBy(id, param.info, param.error, hintRef(id, param.hint))
 
   const control =
     node.style === "checkboxes" ? (
       <div
         role="group"
         aria-labelledby={label ? `${id}-label` : undefined}
-        aria-label={label ? undefined : node.name}
+        aria-label={label ? undefined : fallbackName}
         aria-describedby={ariaDescribedBy}
         className="flex flex-wrap gap-x-4 gap-y-2"
       >
@@ -74,7 +76,7 @@ export function MultiChoice({ node }: { node: MultiChoiceNode }) {
         onChange={param.setValue}
         allowCustom={node.allow_custom ?? false}
         disabled={disabled}
-        ariaLabel={label ? undefined : node.name}
+        ariaLabel={label ? undefined : fallbackName}
         ariaDescribedBy={ariaDescribedBy}
         invalid={Boolean(param.error)}
       />
@@ -85,6 +87,7 @@ export function MultiChoice({ node }: { node: MultiChoiceNode }) {
       id={id}
       label={label}
       info={param.info}
+      hint={param.hint}
       error={param.error}
       modified={param.modified}
       defaultValue={param.defaultValue}

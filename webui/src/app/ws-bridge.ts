@@ -1,9 +1,11 @@
 /** Connects the WebSocket to the rest of the app: query cache, progress store, toasts. */
 import { useEffect } from "react"
 import { toast } from "sonner"
+import { flushPaintBatch } from "@/api/paint-batch"
+import { createProgressGate } from "@/api/progress-gate"
 import { useProgress } from "@/api/progress"
 import { keys, queryClient } from "@/api/queries"
-import { onWsEvent, useWs } from "@/api/ws"
+import { onPreviewFrame, onWsEvent, useWs } from "@/api/ws"
 import { onNewOutputs, onOutputsChanged } from "@/features/library/cache"
 import { networksFollowOptions } from "@/features/networks/queries"
 import { i18n, reloadServerCatalog, t } from "@/i18n"
@@ -27,22 +29,34 @@ export function useWsBridge() {
       progress.setModelLoading(null)
     }
     ws.connect()
+    // A step's progress is drawn with its preview frame, in one animation frame (api/progress-gate).
+    const gate = createProgressGate(progress.progress)
+    // The events that end or replace the running job apply the held and queued steps first, so
+    // none of them can bring the job back afterwards.
+    const settle = () => {
+      gate.flush()
+      flushPaintBatch()
+    }
 
     const offs = [
+      onPreviewFrame(gate.frame),
       onWsEvent("job.queued", () => {
         void queryClient.invalidateQueries({ queryKey: keys.jobs })
         void queryClient.invalidateQueries({ queryKey: keys.queueItems })
       }),
       onWsEvent("job.started", (e) => {
         // A new job: the previous job's last frame must not show.
+        settle()
         useWs.getState().clearPreview()
         progress.started(e)
         void queryClient.invalidateQueries({ queryKey: keys.jobs })
       }),
-      onWsEvent("job.progress", progress.progress),
+      onWsEvent("job.progress", gate.progress),
       onWsEvent("job.completed", (e) => {
+        settle()
+        // warnings: script steps that failed, and what the processing noted (a LoRA not found, a feature skipped)
         if (e.job_id in useProgress.getState().owned && e.warnings?.length)
-          toast.warning(t("Some extension steps failed; the job went on without them"), { description: e.warnings.map(noteText).join("\n") })
+          toast.warning(t("Finished with warnings"), { description: e.warnings.map(noteText).join("\n") })
         progress.completed(e)
         useWs.getState().clearPreview()
         void queryClient.invalidateQueries({ queryKey: keys.jobs })
@@ -52,6 +66,7 @@ export function useWsBridge() {
       }),
       onWsEvent("outputs.changed", (e) => void onOutputsChanged(e.ids)),
       onWsEvent("job.failed", (e) => {
+        settle()
         const mine = e.job_id in useProgress.getState().owned
         progress.failed(e)
         useWs.getState().clearPreview()
@@ -62,6 +77,7 @@ export function useWsBridge() {
       }),
       onWsEvent("queue.changed", (e) => {
         // Also sent right after a (re)connect: drops the progress of a job that ended while the socket was down.
+        settle()
         if (e.running !== undefined) progress.syncRunning(e.running)
         void queryClient.invalidateQueries({ queryKey: keys.jobs })
         void queryClient.invalidateQueries({ queryKey: keys.queueItems })

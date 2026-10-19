@@ -641,6 +641,9 @@ class JobQueue:
             self.poll()
         status = CANCELLED if job.id in self._cancelled else INTERRUPTED if job.id in self._interrupted else COMPLETED
         outputs = self._register(job, result or JobResult())
+        for note in getattr(result, "warnings", None) or []:
+            if note not in warnings and len(warnings) < MAX_WARNINGS:
+                warnings.append(note)
         info = (result.info if result else None) or next((output.get("infotext") for output in outputs if output.get("infotext")), None)
         self.store.finish(job.id, status, outputs=outputs, infotext=info, warnings=warnings)
         self.bus.publish("job.completed", **ref.fields(), status=status, outputs=outputs, infotext=info, **({"warnings": warnings} if warnings else {}))

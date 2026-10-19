@@ -32,7 +32,7 @@ export function SizeTools({ className }: { className?: string }) {
         <span className="sr-only">{t("Aspect ratio")}</span>
         {current ? `${current[0]}:${current[1]}` : t("Custom")}
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-72">
+      <PopoverContent aria-label={t("Aspect ratio")} align="start" className="w-72">
         <p className="text-xs text-muted-foreground">{t("Aspect presets keep about {{megapixels}} MP", { megapixels: (area / 1e6).toFixed(2) })}</p>
         <div role="group" aria-label={t("Aspect ratio")} className="grid grid-cols-3 gap-1">
           {ASPECTS.map((aspect) => {

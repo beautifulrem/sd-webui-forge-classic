@@ -52,6 +52,7 @@ from remi.ui.nodes import (
     Tabs,
     Text,
     Toggle,
+    without_model_hash,
 )
 from remi.ui.schema import SCHEMA_VERSION, jsonable, to_schema
 
@@ -111,4 +112,5 @@ __all__ = [
     "to_schema",
     "toast",
     "update",
+    "without_model_hash",
 ]

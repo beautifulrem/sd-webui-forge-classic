@@ -2,6 +2,7 @@
 
     python tools/smoke_real.py      # an interpreter with requirements.txt and without Gradio
     python tools/smoke_real.py --port 7879 --out /tmp/remi-smoke --keep-data
+    python tools/smoke_real.py --features   # also the LoRA features, Sparse Attention and paste round-trips
 
 What it does (one model load, about three minutes on an M4 with Anima Turbo):
 
@@ -22,7 +23,21 @@ What it does (one model load, about three minutes on an M4 with Anima Turbo):
    follows the source but is not a copy) and inpaint with the right half masked (the left
    half stays the source, the right half changes).
 5. Extras: Lanczos upscale by 1.5 (the size and the content follow the source).
-6. Stops the server (Ctrl+C, then terminate) and prints a result table; exit 1 when a check
+6. With ``--features``: the Anima features that need LoRA files, against two tiny test LoRAs
+   generated for the checkpoint into the temporary data folder (``tools/anima_test_loras.py``,
+   passed as ``--lora-dir``), at 512x512 with a fixed seed:
+
+   - a LoRA changes the image; LoRA Layer Weight at block weight 0 undoes it; LoRA Stage
+     Scheduler changes it; Anima FreeFuse routes the two subject LoRAs (infotext
+     ``Anima FreeFuse: 2 subjects ...``, no ``error:``) - each with its infotext keys;
+   - Sparse Attention: on a CUDA GPU with sol_attn its infotext; elsewhere a job warning
+     "... was skipped: CUDA device is required" and an unchanged image (not a silent no-op);
+   - inpaint with "Masked content: latent noise" finishes in time and keeps the unmasked half;
+   - paste round-trips: each feature job's infotext through ``POST /api/v2/infotext/parse``
+     (no problems) and queued again gives the same pixels and infotext - also for Prompt
+     Anchor, PP Suite and (with a second checkpoint installed) the Refiner checkpoint.
+
+7. Stops the server (Ctrl+C, then terminate) and prints a result table; exit 1 when a check
    failed, 2 when the server could not be started.
 
 Baseline: ``--baseline`` folder with ``baseline_1.png`` and ``baseline_txt2img.json`` (the
@@ -71,10 +86,10 @@ class Report:
 
 
 class Server:
-    def __init__(self, python: str, port: int, data_dir: Path, log: Path) -> None:
+    def __init__(self, python: str, port: int, data_dir: Path, log: Path, extra_args: list[str] | None = None) -> None:
         self.base = f"http://127.0.0.1:{port}"
         self.log_path = log
-        args = [python, "launch.py", "--skip-prepare-environment", "--skip-install", "--api", "--port", str(port), "--data-dir", str(data_dir), "--model-ref", str(ROOT / "models")]
+        args = [python, "launch.py", "--skip-prepare-environment", "--skip-install", "--api", "--port", str(port), "--data-dir", str(data_dir), "--model-ref", str(ROOT / "models"), *(extra_args or [])]
         env = {**os.environ, "REMI_SKIP_WEBUI_BUILD": "1", "PYTHONUNBUFFERED": "1", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
         self.log = open(log, "wb")  # noqa: SIM115 - open for the life of the process
         self.process = subprocess.Popen(args, cwd=ROOT, env=env, stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -206,7 +221,9 @@ def wait_job(server: Server, job_id: str, timeout: float = 900) -> dict:
     raise TimeoutError(f"job {job_id} still running after {timeout} s")
 
 
-def run(server: Server, baseline_dir: Path, out: Path, report: Report) -> None:
+def run(server: Server, baseline_dir: Path, out: Path, report: Report) -> dict:
+    """Steps 2-5; the baseline request's values (the feature checks reuse them)."""
+
     from PIL import Image
 
     recorded = json.loads((baseline_dir / "baseline_txt2img.json").read_text())
@@ -275,6 +292,164 @@ def run(server: Server, baseline_dir: Path, out: Path, report: Report) -> None:
     expected = (round(baseline.width * 1.5), round(baseline.height * 1.5))
     mean, _ = diff(image.resize(baseline.size, Image.Resampling.LANCZOS), baseline)
     report.check("extras upscale", image.size == expected and mean < 3, f"{image.size[0]}x{image.size[1]} (want {expected[0]}x{expected[1]}), mean diff after downscaling {mean:.2f}")
+    return params
+
+
+# region Features (--features)
+
+FEATURE_PROMPT = "1girl, red hair, standing in a garden, masterpiece, best quality"
+FREEFUSE_PROMPT = "a girl with red hair and a boy with blue hair standing in a garden, masterpiece"
+
+
+def script_owner(schema: dict, *args: str) -> str:
+    """The owner id of the script whose params include ``args`` (ids are slugs of titles,
+    which some panels translate; their param names are stable)."""
+
+    for entry in schema["scripts"]:
+        if set(args) <= set(entry.get("args") or ()):
+            return entry["id"]
+    raise LookupError(f"no script with the params {args}")
+
+
+def run_v2(server: Server, tab: str, core: dict, scripts: dict, timeout: float = 900) -> tuple[dict, object | None, str]:
+    """Queue a ``/api/v2/jobs`` job and wait: (job, first image, its infotext)."""
+
+    job = wait_job(server, server.request("POST", "/api/v2/jobs", {"tab": tab, "core": core, "scripts": scripts})["job_id"], timeout)
+    if job["status"] != "completed" or not job.get("outputs"):
+        return job, None, ""
+    output = job["outputs"][0]
+    image = decode(server.request("GET", f"/api/v2/files/{output['id']}"))
+    return job, image, output.get("infotext") or job.get("infotext") or ""
+
+
+def check_round_trip(server: Server, report: Report, name: str, tab: str, image, infotext: str) -> None:
+    """Paste ``infotext`` (``POST /api/v2/infotext/parse``) and queue the pasted values:
+    the same pixels and infotext."""
+
+    parsed = server.request("POST", "/api/v2/infotext/parse", {"text": infotext, "tab": tab})
+    if not report.check(f"{name}: paste has no problems", not parsed["problems"], json.dumps(parsed["problems"])[:300]):
+        return
+    job, again, text = run_v2(server, tab, parsed["core"], parsed["scripts"])
+    if not report.check(f"{name}: pasted job completed", again is not None, job.get("error") or ""):
+        return
+    mean, peak = diff(again, image)
+    delta = infotext_delta(text, infotext)
+    report.check(f"{name}: paste regenerates it", mean == 0 and not delta, f"mean {mean:.4f}, max {peak}; " + ("; ".join(delta)[:300] or "same infotext"))
+
+
+def run_features(server: Server, out: Path, report: Report, base_values: dict) -> None:
+    """The feature checks (see the module docstring, step 6)."""
+
+    schema = server.request("GET", "/api/v2/schema/txt2img")
+    layer = script_owner(schema, "lora_enabled", "lora_block_weights")
+    stage = script_owner(schema, "enabled", "base_timing")
+    freefuse = script_owner(schema, "subject1_selector", "subject2_concept")
+    sparse = script_owner(schema, "tau", "min_tokens", "dense_blocks")
+    anchor = script_owner(schema, "anchor", "separator")
+    pp_suite = script_owner(schema, "vignette_enabled", "vignette_amount")
+    sampler = {"sampler_name": base_values["sampler_name"], "scheduler": base_values["scheduler"], "steps": base_values["steps"]}
+    common_scripts = {"sampler": sampler, "seed": {"seed": base_values["seed"]}}
+
+    def core(prompt: str) -> dict:
+        return {"prompt": prompt, "negative_prompt": base_values["negative_prompt"], "width": 512, "height": 512, "cfg_scale": base_values["cfg_scale"], "distilled_cfg_scale": base_values["distilled_cfg_scale"]}
+
+    def generate(name: str, prompt: str, scripts: dict | None = None) -> tuple[dict, object | None, str]:
+        print(f"feature: {name}", flush=True)
+        job, image, info = run_v2(server, "txt2img", core(prompt), {**common_scripts, **(scripts or {})})
+        report.check(f"{name}: job completed", image is not None, job.get("error") or "")
+        if image is not None:
+            image.save(out / f"feature_{name}.png")
+        return job, image, info
+
+    lora = f"{FEATURE_PROMPT}, <lora:remi-test-a:1>"
+    _, plain, _ = generate("no_lora", FEATURE_PROMPT)
+    _, with_lora, lora_info = generate("lora", lora)
+    if plain is None or with_lora is None:
+        return
+    lora_effect, _ = diff(with_lora, plain)
+    report.check("LoRA changes the image", lora_effect > 1.0 and "remi-test-a" in lora_info, f"mean diff {lora_effect:.2f}; " + lora_info.splitlines()[-1][:200])
+
+    # LoRA Layer Weight: every block at 0 undoes the LoRA
+    _, zeroed, info = generate("layer_weight", lora, {layer: {"lora_enabled": True, "lora_block_enabled": True, "lora_block_weights": "0-27=0"}})
+    if zeroed is not None:
+        to_plain, _ = diff(zeroed, plain)
+        report.check("Layer Weight 0 removes the LoRA's effect", to_plain < lora_effect / 10, f"mean diff to no LoRA {to_plain:.3f} (the LoRA: {lora_effect:.2f})")
+        report.check("Layer Weight infotext", "Anima LoRA layer lora enabled: True" in info and "Anima LoRA layer lora blocks: " in info, info.splitlines()[-1][:300])
+        check_round_trip(server, report, "Layer Weight", "txt2img", zeroed, info)
+
+    # LoRA Stage Scheduler (default template and auto timing)
+    _, staged, info = generate("stage_scheduler", lora, {stage: {"enabled": True}})
+    if staged is not None:
+        to_lora, _ = diff(staged, with_lora)
+        report.check("Stage Scheduler changes the LoRA's effect", to_lora > 0.2, f"mean diff to the unscheduled LoRA {to_lora:.2f}")
+        report.check("Stage Scheduler infotext", "Anima LoRA stage enabled: True" in info, info.splitlines()[-1][:300])
+        check_round_trip(server, report, "Stage Scheduler", "txt2img", staged, info)
+
+    # Anima FreeFuse: two subject LoRAs routed to their trigger phrases
+    two = f"{FREEFUSE_PROMPT}, <lora:remi-test-a:1>, <lora:remi-test-b:1>"
+    _, unrouted, _ = generate("two_loras", two)
+    subjects = {"enable": True, "subject1_active": True, "subject1_selector": "remi-test-a", "subject1_concept": "a girl with red hair", "subject2_active": True, "subject2_selector": "remi-test-b", "subject2_concept": "a boy with blue hair"}
+    _, routed, info = generate("freefuse", two, {freefuse: subjects})
+    if routed is not None and unrouted is not None:
+        to_unrouted, _ = diff(routed, unrouted)
+        report.check("FreeFuse infotext", "Anima FreeFuse: 2 subjects" in info and "error:" not in info, info.splitlines()[-1][:300])
+        report.check("FreeFuse changes the image", to_unrouted > 0.5, f"mean diff to the unrouted LoRAs {to_unrouted:.2f}")
+        check_round_trip(server, report, "FreeFuse", "txt2img", routed, info)
+
+    # Sparse Attention: runs (infotext) or says why it did not (job warning)
+    job, sparse_image, info = generate("sparse_attention", FEATURE_PROMPT, {sparse: {"enable": True, "min_tokens": 256}})
+    if sparse_image is not None:
+        notes = [json.dumps(note.get("values")) for note in job.get("warnings") or []]
+        if "Sparse attention tau" in info:
+            report.check("Sparse Attention ran (infotext)", True, info.splitlines()[-1][:300])
+            check_round_trip(server, report, "Sparse Attention", "txt2img", sparse_image, info)
+        else:
+            unchanged, _ = diff(sparse_image, plain)
+            skipped = any("Sparse Attention Integrated was skipped" in note for note in notes)
+            report.check("Sparse Attention reports why it did not run", skipped and unchanged == 0, f"warnings {notes}; mean diff to without it {unchanged:.3f}")
+
+    # Paste round-trips of the other panels that rewrite the run
+    _, anchored, info = generate("prompt_anchor", "masterpiece, 1girl", {anchor: {"enabled": True, "anchor": "red hair"}})
+    if anchored is not None:
+        report.check("Prompt Anchor infotext", info.startswith("red hair, masterpiece, 1girl") and 'Anchor prompt: "red hair"' in info, info.splitlines()[0][:200])
+        check_round_trip(server, report, "Prompt Anchor", "txt2img", anchored, info)
+    _, vignetted, info = generate("pp_suite", FEATURE_PROMPT, {pp_suite: {"enable": True, "vignette_enabled": True, "vignette_amount": 0.8}})
+    if vignetted is not None:
+        report.check("PP Suite infotext", "PP Suite: " in info, info.splitlines()[-1][:300])
+        check_round_trip(server, report, "PP Suite", "txt2img", vignetted, info)
+
+    models = [model["title"] for model in server.request("GET", "/sdapi/v1/sd-models")]
+    other = next((title for title in models if not title.startswith(MODEL)), None)
+    if other is None:
+        report.check("Refiner paste (needs a second checkpoint)", True, "skipped: only one checkpoint installed")
+    else:
+        refiner = script_owner(schema, "checkpoint", "switch_at")
+        name = other.split(" [")[0]  # a Checkpoint choice; the paste must map "Refiner: <short title>" back onto one
+        _, refined, info = generate("refiner", FEATURE_PROMPT, {refiner: {"enable": True, "checkpoint": name, "switch_at": 0.5}})
+        if refined is not None:
+            report.check("Refiner infotext", "Refiner: " in info, info.splitlines()[-1][:300])
+            check_round_trip(server, report, "Refiner", "txt2img", refined, info)
+
+    # Inpaint, "Masked content: latent noise" (5D Anima latents): finishes, keeps the unmasked half
+    from PIL import Image
+
+    print("feature: inpaint latent noise", flush=True)
+    mask = Image.new("L", plain.size, 0)
+    mask.paste(255, (plain.width // 2, 0, plain.width, plain.height))
+    started = time.monotonic()
+    request = {**common_scripts["sampler"], "prompt": FEATURE_PROMPT, "negative_prompt": base_values["negative_prompt"], "seed": base_values["seed"], "cfg_scale": base_values["cfg_scale"], "width": 512, "height": 512}
+    answer = server.request("POST", "/sdapi/v1/img2img", {**request, "init_images": [b64png(plain)], "mask": b64png(mask), "denoising_strength": 1.0, "mask_blur": 0, "inpainting_fill": 2, "inpaint_full_res": False}, timeout=600)
+    elapsed = time.monotonic() - started
+    image = decode(answer["images"][0])
+    image.save(out / "feature_inpaint_latent_noise.png")
+    half = plain.width // 2
+    kept, _ = diff(image.crop((0, 0, half - 16, plain.height)), plain.crop((0, 0, half - 16, plain.height)))
+    changed, _ = diff(image.crop((half + 16, 0, plain.width, plain.height)), plain.crop((half + 16, 0, plain.width, plain.height)))
+    info = json.loads(answer["info"])["infotexts"][0]
+    report.check("inpaint latent noise", image.size == plain.size and kept < 1.0 and changed > 2.0 and "Masked content: latent noise" in info and "Inpaint area: Whole picture" in info, f"{elapsed:.1f} s, unmasked mean diff {kept:.3f}, masked {changed:.2f}")
+
+
+# endregion
 
 
 def main() -> int:
@@ -285,6 +460,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=Path(tempfile.gettempdir()) / "remi-smoke", help="images and the server log")
     parser.add_argument("--startup-timeout", type=float, default=300)
     parser.add_argument("--keep-data", action="store_true", help="keep the temporary data folder")
+    parser.add_argument("--features", action="store_true", help="also check the LoRA features, Sparse Attention and paste round-trips (step 6)")
     options = parser.parse_args()
 
     for name in ("baseline_1.png", "baseline_txt2img.json"):
@@ -308,13 +484,22 @@ def main() -> int:
     report.check("server interpreter has no Gradio", not found, f"{options.python} can import {', '.join(found)}" if found else options.python)
     print(f"Starting the server on port {options.port} (log: {options.out / 'server.log'}, data: {data_dir})", flush=True)
     started = time.monotonic()
-    server = Server(options.python, options.port, data_dir, options.out / "server.log")
+    extra_args = []
+    if options.features:
+        from anima_test_loras import write_test_loras
+
+        lora_dir = data_dir / "Lora"
+        write_test_loras(ROOT / "models" / "Stable-diffusion" / MODEL, lora_dir)
+        extra_args = ["--lora-dir", str(lora_dir)]
+    server = Server(options.python, options.port, data_dir, options.out / "server.log", extra_args)
     try:
         if not report.check("server starts", server.wait_ready(options.startup_timeout), f"{time.monotonic() - started:.1f} s"):
             print(Path(options.out / "server.log").read_text(errors="replace")[-4000:], file=sys.stderr)
             return 2
         try:
-            run(server, options.baseline, options.out, report)
+            values = run(server, options.baseline, options.out, report)
+            if options.features:
+                run_features(server, options.out, report, values)
         except Exception as error:  # a failed request ends the run but still stops the server
             report.check("smoke run", False, f"{type(error).__name__}: {error}"[:2000])
     finally:

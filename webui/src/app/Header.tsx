@@ -84,9 +84,12 @@ export function Header({ title, locales }: { title: string; locales: LocaleInfo[
   const openPalette = () => useCommands.getState().setPalette(true)
 
   return (
-    <header className="relative flex h-12 shrink-0 items-center gap-2 border-b bg-background/80 px-3 backdrop-blur supports-backdrop-filter:bg-background/65 md:px-4">
+    // Opaque, no backdrop-filter: only the page background is behind it, and its progress line
+    // changes every step (a blur would be redrawn with it).
+    <header className="relative flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3 md:px-4">
       <h1 className="shrink-0 truncate font-heading text-sm font-semibold tracking-tight">{title}</h1>
-      <div ref={setSlot} className="flex min-w-0 items-center gap-2" />
+      {/* page controls keep their size; the model bar (checkpoint name) is what shrinks */}
+      <div ref={setSlot} className="flex shrink-0 items-center gap-2" />
       <div className="ml-auto flex min-w-0 items-center gap-1">
         <div className="hidden min-w-0 sm:block">
           <Suspense fallback={<div aria-hidden className="h-7 w-[min(22rem,40vw)] rounded-lg border border-input" />}>

@@ -69,6 +69,26 @@ class SparseAttnPatch:
         return None
 
 
+def unavailable_reason(device) -> str | None:
+    """Why sparse attention cannot run on ``device`` at all (None: it can).
+    Checked once per sampling pass, so an unsupported device is reported
+    instead of silently running every attention dense."""
+
+    device = torch.device(device)
+    if device.type != "cuda":
+        return "CUDA device is required"
+    try:
+        available = ck.sol_attn_is_available(device)
+    except Exception:
+        available = False
+    if not available:
+        return "sol_attn is not available for this GPU"
+    return None
+
+
+INFOTEXT_PREFIX = "Sparse attention"
+
+
 def make_attention_override(patch: "SparseAttnPatch", prev_attn: Callable) -> Callable:
 
     def override(func: Callable, q, k, v, heads, **kwargs):
@@ -126,23 +146,35 @@ class SparseAttentionForForge(scripts.Script):
     def params(self, is_img2img):
         return ui.Section(
             self.title(),
-            enable=ui.Toggle("enable", False, label=self.title()),
+            # Like Refiner: an image without the record ran without sparse attention
+            enable=ui.Toggle("enable", False, label=self.title(), paste=lambda d: f"{INFOTEXT_PREFIX} tau" in d),
             children=[
                 ui.Row(
-                    ui.Slider("tau", 0.0, 4.0, 1.25, 0.05, label="Tau", info="higher = faster & worse quality"),
-                    ui.RangeSlider("percent", 0.0, 1.0, (0.15, 0.85), 0.05, label="Timestep Range"),
+                    ui.Slider("tau", 0.0, 4.0, 1.25, 0.05, label="Tau", info="higher = faster & worse quality", infotext=f"{INFOTEXT_PREFIX} tau"),
+                    ui.RangeSlider("percent", 0.0, 1.0, (0.15, 0.85), 0.05, label="Timestep Range", infotext=f"{INFOTEXT_PREFIX} range"),
                 ),
                 ui.Row(
-                    ui.Slider("min_tokens", 0, 32768, 4096, 512, label="Tokens Threshold", info="model & resolution dependent ; higher = slower & better quality"),
-                    ui.Slider("extra_tokens", 0, 256, 0, 64, label="Extra Tokens", info="higher = slower & better quality"),
+                    ui.Slider("min_tokens", 0, 32768, 4096, 512, label="Tokens Threshold", info="model & resolution dependent ; higher = slower & better quality", infotext=f"{INFOTEXT_PREFIX} min tokens"),
+                    ui.Slider("extra_tokens", 0, 256, 0, 64, label="Extra Tokens", info="higher = slower & better quality", infotext=f"{INFOTEXT_PREFIX} extra tokens"),
                 ),
-                ui.Text("dense_blocks", "", max_lines=1, placeholder="0, 1, 25-27", label="Dense Blocks", info="blocks to keep dense (i.e. slower / better quality)"),
+                ui.Text("dense_blocks", "", max_lines=1, placeholder="0, 1, 25-27", label="Dense Blocks", info="blocks to keep dense (i.e. slower / better quality)", paste=lambda d: d.get(f"{INFOTEXT_PREFIX} dense blocks", "" if f"{INFOTEXT_PREFIX} tau" in d else None)),
                 ui.Toggle("verbose", False, label="Verbose (Debug)"),
             ],
         )
 
     def process_before_every_sampling(self, p, enable: bool, tau: float = 1.25, percent: tuple[float, float] = (0.15, 0.85), min_tokens: int = 4096, extra_tokens: int = 0, dense_blocks: str = "", verbose: bool = False, **kwargs):
         if not enable:
+            return
+
+        from modules import devices
+
+        if (reason := unavailable_reason(devices.device)) is not None:
+            # Reported as a job warning (p.comment) instead of a silent no-op;
+            # no infotext: the image was made without sparse attention
+            message = f"{self.title()} was skipped: {reason}"
+            if callable(comment := getattr(p, "comment", None)):
+                comment(message)
+            logger.warning(message)
             return
 
         unet = p.sd_model.forge_objects.unet
@@ -159,6 +191,15 @@ class SparseAttentionForForge(scripts.Script):
         )
 
         p.sd_model.forge_objects.unet = patched_unet
+
+        extra = getattr(p, "extra_generation_params", None)
+        if extra is not None:
+            extra[f"{INFOTEXT_PREFIX} tau"] = tau
+            extra[f"{INFOTEXT_PREFIX} range"] = f"{percent[0]}, {percent[1]}"
+            extra[f"{INFOTEXT_PREFIX} min tokens"] = min_tokens
+            extra[f"{INFOTEXT_PREFIX} extra tokens"] = extra_tokens
+            if dense_blocks.strip():
+                extra[f"{INFOTEXT_PREFIX} dense blocks"] = dense_blocks.strip()
 
     @staticmethod
     def _apply_block_sparse_attention(model: "ModelPatcher", tau: float, start_percent: float, end_percent: float, min_tokens: int, extra_tokens: int, dense_blocks: set[int], verbose: bool) -> "ModelPatcher":
