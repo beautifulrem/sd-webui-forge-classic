@@ -243,6 +243,7 @@ class JobRequest(Model):
     priority: int = Field(0, ge=-1000, le=1000)
     repeat: int = Field(1, ge=1, le=100)
     forever: bool = False
+    upscale_from: str | None = Field(None, description="txt2img only: Hires. fix this image (an output or upload id) instead of generating the first pass (A1111's ✨ button). Hires. fix is turned on and the size is the image's; the settings txt2img_upscale_single_batch and txt2img_upscale_same_seed apply")
 
 
 class JobCreated(Model):
@@ -257,6 +258,7 @@ class JobOutput(Model):
     width: int | None = None
     height: int | None = None
     infotext: str | None = None
+    role: Literal["grid", "extra"] | None = Field(None, description='an image that is not one of the batch: the grid, or an extra image (e.g. a ControlNet detected map)')
 
 
 class JobProgress(Model):

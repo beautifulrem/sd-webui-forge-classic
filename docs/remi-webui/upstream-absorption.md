@@ -23,7 +23,8 @@ History of earlier syncs:
 [2026-10-02](../upstream-sync-2026-10-02.md) (selective port from reviewed
 diffs) and [2026-10-14](../upstream-sync-2026-10-14.md) (Git merge of `neo`
 at `46af880c`, the last upstream commit absorbed before the UI rewrite).
-Each new sync adds a `docs/upstream-sync-YYYY-MM-DD.md` in the same format.
+Each new sync adds a `docs/upstream-sync-YYYY-MM-DD.md` from the template in
+[§5](#5-sync-note-template).
 
 ## 1. Where upstream files went
 
@@ -32,7 +33,7 @@ Each new sync adds a `docs/upstream-sync-YYYY-MM-DD.md` in the same format.
 | `backend/**`, `modules_forge/packages/**` | same files (with Remi's Anima hooks) | merge |
 | `modules/processing.py`, `modules/sd_models.py`, `modules/sd_samplers*.py`, `modules/sd_schedulers.py`, `modules/sd_vae*.py`, `modules/sd_unet.py`, `modules/prompt_parser.py`, `modules/images.py`, `modules/masking.py`, `modules/rng*.py`, `modules/devices.py`, `modules/upscaler*.py`, `modules/*_model.py`, `modules/textual_inversion/**`, `modules/extra_networks.py` | same files | merge; check Remi's hooks listed in remi-architecture-notes.md |
 | `modules/scripts.py`, `modules/scripts_postprocessing.py`, `modules/scripts_auto_postprocessing.py` | same files: hooks unchanged, `ui()` / Gradio wiring replaced by `params()` layouts (`build_layouts`, `script_args_from_values`, `disable_script`) | merge hook and runner changes; translate anything about controls into the layout code |
-| `modules/script_callbacks.py` | same file without the UI-building callbacks (`on_ui_tabs`, `on_ui_train_tabs`, `on_before_component`, `on_after_component`) | merge non-UI callbacks; a new UI callback has no equivalent (see §3) |
+| `modules/script_callbacks.py` | same file without the UI-building callbacks (`on_ui_tabs`, `on_ui_train_tabs`, `on_before_component`, `on_after_component`) | merge non-UI callbacks; a new UI callback has no equivalent: translate what it builds into params, a page or a widget ([extension-guide.md §14](extension-guide.md#14-porting-an-a1111--forge-extension)) |
 | `modules/txt2img.py`, `modules/img2img.py`, `modules/postprocessing.py` | same files; entry points take named values (`run_txt2img(core, scripts, job)`, `run_img2img`, `run_extras_named`); the Gradio handler signatures are gone | merge changes to how `p` is built; a new argument of the old handler is a new core param (§2.3) |
 | `modules/infotext_utils.py` | same file (parsing, `create_override_settings_dict`); paste bindings are `infotext=` / `paste=` on inputs and `remi/core/infotext.py` | merge parsing changes; new paste fields of `ui.py` become `infotext=` keys in `remi/core/forms.py` |
 | `modules/shared_state.py` | same file plus `State.live_preview_listeners`: called after each `assign_current_image`, it wakes Remi's preview encoder (`remi/realtime.py`) so a live preview leaves as soon as it exists | merge; keep the listener list and its call in `assign_current_image` |
@@ -41,8 +42,18 @@ Each new sync adds a `docs/upstream-sync-YYYY-MM-DD.md` in the same format.
 | `modules/shared_options.py`, `modules_forge/shared_options.py`, options in extensions | same files; `component` is a `remi.ui` class (`ui.Slider`, `ui.Choice`, …) | merge; convert `gr.*` components (§2.2) |
 | `modules/shared_items.py`, `modules/shared.py`, `modules/options.py`, `modules/shared_cmd_options.py`, `modules/cmd_args.py` | same files (no Gradio types; `--auth` etc. added, Gradio-only flags are no-ops) | merge; a new flag that configures Gradio needs a server equivalent or a no-op |
 | `modules/api/api.py`, `modules/api/models.py` | same files, mounted on the Remi app; script args and infotext go through the `remi.ui` layouts (`init_default_script_args`, `apply_infotext`) | merge; keep the layout-based script-argument code |
-| `modules/launch_utils.py`, `launch.py`, `webui.py`, `requirements*.txt`, `webui.sh`, `webui.bat` | same files: no Gradio install, `build_webui()` builds the SPA, `webui.py` serves `remi.server` | merge installer changes; drop Gradio pins and Gradio launch code |
+| `modules/launch_utils.py`, `launch.py`, `webui.py`, `requirements*.txt`, `webui.sh`, `webui.bat`, `webui-user.sh`, `webui-user.bat`, `download_configs.py` | same files: no Gradio install, `build_webui()` builds the SPA, `webui.py` serves `remi.server`; `webui-user.sh` keeps a `COMMANDLINE_ARGS` from the environment and passes its arguments on | merge installer changes; drop Gradio pins and Gradio launch code |
 | `modules/initialize.py`, `modules/initialize_util.py` | same files without Gradio setup | merge |
+| `modules/extensions.py` | same file (discovery, metadata, `Extension` objects); the git work of `Extension.check_updates` / `fetch_and_reset_hard` is delegated to `remi/extensions_admin.py` (`check_repo`, `reset_repo`: no terminal prompt, timeouts, per-repo locks) | merge discovery and metadata changes; port changes to the git commands into `extensions_admin.py` |
+| `modules/config_states.py` | same file; `remi/extensions_admin.py` uses it for the backups of `/api/v2/extensions/config-states` | merge |
+| `modules/sysinfo.py` | same file; credentials are redacted with `modules/redact.py` (config, `COMMANDLINE_ARGS`, URLs); served by `GET /api/v2/sysinfo` | merge; keep the redaction on every new field that can hold a secret |
+| `modules/styles.py` | same file (`StyleDatabase`); `/api/v2/styles` and the style editor read and write through it | merge |
+| `modules/localization.py` | same file without `localization_js`; `remi/server/i18n.py` merges the catalogs for `GET /api/v2/i18n/<locale>` | merge; a change to how catalogs are found goes into `i18n.py` too |
+| `modules/fifo_lock.py` | same file plus `acquire(timeout=)`, used by `remi/jobs` | merge; keep the timeout |
+| `modules/util.py`, `modules/profiling.py` | same files without the helpers that served Gradio HTML / file paths (`html()`, `webpath()`) | merge; a new helper for Gradio has no use |
+| other `modules/*.py` (`script_loading`, `shared_init`, `restart`, `timer`, `paths`, `paths_internal`, `hashes`, `cache`, `modelloader`, `memmon`, `safe`, `ngrok`, `gitpython_hack`, `torch_utils`, `logging_config`, `face_restoration*`, `codeformer_model`, `gfpgan_model`, `extras`, …), `modules/uni_pc/`, `modules/Roboto-Regular.ttf` | same files, unchanged or with small hooks | merge |
+| `modules_forge/*.py` (`initialization`, `main_thread`, `shared`, `config`, `uv_hook`, `cuda_malloc`, `patch_basic`, `utils`, `supported_controlnet`, `supported_preprocessor`, `forge_alter_samplers`, `diffusers_patcher`, `forge_version`) | same files; `main_thread` runs the jobs of `remi/jobs`, `patch_basic` lost its Gradio URL patch, `cuda_malloc` appends `backend:cudaMallocAsync` to whichever `PYTORCH_*_ALLOC_CONF` variable torch reads | merge; drop anything that patches Gradio |
+| `modules/web/` (Source Sans fonts and CSS for Gradio) | deleted: the SPA bundles its own fonts | none |
 | `modules_forge/main_entry.py` | the model-selection logic only (`checkpoint_change`, `modules_change`, `dtype_change`, loading parameters); the model bar is the SPA's `features/model-bar` with `/api/v2/models` and `remi/core/presets.py` | merge selection logic; translate model-bar UI changes into the SPA |
 | `modules_forge/presets.py` | same file; applied to forms by `remi/core/presets.py` (`apply_forge_preset`, `forge_preset_patch`) | merge; a new preset value that changes a control becomes a form patch entry |
 | `modules/ui.py` (txt2img / img2img / PNG Info tabs, paste fields, top-level layout) | `remi/core/forms.py` (core params, infotext keys, presets, slots), `remi/core/tabs.py` (schema, validation), `remi/core/actions.py` (size swap, Hires resolution), `webui/src/pages/generate`, `features/*` | translate (§2.3) |
@@ -63,6 +74,9 @@ Each new sync adds a `docs/upstream-sync-YYYY-MM-DD.md` in the same format.
 | `html/footer.html`, `html/ui.webp`, other `html/*` | none | none |
 | `scripts/*.py`, `modules/processing_scripts/*.py` | same files; `ui()` replaced by `params()` with the same arguments | merge processing; translate `ui()` changes into `params()` (§2.1) |
 | `extensions-builtin/<upstream ext>/` (ControlNet, LoRA, MultiDiffusion, Spectrum, …) | same folders; `ui()` → `params()`, `on_ui_tabs` → `remi.pages`, extension JS → widgets | merge `lib_*` / processing; translate UI (§2.1); upstream `mobile` and `prompt-bracket-checker` are SPA features and stay deleted |
+| `docker/` | upstream's image recipe, unchanged: it clones Forge Neo itself (not Remi) at build time, so it does not build Remi | merge (keeps the file identical to upstream); Remi ships no Docker image |
+| `README.md`, `pyproject.toml`, `.gitignore`, `.github/`, `LICENSE`, `models/**/Put … here.txt`, `extensions/`, `localizations/` placeholders | Remi's own README (en, zh-CN), lint config and CI; placeholders unchanged | carry over what applies (README model-family list, new placeholder folders); keep Remi's versions otherwise |
+| **any other file** (including files upstream adds) | — | **merge** when it is runtime code or data; **translate** when it builds UI (imports `gradio`, defines `ui()` / `on_ui_tabs`, or is JavaScript / CSS / HTML for the page) and delete it again |
 
 ## 2. Translating each kind of change
 
@@ -148,11 +162,22 @@ SPA has its own design system.
 
 Port it like Remi's own ports ([extension-guide.md §14](extension-guide.md#14-porting-an-a1111--forge-extension),
 architecture.md "Built-in extension porting rule"): snapshot its `ui()` with
-the recording CLI of `tests/remi_port_harness.py` in an environment that
-still has Gradio (the pre-rewrite checkout), write `params()`, move tabs to
-pages and JavaScript to widgets or core features, add `zh_CN` strings and
-the parity / localization / no-Gradio tests, and list it in
-[inventory/extensions.md](inventory/extensions.md).
+`tools/record_legacy_ui.py` (it runs the `ui()` in an export of the last
+Gradio-era revision, with an interpreter that has Gradio 4.40; setup in
+[extension-guide.md §13](extension-guide.md#13-testing)):
+
+```bash
+/tmp/remi-gradio-env/bin/python tools/record_legacy_ui.py \
+    extensions-builtin/<ext>/scripts/<script>.py --script-rev upstream/neo
+# -> extensions-builtin/<ext>/tests/fixtures/legacy_ui_txt2img.json, legacy_ui_img2img.json
+```
+
+then write `params()`, move tabs to pages and JavaScript to widgets or core
+features, add `zh_CN` strings and the parity (`assert_matches_snapshot`) /
+localization / standalone-import tests, and list it in
+[inventory/extensions.md](inventory/extensions.md). Record before merging
+(`--script-rev upstream/neo` reads the upstream file, whatever the working
+tree holds).
 
 ### 2.6 A new upstream model family, sampler or scheduler
 
@@ -163,28 +188,52 @@ appears in the model bar automatically.
 
 ## 3. Procedure
 
+Once per clone, add Forge Neo as the `upstream` remote:
+
 ```bash
-git fetch upstream                                   # upstream = https://github.com/Haoming02/sd-webui-forge-classic.git
+git remote add upstream https://github.com/Haoming02/sd-webui-forge-classic.git
+```
+
+Then review what is new (bash or zsh, from the repository root):
+
+```bash
+git fetch upstream
 BASE=$(git merge-base HEAD upstream/neo)             # last absorbed upstream commit (46af880c after the 2026-10-14 sync)
 git log --oneline --no-merges "$BASE"..upstream/neo  # what is new
 
-# Review by path group (bash or zsh)
-review() { echo "== $1"; shift; git diff --stat "$BASE" upstream/neo -- "$@"; }
-review runtime  backend modules_forge/packages modules/processing.py 'modules/sd_*.py' modules/prompt_parser.py \
-                modules/images.py modules/masking.py modules/textual_inversion modules/extra_networks.py modules/devices.py
-review runner   modules/scripts.py modules/scripts_postprocessing.py modules/script_callbacks.py modules/txt2img.py \
-                modules/img2img.py modules/postprocessing.py modules/infotext_utils.py modules/call_queue.py modules/progress.py modules/api
-review settings modules/shared_options.py modules_forge/shared_options.py modules/shared_items.py modules/cmd_args.py \
-                modules_forge/presets.py modules_forge/main_entry.py
-review ui       modules/ui.py 'modules/ui_*.py' modules/gradio_extensions.py modules/shared_gradio_themes.py \
-                javascript html style.css script.js modules_forge/forge_canvas
-review scripts  scripts modules/processing_scripts extensions-builtin
-review install  launch.py webui.py webui.sh webui.bat modules/launch_utils.py modules/initialize.py modules/initialize_util.py requirements.txt
+# Review by path group (the §1 rows); "other" is everything the groups leave out
+review() { echo "== $1"; shift; git diff --stat=200 "$BASE" upstream/neo -- "$@"; }
+RUNTIME=(backend modules_forge/packages modules/processing.py 'modules/sd_*.py' modules/prompt_parser.py modules/images.py
+         modules/masking.py modules/textual_inversion modules/extra_networks.py modules/devices.py 'modules/rng*.py'
+         'modules/upscaler*.py' 'modules/*_model.py' modules/uni_pc)
+RUNNER=(modules/scripts.py modules/scripts_postprocessing.py modules/scripts_auto_postprocessing.py modules/script_callbacks.py
+        modules/txt2img.py modules/img2img.py modules/postprocessing.py modules/infotext_utils.py modules/call_queue.py
+        modules/progress.py modules/shared_state.py modules/errors.py modules/fifo_lock.py modules/api)
+SETTINGS=(modules/shared_options.py modules_forge/shared_options.py modules/shared_items.py modules/shared.py modules/options.py
+          modules/shared_cmd_options.py modules/cmd_args.py modules_forge/presets.py modules_forge/main_entry.py)
+DELEGATED=(modules/extensions.py modules/config_states.py modules/sysinfo.py modules/styles.py modules/localization.py)
+UI=(modules/ui.py 'modules/ui_*.py' modules/gradio_extensions.py modules/shared_gradio_themes.py javascript html style.css
+    script.js modules_forge/forge_canvas modules/web)
+SCRIPTS=(scripts modules/processing_scripts extensions-builtin)
+INSTALL=(launch.py webui.py webui.sh webui.bat webui-user.sh webui-user.bat download_configs.py modules/launch_utils.py
+         modules/initialize.py modules/initialize_util.py 'requirements*.txt')
+review runtime   "${RUNTIME[@]}"
+review runner    "${RUNNER[@]}"
+review settings  "${SETTINGS[@]}"
+review delegated "${DELEGATED[@]}"   # Remi moved part of these into remi/ (§1)
+review ui        "${UI[@]}"
+review scripts   "${SCRIPTS[@]}"
+review install   "${INSTALL[@]}"
+GROUPED=("${RUNTIME[@]}" "${RUNNER[@]}" "${SETTINGS[@]}" "${DELEGATED[@]}" "${UI[@]}" "${SCRIPTS[@]}" "${INSTALL[@]}")
+review other . "${GROUPED[@]/#/:(exclude)}"  # modules_forge/*.py, other modules/*.py, docker/, README, …: §1 rows or the default row
 
-git diff "$BASE" upstream/neo -- modules/ui.py 'modules/ui_*.py' javascript html modules_forge/forge_canvas  # translated, not merged
-git diff "$BASE" upstream/neo -G'def ui\(|gr\.' -- scripts modules/processing_scripts extensions-builtin    # ui() changes
-git diff --name-status --diff-filter=A "$BASE" upstream/neo                                            # new files
+git diff "$BASE" upstream/neo -- "${UI[@]}"                                                          # translated, not merged
+git diff "$BASE" upstream/neo -G'def ui\(|gr\.' -- "${SCRIPTS[@]}"                                     # ui() changes
+git diff --name-status --diff-filter=A "$BASE" upstream/neo                                          # new files
 ```
+
+Record the legacy snapshot of every new upstream extension or script now,
+before merging (§2.5).
 
 Then merge on a branch:
 
@@ -194,18 +243,50 @@ git merge --no-ff --no-commit upstream/neo
 
 git status --short | grep '^DU'     # upstream edited a file Remi deleted (modules/ui*.py, javascript/, …):
                                    # translate the change (§2), then: git rm <file>
-git diff --name-only --diff-filter=A --cached | grep -E '^(javascript/|html/|modules/ui|style\.css|script\.js)'
-                                   # new upstream UI files: translate, then git rm them
+git diff --name-only --diff-filter=A --cached | grep -E '(^|/)(javascript/|style\.css$)|^(html/|modules/ui|script\.js$)'
+                                   # new upstream UI files (core or extension): translate, then git rm them
 git diff --name-only --diff-filter=U                       # content conflicts: resolve keeping Remi's hooks
-rg -n --glob '*.py' '^\s*(import gradio|from gradio)|gradio_rangeslider' .  # must print nothing
+ruff check . --select TID251 --output-format concise  # Gradio imports (banned in pyproject.toml): must report none
+python tools/check_line_endings.py   # upstream files keep upstream's line endings (below); --fix repairs
 ```
+
+**Line endings.** Forge Neo commits about a hundred files with CRLF line
+endings (most of `modules/`, `launch.py`, …) and the rest with LF. Remi
+keeps every file it shares with upstream byte for byte in upstream's line
+endings, and its own files in LF. There is no `.gitattributes` and no
+renormalization: the repository stores what upstream stores, so `git merge`
+compares real lines and a conflict is a real conflict. An editor or tool
+that saves a CRLF file as LF turns every line into a change and makes the
+next merge conflict on the whole file; `tools/check_line_endings.py` (run by
+`tools/check.sh` as `contract:line-endings`) fails on that, and `--fix`
+converts the listed files back. The list, `tools/upstream_crlf.txt`, holds
+the files that are CRLF at the merge base; after committing the merge,
+regenerate it with `python tools/check_line_endings.py --update` (it reads
+`git merge-base HEAD upstream/neo`), so new upstream CRLF files are guarded
+and deleted ones dropped. The UI rewrite had saved 19 of these files as LF
+(`modules/scripts.py`, `scripts_postprocessing.py`,
+`scripts_auto_postprocessing.py`, `script_callbacks.py`, `launch_utils.py`,
+`shared_options.py`, `shared_items.py`, `shared.py`, `options.py`,
+`cmd_args.py`, `extensions.py`, `sysinfo.py`, `localization.py`,
+`postprocessing.py`, `txt2img.py`, `img2img.py`,
+`processing_scripts/comments.py`, `html/licenses.html` and
+`extensions-builtin/extra-options-section/scripts/extra_options_section.py`);
+they were converted back to CRLF on 2026-10-19, so `git diff 46af880c --
+modules/extensions.py` shows Remi's 37 changed lines instead of all 603.
 
 Resolve, translate, test (`tools/check.sh` runs every Python suite, the
 OpenAPI check, i18n coverage and the frontend build, lint and tests; then the
 real-model smoke test `tools/smoke_real.py` on a GPU or Apple Silicon
-machine), write the sync note, and commit the merge. Because it is a real
-merge, `git log HEAD..upstream/neo` is empty afterwards and the next sync
-starts from the new merge base.
+machine), write the sync note (§5), and commit the merge. Then refresh the
+line-ending list and commit it with the sync:
+
+```bash
+python tools/check_line_endings.py --update   # tools/upstream_crlf.txt from the new merge base
+python tools/check_line_endings.py            # must pass
+```
+
+Because it is a real merge, `git log HEAD..upstream/neo` is empty afterwards
+and the next sync starts from the new merge base.
 
 A selective port (cherry-picking reviewed commits, as on 2026-10-02) is
 possible when only a few fixes are wanted; record the commits in the sync
@@ -217,12 +298,16 @@ note, because the merge base does not move.
       translate / skip) in the sync note.
 - [ ] Runtime conflicts resolved without dropping Remi's Anima hooks
       ([remi-architecture-notes.md](../remi-architecture-notes.md) "Seams").
-- [ ] No Gradio: the `rg` check above prints nothing; `requirements.txt` and
-      `modules/launch_utils.py` install no Gradio.
+- [ ] No Gradio: the `ruff --select TID251` check above reports nothing;
+      `requirements.txt` and `modules/launch_utils.py` install no Gradio.
+- [ ] Line endings: `tools/check_line_endings.py` passes, and
+      `tools/upstream_crlf.txt` was regenerated with `--update` after the
+      merge commit.
 - [ ] Upstream UI files are deleted again (`DU` conflicts and new UI files
       resolved with `git rm` after translating).
 - [ ] Each `ui()` change is in `params()` with the hook's argument order;
-      parity tests and `zh_CN` catalogs updated.
+      parity tests and `zh_CN` catalogs updated; new upstream extensions or
+      scripts have a legacy snapshot (`tools/record_legacy_ui.py`).
 - [ ] New settings use `ui.*` widgets, have `zh_CN` labels, and are in the
       bootstrap `options` subset when the SPA reads them.
 - [ ] New core params are in `remi/core/forms.py` with infotext keys;
@@ -235,3 +320,49 @@ note, because the merge base does not move.
 - [ ] `docs/upstream-sync-YYYY-MM-DD.md` written; README model-family list and
       [remi-architecture-notes.md](../remi-architecture-notes.md) updated when
       the change adds a family or a seam.
+
+## 5. Sync note template
+
+Copy into `docs/upstream-sync-YYYY-MM-DD.md` (examples:
+[2026-10-14](../upstream-sync-2026-10-14.md), a merge, and
+[2026-10-02](../upstream-sync-2026-10-02.md), a selective port):
+
+```markdown
+# Remi upstream sync — YYYY-MM-DD
+
+This sync merges Forge Neo `neo` at
+[`<short sha>`](https://github.com/Haoming02/sd-webui-forge-classic/commit/<full sha>)
+into `remi`. The previous merge base was `<short sha>` (<previous sync note>).
+<For a selective port: the commits taken, and why the rest waits.>
+
+## Integrated as upstream
+
+Merged unchanged, or with conflicts that only kept Remi's hooks:
+
+| Upstream commit | Change |
+| --- | --- |
+| `<sha>` <subject> | <what users get; where it shows up in Remi> |
+
+## Translated into the Remi UI
+
+| Upstream commit / file | Remi change |
+| --- | --- |
+| `<sha>` `modules/ui.py` <subject> | <param in remi/core/forms.py, SPA feature, setting widget, …> |
+
+## Adapted for Remi
+
+| File | Resolution |
+| --- | --- |
+| `<path>` | <conflict and how it was resolved, which Remi hook it keeps> |
+
+## Skipped
+
+| Upstream commit | Why |
+| --- | --- |
+| `<sha>` <subject> | <Gradio-only, superseded by a Remi feature, …> |
+
+## Validation
+
+`tools/check.sh` (all steps), `tools/smoke_real.py` on <machine> (txt2img
+pixel parity with <baseline>), and what still needs a manual check.
+```

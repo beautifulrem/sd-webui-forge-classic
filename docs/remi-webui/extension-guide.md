@@ -52,6 +52,11 @@ imports `gradio` fails to import: Gradio is not installed.
 
 ## 2. Scripts and their hooks
 
+The running example of this guide is a small always-on script. Its files
+(this script, the catalog in [§12](#12-localization) and the tests in
+[§13](#13-testing)) are run as written by `tests/test_remi_extension_guide.py`.
+
+<!-- guide-example: extensions/prompt-suffix/scripts/prompt_suffix.py -->
 ```python
 from modules import scripts
 from remi import ui
@@ -573,7 +578,22 @@ Frontend conventions (design system, i18n, tests, accessibility) are in
   Markdown, choice labels, toast and message templates) is English source
   text and the **translation key**. Translations live in
   `<extension>/localizations/<locale>.json` (`{"English text": "译文"}`),
-  for example `localizations/zh_CN.json`.
+  for example `localizations/zh_CN.json`. For the Prompt Suffix script of
+  [§2](#2-scripts-and-their-hooks) (its choice labels `end` / `start` are
+  already in the core catalog):
+
+  <!-- guide-example: extensions/prompt-suffix/localizations/zh_CN.json -->
+  ```json
+  {
+   "Prompt Suffix": "提示词后缀",
+   "Suffix": "后缀",
+   "Position": "位置",
+   "Weight": "权重",
+   "Use the prompt": "使用提示词",
+   "The prompt is empty": "提示词为空"
+  }
+  ```
+
 - The server merges, per locale, the core catalog
   (`localizations/<locale>.json`) with every enabled extension's catalog and
   serves the result at `GET /api/v2/i18n/<locale>`; the SPA translates with
@@ -595,6 +615,7 @@ own (`python -m pytest extensions/<ext>/tests`; `tools/check.sh` runs every
 built-in suite). `tests/remi_port_harness.py` gives Gradio-free helpers that
 import a script the way Forge does and build its layout as the runner does.
 
+<!-- guide-example: extensions/prompt-suffix/tests/test_prompt_suffix.py -->
 ```python
 # extensions/prompt-suffix/tests/test_prompt_suffix.py
 import importlib.util
@@ -633,8 +654,17 @@ def test_schema_is_json_and_localized():
     harness.assert_localized(ROOT, schemas, extra=["Prompt Suffix", "The prompt is empty"])
 
 
-def test_imports_no_gradio():
-    harness.assert_gradio_free([SCRIPT])
+def test_copy_prompt_action():
+    from remi import ui
+
+    script = module.PromptSuffix()
+    assert ui.call_action(script, "copy_prompt", ui.ActionContext(core={"prompt": "a cat"}), {}) == {"suffix": {"value": "a cat"}}
+    assert ui.call_action(script, "copy_prompt", ui.ActionContext(core={}), {})["__toast__"]["level"] == "warning"
+
+
+def test_imports_standalone():
+    # a fresh interpreter with only the WebUI's dependencies (no Gradio): the script must import
+    harness.assert_imports_standalone([SCRIPT])
 ```
 
 What to test:
@@ -646,15 +676,40 @@ What to test:
   pastes back to the same values (`layout.paste(params)`).
 - **Actions:** call them directly (`ui.call_action(script, "copy_prompt",
   ui.ActionContext(core={"prompt": "x"}), {})`) and check the patch.
-- **Localization** and **no Gradio** as above.
-- **Ports from `ui()`:** record the old `ui()` once with the pre-Remi code
-  (the harness's recording CLI, run where Gradio is installed) into
-  `tests/fixtures/legacy_ui_<tab>.json`, then
+- **Localization** and **no Gradio** (`assert_imports_standalone`, run with
+  the Gradio-free interpreter the WebUI uses) as above.
+- **Ports from `ui()`:** before changing the script, record its Gradio
+  `ui()` once with `tools/record_legacy_ui.py` into
+  `tests/fixtures/legacy_ui_<tab>.json`, then load it with
+  `harness.load_snapshot(SCRIPT, tab)` and compare:
   `harness.assert_matches_snapshot(layout, snapshot, changes={index: {...}})`
   fails on any difference you did not list (kind, label, default, bounds,
-  choices, infotext key, preset field). Built-in examples:
+  choices, infotext key, preset field, wiring). Built-in examples:
+  `extensions-builtin/sd_forge_spectrum/tests/test_spectrum_params.py`,
   `extensions-builtin/sd_forge_anima_dave/tests/test_params.py`,
   `extensions-builtin/sd_forge_controlnet/tests/`.
+
+  The recorder is the only tool that needs Gradio. Remi has none, so it
+  exports the last revision that still had the Gradio UI (`9c96c45e`, the
+  parent of the commit that removed it) to a temporary folder and builds the
+  `ui()` there; the record uses this checkout's `describe()`, the format
+  `assert_matches_snapshot` reads. Give it an interpreter with Gradio 4.40:
+
+  ```bash
+  python -m venv /tmp/remi-gradio-env
+  /tmp/remi-gradio-env/bin/pip install -r requirements.txt "gradio==4.40.0" "gradio_rangeslider==0.0.8"
+  # an extension folder on disk (third-party, or an upstream checkout):
+  /tmp/remi-gradio-env/bin/python tools/record_legacy_ui.py /path/to/my-ext/scripts/my_script.py --out /path/to/my-ext/tests/fixtures
+  # a built-in or upstream extension, taken from a git revision (upstream/neo, or the pre-port commit):
+  /tmp/remi-gradio-env/bin/python tools/record_legacy_ui.py extensions-builtin/<ext>/scripts/<script>.py --script-rev upstream/neo
+  ```
+
+  `--tabs txt2img img2img` records tabs the script's `show()` hides in that
+  environment (a panel gated on an optional package or a platform),
+  `--options '{"key": value}'` sets the settings the `ui()` reads (the
+  Extra Options section records its `extra_options_*` lists this way),
+  `--class` picks the script class when the file has several. `python
+  tools/record_legacy_ui.py --help` lists every option.
 
 Processing tests that need the WebUI's options and script runners without a
 model use `remi.testing.webui_state()`; server-level tests use
@@ -725,7 +780,8 @@ JavaScript by declarations, actions or widgets, and add the parity test.
 
 Checklist for a port:
 
-1. Snapshot the old `ui()` (see [§13](#13-testing)) before changing it.
+1. Snapshot the old `ui()` with `tools/record_legacy_ui.py` (see
+   [§13](#13-testing)) before changing it.
 2. Write `params()` with the same inputs in the same order (`param_order`
    when the visual order must differ). Inputs the old UI kept outside the
    argument list go **after** the legacy arguments (always-on scripts), so
@@ -736,7 +792,8 @@ Checklist for a port:
    server callback into an action.
 5. Move `on_ui_tabs` to a page; delete `javascript/` and `style.css`.
 6. Add `localizations/zh_CN.json` (or your locale) for every string.
-7. Add the parity, paste, localization and no-Gradio tests.
+7. Add the parity (`assert_matches_snapshot`), paste, localization and
+   standalone-import tests.
 
 ## 15. What is not supported, and what to do instead
 

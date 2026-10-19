@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from remi.server import models as m
+from remi.server.auth import LICENSE_TEXT_ORIGIN
 from remi.server.deps import ServicesDep, opts
 
 log = logging.getLogger(__name__)
@@ -197,7 +198,8 @@ class _LicenseParser(html.parser.HTMLParser):
             ident = values.get("id") or ""
             self._entry["id"] = ident.removesuffix("-license-content")
             url = values.get("data-license") or ""
-            self._entry["license_url"] = url if url.startswith("https://") else None
+            # only the host the page's CSP lets the browser fetch from (connect-src)
+            self._entry["license_url"] = url if url.startswith(f"{LICENSE_TEXT_ORIGIN}/") else None
 
     def handle_endtag(self, tag: str) -> None:
         if tag in ("style", "script"):

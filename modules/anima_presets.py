@@ -2,9 +2,10 @@
 
 The preset intentionally owns generation algorithms and their numeric tuning,
 but not user-authored content such as prompts, LoRA names, or local model paths.
-Extensions register their Gradio controls while the UI is being built; the
-late-running preset panel can then update them in one click without importing
-extension modules or coupling their runtimes together.
+Scripts bind their params to preset fields declaratively (``preset=`` in
+``params()``; ``ScriptRunner.preset_bindings()`` collects them), so the preset
+panel sets them all in one click as named values (:func:`preset_named_values`)
+without importing extension modules or coupling their runtimes together.
 """
 
 from __future__ import annotations
@@ -244,7 +245,7 @@ def turbo_settings_advice(checkpoint: str, cfg_scale: float, steps: int) -> str 
 
 
 def preset_value(label: str, name: str, registered: object) -> object:
-    """The value ``label`` gives the control registered with ``registered``
+    """The value ``label`` gives the param bound with ``registered``
     (the base preset value, possibly localized by the extension)."""
 
     overrides = PRESETS.get(label, {})

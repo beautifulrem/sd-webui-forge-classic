@@ -59,7 +59,8 @@ class Job:
     meta: dict[str, Any] = field(default_factory=dict)
     """``source`` (an importer), ``source_id``, ``name``, ``warnings`` (notes
     on script errors during the run), ``notes`` (list of
-    strings) and ``opaque`` (arguments kept as they were, not replayable)"""
+    strings), ``opaque`` (arguments kept as they were, not replayable) and
+    ``upscale_from`` (txt2img: the file id of the image Hires. fix starts from)"""
 
     @property
     def id_task(self) -> str:
@@ -270,7 +271,7 @@ class JobStore:
             job = self.get(job_id)
             if job is None or not job.forever:
                 return None
-            return self.add(job.tab, job.core, job.scripts, priority=job.priority, layout_hash=job.layout_hash, schema_version=job.schema_version, summary=job.summary, forever=True, user=job.user, retry_of=job.id)
+            return self.add(job.tab, job.core, job.scripts, priority=job.priority, layout_hash=job.layout_hash, schema_version=job.schema_version, summary=job.summary, forever=True, user=job.user, retry_of=job.id, meta={"upscale_from": job.meta["upscale_from"]} if job.meta.get("upscale_from") else None)
 
     def clear_forever(self) -> int:
         with self._lock:
@@ -455,6 +456,7 @@ class JobStore:
         for job in self._fetch(f"SELECT {_COLUMNS} FROM jobs WHERE status IN (?, ?)", (QUEUED, RUNNING)):
             walk(job.core)
             walk(job.scripts)
+            walk(job.meta.get("upscale_from"))
         return found
 
     def get_meta(self, key: str, default: str | None = None) -> str | None:

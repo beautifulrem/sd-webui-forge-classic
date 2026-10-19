@@ -78,6 +78,7 @@ function ViewerHost({ open, onOpenChange, tab }: { open: boolean; onOpenChange: 
         current={current}
         live={liveInViewer && follow ? preview : null}
         tab={tab}
+        upscalable
         onNavigate={(key) => {
           useSession.getState().select(key)
           useSession.getState().setFollow(false)

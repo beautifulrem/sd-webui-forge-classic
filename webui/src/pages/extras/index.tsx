@@ -24,6 +24,7 @@ import { CompareSlider } from "@/features/compare/CompareSlider"
 import { type ExtrasResult, interruptExtras, runExtras, useExtrasRuns, wireExtrasRuns } from "@/features/extras/run"
 import type { ResultItem } from "@/features/gallery/session-store"
 import { formatEta } from "@/features/progress/effects"
+import { enqueueForm } from "@/features/queue/edit-session"
 import { EnqueueButton, QueueEditBanner } from "@/features/queue/FormQueueControls"
 import { ResultActions } from "@/features/send-to/ResultActions"
 import { useFormLoader } from "@/pages/generate/use-form-loader"
@@ -260,7 +261,9 @@ function useExtrasShortcuts() {
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
         if (document.querySelector("[role=dialog][data-open], [role=alertdialog]")) return
         event.preventDefault()
-        void runExtras()
+        // Ctrl/Cmd+Shift+Enter: "Add to queue", as on the Generate page
+        if (event.shiftKey) void enqueueForm("extras")
+        else void runExtras()
       } else if (event.key === "Escape" && useExtrasRuns.getState().jobs.length > 0) {
         const target = event.target instanceof Element ? event.target : null
         if (target?.closest("input, textarea, [contenteditable], [role=dialog], [role=menu], [role=listbox]")) return

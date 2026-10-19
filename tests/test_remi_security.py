@@ -470,6 +470,10 @@ def test_risky_launch_flags_are_warned_about(options):
     assert any("unencrypted" in warning for warning in exposure_warnings(shared.cmd_opts))
     options(cors_allow_origins="*")
     assert any("every web site" in warning for warning in exposure_warnings(shared.cmd_opts))
+    options(api_no_auth_on_localhost=True)
+    assert any("--api-no-auth-on-localhost" in warning for warning in exposure_warnings(shared.cmd_opts))
+    options(api_auth="api:key")  # --api-auth always applies, so the opt-out does nothing
+    assert not any("--api-no-auth-on-localhost" in warning for warning in exposure_warnings(shared.cmd_opts))
 
 
 def test_api_auth_credentials_do_not_lock_the_webui_login(options):

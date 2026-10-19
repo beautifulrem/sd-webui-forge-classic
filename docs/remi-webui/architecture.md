@@ -43,6 +43,7 @@ Inputs (each has a `name` unique within its script; that name is the param id):
 |---|---|---|
 | `Toggle(name, default=False)` | bool | |
 | `Slider(name, minimum, maximum, default, step)` | float/int | `int` when the bounds, step and a static default are all Python `int`s (`Slider(0.0, 2.0, 1.0, 1.0)` is a float slider); `integer=` overrides |
+| `RangeSlider(name, minimum, maximum, default=None, step=0.01, integer=None)` | `[low, high]` | Gradio's RangeSlider (the `range-slider` widget); integer like `Slider`; values are clamped and ordered; the default is the full range |
 | `Number(name, default, minimum=None, maximum=None, step=None, precision=None)` | float/int | |
 | `Text(name, default="", lines=1, max_lines=None, placeholder=None, prompt=False)` | str | `prompt=True` → CodeMirror prompt editor (weights, LoRA, tag completion) |
 | `Choice(name, choices, default, style="dropdown" or "radio", allow_custom=False)` | str/int | `choices` list (values or `(label, value)`) or a callable resolved per request; `type="index"` gives the script the index (the wire value stays the choice value); a `None` default is the first choice |
@@ -116,6 +117,15 @@ refreshes its copy).
 one. Buttons call actions, and `on_change` / `on_input`
 trigger them. Actions run outside the generation lock unless declared
 `gpu=True`, in which case they queue behind generation.
+
+Uploads and outputs reach an action through `ctx.files` (`ui.ActionFiles`,
+which the server fills with its file store): `image(id)`, `image_size(id)`,
+`get(id)`, `path(id)`, `store_image(image, name)` and `store_bytes(data,
+name)` (extension-guide.md "Files"). Scripts, pages and built-in extensions
+use only `remi.ui` / `remi.pages`: nothing outside `remi/` (and the few
+listed WebUI glue modules, such as `modules/util.py`'s `open_folder`)
+imports `remi.server` or reaches the server's services through
+`ctx.request`; `tests/test_remi_layers.py` enforces it.
 
 ### Scripts
 
@@ -465,6 +475,44 @@ repository calls them. Scripts and tools use `POST /api/v2/jobs` (named
 and the `job.*` WebSocket events instead; the A1111 `/sdapi/v1` API stays
 for clients written against it.
 
+The same holds for the two JavaScript-only prompt extensions: the 16
+`/tacapi/v1/*` routes of Tag Autocomplete and the 46 `/physton_prompt/*`
+routes of Prompt All-in-One (inventory rows 25 and 28) are not kept. They
+were private back ends of each extension's own browser script (tag files
+read through Gradio's `file=` route, a Vue app's storage, 21 translator
+back ends, a runtime package installer); their only client is gone, and
+`/api/v2/prompt-tools` (`remi/server/routes/prompt_tools.py`) serves the
+SPA's completion and prompt tools instead. A request to any of the four
+retired prefixes gets `410 Gone` naming the replacement
+(`remi/server/spa.py` `RETIRED_APIS`, `tests/test_remi_server_app.py`)
+rather than the SPA shell, unless an installed extension registers a route
+there itself.
+
+**Decision: what the JavaScript-only extensions keep.** Their features are
+core SPA features now; each extension's README lists, setting by setting
+or feature by feature, what was kept, what merged into a core feature, and
+what was dropped and why, and a test keeps the setting lists complete:
+
+- Tag Autocomplete (`extensions-builtin/sd-webui-tagcomplete-neo/README.md`,
+  `tests/test_remi_prompt_tools.py`): 41 of its 58 `tac_*` settings are
+  kept with their keys (dotted keys renamed with `_`, saved values moved);
+  the 17 others are explained (no third-party lookups such as CivitAI,
+  no `$style` variables without an expander, one keymap and one
+  contrast-checked palette shared by the editor).
+- Prompt All-in-One (`extensions-builtin/sd-webui-prompt-all-in-one-neo/README.md`):
+  tag view, history, favorites, tag groups and LLM prompt writing are
+  kept; quality presets, highlighting, the token counter and the keyword
+  blacklist merged into Styles / Prompt Anchor, the prompt editor and the
+  Prompt Blacklist extension; vendor-specific translators, mbart50,
+  translation while typing, mouse hotkeys and the package installer are
+  dropped (the reasons are in the README).
+- Agent Scheduler (`extensions-builtin/agent-scheduler/README.md`,
+  `tests/test_remi_server_jobs.py`): history retention, re-queueing failed
+  jobs and the action when the queue is done are Queue settings with their
+  old keys; the layout settings (button and tab placement, page size,
+  checkpoint dropdown, pause flag, remappable shortcut) are dropped and
+  explained there; "Add to queue" has the fixed shortcut Ctrl/Cmd+Shift+Enter.
+
 ## Gradio removal
 
 Gradio, `gradio_client` and `gradio_rangeslider` are gone: no import, no
@@ -518,8 +566,18 @@ Kept, each for a non-UI reason:
 | `modules_forge/main_entry.py` | model selection state and changes (`checkpoint_change`, `modules_change`, `dtype_change`, `refresh_model_loading_parameters`) used by processing, Hires. fix, the refiner, X/Y/Z and the server |
 | `modules/extras.py` `run_modelmerger` | the checkpoint merge itself (no WebUI page calls it yet); returns its status message |
 | `html/licenses.html` | read by `GET /api/v2/licenses` |
+| `modules/util.plaintext_to_html` | the A1111 `/sdapi/v1/extra-single-image` and `extra-batch-images` responses carry `html_info` (HTML) for API compatibility; Remi's own API and UI get plain infotext (`run_extras_named`) |
 | `html/ui.webp` | README screenshot |
 | `OptionInfo.js()`, `comment_before` / `comment_after` | A1111 extension API; `.js()` is ignored |
 | `util.open_folder`, `ScriptRunner.set_named_arg` | A1111 helpers extensions call; Gradio-free now (`set_named_arg` takes param names) |
-| `--share`, `--use-textbox-seed`, `--add-stop-route` | accepted so existing launch commands keep working; they do nothing |
-| `legacy_ui_<tab>.json` test fixtures | the argument contract recorded from each script's Gradio `ui()` before its port (the control class is the `legacy_control` key); the ports are tested against them |
+| `--use-textbox-seed`, `--add-stop-route`, `--ngrok-region`, `--theme`, `--ui-config-file` | accepted so existing launch commands keep working; they do nothing (`--theme`: the Appearance menu picks light / dark / system and the browser remembers it; `--ui-config-file`: form drafts live in the browser, defaults come from `params()` and the UI presets) |
+| `--share` | accepted so existing launch commands keep working, but there is no public tunnel: the server logs a warning at startup (use `--listen`, a reverse proxy or `--ngrok`). Like those, it marks the server as non-local (`cmd_opts.webui_is_non_local`), so the protections of an exposed server stay on (installing extensions needs `--enable-insecure-extension-access`; the browser is not opened automatically) |
+| `legacy_ui_<tab>.json` test fixtures | the argument contract recorded from each script's Gradio `ui()` before its port (the control class is the `legacy_control` key in some); the ports are tested against them. New ones are recorded with `tools/record_legacy_ui.py` (in the format of `tests/remi_port_harness.describe`), which builds the `ui()` in an export of the last Gradio-era revision |
+
+Settings: every core option (`modules/shared_options.py`) and every UI
+preset option (`modules_forge/presets.py`) has a reader — processing, the
+server, a script or the SPA (`CLIENT_OPTION_DEFAULTS`, sent in the bootstrap
+`options`). The Gradio-only settings (theme, accordion, card layout, brush
+colour, gallery height, …) were removed; `tests/test_remi_option_consumers.py`
+fails when a setting has no reader (its `KEPT` list, empty today, would name
+any setting kept on purpose with its reason).

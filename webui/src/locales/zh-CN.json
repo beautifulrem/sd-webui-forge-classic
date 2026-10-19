@@ -1278,5 +1278,7 @@
   "Replace the prompt": "替换提示词",
   "Tidy up the separators": "整理分隔符",
   "The prompt is already tidy.": "提示词已经很整齐了。",
-  "Separators tidied up": "已整理分隔符"
+  "Separators tidied up": "已整理分隔符",
+  "Upscale with Hires. fix": "用高分辨率修复放大",
+  "Generated video": "生成的视频"
 }

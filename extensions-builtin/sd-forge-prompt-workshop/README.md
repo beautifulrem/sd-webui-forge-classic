@@ -1,6 +1,6 @@
 # sd-forge-prompt-workshop
 
-An **Anima Workshop** tab for [Haoming02/sd-webui-forge-classic](https://github.com/Haoming02/sd-webui-forge-classic) (the `neo` branch), designed for use with the [Anima](https://huggingface.co/circlestone-labs/Anima) image model.
+A **Prompt Workshop** page for [Haoming02/sd-webui-forge-classic](https://github.com/Haoming02/sd-webui-forge-classic) (the `neo` branch), designed for use with the [Anima](https://huggingface.co/circlestone-labs/Anima) image model.
 
 > **Remi WebUI:** the Workshop is a page (`#/ext/prompt-workshop`, in the
 > navigation's pages group). The category boxes are prompt editors with tag
@@ -17,17 +17,19 @@ Anima expects prompts written in a specific order:
 
 …with a few format rules: tags are lowercase, words are separated by spaces (not underscores), every artist tag must begin with `@`, and the `score_N` quality tags keep their underscore. The extension provides one box per section, builds prompts in the correct order on demand, and can also pull a random post's tags from **Danbooru, Aibooru, Gelbooru, or Rule34** and rewrite them into Anima's format for you.
 
-## What the tab contains
+## What the page contains
 
-A new top-level tab called **Anima Workshop**, placed between **img2img** and **Extras**.
+A page called **Prompt Workshop** (`#/ext/prompt-workshop`), listed in the
+navigation's pages group. Its place follows *Settings → User interface → UI
+Tab Order* (page titles), and *Hide UI Tabs* hides it.
 
 ### Prompt builder
 
 - **Six category boxes**, one per section of the Anima tag order: Quality/Meta/Year/Safety, Subject (1girl etc.), Character, Series, Artist, General. Fill in whichever ones you need, in any order.
 - **Build Prompt** consolidates all six into a single comma-separated prompt in the correct order. Duplicate tags across boxes are automatically dropped (Anima uses tag dropout during training, so repeating a tag does not strengthen it).
-- **Send to txt2img Prompt** appends the consolidated prompt to the txt2img positive prompt field and switches to that tab. It always appends, never replaces, so existing text in the txt2img prompt is preserved.
-- **Per-category Send buttons** (one for each of the six category boxes) append just that one box's contents to txt2img. These do not switch tabs, so you can send several categories in a row.
-- **Clear All Fields** wipes every input on the tab, including grabber state, but leaves your saved Gelbooru and Rule34 credentials alone.
+- **Send to txt2img Prompt** appends the consolidated prompt to the txt2img positive prompt and opens txt2img; existing text in the prompt is kept. **Replace txt2img Prompt** replaces it instead.
+- **Per-category Send buttons** (one for each of the six category boxes) append just that one box's contents to txt2img. These stay on the Workshop, so you can send several categories in a row.
+- **Clear All Fields** wipes every input on the page, including grabber state, but leaves your saved Gelbooru and Rule34 credentials alone.
 
 ### Booru random tag grabber
 
@@ -68,22 +70,22 @@ Without credentials, every request to either site returns `401 Unauthorized`. Th
 
 1. Log in to Gelbooru.
 2. Go to **Account → Options** ([direct link](https://gelbooru.com/index.php?page=account&s=options)) and scroll to *API Access Credentials* near the bottom of the page. Copy the `api_key` and `user_id` values.
-3. On the Anima Workshop tab, expand the **Gelbooru API credentials** section, paste both values, and click *Save Credentials*. The section is open by default until credentials are saved.
+3. On the Prompt Workshop page, expand the **Gelbooru API credentials** section, paste both values, and click *Save*. The section is open by default until credentials are saved. The saved `api_key` is never shown again (leave the field empty to keep it); *Clear* removes the credentials.
 
 **Rule34:**
 
 1. Log in to Rule34 (`rule34.xxx`).
 2. Visit [api.rule34.xxx](https://api.rule34.xxx/) for the API credentials page and copy the `api_key` and `user_id`.
-3. On the Anima Workshop tab, expand the **Rule34 API credentials** section, paste both values, and click *Save Credentials*. Like the Gelbooru section, it's open by default until credentials are saved.
+3. On the Prompt Workshop page, expand the **Rule34 API credentials** section, paste both values, and click *Save*. Like the Gelbooru section, it's open by default until credentials are saved.
 
 Credentials are written to `extension-data/sd-forge-prompt-workshop/config.json` in Forge's data directory, under prefixed keys so the two sites' credentials don't collide. The file is owner-only on POSIX systems. Each set of credentials is only ever sent to the corresponding booru. **Danbooru and Aibooru** do not require credentials, but their anonymous searches are limited to 2 tags total (including the rating tag).
 
 ## Tag autocomplete compatibility
 
-The bundled TagComplete Neo registers all editable Workshop prompt/tag fields
-directly. Autocomplete therefore uses TagComplete's normal lifecycle and the
-global **Enable for third party extensions** setting; no polling or monkey-patch
-bridge is required.
+The category boxes and the extra boxes are prompt editors (`ui.Text(...,
+prompt=True)`), the same editor as the txt2img prompt: tag completion from the
+bundled TagComplete Neo, weight editing and the bracket check work there
+without any extension-specific code.
 
 ## Tag format rules applied automatically
 
@@ -115,49 +117,37 @@ These are points raised in tdrussell's discussions on the Anima Hugging Face pag
 
 In Forge Neo Remi this extension is preinstalled under `extensions-builtin/`:
 
-    ```
-    sd-webui-forge-neo/
-    └── extensions-builtin/
-        └── sd-forge-prompt-workshop/
-            ├── README.md
-            ├── scripts/
-            │   └── prompt_workshop.py
-            └── javascript/
-                ├── prompt_workshop.js
-                └── tagcomplete_compat.js
-    ```
+```
+extensions-builtin/
+└── sd-forge-prompt-workshop/
+    ├── README.md
+    ├── localizations/zh_CN.json   # zh-CN strings of the page
+    ├── scripts/
+    │   └── prompt_workshop.py     # the page: remi.pages.register(PromptWorkshopPage(...))
+    └── tests/
+```
 
-Runtime credentials are created under Forge's data directory, not in this
-built-in source tree. Forge discovers Python files inside `scripts/` and
-auto-loads JavaScript from `javascript/`.
-
-2. Fully close and restart `webui-user.bat`. The first startup is what registers the new tab; *Reload UI* is only enough for re-rendering.
-
-3. The console should show, in order:
-
-    ```
-    [prompt-workshop] script file is being imported
-    [prompt-workshop] on_ui_tabs callback registered
-    [prompt-workshop] UI tab built
-    ```
-
-    And in the browser's developer console after the UI loads:
-
-    ```
-    [anima-workshop] tab reordered to before Extras
-    ```
+The page is registered when the WebUI imports `scripts/prompt_workshop.py`
+at startup; there is no JavaScript. Runtime credentials are created under the
+WebUI's data directory, not in this built-in source tree. After editing the
+script, *Reload UI* (Settings → Actions) re-imports it; the page re-renders
+from its schema.
 
 ## Troubleshooting
 
-**No `script file is being imported` line at startup** → Forge isn't finding the file. Either the folder structure is wrong or the extension is disabled in *Settings → Extensions*.
+**Prompt Workshop is missing from the navigation** → the extension is disabled
+(*Extensions* page), the page is listed in *Settings → User interface → Hide
+UI Tabs*, or the script failed to import. A failed import is printed with its
+traceback in the server console and listed in `not_ported` of
+`GET /api/v2/app`.
 
-**`script file is being imported` shows but no `UI tab built`** → an exception fired while building the UI. There will be a traceback right after; it's almost always a Gradio version mismatch or a typo somewhere.
-
-**The tab appears at the far right instead of between img2img and Extras** → the JavaScript that does the reordering didn't run, or ran before the UI had finished mounting. Check the browser developer console for `[anima-workshop]` messages. You can also reorder tabs manually under *Settings → User interface → Tab order*.
+**A button reports an error** → the message is shown under the button (or as
+a toast); the server console has the traceback, with lines prefixed
+`[prompt-workshop]`.
 
 **Booru grab returns `[Gelbooru API credentials not set ...]` or `[Rule34 API credentials not set ...]`** → that booru requires credentials. See the *Gelbooru and Rule34 API credentials* section above.
 
-**Booru grab returns `[error fetching from Gelbooru (count): 401 Unauthorized ...]` or the equivalent for Rule34** → the credentials are entered but the booru is rejecting them. Double-check that the `api_key` and `user_id` were copied exactly from the account / API credentials page (no extra spaces, no missing characters), then click *Save Credentials* again on the relevant section. Note that Gelbooru and Rule34 credentials are separate — entering Gelbooru credentials will not authenticate you to Rule34, and vice versa.
+**Booru grab returns `[error fetching from Gelbooru (count): 401 Unauthorized ...]` or the equivalent for Rule34** → the credentials are entered but the booru is rejecting them. Double-check that the `api_key` and `user_id` were copied exactly from the account / API credentials page (no extra spaces, no missing characters), then click *Save* again on the relevant section. Note that Gelbooru and Rule34 credentials are separate — entering Gelbooru credentials will not authenticate you to Rule34, and vice versa.
 
 **Booru grab returns `[Danbooru's anonymous search is limited to 2 tags ...]` or the equivalent for Aibooru** → this is working as intended. Anonymous Danbooru and Aibooru cap queries at 2 tags total. Use fewer search tags, set Rating filter to *All ratings*, or switch the source to Gelbooru or Rule34.
 

@@ -36,6 +36,11 @@ export const CLIENT_OPTION_DEFAULTS = {
   img2img_autosize: false,
   sd_webui_modal_lightbox_icon_opacity: 1,
   sd_webui_modal_lightbox_toolbar_opacity: 0.9,
+  // Results
+  video_player_auto: true,
+  video_player_loop: false,
+  hires_button_gallery_insert: false,
+  hires_insert_index: true,
   disable_token_counters: false,
   include_styles_into_token_counters: true,
   // Image editor (src/canvas)

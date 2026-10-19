@@ -7,7 +7,9 @@ notes, link labels, choice labels), and the server's translatable messages
 Not a test module: ``tests/test_remi_core_zh_cn.py`` checks the zh_CN
 catalog with it, and the CLI lists what a catalog lacks::
 
-    /tmp/remi-testenv/bin/python tests/remi_core_strings.py [--locale zh_CN] [--all] [--out list.json]
+    $PYTHON tests/remi_core_strings.py [--locale zh_CN] [--all] [--out list.json]
+
+``$PYTHON``: an interpreter with requirements.txt (no Gradio), as ``tools/check.sh`` picks.
 """
 
 from __future__ import annotations

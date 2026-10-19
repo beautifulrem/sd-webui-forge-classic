@@ -249,10 +249,8 @@ class ControlBase:
             for i in range(len(control_output)):
                 if i == (len(control_output) - 1):
                     key = "middle"
-                    index = 0
                 else:
                     key = "output"
-                    index = i
                 x = control_output[i]
                 if x is not None:
                     if self.global_average_pooling:
@@ -545,7 +543,7 @@ def load_t2i_adapter(t2i_data):
         for i in range(4):
             for j in range(2):
                 prefix_replace["adapter.body.{}.resnets.{}.".format(i, j)] = "body.{}.".format(i * 2 + j)
-            prefix_replace["adapter.body.{}.".format(i, j)] = "body.{}.".format(i * 2)
+            prefix_replace["adapter.body.{}.".format(i)] = "body.{}.".format(i * 2)
         prefix_replace["adapter."] = ""
         t2i_data = state_dict.state_dict_prefix_replace(t2i_data, prefix_replace)
     keys = t2i_data.keys()

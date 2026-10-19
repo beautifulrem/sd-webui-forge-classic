@@ -248,7 +248,10 @@ function infotext(request: JobRequest, seed: number): string {
   const size = `${String(c.width ?? 1024)}x${String(c.height ?? 1024)}`
   // Like the WebUI: the Hires. fix values only when it ran (txt2img).
   const hires = request.tab === "txt2img" && c.enable_hr ? `, Denoising strength: ${String(c.denoising_strength ?? 0.7)}, Hires upscale: ${String(c.hr_scale ?? 2)}, Hires upscaler: ${String(c.hr_upscaler ?? "Latent")}` : ""
-  return `${String(c.prompt ?? "")}\nNegative prompt: ${String(c.negative_prompt ?? "")}\nSteps: ${String(sampler.steps ?? 20)}, Sampler: ${String(sampler.sampler_name ?? "Euler a")}, Schedule type: ${String(sampler.scheduler ?? "Automatic")}, CFG scale: ${String(c.cfg_scale ?? 5)}, Seed: ${seed}, Size: ${size}${hires}, Model: mock`
+  // The refiner script's values when it is on with a checkpoint (generation tabs).
+  const refinerValues = request.scripts.refiner ?? {}
+  const refiner = request.tab !== "extras" && refinerValues.enable && refinerValues.checkpoint ? `, Refiner: ${String(refinerValues.checkpoint)}, Refiner switch at: ${String(refinerValues.switch_at ?? 0.8)}` : ""
+  return `${String(c.prompt ?? "")}\nNegative prompt: ${String(c.negative_prompt ?? "")}\nSteps: ${String(sampler.steps ?? 20)}, Sampler: ${String(sampler.sampler_name ?? "Euler a")}, Schedule type: ${String(sampler.scheduler ?? "Automatic")}, CFG scale: ${String(c.cfg_scale ?? 5)}, Seed: ${seed}, Size: ${size}${hires}${refiner}, Model: mock`
 }
 
 /** Sizes of uploads (where the browser could decode them) and of outputs, by file id: Extras scales them. */

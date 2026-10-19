@@ -49,6 +49,8 @@ def exposure_warnings(cmd_opts: Any) -> list[str]:
         warnings.append("the API is reachable from other machines without a login; add --api-auth")
     if exposed and getattr(cmd_opts, "enable_insecure_extension_access", False):
         warnings.append("--enable-insecure-extension-access: logged-in users (everyone, without --auth) can install and run arbitrary code")
+    if has_login and getattr(cmd_opts, "api_no_auth_on_localhost", False) and not getattr(cmd_opts, "api_auth", None):
+        warnings.append("--api-no-auth-on-localhost: every program on this machine (and a tunnel that adds no proxy headers) can use /sdapi and extension APIs without the login")
     if "*" in guard._cors_origins(cmd_opts):
         warnings.append("--cors-allow-origins=*: every web site may send requests with your login and read the answers")
     tls = getattr(cmd_opts, "tls_keyfile", None) and getattr(cmd_opts, "tls_certfile", None)

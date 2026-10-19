@@ -144,7 +144,7 @@ def upscale_tensor_tiles(model: Callable, tensor: torch.Tensor, tile_size: int, 
         key = (h, w, top, bottom, left, right)
 
         if key == last_mask_key:
-            return key, last_mask
+            return key, last_mask  # noqa: F821 - bound in the enclosing scope (deleted only after the tile loop)
         elif overlap == 0:
             mask = torch.ones((1, 1, h, w), device=device, dtype=dtype)
         else:

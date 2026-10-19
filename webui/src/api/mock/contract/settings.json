@@ -103,7 +103,9 @@
        "name": "grid_save",
        "label": "Automatically save every generated image grid",
        "default": true,
-       "html": "<span class='info'>(<b>e.g.</b> for <b>X/Y/Z Plot</b>)</span>"
+       "notes": [
+        "e.g. for X/Y/Z Plot"
+       ]
       },
       {
        "type": "choice",
@@ -295,18 +297,14 @@
        "default": 100,
        "precision": 0,
        "integer": true,
-       "html": "<span class='info'>(in megapixels; only affect <b>X/Y/Z Plot</b>)</span>"
+       "notes": [
+        "in megapixels; only affect X/Y/Z Plot"
+       ]
       },
       {
        "type": "toggle",
        "name": "use_original_name_batch",
        "label": "During batch process in Extras tab, use the input filename for output filename",
-       "default": true
-      },
-      {
-       "type": "toggle",
-       "name": "save_selected_only",
-       "label": "When using the \"Save\" button, only save the selected image",
        "default": true
       },
       {
@@ -498,7 +496,9 @@
        "default": "",
        "lines": 1,
        "prompt": false,
-       "html": "<span class='info'>(override the following <b>five</b> settings below)</span>"
+       "notes": [
+        "override the following five settings below"
+       ]
       },
       {
        "type": "text",
@@ -553,7 +553,9 @@
        "default": "",
        "lines": 1,
        "prompt": false,
-       "html": "<span class='info'>(override the following <b>two</b> settings below)</span>"
+       "notes": [
+        "override the following two settings below"
+       ]
       },
       {
        "type": "text",
@@ -718,7 +720,9 @@
        "name": "prefer_fp16_upscalers",
        "label": "Prefer to load Upscaler in half precision",
        "default": false,
-       "html": "<span class='info'>(increase speed; reduce quality; will try <b>fp16</b>, then <b>bf16</b>, then fall back to <b>fp32</b> if not supported)</span>",
+       "notes": [
+        "increase speed; reduce quality; will try fp16, then bf16, then fall back to fp32 if not supported"
+       ],
        "needs_restart": true
       }
      ]
@@ -884,7 +888,9 @@
        ],
        "style": "radio",
        "allow_custom": false,
-       "html": "<span class='info'>(Remote = always automatically start; Local = only when not sharing the server, such as <b>--share</b>)</span>"
+       "notes": [
+        "Remote = always automatically start; Local = only when not sharing the server, such as --share"
+       ]
       },
       {
        "type": "toggle",
@@ -950,30 +956,6 @@
        "name": "confirm_leave",
        "label": "Show a browser confirmation before leaving the page",
        "default": false
-      },
-      {
-       "type": "toggle",
-       "name": "no_spellcheck",
-       "label": "Disable auto-correct / spellcheck for prompt fields",
-       "default": false,
-       "needs_reload_ui": true
-      },
-      {
-       "type": "toggle",
-       "name": "keep_alive",
-       "label": "Keep generating even when the WebUI browser tab is not in focus",
-       "default": false,
-       "notes": [
-        "for \"Generate forever\""
-       ],
-       "needs_reload_ui": true
-      },
-      {
-       "type": "toggle",
-       "name": "undo_redo",
-       "label": "Enable undo / redo history for prompt fields",
-       "default": false,
-       "needs_reload_ui": true
       },
       {
        "type": "slider",
@@ -1193,7 +1175,7 @@
        "style": "dropdown",
        "allow_custom": false,
        "notes": [
-        "after the last queued job finished (not while paused); Sleep, Hibernate, Restart and Shut down act on this computer"
+        "once, after the last queued job finished (then it is \"Do nothing\" again); Sleep, Hibernate, Restart and Shut down act on this computer"
        ],
        "restricted": true
       }
@@ -1262,9 +1244,12 @@
        "allow_custom": false,
        "infotext": "Emphasis",
        "notes": [
-        "pay (more:1.1) or (less:0.9) attention to prompts"
-       ],
-       "html": "<ul style='margin-left: 1.5em'><li>\n            <b>None</b>: disable Emphasis and treat parentheses as literal characters</li><li><b>Ignore</b>: consume parentheses but ignore all emphasis</li><li><b>Original</b>: the default emphasis implementation</li><li><b>No norm</b>: implementation without normalization (for SD1/SDXL only)\n        </li></ul>"
+        "pay (more:1.1) or (less:0.9) attention to prompts",
+        "None: disable Emphasis and treat parentheses as literal characters",
+        "Ignore: consume parentheses but ignore all emphasis",
+        "Original: the default emphasis implementation",
+        "No norm: implementation without normalization (for SD1/SDXL only)"
+       ]
       },
       {
        "type": "slider",
@@ -1351,7 +1336,9 @@
        "style": "radio",
        "allow_custom": false,
        "infotext": "RNG",
-       "html": "<span class='info'>(use <b>CPU</b> for the maximum recreatability across different systems)</span>"
+       "notes": [
+        "use CPU for the maximum recreatability across different systems"
+       ]
       },
       {
        "type": "separator"
@@ -1444,9 +1431,9 @@
        "label": "[Klein] Enable Reference",
        "default": true,
        "notes": [
-        "enable Edit ; disable img2img"
-       ],
-       "html": "<span class='info'>(pin to <b>Quicksettings</b> is recommended if changed often)</span>"
+        "enable Edit ; disable img2img",
+        "pin to Quicksettings is recommended if changed often"
+       ]
       },
       {
        "type": "toggle",
@@ -1454,9 +1441,9 @@
        "label": "[Qwen 2.1] Enable Reference",
        "default": true,
        "notes": [
-        "enable Edit ; disable img2img"
-       ],
-       "html": "<span class='info'>(pin to <b>Quicksettings</b> is recommended if changed often)</span>"
+        "enable Edit ; disable img2img",
+        "pin to Quicksettings is recommended if changed often"
+       ]
       },
       {
        "type": "toggle",
@@ -1465,9 +1452,9 @@
        "default": false,
        "notes": [
         "enable Edit ; disable img2img",
+        "pin to Quicksettings is recommended if changed often",
         "requires specfic Edit LoRA"
-       ],
-       "html": "<span class='info'>(pin to <b>Quicksettings</b> is recommended if changed often)</span>"
+       ]
       },
       {
        "type": "toggle",
@@ -1476,9 +1463,9 @@
        "default": false,
        "notes": [
         "enable Edit ; disable img2img",
+        "pin to Quicksettings is recommended if changed often",
         "requires specfic Edit LoRA"
-       ],
-       "html": "<span class='info'>(pin to <b>Quicksettings</b> is recommended if changed often)</span>"
+       ]
       },
       {
        "type": "html",
@@ -1594,14 +1581,18 @@
        "name": "use_old_hires_fix_width_height",
        "label": "For Hires. Fix, use Width/Height sliders to set the final resolution",
        "default": false,
-       "html": "<span class='info'>(disable <b>Upscale by</b> / <b>Resize to</b>)</span>"
+       "notes": [
+        "disable Upscale by / Resize to"
+       ]
       },
       {
        "type": "toggle",
        "name": "hires_fix_use_firstpass_conds",
        "label": "For Hires. Fix, calculate conds of Hires. pass using Extra Networks of the normal pass",
        "default": false,
-       "html": "<span class='info'>(<b>i.e.</b> do not reload LoRA for the Hires. pass)</span>"
+       "notes": [
+        "i.e. do not reload LoRA for the Hires. pass"
+       ]
       }
      ]
     },
@@ -1656,58 +1647,15 @@
        "name": "img2img_fix_steps",
        "label": "During img2img, do exactly the number of Steps the slider specifies",
        "default": false,
-       "html": "<span class='info'>(otherwise, only process <b>Sampling steps</b> x <b>Denoising strength</b> steps)</span>"
+       "notes": [
+        "otherwise, only process Sampling steps x Denoising strength steps"
+       ]
       },
       {
        "type": "color",
        "name": "img2img_background_color",
        "label": "For img2img, fill the transparent parts of the input image with this color",
        "default": "#808080"
-      },
-      {
-       "type": "color",
-       "name": "img2img_sketch_default_brush_color",
-       "label": "Initial Brush Color for Sketch",
-       "default": "#ff0000",
-       "needs_reload_ui": true
-      },
-      {
-       "type": "color",
-       "name": "img2img_inpaint_mask_brush_color",
-       "label": "Brush Color for Inpaint Mask",
-       "default": "#808080",
-       "needs_reload_ui": true
-      },
-      {
-       "type": "color",
-       "name": "img2img_inpaint_sketch_default_brush_color",
-       "label": "Initial Brush Color for Inpaint Sketch",
-       "default": "#ff0000",
-       "needs_reload_ui": true
-      },
-      {
-       "type": "toggle",
-       "name": "img2img_inpaint_mask_high_contrast",
-       "label": "Use high-contrast brush for inpainting",
-       "default": true,
-       "notes": [
-        "use a checkerboard pattern instead of a solid color"
-       ],
-       "needs_reload_ui": true
-      },
-      {
-       "type": "slider",
-       "name": "img2img_inpaint_mask_scribble_alpha",
-       "label": "Inpaint mask alpha (transparency)",
-       "default": 75,
-       "minimum": 0,
-       "maximum": 100,
-       "step": 1,
-       "integer": true,
-       "notes": [
-        "only affects solid color brush"
-       ],
-       "needs_reload_ui": true
       },
       {
        "type": "toggle",
@@ -1754,7 +1702,9 @@
        "name": "img2img_batch_use_original_name",
        "label": "In img2img Batch, use the input filenames when saving",
        "default": false,
-       "html": "<span class='info'>(<b>Warning:</b> may override existing files)</span>"
+       "notes": [
+        "Warning: may override existing files"
+       ]
       },
       {
        "type": "toggle",
@@ -1772,21 +1722,6 @@
      "label": "Optimizations",
      "items": [
       {
-       "type": "choice",
-       "name": "cross_attention_optimization",
-       "label": "Cross Attention Optimization",
-       "default": "Automatic",
-       "choices": [
-        {
-         "value": "Automatic",
-         "label": "Automatic"
-        }
-       ],
-       "style": "dropdown",
-       "allow_custom": false,
-       "enabled_if": false
-      },
-      {
        "type": "toggle",
        "name": "batch_cond_uncond",
        "label": "Batch Cond/Uncond",
@@ -1801,7 +1736,9 @@
        "name": "persistent_cond_cache",
        "label": "Persistent Cond Cache",
        "default": true,
-       "html": "<span class='info'>(do not re-encode prompts if only the Seed changes ; <b>Note:</b> may cause certain Infotext to be missing)</span>"
+       "notes": [
+        "do not re-encode prompts if only the Seed changes ; Note: may cause certain Infotext to be missing"
+       ]
       },
       {
        "type": "slider",
@@ -1931,25 +1868,6 @@
      "items": [
       {
        "type": "choice",
-       "name": "extra_networks_tree_view_style",
-       "label": "Extra Networks UI Style",
-       "default": "Dirs",
-       "choices": [
-        {
-         "value": "Tree",
-         "label": "Tree"
-        },
-        {
-         "value": "Dirs",
-         "label": "Dirs"
-        }
-       ],
-       "style": "radio",
-       "allow_custom": false,
-       "needs_reload_ui": true
-      },
-      {
-       "type": "choice",
        "name": "extra_networks_hidden_models",
        "label": "Show the Extra Networks in hidden directories",
        "default": "When searched",
@@ -1982,53 +1900,6 @@
        "maximum": 2.0,
        "step": 0.05,
        "integer": false
-      },
-      {
-       "type": "number",
-       "name": "extra_networks_card_width",
-       "label": "Card Width for Extra Networks",
-       "default": 0,
-       "precision": 0,
-       "integer": true,
-       "notes": [
-        "in pixels; 0 = auto"
-       ]
-      },
-      {
-       "type": "number",
-       "name": "extra_networks_card_height",
-       "label": "Card Height for Extra Networks",
-       "default": 0,
-       "precision": 0,
-       "integer": true,
-       "notes": [
-        "in pixels; 0 = auto"
-       ]
-      },
-      {
-       "type": "slider",
-       "name": "extra_networks_card_text_scale",
-       "label": "Card Text Scale",
-       "default": 1.0,
-       "minimum": 0.0,
-       "maximum": 2.0,
-       "step": 0.05,
-       "integer": false,
-       "notes": [
-        "1 = original size"
-       ]
-      },
-      {
-       "type": "toggle",
-       "name": "extra_networks_card_show_desc",
-       "label": "Show description on cards",
-       "default": true
-      },
-      {
-       "type": "toggle",
-       "name": "extra_networks_card_description_is_html",
-       "label": "Treat description as raw HTML",
-       "default": false
       },
       {
        "type": "choice",
@@ -2104,39 +1975,11 @@
       },
       {
        "type": "toggle",
-       "name": "extra_networks_tree_view_default_enabled",
-       "label": "Show the Extra Networks Tree view by default",
-       "default": true,
-       "needs_reload_ui": true
-      },
-      {
-       "type": "number",
-       "name": "extra_networks_tree_view_default_width",
-       "label": "Default Width for the Tree view",
-       "default": 180,
-       "precision": 0,
-       "integer": true,
-       "needs_reload_ui": true
-      },
-      {
-       "type": "separator"
-      },
-      {
-       "type": "toggle",
        "name": "extra_networks_show_hidden_directories",
        "label": "Show Dir buttons of hidden directories",
        "default": true,
        "notes": [
         "directory is hidden if its name starts with \".\""
-       ]
-      },
-      {
-       "type": "toggle",
-       "name": "extra_networks_dir_button_function",
-       "label": "Add a \"/\" to the Dir buttons",
-       "default": false,
-       "notes": [
-        "buttons will only display the contents of the directory, without acting as a search filter"
        ]
       }
      ]
@@ -2150,7 +1993,9 @@
        "name": "show_refiner",
        "label": "Display the Refiner Accordion",
        "default": true,
-       "html": "<span class='info'>(Refiner swaps the model in the middle of generation; useful for Wan 2.2 <b>High Noise</b> to <b>Low Noise</b> switching)</span>",
+       "notes": [
+        "Refiner swaps the model in the middle of generation; useful for Wan 2.2 High Noise to Low Noise switching"
+       ],
        "needs_reload_ui": true
       },
       {
@@ -2168,7 +2013,15 @@
        "name": "refiner_use_steps",
        "label": "Switch based on \"steps\" instead",
        "default": false,
-       "html": "<span class='info'>(by default, Refiner swaps the model based on \"sigmas\" to match <a href=\"https://www.reddit.com/r/StableDiffusion/comments/1n3qns1/wan_22_how_many_highsteps_are_needed_a_simple/\">Wan 2.2</a> 's behavior)</span>"
+       "notes": [
+        "by default, Refiner swaps the model based on \"sigmas\" to match Wan 2.2 's behavior"
+       ],
+       "links": [
+        {
+         "label": "Wan 2.2",
+         "url": "https://www.reddit.com/r/StableDiffusion/comments/1n3qns1/wan_22_how_many_highsteps_are_needed_a_simple/"
+        }
+       ]
       }
      ]
     },
@@ -2393,9 +2246,9 @@
        "integer": false,
        "infotext": "SPEED switch sigma",
        "notes": [
+        "sigma at which Anima SPEED switches from the half-resolution stage to full resolution",
         "0 = automatic (δ-optimal; ≈0.69 at 1024², ≈0.75 at 832×1216); lower = more half-resolution steps, faster but less faithful; values below 0.5 count as 0.5"
-       ],
-       "html": "<span class='info'>(sigma at which <b>Anima SPEED</b> switches from the half-resolution stage to full resolution)</span>"
+       ]
       }
      ]
     }
@@ -2470,20 +2323,6 @@
        "default": true
       },
       {
-       "type": "slider",
-       "name": "prompt_debounce",
-       "label": "Delay before a prompt edit reaches extensions",
-       "default": 0,
-       "minimum": 0,
-       "maximum": 500,
-       "step": 50,
-       "integer": true,
-       "notes": [
-        "in ms ; for extensions that react to the prompt inputs; the Remi editor itself is not delayed"
-       ],
-       "needs_reload_ui": true
-      },
-      {
        "type": "toggle",
        "name": "disable_token_counters",
        "label": "Disable Token Counter",
@@ -2503,26 +2342,12 @@
      "items": [
       {
        "type": "toggle",
-       "name": "do_not_show_images",
-       "label": "Do not show any image in gallery",
-       "default": false
-      },
-      {
-       "type": "text",
-       "name": "gallery_height",
-       "label": "Gallery Height",
-       "default": "",
-       "lines": 1,
-       "prompt": false,
-       "html": "<span class='info'>(in CSS value; <b>e.g.</b> 768px or 20em)</span>",
-       "needs_reload_ui": true
-      },
-      {
-       "type": "toggle",
        "name": "return_grid",
        "label": "Show Grids in gallery",
        "default": true,
-       "html": "<span class='info'>(<b>e.g.</b> for <b>X/Y/Z Plot</b>)</span>"
+       "notes": [
+        "e.g. for X/Y/Z Plot"
+       ]
       },
       {
        "type": "toggle",
@@ -2581,28 +2406,6 @@
        "notes": [
         "for mouse only"
        ]
-      },
-      {
-       "type": "choice",
-       "name": "open_dir_button_choice",
-       "label": "What directory the [📂] button opens",
-       "default": "Subdirectory",
-       "choices": [
-        {
-         "value": "Output Root",
-         "label": "Output Root"
-        },
-        {
-         "value": "Subdirectory",
-         "label": "Subdirectory"
-        },
-        {
-         "value": "Subdirectory (even temp dir)",
-         "label": "Subdirectory (even temp dir)"
-        }
-       ],
-       "style": "radio",
-       "allow_custom": false
       }
      ]
     },
@@ -2625,7 +2428,15 @@
        "name": "show_mahiro",
        "label": "Display the MaHiRo Toggle",
        "default": false,
-       "html": "<span class='info'>(see <a href=\"https://huggingface.co/spaces/yoinked/blue-arxiv\">blue-arxiv</a> - <b>id:</b> <ins>2024-1208.1</ins>)</span>",
+       "notes": [
+        "see blue-arxiv - id: 2024-1208.1"
+       ],
+       "links": [
+        {
+         "label": "blue-arxiv",
+         "url": "https://huggingface.co/spaces/yoinked/blue-arxiv"
+        }
+       ],
        "needs_reload_ui": true
       },
       {
@@ -2645,69 +2456,13 @@
       },
       {
        "type": "toggle",
-       "name": "quicksettings_accordion",
-       "label": "Place the Quicksettings under an Accordion",
-       "default": false,
-       "needs_reload_ui": true
-      },
-      {
-       "type": "toggle",
-       "name": "quicksettings_accordion_starts_closed",
-       "label": "Close the Accordion on startup",
-       "default": false,
-       "notes": [
-        "for the above option"
-       ],
-       "needs_reload_ui": true
-      },
-      {
-       "type": "toggle",
-       "name": "remove_image_on_hover",
-       "label": "For image inputs in Extras and PNG Info, remove the current image when dragging another image over it",
-       "default": true,
-       "notes": [
-        "allow you to drag-and-drop images onto the input similar to AUTOMATIC1111 behavior"
-       ],
-       "needs_reload_ui": true
-      },
-      {
-       "type": "toggle",
        "name": "forbidden_knowledge",
        "label": "Forbidden Knowledge",
        "default": false,
-       "html": "<span class='info'>(replace \"<b>DPM++ 2s a RF</b>\" with \"<b>Flux Realistic</b>\")</span>",
-       "needs_restart": true
-      },
-      {
-       "type": "separator"
-      },
-      {
-       "type": "choice",
-       "name": "prompt_box_style",
-       "label": "Prompt Layout",
-       "default": "Default",
-       "choices": [
-        {
-         "value": "Default",
-         "label": "Default"
-        },
-        {
-         "value": "Compact",
-         "label": "Compact"
-        },
-        {
-         "value": "Scrollable",
-         "label": "Scrollable"
-        },
-        {
-         "value": "Accordion",
-         "label": "Accordion"
-        }
+       "notes": [
+        "replace \"DPM++ 2s a RF\" with \"Flux Realistic\""
        ],
-       "style": "radio",
-       "allow_custom": false,
-       "html": "<ul style='margin-left: 1.5em'>\n<li><b>Default:</b> the original Automatic1111 layout</li>\n<li><b>Compact:</b> put Prompts inside the Generate tab, leaving more space for the Gallery</li>\n<li><b>Scrollable:</b> put Prompts inside fixed-height containers with a scrollbar</li>\n<li><b>Accordion:</b> put Prompts inside an accordion that can be collapsed</li>\n</ul>",
-       "needs_reload_ui": true
+       "needs_restart": true
       },
       {
        "type": "separator"
@@ -2750,20 +2505,6 @@
        "type": "toggle",
        "name": "hires_fix_show_prompts",
        "label": "[Hires. fix]: Show prompt and negative prompt textboxes",
-       "default": false,
-       "needs_reload_ui": true
-      },
-      {
-       "type": "toggle",
-       "name": "txt2img_settings_accordion",
-       "label": "Put txt2img parameters under Accordion",
-       "default": false,
-       "needs_reload_ui": true
-      },
-      {
-       "type": "toggle",
-       "name": "img2img_settings_accordion",
-       "label": "Put img2img parameters under Accordion",
        "default": false,
        "needs_reload_ui": true
       },
@@ -2981,10 +2722,6 @@
          "label": "confirm_leave"
         },
         {
-         "value": "cross_attention_optimization",
-         "label": "cross_attention_optimization"
-        },
-        {
          "value": "ctrl_enter_interrupt",
          "label": "ctrl_enter_interrupt"
         },
@@ -3023,10 +2760,6 @@
         {
          "value": "disabled_extensions",
          "label": "disabled_extensions"
-        },
-        {
-         "value": "do_not_show_images",
-         "label": "do_not_show_images"
         },
         {
          "value": "dump_stacks_on_signal",
@@ -3153,14 +2886,6 @@
          "label": "extra_networks_add_text_separator"
         },
         {
-         "value": "extra_networks_card_description_is_html",
-         "label": "extra_networks_card_description_is_html"
-        },
-        {
-         "value": "extra_networks_card_height",
-         "label": "extra_networks_card_height"
-        },
-        {
          "value": "extra_networks_card_order",
          "label": "extra_networks_card_order"
         },
@@ -3169,24 +2894,8 @@
          "label": "extra_networks_card_order_field"
         },
         {
-         "value": "extra_networks_card_show_desc",
-         "label": "extra_networks_card_show_desc"
-        },
-        {
-         "value": "extra_networks_card_text_scale",
-         "label": "extra_networks_card_text_scale"
-        },
-        {
-         "value": "extra_networks_card_width",
-         "label": "extra_networks_card_width"
-        },
-        {
          "value": "extra_networks_default_multiplier",
          "label": "extra_networks_default_multiplier"
-        },
-        {
-         "value": "extra_networks_dir_button_function",
-         "label": "extra_networks_dir_button_function"
         },
         {
          "value": "extra_networks_hidden_models",
@@ -3195,18 +2904,6 @@
         {
          "value": "extra_networks_show_hidden_directories",
          "label": "extra_networks_show_hidden_directories"
-        },
-        {
-         "value": "extra_networks_tree_view_default_enabled",
-         "label": "extra_networks_tree_view_default_enabled"
-        },
-        {
-         "value": "extra_networks_tree_view_default_width",
-         "label": "extra_networks_tree_view_default_width"
-        },
-        {
-         "value": "extra_networks_tree_view_style",
-         "label": "extra_networks_tree_view_style"
         },
         {
          "value": "face_restoration",
@@ -3489,10 +3186,6 @@
          "label": "forge_unet_storage_dtype_zit"
         },
         {
-         "value": "gallery_height",
-         "label": "gallery_height"
-        },
-        {
          "value": "grid_background_color",
          "label": "grid_background_color"
         },
@@ -3593,32 +3286,8 @@
          "label": "img2img_fix_steps"
         },
         {
-         "value": "img2img_inpaint_mask_brush_color",
-         "label": "img2img_inpaint_mask_brush_color"
-        },
-        {
-         "value": "img2img_inpaint_mask_high_contrast",
-         "label": "img2img_inpaint_mask_high_contrast"
-        },
-        {
-         "value": "img2img_inpaint_mask_scribble_alpha",
-         "label": "img2img_inpaint_mask_scribble_alpha"
-        },
-        {
          "value": "img2img_inpaint_precise_mask",
          "label": "img2img_inpaint_precise_mask"
-        },
-        {
-         "value": "img2img_inpaint_sketch_default_brush_color",
-         "label": "img2img_inpaint_sketch_default_brush_color"
-        },
-        {
-         "value": "img2img_settings_accordion",
-         "label": "img2img_settings_accordion"
-        },
-        {
-         "value": "img2img_sketch_default_brush_color",
-         "label": "img2img_sketch_default_brush_color"
         },
         {
          "value": "img_downscale_threshold",
@@ -3679,10 +3348,6 @@
         {
          "value": "js_modal_lightbox_initially_zoomed",
          "label": "js_modal_lightbox_initially_zoomed"
-        },
-        {
-         "value": "keep_alive",
-         "label": "keep_alive"
         },
         {
          "value": "keyedit_delimiters",
@@ -3869,10 +3534,6 @@
          "label": "live_preview_fps"
         },
         {
-         "value": "live_preview_refresh_period",
-         "label": "live_preview_refresh_period"
-        },
-        {
          "value": "live_previews_enable",
          "label": "live_previews_enable"
         },
@@ -3985,20 +3646,12 @@
          "label": "neta_template_positive"
         },
         {
-         "value": "no_spellcheck",
-         "label": "no_spellcheck"
-        },
-        {
          "value": "notification_audio",
          "label": "notification_audio"
         },
         {
          "value": "notification_volume",
          "label": "notification_volume"
-        },
-        {
-         "value": "open_dir_button_choice",
-         "label": "open_dir_button_choice"
         },
         {
          "value": "outdir_extras_samples",
@@ -4181,14 +3834,6 @@
          "label": "profiling_with_stack"
         },
         {
-         "value": "prompt_box_style",
-         "label": "prompt_box_style"
-        },
-        {
-         "value": "prompt_debounce",
-         "label": "prompt_debounce"
-        },
-        {
          "value": "queue_automatic_requeue_failed_task",
          "label": "queue_automatic_requeue_failed_task"
         },
@@ -4199,14 +3844,6 @@
         {
          "value": "queue_history_retention_days",
          "label": "queue_history_retention_days"
-        },
-        {
-         "value": "quicksettings_accordion",
-         "label": "quicksettings_accordion"
-        },
-        {
-         "value": "quicksettings_accordion_starts_closed",
-         "label": "quicksettings_accordion_starts_closed"
         },
         {
          "value": "quicksettings_list",
@@ -4377,10 +4014,6 @@
          "label": "remi_upload_retention_days"
         },
         {
-         "value": "remove_image_on_hover",
-         "label": "remove_image_on_hover"
-        },
-        {
          "value": "res_step",
          "label": "res_step"
         },
@@ -4483,10 +4116,6 @@
         {
          "value": "save_prompt_comments",
          "label": "save_prompt_comments"
-        },
-        {
-         "value": "save_selected_only",
-         "label": "save_selected_only"
         },
         {
          "value": "save_to_dirs",
@@ -4637,10 +4266,6 @@
          "label": "send_cfg"
         },
         {
-         "value": "send_image_info_not_ui",
-         "label": "send_image_info_not_ui"
-        },
-        {
          "value": "send_seed",
          "label": "send_seed"
         },
@@ -4773,10 +4398,6 @@
          "label": "token_merging_stride"
         },
         {
-         "value": "txt2img_settings_accordion",
-         "label": "txt2img_settings_accordion"
-        },
-        {
          "value": "txt2img_upscale_same_seed",
          "label": "txt2img_upscale_same_seed"
         },
@@ -4795,10 +4416,6 @@
         {
          "value": "ui_tab_order",
          "label": "ui_tab_order"
-        },
-        {
-         "value": "undo_redo",
-         "label": "undo_redo"
         },
         {
          "value": "upscaler_for_img2img",
@@ -5111,7 +4728,9 @@
        ],
        "style": "dropdown",
        "allow_custom": false,
-       "html": "<span class='info'>(settings that appear at the top of the page <b>instead of</b> in the Settings tab)</span>",
+       "notes": [
+        "settings that appear at the top of the page instead of in the Settings tab"
+       ],
        "needs_reload_ui": true
       },
       {
@@ -5226,21 +4845,12 @@
       },
       {
        "type": "toggle",
-       "name": "send_image_info_not_ui",
-       "label": "Send the Parameters in the infotext instead of the UI fields when using the \"Send to\" buttons",
-       "default": false,
-       "html": "<span class='info'>(<b>e.g.</b> send the result of Wildcards instead of the syntax)</span>",
-       "needs_reload_ui": true
-      },
-      {
-       "type": "toggle",
        "name": "allow_i2i_send_info",
        "label": "Send the Parameters too when using the \"Send to\" buttons in img2img tab",
        "default": false,
        "notes": [
         "otherwise only the image is sent"
-       ],
-       "needs_reload_ui": true
+       ]
       }
      ]
     },
@@ -5605,7 +5215,12 @@
        ],
        "style": "radio",
        "allow_custom": false,
-       "html": "<ul style='margin-left: 1.5em'>\n<li><b>Ignore:</b> keep prompt and styles dropdown as it is</li>\n<li><b>Apply:</b> remove style text from prompt; always replace styles dropdown value with found styles (even if none was found)</li>\n<li><b>Apply if any:</b> remove style text from prompt; if any styles are found in prompt, put them into styles dropdown, otherwise keep it as it is</li>\n<li><b>Discard:</b> remove style text from prompt, keep styles dropdown as it is</li>\n</ul>"
+       "notes": [
+        "Ignore: keep prompt and styles dropdown as it is",
+        "Apply: remove style text from prompt; always replace styles dropdown value with found styles (even if none was found)",
+        "Apply if any: remove style text from prompt; if any styles are found in prompt, put them into styles dropdown, otherwise keep it as it is",
+        "Discard: remove style text from prompt, keep styles dropdown as it is"
+       ]
       }
      ]
     },
@@ -5674,7 +5289,10 @@
        ],
        "style": "radio",
        "allow_custom": false,
-       "html": "<ul style='margin-left: 1.5em'>\n<li><b>Approx NN</b>: legacy preview method</li>\n<li><b>RGB</b>: fast but low quality preview method</li>\n<li><b>TAESD</b>: high quality preview method</li>\n</ul>\n                <span class='info'>(<b>Approx NN</b> and <b>TAESD</b> will download additional model)</span>"
+       "notes": [
+        "Approx NN and TAESD will download additional model"
+       ],
+       "html": "<ul style='margin-left: 1.5em'>\n<li><b>Approx NN</b>: legacy preview method</li>\n<li><b>RGB</b>: fast but low quality preview method</li>\n<li><b>TAESD</b>: high quality preview method</li>\n</ul>"
       },
       {
        "type": "toggle",
@@ -5702,17 +5320,6 @@
        "integer": true,
        "notes": [
         "-1 = only after completion of a batch"
-       ]
-      },
-      {
-       "type": "number",
-       "name": "live_preview_refresh_period",
-       "label": "Progress Bar and Preview update interval",
-       "default": 500,
-       "precision": 0,
-       "integer": true,
-       "notes": [
-        "in ms"
        ]
       },
       {
@@ -5765,7 +5372,9 @@
        "name": "forge_canvas_consistent_brush",
        "label": "Fixed Brush Size",
        "default": false,
-       "html": "<span class='info'>(disabled: the brush size is <b>pixel-space</b>, the brush stays small when zoomed out ; enabled: the brush size is <b>canvas-space</b>, the brush stays big when zoomed in)</span>"
+       "notes": [
+        "disabled: the brush size is pixel-space, the brush stays small when zoomed out ; enabled: the brush size is canvas-space, the brush stays big when zoomed in"
+       ]
       },
       {
        "type": "toggle",
@@ -5793,7 +5402,9 @@
        "name": "enable_prompt_comments",
        "label": "Remove Comments from Prompts",
        "default": true,
-       "html": "<b>Comment Syntax:</b><br>\n<ul style='margin-left: 2em'>\n<li># ...</li>\n<li>// ...</li>\n<li>/* ... */</li>\n</ul>"
+       "notes": [
+        "comment syntax: # ... ; // ... ; /* ... */"
+       ]
       },
       {
        "type": "toggle",
@@ -13690,7 +13301,6 @@
   "target_side_length": 4096,
   "img_max_size_mp": 100,
   "use_original_name_batch": true,
-  "save_selected_only": true,
   "save_write_log_csv": true,
   "temp_dir": "tmp",
   "clean_temp_dir_at_start": true,
@@ -13743,9 +13353,6 @@
   "list_hidden_files": true,
   "dump_stacks_on_signal": false,
   "confirm_leave": false,
-  "no_spellcheck": false,
-  "keep_alive": false,
-  "undo_redo": false,
   "profiling_enable": false,
   "profiling_activities": [
    "CPU"
@@ -13795,11 +13402,6 @@
   "img2img_color_correction": false,
   "img2img_fix_steps": false,
   "img2img_background_color": "#808080",
-  "img2img_sketch_default_brush_color": "#ff0000",
-  "img2img_inpaint_mask_brush_color": "#808080",
-  "img2img_inpaint_sketch_default_brush_color": "#ff0000",
-  "img2img_inpaint_mask_high_contrast": true,
-  "img2img_inpaint_mask_scribble_alpha": 75,
   "return_mask": false,
   "return_mask_composite": false,
   "img2img_batch_show_results_limit": 32,
@@ -13807,7 +13409,6 @@
   "img2img_autosize": false,
   "img2img_batch_use_original_name": false,
   "img2img_inpaint_precise_mask": false,
-  "cross_attention_optimization": "Automatic",
   "batch_cond_uncond": true,
   "persistent_cond_cache": true,
   "skip_early_cond": 0.0,
@@ -13819,22 +13420,13 @@
   "token_merging_stride": 2,
   "token_merging_downsample": 1,
   "token_merging_no_rand": false,
-  "extra_networks_tree_view_style": "Dirs",
   "extra_networks_hidden_models": "When searched",
   "extra_networks_default_multiplier": 1.0,
-  "extra_networks_card_width": 0,
-  "extra_networks_card_height": 0,
-  "extra_networks_card_text_scale": 1.0,
-  "extra_networks_card_show_desc": true,
-  "extra_networks_card_description_is_html": false,
   "extra_networks_card_order_field": "Path",
   "extra_networks_card_order": "Ascending",
   "extra_networks_add_text_separator": " ",
   "ui_extra_networks_tab_reorder": "",
-  "extra_networks_tree_view_default_enabled": true,
-  "extra_networks_tree_view_default_width": 180,
   "extra_networks_show_hidden_directories": true,
-  "extra_networks_dir_button_function": false,
   "show_refiner": true,
   "refiner_fast_sd": false,
   "refiner_use_steps": false,
@@ -13847,11 +13439,8 @@
    "Line Feed"
   ],
   "keyedit_move": true,
-  "prompt_debounce": 0,
   "disable_token_counters": false,
   "include_styles_into_token_counters": true,
-  "do_not_show_images": false,
-  "gallery_height": "",
   "return_grid": true,
   "js_modal_lightbox": true,
   "js_modal_lightbox_initially_zoomed": true,
@@ -13859,23 +13448,16 @@
   "js_modal_lightbox_gamepad_repeat": 250,
   "sd_webui_modal_lightbox_icon_opacity": 1.0,
   "sd_webui_modal_lightbox_toolbar_opacity": 0.9,
-  "open_dir_button_choice": "Subdirectory",
   "show_rescale_cfg": false,
   "show_mahiro": false,
   "paste_safe_guard": false,
   "ctrl_enter_interrupt": false,
-  "quicksettings_accordion": false,
-  "quicksettings_accordion_starts_closed": false,
-  "remove_image_on_hover": true,
   "forbidden_knowledge": false,
-  "prompt_box_style": "Default",
   "dimensions_and_batch_together": true,
   "sd_checkpoint_dropdown_use_short": false,
   "sd_modules_dropdown_use_short": true,
   "hires_fix_show_sampler": false,
   "hires_fix_show_prompts": false,
-  "txt2img_settings_accordion": false,
-  "img2img_settings_accordion": false,
   "interrupt_after_current": false,
   "localization": "None",
   "quicksettings_list": [],
@@ -13886,7 +13468,6 @@
   "send_seed": true,
   "send_cfg": true,
   "send_size": true,
-  "send_image_info_not_ui": false,
   "allow_i2i_send_info": false,
   "enable_pnginfo": true,
   "save_txt": false,
@@ -13907,7 +13488,6 @@
   "live_preview_fast_interrupt": false,
   "js_live_preview_in_modal_lightbox": false,
   "show_progress_every_n_steps": 1,
-  "live_preview_refresh_period": 500,
   "prevent_screen_sleep_during_generation": true,
   "hide_samplers": [],
   "hide_schedulers": [],
@@ -14274,7 +13854,6 @@
   "target_side_length": 4096,
   "img_max_size_mp": 100,
   "use_original_name_batch": true,
-  "save_selected_only": true,
   "save_write_log_csv": true,
   "temp_dir": "tmp",
   "clean_temp_dir_at_start": true,
@@ -14327,9 +13906,6 @@
   "list_hidden_files": true,
   "dump_stacks_on_signal": false,
   "confirm_leave": false,
-  "no_spellcheck": false,
-  "keep_alive": false,
-  "undo_redo": false,
   "profiling_enable": false,
   "profiling_activities": [
    "CPU"
@@ -14379,11 +13955,6 @@
   "img2img_color_correction": false,
   "img2img_fix_steps": false,
   "img2img_background_color": "#808080",
-  "img2img_sketch_default_brush_color": "#ff0000",
-  "img2img_inpaint_mask_brush_color": "#808080",
-  "img2img_inpaint_sketch_default_brush_color": "#ff0000",
-  "img2img_inpaint_mask_high_contrast": true,
-  "img2img_inpaint_mask_scribble_alpha": 75,
   "return_mask": false,
   "return_mask_composite": false,
   "img2img_batch_show_results_limit": 32,
@@ -14391,7 +13962,6 @@
   "img2img_autosize": false,
   "img2img_batch_use_original_name": false,
   "img2img_inpaint_precise_mask": false,
-  "cross_attention_optimization": "Automatic",
   "batch_cond_uncond": true,
   "persistent_cond_cache": true,
   "skip_early_cond": 0.0,
@@ -14403,22 +13973,13 @@
   "token_merging_stride": 2,
   "token_merging_downsample": 1,
   "token_merging_no_rand": false,
-  "extra_networks_tree_view_style": "Dirs",
   "extra_networks_hidden_models": "When searched",
   "extra_networks_default_multiplier": 1.0,
-  "extra_networks_card_width": 0,
-  "extra_networks_card_height": 0,
-  "extra_networks_card_text_scale": 1.0,
-  "extra_networks_card_show_desc": true,
-  "extra_networks_card_description_is_html": false,
   "extra_networks_card_order_field": "Path",
   "extra_networks_card_order": "Ascending",
   "extra_networks_add_text_separator": " ",
   "ui_extra_networks_tab_reorder": "",
-  "extra_networks_tree_view_default_enabled": true,
-  "extra_networks_tree_view_default_width": 180,
   "extra_networks_show_hidden_directories": true,
-  "extra_networks_dir_button_function": false,
   "show_refiner": true,
   "refiner_fast_sd": false,
   "refiner_use_steps": false,
@@ -14431,11 +13992,8 @@
    "Line Feed"
   ],
   "keyedit_move": true,
-  "prompt_debounce": 0,
   "disable_token_counters": false,
   "include_styles_into_token_counters": true,
-  "do_not_show_images": false,
-  "gallery_height": "",
   "return_grid": true,
   "js_modal_lightbox": true,
   "js_modal_lightbox_initially_zoomed": true,
@@ -14443,23 +14001,16 @@
   "js_modal_lightbox_gamepad_repeat": 250,
   "sd_webui_modal_lightbox_icon_opacity": 1.0,
   "sd_webui_modal_lightbox_toolbar_opacity": 0.9,
-  "open_dir_button_choice": "Subdirectory",
   "show_rescale_cfg": false,
   "show_mahiro": false,
   "paste_safe_guard": false,
   "ctrl_enter_interrupt": false,
-  "quicksettings_accordion": false,
-  "quicksettings_accordion_starts_closed": false,
-  "remove_image_on_hover": true,
   "forbidden_knowledge": false,
-  "prompt_box_style": "Default",
   "dimensions_and_batch_together": true,
   "sd_checkpoint_dropdown_use_short": false,
   "sd_modules_dropdown_use_short": true,
   "hires_fix_show_sampler": false,
   "hires_fix_show_prompts": false,
-  "txt2img_settings_accordion": false,
-  "img2img_settings_accordion": false,
   "interrupt_after_current": false,
   "localization": "None",
   "quicksettings_list": [],
@@ -14470,7 +14021,6 @@
   "send_seed": true,
   "send_cfg": true,
   "send_size": true,
-  "send_image_info_not_ui": false,
   "allow_i2i_send_info": false,
   "enable_pnginfo": true,
   "save_txt": false,
@@ -14491,7 +14041,6 @@
   "live_preview_fast_interrupt": false,
   "js_live_preview_in_modal_lightbox": false,
   "show_progress_every_n_steps": 1,
-  "live_preview_refresh_period": 500,
   "prevent_screen_sleep_during_generation": true,
   "hide_samplers": [],
   "hide_schedulers": [],

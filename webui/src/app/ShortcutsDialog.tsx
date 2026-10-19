@@ -25,6 +25,7 @@ const SHORTCUT_GROUPS: { group: string; entries: Entry[] }[] = [
     group: "Generate",
     entries: [
       { label: "Generate (while running: queue another)", keys: ["Mod+Enter"] },
+      { label: "Add to queue", keys: ["Mod+Shift+Enter"] },
       { label: "Skip the current image", keys: ["Alt+Enter"] },
       { label: "Interrupt", keys: ["Esc"] },
       { label: "Networks panel", keys: ["Alt+N"] },

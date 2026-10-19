@@ -22,7 +22,7 @@ Run in `webui/`:
 | `pnpm test:e2e` | Playwright against mock mode (`tests/e2e`; starts `vite` on port 5199, bypassing proxies for loopback) |
 | `pnpm lint` | oxlint (must be silent) |
 | `python3 tools/shadcn_fetch.py <names>` | add shadcn registry components with curl (Node cannot use the proxy) |
-| `/tmp/remi-testenv/bin/python tools/dump_schemas.py` | re-dump the real tab schemas into `src/api/mock/contract/*.json` (contract tests) after a `remi/ui` / `remi/core` change |
+| `$PYTHON tools/dump_schemas.py` (requirements.txt, no Gradio) | re-dump the real tab schemas into `src/api/mock/contract/*.json` (contract tests) after a `remi/ui` / `remi/core` change |
 
 ## Layout of `src/`
 
@@ -121,7 +121,7 @@ imperatively).
 ## API layer (`src/api`)
 
 - `gen/schema.d.ts`: types generated from the server's OpenAPI schema
-  (`openapi-typescript`, pinned): `/tmp/remi-testenv/bin/python
+  (`openapi-typescript`, pinned): `$PYTHON
   tools/export_openapi.py` writes `src/api/openapi.json`, then `pnpm gen:api`
   regenerates the types; `gen/gen.test.ts` fails when they drift.
 - `http.ts`: the path-typed client (`openapi-fetch`, pinned) on the mock
@@ -267,6 +267,7 @@ Rules the renderer implements:
 - **Keyboard** (generate view): Ctrl/Cmd+Enter generates (ignores key repeat
   and IME composition); while this form's job runs it interrupts and, unless
   `ctrl_enter_interrupt` is on, generates again once the job has ended.
+  Ctrl/Cmd+Shift+Enter adds the form to the queue ("Add to queue").
   Alt+Enter skips. Escape interrupts only when nothing else owns it: not in a
   text field or prompt editor, not inside a dialog, menu or popup, and no
   popup open. Generate keys are ignored while a modal dialog is open.
@@ -440,12 +441,21 @@ mode's schema is prefetched).
   `js_modal_lightbox_gamepad_repeat`), Home/End,
   S downloads, +/−/0/1, T tile preview, middle click opens in a new tab,
   Esc closes; initial zoom per `js_modal_lightbox_initially_zoomed`; follows
-  the live preview with `js_live_preview_in_modal_lightbox`.
+  the live preview with `js_live_preview_in_modal_lightbox`. A job's video
+  (output `kind: "video"`, e.g. Wan) belongs to its first frame: the stage
+  plays it (controls; `video_player_auto` starts it, `video_player_loop`
+  loops it), the history and the lightbox keep the frames.
 - **Result actions** (`features/send-to`): download (`/files/{id}?download=1`,
   the server names the file), save to the Save folder or the whole
   generation as a zip (`POST /outputs/save`), open in new tab, copy
   parameters, reuse seed (the param whose `infotext` is `Seed`), use these
   parameters (all of them), send to img2img / inpaint / extras / txt2img.
+  On txt2img's stage and lightbox, "Upscale with Hires. fix" (✨, A1111's
+  button under the gallery) queues the txt2img form's values with
+  `upscale_from` = the result (api.md): not for grids, extra images (output
+  `role`) or videos. The upscaled result replaces its source in the history,
+  or follows it with `hires_button_gallery_insert` (then
+  `hires_insert_index` selects it, otherwise the source stays selected).
   "Send to" parses the infotext for the target form, drops seed / size per
   `send_seed` / `send_size`, puts the output file id into `init_img` (`mode`
   img2img / Inpaint) or Extras `image`, and switches page; values reach a
@@ -734,7 +744,7 @@ tree's width). Until a sort is chosen, `extra_networks_card_order_field` /
   Batch from Directory / Single Video bound to `mode`, then every
   postprocessing operation's section in its slot: upscale with two upscalers
   and the second's visibility, face restoration, …). Process (Ctrl/Cmd+Enter,
-  Esc interrupts) submits an `extras` job tracked in the progress store
+  Ctrl/Cmd+Shift+Enter adds to the queue, Esc interrupts) submits an `extras` job tracked in the progress store
   (`run.ts`; jobs in flight survive a reload, this session's results are kept
   in sessionStorage with the source image of each run). A single-image result
   shows in `CompareSlider` against its source (drag anywhere, or the handle
@@ -798,7 +808,9 @@ tree's width). Until a sort is chosen, `extra_networks_card_order_field` /
   forever, stop and cancel everything, clear the history (keeping starred
   jobs by default). **"Add to queue"** (`FormQueueControls.tsx`) sits next
   to Generate / Process in every form: it posts the form as a job without
-  making it the form's run (a toast links to the Queue). Generate forever and
+  making it the form's run (a toast links to the Queue; Ctrl/Cmd+Shift+Enter
+  on the Generate and Extras pages, the Agent Scheduler's "Enqueue"
+  shortcut with a fixed key). Generate forever and
   repeat N stay the run controller's (client-driven, see "Generate page").
   The Agent Scheduler's queue settings live in Settings → System → Queue
   under their old keys (history retention, queueing failed jobs again, the

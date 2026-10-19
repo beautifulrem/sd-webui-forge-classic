@@ -37,7 +37,11 @@ on purpose. Read this before "fixing" one of them.
   locals in `Block.forward` (`backend/nn/anima.py`) mirror upstream line for
   line, and the 2B to 2.9B/3.8B block tables are duplicated in
   `modules/anima_lora_support.py` rather than edited out of `networks.py`; a
-  test keeps the two identical.
+  test keeps the two identical. Shared files also keep upstream's line
+  endings (CRLF for most of `modules/`), with no `.gitattributes`
+  conversion, so a merge compares real lines; `tools/check_line_endings.py`
+  (a `tools/check.sh` step) fails when an editor saves one of them as LF
+  ([upstream-absorption.md §3](remi-webui/upstream-absorption.md#3-procedure)).
 - **Three LoRA extensions wrap `ModelPatcher.add_patches`** (layer weight,
   stage scheduler, FreeFuse metadata) through `backend/patcher/function_chain.py`
   instead of a patch-hook registry in `sd_forge_lora`. A registry would be

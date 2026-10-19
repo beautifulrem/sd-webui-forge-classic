@@ -2779,6 +2779,11 @@ export interface components {
             height?: number | null;
             /** Infotext */
             infotext?: string | null;
+            /**
+             * Role
+             * @description an image that is not one of the batch: the grid, or an extra image (e.g. a ControlNet detected map)
+             */
+            role?: ("grid" | "extra") | null;
         };
         /** JobParams */
         JobParams: {
@@ -2855,6 +2860,11 @@ export interface components {
              * @default false
              */
             forever: boolean;
+            /**
+             * Upscale From
+             * @description txt2img only: Hires. fix this image (an output or upload id) instead of generating the first pass (A1111's ✨ button). Hires. fix is turned on and the size is the image's; the settings txt2img_upscale_single_batch and txt2img_upscale_same_seed apply
+             */
+            upscale_from?: string | null;
         };
         /** LicenseEntry */
         LicenseEntry: {

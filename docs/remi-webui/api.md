@@ -136,7 +136,7 @@ All generations go through one persistent queue (`remi-data/jobs.db`) and one
 worker, so the SPA, the Queue page and API clients see the same jobs.
 
 ```
-POST /api/v2/jobs   {"tab", "core", "scripts", "priority"?, "repeat"?, "forever"?}
+POST /api/v2/jobs   {"tab", "core", "scripts", "priority"?, "repeat"?, "forever"?, "upscale_from"?}
   → 201 {"job_id", "job_ids", "seq"}
 ```
 
@@ -146,10 +146,21 @@ POST /api/v2/jobs   {"tab", "core", "scripts", "priority"?, "repeat"?, "forever"
 - `forever`: re-queue the job each time it completes until
   `POST /api/v2/queue/stop-forever` or `PATCH /api/v2/jobs/{id}`
   `{"forever": false}`.
+- `upscale_from` (txt2img only): an output or upload id. The job Hires. fixes
+  that image instead of generating a first pass (A1111's ✨ button under the
+  gallery; the SPA's "Upscale with Hires. fix" result action): Hires. fix is
+  turned on, the size is the image's (the form's goes to the infotext as
+  `Original Size`), `txt2img_upscale_single_batch` makes it one image and
+  `txt2img_upscale_same_seed` takes the seeds from the image's parameters.
+  Retries keep it. An unknown id, a non-image or another tab is a 422 on
+  `upscale_from`.
 
 A job's `status` is `queued`, `running`, `completed`, `interrupted` (stopped,
 results kept), `cancelled` or `failed`. `GET /api/v2/jobs/{id}` returns it
-with `outputs` (`[{id, kind, width, height, infotext}]`), `error` /
+with `outputs` (`[{id, kind, width, height, infotext, role?}]`; `kind`
+`video` for a generated video (e.g. Wan), next to its frames; `role` `grid`
+or `extra` (e.g. a ControlNet detected map) for images that are not one of
+the batch), `error` /
 `errors`, `progress`, and the `core` / `scripts` values it ran with. Output
 ids are file ids: `GET /api/v2/files/{id}` (add `?download=1` for an
 attachment), `GET /api/v2/thumbs/{id}?w=256` for a WebP thumbnail.

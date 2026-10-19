@@ -31,6 +31,8 @@ type LightboxProps = {
   tab: FormTab
   /** A side panel for the shown item (e.g. its parameters), right of the image on wide screens. */
   aside?: (item: ResultItem) => ReactNode
+  /** Offer the ✨ button (Hires. fix a txt2img result), as the stage does. */
+  upscalable?: boolean
 }
 
 const ZOOM_STEP = 1.25
@@ -48,7 +50,7 @@ function useViewportSize(element: HTMLElement | null): Size {
   return size
 }
 
-export function Lightbox({ open, onOpenChange, items, current, onNavigate, live, tab, aside }: LightboxProps) {
+export function Lightbox({ open, onOpenChange, items, current, onNavigate, live, tab, aside, upscalable = false }: LightboxProps) {
   const { t } = useTranslation()
   const zoomedByDefault = useClientOption("js_modal_lightbox_initially_zoomed")
   const gamepad = useClientOption("js_modal_lightbox_gamepad")
@@ -154,7 +156,7 @@ export function Lightbox({ open, onOpenChange, items, current, onNavigate, live,
               </span>
             ) : null}
             <div className="ml-auto flex items-center gap-0.5">
-              {!live ? <ResultActions item={item} tab={tab} tone="light" removable={false} onSent={() => onOpenChange(false)} /> : null}
+              {!live ? <ResultActions item={item} tab={tab} tone="light" removable={false} upscalable={upscalable} onSent={() => onOpenChange(false)} /> : null}
               <Button
                 variant="ghost"
                 size="icon-sm"

@@ -529,7 +529,6 @@ def test_completion_actions_run_the_systems_commands():
 
 def test_queue_settings_keep_the_agent_scheduler_keys(webui):
     from modules import shared, shared_options
-
     from remi.jobs import completion
     from remi.jobs.queue import RETENTION_DAYS
 
@@ -539,6 +538,39 @@ def test_queue_settings_keep_the_agent_scheduler_keys(webui):
     assert [value for _label, value in labels["queue_completion_action"].component_args["choices"]] == list(completion.ACTIONS)
     assert labels["queue_completion_action"].restrict_api and "queue_completion_action" in shared_options.restricted_opts
     assert labels["queue_automatic_requeue_failed_task"].default is False
+
+
+LEGACY_QUEUE_SETTINGS = [
+    "queue_paused",
+    "queue_button_hide_checkpoint",
+    "queue_button_placement",
+    "queue_ui_placement",
+    "queue_history_retention_days",
+    "queue_automatic_requeue_failed_task",
+    "queue_grid_page_size",
+    "queue_keyboard_shortcut",
+    "queue_completion_action",
+]
+"""every setting the Agent Scheduler registered before the port
+(``scripts/task_scheduler.py`` ``on_ui_settings`` at d5a71cad: 9 keys)"""
+
+
+def test_every_old_agent_scheduler_setting_is_kept_or_explained(webui):
+    import re
+    from pathlib import Path
+
+    from modules import shared
+
+    readme = (Path(__file__).resolve().parents[1] / "extensions-builtin" / "agent-scheduler" / "README.md").read_text(encoding="utf8")
+    kept_table, gone_table = readme.split("## Settings of the old extension", 1)[1].split("### Not carried over", 1)
+    documented = set(re.findall(r"^\| `(queue_\w+)` \| .+ \|$", kept_table, re.MULTILINE))
+    explained = dict(re.findall(r"^\| `(queue_\w+)` \| (.+) \|$", gone_table, re.MULTILINE))
+    registered = {key for key in LEGACY_QUEUE_SETTINGS if key in shared.opts.data_labels}
+    assert sorted(set(LEGACY_QUEUE_SETTINGS) - registered - set(explained)) == []
+    # a kept setting is a real setting and documented as kept; the table only lists what is gone, each with a reason
+    assert documented == registered and registered.isdisjoint(explained) and set(explained) <= set(LEGACY_QUEUE_SETTINGS)
+    assert all(len(reason) > 30 for reason in explained.values())
+    assert all(shared.opts.data_labels[key].section[0] == "queue" for key in registered)
 
 
 # endregion

@@ -45,6 +45,21 @@ describe("extras page", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Interrupt" })).toBeInTheDocument())
   })
 
+  it("adds the form to the queue with Ctrl+Shift+Enter instead of processing it here", async () => {
+    const calls = mockFetch()
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ExtrasPage />
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByText("Scale by")).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true, shiftKey: true })
+    await waitFor(() => expect(calls.filter((call) => call.method === "POST" && call.path === "/jobs")).toHaveLength(1))
+    expect(calls.find((call) => call.path === "/jobs")?.body).toMatchObject({ tab: "extras" })
+    expect(useExtrasRuns.getState().jobs).toEqual([])
+    expect(screen.queryByRole("button", { name: "Interrupt" })).not.toBeInTheDocument()
+  })
+
   it("compares a result with its source", async () => {
     mockFetch()
     useExtrasRuns.setState({ results: [{ jobId: "done", outputs: [{ id: "out1", kind: "image", width: 2048, height: 2048 }], source: "src1", info: "Postprocess upscale by: 4", at: 1 }] })

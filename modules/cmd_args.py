@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from modules import paths_internal
-from modules.paths_internal import data_path, extensions_builtin_dir, extensions_dir, models_path, normalized_filepath, parser, script_path  # noqa: F401
+from modules.paths_internal import data_path, extensions_builtin_dir, extensions_dir, models_path, normalized_filepath, script_path  # noqa: F401
 
 _parser = argparse.ArgumentParser(parents=[paths_internal.parser], add_help=True)
 _parser.add_argument("-f", action="store_true", help=argparse.SUPPRESS)

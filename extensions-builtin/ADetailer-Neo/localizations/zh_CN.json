@@ -71,6 +71,7 @@
  "{{count}} ADetailer models": "{{count}} 个 ADetailer 检测模型",
  "Max Tabs": "最大选项卡数",
  "Extra paths to scan ADetailer models separated by vertical bars": "额外扫描 ADetailer 模型的路径,以竖线分隔",
+ "i.e. |": "即 |",
  "Output directory for ADetailer images": "ADetailer 图像的输出目录",
  "Save mask previews": "保存掩码预览",
  "Save images before ADetailer": "保存 ADetailer 之前的图像",

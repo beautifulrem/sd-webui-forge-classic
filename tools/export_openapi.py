@@ -1,7 +1,9 @@
 """Export the Remi server's OpenAPI document for the generated TS client.
 
-    /tmp/remi-testenv/bin/python tools/export_openapi.py          # writes webui/src/api/openapi.json
-    /tmp/remi-testenv/bin/python tools/export_openapi.py --check  # exit 1 when it is out of date
+    $PYTHON tools/export_openapi.py          # writes webui/src/api/openapi.json
+    $PYTHON tools/export_openapi.py --check  # exit 1 when it is out of date
+
+``$PYTHON``: an interpreter with requirements.txt (no Gradio), as ``tools/check.sh`` picks.
 
 Covers ``/api/v2`` and ``/internal`` (``/sdapi/v1`` is the A1111 API and is
 left out). No model or UI is loaded.

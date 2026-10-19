@@ -1,8 +1,10 @@
 """Dump the real settings schema (``GET /api/v2/options``) for the SPA's
 tests and mock mode.
 
-    /tmp/remi-testenv/bin/python tools/dump_settings.py          # writes webui/src/api/mock/contract/settings.json
-    /tmp/remi-testenv/bin/python tools/dump_settings.py --check  # exit 1 when it is out of date
+    $PYTHON tools/dump_settings.py          # writes webui/src/api/mock/contract/settings.json
+    $PYTHON tools/dump_settings.py --check  # exit 1 when it is out of date
+
+``$PYTHON``: an interpreter with requirements.txt (no Gradio), as ``tools/check.sh`` picks.
 
 Built from the default options (no ``config.json``), without models or UI.
 """

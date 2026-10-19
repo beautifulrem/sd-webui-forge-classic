@@ -99,6 +99,9 @@ class Submission:
     priority: int = 0
     repeat: int = 1
     forever: bool = False
+    upscale_from: str | None = None
+    """txt2img only: Hires. fix this image (a file id) instead of generating
+    the first pass (A1111's ✨ button; ``modules.txt2img.run_txt2img_upscale``)"""
 
 
 def _state() -> Any:
@@ -332,12 +335,25 @@ class JobQueue:
         if not 1 <= submission.repeat <= MAX_REPEAT:
             raise ValidationError([ParamError(f"repeat is between 1 and {MAX_REPEAT}")])
         self.validate(submission.tab, submission.core, submission.scripts)
+        meta = None
+        if submission.upscale_from is not None:
+            self._check_upscale_source(submission.tab, submission.upscale_from)
+            meta = {"upscale_from": submission.upscale_from}
         layout = self.hash_layout(submission.tab)
-        jobs = [self.store.add(submission.tab, submission.core or {}, submission.scripts or {}, priority=submission.priority, layout_hash=layout, schema_version=SCHEMA_VERSION, summary=_summary(submission.core or {}, submission.tab), forever=submission.forever, user=user) for _ in range(submission.repeat)]
+        jobs = [self.store.add(submission.tab, submission.core or {}, submission.scripts or {}, priority=submission.priority, layout_hash=layout, schema_version=SCHEMA_VERSION, summary=_summary(submission.core or {}, submission.tab), forever=submission.forever, user=user, meta=meta) for _ in range(submission.repeat)]
         for job in jobs:
             self._enqueued(job)
         self._changed()
         return jobs
+
+    def _check_upscale_source(self, tab: str, file_id: str) -> None:
+        from remi.ui import ParamError, ValidationError
+
+        if tab != "txt2img":
+            raise ValidationError([ParamError("only txt2img jobs Hires. fix an existing image", param="upscale_from")])
+        record = self.files.get(file_id)
+        if record is None or record.kind not in ("upload", "output") or not record.is_image:
+            raise ValidationError([ParamError(f"unknown image {file_id!r}", param="upscale_from")])
 
     def retry(self, job_id: str, *, user: str | None = None) -> Job:
         job = self.get(job_id)
@@ -355,7 +371,7 @@ class JobQueue:
         if not job.replayable:
             raise JobError("this job has arguments that do not map to the current parameters; open it in its form to queue it again")
         self.validate(job.tab, job.core, job.scripts)  # the layout or its uploads may have changed
-        meta = {key: job.meta[key] for key in ("name",) if job.meta.get(key)}
+        meta = {key: job.meta[key] for key in ("name", "upscale_from") if job.meta.get(key)}
         new = self.store.add(job.tab, job.core, job.scripts, priority=job.priority, layout_hash=self.hash_layout(job.tab), schema_version=job.schema_version, summary=job.summary, user=user, retry_of=job.id, after=after, meta=meta or None)
         self._enqueued(new)
         self._changed()
@@ -653,7 +669,7 @@ class JobQueue:
             self.validate(job.tab, job.core, job.scripts)
         except Exception:
             return
-        meta = {key: job.meta[key] for key in ("name",) if job.meta.get(key)}
+        meta = {key: job.meta[key] for key in ("name", "upscale_from") if job.meta.get(key)}
         again = self.store.add(job.tab, job.core, job.scripts, priority=job.priority, layout_hash=job.layout_hash, schema_version=job.schema_version, summary=job.summary, forever=job.forever, user=job.user, retry_of=job.id, meta={**meta, "attempt": attempt + 1})
         log.info("Queued failed job #%d again as #%d (attempt %d of %d)", job.seq, again.seq, attempt + 1, MAX_ATTEMPTS)
         self._enqueued(again)
@@ -725,7 +741,8 @@ class JobQueue:
             except Exception:
                 log.exception("registering an output of job %s", job.id)
                 continue
-            outputs.append({"id": record.id, "kind": "image", "width": record.width, "height": record.height, "infotext": infotext})
+            role = result.roles[index] if index < len(result.roles) else None
+            outputs.append({"id": record.id, "kind": "image", "width": record.width, "height": record.height, "infotext": infotext, **({"role": role} if role else {})})
         for path in result.files:
             try:
                 record = self.files.register_output(path, job_id=job.id, tab=job.tab, infotext=result.info)

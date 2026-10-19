@@ -1,13 +1,16 @@
 /**
  * Queue controls shown with a form's run controls: "Add to queue" (queue the
- * form as a job without waiting for it here) and, while a queued job is
+ * form as a job without waiting for it here; Ctrl/Cmd+Shift+Enter, see the
+ * pages' shortcuts) and, while a queued job is
  * being edited, the banner with "Update job" / "Cancel".
  */
 import { ListPlus, Loader2, PencilLine, X } from "lucide-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { FormTab } from "@/api/types"
+import { formatShortcut } from "@/app/commands"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { cancelEdit, enqueueForm, saveEdit, useQueueEdit } from "./edit-session"
@@ -35,7 +38,10 @@ export function EnqueueButton({ tab, className, size = "icon-lg" }: { tab: FormT
       >
         {busy ? <Loader2 className="animate-spin" aria-hidden /> : <ListPlus />}
       </TooltipTrigger>
-      <TooltipContent>{t("Add to queue: runs after the queued jobs, results go to the gallery")}</TooltipContent>
+      <TooltipContent>
+        {t("Add to queue: runs after the queued jobs, results go to the gallery")}
+        <Kbd className="ml-1.5">{formatShortcut("Mod+Shift+Enter")}</Kbd>
+      </TooltipContent>
     </Tooltip>
   )
 }

@@ -16,31 +16,46 @@ the end).
 
 | step | what it runs |
 |---|---|
-| `ruff:remi` | ruff with the strict rule set on Remi's own Python: `remi/`, `tools/`, `webui/tools/`, `tests/remi_*.py`, `tests/test_remi_*.py` |
+| `env:gradio-free` | fails when the chosen interpreter can import `gradio`, `gradio_client` or `gradio_rangeslider` |
+| `ruff:remi` | ruff with the strict rule set on Remi's own Python: `remi/`, `tools/`, `webui/tools/`, `tests/remi_*.py`, `tests/test_remi_*.py`, `modules/extra_networks_pages.py`, `modules/redact.py` |
 | `ruff:tests` | ruff on `tests/` and every `extensions-builtin/*/tests` (strict rules on the Remi files, Forge's legacy rules on the rest) |
-| `ruff:syntax` | the whole tree for syntax errors (`E9`) |
-| `pytest:tests` | `pytest tests` |
+| `ruff:extensions` | ruff on every `extensions-builtin/*/scripts` and `extensions-builtin/*/lib_*` (strict rules on the files Remi wrote, such as `lib_controlnet/unit_param.py`; legacy rules on the rest) |
+| `ruff:core` | ruff with the legacy rules on the upstream-origin runtime Remi edits: `modules/`, `modules_forge/` (not the vendored `packages/`), `backend/`, `scripts/`, `launch.py`, `webui.py` |
+| `ruff:syntax` | the whole tree (including vendored third-party code) for syntax errors (`E9`) and Gradio imports (`TID251`) |
+| `pytest:tests` | `pytest tests --cov=remi`, failing below 90 % line coverage of `remi/` |
 | `pytest:<extension>` | `pytest extensions-builtin/<extension>/tests`, one run per directory (they share module names); a directory that collects nothing fails |
 | `contract:openapi` | `tools/export_openapi.py --check`: `webui/src/api/openapi.json` matches the server |
 | `contract:settings` | `tools/dump_settings.py --check`: the SPA's settings contract matches `GET /api/v2/options` |
+| `contract:line-endings` | `tools/check_line_endings.py`: the files shared with Forge Neo that upstream commits with CRLF (`tools/upstream_crlf.txt`) still have CRLF, so Neo merges stay line-by-line ([upstream-absorption.md §3](upstream-absorption.md#3-procedure)) |
 | `i18n:server` | `tests/test_remi_core_zh_cn.py`: the zh_CN catalog covers every core string, glossary, language pack and extension catalogs agree |
 | `pnpm:install` | `pnpm install --frozen-lockfile` in `webui/` |
 | `i18n:spa` | `src/locales/locales.test.ts`: every chrome key has a zh-CN translation with the same placeholders |
 | `pnpm:build` | `tsc -b` (app, Vite config, e2e specs) and the production build |
-| `pnpm:lint` | oxlint |
-| `pnpm:vitest` | the Vitest suites (jsdom) |
+| `pnpm:lint` | oxlint with `--deny-warnings --report-unused-disable-directives` (correctness and suspicious categories, React hooks rules, `typescript/no-explicit-any`; `webui/.oxlintrc.json`) |
+| `pnpm:vitest` | the Vitest suites (jsdom) with V8 coverage, failing below the floors in `webui/vite.config.ts` (lines 80 %, statements 75 %, functions 70 %, branches 65 %) |
 | `e2e` | Playwright against the mock backend, including the axe scans |
 
 **Python.** `$PYTHON`, else `venv/` or `.venv/` in the repo, else
-`/tmp/remi-testenv`, else `python3` — the first one that imports `fastapi`,
-`pytest` and `torch` (requirements.txt plus pytest). Ruff comes from that
-environment, then `PATH`, then `uvx ruff`.
+`python3` — of those that import `fastapi`, `pytest`, `pytest_cov` and `torch`
+(`requirements.txt` plus `requirements-dev.txt`), the first one without Gradio,
+else the first one; the `env:gradio-free` step fails when the chosen
+interpreter can import `gradio`, `gradio_client` or `gradio_rangeslider`
+(the WebUI must start and its suites must pass without them). Ruff comes
+from that environment, then `PATH`, then `uvx ruff`.
 
 **Ruff configuration** (`pyproject.toml`). Upstream-origin code keeps Forge's
 legacy rules (`N805`, `S307`, `S102`, `T`, `W`, `F`) and its existing style;
 Remi's own files also get `E`, `I`, `B`, `UP`, `SIM`, `C4`, `RUF`, `PIE`,
-`PLE` (a negated `per-file-ignores` glob switches them off elsewhere). Long
-lines are the house style (black at 1024).
+`PLE` (a negated `per-file-ignores` glob lists them and switches the strict
+rules off elsewhere: a new Python file Remi adds outside `remi/`, `tools/` or
+`tests/(test_)remi_*.py` goes into that list). `print` (`T20`) is allowed in
+the upstream-origin runtime and the extensions' scripts and libraries, which
+report to the console as Forge does; Remi's own code logs. `TID251` bans
+`gradio`, `gradio_client` and `gradio_rangeslider` imports everywhere, and a
+`from tests import ...` (a site-packages `tests` package, as ultralytics
+installs, would shadow the repository's: load helpers by path). Long lines
+are the house style (black at 1024). The coverage data file goes to the log
+folder (`COVERAGE_FILE`), never into the repository.
 
 ## End-to-end tests (`webui/tests/e2e`)
 
@@ -62,6 +77,11 @@ already answers there, then runs:
   from the prompt, PNG Info from a pasted image, an extension page and its
   action, the Extensions page, zh-CN without a reload, light / dark (kept
   across reloads), command palette (navigate, theme), skip link, focus rings.
+- `extras.spec.ts`: Extras (upload a source, pick the upscaler and the scale,
+  process, then the result size, the before / after comparison, its infotext
+  and the viewer; the job carries the values by name), a txt2img result sent
+  to Extras, and generation with Hires. fix and with the Refiner (the values
+  reach the job, the infotext and the result's parameter list).
 - `a11y.spec.ts`: axe-core (`@axe-core/playwright`, WCAG 2.x A/AA + best
   practices) on every page in light and dark, plus open states (networks
   drawer, result, image viewer, gallery details, PNG Info result, queue with
@@ -78,10 +98,14 @@ pages do not race for them. Most flow tests also fail on console errors or uncau
 ## Real-server smoke test
 
 ```sh
-/tmp/remi-testenv/bin/python tools/smoke_real.py   # --port 7879 --out /tmp/remi-smoke --baseline /tmp/remi-parity
+$PYTHON tools/smoke_real.py   # --python $PYTHON --port 7879 --out /tmp/remi-smoke --baseline /tmp/remi-parity
 ```
 
-Starts `launch.py --api` with the real model in an isolated data folder (a
+`$PYTHON` is an interpreter with requirements.txt and without Gradio: the
+first check fails when the server's interpreter (`--python`, default the one
+running the script) can import `gradio`, `gradio_client` or
+`gradio_rangeslider`, so a passing run proves a Gradio-free start and
+generation. Starts `launch.py --api` with the real model in an isolated data folder (a
 copy of `config.json`, models from `models/`), then checks txt2img parity
 against the pre-rewrite baseline through `/sdapi/v1/txt2img` and
 `/api/v2/jobs` (pixel-identical image, infotext equal except `Version`),
@@ -125,6 +149,16 @@ overhead).
 ## CI
 
 `.github/workflows/check.yml` runs `tools/check.sh` in two jobs: Python
-(CPU torch; ruff, pytest, contracts, i18n) and the SPA (install, build, lint,
-Vitest, Playwright with Chromium). Logs and the Playwright report are
-uploaded when a job fails.
+(CPU torch, `requirements.txt` + `requirements-dev.txt`, no Gradio; steps
+`env`, `ruff`, `pytest` with the coverage floor, `contract`, `i18n:server`)
+and the SPA (install, build, lint, Vitest with coverage, Playwright with
+Chromium; steps `pnpm`, `i18n:spa`, `e2e`). Logs and the Playwright report
+are uploaded when a job fails. The workflow passes `actionlint`; it runs on
+pushes to `remi-webui`, `main` and `neo`, on pull requests and by hand
+(`workflow_dispatch`), so a run exists once the branch is pushed to GitHub.
+Until then the same steps run locally with the command CI uses:
+
+```sh
+PYTHON=/path/to/gradio-free/python tools/check.sh --only env,ruff,pytest,contract,i18n:server
+tools/check.sh --only pnpm,i18n:spa,e2e
+```

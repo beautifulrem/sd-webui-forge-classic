@@ -7,9 +7,10 @@
 #   tools/check.sh --list             # list the steps
 #
 # Steps: a Gradio-free Python - ruff (Remi code strict, test suites, the built-in extensions'
-# scripts and libraries, the whole tree for syntax errors and Gradio imports) - pytest for
+# scripts and libraries, the upstream-origin runtime, the whole tree for syntax errors and
+# Gradio imports) - pytest for
 # tests/ (with a coverage floor for remi/) and for every extensions-builtin/*/tests directory
-# separately - OpenAPI and settings contracts - i18n coverage (server zh_CN catalog, SPA
+# separately - OpenAPI and settings contracts, upstream line endings - i18n coverage (server zh_CN catalog, SPA
 # chrome catalog) - pnpm install (frozen lockfile), build (tsc + vite), oxlint, vitest (with
 # coverage floors), Playwright end-to-end tests and axe scans against the mock backend.
 # Steps keep running after a failure; the script ends with a summary table and exits 1
@@ -55,7 +56,7 @@ pick_python() {
   fi
   for candidate in "$ROOT/venv/bin/python" "$ROOT/.venv/bin/python" "$(command -v python3 || true)"; do
     [ -n "$candidate" ] && [ -x "$candidate" ] || continue
-    "$candidate" -c "import fastapi, pytest, torch" >/dev/null 2>&1 || continue
+    "$candidate" -c "import fastapi, pytest, pytest_cov, torch" >/dev/null 2>&1 || continue
     if "$candidate" -c "$GRADIO_PROBE" >/dev/null 2>&1; then
       echo "$candidate"
       return 0
@@ -85,6 +86,8 @@ fi
 
 LOGS="${REMI_CHECK_LOGS:-$(mktemp -d "${TMPDIR:-/tmp}/remi-check.XXXXXX")}"
 mkdir -p "$LOGS"
+# pytest-cov's data file goes with the logs, not into the repository.
+export COVERAGE_FILE="$LOGS/.coverage"
 # Port of the e2e test's own mock dev server: away from a developer's `pnpm dev` (5173/5199).
 export REMI_E2E_PORT="${REMI_E2E_PORT:-5299}"
 export PYTHONDONTWRITEBYTECODE=1
@@ -168,6 +171,8 @@ step env:gradio-free gradio_free
 step ruff:remi "${RUFF[@]}" check remi tools webui/tools tests/remi_*.py tests/test_remi_*.py modules/extra_networks_pages.py modules/redact.py
 step ruff:tests "${RUFF[@]}" check tests extensions-builtin/*/tests
 step ruff:extensions "${RUFF[@]}" check extensions-builtin/*/scripts extensions-builtin/*/lib_*
+# The upstream-origin runtime Remi edits (legacy rules); modules_forge/packages is vendored as is.
+step ruff:core "${RUFF[@]}" check modules modules_forge backend scripts launch.py webui.py --extend-exclude modules_forge/packages
 step ruff:syntax "${RUFF[@]}" check . --select E9,TID251 --output-format concise
 
 # Coverage floor for remi/ (the measured line coverage of tests/, minus a small margin).
@@ -181,6 +186,8 @@ done
 
 step contract:openapi py tools/export_openapi.py --check
 step contract:settings py tools/dump_settings.py --check
+# Files shared with Forge Neo keep upstream's CRLF line endings (clean merges of Neo updates).
+step contract:line-endings py tools/check_line_endings.py
 
 step i18n:server run_pytest tests/test_remi_core_zh_cn.py
 

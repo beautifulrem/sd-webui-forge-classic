@@ -34,3 +34,6 @@ __pycache__
 notification.mp3
 /.remi-workflows
 /remi-data
+/.coverage
+/.coverage.*
+/htmlcov

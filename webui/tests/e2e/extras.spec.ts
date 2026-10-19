@@ -1,7 +1,7 @@
 /**
  * Extras against the mock backend: upload a source, pick the upscaler and the scale, process,
  * then the result (its size, the before / after comparison, the viewer) and its infotext; a
- * generated image sent to Extras; Hires. fix values in a txt2img job and its infotext.
+ * generated image sent to Extras; Hires. fix and Refiner values in a txt2img job and its infotext.
  */
 import { expect, type Page, test } from "@playwright/test"
 import { mod, openGenerate, openRoute, setPrompt, watchConsole } from "./helpers"
@@ -9,7 +9,7 @@ import { mod, openGenerate, openRoute, setPrompt, watchConsole } from "./helpers
 type MockModule = { handleMockRequest: (request: Request) => Promise<Response> }
 
 /** The newest job of `tab` as the in-page mock server stored it (its named values). */
-async function lastJob(page: Page, tab: string): Promise<{ core: Record<string, unknown>; outputs: { id: string; width: number; height: number; infotext?: string }[] }> {
+async function lastJob(page: Page, tab: string): Promise<{ core: Record<string, unknown>; scripts?: Record<string, Record<string, unknown>>; outputs: { id: string; width: number; height: number; infotext?: string }[] }> {
   return page.evaluate(async (jobTab) => {
     // The app's own instance of the in-browser mock server: the exact module URL it loaded.
     const loaded = performance.getEntriesByType("resource").map((entry) => entry.name)
@@ -115,15 +115,16 @@ test.describe("extras", () => {
   })
 })
 
-test.describe("hires fix", () => {
+test.describe("hires fix and refiner", () => {
   test("generates with Hires. fix and its values reach the job and the infotext", async ({ page }) => {
     const console = watchConsole(page)
     await openGenerate(page)
     await setPrompt(page, "a castle on a hill")
-    const toggle = page.getByRole("switch", { name: "Hires. fix", exact: true })
+    // The section header carries the enable switch; switching it on opens the section.
+    const toggle = page.getByRole("switch", { name: "Enable Hires. fix", exact: true })
     await toggle.click()
     await expect(toggle).toBeChecked()
-    const section = page.getByRole("region", { name: "Hires. fix" })
+    const section = page.getByRole("region", { name: "Hires. fix", exact: true })
     const upscaleBy = section.getByRole("textbox", { name: "Upscale by" })
     await upscaleBy.fill("1.5")
     await upscaleBy.press("Tab")
@@ -138,7 +139,37 @@ test.describe("hires fix", () => {
     const height = Number(job.core.height)
     expect(job.outputs[0]).toMatchObject({ width: Math.round(width * 1.5), height: Math.round(height * 1.5) })
     expect(job.outputs[0]!.infotext).toContain("Hires upscale: 1.5, Hires upscaler: R-ESRGAN 4x+")
-    await expect(page.getByText(/Hires upscale: 1\.5, Hires upscaler: R-ESRGAN 4x\+/).first()).toBeVisible()
+    // The result's parameters list shows the Hires. fix values from the infotext
+    const result = page.getByRole("region", { name: "Result" })
+    const value = (term: string) => result.getByRole("term").filter({ hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::*[1]")
+    await expect(value("Hires upscale")).toHaveText("1.5")
+    await expect(value("Hires upscaler")).toHaveText("R-ESRGAN 4x+")
+    console.assertClean()
+  })
+
+  test("generates with the Refiner and its checkpoint and switch point reach the job and the infotext", async ({ page }) => {
+    const console = watchConsole(page)
+    await openGenerate(page)
+    await setPrompt(page, "a lighthouse at dusk")
+    const toggle = page.getByRole("switch", { name: "Enable Refiner", exact: true })
+    await toggle.click()
+    await expect(toggle).toBeChecked()
+    const section = page.getByRole("region", { name: "Refiner", exact: true })
+    await section.getByRole("combobox", { name: "Checkpoint" }).click()
+    await page.getByRole("option", { name: "noobai-xl-vpred-1.0.safetensors" }).click()
+    const switchAt = section.getByRole("textbox", { name: "Switch at" })
+    await switchAt.fill("0.6")
+    await switchAt.press("Tab")
+
+    await page.keyboard.press(`${mod}+Enter`)
+    await expect(page.getByRole("img", { name: "Generated image" })).toBeVisible({ timeout: 15_000 })
+    const job = await lastJob(page, "txt2img")
+    expect(job.scripts?.refiner).toMatchObject({ enable: true, checkpoint: "noobai-xl-vpred-1.0.safetensors", switch_at: 0.6 })
+    expect(job.outputs[0]!.infotext).toContain("Refiner: noobai-xl-vpred-1.0.safetensors, Refiner switch at: 0.6")
+    const result = page.getByRole("region", { name: "Result" })
+    const value = (term: string) => result.getByRole("term").filter({ hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::*[1]")
+    await expect(value("Refiner")).toHaveText("noobai-xl-vpred-1.0.safetensors")
+    await expect(value("Refiner switch at")).toHaveText("0.6")
     console.assertClean()
   })
 })

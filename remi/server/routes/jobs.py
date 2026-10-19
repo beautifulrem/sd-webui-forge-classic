@@ -53,7 +53,7 @@ def job_json(job: Job, *, detail: bool = False, running: bool = False) -> dict[s
 
 @router.post("/jobs", response_model=m.JobCreated, status_code=201, responses={422: {"model": m.ValidationErrorBody}}, summary="Queue a generation (validated first)")
 def create_job(body: m.JobRequest, services: ServicesDep, user: UserDep) -> dict[str, Any]:
-    jobs = services.queue.submit(Submission(body.tab, body.core, body.scripts, priority=body.priority, repeat=body.repeat, forever=body.forever), user=user)
+    jobs = services.queue.submit(Submission(body.tab, body.core, body.scripts, priority=body.priority, repeat=body.repeat, forever=body.forever, upscale_from=body.upscale_from), user=user)
     return {"job_id": jobs[0].id, "job_ids": [job.id for job in jobs], "seq": jobs[0].seq}
 
 

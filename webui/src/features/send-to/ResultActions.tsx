@@ -1,9 +1,10 @@
 /**
  * Actions on one result: download, save (to the Save folder, or its whole
  * generation as a zip), open, copy parameters, reuse seed, use its
- * parameters, send to img2img / inpaint / extras, remove from history.
+ * parameters, Hires. fix it (txt2img's ✨), send to img2img / inpaint /
+ * extras, remove from history.
  */
-import { ArrowRightLeft, ClipboardPaste, Copy, Download, ExternalLink, FileArchive, ImagePlus, Paintbrush, Recycle, Save, Trash2, Wand } from "lucide-react"
+import { ArrowRightLeft, ClipboardPaste, Copy, Download, ExternalLink, FileArchive, ImagePlus, Paintbrush, Recycle, Save, Sparkles, Trash2, Wand } from "lucide-react"
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -21,6 +22,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils"
 import { copyText, downloadFile, openInNewTab } from "@/features/gallery/files"
 import { type ResultItem, useSession } from "@/features/gallery/session-store"
+import { upscaleResult } from "@/features/progress/run-controller"
 import { applyParameters, reuseSeed, saveResults, sendWithFeedback } from "./result-actions"
 
 function Action(props: { label: string; shortcut?: string; onClick: () => void; disabled?: boolean; children: ReactNode; tone?: "light" }) {
@@ -54,12 +56,14 @@ type ResultActionsProps = {
   tone?: "light"
   /** Hide "remove from history" (e.g. inside the lightbox). */
   removable?: boolean
+  /** Offer the ✨ button (Hires. fix the result with the txt2img form's values) for txt2img results. */
+  upscalable?: boolean
   /** After "Send to" switched pages (the lightbox closes itself). */
   onSent?: () => void
   className?: string
 }
 
-export function ResultActions({ item, tab, tone, removable = true, onSent, className }: ResultActionsProps) {
+export function ResultActions({ item, tab, tone, removable = true, upscalable = false, onSent, className }: ResultActionsProps) {
   const { t } = useTranslation()
   const disabled = !item
   const infotext = item?.infotext ?? null
@@ -139,6 +143,17 @@ export function ResultActions({ item, tab, tone, removable = true, onSent, class
       >
         <ClipboardPaste />
       </Action>
+      {upscalable && tab === "txt2img" ? (
+        <Action
+          label={t("Upscale with Hires. fix")}
+          tone={tone}
+          // The grid, extra images (detected maps) and video frames are not first passes.
+          disabled={!item || item.tab !== "txt2img" || Boolean(item.role) || Boolean(item.videoId)}
+          onClick={() => item && upscaleResult({ fileId: item.fileId, key: item.key })}
+        >
+          <Sparkles />
+        </Action>
+      ) : null}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={

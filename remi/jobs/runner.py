@@ -26,6 +26,8 @@ class JobResult:
     """the job's infotext (the first image's)"""
     files: list[str] = field(default_factory=list)
     """other output files (videos) by path"""
+    roles: list[str | None] = field(default_factory=list)
+    """per image: ``"grid"``, ``"extra"`` (e.g. ControlNet's detected maps) or None (an image of the batch)"""
 
 
 Executor = Callable[[Job, JobContext], JobResult]
@@ -35,6 +37,11 @@ def run_job(job: Job, ctx: JobContext) -> JobResult:
     extras); raises ``remi.ui.ValidationError`` for bad values."""
 
     if job.tab == "txt2img":
+        if source := job.meta.get("upscale_from"):
+            from modules.txt2img import run_txt2img_upscale
+
+            image = upscale_source(ctx, source)
+            return _from_processed(run_txt2img_upscale(job.core, job.scripts, ctx, image, _source_infotext(image)))
         from modules.txt2img import run_txt2img
 
         return _from_processed(run_txt2img(job.core, job.scripts, ctx))
@@ -62,6 +69,31 @@ def run_job(job: Job, ctx: JobContext) -> JobResult:
     raise ValueError(f"unknown tab {job.tab!r}")
 
 
+def upscale_source(ctx: JobContext, file_id: str) -> Any:
+    """The image a Hires. fix-only run (``upscale_from``) starts from."""
+
+    from remi.ui import Image, ParamError, ValidationError
+
+    if ctx.resolve_upload is None:
+        raise ValidationError([ParamError("no file store to read the image from", param="upscale_from")])
+    try:
+        return ctx.resolve_upload(Image("upscale_from"), file_id)
+    except ParamError as error:
+        raise ValidationError([ParamError(str(error), param="upscale_from")]) from None
+
+
+def _source_infotext(image: Any) -> str | None:
+    """The generation parameters stored in an image (PNG text, EXIF, ...)."""
+
+    from modules.images import read_info_from_image
+
+    try:
+        infotext, _ = read_info_from_image(image)
+    except Exception:
+        return _image_infotext(image)
+    return infotext if isinstance(infotext, str) else None
+
+
 def _image_infotext(image: Any) -> str | None:
     value = (getattr(image, "info", None) or {}).get("parameters")
     return value if isinstance(value, str) else None
@@ -78,11 +110,19 @@ def _as_image(image: Any) -> Any:
 
 
 def _from_processed(processed: Any) -> JobResult:
-    images = [_as_image(image) for image in list(getattr(processed, "images", None) or []) + list(getattr(processed, "extra_images", None) or []) if image is not None]
+    main = list(getattr(processed, "images", None) or [])
+    first = getattr(processed, "index_of_first_image", 0)
+    first = first if isinstance(first, int) else 0
+    pairs = [(image, "grid" if index < first else None) for index, image in enumerate(main)]
+    pairs += [(image, "extra") for image in getattr(processed, "extra_images", None) or []]
+    pairs = [(_as_image(image), role) for image, role in pairs if image is not None]
+    images = [image for image, _ in pairs]
     infotexts = [text for text in getattr(processed, "infotexts", None) or [] if isinstance(text, str)]
     info = infotexts[0] if infotexts else getattr(processed, "info", None)
     texts = [infotexts[index] if index < len(infotexts) else (_image_infotext(image) or info) for index, image in enumerate(images)]
-    return JobResult(images=images, infotexts=texts, info=info if isinstance(info, str) else None)
+    video = getattr(processed, "video_path", None)
+    files = [video] if isinstance(video, str) and video else []
+    return JobResult(images=images, infotexts=texts, info=info if isinstance(info, str) else None, files=files, roles=[role for _, role in pairs])
 
 
 def run_on_main_thread(func: Callable[..., Any], *args: Any) -> Any:

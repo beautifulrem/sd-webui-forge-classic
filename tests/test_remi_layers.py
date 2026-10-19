@@ -31,15 +31,21 @@ def _python_files(*roots: str):
             yield relative, path
 
 
+def _is_server(module: str) -> bool:
+    return module == "remi.server" or module.startswith("remi.server.")
+
+
 def _server_imports(source: str) -> list[int]:
     lines = []
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
-            if any(alias.name == "remi.server" or alias.name.startswith("remi.server.") for alias in node.names):
-                lines.append(node.lineno)
+            names = [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            if node.module == "remi.server" or node.module.startswith("remi.server.") or (node.module == "remi" and any(alias.name == "server" for alias in node.names)):
-                lines.append(node.lineno)
+            names = [node.module] + [f"{node.module}.{alias.name}" for alias in node.names]
+        else:
+            continue
+        if any(_is_server(name) for name in names):
+            lines.append(node.lineno)
     return lines
 
 

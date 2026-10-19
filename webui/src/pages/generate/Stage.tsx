@@ -79,9 +79,12 @@ export function Stage({ tab, onOpenViewer, className, leading, trailing, toolbar
   const item = useSession(selectedItem)
   const showProgress = useClientOption("show_progressbar")
   const livePreviews = useClientOption("live_previews_enable")
+  const videoAutoplay = useClientOption("video_player_auto")
+  const videoLoop = useClientOption("video_player_loop")
   const preview = useWs((s) => (job && s.preview && (job.seq === undefined || s.preview.jobSeq === job.seq) ? s.preview.url : null))
   const live = job && follow && livePreviews ? preview : null
   const src = live ?? (item ? api.fileUrl(item.fileId) : null)
+  const video = !live && item?.videoId ? item.videoId : null
   const [infoOpen, setInfoOpen] = useState(true)
   const section = useRef<HTMLElement>(null)
 
@@ -112,7 +115,20 @@ export function Stage({ tab, onOpenViewer, className, leading, trailing, toolbar
 
   const image = (
     <div className="relative flex min-h-48 flex-1 items-center justify-center overflow-hidden rounded-xl border bg-canvas">
-      {src ? (
+      {video && item ? (
+        // A generated video (e.g. Wan): played here; its frames stay in the history and the viewer.
+        <video
+          key={video}
+          src={api.fileUrl(video)}
+          poster={api.fileUrl(item.fileId)}
+          controls
+          playsInline
+          autoPlay={videoAutoplay}
+          loop={videoLoop}
+          aria-label={t("Generated video")}
+          className={cn("max-h-full max-w-full object-contain", job && "opacity-90")}
+        />
+      ) : src ? (
         <button
           type="button"
           onClick={onOpenViewer}
@@ -151,7 +167,7 @@ export function Stage({ tab, onOpenViewer, className, leading, trailing, toolbar
 
   const actions = (
     <>
-      <ResultActions item={live ? null : item} tab={tab} />
+      <ResultActions item={live ? null : item} tab={tab} upscalable />
       <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={t("Open image viewer")} onClick={onOpenViewer} disabled={!src}>
         <Expand />
       </Button>

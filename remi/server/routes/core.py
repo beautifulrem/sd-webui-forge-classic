@@ -63,6 +63,11 @@ BOOTSTRAP_OPTIONS = (
     "img2img_autosize",
     "sd_webui_modal_lightbox_icon_opacity",
     "sd_webui_modal_lightbox_toolbar_opacity",
+    # Results: generated videos, Hires. fix of a result (the ✨ button)
+    "video_player_auto",
+    "video_player_loop",
+    "hires_button_gallery_insert",
+    "hires_insert_index",
     # The image editor (webui/src/canvas)
     "forge_canvas_consistent_brush",
     "forge_canvas_plain",

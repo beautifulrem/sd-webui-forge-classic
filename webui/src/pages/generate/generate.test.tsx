@@ -103,6 +103,17 @@ describe("generate page", () => {
     expect(useRuns.getState().runs.txt2img.interrupting).toBe(true)
   })
 
+  it("Ctrl/Cmd+Shift+Enter adds the form to the queue without making it this form's run", async () => {
+    const calls = mockServer(() => [201, { job_id: "job-q", seq: 4 }])
+    renderPage()
+    fireEvent.keyDown(window, { key: "Enter", ctrlKey: true, shiftKey: true })
+    fireEvent.keyDown(window, { key: "Enter", metaKey: true, shiftKey: true, repeat: true })
+    await waitFor(() => expect(posted(calls, "/jobs")).toHaveLength(1))
+    expect(posted(calls, "/jobs")[0]?.body).toMatchObject({ tab: "txt2img" })
+    expect(useRuns.getState().runs.txt2img.jobs).toEqual([])
+    expect(useProgress.getState().owned).toEqual({})
+  })
+
   it("Alt+Enter skips the running job; the Interrupt button interrupts", async () => {
     const calls = mockServer(() => [200, { job_id: "job-2" }])
     renderPage()

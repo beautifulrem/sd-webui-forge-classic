@@ -1,7 +1,9 @@
 """Startup: scripts that cannot be loaded, launch helpers, the SPA build
 step, model selection through PATCH /options and /sdapi on the same app."""
 
+import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -91,12 +93,34 @@ def test_the_webui_starts_and_generates(tmp_path):
     # environment with nothing but requirements.txt installed). Gradio is
     # made unimportable first (as if it were not installed, whatever this
     # interpreter has): nothing on the startup path, in remi/ or in a built-in
-    # extension may need it.
+    # extension may need it. The data folder is empty, so ADetailer would
+    # download its detector models at load: --ad-no-huggingface (the user's
+    # opt-out) keeps startup offline, and any other connection to a non-local
+    # host fails the test (proxy settings, from the environment or the
+    # system, are dropped, so a download cannot pass as a local connection to
+    # a proxy).
     code = f"""
-import sys
+import os, socket, sys, traceback, urllib.request
+for key in [key for key in os.environ if key.lower().endswith("_proxy")]:
+    del os.environ[key]
+urllib.request.getproxies = dict
 for name in {GRADIO!r}:
     sys.modules[name] = None  # "import gradio" raises ImportError
-sys.argv = ["launch.py", "--skip-prepare-environment", "--skip-version-check", "--skip-torch-cuda-test", "--data-dir", {str(tmp_path)!r}]
+remote = []
+_connect, _getaddrinfo = socket.socket.connect, socket.getaddrinfo
+LOCAL = ("127.0.0.1", "localhost", "::1", None)
+def connect(self, address):
+    if isinstance(address, tuple) and address[0] not in LOCAL:
+        remote.append((address, traceback.format_stack(limit=8)))
+        raise OSError("no network in this test")
+    return _connect(self, address)
+def getaddrinfo(host, *args, **kwargs):
+    if host not in LOCAL:
+        remote.append((host, traceback.format_stack(limit=8)))
+        raise socket.gaierror("no network in this test")
+    return _getaddrinfo(host, *args, **kwargs)
+socket.socket.connect, socket.getaddrinfo = connect, getaddrinfo
+sys.argv = ["launch.py", "--skip-prepare-environment", "--skip-version-check", "--skip-torch-cuda-test", "--ad-no-huggingface", "--data-dir", {str(tmp_path)!r}]
 import webui
 from modules import scripts
 from remi.jobs import run_inline
@@ -115,6 +139,7 @@ for module in pkgutil.walk_packages(remi.__path__, "remi."):
     importlib.import_module(module.name)
 loaded = sorted(name for name, module in sys.modules.items() if name.split(".")[0] in {GRADIO!r} and module is not None)
 assert not loaded, loaded
+assert not remote, "".join(f"{{host}}\\n{{''.join(stack)}}" for host, stack in remote)
 print("ok")
 """
     result = run_python(code)
@@ -343,6 +368,7 @@ def test_webui_build_always_uses_pnpm_and_its_lockfile_or_explains(tmp_path, cap
     (webui / "package.json").write_text("{}")
     monkeypatch.delenv("REMI_SKIP_WEBUI_BUILD", raising=False)
     monkeypatch.setattr(launch_utils, "webui_build_commands", lambda: None)
+    monkeypatch.setattr(shutil, "which", lambda name: None)  # a machine without Node.js
     assert launch_utils.build_webui(webui) is False
     assert "Node.js was not found" in capsys.readouterr().out
 
@@ -377,6 +403,49 @@ def test_webui_build_always_uses_pnpm_and_its_lockfile_or_explains(tmp_path, cap
     (webui / "src" / "main.ts").write_text("export const changed = 1")
     monkeypatch.setattr(launch_utils, "webui_build_commands", lambda: None)
     assert launch_utils.build_webui(webui) is True and "out of date" in capsys.readouterr().out
+
+
+def test_webui_build_states_the_node_requirement_of_the_readme(tmp_path, capsys, monkeypatch):
+    """The launcher names the same Node.js versions as the README (Vite's engines) and warns on older ones."""
+
+    from modules import launch_utils
+
+    readme = (Path(launch_utils.script_path) / "README.md").read_text(encoding="utf-8")
+    assert launch_utils.NODE_REQUIREMENT == "Node.js 20.19+ or 22.12+" and "20.19+ or 22.12+" in readme
+    vite = json.loads((Path(launch_utils.script_path) / "webui" / "package.json").read_text(encoding="utf-8"))["devDependencies"]["vite"]
+    assert vite.startswith("^8."), "Vite changed: check its engines.node against NODE_REQUIREMENT and the README"
+    for ok in ("v20.19.0", "v20.20.1", "v22.12.0", "v24.1.0", "v26.0.0"):
+        assert launch_utils.node_version_problem(ok) is None, ok
+    for old in ("v18.20.4", "v20.18.3", "v21.7.3", "v22.11.0"):
+        assert "too old" in launch_utils.node_version_problem(old), old
+    assert launch_utils.node_version_problem("garbage") is None
+
+    webui = tmp_path / "webui"
+    webui.mkdir()
+    (webui / "package.json").write_text("{}")
+    monkeypatch.delenv("REMI_SKIP_WEBUI_BUILD", raising=False)
+    monkeypatch.setattr(launch_utils, "webui_build_commands", lambda: None)
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    assert launch_utils.build_webui(webui) is False
+    out = capsys.readouterr().out
+    assert "Node.js was not found" in out and "Node.js 20.19+ or 22.12+" in out and "pnpm is optional" in out
+    monkeypatch.setattr(shutil, "which", lambda name: "/n/node" if name == "node" else None)
+    assert launch_utils.build_webui(webui) is False
+    assert "none of pnpm, corepack or npx" in capsys.readouterr().out
+
+    ran = []
+    monkeypatch.setattr(launch_utils, "webui_build_commands", lambda: [["build"]])
+    monkeypatch.setattr(launch_utils, "node_version", lambda node: "v20.11.1")
+
+    def fake_run(command, cwd, shell):
+        ran.append(command)
+        (webui / "dist").mkdir(exist_ok=True)
+        (webui / "dist" / "index.html").write_text("<html>")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(launch_utils.subprocess, "run", fake_run)
+    assert launch_utils.build_webui(webui) is True and ran == [["build"]]
+    assert "Node.js v20.11.1 is too old to build the web interface: it needs Node.js 20.19+ or 22.12+" in capsys.readouterr().out
 
 
 # endregion

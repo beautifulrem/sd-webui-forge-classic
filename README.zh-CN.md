@@ -254,10 +254,10 @@ Remi 的界面是全新的；生成引擎、模型、设置文件、样式、输
 | 快捷设置 | 顶栏的 ⚡ 快捷设置；在设置页中逐项固定 |
 | 提示词下方的 Extra Networks 标签页 | **模型网络**抽屉（Alt+N）和**模型网络**页面 |
 | “无限生成”右键菜单、Repeat Generate | 生成按钮旁的菜单：无限生成、连续生成多次 |
-| Agent Scheduler 标签页和“Enqueue” | **队列**页面，以及生成按钮旁的**加入队列** |
+| Agent Scheduler 标签页和“Enqueue” | **队列**页面，以及生成按钮旁的**加入队列**（Ctrl+Shift+Enter）；队列设置保留，布局类设置见[其 README](extensions-builtin/agent-scheduler/README.md) |
 | Prompt Queue 标签页 | **队列**页面 |
-| Prompt All-in-One | 每个提示词下方的提示词工具栏（首次使用时自动导入原有历史和收藏） |
-| TagComplete | 内置自动补全（原有设置保留） |
+| Prompt All-in-One | 每个提示词下方的提示词工具栏（首次使用时自动导入原有历史和收藏）；各项旧功能的去向见[其 README](extensions-builtin/sd-webui-prompt-all-in-one-neo/README.md) |
+| TagComplete | 内置自动补全（原有设置保留，未保留的设置及原因见[其 README](extensions-builtin/sd-webui-tagcomplete-neo/README.md)） |
 | 括号检查、移动端布局 | 已内置 |
 | PNG Info 标签页 | **图片信息**页面 |
 | 设置标签页及其“默认值”和“操作” | **设置**页面；服务器操作位于“服务器与模型”。不再读取 `ui-config.json`：表单从默认值、界面预设和浏览器保存的值开始 |
@@ -265,7 +265,8 @@ Remi 的界面是全新的；生成引擎、模型、设置文件、样式、输
 | JoyCaption 和 Prompt Workshop 标签页 | 同名页面 |
 | 模型合并（Checkpoint Merger）标签页 | Remi 界面中不提供 |
 | `/file=` 链接 | 文件通过 id 提供（`/api/v2/files/{id}`） |
-| `/agent-scheduler/v1/*`、`/prompt-queue/*` API | `POST /api/v2/jobs` 和 `/api/v2/queue/*`（[API 指南](docs/remi-webui/api.md)） |
+| `/agent-scheduler/v1/*`、`/prompt-queue/*` API | `POST /api/v2/jobs` 和 `/api/v2/queue/*`（[API 指南](docs/remi-webui/api.md)）；旧路由返回 `410 Gone` |
+| `/tacapi/v1/*`、`/physton_prompt/*` API | `/api/v2/prompt-tools`（旧路由返回 `410 Gone`） |
 
 **迁移旧队列。** 打开 **队列 → ⋯ → 从 Agent Scheduler 或 Prompt Queue 导入…**。导入器只读取旧数据、不做修改，可以安全地重复运行（已导入的任务会跳过）。Agent Scheduler 中待运行的任务会进入队列（队列会先暂停，便于你检查），已完成的任务连同图片进入历史，书签变为星标。按位置保存的脚本参数会根据当前面板命名；无法全部命名的任务会以“不可重放”状态保留并列在报告中：在对应表单中打开即可检查并重新排队。Agent Scheduler 数据库默认位于 `extension-data/agent-scheduler/task_scheduler.sqlite3`，或 `--agent-scheduler-sqlite-file` 指定的位置；Prompt Queue 的 `queue.json` 位于 `extension-data/sd-webui-prompt-queue/`。
 
@@ -297,7 +298,7 @@ Agent Scheduler、Prompt Queue 和 Repeat Generate 已成为核心的队列功�
 
 ## 故障排查
 
-**浏览器显示“The web interface is not built”。** 启动器运行时未找到 Node.js，或构建被跳过（`--skip-install`、`--skip-prepare-environment`、`REMI_SKIP_WEBUI_BUILD`）。安装 Node.js 20.19+ / 22.12+ 后重启，或在其他机器上构建 `webui/dist` 再复制过来（[网页界面的构建](#网页界面的构建)）。
+**浏览器显示“The web interface is not built”。** 启动器运行时未找到 Node.js、构建失败，或构建被跳过（`--skip-install`、`--skip-prepare-environment`、`REMI_SKIP_WEBUI_BUILD`），控制台会说明是哪一种。Node.js 版本过旧时会提示“Node.js vX is too old to build the web interface”，构建通常会失败。安装 Node.js 20.19+ / 22.12+ 后重启，或在其他机器上构建 `webui/dist` 再复制过来（[网页界面的构建](#网页界面的构建)）。
 
 **构建失败**（`pnpm install` 或 `pnpm build` 报错退出）。在 `webui/` 中运行 `pnpm install --frozen-lockfile && pnpm build` 查看完整信息。使用代理时，请为 npm/pnpm 配置代理（`HTTPS_PROXY`）。服务器仍会启动，期间 API 可用。
 

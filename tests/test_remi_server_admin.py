@@ -520,6 +520,15 @@ def test_license_parser_drops_markup_and_unsafe_links():
     assert group["items"] == [{"id": "0-0", "name": "A B", "url": None, "description": "d & e", "license_url": None}]
 
 
+def test_license_texts_come_only_from_the_host_the_csp_allows():
+    from remi.server.auth import LICENSE_TEXT_ORIGIN, html_headers
+    from remi.server.routes.admin import parse_licenses
+
+    data = parse_licenses("<h2>A</h2><pre data-license='https://example.com/LICENSE'></pre><h2>B</h2><pre data-license='https://raw.githubusercontent.com.evil.example/LICENSE'></pre><h2>C</h2><pre data-license='https://raw.githubusercontent.com/o/r/main/LICENSE'></pre>")
+    assert [item["license_url"] for item in data["groups"][0]["items"]] == [None, None, "https://raw.githubusercontent.com/o/r/main/LICENSE"]
+    assert f"connect-src 'self' {LICENSE_TEXT_ORIGIN};" in html_headers(b"")["Content-Security-Policy"]
+
+
 def test_sysinfo_check(env):
     from modules import sysinfo
 

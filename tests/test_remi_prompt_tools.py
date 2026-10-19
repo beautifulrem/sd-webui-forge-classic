@@ -400,20 +400,20 @@ def test_old_dotted_setting_keys_are_migrated():
     assert data == {"tac_extra_addMode": "Insert after", "tac_alias_searchByAlias": True, "tac_maxResults": 5}
 
 
-LEGACY_TAC_SETTINGS = """
-tac_active tac_activeIn.img2img tac_activeIn.modelList tac_activeIn.modelListMode tac_activeIn.negativePrompts
-tac_activeIn.thirdParty tac_activeIn.txt2img tac_alias.onlyShowAlias tac_alias.searchByAlias tac_alwaysSpaceAtEnd
-tac_animaArtistPrefix tac_appendComma tac_appendSpace tac_chantFile tac_civitaiApiKey tac_colormap tac_delayTime
-tac_escapeParentheses tac_extra.addMode tac_extra.extraFile tac_forceRefreshEmbeddings tac_frequencyFunction
-tac_frequencyIncludeAlias tac_frequencyMaxAge tac_frequencyMinCount tac_frequencyRecommendCap tac_frequencySort
-tac_includeEmbeddingsInNormalResults tac_keymap tac_maxResults tac_modelKeywordCivitai tac_modelKeywordCompletion
-tac_modelKeywordLocation tac_modelSortOrder tac_refreshTempFiles tac_replaceUnderscores tac_resultStepLength
-tac_showAllResults tac_showExtraNetworkPreviews tac_showWikiLinks tac_skipWildcardRefresh tac_slidingPopup
-tac_sortWildcardResults tac_tagFile tac_translation.liveTranslation tac_translation.oldFormat
-tac_translation.searchByTranslation tac_translation.translationFile tac_undersocreReplacementExclusionList
-tac_useEmbeddings tac_useIndexedSearch tac_useLoraPrefixForLycos tac_useLoras tac_useLycos tac_useStyleVars
-tac_useWildcards tac_wildcardCompletionMode tac_wildcardExclusionList
-""".split()
+LEGACY_TAC_SETTINGS = [
+    "tac_active", "tac_activeIn.img2img", "tac_activeIn.modelList", "tac_activeIn.modelListMode", "tac_activeIn.negativePrompts",
+    "tac_activeIn.thirdParty", "tac_activeIn.txt2img", "tac_alias.onlyShowAlias", "tac_alias.searchByAlias", "tac_alwaysSpaceAtEnd",
+    "tac_animaArtistPrefix", "tac_appendComma", "tac_appendSpace", "tac_chantFile", "tac_civitaiApiKey",
+    "tac_colormap", "tac_delayTime", "tac_escapeParentheses", "tac_extra.addMode", "tac_extra.extraFile",
+    "tac_forceRefreshEmbeddings", "tac_frequencyFunction", "tac_frequencyIncludeAlias", "tac_frequencyMaxAge", "tac_frequencyMinCount",
+    "tac_frequencyRecommendCap", "tac_frequencySort", "tac_includeEmbeddingsInNormalResults", "tac_keymap", "tac_maxResults",
+    "tac_modelKeywordCivitai", "tac_modelKeywordCompletion", "tac_modelKeywordLocation", "tac_modelSortOrder", "tac_refreshTempFiles",
+    "tac_replaceUnderscores", "tac_resultStepLength", "tac_showAllResults", "tac_showExtraNetworkPreviews", "tac_showWikiLinks",
+    "tac_skipWildcardRefresh", "tac_slidingPopup", "tac_sortWildcardResults", "tac_tagFile", "tac_translation.liveTranslation",
+    "tac_translation.oldFormat", "tac_translation.searchByTranslation", "tac_translation.translationFile", "tac_undersocreReplacementExclusionList", "tac_useEmbeddings",
+    "tac_useIndexedSearch", "tac_useLoraPrefixForLycos", "tac_useLoras", "tac_useLycos", "tac_useStyleVars",
+    "tac_useWildcards", "tac_wildcardCompletionMode", "tac_wildcardExclusionList",
+]
 """every setting the tag autocomplete extension registered before the port
 (``scripts/tag_autocomplete_helper.py`` at d5a71cad: 58 keys)"""
 

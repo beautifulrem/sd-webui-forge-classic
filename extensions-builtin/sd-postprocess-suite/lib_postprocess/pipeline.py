@@ -1,12 +1,12 @@
 """
 Post Processing Suite - pipeline definition.
 
-A declarative spec drives BOTH the Gradio UI and the runtime. Each stage owns:
+A declarative spec drives BOTH the params() layout and the runtime. Each stage owns:
   - a stable key, a label, a default pipeline order
   - a list of parameter specs (id, widget type, default, widget kwargs)
   - an `effect` id used by the dispatcher
 
-Per-stage the UI emits [enabled, order, *params]. The pipeline collects enabled
+Per stage the script args are [enabled, order, *params]. The pipeline collects enabled
 stages, sorts them by their (user-editable) order, and applies each in turn.
 This is what makes the whole pipeline freely reorderable.
 """
@@ -215,7 +215,7 @@ STAGE_CATEGORY = {
 
 def ordered_stages():
     """STAGES grouped by category (stable within category). The single source
-    of truth for arg ordering - ui() and unflatten() both follow this."""
+    of truth for arg ordering - params() and unflatten() both follow this."""
     seen = set()
     out = []
     for cat in CATEGORY_ORDER:
@@ -242,12 +242,12 @@ def grouped_stages():
     return groups
 
 
-# number of flat ui() args owned by the pipeline (master + per-stage controls).
+# number of flat script args owned by the pipeline (master + per-stage controls).
 # Anything beyond this in the arg list is an extra control (e.g. apply-mode).
 PIPELINE_ARG_COUNT = 1 + sum(2 + len(st["params"]) for st in STAGES)
 
-# Parsed LUTs, most recently used last. Keyed by file identity: every Gradio
-# upload is a new temp path, so a path-keyed, unbounded cache would grow for
+# Parsed LUTs, most recently used last. Keyed by file identity: every
+# upload is a new stored file, so a path-keyed, unbounded cache would grow for
 # the life of the server.
 _LUT_CACHE: OrderedDict = OrderedDict()
 _LUT_CACHE_SIZE = 8
@@ -383,7 +383,7 @@ def apply_stage(effect: str, arr: np.ndarray, v: dict) -> np.ndarray:
 
 def unflatten(args: list) -> tuple:
     """
-    Map the flat ui() arg list back to (master_enabled, [stage_state, ...]).
+    Map the flat script arg list back to (master_enabled, [stage_state, ...]).
     Layout: [master_enabled] then per stage: [enabled, order, *param_values]
     in the exact order of STAGES / its params.
     """
@@ -448,7 +448,7 @@ def _json_safe(v):
 
 
 def serialize_preset(args: list) -> dict:
-    """Flat ui() args -> structured, JSON-safe preset dict."""
+    """Flat script args -> structured, JSON-safe preset dict."""
     master_enabled, states = unflatten(args)
     out = {"v": 1, "master": bool(master_enabled), "stages": {}}
     for s in states:

@@ -18,7 +18,8 @@ import { getFormStore } from "@/ui/form-store"
 import { flushPendingWrites } from "@/ui/pending-writes"
 import { jobRequest } from "@/ui/tab"
 import { notifyResults } from "./effects"
-import { IDLE, type JobOutcome, reduce, type RunEffect, type RunEvent, type RunState } from "./run-machine"
+import { noteUpscale } from "@/features/gallery/session-store"
+import { IDLE, type JobOutcome, reduce, type RunEffect, type RunEvent, type RunState, type UpscaleSource } from "./run-machine"
 
 export type GenerateTab = Extract<FormTab, "txt2img" | "img2img">
 export const GENERATE_FORMS: readonly GenerateTab[] = ["txt2img", "img2img"]
@@ -61,7 +62,7 @@ export function dispatchRun(tab: GenerateTab, event: RunEvent) {
 function perform(tab: GenerateTab, effect: RunEffect) {
   switch (effect.type) {
     case "submit":
-      void submit(tab)
+      void submit(tab, effect.upscale)
       return
     case "interrupt":
       void api.jobs.interrupt(effect.jobId).catch(() => {})
@@ -75,7 +76,7 @@ function perform(tab: GenerateTab, effect: RunEffect) {
   }
 }
 
-async function submit(tab: GenerateTab) {
+async function submit(tab: GenerateTab, upscale?: UpscaleSource) {
   const store = getFormStore(tab)
   const schema = queryClient.getQueryData<TabSchema>(keys.schema(tab))
   if (!schema) {
@@ -85,9 +86,14 @@ async function submit(tab: GenerateTab) {
   try {
     // Canvas layers still uploading after the last stroke go out first.
     await flushPendingWrites(tab)
-    const created = await api.jobs.create(jobRequest(store, schema))
+    const request = jobRequest(store, schema)
+    const created = await api.jobs.create(upscale ? { ...request, upscale_from: upscale.fileId } : request)
     store.getState().clearErrors()
     const jobIds = created.job_ids?.length ? created.job_ids : [created.job_id]
+    if (upscale) {
+      const placement = { source: upscale.key, insert: clientOption("hires_button_gallery_insert"), selectNew: clientOption("hires_insert_index") }
+      for (const jobId of jobIds) noteUpscale(jobId, placement)
+    }
     for (const jobId of jobIds) useProgress.getState().track(jobId, tab)
     dispatchRun(tab, { type: "submitted", jobIds })
     for (const jobId of jobIds) replayEarly(tab, jobId)
@@ -160,6 +166,11 @@ export function wireRunControllers() {
       e.status === "interrupted" || e.status === "cancelled" || (tab && useRuns.getState().runs[tab].interrupting) ? "interrupted" : "failed",
     ),
   )
+}
+
+/** Hires. fix `source` (a txt2img result) with the txt2img form's values: A1111's ✨ button. */
+export function upscaleResult(source: UpscaleSource) {
+  dispatchRun("txt2img", { type: "upscale", source })
 }
 
 /** Tests: back to idle, nothing persisted. */

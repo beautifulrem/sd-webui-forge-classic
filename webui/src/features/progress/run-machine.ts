@@ -49,9 +49,14 @@ export type RunEvent =
   | { type: "stop-repeats" }
   /** Jobs found again after a page reload. */
   | { type: "restore"; jobs: readonly string[]; running: string | null }
+  /** Hires. fix an existing result with the form's values (txt2img's ✨ button): one job. */
+  | { type: "upscale"; source: UpscaleSource }
+
+/** The result a Hires. fix-only run starts from. */
+export type UpscaleSource = { fileId: string; key: string }
 
 export type RunEffect =
-  | { type: "submit" }
+  | { type: "submit"; upscale?: UpscaleSource }
   | { type: "interrupt"; jobId: string }
   | { type: "skip"; jobId: string }
   /** Remove a queued (not yet started) job. */
@@ -162,6 +167,8 @@ export function reduce(s: RunState, event: RunEvent, options: RunOptions): Resul
       return isBusy(s) ? [{ ...s, forever: true }, []] : submit({ ...s, forever: true })
     case "stop-repeats":
       return [{ ...s, repeatLeft: 0 }, []]
+    case "upscale":
+      return [{ ...s, pending: s.pending + 1 }, [{ type: "submit", upscale: event.source }]]
     case "restore": {
       const jobs = [...new Set([...s.jobs, ...event.jobs])]
       return [{ ...s, jobs, running: event.running && jobs.includes(event.running) ? event.running : s.running }, []]

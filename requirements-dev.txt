@@ -1,0 +1,5 @@
+# The test and lint tools of tools/check.sh (on top of requirements.txt and torch).
+# Do not add Gradio: the checks must run where it cannot be imported (step env:gradio-free).
+pytest==9.1.1
+pytest-cov==7.1.0
+ruff==0.17.0

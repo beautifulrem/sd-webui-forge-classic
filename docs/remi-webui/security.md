@@ -215,7 +215,8 @@ To let other machines in:
 3. **API:** `--api` exposes `/sdapi/v1`; set `--api-auth` for it (otherwise
    it uses the WebUI login). Scripts can send Basic credentials. Do not use
    `--api-no-auth-on-localhost` when other people can run programs on the
-   machine or when a proxy that adds no forwarding headers fronts it.
+   machine or when a proxy that adds no forwarding headers fronts it (the
+   server prints a startup warning while it is on).
 4. **Keep extension access off** (the default when exposed). Only add
    `--enable-insecure-extension-access` if every user may run code on the
    machine.
@@ -279,7 +280,7 @@ server with `--auth`, or a local server visited by a hostile page).
 | 13 | Unbounded login field sizes; the login page interpolated `--subpath` into a script unescaped | low | 1024-character cap; JSON-escaped root |
 | 14 | No warning when the server is exposed without a login, with `--cors-allow-origins=*`, insecure extension access or without TLS | low | startup warnings (`remi.server.launch.exposure_warnings`) |
 | 15 | With `--auth` and no `--api-auth`, `/sdapi` and extension API routes (`/controlnet/*`, `/adetailer/*`) were open on a loopback-only server, which a reverse proxy on the same machine makes reachable from anywhere | high | the WebUI login on any bind; explicit `--api-no-auth-on-localhost` opt-out for local tools |
-| 16 | The error handler returned the exception text and its `body` (`GET /sdapi/v1/cmd-flags` echoed the whole flag set, with paths, in a `ResponseValidationError` because `--port` is an int with a `None` default) | medium | generic 500 with a correlation id, details only in the log; `FlagsModel` types from the parser's `type=` |
+| 16 | The error handler returned the exception text and its `body` (`GET /sdapi/v1/cmd-flags` echoed the whole flag set, with paths, in a `ResponseValidationError` because `--port` is an int with a `None` default) | medium | generic 500 with a correlation id, details only in the log; `FlagsModel` types from the parser's `type=`; the unused A1111 `api_middleware` (same leak, one call away from being re-enabled) removed |
 | 17 | CSP allowed `connect-src https: ws: wss:` and `img-src *`: an XSS could exfiltrate to any host, markup could load tracking pixels | medium | `connect-src 'self'` + the license host; `img-src 'self' data: blob:` + an opt-in host list |
 | 18 | `GET /api/v2/extensions/index?url=` fetched any client-named URL, including loopback and private addresses (port/service probe through the error text) | low | client-named index URLs and their redirects must be public addresses |
 

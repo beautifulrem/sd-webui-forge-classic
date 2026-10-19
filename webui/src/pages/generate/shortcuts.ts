@@ -1,9 +1,12 @@
 /**
  * Generate-page keyboard shortcuts: Ctrl/Cmd+Enter generates (or interrupts
- * and restarts, see `run-machine.ts`), Alt+Enter skips, Escape interrupts
- * unless it belongs to something else (a text field, popup, dialog, menu).
+ * and restarts, see `run-machine.ts`), Ctrl/Cmd+Shift+Enter adds the form to
+ * the queue (the Agent Scheduler's "Enqueue" shortcut), Alt+Enter skips,
+ * Escape interrupts unless it belongs to something else (a text field,
+ * popup, dialog, menu).
  */
 import { useEffect, useRef } from "react"
+import { enqueueForm } from "@/features/queue/edit-session"
 import { dispatchRun, type GenerateTab, useRuns } from "@/features/progress/run-controller"
 import { isBusy } from "@/features/progress/run-machine"
 
@@ -34,7 +37,8 @@ export function useGenerateShortcuts(tab: GenerateTab) {
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.altKey) {
         if (event.repeat || event.isComposing || event.defaultPrevented || modalOpen()) return
         event.preventDefault()
-        dispatchRun(tab, { type: "shortcut" })
+        if (event.shiftKey) void enqueueForm(tab)
+        else dispatchRun(tab, { type: "shortcut" })
       } else if (event.key === "Enter" && event.altKey && !event.metaKey && !event.ctrlKey) {
         if (event.repeat || event.isComposing || event.defaultPrevented || modalOpen()) return
         event.preventDefault()

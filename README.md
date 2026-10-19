@@ -254,10 +254,10 @@ Remi's interface is new; the generation engine, models, settings file, styles, o
 | Quicksettings | ⚡ quick settings in the header; pin settings from their row in Settings |
 | Extra Networks tabs under the prompt | **Networks** drawer (Alt+N) and **Networks** page |
 | "Generate forever" context menu, Repeat Generate | the menu next to Generate: generate forever, generate N times |
-| Agent Scheduler tab and "Enqueue" | **Queue** page and **Add to queue** next to Generate |
+| Agent Scheduler tab and "Enqueue" | **Queue** page and **Add to queue** next to Generate (Ctrl+Shift+Enter); its queue settings are kept, the layout ones are listed in [its README](extensions-builtin/agent-scheduler/README.md) |
 | Prompt Queue tab | **Queue** page |
-| Prompt All-in-One | prompt tools bar under every prompt (history and favorites are imported automatically on first use) |
-| TagComplete | built-in autocompletion (its settings are kept) |
+| Prompt All-in-One | prompt tools bar under every prompt (history and favorites are imported automatically on first use); what each old feature became is in [its README](extensions-builtin/sd-webui-prompt-all-in-one-neo/README.md) |
+| TagComplete | built-in autocompletion (its settings are kept, except those listed with the reason in [its README](extensions-builtin/sd-webui-tagcomplete-neo/README.md)) |
 | Bracket checker, mobile layout | built in |
 | PNG Info tab | **PNG Info** page |
 | Settings tab, "Defaults" and "Actions" | **Settings** page; server actions under "Server and models". `ui-config.json` is no longer read: forms start from defaults, the UI preset and your browser's saved values |
@@ -265,7 +265,8 @@ Remi's interface is new; the generation engine, models, settings file, styles, o
 | JoyCaption and Prompt Workshop tabs | pages of the same name |
 | Checkpoint Merger tab | not available in the Remi UI |
 | `/file=` links | files are served by id (`/api/v2/files/{id}`) |
-| `/agent-scheduler/v1/*`, `/prompt-queue/*` APIs | `POST /api/v2/jobs` and `/api/v2/queue/*` ([API guide](docs/remi-webui/api.md)) |
+| `/agent-scheduler/v1/*`, `/prompt-queue/*` APIs | `POST /api/v2/jobs` and `/api/v2/queue/*` ([API guide](docs/remi-webui/api.md)); the old routes answer `410 Gone` |
+| `/tacapi/v1/*`, `/physton_prompt/*` APIs | `/api/v2/prompt-tools` (the old routes answer `410 Gone`) |
 
 **Bringing your queue over.** Open **Queue → ⋯ → Import from Agent Scheduler or Prompt Queue…**. The importer reads the old data without changing it and can run again safely (tasks imported before are skipped). Agent Scheduler pending tasks are queued (the queue is paused first so you can review them), finished tasks go to the history with their images, bookmarks become stars. Script arguments stored by position are named through the current panels; tasks whose arguments cannot all be named are kept as *not replayable* and listed in the report: open one in its form to check and queue it. The Agent Scheduler database is found at `extension-data/agent-scheduler/task_scheduler.sqlite3` or wherever `--agent-scheduler-sqlite-file` points; Prompt Queue's `queue.json` under `extension-data/sd-webui-prompt-queue/`.
 
@@ -297,7 +298,7 @@ By default the server listens on `127.0.0.1` only.
 
 ## Troubleshooting
 
-**"The web interface is not built"** in the browser. Node.js was not found when the launcher ran, or the build was skipped (`--skip-install`, `--skip-prepare-environment`, `REMI_SKIP_WEBUI_BUILD`). Install Node.js 20.19+ / 22.12+ and restart, or build `webui/dist` elsewhere and copy it ([The web interface build](#the-web-interface-build)).
+**"The web interface is not built"** in the browser. Node.js was not found when the launcher ran, the build failed, or it was skipped (`--skip-install`, `--skip-prepare-environment`, `REMI_SKIP_WEBUI_BUILD`); the console says which. An older Node.js gets the warning "Node.js vX is too old to build the web interface" and the build usually fails. Install Node.js 20.19+ / 22.12+ and restart, or build `webui/dist` elsewhere and copy it ([The web interface build](#the-web-interface-build)).
 
 **The build fails** (`pnpm install` or `pnpm build` exits with an error). Run `pnpm install --frozen-lockfile && pnpm build` in `webui/` to see the full message. Behind a proxy, configure it for npm/pnpm (`HTTPS_PROXY`). The server still starts; the API works meanwhile.
 

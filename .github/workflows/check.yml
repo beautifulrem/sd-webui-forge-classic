@@ -1,4 +1,5 @@
-# The non-GPU quality gates of tools/check.sh: lint, the Python suites (CPU torch, no models),
+# The non-GPU quality gates of tools/check.sh: a Gradio-free interpreter, lint, the Python suites
+# (CPU torch, no models, with the remi/ coverage floor),
 # the API / settings contracts, i18n coverage, the SPA build, lint, unit and end-to-end tests
 # (mock mode, with axe scans). The real-model smoke test (tools/smoke_real.py) runs locally.
 name: check
@@ -22,7 +23,7 @@ env:
 
 jobs:
   python:
-    name: Python (ruff, pytest, contracts, i18n)
+    name: Python (Gradio-free env, ruff, pytest + coverage, contracts, i18n)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -32,19 +33,21 @@ jobs:
         with:
           python-version: "3.13"
           enable-cache: true
-          cache-dependency-glob: requirements.txt
+          cache-dependency-glob: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install the WebUI requirements (CPU torch) and the test tools
         run: |
           uv venv .venv
           uv pip install --python .venv/bin/python torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          uv pip install --python .venv/bin/python -r requirements.txt pytest ruff==0.17.0
+          uv pip install --python .venv/bin/python -r requirements.txt -r requirements-dev.txt
 
       - name: Checks
         env:
           PYTHON: .venv/bin/python
           REMI_CHECK_LOGS: ${{ runner.temp }}/remi-check
-        run: tools/check.sh --only ruff,pytest,contract,i18n:server
+        run: tools/check.sh --only env,ruff,pytest,contract,i18n:server
 
       - name: Logs
         if: failure()
@@ -54,7 +57,7 @@ jobs:
           path: ${{ runner.temp }}/remi-check
 
   webui:
-    name: SPA (build, oxlint, vitest, Playwright + axe)
+    name: SPA (build, oxlint, vitest + coverage, Playwright + axe)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:

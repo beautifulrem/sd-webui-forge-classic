@@ -84,10 +84,54 @@ def run_txt2img(core: dict | None, scripts: dict | None = None, job: JobContext 
     the progress registry are set up for ``job`` here."""
 
     from remi.core import JobContext
-    from remi.core.job import job_state
 
     job = job or JobContext()
-    p = prepare_txt2img(core, scripts, job)
+    return _process(prepare_txt2img(core, scripts, job), job)
+
+
+def run_txt2img_upscale(core: dict | None, scripts: dict | None, job: JobContext | None, image, infotext: str | None = None) -> processing.Processed:
+    """Hires. fix an existing txt2img result (A1111's ✨ button under the
+    gallery): ``image`` is the first pass, the form's values (``core``,
+    ``scripts``) drive the second pass with Hires. fix turned on. As in
+    A1111: the size is the image's (the form's goes to the infotext as
+    ``Original Size``), the settings ``txt2img_upscale_single_batch`` (one
+    image) and ``txt2img_upscale_same_seed`` (the seeds of ``infotext``, the
+    image's own parameters) apply, and the pre-Hires. fix copy is not saved."""
+
+    from remi.core import JobContext
+
+    job = job or JobContext()
+    p = prepare_txt2img({**(core or {}), "enable_hr": True}, scripts, job)
+    if shared.opts.txt2img_upscale_single_batch:
+        p.batch_size = 1
+        p.n_iter = 1
+
+    p.txt2img_upscale = True  # processing and extensions (Hires. guard) tell this run apart
+    p.firstpass_image = image
+
+    if shared.opts.txt2img_upscale_same_seed and infotext:
+        from modules.infotext_utils import parse_generation_parameters
+
+        parameters = parse_generation_parameters(infotext, [])
+        p.seed = _seed(parameters.get("Seed"))
+        p.subseed = _seed(parameters.get("Variation seed"))
+
+    p.extra_generation_params["Original Size"] = f"{p.width}x{p.height}"
+    p.width, p.height = image.size
+    p.override_settings["save_images_before_highres_fix"] = False
+    return _process(p, job)
+
+
+def _seed(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return -1
+
+
+def _process(p: processing.StableDiffusionProcessingTxt2Img, job: JobContext) -> processing.Processed:
+    from remi.core.job import job_state
+
     with job_state(job), closing(p):
         processed = modules.scripts.scripts_txt2img.run(p, *p.script_args)
 

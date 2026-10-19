@@ -18,6 +18,16 @@ function run(events: RunEvent[], options: RunOptions = restart, from: RunState =
 const submits = (effects: RunEffect[]) => effects.filter((e) => e.type === "submit").length
 
 describe("run machine", () => {
+  it("upscales a result with one job of its own (the ✨ button)", () => {
+    const source = { fileId: "out-1", key: "a:0" }
+    const { state, effects, phase } = run([{ type: "upscale", source }])
+    expect(phase).toBe("submitting")
+    expect(effects).toEqual([{ type: "submit", upscale: source }])
+    const done = run([{ type: "submitted", jobIds: ["u"] }, { type: "started", jobId: "u" }, { type: "finished", jobId: "u", outcome: "completed" }], restart, state)
+    expect(done.phase).toBe("idle")
+    expect(submits(done.effects)).toBe(0)
+  })
+
   it("goes idle → submitting → queued → running → idle", () => {
     expect(phaseOf(IDLE)).toBe("idle")
     expect(run([{ type: "generate" }]).phase).toBe("submitting")

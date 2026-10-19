@@ -457,6 +457,32 @@ WEBUI_SOURCES = ("package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "index
 WEBUI_STAMP = ".remi-build-stamp"
 PNPM_FALLBACK = "pnpm@12"
 """pnpm run through npx when neither pnpm nor corepack is installed"""
+NODE_REQUIREMENT = "Node.js 20.19+ or 22.12+"
+"""What the SPA build (Vite) supports: ``^20.19.0 || >=22.12.0``"""
+NODE_HELP = f"Install {NODE_REQUIREMENT} (pnpm is optional: without it the launcher runs pnpm through Corepack or npx, which come with Node.js)"
+
+
+def node_version_problem(version: str) -> str | None:
+    """Why ``node --version`` output ``version`` cannot build the SPA, or None."""
+
+    match = re.match(r"v?(\d+)\.(\d+)", version.strip())
+    if match is None:
+        return None
+    major, minor = int(match[1]), int(match[2])
+    if (major == 20 and minor >= 19) or (major == 22 and minor >= 12) or major >= 23:
+        return None
+    return f"Node.js {version.strip()} is too old to build the web interface: it needs {NODE_REQUIREMENT}"
+
+
+def node_version(node: str) -> str | None:
+    """``node --version`` (``v22.12.0``), or None when it cannot be read: the
+    probe only adds a warning and never stops the build."""
+
+    try:
+        result = subprocess.run([node, "--version"], capture_output=True, text=True, timeout=30)
+        return result.stdout.strip() or None
+    except Exception:
+        return None
 
 
 def webui_build_commands(*, which=None) -> list[list[str]] | None:
@@ -507,13 +533,23 @@ def build_webui(webui_dir: Path = WEBUI_DIR) -> bool:
     stamp_file = dist / WEBUI_STAMP
     if built and stamp_file.is_file() and stamp_file.read_text().strip() == stamp:
         return True
+    import shutil
+
     commands = webui_build_commands()
     if commands is None:
+        if shutil.which("node") is None:
+            missing = f"Node.js was not found. {NODE_HELP}, then restart or run `pnpm install && pnpm build` in {webui_dir}."
+        else:
+            missing = f"Node.js was found but none of pnpm, corepack or npx. Install pnpm (or a Node.js that ships Corepack and npx), then restart or run `pnpm install && pnpm build` in {webui_dir}."
         if built:
-            print(f"The web interface may be out of date and Node.js was not found; run `pnpm install && pnpm build` in {webui_dir}.")
+            print(f"The web interface may be out of date: {missing}")
             return True
-        print(f"The web interface is not built and Node.js was not found. Install Node.js 20+ and pnpm, then run `pnpm install && pnpm build` in {webui_dir}.")
+        print(f"The web interface is not built: {missing}")
         return False
+    node = shutil.which("node")
+    version = node_version(node) if node else None
+    if version and (problem := node_version_problem(version)):
+        print(f"{problem}. The build may fail; update Node.js if it does.")
     print("Building the web interface (first start or update)...")
     for command in commands:
         result = subprocess.run(command, cwd=webui_dir, shell=False)
