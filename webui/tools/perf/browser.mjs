@@ -3,7 +3,7 @@
 //   node tools/perf/browser.mjs --base http://127.0.0.1:7861 --out /tmp/remi-perf-out \
 //     [--only load,inp,networks,gallery,preview,overhead] [--trace /tmp/remi-perf-trace.jsonl] \
 //     [--prompt prompt300.txt] [--steps 24] [--size 768x768] [--jobs 4] [--pairs 6] [--gap 20]
-//     [--headed] [--cpu-throttle 4] [--window 15] [--batch-count 1] [--mute /tmp/remi-perf-mute] [--save-trace]
+//     [--headed] [--channel chrome] [--cpu-throttle 4] [--window 15] [--batch-count 1] [--repeat 1] [--mute /tmp/remi-perf-mute] [--save-trace]
 //     [--dist <the build the server serves; default $REMI_PERF_DIST or webui/dist>] [--inject-css "<css>"]
 //
 // Drives Chromium through Playwright and the DevTools protocol:
@@ -615,6 +615,7 @@ function pageCost(a, b, steps, idle = null) {
 
 async function measurePreview(browser) {
   await waitIdle()
+  const previewFrom = Date.now()
   const { context, page, cdp } = await newPage(browser)
   await openGenerate(page)
   const clock = await page.evaluate(() => window.__perf.clock())
@@ -699,6 +700,7 @@ async function measurePreview(browser) {
   })
   for (const paint of data.paints) images[data.frames[paint.i].image].painted++
   results.preview = {
+    previewClients: previewClients(previewFrom, "preview"),
     jobs: jobs.map(({ jobId, start, end, status }) => ({ jobId, ms: end - start, status })),
     steps: STEPS,
     batchCount: BATCH,
@@ -752,10 +754,28 @@ function treeCpu(rootPid, { includeRoot = true } = {}) {
   return total
 }
 
+/**
+ * The most WebSocket clients a preview went to since `since` (serve_traced.py's "fan" records).
+ * More than one: another tab of the WebUI (or a script) received the previews too, and its cost
+ * counted as this page's.
+ */
+function previewClients(since, scenario) {
+  const counts = readTrace(since).filter((e) => e.e === "fan").map((e) => e.clients)
+  const most = counts.length ? Math.max(...counts) : null
+  if (most > 1) log(`${scenario}: WARNING previews went to ${most} WebSocket clients, not only this page: close other tabs of the WebUI (or use another port) and measure again`)
+  return most
+}
+
 // two-sided 95 % Student t quantiles by degrees of freedom
 const T95 = [12.71, 4.3, 3.18, 2.78, 2.57, 2.45, 2.36, 2.31, 2.26, 2.23, 2.2, 2.18, 2.16, 2.14, 2.13, 2.12, 2.11, 2.1, 2.09, 2.09, 2.08, 2.07, 2.07, 2.06, 2.06, 2.06, 2.05, 2.05, 2.05, 2.04]
 // one-sided 95 % Student t quantiles by degrees of freedom (the upper bound of the overhead)
 const T95_ONE_SIDED = [6.31, 2.92, 2.35, 2.13, 2.02, 1.94, 1.89, 1.86, 1.83, 1.81, 1.8, 1.78, 1.77, 1.76, 1.75, 1.75, 1.74, 1.73, 1.73, 1.72, 1.72, 1.72, 1.71, 1.71, 1.71, 1.71, 1.7, 1.7, 1.7, 1.7]
+
+/** Student t quantile for `df` degrees of freedom: the table, else the Cornish-Fisher expansion around `z`. */
+function tQuantile(table, z, df) {
+  if (df >= 1 && df <= table.length) return table[df - 1]
+  return z + (z ** 3 + z) / (4 * df) + (5 * z ** 5 + 16 * z ** 3 + 3 * z) / (96 * df ** 2)
+}
 
 /** Mean of per-pair differences with its two-sided 95 % interval and one-sided 95 % upper bound. */
 function pairStats(values) {
@@ -766,14 +786,15 @@ function pairStats(values) {
   return {
     n,
     mean: round(m, 2),
-    ci95: se == null ? null : round((T95[n - 2] ?? 1.96) * se, 2),
-    upper95: se == null ? null : round(m + (T95_ONE_SIDED[n - 2] ?? 1.645) * se, 2),
+    ci95: se == null ? null : round(tQuantile(T95, 1.96, n - 1) * se, 2),
+    upper95: se == null ? null : round(m + tQuantile(T95_ONE_SIDED, 1.645, n - 1) * se, 2),
     median: round(quantile(values, 0.5), 2),
   }
 }
 
 async function measureOverhead(browser) {
   await waitIdle()
+  const overheadFrom = Date.now()
   const pairs = Number(args.pairs ?? 6)
   const gap = Number(args.gap ?? 20) * 1000 // the same idle time before every job (the GPU cools down alike)
   const serverPid = Number(execSync("pgrep -f 'serve_traced.py|launch.py' | head -1").toString().trim()) || null
@@ -826,6 +847,7 @@ async function measureOverhead(browser) {
   const sd = Math.sqrt(perPair.reduce((n, v) => n + (v - mean(perPair)) ** 2, 0) / Math.max(1, perPair.length - 1))
   const ci = (T95[perPair.length - 2] ?? 2) * (sd / Math.sqrt(perPair.length))
   results.overhead = {
+    previewClients: previewClients(overheadFrom, "overhead"),
     steps: STEPS,
     pairs,
     gapS: gap / 1000,
@@ -848,14 +870,11 @@ async function measureOverhead(browser) {
  * encoded, sent and painted) and acting as if no client were connected (serve_traced.py's mute
  * file), in windows of `--window` seconds in A B B A order. Every step interval that lies inside
  * one window (the first after a switch excluded) counts for that window's condition; each
- * adjacent on/off window pair gives one relative difference.
+ * adjacent on/off window pair gives one relative difference. `--repeat N` runs N such jobs one
+ * after the other (each from a fresh page, batch count 1 if wanted) and pools their window pairs:
+ * the form caps a job at 150 steps, too few pairs for a tight bound from one job.
  */
-async function measureInterleaved(browser) {
-  await waitIdle()
-  const mute = args.mute ?? "/tmp/remi-perf-mute"
-  const windowMs = Number(args.window ?? 15) * 1000
-  const steps = Number(args.steps ?? 160)
-  const batchCount = BATCH
+async function interleavedJob(browser, { mute, windowMs, steps, batchCount }) {
   rmSync(mute, { force: true })
   const { context, page } = await newPage(browser)
   await openGenerate(page)
@@ -887,9 +906,6 @@ async function measureInterleaved(browser) {
   const browserCpu = treeCpu(process.pid, { includeRoot: false }) - cpu0
   const { painted, received } = await page.evaluate(() => ({ painted: window.__perf.paints.length, received: window.__perf.frames.length }))
   await context.close()
-  // the "on" condition is only valid if the page painted what it received (every image of a batch)
-  const paintedShare = round(painted / Math.max(1, received), 3)
-  if (paintedShare < 0.9) log(`interleaved: WARNING the page painted ${painted} of ${received} preview frames: the "on" windows did not show the previews`)
   const trace = readTrace(windows[0].start - 1000).filter((e) => e.e === "step")
   for (const w of windows) w.steps = []
   for (let i = 1; i < trace.length; i++) {
@@ -900,56 +916,85 @@ async function measureInterleaved(browser) {
     const w = windows.find((w) => a >= w.start && z <= w.end)
     if (w) w.steps.push(z - a)
   }
-  const usable = windows.filter((w) => w.steps.length)
-  const by = (condition) => usable.filter((w) => w.condition === condition).flatMap((w) => w.steps)
+  return { windows, painted, received, jobMs: finished.end - finished.start, browserCpu, status: finished.status }
+}
+
+/** Relative on/off differences of adjacent window pairs (in %), optionally without each window's first step. */
+function windowPairs(windows, { trim = false } = {}) {
   const pairs = []
   for (let i = 0; i + 1 < windows.length; i += 2) {
     const [x, y] = [windows[i], windows[i + 1]]
-    if (!x.steps.length || !y.steps.length) continue
-    const on = x.condition === "on" ? x : y
-    const off = x.condition === "on" ? y : x
-    pairs.push((mean(on.steps) / mean(off.steps) - 1) * 100)
+    if (x.steps.length < (trim ? 2 : 1) || y.steps.length < (trim ? 2 : 1)) continue
+    const on = (x.condition === "on" ? x : y).steps.slice(trim ? 1 : 0)
+    const off = (x.condition === "on" ? y : x).steps.slice(trim ? 1 : 0)
+    pairs.push((mean(on) / mean(off) - 1) * 100)
   }
+  return pairs
+}
+
+async function measureInterleaved(browser) {
+  await waitIdle()
+  const options = { mute: args.mute ?? "/tmp/remi-perf-mute", windowMs: Number(args.window ?? 15) * 1000, steps: Number(args.steps ?? 160), batchCount: BATCH }
+  const repeat = Math.max(1, Number(args.repeat ?? 1))
+  const jobs = []
+  const from = Date.now()
+  for (let r = 0; r < repeat; r++) {
+    if (r) await waitIdle()
+    const run = await interleavedJob(browser, options)
+    const pairs = windowPairs(run.windows)
+    jobs.push({ ...run, pairs })
+    log(`interleaved: job ${r + 1}/${repeat}: ${run.status}, ${pairs.length} window pairs ${pairStats(pairs).mean} % (upper 95 % ${pairStats(pairs).upper95} %), ${run.painted} of ${run.received} previews painted`)
+  }
+  const windows = jobs.flatMap((job) => job.windows)
+  const painted = jobs.reduce((n, job) => n + job.painted, 0)
+  const received = jobs.reduce((n, job) => n + job.received, 0)
+  const jobMs = jobs.reduce((n, job) => n + job.jobMs, 0)
+  // the "on" condition is only valid if the page painted what it received (every image of a batch)
+  const paintedShare = round(painted / Math.max(1, received), 3)
+  if (paintedShare < 0.9) log(`interleaved: WARNING the page painted ${painted} of ${received} preview frames: the "on" windows did not show the previews`)
+  // pairs never span two jobs: each job's windows are paired on their own
+  const pairs = jobs.flatMap((job) => job.pairs)
+  const trimmedPairs = jobs.flatMap((job) => windowPairs(job.windows, { trim: true }))
   const sd = Math.sqrt(pairs.reduce((n, v) => n + (v - mean(pairs)) ** 2, 0) / Math.max(1, pairs.length - 1))
-  const ci = (T95[pairs.length - 2] ?? 2) * (sd / Math.sqrt(pairs.length))
-  // the same without each window's first step (the first one served after a mute, or muted after serving)
-  const trimmedPairs = []
-  for (let i = 0; i + 1 < windows.length; i += 2) {
-    const [x, y] = [windows[i], windows[i + 1]]
-    if (x.steps.length < 2 || y.steps.length < 2) continue
-    const on = (x.condition === "on" ? x : y).steps.slice(1)
-    const off = (x.condition === "on" ? y : x).steps.slice(1)
-    trimmedPairs.push((mean(on) / mean(off) - 1) * 100)
-  }
+  const ci = tQuantile(T95, 1.96, pairs.length - 1) * (sd / Math.sqrt(pairs.length))
+  const usable = windows.filter((w) => w.steps.length)
+  const by = (condition) => usable.filter((w) => w.condition === condition).flatMap((w) => w.steps)
   const on = by("on")
   const off = by("off")
   results.interleaved = {
-    steps,
+    steps: options.steps,
     size: SIZE,
-    windowS: windowMs / 1000,
-    jobMs: finished.end - finished.start,
+    windowS: options.windowMs / 1000,
+    repeat,
+    previewClients: previewClients(from, "interleaved"),
+    jobMs,
     painted,
     received,
     paintedShare,
-    browserCpuPct: round((browserCpu / ((finished.end - finished.start) / 1000)) * 100, 1),
+    browserCpuPct: round((jobs.reduce((n, job) => n + job.browserCpu, 0) / (jobMs / 1000)) * 100, 1),
     stepMsOn: summary(on),
     stepMsOff: summary(off),
     overheadPct: round((mean(on) / mean(off) - 1) * 100, 2),
-    batchCount,
+    batchCount: options.batchCount,
     pairs: pairs.map((v) => round(v, 2)),
     pairMeanPct: round(mean(pairs), 2),
     pairCi95Pct: round(ci, 2),
     pairStats: pairStats(pairs),
     trimmedPairStats: pairStats(trimmedPairs),
     medianOverheadPct: round((quantile(on, 0.5) / quantile(off, 0.5) - 1) * 100, 2),
+    trimmedPairs: trimmedPairs.map((v) => round(v, 2)),
+    // per job, its windows' index range in `windows` (tools/perf/pool_interleaved.py pools runs)
+    jobs: jobs.map((job, index) => ({ status: job.status, jobMs: job.jobMs, painted: job.painted, received: job.received, windowCount: job.windows.length, firstWindow: jobs.slice(0, index).reduce((n, other) => n + other.windows.length, 0), pairStats: pairStats(job.pairs) })),
     windows: windows.map((w) => ({ condition: w.condition, steps: w.steps.map((v) => Math.round(v)) })),
   }
-  log(`interleaved: on ${round(mean(on))} ms/step (n ${on.length}) vs off ${round(mean(off))} ms/step (n ${off.length}) -> ${results.interleaved.overheadPct} %; ${pairs.length} window pairs ${results.interleaved.pairMeanPct} ± ${results.interleaved.pairCi95Pct} % (95 % CI, one-sided upper bound ${results.interleaved.pairStats.upper95} %); first step of each window dropped: ${results.interleaved.trimmedPairStats.mean} ± ${results.interleaved.trimmedPairStats.ci95} %; medians ${results.interleaved.medianOverheadPct} %; ${painted} previews painted`)
+  log(`interleaved: on ${round(mean(on))} ms/step (n ${on.length}) vs off ${round(mean(off))} ms/step (n ${off.length}) -> ${results.interleaved.overheadPct} %; ${pairs.length} window pairs ${results.interleaved.pairMeanPct} ± ${results.interleaved.pairCi95Pct} % (95 % CI, one-sided upper bound ${results.interleaved.pairStats.upper95} %); first step of each window dropped: ${results.interleaved.trimmedPairStats.mean} ± ${results.interleaved.trimmedPairStats.ci95} % (upper ${results.interleaved.trimmedPairStats.upper95} %); medians ${results.interleaved.medianOverheadPct} %; ${painted} of ${received} previews painted`)
 }
 
 // ---------------------------------------------------------------------------- main
 
-const browser = await chromium.launch({ headless: !args.headed, args: ["--disable-features=CalculateNativeWinOcclusion", "--disable-background-timer-throttling", "--disable-renderer-backgrounding"] })
+// --channel chrome: the installed Google Chrome instead of Playwright's Chromium (a headed run on
+// the real display without downloading Chrome for Testing)
+const browser = await chromium.launch({ headless: !args.headed, ...(args.channel ? { channel: args.channel } : {}), args: ["--disable-features=CalculateNativeWinOcclusion", "--disable-background-timer-throttling", "--disable-renderer-backgrounding"] })
 try {
   results.browser = browser.version()
   for (const [name, run] of [

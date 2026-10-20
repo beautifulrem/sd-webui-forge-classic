@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { usePopupTooltip } from "@/components/popup-tooltip"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useLocale } from "@/i18n"
+import { localeName, toBcp47, useLocale } from "@/i18n"
 import { ACCENTS, type Accent, type Density, type Theme, useAppearance } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 import { useShortcutsHelp } from "./shortcuts-help"
@@ -113,8 +113,8 @@ export default function AppearanceMenu({ locales }: { locales: LocaleInfo[] }) {
               </DropdownMenuLabel>
               <DropdownMenuRadioGroup value={locale} onValueChange={(v) => setLocale(String(v))}>
                 {locales.map((item) => (
-                  <DropdownMenuRadioItem key={item.id} value={item.id} lang={item.id}>
-                    {item.name}
+                  <DropdownMenuRadioItem key={item.id} value={item.id} lang={toBcp47(item.id)}>
+                    {localeName(item.id, item.name)}
                   </DropdownMenuRadioItem>
                 ))}
               </DropdownMenuRadioGroup>

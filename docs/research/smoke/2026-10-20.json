@@ -1,13 +1,13 @@
 {
  "tool": "tools/smoke_real.py",
- "date": "2026-10-20T03:00:08+0800",
- "revision": "7aba07975b3905bdfb011a9f47a3b98b9b10bee4",
+ "date": "2026-10-20T15:35:15+0800",
+ "revision": "ef242b678890f663072a2730a2e54abdcc54c900",
  "uncommitted_changes": true,
  "platform": "darwin",
  "server_python": "/Volumes/Remi/Anima/.venv-remi/bin/python",
  "server_python_gradio_modules": [],
  "model": "anima-turbo-v1.1.safetensors",
- "features": false,
+ "features": true,
  "passed": true,
  "checks": [
   {
@@ -18,12 +18,12 @@
   {
    "name": "server starts",
    "ok": true,
-   "detail": "66.2 s"
+   "detail": "14.7 s"
   },
   {
    "name": "sdapi txt2img pixels == baseline",
    "ok": true,
-   "detail": "mean 0.0000, max 0, 219.6 s"
+   "detail": "mean 0.0000, max 0, 39.2 s"
   },
   {
    "name": "sdapi txt2img infotext == baseline",
@@ -64,6 +64,296 @@
    "name": "extras upscale",
    "ok": true,
    "detail": "1152x1152 (want 1152x1152), mean diff after downscaling 1.26"
+  },
+  {
+   "name": "no_lora: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "no_lora_tag_removed: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "lora: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "LoRA changes the image",
+   "ok": true,
+   "detail": "mean diff 36.97; Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b"
+  },
+  {
+   "name": "layer_weight: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Layer Weight 0 removes the LoRA's effect",
+   "ok": true,
+   "detail": "mean diff to no LoRA 0.000, max 0 (the LoRA: 36.97)"
+  },
+  {
+   "name": "Layer Weight infotext",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, Anima LoRA layer lora enabled: True, Anima LoRA layer lora blocks enabled: True, An"
+  },
+  {
+   "name": "Layer Weight: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "Layer Weight: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Layer Weight: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "stage_scheduler: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Stage Scheduler changes the LoRA's effect",
+   "ok": true,
+   "detail": "mean diff to the unscheduled LoRA 36.16"
+  },
+  {
+   "name": "Stage Scheduler infotext",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, Anima LoRA stage enabled: True, Anima LoRA stage base scope: auto, Anima LoRA stage"
+  },
+  {
+   "name": "Stage Scheduler: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "Stage Scheduler: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Stage Scheduler: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "two_loras: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "freefuse: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "FreeFuse infotext",
+   "ok": true,
+   "detail": "2 subjects, two-pass same-noise"
+  },
+  {
+   "name": "FreeFuse changes the image",
+   "ok": true,
+   "detail": "mean diff to the unrouted LoRAs 35.09"
+  },
+  {
+   "name": "FreeFuse: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "FreeFuse: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "FreeFuse: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "sparse_attention: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Sparse Attention reports why it did not run",
+   "ok": true,
+   "detail": "warnings ['{\"note\": \"Sparse Attention Integrated was skipped: CUDA device is required\"}']; mean diff to without it 0.000"
+  },
+  {
+   "name": "prompt_anchor: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Prompt Anchor infotext",
+   "ok": true,
+   "detail": "red hair, masterpiece, 1girl"
+  },
+  {
+   "name": "Prompt Anchor: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "Prompt Anchor: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Prompt Anchor: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "pp_suite: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "PP Suite infotext",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, PP Suite: \"{\\\"vignette\\\":{\\\"order\\\":70.0,\\\"amount\\\":0.8,\\\"radius\\\":0.8,\\\"feather\\\":"
+  },
+  {
+   "name": "PP Suite: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "PP Suite: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "PP Suite: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "anima_flow_lock: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "anima_flow_lock: infotext records the replacement",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Anima Flow Euler, Schedule type: Anima FlowMatch, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, Anima Flow replaced scheduler: Simple, Version: neo-2.30"
+  },
+  {
+   "name": "anima_flow_lock: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "anima_flow_lock: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "anima_flow_lock: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "dynshift_schedule: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "dynshift_schedule: infotext records the replacement",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Automatic, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, DynShift replaced scheduler: Simple, DynShift enabled: True, DynShift start: 5.0"
+  },
+  {
+   "name": "dynshift_schedule: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "dynshift_schedule: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "dynshift_schedule: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "hires_guard_clamp: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "hires_guard_clamp: infotext records the replacement",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, Denoising strength: 0.5, RNG: CPU, Anima Hires guard enabled: True, Anima Hires policy: Clamp"
+  },
+  {
+   "name": "hires_guard_clamp: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "hires_guard_clamp: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "hires_guard_clamp: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "refiner: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Refiner changes the image",
+   "ok": true,
+   "detail": "remi-test-refiner.safetensors: mean diff to without the refiner 13.19"
+  },
+  {
+   "name": "Refiner infotext",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, Refiner: remi-test-refiner [8369372d8f], Refiner switch at: 0.5, Version: neo-2.30"
+  },
+  {
+   "name": "Refiner restores the base checkpoint",
+   "ok": true,
+   "detail": "before anima-turbo-v1.1.safetensors, after anima-turbo-v1.1.safetensors"
+  },
+  {
+   "name": "Refiner: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "Refiner: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Refiner: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "inpaint latent noise",
+   "ok": true,
+   "detail": "31.6 s, unmasked mean diff 0.000, masked 34.84"
   },
   {
    "name": "server stops",

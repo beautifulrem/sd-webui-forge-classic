@@ -1,0 +1,7 @@
+  networks-40 @40px/frame: 60 fps over 54.28s, p95 16.8 ms, >20ms 0/3257, pipeline {"STATE_NO_UPDATE_DESIRED":1,"STATE_PRESENTED_ALL":3259}; long frames with page work 0, without 0
+  networks-160 @160px/frame: 60 fps over 13.57s, p95 16.7 ms, >20ms 0/814, pipeline {"STATE_NO_UPDATE_DESIRED":2,"STATE_PRESENTED_ALL":812,"STATE_DROPPED":2,"STATE_PRESENTED_PARTIAL":810}; long frames with page work 0, without 0
+  networks-40-warm @40px/frame: 60 fps over 54.28s, p95 16.7 ms, >20ms 0/3257, pipeline {"STATE_NO_UPDATE_DESIRED":2,"STATE_PRESENTED_ALL":3257,"STATE_DROPPED":1,"STATE_PRESENTED_PARTIAL":3256}; long frames with page work 0, without 0
+  gallery-40 @40px/frame: 60 fps over 95.41s, p95 16.8 ms, >20ms 0/5725, pipeline {"STATE_NO_UPDATE_DESIRED":2,"STATE_PRESENTED_ALL":5726}; long frames with page work 0, without 0
+  gallery-160 @160px/frame: 60 fps over 23.85s, p95 16.7 ms, >20ms 0/1431, pipeline {"STATE_NO_UPDATE_DESIRED":2,"STATE_PRESENTED_ALL":1431,"STATE_DROPPED":1,"STATE_PRESENTED_PARTIAL":1430}; long frames with page work 0, without 0
+  gallery-40-warm @40px/frame: 60 fps over 95.41s, p95 16.7 ms, >20ms 0/5725, pipeline {"STATE_NO_UPDATE_DESIRED":2,"STATE_PRESENTED_ALL":5727,"STATE_DROPPED":1,"STATE_PRESENTED_PARTIAL":5725}; long frames with page work 0, without 0
+results: /Volumes/Remi/Anima/remi-perf/final/scroll-headless/browser-networks-gallery.json

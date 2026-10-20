@@ -1,0 +1,12 @@
+interleaved: job 1/10: completed, 13 window pairs 1.06 % (upper 95 % 4.2 %), 75 of 75 previews painted
+interleaved: job 2/10: completed, 13 window pairs -2.42 % (upper 95 % 0.34 %), 81 of 81 previews painted
+interleaved: job 3/10: completed, 13 window pairs -2.5 % (upper 95 % 0.69 %), 78 of 78 previews painted
+interleaved: job 4/10: completed, 13 window pairs 2.48 % (upper 95 % 6.67 %), 75 of 75 previews painted
+interleaved: job 5/10: completed, 13 window pairs -0.06 % (upper 95 % 3.95 %), 77 of 77 previews painted
+interleaved: job 6/10: completed, 13 window pairs -1.05 % (upper 95 % 4.05 %), 78 of 78 previews painted
+interleaved: job 7/10: completed, 13 window pairs -1.27 % (upper 95 % 2.57 %), 79 of 79 previews painted
+interleaved: job 8/10: completed, 14 window pairs 1.13 % (upper 95 % 4.75 %), 78 of 78 previews painted
+interleaved: job 9/10: completed, 13 window pairs -0.75 % (upper 95 % 2.2 %), 80 of 80 previews painted
+interleaved: job 10/10: completed, 13 window pairs 2.83 % (upper 95 % 6.56 %), 74 of 74 previews painted
+interleaved: on 2697.3 ms/step (n 589) vs off 2707.5 ms/step (n 629) -> -0.37 %; 131 window pairs -0.05 ± 1.3 % (95 % CI, one-sided upper bound 1.04 %); first step of each window dropped: 0.55 ± 1.29 % (upper 1.63 %); medians 0.56 %; 775 of 775 previews painted
+results: /Volumes/Remi/Anima/remi-perf/final/il512b/browser-interleaved.json

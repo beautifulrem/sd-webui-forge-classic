@@ -178,7 +178,8 @@ test.describe("axe with every accent", () => {
         // settings: primary-coloured links in help texts
         await page.evaluate(() => (location.hash = "#/settings"))
         await page.getByRole("button", { name: "Saving Videos" }).first().click()
-        await expect(page.getByRole("link", { name: "Wiki" })).toBeVisible()
+        // exact: the Saving Videos help's "Wiki", not Saving images' "wiki" links next to it
+        await expect(page.getByRole("link", { name: "Wiki", exact: true })).toBeVisible()
         await page.mouse.move(0, 0)
         expect(await scan(page), "settings").toEqual([])
       })

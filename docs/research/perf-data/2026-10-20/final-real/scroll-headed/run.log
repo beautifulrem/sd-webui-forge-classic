@@ -1,0 +1,7 @@
+  networks-40 @40px/frame: 143 fps over 22.77s, p95 8.4 ms, >20ms 3/3257, pipeline {"STATE_PRESENTED_ALL":3264,"STATE_PRESENTED_PARTIAL":3256,"STATE_DROPPED":22}; long frames with page work 0, without 3
+  networks-160 @160px/frame: 138.2 fps over 5.89s, p95 8.4 ms, >20ms 10/814, pipeline {"STATE_PRESENTED_ALL":815,"STATE_PRESENTED_PARTIAL":814,"STATE_DROPPED":32}; long frames with page work 1, without 9
+  networks-40-warm @40px/frame: 141.6 fps over 23s, p95 8.5 ms, >20ms 10/3257, pipeline {"STATE_PRESENTED_ALL":3260,"STATE_PRESENTED_PARTIAL":3257,"STATE_DROPPED":55}; long frames with page work 0, without 10
+  gallery-40 @40px/frame: 144 fps over 39.76s, p95 8.6 ms, >20ms 0/5725, pipeline {"STATE_PRESENTED_ALL":5736,"STATE_PRESENTED_PARTIAL":5726}; long frames with page work 0, without 0
+  gallery-160 @160px/frame: 143.9 fps over 9.94s, p95 8.6 ms, >20ms 0/1431, pipeline {"STATE_PRESENTED_ALL":1437,"STATE_PRESENTED_PARTIAL":1433}; long frames with page work 0, without 0
+  gallery-40-warm @40px/frame: 144 fps over 39.76s, p95 8.5 ms, >20ms 0/5725, pipeline {"STATE_PRESENTED_ALL":5734,"STATE_PRESENTED_PARTIAL":5726}; long frames with page work 0, without 0
+results: /Volumes/Remi/Anima/remi-perf/final/scroll-headed/browser-networks-gallery.json

@@ -1,0 +1,167 @@
+{
+ "base": "http://127.0.0.1:18431",
+ "date": "2026-10-20T06:35:38.579Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "preview": {
+  "previewClients": 1,
+  "jobs": [
+   {
+    "jobId": "d3e90f9cb799aa8c",
+    "ms": 35630,
+    "status": "completed"
+   },
+   {
+    "jobId": "d7e4417e01bf4ba0",
+    "ms": 40594,
+    "status": "completed"
+   }
+  ],
+  "steps": 8,
+  "batchCount": 3,
+  "perImage": [
+   {
+    "seq": 59,
+    "received": 7,
+    "painted": 7
+   },
+   {
+    "seq": 59,
+    "received": 7,
+    "painted": 7
+   },
+   {
+    "seq": 59,
+    "received": 7,
+    "painted": 7
+   },
+   {
+    "seq": 60,
+    "received": 7,
+    "painted": 7
+   },
+   {
+    "seq": 60,
+    "received": 7,
+    "painted": 7
+   },
+   {
+    "seq": 60,
+    "received": 7,
+    "painted": 7
+   }
+  ],
+  "paintedShare": 1,
+  "framesPerStep": 2.27,
+  "frameReportsPerStep": 2.27,
+  "frameStates": {
+   "STATE_PRESENTED_ALL": 50,
+   "STATE_NO_UPDATE_DESIRED": 70
+  },
+  "pageIdlePerSecond": {
+   "steps": 10,
+   "seconds": 10,
+   "taskMs": 0.26,
+   "scriptMs": 0.02,
+   "layoutMs": 0,
+   "recalcStyleMs": 0,
+   "layouts": 0,
+   "chromiumCpuMs": 0
+  },
+  "pageCostPerStep": {
+   "steps": 22,
+   "seconds": 36.3,
+   "taskMs": 4.02,
+   "scriptMs": 1.13,
+   "layoutMs": 0.25,
+   "recalcStyleMs": 0.11,
+   "layouts": 1.36,
+   "chromiumCpuMs": 15,
+   "overIdle": {
+    "taskMs": 3.59,
+    "chromiumCpuMs": 15
+   }
+  },
+  "framesPresentedFirstJob": 50,
+  "clockOffsetMs": -0.2,
+  "framesReceived": 42,
+  "framesPainted": 42,
+  "framesPublished": 42,
+  "imagesAssigned": 42,
+  "matched": 42,
+  "total": {
+   "n": 42,
+   "mean": 27.2,
+   "p50": 27.1,
+   "p95": 35.6,
+   "p99": 36.1,
+   "max": 36.2
+  },
+  "imageToPublish": {
+   "n": 42,
+   "mean": 0.1,
+   "p50": 0.1,
+   "p95": 0.1,
+   "p99": 0.2,
+   "max": 0.3
+  },
+  "encode": {
+   "n": 42,
+   "mean": 0.1,
+   "p50": 0.1,
+   "p95": 0.1,
+   "p99": 0.2,
+   "max": 0.2
+  },
+  "publishToReceive": {
+   "n": 42,
+   "mean": 0.5,
+   "p50": 0.5,
+   "p95": 0.6,
+   "p99": 0.7,
+   "max": 0.7
+  },
+  "receiveToPaint": {
+   "n": 42,
+   "mean": 26.6,
+   "p50": 26.3,
+   "p95": 35,
+   "p99": 35.5,
+   "max": 35.5
+  },
+  "encodedToPaint": {
+   "n": 42,
+   "mean": 27.1,
+   "p50": 26.9,
+   "p95": 35.5,
+   "p99": 36,
+   "max": 36.1
+  },
+  "its": [
+   {
+    "steps": 24,
+    "its": 0.6985,
+    "stepMs": {
+     "n": 23,
+     "mean": 1431.6,
+     "p50": 1372.8,
+     "p95": 1960.7,
+     "p99": 2118.5,
+     "max": 2146
+    }
+   },
+   {
+    "steps": 24,
+    "its": 0.6116,
+    "stepMs": {
+     "n": 23,
+     "mean": 1635,
+     "p50": 1605.3,
+     "p95": 2108.5,
+     "p99": 2341.4,
+     "max": 2398.6
+    }
+   }
+  ]
+ }
+}

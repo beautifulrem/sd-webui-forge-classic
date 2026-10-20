@@ -1,0 +1,66 @@
+{
+ "config": {
+  "size": "512x512",
+  "steps": 150,
+  "windowS": 15,
+  "batchCount": 1
+ },
+ "runs": [
+  {
+   "file": "/Volumes/Remi/Anima/remi-perf/final/il512/browser-interleaved.json",
+   "jobs": 10,
+   "previewClients": 1,
+   "paintedShare": 1,
+   "pairStats": {
+    "n": 120,
+    "mean": -0.23,
+    "ci95": 1.11,
+    "upper95": 0.7,
+    "median": 0.0
+   },
+   "trimmedPairStats": {
+    "n": 120,
+    "mean": 0.5,
+    "ci95": 1.11,
+    "upper95": 1.43,
+    "median": 0.07
+   }
+  },
+  {
+   "file": "/Volumes/Remi/Anima/remi-perf/final/il512b/browser-interleaved.json",
+   "jobs": 10,
+   "previewClients": 1,
+   "paintedShare": 1,
+   "pairStats": {
+    "n": 131,
+    "mean": -0.05,
+    "ci95": 1.3,
+    "upper95": 1.04,
+    "median": -0.39
+   },
+   "trimmedPairStats": {
+    "n": 131,
+    "mean": 0.55,
+    "ci95": 1.29,
+    "upper95": 1.63,
+    "median": 0.13
+   }
+  }
+ ],
+ "pooled": {
+  "pairStats": {
+   "n": 251,
+   "mean": -0.13,
+   "ci95": 0.85,
+   "upper95": 0.58,
+   "median": -0.21
+  },
+  "trimmedPairStats": {
+   "n": 251,
+   "mean": 0.53,
+   "ci95": 0.85,
+   "upper95": 1.24,
+   "median": 0.13
+  }
+ }
+}

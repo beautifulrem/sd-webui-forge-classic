@@ -1,0 +1,4 @@
+load txt2img: 145 scripts 560.8 KB gzip (500.6 KB on the wire, API 81.9 KB); 1222 elements (1549 CDP nodes), expanded: 6827 elements; ready 2040 ms, FCP 72 ms
+load img2img: 155 scripts 629.7 KB gzip (560.9 KB on the wire, API 81.9 KB); 1292 elements (1662 CDP nodes), expanded: 6926 elements; ready 2029 ms, FCP 68 ms
+inp: 1203 keys, 561 over 16 ms; p95 16 ms, INP 24 ms, max 32 ms; autocomplete popups 68, requests 848; text ok true
+results: /Volumes/Remi/Anima/remi-perf/final/load/browser-load-inp.json

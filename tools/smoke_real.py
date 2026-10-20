@@ -380,9 +380,9 @@ def run_v2(server: Server, tab: str, core: dict, scripts: dict, timeout: float =
     return job, image, output.get("infotext") or job.get("infotext") or ""
 
 
-def check_round_trip(server: Server, report: Report, name: str, tab: str, image, infotext: str) -> None:
+def check_round_trip(server: Server, report: Report, name: str, tab: str, image, infotext: str, *, exact: bool = False) -> None:
     """Paste ``infotext`` (``POST /api/v2/infotext/parse``) and queue the pasted values:
-    the same pixels and infotext."""
+    the same pixels and infotext (the same values; with ``exact`` the same bytes)."""
 
     parsed = server.request("POST", "/api/v2/infotext/parse", {"text": infotext, "tab": tab})
     if not report.check(f"{name}: paste has no problems", not parsed["problems"], json.dumps(parsed["problems"])[:300]):
@@ -392,7 +392,8 @@ def check_round_trip(server: Server, report: Report, name: str, tab: str, image,
         return
     mean, peak = diff(again, image)
     delta = infotext_delta(text, infotext)
-    report.check(f"{name}: paste regenerates it", mean == 0 and not delta, f"mean {mean:.4f}, max {peak}; " + ("; ".join(delta)[:300] or "same infotext"))
+    same_bytes = text == infotext
+    report.check(f"{name}: paste regenerates it", mean == 0 and not delta and (same_bytes or not exact), f"mean {mean:.4f}, max {peak}; " + ("; ".join(delta)[:300] or ("byte-identical infotext" if same_bytes else "same infotext values, different bytes")))
 
 
 def run_features(server: Server, out: Path, report: Report, base_values: dict) -> None:
@@ -499,7 +500,7 @@ def run_features(server: Server, out: Path, report: Report, base_values: dict) -
             continue
         image.save(out / f"feature_{name}.png")
         report.check(f"{name}: infotext records the replacement", record in info, info.splitlines()[-1][:300])
-        check_round_trip(server, report, name, "txt2img", image, info)
+        check_round_trip(server, report, name, "txt2img", image, info, exact=True)
 
     # Refiner: the second checkpoint (by default the perturbed copy written into the data
     # folder, see main) takes over at 0.5 - the image changes, the infotext records it, the
@@ -518,7 +519,7 @@ def run_features(server: Server, out: Path, report: Report, base_values: dict) -
         if refined is not None:
             effect, _ = diff(refined, plain)
             report.check("Refiner changes the image", effect > 0.5, f"{name}: mean diff to without the refiner {effect:.2f}")
-            report.check("Refiner infotext", f"Refiner: {name} [" in info and "Refiner switch at: 0.5" in info, info.splitlines()[-1][:300])
+            report.check("Refiner infotext", f"Refiner: {Path(name).stem} [" in info and "Refiner switch at: 0.5" in info, info.splitlines()[-1][:300])
             after = server.request("GET", "/sdapi/v1/options")["sd_model_checkpoint"]
             report.check("Refiner restores the base checkpoint", after == before, f"before {before}, after {after}")
             check_round_trip(server, report, "Refiner", "txt2img", refined, info)

@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react"
 import { useTranslation } from "react-i18next"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { activateLocale, i18n, textDirection, useLocale } from "./index"
+import { activateLocale, i18n, localeName, textDirection, useLocale } from "./index"
 
 function Probe() {
   const { t } = useTranslation()
@@ -58,5 +58,12 @@ describe("locale switching", () => {
     await activateLocale("en")
     expect(document.documentElement.dir).toBe("ltr")
     expect(useLocale.getState().direction).toBe("ltr")
+  })
+
+  it("names a catalog the server has no name for in its own language", () => {
+    expect(localeName("zh_CN", "简体中文")).toBe("简体中文")
+    expect(localeName("ar", "ar")).toBe("العربية")
+    expect(localeName("he_IL", "he_IL")).toBe("עברית (ישראל)")
+    expect(localeName("not a locale", "not a locale")).toBe("not a locale")
   })
 })

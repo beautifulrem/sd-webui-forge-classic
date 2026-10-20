@@ -12,7 +12,14 @@ browser's ``Date.now()`` also reads on the same host):
 - ``{"e": "frame", "t0", "t", "seq", "step", "id", "image_t", "bytes"}``: the preview encoder
   published a frame (``t0`` tick start, ``t`` when it was handed to the hubs, after encoding;
   ``image_t`` when its image was assigned);
-- ``{"e": "job", "t", "phase"}``: ``State.begin`` / ``State.end``.
+- ``{"e": "job", "t", "phase"}``: ``State.begin`` / ``State.end``;
+- ``{"e": "fan", "t", "clients"}``: the WebSocket hub sent a preview to ``clients`` clients
+  (``browser.mjs`` warns when its page was not the only one);
+- ``{"e": "ws", "t", "agent", "origin", "refused"}``: a WebSocket connection (User-Agent, Origin).
+
+``REMI_PERF_WS_ONLY=HeadlessChrome`` refuses WebSocket connections whose User-Agent lacks that
+text: another browser's open tab of the WebUI (it reconnects to the port it knew) would also
+receive the previews and add its cost to the measured page's.
 
 While the file ``$REMI_PERF_MUTE`` (default ``/tmp/remi-perf-mute``) exists, the WebSocket hub
 acts as if no client were connected (no preview encoded, nothing sent).
@@ -131,7 +138,33 @@ def _patch_ws(module) -> None:
 
     hub.wants_frames = lambda self: False if muted() else wants(self)
     hub._fan_event = lambda self, event: None if muted() else fan_event(self, event)
-    hub._fan_frame = lambda self, frame: None if muted() else fan_frame(self, frame)
+
+    def fan_frame_(self, frame):
+        if muted():
+            return None
+        # how many WebSocket clients get this preview: browser.mjs warns when the measuring
+        # page is not the only one (another tab of the WebUI would add its cost to the page's)
+        emit(e="fan", t=time.time(), clients=len(self.clients))
+        return fan_frame(self, frame)
+
+    hub._fan_frame = fan_frame_
+
+    serve = hub.serve
+    only = os.environ.get("REMI_PERF_WS_ONLY", "")
+
+    @functools.wraps(serve)
+    async def serve_(self, websocket):
+        # every connection is recorded; with $REMI_PERF_WS_ONLY set, one whose User-Agent lacks it
+        # (another browser's tab of the WebUI) is refused, so only the measuring page gets previews
+        agent = websocket.headers.get("user-agent", "")
+        refused = bool(only) and only not in agent
+        emit(e="ws", t=time.time(), agent=agent[:200], origin=websocket.headers.get("origin", ""), refused=refused)
+        if refused:
+            await websocket.close(code=1008)
+            return None
+        return await serve(self, websocket)
+
+    hub.serve = serve_
 
 
 class _FakeSampler:

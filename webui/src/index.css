@@ -187,6 +187,12 @@
     text-align: right;
   }
 
+  /* Key combinations read left to right in every language ("⌘Enter", not "Enter⌘"). */
+  [dir="rtl"] kbd {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+
   html {
     color-scheme: light;
     -webkit-text-size-adjust: 100%;

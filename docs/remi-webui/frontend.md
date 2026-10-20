@@ -1009,6 +1009,11 @@ older server) nothing is shown.
   keyboard arrows). This replaces the Gradio UI's `"rtl": true` key in a
   localization file (the server's catalog only carries strings): a catalog
   is named after its language, which already determines the direction.
+  Numbers in inputs and key combinations (`<kbd>`) stay left to right in a
+  right-to-left layout (`index.css`), and the prompt editor uses `dir=auto`.
+- The language menu names a catalog by the server's name for it, else by its
+  own name from CLDR (`localeName`: a user-supplied `ar.json` reads
+  "العربية", not "ar").
 
 ## Mock mode
 

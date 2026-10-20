@@ -1,0 +1,2 @@
+preview: 42 frames matched (42 received, 42 painted, 6 images); total p50 27.1 p95 35.6 ms; image→publish p95 0.1, publish→receive p95 0.6, receive→paint p95 35; clock offset -0.2 ms; 2.27 frames drawn per step (2.27 reports); per step: renderer tasks 4.02 ms, 1.36 layouts, Chromium CPU 15 ms (over idle 15 ms)
+results: /Volumes/Remi/Anima/remi-perf/final/preview-b3/browser-preview.json

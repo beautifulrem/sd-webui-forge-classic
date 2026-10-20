@@ -237,6 +237,8 @@ test.describe("appearance and language", () => {
     const rail = await page.getByRole("navigation", { name: "Main navigation" }).boundingBox()
     const main = await page.getByRole("main").boundingBox()
     expect(rail!.x).toBeGreaterThan(main!.x)
+    // key combinations keep their order ("⌘Enter", not "Enter⌘")
+    expect(await page.locator("kbd").first().evaluate((kbd) => getComputedStyle(kbd).direction)).toBe("ltr")
     await page.getByRole("button", { name: "Appearance" }).click()
     await page.getByRole("menuitemradio", { name: "English" }).click()
     await expect(html).toHaveAttribute("dir", "ltr")

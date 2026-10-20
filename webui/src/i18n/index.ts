@@ -50,6 +50,21 @@ export function textDirection(locale: string): TextDirection {
   }
 }
 
+/**
+ * A language's name for the language menu: the server's (its own list of
+ * catalogs it knows), else the language's name in that language from CLDR
+ * ("ar" → "العربية") for a user-supplied catalog the server has no name for.
+ */
+export function localeName(id: string, name: string): string {
+  if (name && name !== id) return name
+  try {
+    const tag = toBcp47(id)
+    return new Intl.DisplayNames([tag], { type: "language" }).of(tag) ?? id
+  } catch {
+    return id
+  }
+}
+
 type LocaleState = {
   /** The user's explicit choice; null follows the server default, then the browser. */
   chosen: string | null
