@@ -33,8 +33,8 @@ logs, without the large CDP traces) are committed under
 | 5,000 network cards scroll at 60 fps | headless **60.0 / 60.0 fps** (cold / warm pass), p95 frame 16.8 / 16.7 ms at 2,400 px/s over the whole list, **0 of 3,257** frames over 20 ms (verify stage, idle machine); headed (Google Chrome 155 on the real display, 144 Hz): **143 / 142 fps**, p95 8.4 ms, 3 and 10 of 3,257 frames over 20 ms, none with page work ([below](#verify-runs-of-2026-10-20-headless-and-headed)) | pass |
 | 10,000 gallery items scroll at 60 fps | headless **60.0 fps**, p95 16.8 / 16.7 ms, 0 of 5,725 frames over 20 ms; headed **144 fps**, p95 8.6 ms, 0 frames over 20 ms (verify stage) | pass |
 | Preview frame latency p95 ≤ 150 ms | **p95 35.1 ms** (sampler → painted, real model, 768×768, 4 jobs × 16 steps, 60 of 60 frames painted, idle machine, verify stage); **batch count 3: p95 35.6 ms, 42 of 42 frames painted, 7 per image for all 6 images**. Until 2026-10-20 the page dropped the previews of the second and later images of a job (the step starts again at 0 for each image) | pass |
-| UI overhead on generation speed ≤ 1 % it/s | Real model, batch count 1, only the measuring page connected. **Primary, the server's cost per step measured directly** (`step_segments.py`: served − muted, per job): **512×512 2.11 ± 0.07 ms of a 2.58 s step = 0.082 %, one-sided 95 % upper bound 0.084 %** (20 jobs); **768×768 3.17 ± 0.29 ms of 6.86 s = 0.046 %, upper bound 0.050 %** (10 jobs). **Secondary, whole steps interleaved** (the browser's share included): 512×512 −0.13 ± 0.85 %, upper bound 0.58 % (251 window pairs); 768×768 +0.26 ± 0.84 %, upper bound 0.96 % (168 pairs); every preview painted (1,578 of 1,578 and 812 of 812); idle machine (load average 1–1.5). The third review's 4-job run at load 8–10: +0.41 ± 0.86 %, upper bound 1.13 % (too few jobs for that load: `--max-repeat` now adds jobs until the bound settles), its direct cost 3.17 ms per step (0.11 %) ([below](#primary-figure-and-adaptive-runs)). Sensitivity check with each window's first step dropped: upper bound 0.68 % (768×768), 1.24 % (512×512) | **pass** (direct cost ≤ 1 % with its bound; interleaved bound ≤ 1 % at both sizes); the first-step-dropped bound at 512×512 is 1.24 % |
-| Server startup no slower than before the rewrite | UI mode **4.37 s** vs 12.02 s (Gradio); API only 4.19 s vs 6.58 s (medians of 5, idle machine). On a loaded machine everything is slower (the review: 9.6 s for the new UI mode; 2026-10-19 at load average 13–16: UI 23.9 s vs 68.0 s, API 29.8 s vs 33.6 s, alternating runs) | pass (the ratio; absolute times depend on load) |
+| UI overhead on generation speed ≤ 1 % it/s | Real model, batch count 1, only the measuring page connected. **Primary, the server's cost per step measured directly** (`step_segments.py`: served − muted, per job): **512×512 2.11 ± 0.07 ms of a 2.58 s step = 0.082 %, one-sided 95 % upper bound 0.084 %** (20 jobs); **768×768 3.17 ± 0.29 ms of 6.86 s = 0.046 %, upper bound 0.050 %** (10 jobs). **Secondary, whole steps interleaved** (the browser's share included): 512×512 −0.13 ± 0.85 %, upper bound 0.58 % (251 window pairs); 768×768 +0.26 ± 0.84 %, upper bound 0.96 % (168 pairs); every preview painted (1,578 of 1,578 and 812 of 812); idle machine (load average 1–1.5). The third review's 4-job run at load 8–10: +0.41 ± 0.86 %, upper bound 1.13 % (too few jobs for that load: `--max-repeat` now adds jobs until the bound settles), its direct cost 3.17 ms per step (0.11 %) ([below](#primary-figure-and-adaptive-runs)). Sensitivity check with each window's first step dropped: upper bound 0.68 % (768×768), 1.24 % (512×512). Verify rerun of 2026-10-21 on a heavily loaded machine (load average 10–28, 10 jobs): interleaved +0.50 ± 0.56 %, upper bound 0.96 % (verdict within); the direct cost grows under CPU contention to 32 ms per step, 0.93 %, upper bound 1.43 % ([below](#verify-runs-of-2026-10-21-after-the-third-review-loaded-machine)) | **pass** on an idle machine (direct cost ≤ 1 % with its bound; interleaved bound ≤ 1 % at both sizes); the first-step-dropped bound at 512×512 is 1.24 %; under heavy load every point estimate ≤ 1 % and the interleaved bound 0.96 %, the direct bound 1.43 % |
+| Server startup no slower than before the rewrite | UI mode **4.37 s** vs 12.02 s (Gradio); API only 4.19 s vs 6.58 s (medians of 5, idle machine). On a loaded machine everything is slower (the review: 9.6 s for the new UI mode; 2026-10-19 at load average 13–16: UI 23.9 s vs 68.0 s, API 29.8 s vs 33.6 s, alternating runs; 2026-10-21, both trees offline, load average 4–7: UI 10.38 s vs 26.23 s, API 9.81 s vs 15.61 s) | pass (the ratio; absolute times depend on load) |
 
 Four things missed their budget or were found wasteful and were changed (see
 [Optimisations](#optimisations)): the preview encoder polled, so frames waited
@@ -893,6 +893,41 @@ The third review's run (SD 3.2 %, +0.41 %) needed about 79 pairs, six
 jobs; it had four. The documented commands run 10 jobs at least and up to 40
 (512×512) or 24 (768×768).
 
+### Verify runs of 2026-10-21 (after the third review, loaded machine)
+
+The verify stage reran the adaptive interleaved measurement and the direct
+cost on commit `9b8682e5` (the SPA of that tree, real model, 512×512,
+150 steps per job, 15 s windows, `--repeat 10 --max-repeat 20`, only the
+measuring page connected: `previewClients` 1). The machine was not idle:
+other sessions kept the load average at 5–8 before the run and 10–28 during
+it (a browser of the desktop session alone used most of a core), so steps
+took 3.47 s instead of 2.58 s. Raw: `perf-data/2026-10-21/verify/il512-loaded/`
+(result, `step-segments.json`, the run's log and the server trace).
+
+| figure | result |
+|---|---|
+| whole step, interleaved (secondary) | on 3,471.0 vs off 3,456.6 ms per step, +0.41 %; 171 window pairs (10 jobs) **+0.50 ± 0.56 %, one-sided upper 95 % 0.96 %**: verdict "within" after the minimum of 10 jobs; 801 of 801 previews painted; first step of each window dropped +0.71 %, upper 1.30 % |
+| server cost per step, direct (primary) | **32.2 ± 21.4 ms, 0.93 % of a 3,473 ms step, upper bound 49.6 ms = 1.43 %** (per job −11 to +100 ms); the GPU-bound part +0.07 ± 0.22 % |
+
+At this load the direct figure is not the 2–3 ms of the idle runs: the part
+of a step after the preview, where Python dispatches the next step's work,
+took 530–680 ms even with the hub muted (26 ms idle), so the sampler's thread
+was waiting for a CPU, and the preview encoder's and the hub's work competed
+with it for the cores; their cost then shows on the sampler roughly tenfold.
+On a machine whose CPUs are oversubscribed the UI's overhead is therefore
+about 0.5–0.9 % rather than 0.1 %, still under the budget as a point
+estimate and by the whole-step bound, with the direct figure's bound
+(1.43 %) above it. The figures of the result table remain those of the idle
+verify runs of 2026-10-20 (load 1.0–1.5); the claim "≤ 1 %" holds for an
+idle machine and, by its point estimates, under heavy load.
+
+The same session reproduced the bundle figures with the build of that tree
+(`bundle.mjs --check --load`: initial JS 187.7 KB, Generate route 198.8 KB
+within its 210 KB cap, every other entry ≤ 150 KB; txt2img first view
+532.1 KB, 413.8 KB without the prompt editor; raw `perf-data/2026-10-21/verify/bundle.json`,
+`browser-load.json`) and the offline startup comparison
+([Server startup](#7-server-startup)).
+
 ## 7. Server startup
 
 `tools/perf/startup.py`: fresh `--data-dir` with a copy of `config.json` per
@@ -907,8 +942,24 @@ Since 2026-10-20 both trees start offline (`--ad-no-huggingface`,
 the old tree's ADetailer otherwise tries to download its missing stock
 detectors on every start, which hangs a start for minutes where outbound
 connections are blocked (the third review) and costs nothing once they are
-all on disk. The runs below were made before that change, with network
-access; the flag skips only that download check.
+all on disk. The first runs below were made before that change, with network
+access; the flag skips only that download check. Rerun offline on
+2026-10-21 (verify stage, `startup.py --runs 5`, both trees with
+`--ad-no-huggingface` and `HF_HUB_OFFLINE=1`, the old tree an export of
+`d5a71cad` run by a Gradio 4.40 interpreter; load average 4–7 from other
+sessions; raw `perf-data/2026-10-21/verify/startup.json`): no start hung,
+every start answered.
+
+| tree | mode | ready, median (min–max) | RSS |
+|---|---|---|---|
+| old (Gradio) | UI | 26.23 s (24.25–31.33) | 1,165 MB |
+| **new** | UI | **10.38 s** (9.61–10.81) | 647 MB |
+| old | `--nowebui` | 15.61 s (14.85–15.89) | 705 MB |
+| **new** | `--nowebui` | **9.81 s** (8.95–10.03) | 650 MB |
+
+The UI is ready 2.5× sooner (2.8× idle), API-only 1.6× (1.6× idle).
+
+The idle runs of 2026-10-15:
 
 | tree | mode | ready, median (min–max) | `Startup time` line | RSS |
 |---|---|---|---|---|
@@ -990,6 +1041,7 @@ results):
 | `2026-10-20/` | `bundle.json`; `load/` (DOM and scripts); `scroll/` (networks and gallery; its `longFrames` field is from a first version of the attribution, by gaps between `FireAnimationFrame` events, which over-counts; superseded), `scroll2/` and `scroll3/` (networks before / after the card memoisation, anchored `longFrames`); `preview-b3/` (batch count 3 before the probe fix: frames and paints valid, its timings not), `preview-b1/` (with the fade), `preview-b1-nofade/`, `preview-final-b1/`, `preview-final-b3/`, `preview-trace/` (a compressed CDP trace of a job); `interleaved-synthetic-b3/` (a check of `paintedShare` with a batch job at load average 80: 33 of 33 frames painted; its timings are noise) |
 | `2026-10-20/final-real/` | the verify stage, real model, idle machine: `il512/`, `il512b/`, `il768/`, `il768b/` (interleaved, batch count 1, each with `run.log`, `load.log` and `step-segments.json`), `pooled-512.json`, `pooled-768.json` (`pool_interleaved.py`), `server-trace.jsonl.gz` (the server's step / preview / client probes of all these runs), `il512-run1/` (the first 4-job run after the second client was shut out; load average up to 21, superseded by `il512/`), `il512-shared-7861/` (the discarded runs with an old WebUI tab connected, the WebSocket-client and no-client diagnostics of `tools/perf/ws_interleave.py`: `ws_interleave_512*.json`, `ws512.log`, `aa512.log`), `step-segments-512.json` / `step-segments-768.json` (the server's cost per step of the pooled runs, with bounds; recomputed after the third review with `step_segments.py --run`), `preview-b1/`, `preview-b3/` (latency; every image of a batch), `load/` (DOM, scripts, INP), `bundle/`, `scroll-headless/`, `scroll-headed/` (Google Chrome on the real display) |
 | `2026-10-20/third-review/` | after the third review: `bundle-before.json` / `bundle-after.json` (`bundle.mjs`; the after report includes the measured first-view split), `browser-load-before.json` / `browser-load-after.json` (`load` scenario, the same server without a model, headless Chromium, load average 9-20) |
+| `2026-10-21/verify/` | the verify stage after the third review (commit `9b8682e5`, loaded machine): `startup.json` / `startup.log` (offline, both trees), `browser-load.json` and `bundle.json` (`bundle.mjs --check --load`), `il512-loaded/` (the adaptive interleaved run, its `step-segments.json`, `run.log` and the server trace) |
 | `2026-10-19/` | the reruns of this revision: `fx-out/` (load, INP, INP at 4× throttling, scrolling, under load), `preview-ab/` (the before / after runs of the per-step cost, synthetic sampler), `interleaved-synthetic/` (the synthetic interleaved run), `startup.json` / `startup.log` (startup under load), `preview-trace/` (a compressed CDP trace of the final build during a job) |
 
 ## Caveats

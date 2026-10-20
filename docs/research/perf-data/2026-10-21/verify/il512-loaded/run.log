@@ -1,0 +1,14 @@
+interleaved: job 1/10-20: completed, 17 window pairs 1.46 % (upper 95 % 3.09 %), 81 of 81 previews painted; pooled 17 pairs 1.46 %, upper 95 % 3.09 %
+interleaved: job 2/10-20: completed, 17 window pairs 0.61 % (upper 95 % 1.83 %), 81 of 81 previews painted; pooled 34 pairs 1.03 %, upper 95 % 2.01 %
+interleaved: job 3/10-20: completed, 17 window pairs 1.23 % (upper 95 % 2.39 %), 80 of 80 previews painted; pooled 51 pairs 1.1 %, upper 95 % 1.84 %
+interleaved: job 4/10-20: completed, 17 window pairs -0.14 % (upper 95 % 1.36 %), 79 of 79 previews painted; pooled 68 pairs 0.79 %, upper 95 % 1.45 %
+interleaved: job 5/10-20: completed, 17 window pairs -0.37 % (upper 95 % 1.54 %), 79 of 79 previews painted; pooled 85 pairs 0.56 %, upper 95 % 1.2 %
+interleaved: job 6/10-20: completed, 18 window pairs -0.03 % (upper 95 % 1.82 %), 80 of 80 previews painted; pooled 103 pairs 0.45 %, upper 95 % 1.06 %
+interleaved: job 7/10-20: completed, 17 window pairs 1.15 % (upper 95 % 2.68 %), 80 of 80 previews painted; pooled 120 pairs 0.55 %, upper 95 % 1.11 %
+interleaved: job 8/10-20: completed, 17 window pairs 0.89 % (upper 95 % 2.06 %), 80 of 80 previews painted; pooled 137 pairs 0.59 %, upper 95 % 1.1 %
+interleaved: job 9/10-20: completed, 17 window pairs -0.48 % (upper 95 % 1.39 %), 80 of 80 previews painted; pooled 154 pairs 0.47 %, upper 95 % 0.97 %
+interleaved: job 10/10-20: completed, 17 window pairs 0.69 % (upper 95 % 2.27 %), 81 of 81 previews painted; pooled 171 pairs 0.5 %, upper 95 % 0.96 %
+interleaved: on 3471 ms/step (n 566) vs off 3456.6 ms/step (n 577) -> 0.41 %; 171 window pairs 0.5 ± 0.56 % (95 % CI, one-sided upper bound 0.96 %); first step of each window dropped: 0.71 ± 0.71 % (upper 1.3 %); medians 0.31 %; 801 of 801 previews painted; verdict within (upper 95 % bound 0.96 % <= 1 %)
+interleaved: the server's cost per step (the primary figure): python tools/perf/step_segments.py /Volumes/Remi/Anima/remi-fix-r5/webui/../tmp/perf/trace.jsonl --run /Volumes/Remi/Anima/remi-fix-r5/tmp/perf/out/il512/browser-interleaved.json
+results: /Volumes/Remi/Anima/remi-fix-r5/tmp/perf/out/il512/browser-interleaved.json
+EXIT 0

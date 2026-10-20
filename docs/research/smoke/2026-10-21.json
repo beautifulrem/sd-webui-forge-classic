@@ -1,0 +1,540 @@
+{
+ "tool": "tools/smoke_real.py",
+ "date": "2026-10-21T02:22:31+0800",
+ "revision": "9b8682e5cdbbdc4ff4f5bf0f78c57651ff13f8d6",
+ "uncommitted_changes": true,
+ "platform": "darwin",
+ "server_python": "/Volumes/Remi/Anima/.venv-remi/bin/python",
+ "server_python_gradio_modules": [],
+ "model": "anima-turbo-v1.1.safetensors",
+ "features": true,
+ "models": true,
+ "passed": true,
+ "checks": [
+  {
+   "name": "server interpreter has no Gradio",
+   "ok": true,
+   "detail": "/Volumes/Remi/Anima/.venv-remi/bin/python"
+  },
+  {
+   "name": "server starts",
+   "ok": true,
+   "detail": "31.4 s"
+  },
+  {
+   "name": "sdapi txt2img pixels == baseline",
+   "ok": true,
+   "detail": "mean 0.0000, max 0, 90.9 s"
+  },
+  {
+   "name": "sdapi txt2img infotext == baseline",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "v2 txt2img job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "v2 txt2img pixels == baseline",
+   "ok": true,
+   "detail": "mean 0.0000, max 0"
+  },
+  {
+   "name": "v2 txt2img infotext == baseline",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "img2img size and effect",
+   "ok": true,
+   "detail": "768x768, mean diff to the source 25.96"
+  },
+  {
+   "name": "img2img infotext",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 768x768, Model: anima-turbo-v1.1, Model hash: fba1195327, Module"
+  },
+  {
+   "name": "inpaint respects the mask",
+   "ok": true,
+   "detail": "unmasked mean diff 0.000, masked 38.64"
+  },
+  {
+   "name": "extras upscale",
+   "ok": true,
+   "detail": "1152x1152 (want 1152x1152), mean diff after downscaling 1.26"
+  },
+  {
+   "name": "no_lora: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "no_lora_tag_removed: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "lora: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "LoRA changes the image",
+   "ok": true,
+   "detail": "mean diff 36.97; Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b"
+  },
+  {
+   "name": "layer_weight: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Layer Weight 0 removes the LoRA's effect",
+   "ok": true,
+   "detail": "mean diff to no LoRA 0.000, max 0 (the LoRA: 36.97)"
+  },
+  {
+   "name": "Layer Weight infotext",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, Anima LoRA layer lora enabled: True, Anima LoRA layer lora blocks enabled: True, An"
+  },
+  {
+   "name": "Layer Weight: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "Layer Weight: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Layer Weight: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "lokr: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "lokr_weight_0: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "LoKr changes the image",
+   "ok": true,
+   "detail": "mean diff to no LoKr 31.20 (the tag at 0: 0.000)"
+  },
+  {
+   "name": "lokr_layer_weight_1: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "LoKR tab all=1 == <lora:lokr:1>",
+   "ok": true,
+   "detail": "mean 0.0000, max 0"
+  },
+  {
+   "name": "LoKR tab infotext",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, Anima LoRA layer lora enabled: False, Anima LoRA layer lokr enabled: True, Anima Lo"
+  },
+  {
+   "name": "lokr_layer_weight_0: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "LoKR tab all=0 == <lora:lokr:0>",
+   "ok": true,
+   "detail": "mean 0.0000, max 0"
+  },
+  {
+   "name": "LoKR tab all=0 infotext",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, Anima LoRA layer lora enabled: False, Anima LoRA layer lokr enabled: True, Anima Lo"
+  },
+  {
+   "name": "lokr_layer_weight_blocks: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "LoKR tab block range changes part of the effect",
+   "ok": true,
+   "detail": "mean diff to the tag at 1 25.61, at 0 30.87"
+  },
+  {
+   "name": "LoKR tab: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "LoKR tab: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "LoKR tab: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "lokr_under_lora_tab: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "LoRA tab leaves a LoKr alone",
+   "ok": true,
+   "detail": "mean 0.0000, max 0"
+  },
+  {
+   "name": "stage_scheduler: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Stage Scheduler changes the LoRA's effect",
+   "ok": true,
+   "detail": "mean diff to the unscheduled LoRA 36.16"
+  },
+  {
+   "name": "Stage Scheduler infotext",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, Anima LoRA stage enabled: True, Anima LoRA stage base scope: auto, Anima LoRA stage"
+  },
+  {
+   "name": "Stage Scheduler: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "Stage Scheduler: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Stage Scheduler: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "two_loras: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "freefuse: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "FreeFuse infotext",
+   "ok": true,
+   "detail": "2 subjects, two-pass same-noise"
+  },
+  {
+   "name": "FreeFuse changes the image",
+   "ok": true,
+   "detail": "mean diff to the unrouted LoRAs 35.09"
+  },
+  {
+   "name": "FreeFuse: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "FreeFuse: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "FreeFuse: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "sparse_attention: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Sparse Attention reports why it did not run",
+   "ok": true,
+   "detail": "warnings ['{\"note\": \"Sparse Attention Integrated was skipped: CUDA device is required\"}']; mean diff to without it 0.000"
+  },
+  {
+   "name": "prompt_anchor: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Prompt Anchor infotext",
+   "ok": true,
+   "detail": "red hair, masterpiece, 1girl"
+  },
+  {
+   "name": "Prompt Anchor: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "Prompt Anchor: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Prompt Anchor: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "pp_suite: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "PP Suite infotext",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, PP Suite: \"{\\\"vignette\\\":{\\\"order\\\":70.0,\\\"amount\\\":0.8,\\\"radius\\\":0.8,\\\"feather\\\":"
+  },
+  {
+   "name": "PP Suite: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "PP Suite: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "PP Suite: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "anima_flow_lock: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "anima_flow_lock: infotext records the replacement",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Anima Flow Euler, Schedule type: Anima FlowMatch, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, Anima Flow replaced scheduler: Simple, Version: neo-2.30"
+  },
+  {
+   "name": "anima_flow_lock: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "anima_flow_lock: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "anima_flow_lock: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "dynshift_schedule: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "dynshift_schedule: infotext records the replacement",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Automatic, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, DynShift replaced scheduler: Simple, DynShift enabled: True, DynShift start: 5.0"
+  },
+  {
+   "name": "dynshift_schedule: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "dynshift_schedule: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "dynshift_schedule: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "hires_guard_clamp: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "hires_guard_clamp: infotext records the replacement",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, Denoising strength: 0.5, RNG: CPU, Anima Hires guard enabled: True, Anima Hires policy: Clamp"
+  },
+  {
+   "name": "hires_guard_clamp: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "hires_guard_clamp: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "hires_guard_clamp: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "refiner: job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Refiner changes the image",
+   "ok": true,
+   "detail": "remi-test-refiner.safetensors: mean diff to without the refiner 13.19"
+  },
+  {
+   "name": "Refiner infotext",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 512x512, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, Refiner: remi-test-refiner [8369372d8f], Refiner switch at: 0.5, Version: neo-2.30"
+  },
+  {
+   "name": "Refiner restores the base checkpoint",
+   "ok": true,
+   "detail": "before anima-turbo-v1.1.safetensors, after anima-turbo-v1.1.safetensors"
+  },
+  {
+   "name": "Refiner: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "Refiner: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "Refiner: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "inpaint latent noise",
+   "ok": true,
+   "detail": "45.6 s, unmasked mean diff 0.000, masked 34.84"
+  },
+  {
+   "name": "Extras ESRGAN size and content",
+   "ok": true,
+   "detail": "RealESRGAN_x4plus_anime_6B: 1536x1536 (want 1536x1536), mean diff after downscaling 3.43, 11.3 s"
+  },
+  {
+   "name": "Extras ESRGAN ran the model (not a plain resize)",
+   "ok": true,
+   "detail": "mean diff to a Lanczos 2x 5.88"
+  },
+  {
+   "name": "Extras ESRGAN info",
+   "ok": true,
+   "detail": "Postprocess upscale by: 2.0, Postprocess upscaler: RealESRGAN_x4plus_anime_6B"
+  },
+  {
+   "name": "ControlNet infotext",
+   "ok": true,
+   "detail": "Module: lineart_standard (from white bg & black line), Model: anima-lllite-lineart-1, Weight: 1.0, Resize Mode: ResizeMode.INNER_FIT, Guidance Start: 0.0, Guidance End: 1.0, Pixel Perfect: True, Control Mode: ControlMode.BALANCED, Hr Option: HiResFixOption.BOTH"
+  },
+  {
+   "name": "ControlNet changes the image",
+   "ok": true,
+   "detail": "mean diff to without ControlNet 59.43, 68.8 s, 1 preprocessor map(s) returned"
+  },
+  {
+   "name": "ControlNet follows the control image",
+   "ok": true,
+   "detail": "edge correlation with the drawing 0.426 (without ControlNet -0.043)"
+  },
+  {
+   "name": "ADetailer: a face in the baseline image",
+   "ok": true,
+   "detail": "1 face(s): [[193, 101, 563, 466]]"
+  },
+  {
+   "name": "ADetailer job completed",
+   "ok": true,
+   "detail": "159.2 s"
+  },
+  {
+   "name": "ADetailer infotext",
+   "ok": true,
+   "detail": "Steps: 8, Sampler: Euler, Schedule type: Simple, CFG scale: 1.0, Shift: 3.5, Seed: 12345, Size: 768x768, Model: anima-turbo-v1.1, Model hash: fba1195327, Module 1: qwen_image_vae, Module 2: qwen_3_06b_base, RNG: CPU, ADetailer model: face_yolov8n.pt, ADetailer confidence: 0.3, ADetailer dilate erode"
+  },
+  {
+   "name": "ADetailer redoes the face",
+   "ok": true,
+   "detail": "mean diff inside the face box 31.16"
+  },
+  {
+   "name": "ADetailer keeps the rest",
+   "ok": true,
+   "detail": "mean diff more than 32 px from the face box 0.0000, max 0"
+  },
+  {
+   "name": "ADetailer: paste has no problems",
+   "ok": true,
+   "detail": "[]"
+  },
+  {
+   "name": "ADetailer: pasted job completed",
+   "ok": true,
+   "detail": ""
+  },
+  {
+   "name": "ADetailer: paste regenerates it",
+   "ok": true,
+   "detail": "mean 0.0000, max 0; byte-identical infotext"
+  },
+  {
+   "name": "browser: keeps the screen awake while generating, then lets it sleep",
+   "ok": true,
+   "detail": "browser-apis.spec.ts, 45.6 s"
+  },
+  {
+   "name": "browser: asks for the notification permission, then notifies with a sound when images are ready in the background",
+   "ok": true,
+   "detail": "browser-apis.spec.ts, 88.2 s"
+  },
+  {
+   "name": "browser: steps through the results in the viewer with a gamepad",
+   "ok": true,
+   "detail": "browser-apis.spec.ts, 87.8 s"
+  },
+  {
+   "name": "browser: follows the live preview in the viewer while generating",
+   "ok": true,
+   "detail": "browser-apis.spec.ts, 167.9 s"
+  },
+  {
+   "name": "browser: Check for updates always answers",
+   "ok": true,
+   "detail": "browser-apis.spec.ts, 1.4 s"
+  },
+  {
+   "name": "server stops",
+   "ok": true,
+   "detail": "exit code 0"
+  }
+ ]
+}

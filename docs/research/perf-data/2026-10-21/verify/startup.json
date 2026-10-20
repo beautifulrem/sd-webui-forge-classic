@@ -1,0 +1,158 @@
+{
+ "old-api": {
+  "runs": [
+   {
+    "ready_s": 15.89,
+    "reported_s": 15.7,
+    "rss_mb": 707,
+    "detail": "Startup time: 15.7s (launcher: 0.3s, forge init: 3.7s, shared init: 0.1s, misc. imports: 4.1s, load scripts: 2.5s, adetailer.py: 5.0s)."
+   },
+   {
+    "ready_s": 15.61,
+    "reported_s": 15.5,
+    "rss_mb": 701,
+    "detail": "Startup time: 15.5s (launcher: 0.3s, forge init: 3.1s, misc. imports: 3.8s, load scripts: 2.9s, adetailer.py: 5.3s)."
+   },
+   {
+    "ready_s": 15.7,
+    "reported_s": 15.6,
+    "rss_mb": 706,
+    "detail": "Startup time: 15.6s (launcher: 0.3s, forge init: 3.6s, misc. imports: 3.9s, load scripts: 2.5s, adetailer.py: 5.1s)."
+   },
+   {
+    "ready_s": 14.85,
+    "reported_s": 14.7,
+    "rss_mb": 705,
+    "detail": "Startup time: 14.7s (launcher: 0.3s, forge init: 3.3s, shared init: 0.1s, misc. imports: 3.6s, load scripts: 2.6s, adetailer.py: 4.8s)."
+   },
+   {
+    "ready_s": 15.04,
+    "reported_s": 14.9,
+    "rss_mb": 705,
+    "detail": "Startup time: 14.9s (launcher: 0.3s, forge init: 3.2s, shared init: 0.1s, misc. imports: 3.6s, load scripts: 2.5s, adetailer.py: 5.2s)."
+   }
+  ],
+  "ready_median_s": 15.61,
+  "ready_min_s": 14.85,
+  "ready_max_s": 15.89,
+  "reported_median_s": 15.5,
+  "rss_median_mb": 705
+ },
+ "new-api": {
+  "runs": [
+   {
+    "ready_s": 9.98,
+    "reported_s": 9.9,
+    "rss_mb": 652,
+    "detail": "Startup time: 9.9s (forge init: 2.1s, shared init: 0.4s, misc. imports: 3.0s, load scripts: 2.1s, create app: 0.9s, start server: 1.2s)."
+   },
+   {
+    "ready_s": 10.03,
+    "reported_s": 10.0,
+    "rss_mb": 649,
+    "detail": "Startup time: 10.0s (forge init: 2.0s, shared init: 0.3s, misc. imports: 3.0s, load scripts: 2.1s, create app: 1.1s, start server: 1.3s)."
+   },
+   {
+    "ready_s": 8.95,
+    "reported_s": 8.9,
+    "rss_mb": 650,
+    "detail": "Startup time: 8.9s (forge init: 1.9s, shared init: 0.4s, misc. imports: 2.8s, load scripts: 1.8s, create app: 0.7s, start server: 1.1s)."
+   },
+   {
+    "ready_s": 9.81,
+    "reported_s": 9.7,
+    "rss_mb": 651,
+    "detail": "Startup time: 9.7s (forge init: 2.1s, shared init: 0.4s, misc. imports: 3.2s, load scripts: 2.0s, create app: 0.8s, start server: 1.1s)."
+   },
+   {
+    "ready_s": 9.24,
+    "reported_s": 9.2,
+    "rss_mb": 650,
+    "detail": "Startup time: 9.2s (forge init: 2.1s, shared init: 0.3s, misc. imports: 2.8s, load scripts: 1.8s, create app: 0.8s, start server: 1.1s)."
+   }
+  ],
+  "ready_median_s": 9.81,
+  "ready_min_s": 8.95,
+  "ready_max_s": 10.03,
+  "reported_median_s": 9.7,
+  "rss_median_mb": 650
+ },
+ "old-ui": {
+  "runs": [
+   {
+    "ready_s": 24.25,
+    "reported_s": null,
+    "rss_mb": 1157,
+    "detail": "Autocomplete: Database successfully created\nTag Autocomplete: Could not locate model-keyword extension, Lora trigger word completion will be limited to those added through the extra networks menu.\nControlNet preprocessor location: /Volumes/Remi/Anima/remi-fix-r5/models/ControlNetPreprocessor\n[anima-resolution] prompt-history logger wired on txt2img_generate (log-only; use Refresh to update dropdown)\n[anima-resolution] picker embedded in txt2img dimensions section\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_img2img (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_inpaint (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[ControlNet] - \u001b[0;32mINFO\u001b[0m - ControlNet UI callback registered.\n[joycaption] registered 'Send to JoyCaption' button on PNG-info tab\n[prompt-workshop] UI tab built\nModel Selected:                                        main_entry.py :: INFO    \n{\n  \"checkpoint\": \"anima-turbo-v1.1.safetensors\",\n  \"modules\": [],\n  \"dtype\": \"[torch.float16, torch.bfloat16]\"\n}\nPatch LoRAs on-the-fly: False                          main_entry.py :: INFO    \nRunning on local URL:  http://127.0.0.1:7871\n\nTo create a public link, set `share=True` in `launch()`.\nInterrupted with signal 2 in <frame at 0x700f8c58a0, file '/Users/9baka/miniconda3/lib/python3.13/threading.py', line 363, code wait>"
+   },
+   {
+    "ready_s": 25.56,
+    "reported_s": null,
+    "rss_mb": 1165,
+    "detail": "Autocomplete: Database successfully created\nTag Autocomplete: Could not locate model-keyword extension, Lora trigger word completion will be limited to those added through the extra networks menu.\nControlNet preprocessor location: /Volumes/Remi/Anima/remi-fix-r5/models/ControlNetPreprocessor\n[anima-resolution] prompt-history logger wired on txt2img_generate (log-only; use Refresh to update dropdown)\n[anima-resolution] picker embedded in txt2img dimensions section\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_img2img (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_inpaint (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[ControlNet] - \u001b[0;32mINFO\u001b[0m - ControlNet UI callback registered.\n[joycaption] registered 'Send to JoyCaption' button on PNG-info tab\n[prompt-workshop] UI tab built\nModel Selected:                                        main_entry.py :: INFO    \n{\n  \"checkpoint\": \"anima-turbo-v1.1.safetensors\",\n  \"modules\": [],\n  \"dtype\": \"[torch.float16, torch.bfloat16]\"\n}\nPatch LoRAs on-the-fly: False                          main_entry.py :: INFO    \nRunning on local URL:  http://127.0.0.1:7871\n\nTo create a public link, set `share=True` in `launch()`.\nInterrupted with signal 2 in <frame at 0x700f8918a0, file '/Users/9baka/miniconda3/lib/python3.13/threading.py', line 363, code wait>"
+   },
+   {
+    "ready_s": 28.05,
+    "reported_s": null,
+    "rss_mb": 1166,
+    "detail": "Autocomplete: Database successfully created\nTag Autocomplete: Could not locate model-keyword extension, Lora trigger word completion will be limited to those added through the extra networks menu.\nControlNet preprocessor location: /Volumes/Remi/Anima/remi-fix-r5/models/ControlNetPreprocessor\n[anima-resolution] prompt-history logger wired on txt2img_generate (log-only; use Refresh to update dropdown)\n[anima-resolution] picker embedded in txt2img dimensions section\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_img2img (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_inpaint (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[ControlNet] - \u001b[0;32mINFO\u001b[0m - ControlNet UI callback registered.\n[joycaption] registered 'Send to JoyCaption' button on PNG-info tab\n[prompt-workshop] UI tab built\nModel Selected:                                        main_entry.py :: INFO    \n{\n  \"checkpoint\": \"anima-turbo-v1.1.safetensors\",\n  \"modules\": [],\n  \"dtype\": \"[torch.float16, torch.bfloat16]\"\n}\nPatch LoRAs on-the-fly: False                          main_entry.py :: INFO    \nRunning on local URL:  http://127.0.0.1:7871\n\nTo create a public link, set `share=True` in `launch()`.\nInterrupted with signal 2 in <frame at 0x700ddad6c0, file '/Users/9baka/miniconda3/lib/python3.13/threading.py', line 363, code wait>"
+   },
+   {
+    "ready_s": 31.33,
+    "reported_s": null,
+    "rss_mb": 1148,
+    "detail": "Autocomplete: Database successfully created\nTag Autocomplete: Could not locate model-keyword extension, Lora trigger word completion will be limited to those added through the extra networks menu.\nControlNet preprocessor location: /Volumes/Remi/Anima/remi-fix-r5/models/ControlNetPreprocessor\n[anima-resolution] prompt-history logger wired on txt2img_generate (log-only; use Refresh to update dropdown)\n[anima-resolution] picker embedded in txt2img dimensions section\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_img2img (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_inpaint (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[ControlNet] - \u001b[0;32mINFO\u001b[0m - ControlNet UI callback registered.\n[joycaption] registered 'Send to JoyCaption' button on PNG-info tab\n[prompt-workshop] UI tab built\nModel Selected:                                        main_entry.py :: INFO    \n{\n  \"checkpoint\": \"anima-turbo-v1.1.safetensors\",\n  \"modules\": [],\n  \"dtype\": \"[torch.float16, torch.bfloat16]\"\n}\nPatch LoRAs on-the-fly: False                          main_entry.py :: INFO    \nRunning on local URL:  http://127.0.0.1:7871\n\nTo create a public link, set `share=True` in `launch()`.\nInterrupted with signal 2 in <frame at 0x7013fd5c60, file '/Users/9baka/miniconda3/lib/python3.13/threading.py', line 363, code wait>"
+   },
+   {
+    "ready_s": 26.23,
+    "reported_s": null,
+    "rss_mb": 1181,
+    "detail": "Autocomplete: Database successfully created\nTag Autocomplete: Could not locate model-keyword extension, Lora trigger word completion will be limited to those added through the extra networks menu.\nControlNet preprocessor location: /Volumes/Remi/Anima/remi-fix-r5/models/ControlNetPreprocessor\n[anima-resolution] prompt-history logger wired on txt2img_generate (log-only; use Refresh to update dropdown)\n[anima-resolution] picker embedded in txt2img dimensions section\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_img2img (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[anima-resolution] resize-to auto-adjuster wired on txt2img_send_to_inpaint (reads image PNG metadata, writes img2img_width / img2img_height via .then() to avoid update races)\n[ControlNet] - \u001b[0;32mINFO\u001b[0m - ControlNet UI callback registered.\n[joycaption] registered 'Send to JoyCaption' button on PNG-info tab\n[prompt-workshop] UI tab built\nModel Selected:                                        main_entry.py :: INFO    \n{\n  \"checkpoint\": \"anima-turbo-v1.1.safetensors\",\n  \"modules\": [],\n  \"dtype\": \"[torch.float16, torch.bfloat16]\"\n}\nPatch LoRAs on-the-fly: False                          main_entry.py :: INFO    \nRunning on local URL:  http://127.0.0.1:7871\n\nTo create a public link, set `share=True` in `launch()`.\nInterrupted with signal 2 in <frame at 0x700e491990, file '/Users/9baka/miniconda3/lib/python3.13/threading.py', line 363, code wait>"
+   }
+  ],
+  "ready_median_s": 26.23,
+  "ready_min_s": 24.25,
+  "ready_max_s": 31.33,
+  "reported_median_s": null,
+  "rss_median_mb": 1165
+ },
+ "new-ui": {
+  "runs": [
+   {
+    "ready_s": 9.61,
+    "reported_s": 9.5,
+    "rss_mb": 645,
+    "detail": "Startup time: 9.5s (forge init: 2.6s, shared init: 0.4s, misc. imports: 2.8s, load scripts: 1.8s, create app: 0.7s, start server: 1.0s)."
+   },
+   {
+    "ready_s": 10.12,
+    "reported_s": 9.8,
+    "rss_mb": 648,
+    "detail": "Startup time: 9.8s (forge init: 2.6s, shared init: 0.3s, misc. imports: 2.8s, load scripts: 2.0s, create app: 0.7s, start server: 1.2s)."
+   },
+   {
+    "ready_s": 10.38,
+    "reported_s": 10.3,
+    "rss_mb": 646,
+    "detail": "Startup time: 10.3s (forge init: 2.5s, shared init: 0.4s, misc. imports: 3.2s, load scripts: 2.0s, create app: 0.9s, start server: 1.2s)."
+   },
+   {
+    "ready_s": 10.81,
+    "reported_s": 10.7,
+    "rss_mb": 650,
+    "detail": "Startup time: 10.7s (forge init: 2.7s, shared init: 0.4s, misc. imports: 3.1s, load scripts: 2.2s, create app: 0.8s, start server: 1.2s)."
+   },
+   {
+    "ready_s": 10.65,
+    "reported_s": 10.6,
+    "rss_mb": 647,
+    "detail": "Startup time: 10.6s (forge init: 2.5s, shared init: 0.5s, misc. imports: 3.2s, load scripts: 2.2s, create app: 0.8s, start server: 1.2s)."
+   }
+  ],
+  "ready_median_s": 10.38,
+  "ready_min_s": 9.61,
+  "ready_max_s": 10.81,
+  "reported_median_s": 10.3,
+  "rss_median_mb": 647
+ }
+}

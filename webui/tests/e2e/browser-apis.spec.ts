@@ -101,9 +101,10 @@ async function installProbes(page: Page) {
 
 const probe = (page: Page) => page.evaluate(() => (window as unknown as ProbeWindow).__probe)
 
-/** Types a value into a numeric field of the form and commits it. */
+/** Types a value into a numeric field of the form and commits it. The label is matched whole but
+ * case-insensitively: the real server's schema says "Sampling Steps", the mock's "Sampling steps". */
 async function setNumber(page: Page, label: string, value: number) {
-  const box = page.getByRole("textbox", { name: label, exact: true }).first()
+  const box = page.getByRole("textbox", { name: new RegExp(`^${label}$`, "i") }).first()
   await box.fill(String(value))
   await box.press("Tab")
   await expect(box).toHaveValue(String(value))

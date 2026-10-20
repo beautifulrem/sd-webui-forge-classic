@@ -318,17 +318,48 @@ are also unit-tested (`features/lightbox/gamepad.test.ts`,
 ### Last recorded run
 
 `--report docs/research/smoke/<date>.json` keeps every run's checks with the
-date and revision; the latest is the record. `docs/research/smoke/2026-10-20.json`
-(revision `ef242b67` with uncommitted changes, `--features`, MPS, the server
-interpreter without Gradio): 70 of 70 checks passed, among them txt2img
-parity through `/sdapi/v1` and `/api/v2/jobs` (mean 0, max 0, infotext equal),
-img2img, inpaint (unmasked mean difference 0.000), Extras Lanczos 1.5x, LoRA
-Layer Weight at 0 (mean 0, max 0), Stage Scheduler, FreeFuse, the Sparse
-Attention skip warning, the Refiner with a second checkpoint and every paste
-round-trip. The LoKR-tab checks and `--models` were added after that run:
-the next run with the model (`$PYTHON tools/smoke_real.py --features
---models --report docs/research/smoke/<date>.json`) records them, and its
-summary replaces this paragraph.
+date and revision; the latest is the record.
+
+`docs/research/smoke/2026-10-21.json` (`--features --models --browser`,
+revision `9b8682e5`; `uncommitted_changes` is true only for the test fix
+below and these docs, the server code is that commit's; MPS, Anima Turbo,
+the server interpreter without Gradio): **105 of 105 checks passed**, among
+them
+
+- txt2img parity through `/sdapi/v1` and `/api/v2/jobs`: mean 0, max 0,
+  infotext equal to the pre-rewrite baseline; img2img, inpaint (unmasked mean
+  difference 0.000), Extras Lanczos 1.5x;
+- LoRA Layer Weight at 0 (mean 0, max 0), Stage Scheduler, FreeFuse, the
+  Sparse Attention skip warning, the Refiner with a second checkpoint, the
+  three replaced-setting runs and every paste round-trip (pixels identical,
+  infotext byte-identical);
+- the LoKR tab against the test LoKr: the LoKr changes the image (mean 31.2),
+  `all=1` with the tag at 0.3 is pixel-identical to `<lora:remi-test-lokr:1>`
+  and `all=0` to `<lora:remi-test-lokr:0>` (mean 0, max 0), both
+  `Anima LoRA layer lokr ...` keys recorded, `0-13=0` gives a third image
+  (mean 25.6 / 30.9 from the two) whose paste regenerates it, and the LoRA tab
+  leaves the LoKr alone (mean 0);
+- `--models`: Extras with `RealESRGAN_x4plus_anime_6B` at 2x - 1536x1536,
+  mean 3.43 from the source after downscaling, 5.88 from a Lanczos 2x,
+  `Postprocess upscaler: RealESRGAN_x4plus_anime_6B` in the info;
+  ControlNet `lineart_standard` + `anima-lllite-lineart-1` - `ControlNet 0`
+  records module and model, the image changes (mean 59.4) and its edges
+  follow the drawing (correlation 0.426, the baseline -0.043); ADetailer
+  `face_yolov8n.pt` - the one face found at (193,101)-(563,466) is redone
+  (mean 31.2 inside the box), nothing changes farther than 32 px from it
+  (mean 0, max 0), `ADetailer model` recorded, the paste regenerates it;
+- `--browser`: all five `@real` tests (the wake lock, the notification
+  permission and the background notification with its sound, gamepad
+  navigation in the viewer, the live preview in the viewer, "Check for
+  updates").
+
+The run before it, `docs/research/smoke/2026-10-20-9b8682e5.json` (the same
+options on the clean commit `9b8682e5`, `uncommitted_changes: false`), passed
+the same 100 generation and model checks; only its `--browser` row failed:
+the `@real` tests looked for the label "Sampling steps" (the mock's spelling)
+while the real server's schema says "Sampling Steps", so the first test
+waited for its timeout and the run was stopped. `browser-apis.spec.ts` now
+matches labels case-insensitively.
 
 ## Browser audit of the real server
 
