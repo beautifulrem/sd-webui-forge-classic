@@ -9,7 +9,7 @@ import { tabSchema } from "@/api/mock/fixtures"
 import { useSession } from "@/features/gallery/session-store"
 import { FakeSocket } from "@/test/fake-socket"
 import { resetRestore, restoreRuns, wireRunSync } from "./restore"
-import { dispatchRun, persistedJobs, persistKey, resetRunControllers, useRuns, wireRunControllers } from "./run-controller"
+import { dispatchRun, persistedJobs, persistedRun, persistKey, resetRunControllers, useRuns, wireRunControllers } from "./run-controller"
 import { phaseOf } from "./run-machine"
 import { created, jobDetail } from "@/test/api-fixtures"
 
@@ -71,6 +71,41 @@ describe("restoreRuns", () => {
     expect(useProgress.getState().owned).toMatchObject({ b: "txt2img", c: "txt2img" })
     expect(useSession.getState().items.map((item) => item.fileId)).toEqual(["out-a"])
     expect(persistedJobs("txt2img")).toEqual(["b", "c"])
+  })
+
+  it("keeps Generate forever going across a reload while its job is in flight", async () => {
+    // A previous page load was generating forever: its job is still running.
+    vi.spyOn(api.jobs, "create").mockResolvedValue(created("f1"))
+    dispatchRun("txt2img", { type: "forever", on: true })
+    await vi.waitFor(() => expect(persistedRun("txt2img")).toEqual({ jobs: ["f1"], forever: true, repeatLeft: 0 }))
+    resetRunControllers()
+    localStorage.setItem(persistKey("txt2img"), JSON.stringify({ jobs: ["f1"], forever: true, repeatLeft: 0 }))
+
+    const ws = await socket()
+    serverJobs({ f1: job("f1", "running") })
+    await restoreRuns()
+    // The menu's "Generate forever" is checked again, and the run after this one is queued.
+    expect(useRuns.getState().runs.txt2img).toMatchObject({ jobs: ["f1"], running: "f1", forever: true })
+    expect(persistedRun("txt2img").forever).toBe(true)
+    const create = vi.spyOn(api.jobs, "create").mockResolvedValue(created("f2"))
+    send(ws, { type: "job.completed", job_id: "f1", seq: 1, status: "completed", outputs: [] })
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(useRuns.getState().runs.txt2img.jobs).toEqual(["f2"]))
+  })
+
+  it("does not start Generate forever again when its job ended while the page was closed", async () => {
+    localStorage.setItem(persistKey("txt2img"), JSON.stringify({ jobs: ["f1"], forever: true, repeatLeft: 0 }))
+    serverJobs({ f1: job("f1", "completed") })
+    const create = vi.spyOn(api.jobs, "create")
+    await restoreRuns()
+    expect(create).not.toHaveBeenCalled()
+    expect(useRuns.getState().runs.txt2img).toMatchObject({ jobs: [], forever: false })
+    expect(localStorage.getItem(persistKey("txt2img"))).toBeNull()
+  })
+
+  it("reads the bare job list an older version persisted", () => {
+    localStorage.setItem(persistKey("img2img"), JSON.stringify(["x", 3, "y"]))
+    expect(persistedRun("img2img")).toEqual({ jobs: ["x", "y"], forever: false, repeatLeft: 0 })
   })
 
   it("forgets jobs the server no longer knows", async () => {

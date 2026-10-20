@@ -73,7 +73,7 @@ export function ResultActions({ item, tab, tone, removable = true, upscalable = 
   }
   // An img2img result sends its image only, unless `allow_i2i_send_info` (A1111's behaviour).
   const sendImage = (target: "img2img" | "inpaint" | "extras", result: ResultItem) =>
-    send(target, tab === "img2img" && !clientOption("allow_i2i_send_info") ? { fileId: result.fileId } : result)
+    send(target, tab === "img2img" && !clientOption("allow_i2i_send_info") ? { fileId: result.fileId, width: result.width, height: result.height } : result)
 
   return (
     <div role="toolbar" aria-label={t("Image actions")} className={cn("flex items-center gap-0.5", className)}>

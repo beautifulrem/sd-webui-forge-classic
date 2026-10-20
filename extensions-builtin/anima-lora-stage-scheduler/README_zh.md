@@ -14,7 +14,7 @@ Anima LoRA 阶段介入是一个 Forge/WebUI 插件，用于控制 Anima LoRA �
 - 高分辨率修复阶段可禁用全部 LoRA，或禁用指定完整 LoRA 标签。
 - 支持单 LoRA 模板覆盖，同一提示词中的不同 LoRA 可使用不同阶段模板。
 - 支持模板保存、重命名、删除，以及由基础预设组合生成自定义模板。
-- 设置页提供界面语言切换：`zh` 和 `en`。
+- 面板文本为中文或英文，跟随 WebUI 的界面语言（见“旧版设置”）。
 
 ## 安装
 
@@ -70,9 +70,16 @@ lora_name=模板名
 
 API 不再接受 Gradio 面板的 26 个位置参数（各时间控件分开传）：API 只保留脚本的 16 个参数位，按旧布局发送的请求会被拒绝，错误信息会列出应传入的参数。
 
-## 语言设置
+## 旧版设置
 
-进入 **设置**，找到 **Anima LoRA Stage Scheduler / Anima LoRA 阶段介入**，选择 `zh` 或 `en`，然后 Reload UI。
+### 未保留
+
+旧版插件的这个设置没有对应项，原因见下表（`tests/test_remi_extension_settings.py`
+检查每个旧设置要么仍是设置，要么列在这张表里）：
+
+| 设置 | 原因 |
+|---|---|
+| `anima_lora_stage_scheduler_language` | 面板自己的语言选项（`zh` / `en`，默认 `zh`，Reload UI 后生效）。面板现在和其他面板一样跟随 WebUI 的界面语言：在页面顶部（外观 → 语言）选择 English 或 简体中文，无需重新加载即可切换；设置 *Language*（`localization`）是尚未选择语言的浏览器的默认值。中文文本在 `localizations/zh_CN.json` 中，infotext 可在两种语言之间互相粘贴。 |
 
 ## 注意
 

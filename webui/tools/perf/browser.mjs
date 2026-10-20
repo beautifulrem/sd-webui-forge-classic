@@ -3,7 +3,8 @@
 //   node tools/perf/browser.mjs --base http://127.0.0.1:7861 --out /tmp/remi-perf-out \
 //     [--only load,inp,networks,gallery,preview,overhead] [--trace /tmp/remi-perf-trace.jsonl] \
 //     [--prompt prompt300.txt] [--steps 24] [--size 768x768] [--jobs 4] [--pairs 6] [--gap 20]
-//     [--headed] [--channel chrome] [--cpu-throttle 4] [--window 15] [--batch-count 1] [--repeat 1] [--mute /tmp/remi-perf-mute] [--save-trace]
+//     [--headed] [--channel chrome] [--cpu-throttle 4] [--window 15] [--batch-count 1] [--repeat 1]
+//     [--max-repeat <jobs; adaptive>] [--target-upper95 1] [--mute /tmp/remi-perf-mute] [--save-trace]
 //     [--dist <the build the server serves; default $REMI_PERF_DIST or webui/dist>] [--inject-css "<css>"]
 //
 // Drives Chromium through Playwright and the DevTools protocol:
@@ -25,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import path from "node:path"
 import { gzipSync } from "node:zlib"
 import { chromium } from "@playwright/test"
+import { mean, pairStats, pairsNeeded, quantile, repeatDecision, round, summary, T95, tQuantile } from "./stats.mjs"
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((pairs, arg, i, all) => {
@@ -39,6 +41,7 @@ const TRACE = args.trace ?? "/tmp/remi-perf-trace.jsonl"
 const STEPS = Number(args.steps ?? 24)
 const JOBS = Number(args.jobs ?? 4)
 const THROTTLE = Number(args["cpu-throttle"] ?? 1)
+const RESULT_FILE = path.join(OUT, `browser-${[...ONLY].join("-")}${THROTTLE > 1 ? `-x${THROTTLE}` : ""}.json`)
 /** Images per job (`preview`, `interleaved`): the step starts again at 0 for each image of the job. */
 const BATCH = Number(args["batch-count"] ?? 1)
 // the build the server serves (serve_traced.py's REMI_PERF_DIST), for the scripts' gzip sizes
@@ -55,17 +58,7 @@ const log = (...parts) => console.log(...parts)
 
 // ---------------------------------------------------------------------------- statistics
 
-function quantile(values, q) {
-  if (!values.length) return null
-  const sorted = [...values].sort((a, b) => a - b)
-  const pos = (sorted.length - 1) * q
-  const lo = Math.floor(pos)
-  const hi = Math.ceil(pos)
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo)
-}
-const mean = (values) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null)
-const round = (value, digits = 1) => (value == null ? null : Number(value.toFixed(digits)))
-const summary = (values) => ({ n: values.length, mean: round(mean(values)), p50: round(quantile(values, 0.5)), p95: round(quantile(values, 0.95)), p99: round(quantile(values, 0.99)), max: round(values.length ? Math.max(...values) : null) })
+// quantile, mean, round, summary, pairStats, ...: ./stats.mjs
 
 // ---------------------------------------------------------------------------- browser
 
@@ -766,32 +759,6 @@ function previewClients(since, scenario) {
   return most
 }
 
-// two-sided 95 % Student t quantiles by degrees of freedom
-const T95 = [12.71, 4.3, 3.18, 2.78, 2.57, 2.45, 2.36, 2.31, 2.26, 2.23, 2.2, 2.18, 2.16, 2.14, 2.13, 2.12, 2.11, 2.1, 2.09, 2.09, 2.08, 2.07, 2.07, 2.06, 2.06, 2.06, 2.05, 2.05, 2.05, 2.04]
-// one-sided 95 % Student t quantiles by degrees of freedom (the upper bound of the overhead)
-const T95_ONE_SIDED = [6.31, 2.92, 2.35, 2.13, 2.02, 1.94, 1.89, 1.86, 1.83, 1.81, 1.8, 1.78, 1.77, 1.76, 1.75, 1.75, 1.74, 1.73, 1.73, 1.72, 1.72, 1.72, 1.71, 1.71, 1.71, 1.71, 1.7, 1.7, 1.7, 1.7]
-
-/** Student t quantile for `df` degrees of freedom: the table, else the Cornish-Fisher expansion around `z`. */
-function tQuantile(table, z, df) {
-  if (df >= 1 && df <= table.length) return table[df - 1]
-  return z + (z ** 3 + z) / (4 * df) + (5 * z ** 5 + 16 * z ** 3 + 3 * z) / (96 * df ** 2)
-}
-
-/** Mean of per-pair differences with its two-sided 95 % interval and one-sided 95 % upper bound. */
-function pairStats(values) {
-  const n = values.length
-  if (!n) return { n, mean: null, ci95: null, upper95: null, median: null }
-  const m = mean(values)
-  const se = n > 1 ? Math.sqrt(values.reduce((total, v) => total + (v - m) ** 2, 0) / (n - 1)) / Math.sqrt(n) : null
-  return {
-    n,
-    mean: round(m, 2),
-    ci95: se == null ? null : round(tQuantile(T95, 1.96, n - 1) * se, 2),
-    upper95: se == null ? null : round(m + tQuantile(T95_ONE_SIDED, 1.645, n - 1) * se, 2),
-    median: round(quantile(values, 0.5), 2),
-  }
-}
-
 async function measureOverhead(browser) {
   await waitIdle()
   const overheadFrom = Date.now()
@@ -872,7 +839,12 @@ async function measureOverhead(browser) {
  * one window (the first after a switch excluded) counts for that window's condition; each
  * adjacent on/off window pair gives one relative difference. `--repeat N` runs N such jobs one
  * after the other (each from a fresh page, batch count 1 if wanted) and pools their window pairs:
- * the form caps a job at 150 steps, too few pairs for a tight bound from one job.
+ * the form caps a job at 150 steps, too few pairs for a tight bound from one job. With
+ * `--max-repeat M` (> N) the run is adaptive: after the N jobs it adds jobs until the pooled
+ * one-sided 95 % bound settles the budget (`--target-upper95`, default 1 %: upper bound at or
+ * under it, or lower bound over it) or M jobs ran (`verdict`: within / over / inconclusive). The
+ * server's own cost per step, the primary overhead figure, comes from the same run's trace:
+ * tools/perf/step_segments.py --run <this result file> (the run records `traceSince` / `traceUntil`).
  */
 async function interleavedJob(browser, { mute, windowMs, steps, batchCount }) {
   rmSync(mute, { force: true })
@@ -936,15 +908,22 @@ async function measureInterleaved(browser) {
   await waitIdle()
   const options = { mute: args.mute ?? "/tmp/remi-perf-mute", windowMs: Number(args.window ?? 15) * 1000, steps: Number(args.steps ?? 160), batchCount: BATCH }
   const repeat = Math.max(1, Number(args.repeat ?? 1))
+  const maxRepeat = Math.max(repeat, Number(args["max-repeat"] ?? repeat))
+  const target = Number(args["target-upper95"] ?? 1)
   const jobs = []
   const from = Date.now()
-  for (let r = 0; r < repeat; r++) {
+  let decision
+  for (let r = 0; ; r++) {
     if (r) await waitIdle()
     const run = await interleavedJob(browser, options)
     const pairs = windowPairs(run.windows)
     jobs.push({ ...run, pairs })
-    log(`interleaved: job ${r + 1}/${repeat}: ${run.status}, ${pairs.length} window pairs ${pairStats(pairs).mean} % (upper 95 % ${pairStats(pairs).upper95} %), ${run.painted} of ${run.received} previews painted`)
+    const pooled = pairStats(jobs.flatMap((job) => job.pairs))
+    decision = repeatDecision({ jobs: jobs.length, minJobs: repeat, maxJobs: maxRepeat, target, stats: pooled })
+    log(`interleaved: job ${r + 1}/${maxRepeat > repeat ? `${repeat}-${maxRepeat}` : repeat}: ${run.status}, ${pairs.length} window pairs ${pairStats(pairs).mean} % (upper 95 % ${pairStats(pairs).upper95} %), ${run.painted} of ${run.received} previews painted; pooled ${pooled.n} pairs ${pooled.mean} %, upper 95 % ${pooled.upper95} %`)
+    if (decision.stop) break
   }
+  const traceUntil = Date.now() / 1000
   const windows = jobs.flatMap((job) => job.windows)
   const painted = jobs.reduce((n, job) => n + job.painted, 0)
   const received = jobs.reduce((n, job) => n + job.received, 0)
@@ -966,6 +945,14 @@ async function measureInterleaved(browser) {
     size: SIZE,
     windowS: options.windowMs / 1000,
     repeat,
+    maxRepeat,
+    targetUpper95: target,
+    // whether the pooled pairs settle the budget (the bound of pairStats) and why the run stopped
+    verdict: decision.verdict,
+    stopReason: decision.reason,
+    // the run's time range in the server trace (unix s): tools/perf/step_segments.py --run
+    traceSince: from / 1000,
+    traceUntil,
     previewClients: previewClients(from, "interleaved"),
     jobMs,
     painted,
@@ -987,7 +974,12 @@ async function measureInterleaved(browser) {
     jobs: jobs.map((job, index) => ({ status: job.status, jobMs: job.jobMs, painted: job.painted, received: job.received, windowCount: job.windows.length, firstWindow: jobs.slice(0, index).reduce((n, other) => n + other.windows.length, 0), pairStats: pairStats(job.pairs) })),
     windows: windows.map((w) => ({ condition: w.condition, steps: w.steps.map((v) => Math.round(v)) })),
   }
-  log(`interleaved: on ${round(mean(on))} ms/step (n ${on.length}) vs off ${round(mean(off))} ms/step (n ${off.length}) -> ${results.interleaved.overheadPct} %; ${pairs.length} window pairs ${results.interleaved.pairMeanPct} ± ${results.interleaved.pairCi95Pct} % (95 % CI, one-sided upper bound ${results.interleaved.pairStats.upper95} %); first step of each window dropped: ${results.interleaved.trimmedPairStats.mean} ± ${results.interleaved.trimmedPairStats.ci95} % (upper ${results.interleaved.trimmedPairStats.upper95} %); medians ${results.interleaved.medianOverheadPct} %; ${painted} of ${received} previews painted`)
+  if (decision.verdict === "inconclusive") {
+    const needed = pairsNeeded({ sd, expected: Math.max(0, mean(pairs)), target })
+    log(`interleaved: inconclusive after ${jobs.length} jobs: at this scatter (pair SD ${round(sd, 2)} %) about ${needed ?? "unbounded"} window pairs are needed (have ${pairs.length}); raise --max-repeat or measure on a quieter machine`)
+  }
+  log(`interleaved: on ${round(mean(on))} ms/step (n ${on.length}) vs off ${round(mean(off))} ms/step (n ${off.length}) -> ${results.interleaved.overheadPct} %; ${pairs.length} window pairs ${results.interleaved.pairMeanPct} ± ${results.interleaved.pairCi95Pct} % (95 % CI, one-sided upper bound ${results.interleaved.pairStats.upper95} %); first step of each window dropped: ${results.interleaved.trimmedPairStats.mean} ± ${results.interleaved.trimmedPairStats.ci95} % (upper ${results.interleaved.trimmedPairStats.upper95} %); medians ${results.interleaved.medianOverheadPct} %; ${painted} of ${received} previews painted; verdict ${decision.verdict} (${decision.reason})`)
+  log(`interleaved: the server's cost per step (the primary figure): python tools/perf/step_segments.py ${TRACE} --run ${RESULT_FILE}`)
 }
 
 // ---------------------------------------------------------------------------- main
@@ -1016,7 +1008,7 @@ try {
   }
 } finally {
   await browser.close()
-  const file = path.join(OUT, `browser-${[...ONLY].join("-")}${THROTTLE > 1 ? `-x${THROTTLE}` : ""}.json`)
+  const file = RESULT_FILE
   writeFileSync(file, JSON.stringify(results, null, 1))
   log(`results: ${file}`)
 }

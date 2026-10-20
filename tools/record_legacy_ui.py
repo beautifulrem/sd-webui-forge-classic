@@ -22,6 +22,14 @@ That interpreter gets its own environment from ``tools/legacy-ui-requirements.tx
         extensions-builtin/<ext>/scripts/<script>.py --script-rev upstream/neo
     # a script file on disk (an upstream checkout, a third-party extension):
     ../remi-gradio-env/bin/python tools/record_legacy_ui.py /path/to/ext/scripts/x.py --out /path/to/ext/tests/fixtures
+    # compare a recording with the committed fixtures instead of writing them:
+    ../remi-gradio-env/bin/python tools/record_legacy_ui.py <script> --script-rev <rev> --check
+    # check the whole setup end to end: record a known script, compare with its fixtures
+    ../remi-gradio-env/bin/python tools/record_legacy_ui.py --self-test
+
+``tools/legacy_ui_env.sh`` builds that environment (network needed once), and
+``tools/check.sh`` runs ``--self-test`` as its ``legacy-ui`` step when
+``REMI_LEGACY_PYTHON`` names the environment's interpreter.
 
 It writes ``legacy_ui_<tab>.json`` for each tab the script shows on (or the
 ``--tabs`` given) into ``--out``, by default
@@ -50,11 +58,17 @@ TABS = ("txt2img", "img2img")
 LEGACY_REV = "9c96c45ee561487d2c4baa6900a885d3a71affe5"
 """The last revision with the Gradio UI (``modules/ui*.py``, ``remi/ui/legacy.py``):
 the parent of 2b45c9b9, which removed it."""
+SELF_TEST = ("extensions-builtin/sd_forge_spectrum/scripts/spectrum.py", "0cf62dd0e8431e3a48827e5d6f739aa96d5601ba")
+"""``--self-test``: a script and the revision before its port (the last commit of
+its Gradio ``ui()``), whose recording must equal its committed fixtures."""
+WIRING_KEYS = ("exclusive", "visible_if", "enabled_if")
+"""Keys ``describe()`` added after the fixtures were recorded: absent means none
+(as ``tests/remi_port_harness.assert_matches_snapshot`` reads them)."""
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("script", type=Path, help="the script to record (repo-relative with --script-rev)")
+    parser.add_argument("script", type=Path, nargs="?", help="the script to record (repo-relative with --script-rev)")
     parser.add_argument("--class", dest="class_name", help="the Script class, when the file defines several")
     parser.add_argument("--tabs", nargs="+", choices=TABS, help="record these tabs whatever show() says (e.g. a panel gated on an optional package)")
     parser.add_argument("--preimport", nargs="+", default=[], help="modules to import first (e.g. to settle a circular import the WebUI's start order avoids)")
@@ -64,7 +78,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     source.add_argument("--rev", default=LEGACY_REV, help="revision with the Gradio UI to record in (default: %(default).10s)")
     source.add_argument("--legacy-tree", type=Path, help="an existing checkout of that revision instead of a temporary export")
     parser.add_argument("--out", type=Path, help="folder for legacy_ui_<tab>.json (default: extensions-builtin/<ext>/tests/fixtures)")
+    parser.add_argument("--check", action="store_true", help="compare the recording with the legacy_ui_<tab>.json in --out (or the default folder) instead of writing; exit 1 when they differ")
+    parser.add_argument("--self-test", action="store_true", help=f"record {SELF_TEST[0]} at {SELF_TEST[1][:10]} (before its port) and --check it against its committed fixtures")
     options = parser.parse_args(argv)
+    if options.self_test:
+        if options.script is not None or options.script_rev or options.out or options.tabs or options.class_name or options.options or options.preimport:
+            parser.error("--self-test takes no script and no other option but --rev / --legacy-tree")
+        options.script, options.script_rev, options.check = Path(SELF_TEST[0]), SELF_TEST[1], True
+    if options.script is None:
+        parser.error("the script to record is required (or --self-test)")
     if options.script_rev and options.script.is_absolute():
         parser.error("--script-rev takes a repository-relative script path")
     if options.out is None and extension_folder(options.script) is None:
@@ -105,6 +127,25 @@ def require_legacy_tree(tree: Path) -> None:
         raise SystemExit(f"{tree} is not a revision with the Gradio UI (remi/ui/legacy.py, modules/ui_components.py): use --rev {LEGACY_REV[:10]}")
 
 
+def normalized(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{**dict.fromkeys(WIRING_KEYS), **entry} for entry in entries]
+
+
+def compare(recorded: Path, committed: Path) -> list[str]:
+    """Differences between a new recording and a committed fixture (empty when they match)."""
+
+    if not committed.is_file():
+        return [f"{committed} does not exist"]
+    new = normalized(json.loads(recorded.read_text(encoding="utf8")))
+    old = normalized(json.loads(committed.read_text(encoding="utf8")))
+    problems = [f"{committed.name}: {len(new)} arguments recorded, the fixture has {len(old)}"] if len(new) != len(old) else []
+    for index, (got, want) in enumerate(zip(new, old, strict=False)):
+        for key in sorted(set(got) | set(want)):
+            if got.get(key) != want.get(key):
+                problems.append(f"{committed.name}: argument {index} ({want.get('label')!r}) {key} is {got.get(key)!r}, the fixture has {want.get(key)!r}")
+    return problems
+
+
 def load_file(path: Path, name: str):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
@@ -136,11 +177,12 @@ def legacy_snapshot(script, tab: str, describe, build_ui) -> list[dict[str, Any]
     return entries
 
 
-def record(options: argparse.Namespace, tree: Path, scratch: Path) -> list[Path]:
-    """Record in the Gradio-era ``tree``; ``scratch`` receives a ``--script-rev`` export."""
+def record(options: argparse.Namespace, tree: Path, scratch: Path, out: Path | None = None) -> list[Path]:
+    """Record in the Gradio-era ``tree`` into ``out`` (default :func:`output_folder`);
+    ``scratch`` receives a ``--script-rev`` export."""
 
     require_legacy_tree(tree)
-    out = output_folder(options)
+    out = out or output_folder(options)
     if options.script_rev:
         folder = extension_folder(options.script)
         export(options.script_rev, scratch, folder.as_posix() if folder else options.script.as_posix())
@@ -176,6 +218,9 @@ def record(options: argparse.Namespace, tree: Path, scratch: Path) -> list[Path]
             classes = [cls for cls in classes if cls.__name__ == options.class_name]
         if len(classes) != 1:
             raise SystemExit(f"expected one script class in {script_path}, found {[cls.__name__ for cls in classes]} (use --class)")
+        if classes[0].ui is scripts.Script.ui:
+            where = f"at {options.script_rev}" if options.script_rev else "in this file"
+            raise SystemExit(f"{classes[0].__name__} has no Gradio ui() {where} (already ported to params()?): record the revision before its port, e.g. --script-rev $(git log -1 --format=%h <port commit>^ -- {options.script})")
         for tab in options.tabs or TABS:
             script = classes[0]()
             script.filename = str(script_path)
@@ -192,6 +237,7 @@ def record(options: argparse.Namespace, tree: Path, scratch: Path) -> list[Path]
 def main(argv: list[str] | None = None) -> int:
     options = parse_args(argv)
     require_gradio()
+    problems: list[str] = []
     with tempfile.TemporaryDirectory(prefix="remi-legacy-") as folder:
         scratch = Path(folder) / "script"
         if options.legacy_tree is not None:
@@ -199,12 +245,22 @@ def main(argv: list[str] | None = None) -> int:
         else:
             tree = Path(folder) / "tree"
             export(options.rev, tree)
-        written = record(options, tree, scratch)
-    for path in written:
-        print(path)
+        written = record(options, tree, scratch, Path(folder) / "recorded" if options.check else None)
+        if options.check:
+            for path in written:
+                problems += compare(path, output_folder(options) / path.name)
+            written = [output_folder(options) / path.name for path in written]
     if not written:
         print("the script shows on no tab: pass --tabs", file=sys.stderr)
         return 1
+    if options.check:
+        for problem in problems:
+            print(problem, file=sys.stderr)
+        status = "differs from" if problems else "matches"
+        print(f"the recording {status} " + ", ".join(str(path) for path in written))
+        return 1 if problems else 0
+    for path in written:
+        print(path)
     return 0
 
 

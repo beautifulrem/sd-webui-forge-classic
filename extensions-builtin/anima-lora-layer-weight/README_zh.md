@@ -15,7 +15,7 @@ Anima LoRA/LoKR 分层权重是一个 Forge/WebUI 插件，用于按 Anima block
 - 支持命名预设和 **应用预设到提示词** 按钮。
 - 权重签名变化时会自动刷新 LoRA 缓存。
 - infotext 会记录生成时使用的面板设置，粘贴图片参数即可恢复（见“Infotext 与粘贴”）。
-- 设置页提供界面语言切换：`zh` 和 `en`。
+- 面板文本为中文或英文，跟随 WebUI 的界面语言（见“旧版设置”）。
 
 ## 使用
 
@@ -66,9 +66,16 @@ adaln=1.0
 
 这些是实用经验，不是硬规则。不同训练集的最佳范围可能不同。
 
-## 语言设置
+## 旧版设置
 
-进入 **设置**，找到 **Anima LoRA Layer Weight / Anima LoRA 分层权重**，选择 `zh` 或 `en`，然后 Reload UI。
+### 未保留
+
+旧版插件的这个设置没有对应项，原因见下表（`tests/test_remi_extension_settings.py`
+检查每个旧设置要么仍是设置，要么列在这张表里）：
+
+| 设置 | 原因 |
+|---|---|
+| `anima_lora_layer_weight_language` | 面板自己的语言选项（`zh` / `en`，默认 `zh`，Reload UI 后生效）。面板现在和其他面板一样跟随 WebUI 的界面语言：在页面顶部（外观 → 语言）选择 English 或 简体中文，无需重新加载即可切换；设置 *Language*（`localization`）是尚未选择语言的浏览器的默认值。中文文本在 `localizations/zh_CN.json` 中，infotext 可在两种语言之间互相粘贴。 |
 
 ## 注意
 

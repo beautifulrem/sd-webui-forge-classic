@@ -1,7 +1,5 @@
 /** JSON events on /api/v2/ws (see docs/remi-webui/architecture.md). */
-import type { FormTab, JobNote, JobOutput, ToastLevel } from "./types"
-
-export type { ToastLevel }
+import type { FormTab, JobNote, JobOutput } from "./types"
 
 type JobRef = {
   job_id: string
@@ -30,7 +28,6 @@ export type WsEventMap = {
   /** This client fell behind and lost `dropped` events; a fresh snapshot follows. */
   resync: { dropped?: number }
   pong: Record<string, never>
-  toast: { level?: ToastLevel; message: string }
   /** A model load in progress; `stage` is free text. `done`, `error` and `failed` end it. */
   "model.loading": { stage: string; model?: string; progress?: number | null }
   /** A model load finished (successfully or not); ends `model.loading`. */
@@ -65,7 +62,6 @@ const SHAPES: { [K in WsEventType]: Record<string, (v: unknown) => boolean> } = 
   "outputs.changed": { ids: optional(isStringArray) },
   resync: { dropped: optional(isNumber) },
   pong: {},
-  toast: { message: isString },
   "model.loading": { stage: isString },
   "model.loaded": {},
 }

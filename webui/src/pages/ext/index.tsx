@@ -11,8 +11,10 @@ import { type ComponentType, lazy, type LazyExoticComponent, Suspense, useEffect
 import { bootstrapQuery, pageSchemaQuery } from "@/api/queries"
 import type { PageInfo } from "@/api/types"
 import type { Route } from "@/app/router"
+import { PAGE_CONTAINER } from "@/components/page-container"
 import { PagePlaceholder } from "@/components/PagePlaceholder"
 import { PageSkeleton } from "@/components/PageSkeleton"
+import { cn } from "@/lib/utils"
 import { dropPending } from "./deliver"
 import { PageView } from "./PageView"
 
@@ -27,7 +29,7 @@ function SchemaPage({ page }: { page: PageInfo }) {
   const { data } = useSuspenseQuery(pageSchemaQuery(page.id))
   return (
     <div className="h-full overflow-y-auto" data-scroll-root>
-      <div className="mx-auto max-w-6xl p-4 pb-16">
+      <div className={cn(PAGE_CONTAINER, "pb-16")}>
         <PageView schema={data} />
       </div>
     </div>

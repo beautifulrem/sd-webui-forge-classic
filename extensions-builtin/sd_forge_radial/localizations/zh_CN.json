@@ -3,11 +3,11 @@
   "Dense Block": "Dense Block",
   "Number of first few Blocks to bypass RadialAttention": "绕过 RadialAttention 的前几个块的数量",
   "Decay Factor": "衰减因子",
-  "Lower is Faster ; Higher is more Accurate": "越低越快;越高越准确",
+  "Lower is Faster ; Higher is more Accurate": "越低越快；越高越准确",
   "Dense Timestep": "Dense Timestep",
-  "Number of first few Steps to bypass RadialAttention": "绕过 RadialAttention 的前几个 Step 的数量",
+  "Number of first few Steps to bypass RadialAttention": "开头绕过 RadialAttention 的步数",
   "Last Dense Timestep": "最后一个 Dense Timestep",
-  "Number of last few Steps to bypass RadialAttention": "绕过 RadialAttention 的最后几个 Step 的数量",
+  "Number of last few Steps to bypass RadialAttention": "末尾绕过 RadialAttention 的步数",
   "Block Size": "块大小",
   "Allow Torch.Compile": "允许 Torch.Compile"
 }

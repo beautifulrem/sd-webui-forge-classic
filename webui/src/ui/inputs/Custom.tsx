@@ -6,8 +6,8 @@ import { useParam } from "../hooks"
 import { Field } from "../Field"
 import type { Json, WidgetNode } from "../schema"
 import { getWidget } from "../widgets"
-import { ImageListInput } from "./Image"
-import { JsonInput } from "./Json"
+// fallbacks for an unknown widget only: loaded when one is needed
+import { ImageListInput, JsonInput } from "../lazy-views"
 
 export function Custom({ node }: { node: WidgetNode }) {
   const { t } = useTranslation()

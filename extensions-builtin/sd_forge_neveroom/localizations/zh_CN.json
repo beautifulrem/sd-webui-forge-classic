@@ -1,5 +1,5 @@
 {
   "Never OOM Integrated": "Never OOM 集成",
-  "Enabled for UNet (always offload)": "为 UNet 启用(始终 offload)",
-  "Enabled for VAE (always tiled)": "为 VAE 启用(始终 tiled)"
+  "Enabled for UNet (always offload)": "为 UNet 启用（始终卸载到内存）",
+  "Enabled for VAE (always tiled)": "为 VAE 启用（始终分块处理）"
 }

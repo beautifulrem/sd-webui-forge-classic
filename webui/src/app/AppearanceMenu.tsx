@@ -1,7 +1,8 @@
-/** Header menu: theme, density, accent colour and language. */
-import { Check, Keyboard, Languages, Monitor, Moon, Palette, Rows3, Rows4, Sun } from "lucide-react"
+/** Header menu: theme, density, accent colour, language, and signing out (with a login). */
+import { Check, Keyboard, Languages, LogOut, Monitor, Moon, Palette, Rows3, Rows4, Sun } from "lucide-react"
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { useTranslation } from "react-i18next"
+import { useSession } from "@/api/session"
 import type { LocaleInfo } from "@/api/types"
 import { Button } from "@/components/ui/button"
 import {
@@ -17,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { usePopupTooltip } from "@/components/popup-tooltip"
+import { signOut } from "@/features/auth/session-actions"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { localeName, toBcp47, useLocale } from "@/i18n"
 import { ACCENTS, type Accent, type Density, type Theme, useAppearance } from "@/lib/theme"
@@ -49,6 +51,7 @@ export default function AppearanceMenu({ locales }: { locales: LocaleInfo[] }) {
   const { theme, density, accent, setTheme, setDensity, setAccent } = useAppearance()
   const locale = useLocale((s) => s.locale)
   const setLocale = useLocale((s) => s.setLocale)
+  const user = useSession((s) => s.user)
   // Closing the menu refocuses the button: keep its tooltip from popping up and staying.
   const tip = usePopupTooltip()
 
@@ -127,6 +130,12 @@ export default function AppearanceMenu({ locales }: { locales: LocaleInfo[] }) {
           {t("Keyboard shortcuts")}
           <DropdownMenuShortcut>?</DropdownMenuShortcut>
         </DropdownMenuItem>
+        {user ? (
+          <DropdownMenuItem onClick={() => void signOut()}>
+            <LogOut aria-hidden />
+            {t("Sign out ({{user}})", { user })}
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   )

@@ -9,6 +9,7 @@ import { lazy, Suspense } from "react"
 import { useTranslation } from "react-i18next"
 import { navigate, type Route } from "@/app/router"
 import { FitTabsList } from "@/components/FitTabsList"
+import { PAGE_CONTAINER } from "@/components/page-container"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { InstalledView } from "./InstalledView"
@@ -43,7 +44,7 @@ export default function ExtensionsPage({ route }: { route: Route }) {
 
   return (
     <div data-scroll-root className="h-full overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-5 sm:px-6">
+      <div className={PAGE_CONTAINER}>
         <Tabs value={tab} onValueChange={(value) => openTab(value as TabId)}>
           {/* on a phone the four tabs do not fit: they become a select */}
           <FitTabsList

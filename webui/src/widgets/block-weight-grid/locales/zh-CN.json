@@ -11,7 +11,7 @@
  "Layer {{index}}": "第 {{index}} 层",
  "All others": "其余全部",
  "{{band}} ({{start}}-{{end}})": "{{band}}（{{start}}-{{end}}）",
- "A module weight multiplies the block weight of every block.": "模块权重会与每个 block 的层权重相乘。",
+ "A module weight multiplies the block weight of every block.": "模块权重会与每一层的层权重相乘。",
  "Not valid weights (a run ignores them; editing the grid drops them): {{entries}}": "无效的权重（生成时会忽略；编辑网格会移除它们）：{{entries}}",
  "Not shown in the grid (a run applies them; editing the grid keeps them): {{entries}}": "网格中未显示（生成时会生效；编辑网格会保留它们）：{{entries}}"
 }

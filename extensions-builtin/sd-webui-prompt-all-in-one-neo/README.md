@@ -52,6 +52,18 @@ to `/api/v2/prompt-tools`. Feature by feature:
 | Themes and extension CSS (`extensionCss.vue`, `styles/`), language picker (`selectLanguage.vue`) | Merged into the WebUI's light / dark themes and UI language. |
 | Installing Python packages at runtime (`packagesState.vue`, `/install_package`) | Not carried over: the WebUI never installs packages from a browser request; the providers above need none. |
 
+## Settings of the old extension
+
+### Not carried over
+
+The old extension's only setting has no equivalent, for the reason given
+(`tests/test_remi_extension_settings.py` checks that every old setting is either a
+setting here or a row of this table):
+
+| Setting | Why |
+|---|---|
+| `paio_neo_civitai_api_key` | Only used by the quality presets' checkpoint detection, which sent the checkpoint's SHA-256 to CivitAI (see "Quality presets" above). Quality tags per model family are core Styles and Prompt Anchor blocks now, chosen by you, so nothing is sent to a third-party site and no key is needed. |
+
 Based on [sd-webui-prompt-all-in-one](https://github.com/Physton/sd-webui-prompt-all-in-one)
 by Physton and its Forge Neo fork by eduardoabreu81 (MIT, see LICENSE); the
 tag groups come from those projects.

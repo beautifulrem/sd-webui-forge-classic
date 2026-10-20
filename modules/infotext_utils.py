@@ -10,7 +10,10 @@ from typing import Any
 from backend.text_processing.emphasis import uses_emphasis
 from modules import processing, shared
 
-re_param_code = r'\s*([\w\s\-\/]+):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)'
+# A key starts where no key character precedes it, and its leading whitespace and name are one atomic
+# group: the same matches as `\s*([\w\s\-\/]+):...`, in linear time (that form retried every position
+# of a long run without a colon - minutes for a 200,000-character prompt line in PNG Info or a paste).
+re_param_code = r'(?<![\w\s\-\/])(?>\s*([\w\s\-\/]+)):\s*("(?:\\.|[^\\"])+"|[^,]*)(?:,|$)'
 re_param = re.compile(re_param_code)
 re_imagesize = re.compile(r"^(\d+)x(\d+)$")
 

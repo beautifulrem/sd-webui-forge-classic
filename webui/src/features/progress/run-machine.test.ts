@@ -207,4 +207,24 @@ describe("run machine", () => {
     expect(state.jobs).toEqual(["a", "b"])
     expect(phase).toBe("running")
   })
+
+  it("resumes Generate forever after a reload while its job is in flight, not once the loop has ended", () => {
+    const restored = run([{ type: "restore", jobs: ["a"], running: "a" }, { type: "resume", forever: true, repeatLeft: 0 }])
+    expect(restored.state.forever).toBe(true)
+    expect(restored.effects).toEqual([])
+    // The restored job finishing queues the next run.
+    expect(submits(run([{ type: "finished", jobId: "a", outcome: "completed" }], restart, restored.state).effects)).toBe(1)
+    // Nothing in flight any more (it finished while the page was away): no new run, the loop is over.
+    const ended = run([{ type: "resume", forever: true, repeatLeft: 2 }])
+    expect(ended.state).toEqual(IDLE)
+    expect(ended.effects).toEqual([])
+  })
+
+  it("resumes the runs left of Generate several times after a reload", () => {
+    const restored = run([{ type: "restore", jobs: ["a"], running: null }, { type: "resume", forever: false, repeatLeft: 2 }])
+    expect(restored.state.repeatLeft).toBe(2)
+    const next = run([{ type: "finished", jobId: "a", outcome: "completed" }], restart, restored.state)
+    expect(submits(next.effects)).toBe(1)
+    expect(next.state.repeatLeft).toBe(1)
+  })
 })

@@ -13,6 +13,7 @@ import { initReactI18next } from "react-i18next"
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import { api } from "@/api/endpoints"
+import { ApiError } from "@/api/http"
 
 export const DEFAULT_LOCALE = "en"
 
@@ -120,12 +121,14 @@ async function loadChrome(locale: string): Promise<Record<string, string>> {
   return loader ? loader() : {}
 }
 
-async function loadServer(locale: string): Promise<Record<string, string>> {
+/** The server catalog, or null when it could not be loaded (it is asked for again next time). */
+async function loadServer(locale: string): Promise<Record<string, string> | null> {
   try {
     return await api.i18n(toServerLocale(locale))
   } catch (error) {
-    console.warn(`[i18n] server catalog for ${locale} unavailable`, error)
-    return {}
+    // 401: not signed in yet, the sign-in form only needs the chrome catalog
+    if (!(error instanceof ApiError && error.status === 401)) console.warn(`[i18n] server catalog for ${locale} unavailable`, error)
+    return null
   }
 }
 
@@ -135,8 +138,8 @@ export async function activateLocale(locale: string): Promise<void> {
   if (lng !== DEFAULT_LOCALE && !loaded.has(lng)) {
     const [chrome, server] = await Promise.all([loadChrome(lng), loadServer(lng)])
     i18n.addResourceBundle(lng, "chrome", chrome, true, true)
-    i18n.addResourceBundle(lng, "server", server, true, true)
-    loaded.add(lng)
+    if (server) i18n.addResourceBundle(lng, "server", server, true, true)
+    if (server) loaded.add(lng)
   }
   await i18n.changeLanguage(lng)
   const direction = textDirection(lng)
@@ -149,7 +152,8 @@ export async function activateLocale(locale: string): Promise<void> {
 export async function reloadServerCatalog(): Promise<void> {
   const lng = i18n.language
   if (lng === DEFAULT_LOCALE) return
-  i18n.addResourceBundle(lng, "server", await loadServer(lng), true, true)
+  const server = await loadServer(lng)
+  if (server) i18n.addResourceBundle(lng, "server", server, true, true)
 }
 
 /** Translate outside React (toasts, command labels built in callbacks). */

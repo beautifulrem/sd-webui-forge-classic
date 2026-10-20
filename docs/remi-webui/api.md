@@ -8,7 +8,7 @@ The Remi server is one FastAPI application (`remi/server/app.py`). It serves:
 | `/api/v2/ws` | WebSocket: job events, queue state, binary live previews | always |
 | `/internal` | small A1111-compatible helpers (`ping`, `progress`, `pending-tasks`, `sysinfo`, …) | always |
 | `/sdapi/v1` | the AUTOMATIC1111 / Forge API (`modules/api/api.py`) | with `--api` or `--nowebui` |
-| `/docs`, `/redoc`, `/openapi.json` | interactive API description of everything above | always |
+| `/docs`, `/redoc`, `/openapi.json` | interactive API description of everything above (Swagger UI and ReDoc from the SPA build, never a CDN: `remi/server/api_docs.py`; without a build the two pages say how to build it, `/openapi.json` always works) | always |
 | everything else | the SPA (`webui/dist`) | not with `--nowebui` |
 
 The OpenAPI document is the authoritative list of routes, bodies and
@@ -71,6 +71,11 @@ without `--gradio-auth`). With logins configured:
   /api/v2/auth/status` → `{"required": bool, "user": str | null}`.
 - Scripts and tools may skip the cookie and send `Authorization: Basic …`
   on every request (also on the WebSocket handshake).
+- The server renders no login page: a browser page load without a login
+  gets the SPA shell with status 401, and the SPA signs in through the
+  endpoints above. Other refused requests get JSON `{"detail": …}` (with
+  `WWW-Authenticate: Basic` for `/internal`, `/sdapi`, the docs, and page
+  loads when the SPA is not built).
 - `/sdapi/v1` (and extension routes under `/sdapi`) uses `--api-auth
   user:pass[,…]` (HTTP Basic, throttled the same way) when it is set; without
   it, the `--auth` login (session cookie or HTTP Basic) on any bind, since a

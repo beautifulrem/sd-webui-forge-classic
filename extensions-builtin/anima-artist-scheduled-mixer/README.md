@@ -20,7 +20,7 @@ Special thanks to **An1X3R/Anima-Artist-Mixer** and **汐浮尘/utowo** for the 
 - Templates store stable internal values and can be applied across English/Chinese UI modes.
 - Localized option labels for optimization presets, combine mode, fusion mode, curve, stage, and template target.
 - Performance, Balance, and Quality optimization presets. Balance is the default.
-- English/Chinese UI setting, plus a description switch at the top of the panel.
+- Panel text and description in English or Chinese, following the WebUI's language (see Settings of the old extension).
 - Text-encoding cache for repeated prompts and artist rows.
 - Reference-style `Output average + Interpolate` by default, with `Quality-safe delta` still available for a steadier, more conservative blend.
 
@@ -64,6 +64,18 @@ The Gradio panel's 653 positional args (row counts, Shift copies, 640 row values
 - Global artist strength: `0.70`
 - Default blocks (2B layout, see Row Controls): `0-51` (every block) for Balance and Quality, `10-18` for Performance.
 - Use `Quality-safe delta` when the reference-style interpolation is too strong for a prompt.
+
+## Settings of the old extension
+
+### Not carried over
+
+This setting of the old extension has no equivalent, for the reason given
+(`tests/test_remi_extension_settings.py` checks that every old setting is either a
+setting here or a row of this table):
+
+| Setting | Why |
+|---|---|
+| `anima_artist_scheduled_mixer_language` | The panel's own language radio (`zh` / `en`, default `zh`, applied on Reload UI), which also opened the English / 中文 switch above the panel's description in that language. The panel now follows the WebUI's language like every other panel: pick English or 简体中文 in the header (Appearance → Language), which switches without a reload; the setting *Language* (`localization`) is the default for browsers that have not picked one. The description and every option label are translated with it (`localizations/zh_CN.json`), so the separate description switch is gone too. Templates and infotext store internal values, so they apply and paste between the two languages. |
 
 ## Notes
 

@@ -6,6 +6,7 @@
 import createClient from "openapi-fetch"
 import type { ValidationError } from "@/ui/schema"
 import type { paths } from "./gen/schema"
+import { sessionRefused } from "./session"
 
 declare global {
   interface Window {
@@ -56,21 +57,14 @@ function compactQuery(query: Query): Record<string, string> {
 }
 
 async function transport(request: Request): Promise<Response> {
+  let response: Response
   if (MOCK) {
     const { handleMockRequest } = await import("./mock/server")
-    return handleMockRequest(request)
-  }
-  const response = await fetch(request)
-  // The session expired or the server now requires a login: the shell serves the login page.
-  if (response.status === 401 && !request.url.includes("/auth/")) onUnauthorized()
+    response = await handleMockRequest(request)
+  } else response = await fetch(request)
+  // The session ended or the server now requires a login: the app asks for it (features/auth).
+  if (response.status === 401 && !new URL(request.url).pathname.startsWith(`${API_BASE}/auth/`)) sessionRefused()
   return response
-}
-
-let reloading = false
-function onUnauthorized() {
-  if (reloading || typeof location === "undefined") return
-  reloading = true
-  location.reload()
 }
 
 /** The generated, path-typed client. Paths are the server's (`/api/v2/...`); `ROOT` is the base URL. */

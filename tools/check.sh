@@ -11,8 +11,9 @@
 # Gradio imports) - pytest for
 # tests/ (with a coverage floor for remi/) and for every extensions-builtin/*/tests directory
 # separately - OpenAPI, settings and tab schema contracts, upstream line endings - i18n coverage (server zh_CN catalog, SPA
-# chrome catalog) - pnpm install (frozen lockfile), build (tsc + vite), oxlint, vitest (with
-# coverage floors), Playwright end-to-end tests and axe scans against the mock backend.
+# chrome catalog) - pnpm install (frozen lockfile), build (tsc + vite), the JS bundle budget,
+# oxlint, vitest (with coverage floors), Playwright end-to-end tests and axe scans against the
+# mock backend.
 # Steps keep running after a failure; the script ends with a summary table and exits 1
 # when any step failed.
 #
@@ -22,6 +23,8 @@
 # must start without it). Ruff is taken from that environment, then PATH, then `uvx ruff`.
 # Logs: $REMI_CHECK_LOGS (default a temporary directory, printed at the end). The
 # real-model smoke test is separate: tools/smoke_real.py.
+# legacy-ui (the legacy ui() recorder's self-test) needs the recorder's own Gradio 4.40 interpreter,
+# built once with the network by tools/legacy_ui_env.sh: it runs when $REMI_LEGACY_PYTHON names it.
 
 set -uo pipefail
 
@@ -38,7 +41,7 @@ while [ $# -gt 0 ]; do
     --skip) SKIP="${2:-}"; shift 2 ;;
     --skip=*) SKIP="${1#*=}"; shift ;;
     --list) LIST=1; shift ;;
-    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -168,7 +171,7 @@ gradio_free() {
 step env:gradio-free gradio_free
 
 # Which rules apply to which file is pyproject.toml's business (strict for Remi's files).
-step ruff:remi "${RUFF[@]}" check remi tools webui/tools tests/remi_*.py tests/test_remi_*.py modules/extra_networks_pages.py modules/redact.py
+step ruff:remi "${RUFF[@]}" check remi tools webui/tools docs tests/remi_*.py tests/test_remi_*.py modules/extra_networks_pages.py modules/redact.py
 step ruff:tests "${RUFF[@]}" check tests extensions-builtin/*/tests
 step ruff:extensions "${RUFF[@]}" check extensions-builtin/*/scripts extensions-builtin/*/lib_*
 # The upstream-origin runtime Remi edits (legacy rules); modules_forge/packages is vendored as is.
@@ -176,7 +179,7 @@ step ruff:core "${RUFF[@]}" check modules modules_forge backend scripts launch.p
 step ruff:syntax "${RUFF[@]}" check . --select E9,TID251 --output-format concise
 
 # Coverage floor for remi/ (the measured line coverage of tests/, minus a small margin).
-COVERAGE_FLOOR_PYTHON=91
+COVERAGE_FLOOR_PYTHON=92
 step pytest:tests run_pytest tests --cov=remi --cov-report=term:skip-covered --cov-fail-under="$COVERAGE_FLOOR_PYTHON"
 for dir in extensions-builtin/*/tests; do
   [ -d "$dir" ] || continue
@@ -190,6 +193,18 @@ step contract:settings py tools/dump_settings.py --check
 step contract:schemas py webui/tools/dump_schemas.py --check
 # Files shared with Forge Neo keep upstream's CRLF line endings (clean merges of Neo updates).
 step contract:line-endings py tools/check_line_endings.py
+# The legacy ui() recorder end to end: records a known script in the last Gradio-era revision and
+# compares the record with its committed fixtures (docs/remi-webui/upstream-absorption.md §2.5).
+legacy_ui_self_test() {
+  if [ -z "${REMI_LEGACY_PYTHON:-}" ]; then
+    echo "REMI_LEGACY_PYTHON is not set: build the recorder's environment with tools/legacy_ui_env.sh" >&2
+    return 2
+  fi
+  "$REMI_LEGACY_PYTHON" tools/record_legacy_ui.py --self-test
+}
+if [ "$LIST" = 1 ] || [ -n "${REMI_LEGACY_PYTHON:-}" ] || matches legacy-ui "$ONLY"; then
+  step legacy-ui legacy_ui_self_test
+fi
 
 step i18n:server run_pytest tests/test_remi_core_zh_cn.py
 
@@ -202,6 +217,14 @@ pnpm_in_webui() { (cd "$ROOT/webui" && pnpm "$@"); }
 step pnpm:install pnpm_in_webui install --frozen-lockfile
 step i18n:spa pnpm_in_webui exec vitest run src/locales
 step pnpm:build pnpm_in_webui build
+# The JS budget (scorecard dimension 5): a manifest build of the same sources, checked against
+# webui/tools/perf/budget.json (initial JS, every route and lazy entry, recorded exceptions).
+bundle_budget() {
+  local out="$LOGS/bundle-dist"
+  pnpm_in_webui exec vite build --manifest --outDir "$out" --emptyOutDir --logLevel warn &&
+    (cd "$ROOT/webui" && node tools/perf/bundle.mjs "$out" --check --json "$LOGS/bundle.json")
+}
+step perf:bundle bundle_budget
 step pnpm:lint pnpm_in_webui lint
 step pnpm:vitest pnpm_in_webui exec vitest run --coverage
 step e2e pnpm_in_webui exec playwright test --reporter=line

@@ -110,8 +110,8 @@ TAB_ARGS = (
 ADAPTER_KINDS = ("lora", "lokr")
 TAB_ARG_NAMES = tuple(name for name, _, _ in TAB_ARGS)
 SCRIPT_ARG_NAMES = tuple(f"{kind}_{name}" for kind in ADAPTER_KINDS for name in TAB_ARG_NAMES)
-# Infotext fields, one per control that changes the run; ``infotext_fields``
-# pastes each back into its control
+# Infotext fields, one per control that changes the run; ``table_params`` makes
+# each its param's ``infotext`` key, which pastes it back into its control
 TAB_INFOTEXT_FIELDS = tuple(field for _, field, _ in TAB_ARGS if field is not None)
 # The switch of each text field: its text only counts while the switch is on
 TAB_TEXT_SWITCHES = {field: switch for _, field, switch in TAB_ARGS if switch is not None}
@@ -798,7 +798,7 @@ class Script(scripts.Script):
         _reset_lora_cache_if_needed(p, _ACTIVE_RULE.signature, _ACTIVE_RULE.text_encoder_signature)
 
         if _ACTIVE_RULE.enabled:
-            # Keys match ``self.infotext_fields`` so pasted parameters restore the panel
+            # Keys are the params' ``infotext`` keys, so pasted parameters restore the panel
             p.extra_generation_params.update({key: value for kind, tab in tabs.items() for key, value in _tab_infotext(kind, tab).items()})
 
     def postprocess_batch_list(self, p, pp, *args, **kwargs):

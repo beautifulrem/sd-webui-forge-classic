@@ -93,3 +93,18 @@ def test_refiner_checkpoint_differs_only_in_the_patched_layers(tmp_path):
         assert file.metadata()["remi_test_refiner"] == "1"
     again = load_file(str(tool.write_refiner_checkpoint(checkpoint, tmp_path / "again.safetensors")))
     assert all(torch.equal(again[key], refiner[key]) for key in refiner)
+
+
+def test_test_lokr_fits_the_checkpoint_and_reads_as_an_anima_lokr(tmp_path):
+    checkpoint = _checkpoint(tmp_path / "anima.safetensors")
+    path = tool.write_test_lokr(checkpoint, tmp_path / "Lora")
+    assert path.name == f"{tool.LOKR_NAME}.safetensors"
+    tensors = load_file(str(path))
+    for layer, (out_features, in_features) in tool.target_layers(tool.read_header(checkpoint)).items():
+        w1, w2_a, w2_b = (tensors[f"diffusion_model.{layer}.lokr_{name}"] for name in ("w1", "w2_a", "w2_b"))
+        assert torch.kron(w1.float(), w2_a.float() @ w2_b.float()).shape == (out_features, in_features)
+        assert float(tensors[f"diffusion_model.{layer}.alpha"]) == tool.RANK
+    assert adapter_kind_for_file(path) == "lokr" and is_anima_adapter_file(path, "lokr")
+    assert lora_coverage(path, "lokr").blocks == {0, 1, 2}
+    again = load_file(str(tool.write_test_lokr(checkpoint, tmp_path / "again")))
+    assert again.keys() == tensors.keys() and all(torch.equal(again[key], tensors[key]) for key in tensors)

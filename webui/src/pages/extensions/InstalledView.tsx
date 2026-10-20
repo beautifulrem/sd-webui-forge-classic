@@ -294,7 +294,9 @@ export function InstalledView() {
 
   const check = async () => {
     const result = await checkForUpdates(items)
-    if (result.failed.length > 0) toast.warning(t("{{count}} extensions could not be checked", { count: result.failed.length }), { description: result.failed.join(", ") })
+    if (result.busy) return
+    if (result.total === 0) toast.info(t("No user extensions to check"), { description: t("Only enabled extensions installed from a Git repository are checked; built-in ones update with the WebUI.") })
+    else if (result.failed.length > 0) toast.warning(t("{{count}} extensions could not be checked", { count: result.failed.length }), { description: result.failed.join(", ") })
     else if (result.checked > 0) toast.success(result.available > 0 ? t("{{count}} updates available", { count: result.available }) : t("Everything is up to date"))
   }
 
@@ -388,7 +390,7 @@ export function InstalledView() {
 
       {count > 0 ? (
         <div role="region" aria-label={t("Pending extension changes")} className="sticky bottom-3 z-10 flex justify-center">
-          <div className="flex w-full max-w-2xl flex-wrap items-center gap-2 rounded-xl border bg-popover/95 px-3 py-2 shadow-lg backdrop-blur animate-in fade-in slide-in-from-bottom-2">
+          <div data-toast-obstacle className="flex w-full max-w-2xl flex-wrap items-center gap-2 rounded-xl border bg-popover/95 px-3 py-2 shadow-lg backdrop-blur animate-in fade-in slide-in-from-bottom-2">
             <p className="min-w-0 flex-1 text-sm" aria-live="polite">
               {t("{{toggles}} switched, {{updates}} to update", { toggles: Object.keys(staged.enabled).length, updates: staged.update.length })}
             </p>

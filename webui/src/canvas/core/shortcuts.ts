@@ -120,4 +120,13 @@ export function isTyping(target: EventTarget | null): boolean {
   return Boolean(target.closest("[contenteditable=true], .cm-editor"))
 }
 
+/** Whether the pointer is over `element` (`:hover`; false where the selector is not supported). */
+export function isHovered(element: Element): boolean {
+  try {
+    return element.matches(":hover")
+  } catch {
+    return false
+  }
+}
+
 export const isMac = () => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent)

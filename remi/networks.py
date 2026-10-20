@@ -587,6 +587,13 @@ class ExtraPageProvider:
         return adapter
 
     def refresh(self) -> None:
+        # The page's file cache (``ExtraNetworksPage.lister``) is cleared on
+        # every refresh, as the Gradio UI did before each listing, so new
+        # previews and metadata files are seen
+        lister = getattr(self.page, "lister", None)
+        reset = getattr(lister, "reset", None)
+        if callable(reset):
+            reset()
         refresh = getattr(self.page, "refresh", None)
         if callable(refresh):
             refresh()

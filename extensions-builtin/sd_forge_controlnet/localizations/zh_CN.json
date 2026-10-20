@@ -68,7 +68,7 @@
   "e.g. training output directory": "例如训练输出目录",
   "Number of ControlNet Units": "ControlNet 单元数量",
   "Number of Models to Cache in Memory": "缓存到内存中的模型数量",
-  "Read ControlNet parameters from Infotext": "从 Infotext 读取 ControlNet 参数",
+  "Read ControlNet parameters from Infotext": "从生成信息读取 ControlNet 参数",
   "Do not append DetectMap to output Gallery": "不将检测图添加到输出图库",
   "Save DetectMap to disk": "将检测图保存到磁盘",
   "Directory to save DetectMap": "检测图的保存目录"

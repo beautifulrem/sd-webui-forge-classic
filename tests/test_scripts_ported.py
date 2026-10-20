@@ -32,11 +32,19 @@ def load(name):
 
 
 @pytest.fixture(scope="module")
-def webui():
+def webui(tmp_path_factory):
     with webui_state() as state:
-        from modules import modelloader
+        from modules import modelloader, shared
 
-        modelloader.load_upscalers()  # the snapshots list the built-in upscalers
+        # The snapshots list the built-in upscalers as recorded with no model in
+        # models/ESRGAN (its entry is then the "ESRGAN" download placeholder): list
+        # them against an empty folder, whatever is installed in the checkout
+        saved = shared.cmd_opts.esrgan_models_path
+        shared.cmd_opts.esrgan_models_path = str(tmp_path_factory.mktemp("ESRGAN"))
+        try:
+            modelloader.load_upscalers()
+        finally:
+            shared.cmd_opts.esrgan_models_path = saved
         yield state
 
 

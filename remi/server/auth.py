@@ -33,7 +33,7 @@ import re
 import secrets
 import threading
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -41,7 +41,7 @@ from typing import Any
 from starlette._utils import get_route_path
 from starlette.datastructures import Headers
 from starlette.requests import HTTPConnection
-from starlette.responses import HTMLResponse, JSONResponse, Response
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 COOKIE_NAME = "remi_session"
@@ -49,7 +49,9 @@ SESSION_SECONDS = 30 * 24 * 3600
 LOGIN_FAILURE_DELAY = 0.5
 
 PUBLIC_PATHS = ("/api/v2/auth/", "/internal/ping", "/favicon.svg", "/assets/")
-"""Reachable without a login (the login page needs its assets)."""
+"""Reachable without a login: the SPA shows its sign-in form with its own
+build files (``/assets``) and asks ``/api/v2/auth/status`` whether a login
+is needed."""
 
 GUARDED_PREFIXES = ("/api/v2", "/internal")
 """Host, cross-site and login checks apply here."""
@@ -425,7 +427,7 @@ def image_hosts(value: Any = None) -> list[str]:
 
 
 def html_headers(body: bytes) -> dict[str, str]:
-    """Headers of a page the server renders (SPA shell, login page): a CSP
+    """Headers of an HTML page the server sends (the SPA shell): a CSP
     that allows the page's own inline scripts by hash and nothing else
     inline, no plugins, no framing by other sites; network requests only to
     the server itself (``'self'`` covers its WebSocket) and the license
@@ -456,25 +458,35 @@ def html_headers(body: bytes) -> dict[str, str]:
 # endregion
 
 
-def login_page(root: str) -> bytes:
-    return LOGIN_PAGE.replace("{{root}}", json.dumps(root)[1:-1].replace("<", "\\u003c")).encode()
+LoginPage = Callable[[str], "Response | None"]
+"""The sign-in page for a browser page load without a login, given the root
+path: the SPA shell (:meth:`remi.server.spa.Spa.login_page`), which renders
+the form itself; None when there is none (``--nowebui``, SPA not built)."""
 
 
-async def refuse(scope: Scope, receive: Receive, send: Send, status: int, reason: str) -> None:
-    """Answer a refused request: a WebSocket close, the login page for a
-    browser page load, JSON otherwise."""
+def is_page_load(scope: Scope) -> bool:
+    """A browser navigation (``GET`` asking for HTML) outside the APIs."""
+
+    accept = Headers(scope=scope).get("accept") or ""
+    return scope.get("method") == "GET" and not route_path(scope).startswith((*GUARDED_PREFIXES, SDAPI_PREFIX)) and "text/html" in accept
+
+
+async def refuse(scope: Scope, receive: Receive, send: Send, status: int, reason: str, login_page: LoginPage | None = None) -> None:
+    """Answer a refused request: a WebSocket close; for a browser page load
+    without a login the SPA shell (``login_page``; the SPA asks for the
+    login, the server only answers JSON), else JSON. A 401 offers HTTP Basic
+    for API clients (``/internal``, ``/sdapi``, the docs) and for page loads
+    with no SPA to show, so a browser can still prompt for credentials."""
 
     if scope["type"] == "websocket":
         await send({"type": "websocket.close", "code": 1008, "reason": reason})
         return
     path = route_path(scope)
-    accept = Headers(scope=scope).get("accept") or ""
-    if status == 401 and scope.get("method") == "GET" and not path.startswith((*GUARDED_PREFIXES, SDAPI_PREFIX)) and "text/html" in accept:
-        body = login_page(scope.get("root_path", ""))
-        response: Response = HTMLResponse(body, status_code=401, headers={**html_headers(body), "Cache-Control": "no-store"})
-    else:
-        headers = {"WWW-Authenticate": 'Basic realm="Remi"'} if status == 401 and path.startswith(("/internal", SDAPI_PREFIX, *DOCS_PATHS)) else None
-        response = JSONResponse({"detail": reason}, status_code=status, headers=headers)
+    page_load = status == 401 and is_page_load(scope)
+    response = login_page(scope.get("root_path", "")) if page_load and login_page is not None else None
+    if response is None:
+        basic = status == 401 and (page_load or path.startswith(("/internal", SDAPI_PREFIX, *DOCS_PATHS)))
+        response = JSONResponse({"detail": reason}, status_code=status, headers={"WWW-Authenticate": 'Basic realm="Remi"'} if basic else None)
     await response(scope, receive, send)
 
 
@@ -484,11 +496,14 @@ class SecurityMiddleware:
     handshakes); host and cross-site checks plus their own login for
     ``/sdapi`` (:func:`sdapi_refusal`). Extension routes elsewhere keep
     ``extension_route_guard``; the SPA shell checks the login itself
-    (:mod:`remi.server.spa`). Adds :data:`BASE_HEADERS` to every response."""
+    (:mod:`remi.server.spa`). ``login_page``: what a browser loading the API
+    docs without a login gets (:func:`refuse`). Adds :data:`BASE_HEADERS` to
+    every response."""
 
-    def __init__(self, app: ASGIApp, auth: Auth) -> None:
+    def __init__(self, app: ASGIApp, auth: Auth, login_page: LoginPage | None = None) -> None:
         self.app = app
         self.auth = auth
+        self.login_page = login_page
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] not in ("http", "websocket"):
@@ -512,7 +527,7 @@ class SecurityMiddleware:
             await send(message)
 
         if refused is not None:
-            await refuse(scope, receive, send_with_headers, *refused)
+            await refuse(scope, receive, send_with_headers, *refused, login_page=self.login_page)
             return
         await self.app(scope, receive, send_with_headers if scope["type"] == "http" else send)
 
@@ -525,42 +540,3 @@ def _cross_site(scope: Scope, conn: HTTPConnection) -> bool:
         headers = conn.headers
 
     return guard.is_cross_site(_Request)
-
-
-LOGIN_PAGE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Remi WebUI · Sign in</title>
-<style>
-:root{color-scheme:dark light;font-family:system-ui,sans-serif}
-body{margin:0;min-height:100vh;display:grid;place-items:center;background:#111317;color:#e8e9ec}
-@media (prefers-color-scheme:light){body{background:#f4f5f7;color:#16181d}form{background:#fff!important}}
-form{display:grid;gap:.75rem;padding:2rem;border-radius:.75rem;background:#1b1e24;min-width:18rem;box-shadow:0 8px 30px #0004}
-h1{margin:0 0 .5rem;font-size:1.25rem}
-label{display:grid;gap:.3rem;font-size:.9rem}
-input{font:inherit;padding:.55rem .7rem;border-radius:.45rem;border:1px solid #8884;background:transparent;color:inherit}
-button{font:inherit;padding:.6rem;border:0;border-radius:.45rem;background:#6d5efc;color:#fff;cursor:pointer}
-p{margin:0;min-height:1.2em;color:#ff7a7a;font-size:.9rem}
-</style></head>
-<body><form id="f"><h1>Remi WebUI</h1>
-<label><span data-t="user">Username</span><input name="username" autocomplete="username" required autofocus></label>
-<label><span data-t="password">Password</span><input name="password" type="password" autocomplete="current-password" required></label>
-<button data-t="submit">Sign in</button><p id="e" role="alert"></p></form>
-<script>
-const zh = /^zh\b/i.test(navigator.language)
-const text = zh
-  ? {title: "Remi WebUI · 登录", user: "用户名", password: "密码", submit: "登录", wrong: "用户名或密码错误。", throttled: "尝试次数过多，请稍等一分钟。"}
-  : {title: "Remi WebUI · Sign in", user: "Username", password: "Password", submit: "Sign in", wrong: "Wrong username or password.", throttled: "Too many attempts, wait a minute."}
-if (zh) {
-  document.documentElement.lang = "zh-CN"
-  document.title = text.title
-  for (const node of document.querySelectorAll("[data-t]")) node.textContent = text[node.dataset.t]
-}
-document.getElementById("f").addEventListener("submit", async (event) => {
-  event.preventDefault()
-  const data = Object.fromEntries(new FormData(event.target))
-  const response = await fetch("{{root}}/api/v2/auth/login", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)})
-  if (response.ok) location.reload()
-  else document.getElementById("e").textContent = response.status === 429 ? text.throttled : text.wrong
-})
-</script></body></html>
-"""

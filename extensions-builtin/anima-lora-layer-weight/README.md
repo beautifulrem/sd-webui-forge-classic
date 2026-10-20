@@ -15,7 +15,7 @@ Anima LoRA/LoKR Layer Weight is a Forge/WebUI extension for controlling Anima Lo
 - Named presets and an **Apply preset to prompt** button.
 - Automatic cache invalidation when the active weight signature changes.
 - The infotext records the panel settings a generation used, and pasting an image's parameters restores them (see Infotext And Pasting).
-- Settings-page UI language switch: `zh` and `en`.
+- Panel text in English or Chinese, following the WebUI's language (see Settings of the old extension).
 
 ## Usage
 
@@ -66,9 +66,17 @@ Inline prompt syntax:
 
 These are practical defaults rather than strict rules. Different training sets may shift the best ranges.
 
-## Language Setting
+## Settings of the old extension
 
-Open **Settings**, find **Anima LoRA Layer Weight**, and select `zh` or `en`. Reload UI after changing it.
+### Not carried over
+
+This setting of the old extension has no equivalent, for the reason given
+(`tests/test_remi_extension_settings.py` checks that every old setting is either a
+setting here or a row of this table):
+
+| Setting | Why |
+|---|---|
+| `anima_lora_layer_weight_language` | The panel's own language radio (`zh` / `en`, default `zh`, applied on Reload UI). The panel now follows the WebUI's language like every other panel: pick English or 简体中文 in the header (Appearance → Language), which switches without a reload; the setting *Language* (`localization`) is the default for browsers that have not picked one. Its Chinese texts are in `localizations/zh_CN.json`, and infotext pastes between the two languages. |
 
 ## Notes
 

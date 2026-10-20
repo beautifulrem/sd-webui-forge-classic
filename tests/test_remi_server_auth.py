@@ -77,9 +77,33 @@ def test_rest_needs_a_login(locked):
     assert locked.client.post("/internal/progress", json={"id_task": "x"}).status_code == 401
 
 
-def test_the_shell_shows_a_login_page(locked):
+def test_a_page_load_without_a_login_gets_the_spa_shell(webui, tmp_path):
+    # the SPA renders the sign-in form (it asks /api/v2/auth/status); the
+    # server renders no HTML UI of its own
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text('<!doctype html><html><head><title>Remi WebUI</title></head><body><div id="root"></div></body></html>')
+    with server_app(tmp_path / "data", auth=Auth({"ann": "s3cret"}, b"k" * 32), spa_dir=dist) as server:
+        client = server.client
+        for path in ("/", "/gallery", "/docs"):
+            page = client.get(path, headers={"Accept": "text/html"})
+            assert page.status_code == 401 and '<div id="root">' in page.text and "__REMI_ROOT__" in page.text, path
+            assert page.headers["cache-control"] == "no-store" and "www-authenticate" not in page.headers, path
+        assert client.get("/api/v2/auth/status").json() == {"required": True, "user": None}
+        # not a page load: JSON, never the shell
+        for path, headers in (("/", {"Accept": "application/json"}), ("/api/v2/queue", {"Accept": "text/html"})):
+            response = client.get(path, headers=headers)
+            assert response.status_code == 401 and response.json() == {"detail": "Not authenticated"}, path
+        client.post("/api/v2/auth/login", json={"username": "ann", "password": "s3cret"})
+        assert client.get("/", headers={"Accept": "text/html"}).status_code == 200
+        assert client.get("/docs", headers={"Accept": "text/html"}).status_code != 401  # (503 here: no docs viewer in this build)
+
+
+def test_without_a_built_spa_a_page_load_offers_basic_auth(locked):
     page = locked.client.get("/", headers={"Accept": "text/html"})
-    assert page.status_code == 401 and "Sign in" in page.text and "/api/v2/auth/login" in page.text
+    assert page.status_code == 401 and page.json() == {"detail": "Not authenticated"}
+    assert page.headers["www-authenticate"] == 'Basic realm="Remi"'
+    assert locked.client.get("/", headers={"Accept": "text/html", **basic("ann", "s3cret")}).status_code == 503  # "not built" page
 
 
 def test_login_sets_a_session_cookie_and_logout_clears_it(locked):
@@ -137,7 +161,10 @@ def test_the_api_docs_need_a_login(locked):
     for path in ("/docs", "/redoc", "/openapi.json"):
         assert locked.client.get(path).status_code == 401, path
     assert locked.client.get("/openapi.json", headers=basic("ann", "s3cret")).status_code == 200
-    assert "<label>" in locked.client.get("/docs", headers={"Accept": "text/html"}).text  # the login page
+    # a browser gets the SPA shell (its sign-in form) when the SPA is built
+    # (test_a_page_load_without_a_login_gets_the_spa_shell), else a Basic prompt
+    page = locked.client.get("/docs", headers={"Accept": "text/html"})
+    assert page.status_code == 401 and page.headers["www-authenticate"] == 'Basic realm="Remi"'
 
 
 def test_http_basic_works_for_api_clients(locked):

@@ -352,7 +352,7 @@ were skipped, and the processing's `p.comment()` notes — e.g. a feature
 skipped on this device — also kept on the job),
 `job.failed{job_id, seq, tab, status, error, errors?}`, `queue.changed{size,
 paused, running}`, `options.changed{keys}`, `networks.changed{kind}`,
-`outputs.changed{ids}` (gallery stars / removals), `toast`,
+`outputs.changed{ids}` (gallery stars / removals),
 `model.loading{stage, model}`, `model.loaded{model, error?}`, `pong`,
 `resync{dropped}` (the client's queue overflowed: the backlog is replaced by a
 fresh snapshot, `queue.changed` and the running job; the client refetches
@@ -408,7 +408,8 @@ client has a bounded event queue and one preview slot.
   older than `remi_upload_retention_days` and indexes the output folders.
 - Auth: `--auth user:pass[,…]` / `--auth-file`. With logins, `/api/v2`, `/internal`, the WebSocket,
   files and the SPA need the signed session cookie (`POST /auth/login`;
-  the shell shows a built-in login page) or HTTP Basic. `/api/v2` and
+  a page load without it gets the SPA shell with status 401 and the SPA
+  shows its own sign-in form: the server renders no login page) or HTTP Basic. `/api/v2` and
   `/internal` refuse rebound `Host`s and cross-site writes/WebSocket
   handshakes (`extension_route_guard`, whose bind address is
   `remi.server.launch.bind_host`, also under `--nowebui`); `/docs`, `/redoc`
@@ -552,7 +553,15 @@ txt2img / img2img / Extras / PNG Info, the `call_queue.wrap_gradio_*`
 wrappers and `progress.restore_progress`, the paste / "Send to" wiring of
 `infotext_utils` (`PasteField`, `ParamBinding`, `connect_paste*`),
 `main_entry`'s model bar (`make_checkpoint_manager_ui`, `forge_main_entry`,
-`on_preset_change`, `on_refresh_checkpoint`), the Gradio exclusive-group
+`on_preset_change`, `on_refresh_checkpoint`), the helpers only the deleted
+UI called (`sd_models.list_loaded_weights` of Settings' "List all models",
+`scripts.reload_script_body_only` / `ScriptRunner.reload_sources` of
+"Reload script bodies", `scripts.list_files_with_name`, which found the
+`javascript/` and `style.css` files to inject, and
+`MassFileLister.update_file_entry` of the metadata editor; the Networks
+refresh clears an extension page's `lister` instead), the server-side login page
+(the SPA signs in itself), the WebSocket `toast` event (never sent; toasts
+come in action patches as `__toast__`), the Gradio exclusive-group
 wiring of `anima_feature_conflicts`, the Gradio preset-control registry of
 `anima_presets` and `anima_support.register_table_fields`, the settings
 `gradio_theme`, `gradio_themes_cache`, `show_gradio_deprecation_warnings`
@@ -578,6 +587,7 @@ Kept, each for a non-UI reason:
 | `modules_forge/main_entry.py` | model selection state and changes (`checkpoint_change`, `modules_change`, `dtype_change`, `refresh_model_loading_parameters`) used by processing, Hires. fix, the refiner, X/Y/Z and the server |
 | `modules/extras.py` `run_modelmerger` | the checkpoint merge itself, run by the Checkpoint Merger page (`remi/core/merger.py`, registered by `scripts/checkpoint_merger.py`) as a page task with `progress=`; returns its status message |
 | `html/licenses.html` | read by `GET /api/v2/licenses` |
+| HTML the server writes itself: the "not built" notice (`remi/server/spa.py` `NOT_BUILT`) and the API docs pages (`/docs`, `/redoc`, `remi/server/api_docs.py`) | no UI: the notice is static text for when there is no SPA to show anything (`pnpm build`), the docs pages are FastAPI's viewers of the API description. Everything a user works with, signing in included, is the SPA; a page load without a login gets the SPA shell with status 401 |
 | `modules/util.plaintext_to_html` | the A1111 `/sdapi/v1/extra-single-image` and `extra-batch-images` responses carry `html_info` (HTML) for API compatibility; Remi's own API and UI get plain infotext (`run_extras_named`) |
 | `OptionInfo.js()`, `OptionInfo(comment_before=, comment_after=)`, `OptionInfo.html()` | A1111 extension API: the two arguments and `.html()` become the setting's `html` help (for third-party options; Remi's own options use `.info()`, `.link()`, `.choice_info()` and `default_order`), `.js()` is ignored |
 | `util.open_folder`, `ScriptRunner.set_named_arg` | A1111 helpers extensions call; Gradio-free now (`set_named_arg` takes param names) |
@@ -592,4 +602,10 @@ server, a script or the SPA (`CLIENT_OPTION_DEFAULTS`, sent in the bootstrap
 colour, gallery height, …) were removed — frontend.md ("Gradio-era settings
 that were removed") lists each with the SPA control that replaces it;
 `tests/test_remi_option_consumers.py` fails when a setting has no reader (its `KEPT` list, empty today, would name
-any setting kept on purpose with its reason).
+any setting kept on purpose with its reason). The settings the built-in extensions and scripts registered
+before the rewrite (105, recorded from the revision the rewrite starts from, `d5a71cad`, by `tools/record_legacy_settings.py` into
+`tests/fixtures/legacy_ui/extension_settings.json`) are each still a setting after a real startup, or a row
+of the "Not carried over" table in the extension's README with its reason (and named in its Chinese README):
+`tests/test_remi_extension_settings.py`. The 27 not carried over are 17 of tagcomplete's (completion runs on
+the server's index), 6 of agent-scheduler's (the Queue page's own controls), Prompt All-in-One's CivitAI key
+and the Anima panels' three `*_language` radios (the panels follow the WebUI's language).

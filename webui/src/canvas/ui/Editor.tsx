@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { showToast } from "@/lib/toast"
 import { cn } from "@/lib/utils"
-import { imageFiles, previewUrlOf, uploadFile, useUploadInfo } from "@/ui/uploads"
+import { describeFile, imageFiles, previewUrlOf, uploadFile, useUploadInfo } from "@/ui/uploads"
 import type { LayerKind } from "../core/modes"
 import { getDocument, loadImage } from "../engine/registry"
 import type { ImageEditorProps } from "../types"
@@ -69,7 +69,10 @@ export default function Editor(props: ImageEditorProps) {
       .then((image) => {
         if (cancelled) return
         setFailed(null)
-        doc.setBackground(image, { width: image.naturalWidth, height: image.naturalHeight }, id)
+        const size = { width: image.naturalWidth, height: image.naturalHeight }
+        // Helpers that need the source size (the "Resize by" result size) need not read it again.
+        describeFile(id, size)
+        doc.setBackground(image, size, id)
       })
       .catch((error) => {
         if (cancelled) return

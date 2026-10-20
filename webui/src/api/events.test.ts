@@ -4,7 +4,7 @@ import { normalizeEvent } from "./events"
 describe("normalizeEvent", () => {
   it("accepts flat and enveloped events", () => {
     expect(normalizeEvent({ type: "job.progress", job_id: "j", step: 1, steps: 4 })).toEqual({ type: "job.progress", job_id: "j", step: 1, steps: 4 })
-    expect(normalizeEvent({ type: "toast", data: { message: "hi", level: "info" } })).toEqual({ type: "toast", message: "hi", level: "info" })
+    expect(normalizeEvent({ type: "model.loading", data: { stage: "loading", model: "m" } })).toEqual({ type: "model.loading", stage: "loading", model: "m" })
   })
 
   it("rejects unknown types and events missing required fields", () => {
@@ -12,7 +12,9 @@ describe("normalizeEvent", () => {
     expect(normalizeEvent({ type: "job.progress", job_id: "j", step: "1", steps: 4 })).toBeNull()
     expect(normalizeEvent({ type: "job.started" })).toBeNull()
     expect(normalizeEvent({ type: "hello", features: "all" })).toBeNull()
-    expect(normalizeEvent({ type: "toast" })).toBeNull()
+    expect(normalizeEvent({ type: "model.loading" })).toBeNull()
+    // The server never sends toasts over the socket (they come in action patches).
+    expect(normalizeEvent({ type: "toast", message: "hi" })).toBeNull()
     expect(normalizeEvent("text")).toBeNull()
   })
 

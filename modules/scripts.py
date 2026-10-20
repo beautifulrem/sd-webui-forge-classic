@@ -432,22 +432,6 @@ def list_scripts(scriptdirname, extension, *, include_extensions=True):
     return scripts_list
 
 
-def list_files_with_name(filename):
-    res = []
-
-    dirs = [paths.script_path] + [ext.path for ext in extensions.active()]
-
-    for dirpath in dirs:
-        if not os.path.isdir(dirpath):
-            continue
-
-        path = os.path.join(dirpath, filename)
-        if os.path.isfile(path):
-            res.append(path)
-
-    return res
-
-
 def load_scripts():
     global current_basedir
     scripts_data.clear()
@@ -1085,27 +1069,6 @@ class ScriptRunner:
     def script(self, title):
         return self.title_map.get(title.lower())
 
-    def reload_sources(self, cache):
-        for si, script in list(enumerate(self.scripts)):
-            args_from = script.args_from
-            args_to = script.args_to
-            filename = script.filename
-
-            module = cache.get(filename, None)
-            if module is None:
-                module = script_loading.load_module(script.filename)
-                cache[filename] = module
-
-            for script_class in module.__dict__.values():
-                if type(script_class) == type and issubclass(script_class, Script):
-                    self.scripts[si] = script_class()
-                    self.scripts[si].filename = filename
-                    self.scripts[si].args_from = args_from
-                    self.scripts[si].args_to = args_to
-                    # Body-only reload: the parameter model is kept as it was
-                    self.scripts[si].script_id = script.script_id
-                    self.scripts[si].layout = script.layout
-
     def before_hr(self, p):
         for script in self.ordered_scripts("before_hr"):
             try:
@@ -1153,12 +1116,6 @@ class ScriptRunner:
 scripts_txt2img: ScriptRunner = None
 scripts_img2img: ScriptRunner = None
 scripts_postproc: scripts_postprocessing.ScriptPostprocessingRunner = None
-
-
-def reload_script_body_only():
-    cache = {}
-    scripts_txt2img.reload_sources(cache)
-    scripts_img2img.reload_sources(cache)
 
 
 reload_scripts = load_scripts  # compatibility alias

@@ -131,6 +131,47 @@ describe("img2img source panel (real schema)", { timeout: 30_000 }, () => {
     rememberImageSize("src-1", null)
   })
 
+  it("shows the Resize by size of a sent result from its output metadata, without reading the image", async () => {
+    const step = (store().getState().index.inputs.get("core")?.get("width") as { step: number } | undefined)?.step ?? 8
+    const snap = (v: number) => Math.floor(v / step + 0.5) * step
+    const images = vi.spyOn(globalThis, "Image")
+    store().getState().setValues("core", { resize_tab: "Resize by", scale_by: 1.5 })
+    renderPanel()
+    // As "Send to img2img" from a result (an output id, not an upload of this tab) does.
+    const { sendTo } = await import("@/features/send-to/send-to")
+    await act(() => sendTo("img2img", { fileId: "out-sent", width: 832, height: 1216 }, {}))
+    expect(core().init_img).toBe("out-sent")
+    expect(store().getState().outputs.core?.scale_by_resolution).toBe(`Resize from 832×1216 to ${snap(1248)}×${snap(1824)}`)
+    expect(images).not.toHaveBeenCalled()
+  })
+
+  it("reads the size of a source without metadata once, for every reader, even when the first one unmounts", async () => {
+    const loads: { src: string; onload: (() => void) | null }[] = []
+    class FakeImage {
+      naturalWidth = 640
+      naturalHeight = 480
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      set src(value: string) {
+        loads.push({ src: value, onload: () => this.onload?.() })
+      }
+    }
+    vi.stubGlobal("Image", FakeImage)
+    try {
+      store().getState().setValues("core", { init_img: "out-unknown", resize_tab: "Resize by", scale_by: 2 })
+      const first = renderPanel()
+      first.unmount()
+      renderPanel()
+      expect(loads).toHaveLength(1)
+      expect(loads[0]?.src).toContain("/files/out-unknown")
+      act(() => loads[0]?.onload?.())
+      expect(store().getState().outputs.core?.scale_by_resolution).toMatch(/^Resize from 640×480 to /)
+    } finally {
+      vi.unstubAllGlobals()
+      rememberImageSize("out-unknown", null)
+    }
+  })
+
   it("shows the server's message for a missing mask", () => {
     store().getState().setValues("core", { mode: "Inpaint", init_img: "img-1" })
     store().getState().setErrors([{ owner: "core", param: "mask", message: "paint a mask over the image" }])

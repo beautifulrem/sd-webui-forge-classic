@@ -3,9 +3,9 @@
   "Method": "方法",
   "MultiDiffusion": "MultiDiffusion",
   "Mixture of Diffusers": "Mixture of Diffusers",
-  "Tile Width": "Tile 宽度",
+  "Tile Width": "分块宽度",
   "Use source image size": "使用源图像尺寸",
-  "Tile Height": "Tile 高度",
-  "Tile Batch Size": "Tile Batch 大小",
+  "Tile Height": "分块高度",
+  "Tile Batch Size": "分块批次大小",
   "Add a source image to read its size": "请先添加源图像以读取其尺寸"
 }

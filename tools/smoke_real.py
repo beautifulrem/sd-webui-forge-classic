@@ -3,6 +3,7 @@
     python tools/smoke_real.py      # an interpreter with requirements.txt and without Gradio
     python tools/smoke_real.py --port 7879 --out /tmp/remi-smoke --keep-data
     python tools/smoke_real.py --features   # also the LoRA features, Sparse Attention and paste round-trips
+    python tools/smoke_real.py --models     # also Extras with ESRGAN, ControlNet and ADetailer (installed models)
 
 What it does (one model load, about three minutes on an M4 with Anima Turbo):
 
@@ -24,10 +25,16 @@ What it does (one model load, about three minutes on an M4 with Anima Turbo):
    half stays the source, the right half changes).
 5. Extras: Lanczos upscale by 1.5 (the size and the content follow the source).
 6. With ``--features``: the Anima features that need LoRA files, against two tiny test LoRAs
-   generated for the checkpoint into the temporary data folder (``tools/anima_test_loras.py``,
-   passed as ``--lora-dir``), at 512x512 with a fixed seed:
+   and a test LoKr generated for the checkpoint into the temporary data folder
+   (``tools/anima_test_loras.py``, passed as ``--lora-dir``), at 512x512 with a fixed seed:
 
-   - a LoRA changes the image; LoRA Layer Weight at block weight 0 undoes it; LoRA Stage
+   - a LoRA changes the image; LoRA Layer Weight at block weight 0 undoes it;
+   - the LoKr changes the image; LoRA Layer Weight's LoKR tab at ``all=1`` gives the image of
+     ``<lora:remi-test-lokr:1>`` and at ``all=0`` that of ``<lora:remi-test-lokr:0>``
+     (pixel-identical, whatever the tag's own weight), a block range at 0 a third image (and
+     its paste regenerates it), with the ``Anima LoRA layer lokr ...`` infotext keys; the LoRA
+     tab leaves the LoKr alone;
+   - LoRA Stage
      Scheduler changes it; Anima FreeFuse routes the two subject LoRAs (infotext
      ``Anima FreeFuse: 2 subjects ...``, no ``error:``) - each with its infotext keys;
    - Sparse Attention: on a CUDA GPU with sol_attn its infotext; elsewhere a job warning
@@ -45,7 +52,28 @@ What it does (one model load, about three minutes on an M4 with Anima Turbo):
      Shift's Automatic schedule, the Anima Hires Guard's clamp) record the replacement, and
      their paste restores the request, so the pasted job writes the same infotext.
 
-7. Stops the server (Ctrl+C, then terminate) and prints a result table; exit 1 when a check
+7. With ``--models``: the features that need model files, with the ones installed in
+   ``models/`` (a missing one fails its check; nothing is downloaded), on the baseline request:
+
+   - Extras with the ESRGAN model in ``models/ESRGAN`` (an anime one first) at 2x: the size,
+     the content follows the source, the result is not a plain Lanczos resize (a model that
+     fails to load leaves one), and the info records ``Postprocess upscaler: <name>``;
+   - ControlNet through ``/sdapi/v1/txt2img`` ``alwayson_scripts``: the
+     ``lineart_standard`` preprocessor and the lineart model in ``models/ControlNet`` on a
+     generated line drawing; the infotext's ``ControlNet 0`` records both, the image changes
+     and its edges follow the drawing (higher correlation than without ControlNet);
+   - ADetailer with ``models/adetailer/face_yolov8n.pt`` through ``/api/v2/jobs``: the face
+     the detector finds in the baseline image (the first pass) is redone, everything farther
+     than 32 px from its box stays the same, the infotext records ``ADetailer model`` and the
+     paste regenerates the image.
+
+8. With ``--browser``: the SPA's ``@real`` Playwright tests in Chromium against this server
+   (``tools/smoke_browser.py``; build the SPA first): the screen wake lock while generating,
+   the notification permission prompt, the notification and sound when images are ready in
+   the background, gamepad navigation and the live preview in the viewer, the extensions'
+   "Check for updates" feedback - one row per test.
+
+9. Stops the server (Ctrl+C, then terminate) and prints a result table; exit 1 when a check
    failed, 2 when the server could not be started.
 
 Baseline: ``--baseline`` folder, by default the committed pre-rewrite fixture
@@ -94,7 +122,7 @@ class Report:
     def failed(self) -> int:
         return sum(not ok for _, ok, _ in self.rows)
 
-    def document(self, python: str, gradio: list[str], features: bool) -> dict:
+    def document(self, python: str, gradio: list[str], features: bool, models: bool = False) -> dict:
         """The run as committable evidence (``--report``): what ran, on which revision, and each check."""
 
         def git(*args: str) -> str:
@@ -113,6 +141,7 @@ class Report:
             "server_python_gradio_modules": gradio,
             "model": MODEL,
             "features": features,
+            "models": models,
             "passed": not self.failed,
             "checks": [{"name": name, "ok": ok, "detail": detail} for name, ok, detail in self.rows],
         }
@@ -396,6 +425,56 @@ def check_round_trip(server: Server, report: Report, name: str, tab: str, image,
     report.check(f"{name}: paste regenerates it", mean == 0 and not delta and (same_bytes or not exact), f"mean {mean:.4f}, max {peak}; " + ("; ".join(delta)[:300] or ("byte-identical infotext" if same_bytes else "same infotext values, different bytes")))
 
 
+def lokr_tab(block_weights: str) -> dict:
+    """The LoRA Layer Weight LoKR tab's values, enabled with ``block_weights``."""
+
+    return {"lokr_enabled": True, "lokr_block_enabled": True, "lokr_block_weights": block_weights}
+
+
+def run_lokr_features(server: Server, report: Report, generate, layer: str, untagged) -> None:
+    """LoRA Layer Weight's LoKR tab against the test LoKr (``tools/anima_test_loras.py``):
+    the tab rewrites the tag to 1.0 and weights the patches, so block weight ``all=1``
+    must give the image of the plain tag at 1 and ``all=0`` that of the tag at 0
+    (pixel-identical), part of the blocks at 0 a third image, and the LoRA tab must
+    leave a LoKr alone."""
+
+    from anima_test_loras import LOKR_NAME
+
+    def tagged(weight: str) -> str:
+        return f"{FEATURE_PROMPT}, <lora:{LOKR_NAME}:{weight}>"
+
+    _, at_one, one_info = generate("lokr", tagged("1"))
+    _, at_zero, _ = generate("lokr_weight_0", tagged("0"))
+    if at_one is None or at_zero is None:
+        return
+    effect, _ = diff(at_one, untagged)
+    zero_effect, _ = diff(at_zero, untagged)
+    report.check("LoKr changes the image", effect > 1.0 and LOKR_NAME in one_info, f"mean diff to no LoKr {effect:.2f} (the tag at 0: {zero_effect:.3f})")
+
+    # The tag's own weight is ignored under the tab: 0.3 with all=1 is the tag at 1
+    _, full, info = generate("lokr_layer_weight_1", tagged("0.3"), {layer: lokr_tab("all=1.0")})
+    if full is not None:
+        mean, peak = diff(full, at_one)
+        report.check("LoKR tab all=1 == <lora:lokr:1>", mean == 0 and peak == 0, f"mean {mean:.4f}, max {peak}")
+        report.check("LoKR tab infotext", "Anima LoRA layer lokr enabled: True" in info and "Anima LoRA layer lokr blocks: all=1.0" in info, info.splitlines()[-1][:300])
+    _, zeroed, info = generate("lokr_layer_weight_0", tagged("1"), {layer: lokr_tab("all=0")})
+    if zeroed is not None:
+        mean, peak = diff(zeroed, at_zero)
+        report.check("LoKR tab all=0 == <lora:lokr:0>", mean == 0 and peak == 0, f"mean {mean:.4f}, max {peak}")
+        report.check("LoKR tab all=0 infotext", "Anima LoRA layer lokr blocks: all=0" in info, info.splitlines()[-1][:300])
+    _, part, info = generate("lokr_layer_weight_blocks", tagged("1"), {layer: lokr_tab("0-13=0")})
+    if part is not None:
+        to_one, _ = diff(part, at_one)
+        to_zero, _ = diff(part, at_zero)
+        report.check("LoKR tab block range changes part of the effect", to_one > 0.2 and to_zero > 0.2, f"mean diff to the tag at 1 {to_one:.2f}, at 0 {to_zero:.2f}")
+        check_round_trip(server, report, "LoKR tab", "txt2img", part, info)
+    # The LoRA tab controls LoRAs only
+    _, other_tab, _ = generate("lokr_under_lora_tab", tagged("1"), {layer: {"lora_enabled": True, "lora_block_enabled": True, "lora_block_weights": "all=0"}})
+    if other_tab is not None:
+        mean, peak = diff(other_tab, at_one)
+        report.check("LoRA tab leaves a LoKr alone", mean == 0 and peak == 0, f"mean {mean:.4f}, max {peak}")
+
+
 def run_features(server: Server, out: Path, report: Report, base_values: dict) -> None:
     """The feature checks (see the module docstring, step 6)."""
 
@@ -438,6 +517,8 @@ def run_features(server: Server, out: Path, report: Report, base_values: dict) -
         report.check("Layer Weight 0 removes the LoRA's effect", to_plain == 0 and peak == 0, f"mean diff to no LoRA {to_plain:.3f}, max {peak} (the LoRA: {lora_effect:.2f})")
         report.check("Layer Weight infotext", "Anima LoRA layer lora enabled: True" in info and "Anima LoRA layer lora blocks: " in info, info.splitlines()[-1][:300])
         check_round_trip(server, report, "Layer Weight", "txt2img", zeroed, info)
+
+    run_lokr_features(server, report, generate, layer, untagged)
 
     # LoRA Stage Scheduler (default template and auto timing)
     _, staged, info = generate("stage_scheduler", lora, {stage: {"enabled": True}})
@@ -545,6 +626,178 @@ def run_features(server: Server, out: Path, report: Report, base_values: dict) -
 
 # endregion
 
+# region Models (--models)
+
+CONTROLNET_MODULE = "lineart_standard (from white bg & black line)"
+ADETAILER_MODEL = "face_yolov8n.pt"
+
+
+def pick_upscaler(upscalers: list[dict], folder: Path) -> dict | None:
+    """The ``/sdapi/v1/upscalers`` entry of a model file installed in ``folder`` (an anime
+    model first); never one with a download URL (no network calls in a smoke run)."""
+
+    local = [entry for entry in upscalers if (path := str(entry.get("model_path") or "")) and not path.startswith(("http://", "https://")) and Path(path).is_file() and os.path.abspath(Path(path).parent) == os.path.abspath(folder)]
+    return next((entry for entry in local if "anime" in entry["name"].lower()), local[0] if local else None)
+
+
+def pick_model(names: list[str], word: str) -> str | None:
+    """The first of ``names`` containing ``word`` (case-insensitive), else the first real one."""
+
+    real = [name for name in names if name and name != "None"]
+    return next((name for name in real if word in name.lower()), real[0] if real else None)
+
+
+def control_drawing(size: tuple[int, int]):
+    """A deterministic black-on-white line drawing (a circle, a triangle, a frame and
+    stripes): the ControlNet input, far from the baseline image's own lines."""
+
+    from PIL import Image, ImageDraw
+
+    width, height = size
+    image = Image.new("RGB", size, "white")
+    draw = ImageDraw.Draw(image)
+    line = max(4, width // 128)
+    draw.ellipse((width * 0.18, height * 0.12, width * 0.62, height * 0.56), outline="black", width=line)
+    draw.polygon([(width * 0.55, height * 0.9), (width * 0.92, height * 0.9), (width * 0.74, height * 0.52)], outline="black", width=line)
+    draw.rectangle((width * 0.06, height * 0.06, width * 0.94, height * 0.94), outline="black", width=line)
+    for index in range(4):
+        y = height * (0.66 + index * 0.07)
+        draw.line((width * 0.1, y, width * 0.45, y), fill="black", width=line)
+    return image
+
+
+def line_correlation(image, drawing, side: int = 256) -> float:
+    """Pearson correlation between ``image``'s edge strength and the lines of the black-on-white
+    ``drawing`` (both at ``side`` x ``side``): how closely the image follows the drawing."""
+
+    import numpy as np
+    from PIL import ImageFilter, ImageOps
+
+    # FIND_EDGES marks the image border: left out
+    inner = (4, 4, image.width - 4, image.height - 4)
+    lines = ImageOps.invert(drawing.convert("L")).filter(ImageFilter.MaxFilter(5)).crop(inner).resize((side, side))
+    edges = image.convert("L").filter(ImageFilter.FIND_EDGES).crop(inner).filter(ImageFilter.GaussianBlur(2)).resize((side, side))
+    a = np.asarray(lines, dtype=np.float64).ravel()
+    b = np.asarray(edges, dtype=np.float64).ravel()
+    if a.std() == 0 or b.std() == 0:
+        return 0.0
+    return float(np.corrcoef(a, b)[0, 1])
+
+
+def region_diffs(image, reference, box: tuple[float, float, float, float], margin: int) -> tuple[float, float, int]:
+    """The mean per-pixel difference (largest of R, G, B) inside ``box`` (x1, y1, x2, y2),
+    and the mean and max difference farther than ``margin`` px from it: a detailer pass on
+    that box changes the first, never the others."""
+
+    import numpy as np
+
+    x = np.asarray(image.convert("RGB"), dtype=np.int16)
+    y = np.asarray(reference.convert("RGB"), dtype=np.int16)
+    if x.shape != y.shape:
+        return float("inf"), float("inf"), 255
+    delta = np.abs(x - y).max(axis=2)
+    height, width = delta.shape
+    x1, y1, x2, y2 = (round(value) for value in box)
+    inside = delta[max(0, y1) : min(height, y2), max(0, x1) : min(width, x2)]
+    near = np.zeros_like(delta, dtype=bool)
+    near[max(0, y1 - margin) : min(height, y2 + margin), max(0, x1 - margin) : min(width, x2 + margin)] = True
+    outside = delta[~near]
+    return float(inside.mean()) if inside.size else 0.0, float(outside.mean()) if outside.size else 0.0, int(outside.max()) if outside.size else 0
+
+
+def detect_faces(model: Path, image) -> list[tuple[float, float, float, float]]:
+    """The face boxes ADetailer's detector finds in ``image`` (run here, on the CPU, with
+    ultralytics offline), each (x1, y1, x2, y2)."""
+
+    os.environ.setdefault("YOLO_OFFLINE", "1")
+    from ultralytics import YOLO
+
+    result = YOLO(str(model))(image.convert("RGB"), conf=0.3, device="cpu", imgsz=640, verbose=False)[0]
+    return [tuple(float(value) for value in box) for box in result.boxes.xyxy.tolist()]
+
+
+def run_models(server: Server, baseline_dir: Path, out: Path, report: Report, base_values: dict) -> None:
+    """Step 7: Extras with a neural upscaler, ControlNet with a preprocessor and a model, and
+    ADetailer, each with the model files installed in ``models/`` (see the module docstring)."""
+
+    from PIL import Image
+
+    _, _, image_path = load_baseline(baseline_dir)
+    baseline = Image.open(image_path).convert("RGB")
+    sampler = {"sampler_name": base_values["sampler_name"], "scheduler": base_values["scheduler"], "steps": base_values["steps"]}
+    core = {key: base_values[key] for key in ("prompt", "negative_prompt", "width", "height", "cfg_scale", "distilled_cfg_scale")}
+
+    # Extras: an ESRGAN model from models/ESRGAN at 2x (4x model, resized to the target)
+    print("models: Extras with ESRGAN", flush=True)
+    upscaler = pick_upscaler(server.request("GET", "/sdapi/v1/upscalers"), ROOT / "models" / "ESRGAN")
+    if upscaler is None:
+        report.check("Extras ESRGAN (needs a model in models/ESRGAN)", False, "no ESRGAN model installed")
+    else:
+        name = upscaler["name"]
+        started = time.monotonic()
+        answer = server.request("POST", "/sdapi/v1/extra-single-image", {"image": b64png(baseline), "upscaling_resize": 2, "upscaler_1": name, "resize_mode": 0})
+        image = decode(answer["image"]).convert("RGB")
+        image.save(out / "models_extras_esrgan.png")
+        expected = (baseline.width * 2, baseline.height * 2)
+        follows, _ = diff(image.resize(baseline.size, Image.Resampling.LANCZOS), baseline)
+        report.check("Extras ESRGAN size and content", image.size == expected and follows < 8, f"{name}: {image.size[0]}x{image.size[1]} (want {expected[0]}x{expected[1]}), mean diff after downscaling {follows:.2f}, {time.monotonic() - started:.1f} s")
+        # A model that fails to load leaves the image to the final Lanczos resize
+        not_resized, _ = diff(image, baseline.resize(expected, Image.Resampling.LANCZOS))
+        report.check("Extras ESRGAN ran the model (not a plain resize)", not_resized > 2.0, f"mean diff to a Lanczos 2x {not_resized:.2f}")
+        info = answer.get("html_info") or ""
+        report.check("Extras ESRGAN info", f"Postprocess upscaler: {name}" in info and "Postprocess upscale by: 2" in info, re.sub(r"<[^>]+>", " ", info).strip()[:300])
+
+    # ControlNet: the lineart preprocessor and a model from models/ControlNet, through
+    # /sdapi/v1/txt2img's alwayson_scripts, on the baseline request
+    print("models: ControlNet", flush=True)
+    model = pick_model(server.request("GET", "/controlnet/model_list")["model_list"], "lineart")
+    modules = server.request("GET", "/controlnet/module_list")["module_list"]
+    if model is None or CONTROLNET_MODULE not in modules:
+        report.check("ControlNet (needs a model in models/ControlNet)", False, f"model {model}, preprocessor {CONTROLNET_MODULE} {'listed' if CONTROLNET_MODULE in modules else 'missing'}")
+    else:
+        drawing = control_drawing(baseline.size)
+        unit = {"enabled": True, "module": CONTROLNET_MODULE, "model": model, "image": b64png(drawing), "weight": 1.0, "pixel_perfect": True}
+        started = time.monotonic()
+        answer = server.request("POST", "/sdapi/v1/txt2img", {**base_values, "alwayson_scripts": {"ControlNet": {"args": [unit]}}})
+        images = [decode(data).convert("RGB") for data in answer["images"]]
+        image = images[0]
+        image.save(out / "models_controlnet.png")
+        for index, extra in enumerate(images[1:], start=1):
+            extra.save(out / f"models_controlnet_map_{index}.png")
+        info = json.loads(answer["info"])["infotexts"][0]
+        unit_info = parse_infotext(info).get("ControlNet 0", "").strip('"')
+        report.check("ControlNet infotext", f"Module: {CONTROLNET_MODULE}" in unit_info and f"Model: {model}" in unit_info, unit_info[:300] or info.splitlines()[-1][:300])
+        effect, _ = diff(image, baseline)
+        report.check("ControlNet changes the image", image.size == baseline.size and effect > 2.0, f"mean diff to without ControlNet {effect:.2f}, {time.monotonic() - started:.1f} s, {len(images) - 1} preprocessor map(s) returned")
+        with_control, without = line_correlation(image, drawing), line_correlation(baseline, drawing)
+        report.check("ControlNet follows the control image", with_control > without + 0.05, f"edge correlation with the drawing {with_control:.3f} (without ControlNet {without:.3f})")
+
+    # ADetailer: the face detector from models/adetailer on the baseline request, whose
+    # first pass is the baseline image: the face it finds there is redone, the rest kept
+    print("models: ADetailer", flush=True)
+    detector = ROOT / "models" / "adetailer" / ADETAILER_MODEL
+    if not detector.is_file():  # (else ADetailer would download it)
+        report.check(f"ADetailer (needs models/adetailer/{ADETAILER_MODEL})", False, "not installed")
+        return
+    faces = detect_faces(detector, baseline)
+    if not report.check("ADetailer: a face in the baseline image", len(faces) == 1, f"{len(faces)} face(s): {[[round(value) for value in box] for box in faces]}"):
+        return
+    schema = server.request("GET", "/api/v2/schema/txt2img")
+    owner = script_owner(schema, "ad_enable", "ad_model")
+    started = time.monotonic()
+    job, image, info = run_v2(server, "txt2img", core, {"sampler": sampler, "seed": {"seed": base_values["seed"]}, owner: {"ad_enable": True, "ad_model": ADETAILER_MODEL}})
+    if not report.check("ADetailer job completed", image is not None, job.get("error") or f"{time.monotonic() - started:.1f} s"):
+        return
+    image.save(out / "models_adetailer.png")
+    report.check("ADetailer infotext", f"ADetailer model: {ADETAILER_MODEL}" in info and "ADetailer Version: " in info, info.splitlines()[-1][:300])
+    inside, outside, outside_max = region_diffs(image, baseline, faces[0], margin=32)
+    report.check("ADetailer redoes the face", inside > 1.0, f"mean diff inside the face box {inside:.2f}")
+    report.check("ADetailer keeps the rest", outside < 0.05, f"mean diff more than 32 px from the face box {outside:.4f}, max {outside_max}")
+    check_round_trip(server, report, "ADetailer", "txt2img", image, info)
+
+
+# endregion
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
@@ -555,6 +808,8 @@ def main() -> int:
     parser.add_argument("--startup-timeout", type=float, default=300)
     parser.add_argument("--keep-data", action="store_true", help="keep the temporary data folder")
     parser.add_argument("--features", action="store_true", help="also check the LoRA features, Sparse Attention and paste round-trips (step 6)")
+    parser.add_argument("--models", action="store_true", help="also check Extras with an ESRGAN model, ControlNet and ADetailer with the models installed in models/ESRGAN, models/ControlNet and models/adetailer (step 7)")
+    parser.add_argument("--browser", action="store_true", help="also run the SPA's @real Playwright tests in Chromium against the server (step 8; needs Node, pnpm and `pnpm build` in webui/)")
     parser.add_argument("--no-refiner-checkpoint", action="store_true", help="with --features: do not write the perturbed second checkpoint (the Refiner check then needs one installed)")
     parser.add_argument("--report", type=Path, help="also write the result as JSON here (evidence of a Gradio-free start and generation)")
     options = parser.parse_args()
@@ -582,10 +837,11 @@ def main() -> int:
     started = time.monotonic()
     extra_args = []
     if options.features:
-        from anima_test_loras import REFINER_NAME, write_refiner_checkpoint, write_test_loras
+        from anima_test_loras import REFINER_NAME, write_refiner_checkpoint, write_test_lokr, write_test_loras
 
         lora_dir = data_dir / "Lora"
         write_test_loras(ROOT / "models" / "Stable-diffusion" / MODEL, lora_dir)
+        write_test_lokr(ROOT / "models" / "Stable-diffusion" / MODEL, lora_dir)
         extra_args = ["--lora-dir", str(lora_dir)]
         if not options.no_refiner_checkpoint:
             print("Writing a second checkpoint for the Refiner (a perturbed copy)", flush=True)
@@ -603,6 +859,12 @@ def main() -> int:
                 values = run(server, options.baseline, options.out, report)
                 if options.features:
                     run_features(server, options.out, report, values)
+                if options.models:
+                    run_models(server, options.baseline, options.out, report, values)
+                if options.browser:
+                    from smoke_browser import run_browser
+
+                    run_browser(server.base, options.out, report.check)
             except Exception as error:  # a failed request ends the run but still stops the server
                 report.check("smoke run", False, f"{type(error).__name__}: {error}"[:2000])
     finally:
@@ -618,7 +880,7 @@ def main() -> int:
     print(f"\nImages: {options.out}")
     if options.report is not None:
         options.report.parent.mkdir(parents=True, exist_ok=True)
-        options.report.write_text(json.dumps(report.document(options.python, found, options.features), indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        options.report.write_text(json.dumps(report.document(options.python, found, options.features, options.models), indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"Report: {options.report}")
     if not started_ok:
         return 2

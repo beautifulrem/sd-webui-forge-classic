@@ -113,7 +113,11 @@ def _exif_entries(image: Any) -> Iterator[dict[str, str]]:
 def _user_comment(data: bytes) -> str:
     prefix, body = data[:8], data[8:]
     if prefix.startswith(b"UNICODE"):
-        for encoding in ("utf-16-be", "utf-16-le"):
+        # UCS-2 in the TIFF header's byte order (A1111 writes big-endian, Intel-order files little-endian):
+        # mostly-ASCII text has its zero bytes second when little-endian. Both orders decode any even
+        # length, so the order is chosen first (else little-endian text showed as CJK characters).
+        little = body[1::2].count(0) > body[0::2].count(0)
+        for encoding in ("utf-16-le", "utf-16-be") if little else ("utf-16-be", "utf-16-le"):
             try:
                 text = body.decode(encoding)
             except UnicodeDecodeError:

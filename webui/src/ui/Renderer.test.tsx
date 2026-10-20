@@ -1,11 +1,16 @@
 /** Renderer smoke tests: every node kind renders accessibly and binds to the form store. */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { beforeAll, describe, expect, it, vi } from "vitest"
 import { tabSchema } from "@/api/mock/fixtures"
 import { createFormStore, type FormStore } from "./form-store"
 import { TabForm } from "./SchemaForm"
+import { preloadViews } from "./lazy-views"
 import type { Node, OwnerDefaults, ScriptSchema, TabSchema } from "./schema"
+
+// these forms show deferred node views (image, file, color, JSON, tabs, outputs): fetched up front,
+// they render at once as the assertions expect (the deferred path: ui/lazy-views.test.tsx)
+beforeAll(() => preloadViews())
 
 function schemaOf(layout: Node, defaults: OwnerDefaults = {}, scripts: ScriptSchema[] = []): TabSchema {
   return { version: 1, tab: "txt2img", core: { owner: "core", layout, defaults }, scripts }

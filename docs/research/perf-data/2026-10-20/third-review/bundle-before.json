@@ -1,0 +1,973 @@
+{
+ "initial": {
+  "files": [
+   "assets/shell-D9DRJ3Wf.js",
+   "assets/vendor-MH43N4Sc.js",
+   "assets/react-C0WMy7cJ.js",
+   "assets/rolldown-runtime-hePW80VL.js"
+  ],
+  "gzip": 187377,
+  "brotli": 162679,
+  "raw": 574755,
+  "css": [
+   {
+    "file": "assets/shell-BK-CDBbs.css",
+    "raw": 203296,
+    "gzip": 32981,
+    "brotli": 26037
+   }
+  ]
+ },
+ "lazy": [
+  {
+   "key": "src/pages/generate/index.tsx",
+   "file": "assets/generate-WS3M-9gI.js",
+   "chunk": {
+    "raw": 77655,
+    "gzip": 28265,
+    "brotli": 23765
+   },
+   "added": {
+    "gzip": 239038,
+    "brotli": 211754,
+    "files": 114
+   }
+  },
+  {
+   "key": "src/pages/settings/index.tsx",
+   "file": "assets/settings-F7ZjWw_f.js",
+   "chunk": {
+    "raw": 36912,
+    "gzip": 13631,
+    "brotli": 12005
+   },
+   "added": {
+    "gzip": 174365,
+    "brotli": 155115,
+    "files": 91
+   }
+  },
+  {
+   "key": "src/features/networks/NetworksDrawer.tsx",
+   "file": "assets/NetworksDrawer-C73HN3qQ.js",
+   "chunk": {
+    "raw": 5306,
+    "gzip": 2584,
+    "brotli": 2226
+   },
+   "added": {
+    "gzip": 165627,
+    "brotli": 146876,
+    "files": 81
+   }
+  },
+  {
+   "key": "src/pages/extras/index.tsx",
+   "file": "assets/extras-DTeVV72Y.js",
+   "chunk": {
+    "raw": 16187,
+    "gzip": 6546,
+    "brotli": 5737
+   },
+   "added": {
+    "gzip": 164635,
+    "brotli": 146408,
+    "files": 93
+   }
+  },
+  {
+   "key": "src/pages/networks/index.tsx",
+   "file": "assets/networks-DDvy6H2S.js",
+   "chunk": {
+    "raw": 3044,
+    "gzip": 1355,
+    "brotli": 1158
+   },
+   "added": {
+    "gzip": 164513,
+    "brotli": 145919,
+    "files": 81
+   }
+  },
+  {
+   "key": "src/widgets/controlnet-unit/index.tsx",
+   "file": "assets/controlnet-unit-CWfvniKN.js",
+   "chunk": {
+    "raw": 22555,
+    "gzip": 8355,
+    "brotli": 7485
+   },
+   "added": {
+    "gzip": 155083,
+    "brotli": 137785,
+    "files": 83
+   }
+  },
+  {
+   "key": "src/pages/ext/index.tsx",
+   "file": "assets/ext-BrPPTJOo.js",
+   "chunk": {
+    "raw": 2962,
+    "gzip": 1502,
+    "brotli": 1327
+   },
+   "added": {
+    "gzip": 130677,
+    "brotli": 115960,
+    "files": 75
+   }
+  },
+  {
+   "key": "src/features/quicksettings/QuickSettingsPanel.tsx",
+   "file": "assets/QuickSettingsPanel-DXHCA960.js",
+   "chunk": {
+    "raw": 5514,
+    "gzip": 2560,
+    "brotli": 2297
+   },
+   "added": {
+    "gzip": 130553,
+    "brotli": 115896,
+    "files": 74
+   }
+  },
+  {
+   "key": "src/features/prompt-editor/PromptEditor.tsx",
+   "file": "assets/PromptEditor-Do8-T9Ws.js",
+   "chunk": {
+    "raw": 53,
+    "gzip": 71,
+    "brotli": 57
+   },
+   "added": {
+    "gzip": 121908,
+    "brotli": 108083,
+    "files": 9
+   }
+  },
+  {
+   "key": "src/ui/prompt/PromptEditor.tsx",
+   "file": "assets/PromptEditor-DNcU-yVS.js",
+   "chunk": {
+    "raw": 53,
+    "gzip": 71,
+    "brotli": 57
+   },
+   "added": {
+    "gzip": 121908,
+    "brotli": 108083,
+    "files": 9
+   }
+  },
+  {
+   "key": "src/canvas/ui/Editor.tsx",
+   "file": "assets/Editor-iX759Ten.js",
+   "chunk": {
+    "raw": 210751,
+    "gzip": 67551,
+    "brotli": 58555
+   },
+   "added": {
+    "gzip": 116708,
+    "brotli": 102870,
+    "files": 54
+   }
+  },
+  {
+   "key": "src/features/prompt-tools/completion/source.ts",
+   "file": "assets/source-Bp2rIEfU.js",
+   "chunk": {
+    "raw": 7829,
+    "gzip": 3598,
+    "brotli": 3272
+   },
+   "added": {
+    "gzip": 109149,
+    "brotli": 96418,
+    "files": 8
+   }
+  },
+  {
+   "key": "src/pages/queue/index.tsx",
+   "file": "assets/queue-Dwaua9Ba.js",
+   "chunk": {
+    "raw": 50760,
+    "gzip": 18606,
+    "brotli": 15810
+   },
+   "added": {
+    "gzip": 105309,
+    "brotli": 94013,
+    "files": 69
+   }
+  },
+  {
+   "key": "node_modules/.pnpm/@codemirror+commands@6.11.1/node_modules/@codemirror/commands/dist/index.js",
+   "file": "assets/dist-pIJ1yMCO.js",
+   "chunk": {
+    "raw": 2649,
+    "gzip": 826,
+    "brotli": 748
+   },
+   "added": {
+    "gzip": 103640,
+    "brotli": 91458,
+    "files": 5
+   }
+  },
+  {
+   "key": "src/pages/gallery/index.tsx",
+   "file": "assets/gallery-DnvIF90Q.js",
+   "chunk": {
+    "raw": 46686,
+    "gzip": 18821,
+    "brotli": 15914
+   },
+   "added": {
+    "gzip": 99113,
+    "brotli": 88337,
+    "files": 58
+   }
+  },
+  {
+   "key": "src/pages/extensions/index.tsx",
+   "file": "assets/extensions-C_aMq8a_.js",
+   "chunk": {
+    "raw": 28272,
+    "gzip": 11109,
+    "brotli": 9638
+   },
+   "added": {
+    "gzip": 85255,
+    "brotli": 76488,
+    "files": 59
+   }
+  },
+  {
+   "key": "node_modules/.pnpm/@codemirror+view@6.43.14/node_modules/@codemirror/view/dist/index.js",
+   "file": "assets/dist-DR8o6423.js",
+   "chunk": {
+    "raw": 996,
+    "gzip": 496,
+    "brotli": 418
+   },
+   "added": {
+    "gzip": 80680,
+    "brotli": 70520,
+    "files": 3
+   }
+  },
+  {
+   "key": "src/features/prompt-tools/chips/ChipsView.tsx",
+   "file": "assets/ChipsView-uctB8pIN.js",
+   "chunk": {
+    "raw": 21907,
+    "gzip": 8865,
+    "brotli": 7761
+   },
+   "added": {
+    "gzip": 69391,
+    "brotli": 62551,
+    "files": 45
+   }
+  },
+  {
+   "key": "src/widgets/stage-timeline/index.tsx",
+   "file": "assets/stage-timeline-DOiMWUzr.js",
+   "chunk": {
+    "raw": 35470,
+    "gzip": 13904,
+    "brotli": 11549
+   },
+   "added": {
+    "gzip": 66258,
+    "brotli": 58733,
+    "files": 47
+   }
+  },
+  {
+   "key": "src/features/model-bar/ModelBar.tsx",
+   "file": "assets/ModelBar-C-rkXsEp.js",
+   "chunk": {
+    "raw": 57,
+    "gzip": 71,
+    "brotli": 60
+   },
+   "added": {
+    "gzip": 65688,
+    "brotli": 59023,
+    "files": 41
+   }
+  },
+  {
+   "key": "src/app/ModelQuickBar.tsx",
+   "file": "assets/ModelQuickBar-BzFeJwg_.js",
+   "chunk": {
+    "raw": 49,
+    "gzip": 69,
+    "brotli": 53
+   },
+   "added": {
+    "gzip": 65686,
+    "brotli": 59016,
+    "files": 41
+   }
+  },
+  {
+   "key": "src/pages/extensions/AvailableView.tsx",
+   "file": "assets/AvailableView-pyVdxSCZ.js",
+   "chunk": {
+    "raw": 12085,
+    "gzip": 5097,
+    "brotli": 4494
+   },
+   "added": {
+    "gzip": 58403,
+    "brotli": 52591,
+    "files": 42
+   }
+  },
+  {
+   "key": "src/features/prompt-tools/panels/FavoritesPanel.tsx",
+   "file": "assets/FavoritesPanel-D8zKUxnj.js",
+   "chunk": {
+    "raw": 13452,
+    "gzip": 5423,
+    "brotli": 4711
+   },
+   "added": {
+    "gzip": 56389,
+    "brotli": 50719,
+    "files": 46
+   }
+  },
+  {
+   "key": "src/features/lightbox/Lightbox.tsx",
+   "file": "assets/Lightbox-z_zfP-w6.js",
+   "chunk": {
+    "raw": 10065,
+    "gzip": 4189,
+    "brotli": 3840
+   },
+   "added": {
+    "gzip": 51314,
+    "brotli": 46429,
+    "files": 41
+   }
+  },
+  {
+   "key": "src/pages/settings/system/ServerView.tsx",
+   "file": "assets/ServerView-CCHTzOjo.js",
+   "chunk": {
+    "raw": 21508,
+    "gzip": 8566,
+    "brotli": 7249
+   },
+   "added": {
+    "gzip": 48789,
+    "brotli": 43608,
+    "files": 39
+   }
+  },
+  {
+   "key": "src/features/prompt-editor/styles/StyleEditorDialog.tsx",
+   "file": "assets/StyleEditorDialog-DNPrx1bC.js",
+   "chunk": {
+    "raw": 8019,
+    "gzip": 3594,
+    "brotli": 2996
+   },
+   "added": {
+    "gzip": 42685,
+    "brotli": 38314,
+    "files": 31
+   }
+  },
+  {
+   "key": "src/features/prompt-tools/PromptToolbar.tsx",
+   "file": "assets/PromptToolbar-DEDBmlFT.js",
+   "chunk": {
+    "raw": 12510,
+    "gzip": 5294,
+    "brotli": 4627
+   },
+   "added": {
+    "gzip": 41727,
+    "brotli": 37616,
+    "files": 27
+   }
+  },
+  {
+   "key": "src/widgets/xyz-values/index.tsx",
+   "file": "assets/xyz-values-B0M8CQGp.js",
+   "chunk": {
+    "raw": 3598,
+    "gzip": 1945,
+    "brotli": 1672
+   },
+   "added": {
+    "gzip": 41035,
+    "brotli": 37023,
+    "files": 26
+   }
+  },
+  {
+   "key": "src/widgets/resolution-presets/index.tsx",
+   "file": "assets/resolution-presets-DKy_BEah.js",
+   "chunk": {
+    "raw": 2792,
+    "gzip": 1602,
+    "brotli": 1394
+   },
+   "added": {
+    "gzip": 38350,
+    "brotli": 34641,
+    "files": 24
+   }
+  },
+  {
+   "key": "src/widgets/artist-mix-table/index.tsx",
+   "file": "assets/artist-mix-table-Cbeg04DS.js",
+   "chunk": {
+    "raw": 18140,
+    "gzip": 7689,
+    "brotli": 6485
+   },
+   "added": {
+    "gzip": 37361,
+    "brotli": 33270,
+    "files": 25
+   }
+  },
+  {
+   "key": "src/widgets/block-weight-grid/index.tsx",
+   "file": "assets/block-weight-grid-BIB_j0tq.js",
+   "chunk": {
+    "raw": 17725,
+    "gzip": 7624,
+    "brotli": 6608
+   },
+   "added": {
+    "gzip": 34865,
+    "brotli": 31130,
+    "files": 29
+   }
+  },
+  {
+   "key": "src/app/CommandPalette.tsx",
+   "file": "assets/CommandPalette-Br9MuLhz.js",
+   "chunk": {
+    "raw": 55948,
+    "gzip": 18833,
+    "brotli": 16979
+   },
+   "added": {
+    "gzip": 34228,
+    "brotli": 30789,
+    "files": 15
+   }
+  },
+  {
+   "key": "src/pages/png-info/index.tsx",
+   "file": "assets/png-info-B3tk4N1k.js",
+   "chunk": {
+    "raw": 19919,
+    "gzip": 7658,
+    "brotli": 6486
+   },
+   "added": {
+    "gzip": 31633,
+    "brotli": 28084,
+    "files": 30
+   }
+  },
+  {
+   "key": "src/app/AppearanceMenu.tsx",
+   "file": "assets/AppearanceMenu-dFKNeTZ3.js",
+   "chunk": {
+    "raw": 6264,
+    "gzip": 2737,
+    "brotli": 2321
+   },
+   "added": {
+    "gzip": 30819,
+    "brotli": 27713,
+    "files": 20
+   }
+  },
+  {
+   "key": "src/locales/zh-CN.json",
+   "file": "assets/zh-CN-D6s3cSCY.js",
+   "chunk": {
+    "raw": 67015,
+    "gzip": 24307,
+    "brotli": 20097
+   },
+   "added": {
+    "gzip": 24307,
+    "brotli": 20097,
+    "files": 1
+   }
+  },
+  {
+   "key": "src/pages/extensions/BackupView.tsx",
+   "file": "assets/BackupView-DWpEu-ge.js",
+   "chunk": {
+    "raw": 14285,
+    "gzip": 5651,
+    "brotli": 4861
+   },
+   "added": {
+    "gzip": 23915,
+    "brotli": 21241,
+    "files": 19
+   }
+  },
+  {
+   "key": "src/widgets/range-slider/index.tsx",
+   "file": "assets/range-slider-C1tXWEWt.js",
+   "chunk": {
+    "raw": 53,
+    "gzip": 73,
+    "brotli": 57
+   },
+   "added": {
+    "gzip": 21551,
+    "brotli": 19444,
+    "files": 20
+   }
+  },
+  {
+   "key": "src/widgets/shift-curve/index.tsx",
+   "file": "assets/shift-curve-DF4ldncy.js",
+   "chunk": {
+    "raw": 5330,
+    "gzip": 2590,
+    "brotli": 2253
+   },
+   "added": {
+    "gzip": 19553,
+    "brotli": 17456,
+    "files": 20
+   }
+  },
+  {
+   "key": "src/pages/extensions/InstallUrlView.tsx",
+   "file": "assets/InstallUrlView-E2ZPpKGH.js",
+   "chunk": {
+    "raw": 6421,
+    "gzip": 2925,
+    "brotli": 2498
+   },
+   "added": {
+    "gzip": 18141,
+    "brotli": 16093,
+    "files": 16
+   }
+  },
+  {
+   "key": "src/features/quicksettings/QuickSettings.tsx",
+   "file": "assets/QuickSettings-CFYUgAQi.js",
+   "chunk": {
+    "raw": 6521,
+    "gzip": 3202,
+    "brotli": 2779
+   },
+   "added": {
+    "gzip": 17497,
+    "brotli": 15664,
+    "files": 13
+   }
+  },
+  {
+   "key": "src/features/prompt-editor/facets.ts",
+   "file": "assets/facets-BbPb_L06.js",
+   "chunk": {
+    "raw": 67,
+    "gzip": 77,
+    "brotli": 71
+   },
+   "added": {
+    "gzip": 16552,
+    "brotli": 14952,
+    "files": 3
+   }
+  },
+  {
+   "key": "src/widgets/region-boxes/index.tsx",
+   "file": "assets/region-boxes-1Wg8P3jh.js",
+   "chunk": {
+    "raw": 10671,
+    "gzip": 4655,
+    "brotli": 4165
+   },
+   "added": {
+    "gzip": 16424,
+    "brotli": 14716,
+    "files": 13
+   }
+  },
+  {
+   "key": "src/features/prompt-tools/panels/GroupsPanel.tsx",
+   "file": "assets/GroupsPanel-93LME9ga.js",
+   "chunk": {
+    "raw": 6775,
+    "gzip": 3085,
+    "brotli": 2695
+   },
+   "added": {
+    "gzip": 14692,
+    "brotli": 13134,
+    "files": 13
+   }
+  },
+  {
+   "key": "src/features/prompt-tools/TranslationKeyDialog.tsx",
+   "file": "assets/TranslationKeyDialog-CtmhTXUy.js",
+   "chunk": {
+    "raw": 2074,
+    "gzip": 1053,
+    "brotli": 908
+   },
+   "added": {
+    "gzip": 14367,
+    "brotli": 12893,
+    "files": 12
+   }
+  },
+  {
+   "key": "src/widgets/image-list/index.tsx",
+   "file": "assets/image-list-B2oss_7x.js",
+   "chunk": {
+    "raw": 8120,
+    "gzip": 3825,
+    "brotli": 3396
+   },
+   "added": {
+    "gzip": 14250,
+    "brotli": 12787,
+    "files": 14
+   }
+  },
+  {
+   "key": "src/widgets/block-weights/index.tsx",
+   "file": "assets/block-weights-DcTUsjYB.js",
+   "chunk": {
+    "raw": 2234,
+    "gzip": 1182,
+    "brotli": 1031
+   },
+   "added": {
+    "gzip": 14132,
+    "brotli": 12670,
+    "files": 15
+   }
+  },
+  {
+   "key": "src/features/server-control/ServerOverlay.tsx",
+   "file": "assets/ServerOverlay-7Zq-SAEk.js",
+   "chunk": {
+    "raw": 6547,
+    "gzip": 3122,
+    "brotli": 2681
+   },
+   "added": {
+    "gzip": 13648,
+    "brotli": 12166,
+    "files": 8
+   }
+  },
+  {
+   "key": "src/features/prompt-tools/panels/HistoryPanel.tsx",
+   "file": "assets/HistoryPanel-CJrotgZW.js",
+   "chunk": {
+    "raw": 5822,
+    "gzip": 2411,
+    "brotli": 2138
+   },
+   "added": {
+    "gzip": 12757,
+    "brotli": 11390,
+    "files": 18
+   }
+  },
+  {
+   "key": "src/features/prompt-tools/panels/GeneratePanel.tsx",
+   "file": "assets/GeneratePanel-DYg2ASaq.js",
+   "chunk": {
+    "raw": 3104,
+    "gzip": 1462,
+    "brotli": 1272
+   },
+   "added": {
+    "gzip": 12642,
+    "brotli": 11288,
+    "files": 14
+   }
+  },
+  {
+   "key": "src/app/ShortcutsDialog.tsx",
+   "file": "assets/ShortcutsDialog-Bai7CeI5.js",
+   "chunk": {
+    "raw": 3487,
+    "gzip": 1558,
+    "brotli": 1365
+   },
+   "added": {
+    "gzip": 12016,
+    "brotli": 10788,
+    "files": 9
+   }
+  },
+  {
+   "key": "src/widgets/source-size-fit/index.tsx",
+   "file": "assets/source-size-fit-BlN9-DJp.js",
+   "chunk": {
+    "raw": 2190,
+    "gzip": 1324,
+    "brotli": 1146
+   },
+   "added": {
+    "gzip": 11761,
+    "brotli": 10483,
+    "files": 11
+   }
+  },
+  {
+   "key": "src/app/MoreSheet.tsx",
+   "file": "assets/MoreSheet-5g3g-JQj.js",
+   "chunk": {
+    "raw": 1563,
+    "gzip": 882,
+    "brotli": 793
+   },
+   "added": {
+    "gzip": 10967,
+    "brotli": 9896,
+    "files": 8
+   }
+  },
+  {
+   "key": "src/widgets/task-runner/index.tsx",
+   "file": "assets/task-runner-QJDrIcQt.js",
+   "chunk": {
+    "raw": 3571,
+    "gzip": 1756,
+    "brotli": 1594
+   },
+   "added": {
+    "gzip": 10533,
+    "brotli": 9445,
+    "files": 13
+   }
+  },
+  {
+   "key": "src/widgets/pp-send/index.tsx",
+   "file": "assets/pp-send-aaqr5wDV.js",
+   "chunk": {
+    "raw": 2496,
+    "gzip": 1315,
+    "brotli": 1123
+   },
+   "added": {
+    "gzip": 10281,
+    "brotli": 9199,
+    "files": 9
+   }
+  },
+  {
+   "key": "src/widgets/sigma-curve/index.tsx",
+   "file": "assets/sigma-curve-BOKJVoUk.js",
+   "chunk": {
+    "raw": 6855,
+    "gzip": 3194,
+    "brotli": 2839
+   },
+   "added": {
+    "gzip": 9710,
+    "brotli": 8677,
+    "files": 6
+   }
+  },
+  {
+   "key": "src/widgets/send-button/index.tsx",
+   "file": "assets/send-button-CWQTCTkY.js",
+   "chunk": {
+    "raw": 2653,
+    "gzip": 1504,
+    "brotli": 1269
+   },
+   "added": {
+    "gzip": 9305,
+    "brotli": 8269,
+    "files": 9
+   }
+  },
+  {
+   "key": "src/pages/settings/system/SysinfoView.tsx",
+   "file": "assets/SysinfoView-1oz34JmY.js",
+   "chunk": {
+    "raw": 7656,
+    "gzip": 3363,
+    "brotli": 2950
+   },
+   "added": {
+    "gzip": 9128,
+    "brotli": 8114,
+    "files": 11
+   }
+  },
+  {
+   "key": "src/widgets/secret-text/index.tsx",
+   "file": "assets/secret-text-DhVIW8Gr.js",
+   "chunk": {
+    "raw": 1704,
+    "gzip": 1008,
+    "brotli": 885
+   },
+   "added": {
+    "gzip": 6353,
+    "brotli": 5665,
+    "files": 8
+   }
+  },
+  {
+   "key": "src/pages/settings/system/LicensesView.tsx",
+   "file": "assets/LicensesView-UYYig_gx.js",
+   "chunk": {
+    "raw": 4972,
+    "gzip": 2176,
+    "brotli": 1904
+   },
+   "added": {
+    "gzip": 5755,
+    "brotli": 5097,
+    "files": 6
+   }
+  },
+  {
+   "key": "src/widgets/text-file/index.tsx",
+   "file": "assets/text-file-DzYZAdJZ.js",
+   "chunk": {
+    "raw": 2436,
+    "gzip": 1446,
+    "brotli": 1239
+   },
+   "added": {
+    "gzip": 2483,
+    "brotli": 2152,
+    "files": 4
+   }
+  },
+  {
+   "key": "src/pages/not-found/index.tsx",
+   "file": "assets/not-found-BGYGHHRy.js",
+   "chunk": {
+    "raw": 812,
+    "gzip": 535,
+    "brotli": 464
+   },
+   "added": {
+    "gzip": 1902,
+    "brotli": 1661,
+    "files": 3
+   }
+  }
+ ],
+ "largest": [
+  {
+   "file": "assets/vendor-MH43N4Sc.js",
+   "raw": 269560,
+   "gzip": 88568,
+   "brotli": 77681
+  },
+  {
+   "file": "assets/react-C0WMy7cJ.js",
+   "raw": 218928,
+   "gzip": 67622,
+   "brotli": 58127
+  },
+  {
+   "file": "assets/Editor-iX759Ten.js",
+   "raw": 210751,
+   "gzip": 67551,
+   "brotli": 58555
+  },
+  {
+   "file": "assets/dist-kQRq5OSE.js",
+   "raw": 200187,
+   "gzip": 63852,
+   "brotli": 55358
+  },
+  {
+   "file": "assets/TargetSwitch-CX32SW5n.js",
+   "raw": 96317,
+   "gzip": 34055,
+   "brotli": 28164
+  },
+  {
+   "file": "assets/shell-D9DRJ3Wf.js",
+   "raw": 85551,
+   "gzip": 30757,
+   "brotli": 26490
+  },
+  {
+   "file": "assets/generate-WS3M-9gI.js",
+   "raw": 77655,
+   "gzip": 28265,
+   "brotli": 23765
+  },
+  {
+   "file": "assets/Renderer-DDS11hO3.js",
+   "raw": 77684,
+   "gzip": 26177,
+   "brotli": 21706
+  },
+  {
+   "file": "assets/zh-CN-D6s3cSCY.js",
+   "raw": 67015,
+   "gzip": 24307,
+   "brotli": 20097
+  },
+  {
+   "file": "assets/CommandPalette-Br9MuLhz.js",
+   "raw": 55948,
+   "gzip": 18833,
+   "brotli": 16979
+  },
+  {
+   "file": "assets/gallery-DnvIF90Q.js",
+   "raw": 46686,
+   "gzip": 18821,
+   "brotli": 15914
+  },
+  {
+   "file": "assets/queue-Dwaua9Ba.js",
+   "raw": 50760,
+   "gzip": 18606,
+   "brotli": 15810
+  },
+  {
+   "file": "assets/prompt-target-CyKeOOeY.js",
+   "raw": 51498,
+   "gzip": 17083,
+   "brotli": 15417
+  },
+  {
+   "file": "assets/dist-D6l_mHfa.js",
+   "raw": 49169,
+   "gzip": 16332,
+   "brotli": 14744
+  },
+  {
+   "file": "assets/stage-timeline-DOiMWUzr.js",
+   "raw": 35470,
+   "gzip": 13904,
+   "brotli": 11549
+  }
+ ],
+ "totalJs": {
+  "files": 236,
+  "gzip": 958084
+ }
+}

@@ -1,0 +1,138 @@
+{
+ "revision": "d5a71cad",
+ "settings": {
+  "extensions-builtin/ADetailer-Neo": [
+   "ad_bbox_sortby",
+   "ad_dynamic_denoise_power",
+   "ad_extra_models_dir",
+   "ad_hd_yolo",
+   "ad_match_inpaint_bbox_size",
+   "ad_max_models",
+   "ad_only_selected_scripts",
+   "ad_same_seed_for_each_tab",
+   "ad_save_images_before",
+   "ad_save_images_dir",
+   "ad_save_previews",
+   "ad_script_names"
+  ],
+  "extensions-builtin/agent-scheduler": [
+   "queue_automatic_requeue_failed_task",
+   "queue_button_hide_checkpoint",
+   "queue_button_placement",
+   "queue_completion_action",
+   "queue_grid_page_size",
+   "queue_history_retention_days",
+   "queue_keyboard_shortcut",
+   "queue_paused",
+   "queue_ui_placement"
+  ],
+  "extensions-builtin/anima-artist-scheduled-mixer": [
+   "anima_artist_scheduled_mixer_language"
+  ],
+  "extensions-builtin/anima-lora-layer-weight": [
+   "anima_lora_layer_weight_language"
+  ],
+  "extensions-builtin/anima-lora-stage-scheduler": [
+   "anima_lora_stage_scheduler_language"
+  ],
+  "extensions-builtin/extra-options-section": [
+   "extra_options_accordion",
+   "extra_options_cols",
+   "extra_options_img2img",
+   "extra_options_txt2img"
+  ],
+  "extensions-builtin/sd-webui-detail-daemon": [
+   "detail_daemon_count",
+   "detail_daemon_verbose"
+  ],
+  "extensions-builtin/sd-webui-prompt-all-in-one-neo": [
+   "paio_neo_civitai_api_key"
+  ],
+  "extensions-builtin/sd-webui-prompt-anchor": [
+   "prompt_anchor_collapsed_by_default",
+   "prompt_anchor_default_separator"
+  ],
+  "extensions-builtin/sd-webui-tagcomplete-neo": [
+   "tac_active",
+   "tac_activeIn.img2img",
+   "tac_activeIn.modelList",
+   "tac_activeIn.modelListMode",
+   "tac_activeIn.negativePrompts",
+   "tac_activeIn.thirdParty",
+   "tac_activeIn.txt2img",
+   "tac_alias.onlyShowAlias",
+   "tac_alias.searchByAlias",
+   "tac_alwaysSpaceAtEnd",
+   "tac_animaArtistPrefix",
+   "tac_appendComma",
+   "tac_appendSpace",
+   "tac_chantFile",
+   "tac_civitaiApiKey",
+   "tac_colormap",
+   "tac_delayTime",
+   "tac_escapeParentheses",
+   "tac_extra.addMode",
+   "tac_extra.extraFile",
+   "tac_forceRefreshEmbeddings",
+   "tac_frequencyFunction",
+   "tac_frequencyIncludeAlias",
+   "tac_frequencyMaxAge",
+   "tac_frequencyMinCount",
+   "tac_frequencyRecommendCap",
+   "tac_frequencySort",
+   "tac_includeEmbeddingsInNormalResults",
+   "tac_keymap",
+   "tac_maxResults",
+   "tac_modelKeywordCivitai",
+   "tac_modelKeywordCompletion",
+   "tac_modelKeywordLocation",
+   "tac_modelSortOrder",
+   "tac_refreshTempFiles",
+   "tac_replaceUnderscores",
+   "tac_resultStepLength",
+   "tac_showAllResults",
+   "tac_showExtraNetworkPreviews",
+   "tac_showWikiLinks",
+   "tac_skipWildcardRefresh",
+   "tac_slidingPopup",
+   "tac_sortWildcardResults",
+   "tac_tagFile",
+   "tac_translation.liveTranslation",
+   "tac_translation.oldFormat",
+   "tac_translation.searchByTranslation",
+   "tac_translation.translationFile",
+   "tac_undersocreReplacementExclusionList",
+   "tac_useEmbeddings",
+   "tac_useIndexedSearch",
+   "tac_useLoraPrefixForLycos",
+   "tac_useLoras",
+   "tac_useLycos",
+   "tac_useStyleVars",
+   "tac_useWildcards",
+   "tac_wildcardCompletionMode",
+   "tac_wildcardExclusionList"
+  ],
+  "extensions-builtin/sd_forge_controlnet": [
+   "control_net_detectedmap_dir",
+   "control_net_detectmap_autosaving",
+   "control_net_model_cache_size",
+   "control_net_models_path",
+   "control_net_no_detectmap",
+   "control_net_sync_field_args",
+   "control_net_unit_count"
+  ],
+  "extensions-builtin/sd_forge_lora": [
+   "lora_add_hashes_to_infotext",
+   "lora_preferred_name",
+   "lora_preset_filter",
+   "sd_lora"
+  ],
+  "modules/processing_scripts/comments.py": [
+   "enable_prompt_comments",
+   "save_prompt_comments"
+  ],
+  "modules/processing_scripts/refiner.py": [
+   "refiner_lora_replacement"
+  ]
+ }
+}

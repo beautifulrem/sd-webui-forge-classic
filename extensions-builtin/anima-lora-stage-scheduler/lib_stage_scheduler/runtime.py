@@ -798,7 +798,7 @@ def start_run(p, args):
 
     _remove_hires_lora_tags(p, state)
 
-    # Keys match the Script's infotext_fields, so pasting restores the panels
+    # Keys are the params' ``infotext`` keys, so pasting restores the panels
     p.extra_generation_params.update(_run_infotext(p, state, args.hr_independent, args.base_lora_templates, args.hr_lora_templates))
 
 

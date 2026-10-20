@@ -70,6 +70,12 @@ negative prompt schedules are rewritten for that single run using the live
 **Steps** slider and **Denoising strength**. It records what it did in the PNG
 info (`Anima schedule rescale: src35->tgt35@d0.5`).
 
+The infotext keeps the rewritten prompt, so pasting the image's parameters
+restores that prompt and leaves auto-apply off: the pasted run reproduces the
+image instead of rescaling the schedule a second time, and it records no new
+`Anima schedule rescale` line (`tests/test_remi_extensions_e2e.py`, case
+`prompt_rescaler`).
+
 This path is wrapped so any parsing problem falls back to your original prompt —
 it can't break a generation.
 

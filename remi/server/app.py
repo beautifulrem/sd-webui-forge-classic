@@ -19,10 +19,11 @@ from fastapi.responses import JSONResponse
 
 from remi.files import FileError
 from remi.jobs import JobError
+from remi.server.api_docs import add_docs_routes
 from remi.server.auth import Auth, SecurityMiddleware, credentials_from_cmd_opts, load_secret
 from remi.server.limits import BodyLimitMiddleware, body_limit
 from remi.server.services import Services, default_services
-from remi.server.spa import Spa
+from remi.server.spa import DIST, Spa
 from remi.server.ws import Hub
 from remi.ui import ValidationError
 
@@ -195,8 +196,9 @@ def create_app(
         title="Remi WebUI",
         version=version(),
         lifespan=lifespan,
-        docs_url="/docs",
-        redoc_url="/redoc",
+        # FastAPI's docs pages load their viewers from a CDN: ours serve the build's copies
+        docs_url=None,
+        redoc_url=None,
         exception_handlers={Exception: handle_exception, RequestValidationError: _request_validation_error, ValidationError: _validation_error, JobError: _job_error, FileError: _file_error},
     )
     app.state.services = services
@@ -214,6 +216,7 @@ def create_app(
     app.include_router(api)
     app.include_router(system.internal, prefix="/internal")
     system.add_progress_routes(app)
+    add_docs_routes(app, spa_dir or DIST, serve_assets=not webui)
 
     if sdapi:
         from modules.api.api import Api
@@ -223,13 +226,16 @@ def create_app(
 
     # (inside the security checks: a refused request is never read)
     app.add_middleware(BodyLimitMiddleware, limit=lambda: body_limit(services.files.max_upload_bytes))
-    app.add_middleware(SecurityMiddleware, auth=auth)
+    spa = None
+    if webui:
+        from modules import shared
+
+        spa = Spa(auth, spa_dir, theme=getattr(shared.cmd_opts, "theme", None))
+    app.add_middleware(SecurityMiddleware, auth=auth, login_page=spa.login_page if spa is not None else None)
     from modules import initialize_util
 
     initialize_util.setup_middleware(app)
 
-    if webui:
-        from modules import shared
-
-        app.router.default = Spa(auth, spa_dir, theme=getattr(shared.cmd_opts, "theme", None))  # type: ignore[assignment]
+    if spa is not None:
+        app.router.default = spa  # type: ignore[assignment]
     return app

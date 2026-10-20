@@ -12,6 +12,7 @@ import { currentRoute, navigate, type Route, routeKey } from "@/app/router"
 import { applyPaste, type PasteEntry, type PasteFilter, parsedEntries, planEntries } from "@/features/infotext/paste"
 import type { FormIndex } from "@/ui/form-index"
 import { getFormStore } from "@/ui/form-store"
+import { describeFile } from "@/ui/uploads"
 
 export type SendTarget = "txt2img" | "img2img" | "inpaint" | "extras"
 
@@ -99,7 +100,8 @@ export function deliver(tab: FormTab, entries: readonly PasteEntry[], filter: Pa
   })
 }
 
-export type SendItem = { fileId?: string | null; infotext?: string | null }
+/** A result to send: its file, its parameters, and its pixel size when the output metadata has it. */
+export type SendItem = { fileId?: string | null; infotext?: string | null; width?: number | null; height?: number | null }
 
 /** The `send_seed` / `send_size` / `send_cfg` settings as a paste filter. */
 export function sendFilter(): PasteFilter {
@@ -116,6 +118,9 @@ export async function sendTo(target: SendTarget, item: SendItem, filter: PasteFi
   const parsed = item.infotext && tab !== "extras" ? await api.parseInfotext(item.infotext, tab).catch(() => null) : null
   const entries = parsed ? parsedEntries(parsed) : []
   const image = item.fileId ? imageEntry(target, item.fileId) : null
-  if (image) entries.push(image)
+  if (image && item.fileId) {
+    entries.push(image)
+    describeFile(item.fileId, item)
+  }
   return deliver(tab, entries, filter)
 }

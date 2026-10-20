@@ -14,7 +14,7 @@ Anima LoRA Stage Scheduler is a Forge/WebUI extension for controlling when Anima
 - Optional Hires. fix LoRA disabling for all LoRAs or selected full LoRA tags.
 - Per-LoRA template overrides, so different LoRAs can use different stage timing in the same prompt.
 - Template management: save, rename, delete, and build custom templates from preset combinations.
-- Settings-page UI language switch: `zh` and `en`.
+- Panel text in English or Chinese, following the WebUI's language (see Settings of the old extension).
 
 ## Installation
 
@@ -70,9 +70,17 @@ A scheduled image's infotext (PNG parameters) records every panel setting the ru
 
 The Gradio panel's 26 positional args (each timing control on its own) are no longer accepted through the API: the API keeps only the script's 16 slots, and a request in the old layout is refused with an error naming the expected args.
 
-## Language Setting
+## Settings of the old extension
 
-Open **Settings**, find **Anima LoRA Stage Scheduler**, and set the language to `zh` or `en`. Reload UI after changing the option.
+### Not carried over
+
+This setting of the old extension has no equivalent, for the reason given
+(`tests/test_remi_extension_settings.py` checks that every old setting is either a
+setting here or a row of this table):
+
+| Setting | Why |
+|---|---|
+| `anima_lora_stage_scheduler_language` | The panel's own language radio (`zh` / `en`, default `zh`, applied on Reload UI). The panel now follows the WebUI's language like every other panel: pick English or 简体中文 in the header (Appearance → Language), which switches without a reload; the setting *Language* (`localization`) is the default for browsers that have not picked one. Its Chinese texts are in `localizations/zh_CN.json`, and infotext pastes between the two languages. |
 
 ## Notes
 

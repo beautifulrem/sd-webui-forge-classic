@@ -47,9 +47,20 @@ type CheckState = { progress: CheckProgress | null; controller: AbortController 
 export const useUpdateCheck = create<CheckState>()(() => ({ progress: null, controller: null }))
 
 /** Checks the given extensions (default: enabled ones with a remote, not built-in). */
-export async function checkForUpdates(items: readonly ExtensionInfo[]): Promise<{ checked: number; available: number; failed: string[] }> {
-  if (useUpdateCheck.getState().controller) return { checked: 0, available: 0, failed: [] }
+export type CheckResult = {
+  /** Extensions there were to check (0: none is enabled, installed from a repository and not built in). */
+  total: number
+  checked: number
+  available: number
+  failed: string[]
+  /** Another check was running: this one did nothing. */
+  busy?: boolean
+}
+
+export async function checkForUpdates(items: readonly ExtensionInfo[]): Promise<CheckResult> {
+  if (useUpdateCheck.getState().controller) return { total: 0, checked: 0, available: 0, failed: [], busy: true }
   const names = items.filter((ext) => ext.enabled && ext.remote && !ext.builtin).map((ext) => ext.name)
+  if (names.length === 0) return { total: 0, checked: 0, available: 0, failed: [] }
   const controller = new AbortController()
   let available = 0
   useUpdateCheck.setState({ controller, progress: { done: 0, total: names.length, current: [], failed: [] } })
@@ -63,7 +74,7 @@ export async function checkForUpdates(items: readonly ExtensionInfo[]): Promise<
       },
       { signal: controller.signal, onProgress: (progress) => useUpdateCheck.setState({ progress }) },
     )
-    return { checked: names.length - failed.length, available, failed }
+    return { total: names.length, checked: names.length - failed.length, available, failed }
   } finally {
     useUpdateCheck.setState({ controller: null, progress: null })
   }

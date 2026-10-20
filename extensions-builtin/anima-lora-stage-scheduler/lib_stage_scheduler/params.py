@@ -5,7 +5,6 @@ import logging
 from functools import partial
 
 from lib_stage_scheduler.options import (
-    BUILDER_PRESET_LABELS,
     BUILTIN_TEMPLATES,
     CURVE_CHOICES,
     CURVE_CODES,
@@ -156,7 +155,7 @@ def timeline_props(prefix):
         "strength_max": 2.0,
         "curves": [{"value": curve, "label": CURVE_LABELS_EN[curve], "shape": CURVE_CODES[curve]} for curve in CURVE_CHOICES],
         "stages": [{"value": stage, "label": STAGE_LABELS_EN[stage], "kind": {STAGE_COMPOSITION: "composition", STAGE_STYLE: "style"}.get(stage, "character")} for stage in STAGE_LABELS_EN],
-        "builder": [{"value": name, "label": TEMPLATE_LABELS_EN[name], "stage": part["stage"], "mode": part["mode"], "legacy_label": BUILDER_PRESET_LABELS[name]} for name, part in PRESET_PARTS.items()],
+        "builder": [{"value": name, "label": TEMPLATE_LABELS_EN[name], "stage": part["stage"], "mode": part["mode"]} for name, part in PRESET_PARTS.items()],
         "templates": templates_payload(),
     }
 

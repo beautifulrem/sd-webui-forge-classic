@@ -45,9 +45,17 @@ attackers who already have a login (they are administrators by design).
   and WebSocket), `/internal`, files and thumbnails, the SPA shell and the API
   docs (`/docs`, `/docs/*`, `/redoc`, `/openapi.json`) needs the session
   cookie or HTTP Basic credentials. Public: `/api/v2/auth/*`,
-  `/internal/ping`, `/favicon.svg`, `/assets/*` (the login page's assets:
-  only existing build files; anything else there is a 404, never the SPA
-  shell).
+  `/internal/ping`, `/favicon.svg`, `/assets/*` (the SPA's build files,
+  public so the shell can load and show its sign-in form: only existing
+  build files; anything else there is a 404, never the SPA shell).
+- Signing in: the server renders no login page. A browser page load
+  without a login (the SPA's routes and the API docs) gets the SPA shell
+  with status 401 and `Cache-Control: no-store` (no data: the built
+  `index.html` plus the root path and `--theme`); the SPA asks
+  `GET /api/v2/auth/status` and shows its own form (`webui/src/features/auth`),
+  translated from its catalogs, which posts to `/api/v2/auth/login`. A 401
+  while the app is open shows the form over it. Without a built SPA (or
+  under `--nowebui`) the 401 offers HTTP Basic (`WWW-Authenticate`).
 - Session cookie `remi_session`: `user.expiry.HMAC` signed with a
   per-installation secret (`secret.key`, mode 0600) and the user's password;
   30 days; `HttpOnly`, `SameSite=Lax`, `Secure` with `--tls-*` or an HTTPS
@@ -91,7 +99,7 @@ attackers who already have a login (they are administrators by design).
   `--server-name`, no `--ngrok`) refuses a `Host` that is not a loopback name
   or an allowed CORS host (403 "Unknown host refused").
 - **Headers:** every response carries `X-Content-Type-Options: nosniff` and
-  `Referrer-Policy: same-origin`. The SPA shell and login page carry a CSP:
+  `Referrer-Policy: same-origin`. The SPA shell and the API docs pages carry a CSP:
   scripts only from the server plus the page's own inline scripts by SHA-256
   hash (no `unsafe-inline`/`unsafe-eval` scripts), no plugins, `base-uri` /
   `form-action` `'self'`, `frame-ancestors 'self'` plus the literal
@@ -179,6 +187,22 @@ Nothing contacts the network unless the user configured or asked for it:
 | `/sdapi` image URLs | an API request names one; off with `api_enable_requests`; with `api_forbid_local_requests` (default) every address of every redirect hop must be public; 64 MB cap. Both settings are `restrict_api`: `/sdapi/v1/options` cannot change them |
 | license texts | opening an entry in Settings → Licenses (fetched by the browser from `raw.githubusercontent.com`, the only outside host the CSP lets the page connect to, without cookies or referrer) |
 | remote images | only from hosts listed in "Remote image hosts" (`remi_image_hosts`, empty by default) |
+
+The API docs (`/docs` Swagger UI, `/redoc` ReDoc, `remi/server/api_docs.py`)
+are not FastAPI's default pages, which load floating CDN versions
+(`cdn.jsdelivr.net/npm/swagger-ui-dist@5`, `redoc@2`), Google Fonts and a
+`fastapi.tiangolo.com` favicon into a page on the app's origin. The SPA build
+vendors pinned copies (`swagger-ui-dist` and `redoc` in `webui/package.json`,
+`apiDocs` in `webui/vite.config.ts`, which writes them under
+`assets/<package>-<version>/` with their licenses and fails when a viewer
+still names a CDN host; ReDoc's attribution logo from `cdn.redoc.ly` is
+replaced). The pages carry the same CSP as the SPA shell (scripts from the
+server and the page's inline script by hash, `connect-src 'self'`), Swagger
+UI's validator badge (`validator.swagger.io`) is off, and the packages'
+install scripts are disabled (`webui/pnpm-workspace.yaml`: `@scarf/scarf`
+would report the install). `tests/test_remi_api_docs.py` checks the pages;
+a browser load of both against a built server makes no outside request and
+reports no CSP violation.
 
 ### XSS (`webui/src/ui/rich-text.tsx`, `webui/src/ui/image-ref.ts`)
 
@@ -295,7 +319,7 @@ server with `--auth`, or a local server visited by a hostile page).
 | 10 | Open-folder endpoints could be triggered by remote clients; on macOS a "folder" that is an `.app` bundle was launched | low | loopback-only like reveal; bundles revealed |
 | 11 | Extension install: `ssh://-o…` style hosts and `file`/`ext` transports in submodules were not excluded; `..` branches and Windows device names accepted | low | `valid_git_url` / `valid_branch` / `valid_dirname`, `GIT_ALLOW_PROTOCOL` |
 | 12 | `/docs/oauth2-redirect` was outside the docs login; docs open under `--api-auth` without `--auth` | low | docs prefix check, `--api-auth` for docs |
-| 13 | Unbounded login field sizes; the login page interpolated `--subpath` into a script unescaped | low | 1024-character cap; JSON-escaped root |
+| 13 | Unbounded login field sizes; the login page interpolated `--subpath` into a script unescaped | low | 1024-character cap; JSON-escaped root (the server-side login page was later removed: the SPA signs in) |
 | 14 | No warning when the server is exposed without a login, with `--cors-allow-origins=*`, insecure extension access or without TLS | low | startup warnings (`remi.server.launch.exposure_warnings`) |
 | 15 | With `--auth` and no `--api-auth`, `/sdapi` and extension API routes (`/controlnet/*`, `/adetailer/*`) were open on a loopback-only server, which a reverse proxy on the same machine makes reachable from anywhere | high | the WebUI login on any bind; explicit `--api-no-auth-on-localhost` opt-out for local tools |
 | 16 | The error handler returned the exception text and its `body` (`GET /sdapi/v1/cmd-flags` echoed the whole flag set, with paths, in a `ResponseValidationError` because `--port` is an int with a `None` default) | medium | generic 500 with a correlation id, details only in the log; `FlagsModel` types from the parser's `type=`; the unused A1111 `api_middleware` (same leak, one call away from being re-enabled) removed |
@@ -306,6 +330,7 @@ server with `--auth`, or a local server visited by a hostile page).
 | 21 | `{"username": 1e999}` to the public login (and any body route) answered 500 with a logged traceback per request: the validation error could not be encoded | low | 422 through a non-finite-safe handler, debug log; `/api/v2` models refuse non-finite numbers |
 | 22 | `/assets/` and `/assets/<missing>` served the SPA shell without a login | low | 404 for anything under `/assets` that is not a build file |
 | 23 | An unreadable upload's 415 named the incoming file's path in the data folder (also the network preview, PNG Info and reveal errors could carry OS error text) | low | fixed messages; the details are logged |
+| 24 | `/docs` and `/redoc` were FastAPI's defaults: Swagger UI / ReDoc scripts from `cdn.jsdelivr.net` (floating `@5` / `@2`, no SRI), Google Fonts and a `fastapi.tiangolo.com` favicon on every visit, third-party code on the app origin with the session, no CSP | medium | own pages with the build's pinned copies and the shell's CSP (`remi/server/api_docs.py`) |
 
 Checked and found sound: session signing and revocation, cookie flags,
 login timing, Origin/rebinding checks for writes and WebSockets, file serving

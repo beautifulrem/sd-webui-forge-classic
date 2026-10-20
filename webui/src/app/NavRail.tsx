@@ -120,6 +120,7 @@ export function BottomBar({ items, route }: { items: NavItem[]; route: Route }) 
   return (
     <nav
       aria-label={t("Main navigation")}
+      data-toast-obstacle
       className="flex shrink-0 items-stretch gap-1 border-t bg-sidebar px-2 pt-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] md:hidden"
     >
       {primary.map((item) => (

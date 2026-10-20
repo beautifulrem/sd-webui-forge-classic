@@ -201,6 +201,36 @@ test.describe("image editor", () => {
     await expect(dialog).toBeHidden()
   })
 
+  test("takes its shortcuts when it appears under a resting pointer (no pointer enter)", async ({ page }) => {
+    const surface = await openWithImage(page)
+    await mode(page, "Inpaint").click()
+    const box = (await surface.boundingBox())!
+    const from = { x: box.x + box.width * 0.35, y: box.y + box.height * 0.5 }
+    const to = { x: box.x + box.width * 0.65, y: from.y }
+    const mid = { x: (from.x + to.x) / 2, y: from.y }
+    await stroke(page, from, to)
+    await expect.poll(() => paintAlpha(surface, mid.x, mid.y)).toBeGreaterThan(0)
+    await expect(page.getByRole("status").filter({ hasText: "Saving" })).toHaveCount(0, { timeout: 5_000 })
+
+    // Switch to Result and back from the keyboard: a new editor mounts under the pointer, which does not move.
+    const source = page.getByRole("tab", { name: "Source", exact: true })
+    await source.focus()
+    await page.keyboard.press("ArrowRight")
+    await expect(page.getByRole("tab", { name: "Result", exact: true })).toHaveAttribute("aria-selected", "true")
+    await page.keyboard.press("ArrowLeft")
+    const again = page.getByRole("img", { name: /^Image editor, 640×480/ })
+    await expect(again).toBeVisible()
+    await expect.poll(() => paintAlpha(again, mid.x, mid.y)).toBeGreaterThan(0)
+
+    await page.keyboard.press(`${mod}+Z`)
+    await expect.poll(() => paintAlpha(again, mid.x, mid.y)).toBe(0)
+    await page.keyboard.press("f")
+    const dialog = page.getByRole("dialog", { name: "Source image" })
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeHidden()
+  })
+
   test("shows an uploaded mask on the canvas, keeps each mode's layer and its own undo", async ({ page }) => {
     const surface = await openWithImage(page)
     const box = (await surface.boundingBox())!

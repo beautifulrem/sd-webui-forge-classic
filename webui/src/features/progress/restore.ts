@@ -16,7 +16,7 @@ import { useProgress } from "@/api/progress"
 import type { Job } from "@/api/types"
 import { onWsEvent } from "@/api/ws"
 import { useSession } from "@/features/gallery/session-store"
-import { dispatchRun, GENERATE_FORMS, type GenerateTab, persistedJobs, useRuns } from "./run-controller"
+import { dispatchRun, GENERATE_FORMS, type GenerateTab, type PersistedRun, persistedRun, useRuns } from "./run-controller"
 import type { JobOutcome } from "./run-machine"
 
 let restoring: Promise<void> | null = null
@@ -28,13 +28,19 @@ export function restoreRuns(): Promise<void> {
 }
 
 async function restore() {
+  const saved = new Map<GenerateTab, PersistedRun>()
   for (const tab of GENERATE_FORMS) {
-    const ids = persistedJobs(tab)
-    if (ids.length === 0) continue
-    for (const id of ids) useProgress.getState().track(id, tab)
-    dispatchRun(tab, { type: "restore", jobs: ids, running: null })
+    const run = persistedRun(tab)
+    if (run.jobs.length === 0) continue
+    saved.set(tab, run)
+    for (const id of run.jobs) useProgress.getState().track(id, tab)
+    dispatchRun(tab, { type: "restore", jobs: run.jobs, running: null })
   }
   await resyncRuns()
+  // "Generate forever" / "Generate several times" go on after a reload while their job is still in flight.
+  for (const [tab, run] of saved) {
+    if (run.forever || run.repeatLeft > 0) dispatchRun(tab, { type: "resume", forever: run.forever, repeatLeft: run.repeatLeft })
+  }
 }
 
 /** How a finished job counts for the run machine (null while it is queued or running). */

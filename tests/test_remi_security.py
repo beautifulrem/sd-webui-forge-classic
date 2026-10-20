@@ -193,16 +193,20 @@ def test_the_spa_shell_gets_a_csp_that_allows_only_its_own_inline_scripts(option
         assert "object-src 'none'" in csp and "frame-ancestors 'self' https://dash.example" in csp
 
 
-def test_the_login_page_has_a_csp_and_an_escaped_root(webui, tmp_path):
-    from remi.server.auth import html_headers, login_page
+def test_the_sign_in_shell_has_the_shells_csp(webui, tmp_path):
+    # without a login a page load gets the SPA shell (the SPA renders the
+    # sign-in form): same CSP as the shell, never cached
+    from remi.server.auth import html_headers
 
-    page = login_page('/x";alert(1);//</script>').decode()
-    assert '/x\\";alert(1);//\\u003c/script>/api' in page and "</script>/api" not in page
-    with server_app(tmp_path, auth=Auth({"ann": "1"}, b"k" * 32)) as server:
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text('<!doctype html><html><head><script type="module" src="/assets/app.js"></script></head><body></body></html>')
+    with server_app(tmp_path / "data", auth=Auth({"ann": "1"}, b"k" * 32), spa_dir=dist) as server:
         response = server.client.get("/", headers={"Accept": "text/html"})
-        assert response.status_code == 401 and "<label>" in response.text
-        inline = re.search(r"<script>(.*?)</script>", response.text, re.S).group(1)
-        assert script_hashes(response.headers["content-security-policy"]) == {sha(inline)}
+        assert response.status_code == 401 and response.headers["cache-control"] == "no-store"
+        assert "<form" not in response.text and "<label" not in response.text  # no server-rendered UI
+        root_script = re.search(r"<script>(window\.__REMI_ROOT__[^<]*)</script>", response.text).group(1)
+        assert script_hashes(response.headers["content-security-policy"]) == {sha(root_script)}
     assert script_hashes(html_headers(b"<p>no scripts</p>")["Content-Security-Policy"]) == set()
 
 
@@ -250,7 +254,7 @@ def test_server_errors_do_not_reach_the_client(webui, tmp_path, caplog):
 
 
 def test_assets_never_fall_back_to_the_shell(webui, tmp_path):
-    # /assets/ is public (the login page's assets): only existing build files
+    # /assets/ is public (the shell shows the sign-in form): only existing build files
     # are served there, never index.html for a missing one
     dist = tmp_path / "dist"
     (dist / "assets").mkdir(parents=True)

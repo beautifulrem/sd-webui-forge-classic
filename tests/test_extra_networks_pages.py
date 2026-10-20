@@ -42,3 +42,27 @@ def test_a_registered_page_becomes_a_network_kind(tmp_path, monkeypatch):
     provider = networks.ExtraPageProvider.for_page(page)
     (entry,) = provider.list()
     assert provider.kind == "wildcards" and entry.name == "colors" and entry.prompt == "__colors__"
+
+
+def test_a_refresh_sees_files_added_since_the_last_listing(tmp_path):
+    # the page's file cache (``lister``) is cleared on every refresh, as the
+    # Gradio UI did before each listing: a preview added later is found
+    from modules import ui_extra_networks
+
+    (tmp_path / "colors.txt").write_text("red\n")
+
+    class Page(ui_extra_networks.ExtraNetworksPage):
+        def __init__(self):
+            super().__init__("Refreshing")
+
+        def list_items(self):
+            path = str(tmp_path / "colors")
+            yield {"name": "colors", "filename": f"{path}.txt", "preview": self.find_preview(path)}
+
+    page = Page()
+    provider = networks.ExtraPageProvider.for_page(page)
+    assert page.find_preview(str(tmp_path / "colors")) is None
+    (tmp_path / "colors.png").write_bytes(b"")
+    assert page.find_preview(str(tmp_path / "colors")) is None  # cached listing
+    provider.refresh()
+    assert page.find_preview(str(tmp_path / "colors")) == str(tmp_path / "colors.png")

@@ -42,6 +42,14 @@ on purpose. Read this before "fixing" one of them.
   conversion, so a merge compares real lines; `tools/check_line_endings.py`
   (a `tools/check.sh` step) fails when an editor saves one of them as LF
   ([upstream-absorption.md §3](remi-webui/upstream-absorption.md#3-procedure)).
+  The few files Remi forked outright (Spectrum's `lib_spectrum`, the compile
+  script, ControlNet's unit parsing) are the exception: a merge must not
+  replace them even when it merges cleanly, so `tools/upstream_forks.py
+  restore` puts them back after `git merge` and their upstream fixes are
+  ported by hand ([upstream-absorption.md §1.1](remi-webui/upstream-absorption.md#11-built-ins-whose-processing-remi-forked)).
+  `/sdapi/v1` stays compatible with Forge Neo's: `tools/sdapi_contract.py`
+  (run by `tests/test_remi_sdapi_contract.py`) compares the routes and models
+  with upstream's.
 - **Three LoRA extensions wrap `ModelPatcher.add_patches`** (layer weight,
   stage scheduler, FreeFuse metadata) through `backend/patcher/function_chain.py`
   instead of a patch-hook registry in `sd_forge_lora`. A registry would be

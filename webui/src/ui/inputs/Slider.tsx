@@ -69,7 +69,8 @@ export function Slider({ node }: { node: SliderNode }) {
         step={step}
         onValueChange={(next) => commit(snapToStep(Array.isArray(next) ? next[0] : next, step, min))}
         disabled={!param.enabled}
-        className="py-1.5"
+        // as tall as a select or an input (h-8): a slider beside them lines up its label and its track
+        className="flex h-8 items-center"
       />
     </Field>
   )

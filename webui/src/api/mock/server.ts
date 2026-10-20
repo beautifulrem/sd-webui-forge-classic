@@ -9,10 +9,11 @@ import { encodeFrame, FrameFormat } from "../frames"
 import { buildIndex } from "@/ui/form-index"
 import type { InputNode, ValidationError } from "@/ui/schema"
 import { missingInputs, tabOwners } from "@/ui/tab"
-import type { ActionRequest, FormTab, InfotextParsed, Job, JobOutput, JobRequest, PromptStyle, TokenCountRequest } from "../types"
+import type { ActionRequest, Bootstrap, FormTab, InfotextParsed, Job, JobOutput, JobRequest, PromptStyle, TokenCountRequest } from "../types"
 import { bootstrap, extrasSchema, models, serverCatalogZh, styles, tabSchema, toolboxPage } from "./fixtures"
 import { broadcast, broadcastBinary } from "./socket"
 import { adminRoutes } from "./admin"
+import { authRoutes, mockRefusal } from "./auth"
 import { missingLoras, networkRoutes } from "./networks"
 import { libraryRoutes } from "./library"
 
@@ -468,13 +469,33 @@ function parseInfotextMock(text: string, tab: FormTab | null | undefined): Infot
   return { tab: detected, core, scripts, params, problems }
 }
 
+/** Where an end-to-end test leaves bootstrap changes before the app loads (`tests/e2e/helpers.ts` `overrideBootstrap`). */
+export const BOOTSTRAP_OVERRIDE_KEY = "remi-mock-bootstrap"
+
+/**
+ * The bootstrap, with the options and user assets a test set (as a real
+ * server's config and WebUI folder would have them).
+ */
+function bootstrapForTest(): Bootstrap {
+  try {
+    const raw = typeof sessionStorage === "undefined" ? null : sessionStorage.getItem(BOOTSTRAP_OVERRIDE_KEY)
+    if (!raw) return bootstrap
+    const patch = JSON.parse(raw) as { options?: Record<string, unknown>; add_user_assets?: string[] }
+    const assets = [...new Set([...(bootstrap.user_assets ?? []), ...(patch.add_user_assets ?? [])])]
+    return { ...bootstrap, options: { ...bootstrap.options, ...patch.options }, user_assets: assets }
+  } catch {
+    return bootstrap
+  }
+}
+
 // ---------------------------------------------------------------- routes
 
 const routes: [method: string, pattern: RegExp, handler: Handler][] = [
+  ...authRoutes, // login (off unless a test turns it on)
   ...adminRoutes, // settings & extensions pages (admin.ts)
   ...networkRoutes,
   ...libraryRoutes, // gallery, PNG info & queue tools (library.ts)
-  ["GET", /^\/app$/, () => bootstrap],
+  ["GET", /^\/app$/, () => bootstrapForTest()],
   ["GET", /^\/schema\/(txt2img|img2img|extras)$/, (m) => (m[1] === "extras" ? extrasSchema : tabSchema(m[1] as "txt2img" | "img2img"))],
   ["GET", /^\/pages\/toolbox$/, () => toolboxPage],
   ["GET", /^\/models$/, () => models],
@@ -735,6 +756,8 @@ const routes: [method: string, pattern: RegExp, handler: Handler][] = [
 export async function handleMockRequest(request: Request): Promise<Response> {
   const url = new URL(request.url, location.origin)
   const path = url.pathname.replace(/^\/api\/v2/, "")
+  const refused = mockRefusal(path)
+  if (refused) return json(refused.body, refused.status)
   for (const [method, pattern, handler] of routes) {
     if (method !== request.method) continue
     const match = pattern.exec(path)

@@ -29,6 +29,15 @@ const enc = encodeURIComponent
 export const api = {
   app: (signal?: AbortSignal) => unwrap(client.GET("/api/v2/app", { signal })) as Promise<Bootstrap>,
 
+  /** Login (`--auth`); these never count as a refused request (`session.ts`). */
+  auth: {
+    status: (signal?: AbortSignal) => unwrap(client.GET("/api/v2/auth/status", { signal })),
+    /** Sets the session cookie; 401 for wrong credentials, 429 after too many attempts. */
+    login: (username: string, password: string) => unwrap(client.POST("/api/v2/auth/login", { body: { username, password } })),
+    /** Revokes and clears the session cookie. */
+    logout: () => unwrap(client.POST("/api/v2/auth/logout")),
+  },
+
   schema: (tab: FormTab, signal?: AbortSignal) =>
     unwrap(client.GET("/api/v2/schema/{tab}", { params: { path: { tab } }, signal })) as Promise<TabSchema>,
 

@@ -53,3 +53,31 @@ export function watchConsole(page: Page) {
     },
   }
 }
+
+/**
+ * The real server the browser smoke runs against (`REMI_E2E_BASE_URL`, see
+ * `playwright.config.ts`); null against the mock backend.
+ */
+export const REAL_SERVER = process.env.REMI_E2E_BASE_URL || null
+
+export type BootstrapPatch = { options?: Record<string, unknown>; add_user_assets?: string[] }
+
+/**
+ * Changes what the app reads from `GET /api/v2/app` (client options, user
+ * assets) for this page only, without changing the server's settings: the
+ * response is rewritten on a real server, the mock backend reads the patch
+ * from sessionStorage (`BOOTSTRAP_OVERRIDE_KEY` in `src/api/mock/server.ts`).
+ * Call before the page loads.
+ */
+export async function overrideBootstrap(page: Page, patch: BootstrapPatch) {
+  if (REAL_SERVER) {
+    await page.route(/\/api\/v2\/app(\?|$)/, async (route) => {
+      const response = await route.fetch()
+      const json = (await response.json()) as { options?: Record<string, unknown>; user_assets?: string[] }
+      const assets = [...new Set([...(json.user_assets ?? []), ...(patch.add_user_assets ?? [])])]
+      await route.fulfill({ response, json: { ...json, options: { ...json.options, ...patch.options }, user_assets: assets } })
+    })
+  } else {
+    await page.addInitScript((value) => sessionStorage.setItem("remi-mock-bootstrap", value), JSON.stringify(patch))
+  }
+}

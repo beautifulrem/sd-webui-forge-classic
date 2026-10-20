@@ -1,5 +1,5 @@
 import { cleanup } from "@testing-library/react"
-import { afterEach } from "vitest"
+import { afterEach, beforeAll } from "vitest"
 import "@testing-library/jest-dom/vitest"
 import "@/i18n"
 
@@ -35,6 +35,13 @@ if (!URL.createObjectURL) {
   URL.createObjectURL = () => `blob:mock/${++n}`
   URL.revokeObjectURL = () => {}
 }
+
+// Dropdown menus load their implementation when one opens (components/ui/dropdown-menu.tsx).
+// Transform it once up front: opening a menu then still goes through the on-demand load, but a
+// test's `findByRole("menu")` does not also wait for the first transform on a busy machine.
+beforeAll(async () => {
+  await import("@/components/ui/dropdown-menu-impl")
+})
 
 afterEach(() => {
   cleanup()

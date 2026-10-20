@@ -67,7 +67,8 @@ export function SliderRow({ label, info, value, minimum, maximum, step, onCommit
           commit(thumb(next))
         }}
         disabled={disabled}
-        className="py-1.5"
+        // as tall as a select or an input (h-8): a slider beside them lines up its label and its track
+        className="flex h-8 items-center"
       />
     </Field>
   )

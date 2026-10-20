@@ -137,7 +137,8 @@ export function Lightbox({ open, onOpenChange, items, current, onNavigate, live,
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-[oklch(0.1_0_0/0.96)] duration-150 data-closed:animate-out data-closed:fade-out-0 data-open:animate-in data-open:fade-in-0" />
+        {/* opaque: the page (its header, the checkpoint name) must not show through the viewer's chrome */}
+        <Dialog.Backdrop data-slot="viewer-backdrop" className="fixed inset-0 z-50 bg-[oklch(0.1_0_0)] duration-150 data-closed:animate-out data-closed:fade-out-0 data-open:animate-in data-open:fade-in-0" />
         <Dialog.Popup
           aria-label={t("Image viewer")}
           onKeyDown={onKeyDown}

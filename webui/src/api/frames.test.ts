@@ -49,10 +49,10 @@ describe("normalizeEvent", () => {
       step: 1,
       steps: 2,
     })
-    expect(normalizeEvent({ type: "toast", data: { message: "hi", level: "info" } })).toEqual({
-      type: "toast",
-      message: "hi",
-      level: "info",
+    expect(normalizeEvent({ type: "model.loading", data: { stage: "loading", model: "m" } })).toEqual({
+      type: "model.loading",
+      stage: "loading",
+      model: "m",
     })
   })
 

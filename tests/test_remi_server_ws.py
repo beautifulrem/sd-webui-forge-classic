@@ -345,8 +345,8 @@ def test_websocket_hello_events_and_binary_previews(webui, tmp_path):
         socket.send_json({"type": "ping"})
         assert socket.receive_json() == {"type": "pong"}
 
-        server.services.bus.publish("toast", level="info", message="hi")
-        assert socket.receive_json() == {"type": "toast", "level": "info", "message": "hi"}
+        server.services.bus.publish("options.changed", keys=["sd_model_checkpoint"])
+        assert socket.receive_json() == {"type": "options.changed", "keys": ["sd_model_checkpoint"]}
         server.services.bus.publish_frame(PreviewFrame(FORMAT_JPEG, 3, 1, b"jpeg"))  # not announced: skipped
         server.services.bus.publish_frame(PreviewFrame(FORMAT_WEBP, 3, 2, b"webp"))
         assert unpack_frame(socket.receive_bytes()) == PreviewFrame(FORMAT_WEBP, 3, 2, b"webp")

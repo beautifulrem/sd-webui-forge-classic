@@ -155,8 +155,8 @@ describe("useWs", () => {
 
   it("keeps one socket when connect → disconnect → connect overlap (StrictMode)", async () => {
     const { useWs, onWsEvent } = await import("./ws")
-    const toast = vi.fn()
-    onWsEvent("toast", toast)
+    const pong = vi.fn()
+    onWsEvent("pong", pong)
     useWs.getState().connect()
     useWs.getState().disconnect()
     useWs.getState().connect()
@@ -165,8 +165,8 @@ describe("useWs", () => {
     expect(FakeSocket.instances).toHaveLength(2)
     expect(live).toHaveLength(1)
     live[0]!.open()
-    live[0]!.receive(JSON.stringify({ type: "toast", message: "once" }))
-    expect(toast).toHaveBeenCalledTimes(1)
+    live[0]!.receive(JSON.stringify({ type: "pong" }))
+    expect(pong).toHaveBeenCalledTimes(1)
     // The superseded socket's close does not schedule a reconnect.
     await vi.advanceTimersByTimeAsync(20_000)
     expect(FakeSocket.instances).toHaveLength(2)

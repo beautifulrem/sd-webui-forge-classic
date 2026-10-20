@@ -1,13 +1,18 @@
 /** Actions wired to edits: on_change (debounced), conflict locks, scripts context, bulk resets, __settings__, stale drops. */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { keys, queryClient } from "@/api/queries"
 import type { Bootstrap } from "@/api/types"
 import { actionRequest, resetOwners, runAction, runBulkChangeEffects } from "./actions"
 import { createFormStore, type FormStore } from "./form-store"
 import { TabForm } from "./SchemaForm"
+import { preloadViews } from "./lazy-views"
 import type { TabSchema } from "./schema"
+
+// these forms show deferred node views (image, file, color, JSON, tabs, outputs): fetched up front,
+// they render at once as the assertions expect (the deferred path: ui/lazy-views.test.tsx)
+beforeAll(() => preloadViews())
 
 type Call = { path: string; method: string; body: Record<string, unknown> }
 

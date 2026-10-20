@@ -17,7 +17,9 @@ Run in `webui/`:
 | `pnpm dev` | Vite dev server; proxies `/api` (incl. WS), `/sdapi`, `/files` to `REMI_BACKEND` (default `http://127.0.0.1:7860`) |
 | `pnpm dev:mock` | No backend: `VITE_MOCK=1`, API answered in the browser from fixtures, jobs simulated with live previews |
 | `pnpm build` | `tsc -b` then the production build into `webui/dist` (served by the Python server) |
+| `pnpm preview` | serves the built `webui/dist` (Vite preview, port 4173) with the same proxies as `pnpm dev`: the production bundle against a running server |
 | `pnpm typecheck` | type-check only |
+| `pnpm gen:api` | regenerates `src/api/gen/schema.d.ts` from `src/api/openapi.json` (`openapi-typescript`); run it after `$PYTHON tools/export_openapi.py` (from the repository root) whenever a server route or model changed; `gen/gen.test.ts` and the `contract:openapi` step of `tools/check.sh` fail while either is stale ([API layer](#api-layer-srcapi)) |
 | `pnpm test` / `pnpm test:watch` | Vitest |
 | `pnpm test:e2e` | Playwright against mock mode (`tests/e2e`; starts `vite` on port 5199, bypassing proxies for loopback) |
 | `pnpm lint` | oxlint (must be silent) |
@@ -84,7 +86,14 @@ imperatively).
   editor's list — prevents its default), the palette's "Keyboard shortcuts"
   and the appearance menu. Add a shortcut there when you add one.
 - **Toasts**: `sonner`; use `showToast(level, message)` from `lib/toast.ts`
-  for server-provided levels, or `toast` directly.
+  for server-provided levels, or `toast` directly. They sit bottom-right,
+  lifted above any control pinned to the bottom edge under them
+  (`app/toast-offset.ts`): mark such a control `data-toast-obstacle` (the
+  phone's bottom navigation and sticky Generate bar, the canvas's bottom
+  toolbars and the apply bars carry it).
+- **Page column**: Extensions and every extension page lay their content out
+  in `PAGE_CONTAINER` (`components/page-container.ts`): one max width,
+  padding and vertical rhythm.
 - **Appearance** (`lib/theme.ts`, persisted as `remi-appearance`): theme
   (light/dark/system), density (comfortable/compact), accent
   (`iris|blue|teal|green|amber|coral|rose`). `index.html` applies the stored
@@ -151,7 +160,18 @@ imperatively).
   `{"errors": [{owner, param, message}]}` or FastAPI's `detail`),
   `validationErrors(error)` for the per-field list, `ROOT` / `API_BASE` /
   `apiUrl()` from `window.__REMI_ROOT__` (`--subpath`), and a 401 outside
-  `/auth` reloads the page (the server shows its login page).
+  `/auth` marks the session as ended (`session.ts`).
+- `session.ts` + `features/auth`: signing in (`--auth`). The server renders
+  no login page; `main.tsx` asks `api.auth.status()` before the first
+  render. Signed out, `AuthGate` renders only the sign-in form (the app
+  requests nothing) and reloads the page once signed in (the app, or the
+  API docs the browser asked for). A 401 while the app is open shows the
+  form in a dialog over it (the app stays mounted, `inert`); signing in
+  closes it, refetches the queries and reconnects the socket. "Sign out
+  (user)" is in the Appearance menu and the command palette. Strings come
+  from the chrome catalog like every other text. The mock backend has a
+  login too (`api/mock/auth.ts`, `sessionStorage["remi-mock-login"]`,
+  demo / demo; `tests/e2e/auth.spec.ts`).
 - `endpoints.ts`: **the only place that builds URLs** (`api.app()`,
   `api.schema(tab)`, `api.action(owner, action, body)`, `api.jobs.*`,
   `api.upload(file)`, `api.fileUrl(id)`, `api.thumbUrl(id, w)`, …). Paths,
@@ -445,13 +465,21 @@ mode's schema is prefetched).
   (`POST /jobs`, `/interrupt`, `/skip`, `DELETE`) and feeds it WS job events
   (`job.completed` with status `interrupted` / `cancelled` counts as
   interrupted). Forever and repeat submit the next run when the previous one
-  has finished (a failure or Interrupt ends them). Submits in flight are a
+  has finished, from the form's values at that moment, so edits made
+  meanwhile apply to the next run as in A1111 (a failure or Interrupt ends
+  them). They are driven by WebSocket job events, not timers or animation
+  frames, so they keep going with the tab in the background. Submits in flight are a
   counter (an Interrupt cancels every one of them when it answers; a second
   Ctrl/Cmd+Enter while one is pending queues nothing). Jobs in flight are
-  kept in `localStorage` (`remi-run:<tab>`, written from the run state) and
-  re-attached after a reload (`restore.ts`): attached first, then each looked
-  up with `GET /jobs/{id}`, so events arriving meanwhile apply; finished ones
-  go to the history. Events lost while the socket was down are recovered the
+  kept in `localStorage` (`remi-run:<tab>`: `{jobs, forever, repeatLeft}`,
+  written from the run state) and re-attached after a reload (`restore.ts`):
+  attached first, then each looked up with `GET /jobs/{id}`, so events
+  arriving meanwhile apply; finished ones go to the history. After the
+  lookups, Generate forever and the runs left of Generate several times
+  resume (`resume` event: the menu item is checked again and the next run
+  follows) if one of the restored jobs is still queued or running; when they
+  all ended while the page was closed, the loop is over and nothing new is
+  queued. Events lost while the socket was down are recovered the
   same way: every `hello` and every `queue.changed` whose `running` is not
   the job a form believes runs re-check that form's jobs (`wireRunSync`), and
   `queue.changed` drops a stale live progress. While a job of
@@ -586,14 +614,19 @@ chunk, `preloadImageEditor()` fetches it early), the img2img integration
   `forge_canvas_consistent_brush`. Canvases follow `devicePixelRatio` (and
   moves between screens). `forge_canvas_plain(_color)` and
   `forge_canvas_toolbar_always` are honoured.
-- **Keys** (pointer over the editor or focus inside it, never while typing):
+- **Keys** (pointer over the editor - entered, moved or pressed inside, or
+  `:hover`, so an editor that appears under a resting pointer takes them -
+  or focus inside it, never while typing):
   B E G M L I H tools, `[` `]` and W / A / S + wheel size / opacity /
   softness, Ctrl/⌘+Z / Y / Shift+Z, Ctrl/⌘+X or Delete clear, Ctrl/⌘+I
   invert, `?` the shortcuts popover.
 - **Overlays**: while width / height / resize mode change, the target frame
   of the resize mode (crop / fill shading) shows for a moment ("Resize by":
   the image × scale, snapped like `snap_resolution`; the Source panel also
-  fills the `scale_by_resolution` output); mask blur
+  fills the `scale_by_resolution` output, with the source size from the
+  upload's metadata, a sent result's output metadata (`describeFile`), the
+  editor's loaded background, or the image read once - shared by every
+  reader, `img2img/image-size.ts`); mask blur
   (CSS blur at the view scale) and the "Only masked" area (padding and
   processing ratio, as `modules.masking` computes it) show while their
   settings change, or always from the layers popover.
@@ -764,7 +797,7 @@ tree's width). Until a sort is chosen, `extra_networks_card_order_field` /
   | `extra_networks_tree_view_default_enabled`, `_tree_view_default_width`, `_tree_view_style` (Tree / Dirs), `extra_networks_dir_button_function` | the folder tree pane (toggle and drag-resizable width, remembered) on wide layouts and a folder popover elsewhere; picking a folder filters to it, as the Dirs buttons did |
   | `img2img_sketch_default_brush_color`, `img2img_inpaint_sketch_default_brush_color` | the image editor's colour control (the last colour and eight recent ones are remembered) |
   | `img2img_inpaint_mask_brush_color`, `img2img_inpaint_mask_scribble_alpha`, `img2img_inpaint_mask_high_contrast` | the mask overlay colour (six presets, white and black for contrast) and opacity in the editor's Layers popover, remembered |
-  | `keep_alive` | Generate forever is a server-side queue flag: it keeps going with the tab in the background or closed |
+  | `keep_alive` | nothing to keep alive: the SPA does not depend on animation frames to go on. Generate forever and Generate several times queue the next run on WebSocket job events (which a background tab still receives), so they keep going with the tab in the background; jobs already queued run on the server even with the tab closed, and a reload re-attaches them and resumes the loop (see "Run controller"). Closing the tab ends Generate forever after its current run, as in A1111 (to keep generating without a tab, queue the jobs: "Add to queue", or the API's `forever` flag, which the Queue page can stop) |
   | `live_preview_refresh_period` | previews are pushed over the WebSocket at `live_preview_fps` |
   | `no_spellcheck`, `undo_redo`, `prompt_debounce` | the prompt editor never spellchecks or autocorrects, always has undo / redo (Ctrl/Cmd+Z, Shift+Ctrl/Cmd+Z), and is never delayed (extensions no longer read the DOM) |
   | `remove_image_on_hover` | dropping an image on a filled image field always replaces it |
@@ -1127,29 +1160,30 @@ to queue" twice, keyboard reorder, resume, history). TypeScript runs with `noUnc
 
 ## Performance
 
-Budget: shell JS ≤ 200 KB gzip. Generate view figures measured 2026-10-15
-(wave 2): a route's size is its chunk plus every statically imported chunk
-that is not in the initial shell. The build groups everything the first paint
-needs into `vendor` (node_modules) and `shell` chunks (`codeSplitting` groups
-with the `$initial` tag in `vite.config.ts`); everything else is lazy:
-pages, the prompt editor, the command palette, menus, the model picker,
-widgets, locale catalogs. Measured 2026-10-15 (`pnpm build`, `gzip -9`):
+Budget (scorecard dimension 5, `webui/tools/perf/budget.json`, checked by
+`tools/check.sh` step `perf:bundle`; measurements and method in
+[docs/research/ui-performance.md](../research/ui-performance.md#1-bundle)):
+initial JS ≤ 300 KB gzip; every route and every other lazy entry ≤ 150 KB
+on top of it, counted with all its static imports; the editor chunks
+(canvas editor, CodeMirror prompt editor) exempt; the default Generate route
+a recorded exception with its own caps. The build groups everything the
+first paint needs into `react`, `vendor` (other node_modules) and `shell`
+chunks (`codeSplitting` groups with the `$initial` tag in
+`vite.config.ts`); everything else is lazy: pages, the prompt editor, the
+command palette, the model picker, widgets, locale catalogs.
 
-| | raw | gzip |
-|---|---|---|
-| initial JS (runtime + `vendor` + `shell`) | 515 KB | **167 KB** |
-| CSS (incl. `@font-face`) | 136 KB | 24 KB |
-| `generate` page + schema renderer + features (all its static chunks) | 501 KB | 177 KB |
-| lightbox (lazy; on top of the generate route) | 13 KB | 6 KB |
-| image editor (Konva + editor UI; lazy, preloaded by img2img) | 209 KB | 67 KB |
-| style editor (lazy; on top of the generate route) | 14 KB | 6 KB |
-| model bar (own code; shared with the header) | 15 KB | 6 KB |
-| `queue` page (own chunk, wave 3) | 53 KB | 20 KB |
-| `gallery` page (own chunk; TanStack Virtual is shared) | 46 KB | 19 KB |
-| `extras` page (own chunk; the schema renderer is shared with generate) | 16 KB | 7 KB |
-| `png-info` page (own chunk) | 18 KB | 7 KB |
-| prompt editor (CodeMirror + lint + autocomplete) | 328 KB | 105 KB |
-| command palette (cmdk + dialog) | 59 KB | 20 KB |
+Keeping a first view small:
+
+- Menus: `@/components/ui/dropdown-menu` renders its trigger itself and
+  loads the Base UI menu (`dropdown-menu-impl.tsx`) on hover, focus or open.
+  Code that builds on `Menu.Root` directly imports its parts from
+  `dropdown-menu-impl`.
+- Form views most first views do not show (image, file, color, JSON, tabs,
+  outputs) are deferred in `ui/lazy-views.tsx`; a test that renders them
+  synchronously calls `preloadViews()` first.
+- Dialogs and surfaces that open on demand (img2img's source panel and
+  stage, the networks item dialogs, the lightbox, the style editor) are
+  `lazy()` and mounted on first use.
 
 Fonts load per unicode range (Inter latin ≈ 48 KB woff2).
 

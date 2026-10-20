@@ -43,6 +43,18 @@ const IMG2IMG_REQUIRED: RequiredInput[] = [
   { param: "mask_upload", message: "a mask image is required", when: { param: "mode", eq: "Inpaint upload" } },
 ]
 
+const sizeSlider = (name: "width" | "height", extra: { on_change?: string }): Node => ({
+  type: "slider",
+  name,
+  label: name === "width" ? "Width" : "Height",
+  minimum: 64,
+  maximum: 2048,
+  step: 8,
+  integer: true,
+  infotext: name === "width" ? "Size-1" : "Size-2",
+  ...extra,
+})
+
 function coreLayout(tab: "txt2img" | "img2img"): Node {
   // txt2img recomputes the Hires. fix output line when the size changes.
   const hires = tab === "txt2img" ? { on_change: "hr_resolution" } : {}
@@ -99,14 +111,32 @@ function coreLayout(tab: "txt2img" | "img2img"): Node {
       {
         type: "row",
         children: [
-          {
-            type: "column",
-            width: "fill",
-            children: [
-              { type: "slider", name: "width", label: "Width", minimum: 64, maximum: 2048, step: 8, integer: true, infotext: "Size-1", ...hires },
-              { type: "slider", name: "height", label: "Height", minimum: 64, maximum: 2048, step: 8, integer: true, infotext: "Size-2", ...hires },
-            ],
-          },
+          tab === "img2img"
+            ? // Like the real form: "Resize to" a size, or "Resize by" a factor of the source (its result size shown below).
+              {
+                type: "column",
+                width: "fill",
+                children: [
+                  { type: "choice", name: "resize_tab", label: "Resize", choices: options(["Resize to", "Resize by"]), hidden: true },
+                  {
+                    type: "tabs",
+                    bind: "resize_tab",
+                    children: [
+                      { type: "tab", title: "Resize to", value: "Resize to", children: [sizeSlider("width", hires), sizeSlider("height", hires)] },
+                      {
+                        type: "tab",
+                        title: "Resize by",
+                        value: "Resize by",
+                        children: [
+                          { type: "slider", name: "scale_by", label: "Scale", minimum: 0.5, maximum: 4, step: 0.05 },
+                          { type: "output", name: "scale_by_resolution", kind: "text" },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              }
+            : { type: "column", width: "fill", children: [sizeSlider("width", hires), sizeSlider("height", hires)] },
           { type: "button", label: "Swap", action: "swap_dimensions", variant: "tool" },
           {
             type: "column",
@@ -240,6 +270,8 @@ function coreDefaults(tab: "txt2img" | "img2img") {
           inpaint_full_res: "Only masked",
           inpaint_full_res_padding: 32,
           denoising_strength: 0.75,
+          resize_tab: "Resize to",
+          scale_by: 1,
         }),
   }
 }

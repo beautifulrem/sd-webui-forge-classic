@@ -17,7 +17,7 @@
  "Per-LoRA templates": "单 LoRA 模板",
  "One per line: LoRA name=template name\nAlso supports: <lora:name:0.8>=仅人物特征阶段介入\nEmpty entries use the template above": "每行一个：LoRA名=模板名\n也支持：<lora:name:0.8>=仅人物特征阶段介入\n未填写的 LoRA 使用上方模板",
  "Stage timing": "介入时间",
- "Use independent Hires. fix panel; disabled = inherit base settings with Hires Shift timing": "高分辨率修复使用独立面板；关闭时继承底图设置，但按 Hires Shift 自动设置时间",
+ "Use independent Hires. fix panel; disabled = inherit base settings with Hires Shift timing": "高分辨率修复使用独立面板；关闭时继承底图设置，但按高分辨率修复 Shift 自动设置时间",
  "Disable LoRA during Hires. fix": "高分辨率修复时禁用 LoRA",
  "Do not disable": "不禁用",
  "Disable all LoRAs": "禁用全部 LoRA",

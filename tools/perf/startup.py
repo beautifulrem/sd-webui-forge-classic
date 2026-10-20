@@ -9,7 +9,8 @@ docs/research/ui-performance.md ("Recreating the environments") builds both.
 For each tree and mode (``ui``: the web interface, ``api``: ``--nowebui``) it starts ``launch.py``
 ``runs`` times, old and new alternating (after one unrecorded warm-up start each that fills the
 OS file cache) with a fresh
-``--data-dir`` holding a copy of this repo's ``config.json``, the models from ``--model-ref``, and
+``--data-dir`` holding a copy of this repo's ``config.json``, the models from ``--model-ref``, offline
+(``--ad-no-huggingface``, ``HF_HUB_OFFLINE=1``, no proxy: see :data:`OFFLINE_ARGS`), and
 measures the wall time from spawning the process until the server answers (``GET /`` for the UI,
 ``GET /sdapi/v1/sd-models`` for the API) and the process's own ``Startup time`` line, then
 stops it (Ctrl+C). The RSS of the process tree once ready is recorded too. Refuses to run while
@@ -59,21 +60,34 @@ def tree_rss(pid: int) -> int:
         return 0
 
 
+OFFLINE_ARGS = ["--ad-no-huggingface"]
+"""Both trees start offline alike: the old tree's ADetailer downloads its missing stock detectors on
+every start (``get_models``; with outbound connections blocked the start hangs on them for minutes),
+the new one only when a unit runs, and both accept this flag (ADetailer's ``preload.py``)."""
+
+
 def server_env(environ: dict[str, str]) -> dict[str, str]:
-    """The servers' environment: no proxy (both trees start offline alike; Gradio's httpx client
-    refuses a SOCKS proxy without socksio, so the old tree would not start at all), no SPA build."""
+    """The servers' environment: offline (no proxy - Gradio's httpx client refuses a SOCKS proxy
+    without socksio, so the old tree would not start at all -, ``HF_HUB_OFFLINE`` so no Hugging
+    Face lookup can wait on the network), no SPA build."""
 
     env = {key: value for key, value in environ.items() if not key.lower().endswith("_proxy")}
-    env.update({"REMI_SKIP_WEBUI_BUILD": "1", "PYTHONUNBUFFERED": "1", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"})
+    env.update({"REMI_SKIP_WEBUI_BUILD": "1", "PYTHONUNBUFFERED": "1", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost", "HF_HUB_OFFLINE": "1"})
     return env
+
+
+def launch_args(python: str, mode: str, port: int, data: Path) -> list[str]:
+    """``launch.py``'s command line for one start (the same for both trees)."""
+
+    args = [python, "launch.py", "--skip-prepare-environment", "--skip-install", "--port", str(port), "--data-dir", str(data), "--model-ref", str(ROOT / "models"), *OFFLINE_ARGS]
+    return args + (["--nowebui"] if mode == "api" else [])
 
 
 def start_once(tree: Path, python: str, mode: str, port: int, timeout: float) -> dict:
     data = Path(tempfile.mkdtemp(prefix="remi-startup-"))
     if (ROOT / "config.json").is_file():
         shutil.copy2(ROOT / "config.json", data / "config.json")
-    args = [python, "launch.py", "--skip-prepare-environment", "--skip-install", "--port", str(port), "--data-dir", str(data), "--model-ref", str(ROOT / "models")]
-    args += ["--nowebui"] if mode == "api" else []
+    args = launch_args(python, mode, port, data)
     env = server_env(os.environ)
     url = f"http://127.0.0.1:{port}" + ("/sdapi/v1/sd-models" if mode == "api" else "/")
     log_path = data / "server.log"

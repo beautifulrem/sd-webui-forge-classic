@@ -7,11 +7,16 @@
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, fireEvent, render, screen } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { beforeAll, describe, expect, it, vi } from "vitest"
 import { createFormStore, type FormStore } from "@/ui/form-store"
 import { TabForm } from "@/ui/SchemaForm"
+import { preloadViews } from "@/ui/lazy-views"
 import type { Node, TabSchema } from "@/ui/schema"
 import type { ImageEditorProps } from "../types"
+
+// these forms show deferred node views (image, file, color, JSON, tabs, outputs): fetched up front,
+// they render at once as the assertions expect (the deferred path: ui/lazy-views.test.tsx)
+beforeAll(() => preloadViews())
 
 const editors = vi.hoisted(() => ({ last: null as ImageEditorProps | null, count: 0 }))
 

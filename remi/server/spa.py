@@ -9,6 +9,11 @@ Behind ``--subpath`` the shell's absolute asset URLs get the prefix and
 ``window.__REMI_THEME__`` carries ``--theme`` (the theme of browsers that
 have not picked one in the Appearance menu). Both are set at the top of
 ``<head>``, before the shell's own script applies the theme.
+
+Without a login (``--auth``), a page load gets the same shell with status
+401 (:meth:`Spa.login_page`): it carries no data, and the SPA asks
+``/api/v2/auth/status`` and shows its own sign-in form, so the server never
+renders a UI of its own.
 """
 
 from __future__ import annotations
@@ -51,7 +56,7 @@ NOT_BUILT = """<!doctype html><html lang="en"><head><meta charset="utf-8"><title
 <pre><code>cd webui
 pnpm install
 pnpm build</code></pre>
-<p>then reload this page. The API is available meanwhile (<code>/docs</code>).</p></body></html>"""
+<p>then reload this page. The API is available meanwhile (its description: <code>/openapi.json</code>; the <code>/docs</code> viewer comes with the build).</p></body></html>"""
 
 
 def accepted_codings(header: str) -> set[str]:
@@ -130,10 +135,20 @@ class Spa:
             return
         refused = refusal(self.auth, scope, cross_site_check=False)
         if refused is not None:
-            await refuse(scope, receive, send, *refused)
+            await refuse(scope, receive, send, *refused, login_page=self.login_page)
             return
         accept = Headers(scope=scope).get("accept-encoding", "")
         await self.response(path, scope.get("root_path", ""), accept)(scope, receive, send)
+
+    def login_page(self, root: str) -> Response | None:
+        """The shell for a page load without a login (status 401, never
+        cached); the SPA renders the sign-in form. None when the SPA is not
+        built (the server then offers HTTP Basic)."""
+
+        index = self.index(root)
+        if index is None:
+            return None
+        return HTMLResponse(index, status_code=401, headers={**html_headers(index), "Cache-Control": "no-store"})
 
     def response(self, path: str, root: str, accept_encoding: str = "") -> Response:
         file = self._file(path)
@@ -148,8 +163,9 @@ class Spa:
                     media_type = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
                     return FileResponse(packed, media_type=media_type, headers={**headers, "Content-Encoding": coding})
             return FileResponse(file, headers=headers)
-        # Only existing build files under /assets: it is public (the login
-        # page's assets), so it must never fall back to the shell
+        # Only existing build files under /assets: it is public (the shell
+        # loads it to show the sign-in form), so it must never fall back to
+        # the shell
         if path == "/assets" or path.startswith("/assets/") or (os.path.splitext(path)[1] and not path.endswith(".html")):
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         index = self.index(root)

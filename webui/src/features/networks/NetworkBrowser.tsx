@@ -24,7 +24,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react"
-import { type ReactNode, type Ref, type RefObject, useEffect, useImperativeHandle, useRef, useState } from "react"
+import { lazy, type ReactNode, type Ref, type RefObject, Suspense, useEffect, useImperativeHandle, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { api } from "@/api/endpoints"
@@ -55,21 +55,24 @@ import { useFittingPlaceholder } from "@/lib/use-fitting-placeholder"
 import { useMediaQuery } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
 import { applyItem, copyPath, openFolder, useActiveTest, useNetworkSettings } from "./actions"
-import { EditMetadataDialog } from "./EditMetadataDialog"
 import { FolderTree } from "./FolderTree"
 import { ItemMenu, type MenuCommand } from "./ItemMenu"
-import { MetadataDialog } from "./MetadataDialog"
 import type { MenuAnchor } from "./items"
 import type { ItemAction } from "./NetworkCard"
 import { type GridHandle, NetworkGrid } from "./NetworkGrid"
-import { PreviewDialog } from "./PreviewDialog"
 import { usePromptTarget } from "./prompt-target"
 import { facetsQuery, type IndexRange, kindsQuery, type ListParams, type SortKey, type SortOrder, useNetworkWindow } from "./queries"
 import { type CardSize, type Surface, TREE_WIDTH, useNetworksUi, useSurface } from "./store"
 
 export type BrowserHandle = { focusSearch: () => void }
 
-type Dialog = { type: "metadata" | "edit" | "preview"; item: NetworkItem } | null
+type DialogType = "metadata" | "edit" | "preview"
+type Dialog = { type: DialogType; item: NetworkItem } | null
+
+// The item dialogs are fetched the first time one opens (they are not part of the browser's first view).
+const MetadataDialog = lazy(() => import("./MetadataDialog").then((m) => ({ default: m.MetadataDialog })))
+const EditMetadataDialog = lazy(() => import("./EditMetadataDialog").then((m) => ({ default: m.EditMetadataDialog })))
+const PreviewDialog = lazy(() => import("./PreviewDialog").then((m) => ({ default: m.PreviewDialog })))
 
 function useKindTitle() {
   const { t } = useTranslation()
@@ -260,7 +263,13 @@ export function NetworkBrowser({ surface, form, toolbarEnd, toastOnApply, classN
   const wide = useMediaQuery("(min-width: 64rem)")
   const searchRef = useRef<HTMLInputElement>(null)
   const gridRef = useRef<GridHandle>(null)
-  const [dialog, setDialog] = useState<Dialog>(null)
+  const [dialog, setDialogState] = useState<Dialog>(null)
+  // dialogs opened at least once stay mounted (closing animates; the next open is immediate)
+  const [mounted, setMounted] = useState<ReadonlySet<DialogType>>(() => new Set())
+  const setDialog = (next: Dialog) => {
+    if (next && !mounted.has(next.type)) setMounted(new Set([...mounted, next.type]))
+    setDialogState(next)
+  }
   const [menu, setMenu] = useState<{ item: NetworkItem; anchor: MenuAnchor } | null>(null)
   const [announcement, setAnnouncement] = useState("")
   const [search, setSearch] = useState(state.query)
@@ -565,9 +574,11 @@ export function NetworkBrowser({ surface, form, toolbarEnd, toastOnApply, classN
         onClose={() => setMenu(null)}
         onCommand={onCommand}
       />
-      <MetadataDialog item={dialog?.type === "metadata" ? dialog.item : null} open={dialog?.type === "metadata"} onOpenChange={(open) => !open && setDialog(null)} />
-      <EditMetadataDialog item={dialog?.type === "edit" ? dialog.item : null} kind={kind} open={dialog?.type === "edit"} onOpenChange={(open) => !open && setDialog(null)} />
-      <PreviewDialog item={dialog?.type === "preview" ? dialog.item : null} open={dialog?.type === "preview"} onOpenChange={(open) => !open && setDialog(null)} />
+      <Suspense fallback={null}>
+        {mounted.has("metadata") ? <MetadataDialog item={dialog?.type === "metadata" ? dialog.item : null} open={dialog?.type === "metadata"} onOpenChange={(open) => !open && setDialog(null)} /> : null}
+        {mounted.has("edit") ? <EditMetadataDialog item={dialog?.type === "edit" ? dialog.item : null} kind={kind} open={dialog?.type === "edit"} onOpenChange={(open) => !open && setDialog(null)} /> : null}
+        {mounted.has("preview") ? <PreviewDialog item={dialog?.type === "preview" ? dialog.item : null} open={dialog?.type === "preview"} onOpenChange={(open) => !open && setDialog(null)} /> : null}
+      </Suspense>
     </div>
   )
 }

@@ -1209,7 +1209,7 @@ class Script(scripts.Script):
             f"{len(artists)} artists, strength={state.global_strength:.2f}, "
             f"{state.combine_mode}/{state.fusion_mode}, preset={optimization}, shift={shift:.2f}"
         )
-        # Keys match ``self.infotext_fields`` so pasted parameters restore the panel.
+        # Keys are the params' ``infotext`` keys, so pasted parameters restore the panel.
         p.extra_generation_params.update(generation_params(p, mixer_args))
 
     def postprocess_batch(self, p, *args, **kwargs):

@@ -117,6 +117,7 @@ function ParamsColumn({ tab, sticky, showModelBar }: { tab: GenerateTab; sticky:
   const { data: schema } = useSchema(tab)
   const bar = (
     <div
+      data-toast-obstacle={sticky === "bottom" ? "" : undefined}
       className={
         sticky === "top"
           ? "sticky top-0 z-10 border-b bg-background/85 p-3 backdrop-blur supports-backdrop-filter:bg-background/70"

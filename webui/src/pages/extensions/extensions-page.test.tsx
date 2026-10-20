@@ -1,5 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { toast } from "sonner"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { api } from "@/api/endpoints"
 import { ApiError } from "@/api/http"
@@ -78,6 +79,16 @@ describe("extensions page", { timeout: 20_000 }, () => {
     expect(await screen.findByText("Update available")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("checkbox", { name: "Update" }))
     expect(await screen.findByText("0 switched, 1 to update")).toBeInTheDocument()
+  })
+
+  it("says so when there is no user extension to check", async () => {
+    items = [ext("browser", { enabled: false }), ext("local", { remote: null, remote_url: null }), ext("sd_forge_lora", { builtin: true, remote: null, remote_url: null, version: null })]
+    const check = vi.spyOn(api.extensions, "check")
+    const info = vi.spyOn(toast, "info")
+    renderPage()
+    fireEvent.click(await screen.findByRole("button", { name: "Check for updates" }))
+    await waitFor(() => expect(info).toHaveBeenCalledWith("No user extensions to check", expect.objectContaining({ description: expect.stringContaining("Git repository") })))
+    expect(check).not.toHaveBeenCalled()
   })
 
   it("explains when extension access is disabled", async () => {

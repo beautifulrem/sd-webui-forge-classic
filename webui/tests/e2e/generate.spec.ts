@@ -100,6 +100,10 @@ test.describe("generate", () => {
     await page.getByRole("button", { name: "Open image viewer" }).first().click()
     const viewer = page.getByRole("dialog", { name: "Image viewer" })
     await expect(viewer).toBeVisible()
+    // the backdrop is opaque: the page header never shows through the viewer's toolbar
+    const backdrop = await page.locator("[data-slot=viewer-backdrop]").evaluate((element) => getComputedStyle(element).backgroundColor)
+    expect(backdrop).not.toContain("/") // oklch(L C H / alpha) only when translucent
+    expect(backdrop).not.toMatch(/^rgba/)
     await page.keyboard.press("Escape")
     await expect(viewer).toBeHidden()
   })
@@ -116,6 +120,10 @@ test.describe("generate", () => {
     // The source image is set (its line offers to replace / remove it) and the stage shows it in the editor.
     await expect(page.getByRole("region", { name: "Source", exact: true }).getByRole("button", { name: /^Remove/ })).toBeVisible()
     await expect(page.getByRole("img", { name: /^Image editor, / })).toBeVisible()
+    // "Resize by" shows the size the sent result is processed at (the result's own size × the scale).
+    await page.getByRole("tab", { name: "Resize by", exact: true }).click()
+    await setNumber(page, "Scale", 1.5)
+    await expect(page.getByRole("tabpanel").filter({ has: page.getByRole("slider", { name: "Scale", exact: true }) })).toContainText("Resize from 1024×1024 to 1536×1536")
   })
 
   test("batch count N makes N results in batch order", async ({ page }) => {

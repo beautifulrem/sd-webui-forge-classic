@@ -7,11 +7,15 @@ each): low-rank deltas on every DiT block's attention outputs and MLP of the giv
 checkpoint, in the ``diffusion_model.blocks.<n>.<module>.lora_down/lora_up/alpha``
 layout Anima trainers write. Only the checkpoint's safetensors *header* is read (the
 layer shapes); the model is not loaded. The two files differ only in their seed, so
-FreeFuse can route two distinct subject LoRAs.
+FreeFuse can route two distinct subject LoRAs. It also writes ``remi-test-lokr.safetensors``,
+a LoKr (LyCORIS Kronecker) adapter on the same layers in the layout Anima LoKr trainers write
+(``diffusion_model.blocks.<n>.<module>.lokr_w1`` with a low-rank ``lokr_w2_a`` / ``lokr_w2_b``
+and ``alpha``), for the LoKR tab of LoRA Layer Weight.
 
 They change an image visibly at weight 1 without destroying it. ``tools/smoke_real.py
 --features`` generates them into its temporary data folder and uses them to check Anima
-FreeFuse, LoRA Layer Weight and LoRA Stage Scheduler against the real model.
+FreeFuse, LoRA Layer Weight (both its LoRA and its LoKR tab) and LoRA Stage Scheduler against
+the real model.
 
     python tools/anima_test_loras.py --refiner CHECKPOINT OUT.safetensors
 
@@ -31,6 +35,11 @@ import sys
 from pathlib import Path
 
 NAMES = ("remi-test-a", "remi-test-b")
+LOKR_NAME = "remi-test-lokr"
+LOKR_SEED = 4
+# lokr_w1 is LOKR_FACTOR x LOKR_FACTOR; lokr_w2 = lokr_w2_a @ lokr_w2_b of rank RANK, so each
+# delta is kron(w1, w2) (alpha / RANK = 1), of rank LOKR_FACTOR * RANK
+LOKR_FACTOR = 4
 REFINER_NAME = "remi-test-refiner"
 REFINER_SEED = 3
 RANK = 4
@@ -76,6 +85,46 @@ def make_lora(layers: dict[str, tuple[int, int]], seed: int, *, rank: int = RANK
         tensors[f"{prefix}.lora_up.weight"] = up.to(torch.float16).contiguous()
         tensors[f"{prefix}.alpha"] = torch.tensor(float(rank), dtype=torch.float16)
     return tensors
+
+
+def make_lokr(layers: dict[str, tuple[int, int]], seed: int, *, factor: int = LOKR_FACTOR, rank: int = RANK, scale: float = 0.12) -> dict:
+    """The LoKr tensors (fp16) for ``layers``: per layer ``lokr_w1`` (``factor`` x ``factor``),
+    ``lokr_w2_a`` / ``lokr_w2_b`` (rank ``rank``) and ``alpha`` = ``rank``, so the delta
+    ``kron(w1, w2_a @ w2_b)`` has the shape of the layer's weight and the element spread of
+    ``make_lora``'s delta at the same ``scale`` (a comparable effect on the image)."""
+
+    import torch
+
+    generator = torch.Generator().manual_seed(seed)
+    tensors = {}
+    for layer, (out_features, in_features) in layers.items():
+        if out_features % factor or in_features % factor:
+            raise ValueError(f"{layer}: {out_features}x{in_features} is not divisible by the LoKr factor {factor}")
+        w1 = torch.randn(factor, factor, generator=generator)
+        w2_a = torch.randn(out_features // factor, rank, generator=generator) * (scale / rank**0.5)
+        w2_b = torch.randn(rank, in_features // factor, generator=generator) / in_features**0.5
+        prefix = f"diffusion_model.{layer}"
+        tensors[f"{prefix}.lokr_w1"] = w1.to(torch.float16).contiguous()
+        tensors[f"{prefix}.lokr_w2_a"] = w2_a.to(torch.float16).contiguous()
+        tensors[f"{prefix}.lokr_w2_b"] = w2_b.to(torch.float16).contiguous()
+        tensors[f"{prefix}.alpha"] = torch.tensor(float(rank), dtype=torch.float16)
+    return tensors
+
+
+def write_test_lokr(checkpoint: Path | str, out_dir: Path | str) -> Path:
+    """Write the test LoKr for ``checkpoint`` into ``out_dir``; its path."""
+
+    from safetensors.torch import save_file
+
+    layers = target_layers(read_header(checkpoint))
+    if not layers:
+        raise ValueError(f"{checkpoint}: no Anima DiT block layers ({', '.join(MODULES)}) in the header")
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{LOKR_NAME}.safetensors"
+    metadata = {"ss_network_module": "lycoris.kohya", "ss_network_args": json.dumps({"algo": "lokr", "factor": LOKR_FACTOR}), "ss_network_dim": str(RANK), "remi_test_lora": "1"}
+    save_file(make_lokr(layers, LOKR_SEED), str(path), metadata=metadata)
+    return path
 
 
 def write_test_loras(checkpoint: Path | str, out_dir: Path | str) -> list[Path]:
@@ -141,7 +190,7 @@ def main() -> int:
         path = write_refiner_checkpoint(options.checkpoint, options.out_dir)
         print(f"{path} ({path.stat().st_size / 1e9:.2f} GB)")
         return 0
-    for path in write_test_loras(options.checkpoint, options.out_dir):
+    for path in [*write_test_loras(options.checkpoint, options.out_dir), write_test_lokr(options.checkpoint, options.out_dir)]:
         print(f"{path} ({path.stat().st_size / 1e6:.1f} MB)")
     return 0
 

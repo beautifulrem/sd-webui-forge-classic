@@ -38,7 +38,7 @@ describe("run controller", () => {
     vi.spyOn(api.jobs, "create").mockResolvedValue({ job_id: "j1", job_ids: ["j1"], seq: 1 })
     dispatchRun("txt2img", { type: "generate" })
     await vi.waitFor(() => expect(useRuns.getState().runs.txt2img.jobs).toEqual(["j1"]))
-    expect(localStorage.getItem(persistKey("txt2img"))).toBe('["j1"]')
+    expect(JSON.parse(localStorage.getItem(persistKey("txt2img"))!)).toEqual({ jobs: ["j1"], forever: false, repeatLeft: 0 })
     send({ type: "job.started", job_id: "j1", seq: 1 })
     expect(phaseOf(useRuns.getState().runs.txt2img)).toBe("running")
     send({ type: "job.completed", job_id: "j1", seq: 1, status: "completed", outputs: [] })

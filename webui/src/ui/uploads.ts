@@ -79,6 +79,21 @@ export async function uploadFile(file: File): Promise<UploadInfo> {
   return info
 }
 
+/**
+ * Records the pixel size of a file this tab did not upload (a result or
+ * gallery image sent to a form), from the output's metadata: helpers that
+ * need the size (the "Resize by" result size) then know it without loading
+ * the image.
+ */
+export function describeFile(id: string, size: { width?: number | null; height?: number | null }) {
+  const width = size.width ?? 0
+  const height = size.height ?? 0
+  if (!(width > 0 && height > 0)) return
+  const current = useUploads.getState().byId[id]
+  if (current?.width === width && current.height === height) return
+  useUploads.setState((s) => ({ byId: { ...s.byId, [id]: { ...s.byId[id], id, width, height } } }))
+}
+
 export function useUploadInfo(id: string | null | undefined): UploadInfo | null {
   const info = useUploads((s) => (id ? s.byId[id] : undefined))
   if (!id) return null

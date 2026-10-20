@@ -8,6 +8,7 @@ import { bootstrapQuery } from "@/api/queries"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { PageSkeleton } from "@/components/PageSkeleton"
 import { Toaster } from "@/components/ui/sonner"
+import { useSignOutCommand } from "@/features/auth/session-actions"
 import { ServerControlHost } from "@/features/server-control/ServerControlHost"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { activateLocale, browserLocale, useLocale } from "@/i18n"
@@ -19,6 +20,7 @@ import { BottomBar, NavRail } from "./NavRail"
 import { buildNav, pageFor, type NavItem } from "./routes"
 import { onShortcutsKey, useShortcutsHelp } from "./shortcuts-help"
 import { navigate, type Route, routeKey, useRoute } from "./router"
+import { useToastBottomOffset } from "./toast-offset"
 import { useUserStylesheet } from "./user-stylesheet"
 import { useWsBridge } from "./ws-bridge"
 
@@ -71,6 +73,24 @@ function useShellCommands(nav: NavItem[], locales: ReturnType<typeof availableLo
   useRegisterCommands("shell", commands)
 }
 
+/** Toasts bottom-right, above the controls pinned to the bottom edge (toast-offset.ts). */
+function AppToaster() {
+  const { t } = useTranslation()
+  const bottom = useToastBottomOffset()
+  return (
+    <Toaster
+      position="bottom-right"
+      offset={{ bottom }}
+      mobileOffset={{ bottom }}
+      closeButton
+      richColors={false}
+      // sonner's own labels are English ("Notifications alt+T", "Close toast"); Alt+T is its default hotkey
+      customAriaLabel={t("Notifications ({{shortcut}})", { shortcut: "Alt+T" })}
+      closeButtonAriaLabel={t("Close notification")}
+    />
+  )
+}
+
 function routeTitle(route: Route, nav: NavItem[]): string {
   if (route.name === "generate") return "Generate"
   if (route.name === "not-found") return "Not found"
@@ -99,6 +119,7 @@ export function App() {
   const nav = useMemo(() => buildNav(bootstrap.data?.tabs, bootstrap.data?.pages), [bootstrap.data])
   const locales = useMemo(() => availableLocales(bootstrap.data?.locales), [bootstrap.data])
   useShellCommands(nav, locales)
+  useSignOutCommand()
 
   const title = t(routeTitle(route, nav))
   useEffect(() => {
@@ -145,14 +166,7 @@ export function App() {
             <ShortcutsDialog />
           </Suspense>
         ) : null}
-        <Toaster
-          position="bottom-right"
-          closeButton
-          richColors={false}
-          // sonner's own labels are English ("Notifications alt+T", "Close toast"); Alt+T is its default hotkey
-          customAriaLabel={t("Notifications ({{shortcut}})", { shortcut: "Alt+T" })}
-          closeButtonAriaLabel={t("Close notification")}
-        />
+        <AppToaster />
         <ServerControlHost />
       </TooltipProvider>
     </DirectionProvider>

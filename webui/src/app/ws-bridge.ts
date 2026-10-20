@@ -8,10 +8,8 @@ import { keys, queryClient } from "@/api/queries"
 import { onPreviewFrame, onWsEvent, useWs } from "@/api/ws"
 import { onNewOutputs, onOutputsChanged } from "@/features/library/cache"
 import { networksFollowOptions } from "@/features/networks/queries"
-import { i18n, reloadServerCatalog, t } from "@/i18n"
+import { reloadServerCatalog, t } from "@/i18n"
 import { noteText } from "@/features/queue/notes"
-import { showToast } from "@/lib/toast"
-import { messageText } from "@/ui/messages"
 
 /** `model.loading` stages that end a load (besides the `model.loaded` event). */
 const TERMINAL_STAGES = new Set(["done", "loaded", "error", "failed"])
@@ -111,8 +109,6 @@ export function useWsBridge() {
       }),
       // Events were lost: the server follows with a snapshot; refetch everything shown.
       onWsEvent("resync", () => void queryClient.invalidateQueries()),
-      // translated like action toasts: a catalog key (or its English text when no catalog has it)
-      onWsEvent("toast", (e) => showToast(e.level, messageText(i18n, e.message))),
       // A reconnect may follow a server restart: refresh everything the server owns.
       onWsEvent("hello", () => {
         if (greeted) {

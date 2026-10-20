@@ -24,19 +24,22 @@ class MultiDiffusionForForge(scripts.Script):
         return scripts.AlwaysVisible if is_img2img else None
 
     def params(self, is_img2img):
+        # The infotext keys are the ones process_before_every_sampling writes, so
+        # pasting an image's parameters restores the panel (the Gradio panel
+        # wrote them but did not read them back)
         return ui.Section(
             self.title(),
-            enable=ui.Toggle("enabled", False, label=self.title()),
+            enable=ui.Toggle("enabled", False, label=self.title(), infotext="multidiffusion_enabled"),
             children=[
-                ui.Choice("method", ("MultiDiffusion", "Mixture of Diffusers"), "Mixture of Diffusers", style="radio", label="Method"),
+                ui.Choice("method", ("MultiDiffusion", "Mixture of Diffusers"), "Mixture of Diffusers", style="radio", label="Method", infotext="multidiffusion_method"),
                 ui.Row(
-                    ui.Slider("tile_width", TILE_MIN, TILE_MAX, 768, 64, label="Tile Width"),
-                    ui.Slider("tile_height", TILE_MIN, TILE_MAX, 768, 64, label="Tile Height"),
+                    ui.Slider("tile_width", TILE_MIN, TILE_MAX, 768, 64, label="Tile Width", infotext="multidiffusion_tile_width"),
+                    ui.Slider("tile_height", TILE_MIN, TILE_MAX, 768, 64, label="Tile Height", infotext="multidiffusion_tile_height"),
                 ),
                 ui.Button("Use source image size", "detect_size", "tool"),
                 ui.Row(
-                    ui.Slider("tile_overlap", 0, 1024, 64, 16, label="Tile Overlap"),
-                    ui.Slider("tile_batch_size", 1, 8, 1, 1, label="Tile Batch Size"),
+                    ui.Slider("tile_overlap", 0, 1024, 64, 16, label="Tile Overlap", infotext="multidiffusion_tile_overlap"),
+                    ui.Slider("tile_batch_size", 1, 8, 1, 1, label="Tile Batch Size", infotext="multidiffusion_tile_batch_size"),
                 ),
             ],
         )

@@ -151,8 +151,11 @@ class CheckpointMerger(pages.Page):
                     ui.Output("metadata_json", kind="json", label="Metadata in JSON Format"),
                 ],
             ),
-            ui.Custom("merge", "task-runner", None, props={"action": "merge", "label": "Merge"}, label="", persist=False, submit=False),
-            ui.Output("result", kind="text", label="Result"),
+            # The action and its outcome in one framed group, like the panels above
+            ui.Group(
+                ui.Custom("merge", "task-runner", None, props={"action": "merge", "label": "Merge"}, label="", persist=False, submit=False),
+                ui.Output("result", kind="text", label="Result"),
+            ),
         )
 
     @ui.action("refresh")

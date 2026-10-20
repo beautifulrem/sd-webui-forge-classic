@@ -205,10 +205,10 @@ def _panel_key(pass_name: str, field_name: str) -> str:
     return f"Anima LoRA stage {pass_name} {field_name}"
 
 
-# One row per script argument, in the order ui() returns the components (the
-# API's positional order): (name of the control in ui() and of the argument
-# process reads, infotext key, preset name or None). ``infotext_fields``
-# pastes each key back into its control.
+# One row per argument of the old Gradio panel, in its positional order (the
+# legacy API layout, SCRIPT_ARG_NAMES): (argument name, infotext key, preset
+# name or None). ``params.PARAM_ROWS`` gives the params() inputs (PARAM_NAMES)
+# the same keys as their ``infotext`` keys, which paste each back into its control.
 SCRIPT_ARGS = (
     ("enabled", INFOTEXT_ENABLED, "lora_stage.enabled"),
     *((f"base_{name}", _panel_key("base", field), None) for name, field in PANEL_ARGS),

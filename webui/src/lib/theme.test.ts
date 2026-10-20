@@ -43,3 +43,77 @@ describe("theme sources", () => {
     expect((await load({ search: "?__theme=purple" })).useAppearance.getState().theme).toBe("dark")
   })
 })
+
+describe("theme in effect", () => {
+  /** A `prefers-color-scheme: dark` query whose answer the test changes. */
+  function systemScheme(dark: boolean) {
+    const listeners = new Set<() => void>()
+    const media = {
+      matches: dark,
+      addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+    }
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => {
+      expect(query).toBe("(prefers-color-scheme: dark)")
+      return media as unknown as MediaQueryList
+    })
+    return {
+      listeners,
+      set(value: boolean) {
+        media.matches = value
+        for (const listener of listeners) listener()
+      },
+    }
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    document.documentElement.className = ""
+    delete document.documentElement.dataset.density
+    delete document.documentElement.dataset.accent
+  })
+
+  it("resolves 'system' from the OS colour scheme and follows its changes", async () => {
+    const { renderHook, act } = await import("@testing-library/react")
+    const scheme = systemScheme(false)
+    const { useAppearance, useTheme } = await load({})
+    act(() => useAppearance.getState().setTheme("system"))
+    const { result, unmount } = renderHook(() => useTheme())
+    expect(result.current.theme).toBe("light")
+    act(() => scheme.set(true))
+    expect(result.current.theme).toBe("dark")
+    // a picked theme wins over the OS
+    act(() => result.current.setTheme("light"))
+    expect(result.current.theme).toBe("light")
+    expect(useAppearance.getState().themeChosen).toBe(true)
+    unmount()
+    expect(scheme.listeners.size).toBe(0)
+  })
+
+  it("mirrors theme, density and accent onto <html>", async () => {
+    const { renderHook, act } = await import("@testing-library/react")
+    systemScheme(true)
+    const { useAppearance, useApplyAppearance } = await load({})
+    const root = document.documentElement
+    renderHook(() => useApplyAppearance())
+    expect(root.classList.contains("dark")).toBe(true)
+    expect(root.dataset).toMatchObject({ density: "comfortable", accent: "iris" })
+    act(() => {
+      useAppearance.getState().setTheme("light")
+      useAppearance.getState().setDensity("compact")
+      useAppearance.getState().setAccent("teal")
+    })
+    expect(root.classList.contains("dark")).toBe(false)
+    expect(root.dataset).toMatchObject({ density: "compact", accent: "teal" })
+    act(() => useAppearance.getState().setTheme("system"))
+    expect(root.classList.contains("dark")).toBe(true)
+  })
+
+  it("ignores an unknown server theme and an unreadable stored state", async () => {
+    expect((await load({ server: "sepia" })).serverTheme()).toBeNull()
+    localStorage.setItem("remi-appearance", "{not json")
+    vi.resetModules()
+    const { useAppearance } = await import("./theme")
+    expect(useAppearance.getState()).toMatchObject({ theme: "dark", themeChosen: false, density: "comfortable", accent: "iris" })
+  })
+})

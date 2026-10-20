@@ -121,9 +121,11 @@ export function Field(props: FieldProps) {
                   id={labelId}
                   htmlFor={props.labelFor === false ? undefined : props.id}
                   title={props.hint ? undefined : props.label}
-                  // wraps (two lines at most) rather than hiding the end of long or translated labels
+                  // wraps (two lines at most) rather than hiding the end of long or translated labels; CJK
+                  // text breaks between words (at spaces), never leaving one character on a line of its
+                  // own, unless a word alone is wider than the room (break-words)
                   className={cn(
-                    "line-clamp-2 min-w-0 text-[0.8rem] leading-5 font-medium break-words hyphens-auto text-foreground/85 select-none",
+                    "line-clamp-2 min-w-0 text-[0.8rem] leading-5 font-medium break-words break-keep text-pretty hyphens-auto text-foreground/85 select-none",
                     props.hint && HINTED,
                   )}
                 >
@@ -135,7 +137,9 @@ export function Field(props: FieldProps) {
           {props.modified && props.onReset ? (
             <ModifiedDot onReset={props.onReset} defaultValue={props.defaultValue} label={props.label} disabled={props.disabled} />
           ) : null}
-          {props.trailing ? <div className="ml-auto flex shrink-0 items-center">{props.trailing}</div> : null}
+          {/* -my-1: a trailing control up to h-7 (a slider's number box) does not make this row taller, so the labels
+              of fields side by side in a row line up whatever control each has */}
+          {props.trailing ? <div className="-my-1 ml-auto flex shrink-0 items-center">{props.trailing}</div> : null}
         </div>
       ) : null}
       {inactive ? <p className="sr-only">{t("Not used with the current values")}</p> : null}

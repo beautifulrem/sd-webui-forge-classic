@@ -1,6 +1,7 @@
 /**
  * Layout and feedback checks that need a real browser: the header at
- * 1280×720 (idle and while a job runs), tab strips on a phone, platform
+ * 1280×720 (idle and while a job runs), the Generate panes' hide / show
+ * toggles (real pane sizes), tab strips on a phone, platform
  * shortcut hints and generation warnings.
  */
 import { expect, type Page, test } from "@playwright/test"
@@ -55,6 +56,32 @@ test.describe("layout at 1280×720", () => {
       expect(await headerProblems(page)).toEqual([])
     })
   }
+})
+
+test.describe("generate panes", () => {
+  test.use({ viewport: { width: 1440, height: 900 } })
+
+  test("hiding a pane gives its room to the stage and showing it restores the layout", async ({ page }) => {
+    await openGenerate(page)
+    const sizes = () => page.evaluate(() => ["params", "stage", "history"].map((id) => Math.round(Number(document.getElementById(id)?.style.flexGrow))))
+    const initial = await sizes()
+    expect(initial.every((size) => size > 0)).toBe(true)
+    const generate = page.getByRole("region", { name: "Result" }).getByRole("button", { name: /^Generate/ })
+    await expect(generate).toHaveCount(0)
+
+    await page.getByRole("button", { name: "Hide parameters" }).click()
+    await expect.poll(sizes).toEqual([0, initial[0]! + initial[1]!, initial[2]])
+    // the run controls move onto the stage while the parameters are hidden
+    await expect(generate.first()).toBeVisible()
+    await page.getByRole("button", { name: "Show parameters" }).click()
+    await expect.poll(sizes).toEqual(initial)
+    await expect(generate).toHaveCount(0)
+
+    await page.getByRole("button", { name: "Hide history" }).click()
+    await expect.poll(sizes).toEqual([initial[0], initial[1]! + initial[2]!, 0])
+    await page.getByRole("button", { name: "Show history" }).click()
+    await expect.poll(sizes).toEqual(initial)
+  })
 })
 
 test.describe("tab strips on a phone", () => {
@@ -136,10 +163,121 @@ test.describe("schema rows on extension pages", () => {
     ] as const) {
       await page.setViewportSize({ width, height: 900 })
       await page.goto("/#/ext/toolbox")
-      const quality = (await page.getByRole("textbox", { name: "Quality" }).boundingBox())!
-      const series = (await page.getByRole("textbox", { name: "Series" }).boundingBox())!
-      expect(Math.abs(quality.y - series.y) < 2, `${width}px`).toBe(sideBySide)
+      const series = page.getByRole("textbox", { name: "Series" })
+      await expect(series).toBeVisible()
+      // both boxes in one frame: measured one after the other they can straddle a late layout change
+      const sameLine = async () =>
+        page
+          .getByRole("textbox", { name: "Quality" })
+          .evaluate((quality, other) => Math.abs(quality.getBoundingClientRect().top - other!.getBoundingClientRect().top) < 2, await series.elementHandle())
+      await expect.poll(sameLine, { message: `${width}px` }).toBe(sideBySide)
     }
+  })
+})
+
+/** Toasts against the controls pinned to the bottom edge (`data-toast-obstacle`) they overlap, as messages. */
+async function toastOverlaps(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const toasts = document.querySelectorAll<HTMLElement>("[data-sonner-toast]")
+    // (a toast that timed out proves nothing)
+    const problems: string[] = toasts.length ? [] : ["no toast"]
+    for (const toast of toasts) {
+      const t = toast.getBoundingClientRect()
+      for (const obstacle of document.querySelectorAll<HTMLElement>("[data-toast-obstacle]")) {
+        const o = obstacle.getBoundingClientRect()
+        if (o.width === 0 || o.height === 0) continue
+        // the close button sticks out of the toast's top-left corner
+        const x = Math.min(t.right, o.right) - Math.max(t.left - 8, o.left)
+        const y = Math.min(t.bottom, o.bottom) - Math.max(t.top - 8, o.top)
+        if (x > 0 && y > 0) problems.push(`toast covers ${obstacle.getAttribute("aria-label") ?? obstacle.tagName}`)
+      }
+    }
+    return problems
+  })
+}
+
+test.describe("toasts keep clear of the bottom controls", () => {
+  for (const viewport of [
+    { width: 420, height: 860 },
+    { width: 1280, height: 720 },
+  ]) {
+    test(`at ${viewport.width}×${viewport.height}`, async ({ page }) => {
+      await page.setViewportSize(viewport)
+      await openGenerate(page)
+      await setPrompt(page, "1girl, <lora:doesnotexist:1>")
+      await page.keyboard.press(`${mod}+Enter`)
+      const toast = page.locator("[data-sonner-toast]").filter({ hasText: "Finished with warnings" })
+      await expect(toast).toBeVisible({ timeout: 20_000 })
+      await toast.hover() // keeps it open while it is measured
+      if (viewport.width < 768) await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible()
+      await expect.poll(() => toastOverlaps(page)).toEqual([])
+    })
+  }
+})
+
+test.describe("form rows", () => {
+  test.use({ viewport: { width: 2560, height: 1440 } })
+
+  test("a slider beside selects lines up its label and its track with theirs", async ({ page }) => {
+    await openGenerate(page)
+    const box = async (name: string) => (await page.locator("label", { hasText: new RegExp(`^${name}$`) }).first().boundingBox())!
+    const [method, schedule, steps] = [await box("Sampling method"), await box("Schedule type"), await box("Sampling steps")]
+    // one row: the three fields side by side, their labels on one line
+    expect(Math.abs(method.y - schedule.y)).toBeLessThan(1)
+    expect(Math.abs(method.y - steps.y)).toBeLessThan(1)
+    expect(steps.x).toBeGreaterThan(schedule.x)
+    const select = (await page.getByRole("combobox", { name: "Sampling method" }).boundingBox())!
+    const track = (await page.locator("[data-slot=slider-track]").first().boundingBox())!
+    expect(Math.abs(select.y + select.height / 2 - (track.y + track.height / 2))).toBeLessThan(2)
+  })
+})
+
+test.describe("page container", () => {
+  test.use({ viewport: { width: 1920, height: 1080 } })
+
+  test("extension pages share the Extensions page's column", async ({ page }) => {
+    const column = async (hash: string) => {
+      await page.goto(`/#/${hash}`)
+      const root = page.locator("main [data-scroll-root] > div").first()
+      await expect(root).toBeVisible()
+      const box = (await root.boundingBox())!
+      const padding = await root.evaluate((element) => getComputedStyle(element).paddingLeft)
+      return { left: Math.round(box.x), width: Math.round(box.width), padding }
+    }
+    expect(await column("ext/toolbox")).toEqual(await column("extensions"))
+  })
+})
+
+test.describe("toasts keep clear of the canvas toolbars", () => {
+  test.use({ viewport: { width: 1280, height: 720 } })
+
+  test("img2img at 1280×720", async ({ page }) => {
+    await openGenerate(page, "img2img")
+    const png = await page.evaluate(() => {
+      const canvas = document.createElement("canvas")
+      canvas.width = 640
+      canvas.height = 832
+      const ctx = canvas.getContext("2d")!
+      ctx.fillStyle = "#2a6df4"
+      ctx.fillRect(0, 0, 640, 832)
+      return canvas.toDataURL("image/png").split(",")[1]!
+    })
+    const chooser = page.waitForEvent("filechooser")
+    await page.getByRole("button", { name: "Add a source image" }).click()
+    await (await chooser).setFiles({ name: "source.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") })
+    await expect(page.getByRole("img", { name: /^Image editor, 640×832/ })).toBeVisible()
+    const toolbar = page.getByRole("toolbar", { name: "Image", exact: true })
+    await expect(toolbar).toBeVisible()
+    // an action's toast (the mock's LCM compatibility note) while the source is on the stage
+    await page.getByRole("combobox", { name: "Sampling method" }).click()
+    await page.getByRole("option", { name: "LCM", exact: true }).click()
+    const toast = page.locator("[data-sonner-toast]").filter({ hasText: "LCM uses the SGM Uniform schedule" })
+    await expect(toast).toBeVisible({ timeout: 20_000 })
+    await toast.hover()
+    // the toolbar is under the toast column: without the lift the toast would cover it
+    const bar = (await toolbar.boundingBox())!
+    expect(bar.x + bar.width).toBeGreaterThan(1280 - 24 - 356)
+    await expect.poll(() => toastOverlaps(page)).toEqual([])
   })
 })
 

@@ -1,3 +1,9 @@
+# Install scripts of dependencies never run: @scarf/scarf (pulled in by swagger-ui-dist, the
+# vendored /docs viewer) would report the install to scarf.sh; core-js (a peer of redoc) only
+# prints a banner. Neither is needed: the build copies the viewers' prebuilt bundles.
+allowBuilds:
+  '@scarf/scarf': false
+  core-js: false
 minimumReleaseAgeExclude:
   - react-dom@19.3.1
   - react@19.3.1

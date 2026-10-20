@@ -23,6 +23,19 @@ def test_servers_start_without_proxies(startup):
     env = startup.server_env({"PATH": "/bin", "ALL_PROXY": "socks5://x", "https_proxy": "http://y", "NO_PROXY": "z"})
     assert env["PATH"] == "/bin" and "ALL_PROXY" not in env and "https_proxy" not in env
     assert env["NO_PROXY"] == env["no_proxy"] == "127.0.0.1,localhost" and env["REMI_SKIP_WEBUI_BUILD"] == "1"
+    # no Hugging Face lookup may wait on a blocked network
+    assert env["HF_HUB_OFFLINE"] == "1"
+
+
+def test_both_trees_start_without_adetailer_downloads(startup, tmp_path):
+    # the old tree's ADetailer downloads its missing stock detectors on every start (minutes when
+    # outbound connections are blocked); both trees accept the flag that turns that off
+    for mode in ("ui", "api"):
+        args = startup.launch_args("py", mode, 7871, tmp_path)
+        assert args[:2] == ["py", "launch.py"] and "--ad-no-huggingface" in args
+        assert args[args.index("--data-dir") + 1] == str(tmp_path) and args[args.index("--port") + 1] == "7871"
+        assert ("--nowebui" in args) == (mode == "api")
+    assert '"--ad-no-huggingface"' in (ROOT / "extensions-builtin" / "ADetailer-Neo" / "preload.py").read_text()
 
 
 def test_summary_of_one_tree_and_mode(startup):
@@ -152,6 +165,58 @@ def test_step_segments_split_steps_at_the_preview():
     assert result["jobs"][0]["on"]["before"]["median"] == 2000.0
 
 
+def _step_segments_tool():
+    spec = importlib.util.spec_from_file_location("remi_perf_step_segments", ROOT / "tools" / "perf" / "step_segments.py")
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    return tool
+
+
+def _served_jobs(costs_ms: list[float], start: float = 1000.0, steps: int = 20) -> list[dict]:
+    """One job per cost: steps alternate served / muted; a served step's part after the preview is
+    ``cost`` ms longer, the GPU-bound part the same."""
+
+    records, t = [], start
+    for cost in costs_ms:
+        records.append({"e": "job", "t": t, "phase": "begin"})
+        for step in range(steps):
+            served = step % 2 == 0
+            records.append({"e": "step", "t": t, "step": step})
+            records.append({"e": "image", "t": t + 2.0})
+            if served:
+                records.append({"e": "frame", "t": t + 2.001})
+            t += 2.0 + 0.026 + (cost / 1000 if served else 0)
+        t += 30
+    return records
+
+
+def test_step_segments_server_cost_is_bounded_over_the_jobs():
+    tool = _step_segments_tool()
+    result = tool.summary(tool.segments(_served_jobs([2.0, 2.2, 1.8, 2.0])))
+    cost = result["serverCost"]
+    assert cost["ms"]["n"] == 4 and cost["ms"]["mean"] == 2.0
+    assert cost["ms"]["upper95"] > 2.0 and cost["ms"]["ci95"] > 0
+    # the share of a ~2.03 s step
+    assert 0.09 < cost["pct"]["mean"] < 0.11 and cost["pct"]["upper95"] > cost["pct"]["mean"]
+    # the GPU-bound part did not change
+    assert result["gpuPart"]["pct"]["mean"] == 0.0 and result["gpuPart"]["per_job"] == [0.0] * 4
+
+
+def test_step_segments_takes_the_range_of_an_interleaved_run():
+    tool = _step_segments_tool()
+    records = _served_jobs([2.0, 2.0, 5.0], start=1_000.0)
+    begins = [r["t"] for r in records if r["e"] == "job"]
+    # recorded range (browser.mjs since 2026-10-20 verify): used as is
+    assert tool.run_range({"interleaved": {"traceSince": 1.0, "traceUntil": 2.0, "jobs": []}}, records) == (1.0, 2.0)
+    # older runs: from the start time, as many jobs as the run had (here the first two)
+    run = {"date": "1970-01-01T00:16:39.000Z", "interleaved": {"jobs": [{}, {}]}}
+    since, until = tool.run_range(run, records)
+    assert since == 999.0 and until == begins[2]
+    assert tool.summary(tool.segments(records, since, until))["serverCost"]["ms"]["mean"] == 2.0
+    with pytest.raises(ValueError):
+        tool.run_range({"date": run["date"], "interleaved": {"jobs": [{}] * 4}}, records)
+
+
 def _pool_tool():
     spec = importlib.util.spec_from_file_location("remi_perf_pool_interleaved", ROOT / "tools" / "perf" / "pool_interleaved.py")
     tool = importlib.util.module_from_spec(spec)
@@ -203,3 +268,85 @@ def test_pool_interleaved_refuses_other_configurations(tmp_path):
     (tmp_path / "b.json").write_text(json.dumps({"interleaved": b}))
     with pytest.raises(ValueError, match="differs"):
         tool.analyse([tmp_path / "a.json", tmp_path / "b.json"])
+
+
+def _ws_tool():
+    spec = importlib.util.spec_from_file_location("remi_perf_ws_interleave", ROOT / "tools" / "perf" / "ws_interleave.py")
+    tool = importlib.util.module_from_spec(spec)
+    # dataclasses resolve the module's (postponed) annotations through sys.modules
+    sys.modules[spec.name] = tool
+    spec.loader.exec_module(tool)
+    return tool
+
+
+def test_ws_interleave_pairs_adjacent_windows_of_consecutive_steps(tmp_path):
+    tool = _ws_tool()
+    trace = tmp_path / "trace.jsonl"
+    records = [{"e": "job", "t": 0.5}, {"e": "step", "t": 1.0, "step": 1}, {"e": "step", "t": 1.2, "step": 2}, {"e": "step", "t": 1.4, "step": 3}, {"e": "step", "t": 2.0, "step": 5}, {"e": "step", "t": 2.1, "step": 6}, {"e": "step", "t": 2.2, "step": 7}]
+    trace.write_text("".join(json.dumps(r) + "\n" for r in records))
+    steps = tool.read_steps(trace, 1.0)
+    assert [s["step"] for s in steps] == [1, 2, 3, 5, 6, 7]
+    assert tool.read_steps(trace, 2.05) == steps[-2:]
+
+    windows = [tool.Window("on", 0.9, 1.5), tool.Window("off", 1.5, 2.3), tool.Window("off", 2.3, 3.0)]
+    tool.assign_steps(steps, windows)
+    # 3 -> 5 skips a step number and spans two windows: dropped
+    assert [round(ms) for ms in windows[0].steps_ms] == [200, 200] and [round(ms) for ms in windows[1].steps_ms] == [100, 100]
+    assert windows[2].steps_ms == []
+    # the last window has no partner; a pair with an empty window is skipped
+    assert tool.window_pairs(windows) == [pytest.approx(100.0)]
+    assert tool.window_pairs([tool.Window("off", 0, 1, [100.0]), tool.Window("on", 1, 2, [])]) == []
+
+
+def test_ws_interleave_pooled_statistics():
+    tool = _ws_tool()
+    assert tool.pooled_stats([]) == {"n": 0, "mean": None, "se": None, "upper95": None, "median": None}
+    assert tool.pooled_stats([3.0]) == {"n": 1, "mean": 3.0, "se": None, "upper95": None, "median": 3.0}
+    stats = tool.pooled_stats([1.0, 2.0, 3.0, 6.0])
+    assert stats["n"] == 4 and stats["mean"] == 3.0 and stats["median"] == 2.5
+    assert stats["se"] == 1.08 and stats["upper95"] == 4.78
+
+
+def test_ws_interleave_measures_the_cost_of_unmuted_windows(tmp_path, monkeypatch, capsys):
+    """A simulated server whose steps take 10 % longer while the mute file is absent."""
+
+    tool = _ws_tool()
+    mute, trace = tmp_path / "mute", tmp_path / "trace.jsonl"
+    trace.write_text("")
+    monkeypatch.setenv("REMI_PERF_MUTE", str(mute))
+    monkeypatch.setenv("REMI_PERF_TRACE", str(trace))
+    clock = {"now": 1000.0, "step": 0}
+
+    def sleep(seconds):
+        clock["now"] += seconds * (1.0 if mute.exists() else 1.1)
+        clock["step"] += 1
+        with trace.open("a") as out:
+            out.write(json.dumps({"e": "step", "t": clock["now"], "step": clock["step"]}) + "\n")
+
+    monkeypatch.setattr(tool, "time", SimpleNamespace(time=lambda: clock["now"], sleep=sleep))
+    calls = []
+
+    class FakeApi:
+        def __init__(self, base):
+            self.polls = 0
+
+        def __call__(self, method, path, body=None):
+            calls.append((method, path))
+            if method == "POST":
+                assert body["core"]["width"] == body["core"]["height"] == 768 and body["scripts"]["sampler"]["steps"] == 150
+                self.polls = 0
+                return {"job_id": "j1"}
+            self.polls += 1
+            return {"status": "running" if self.polls <= 8 else "done"}
+
+    monkeypatch.setattr(tool, "Api", FakeApi)
+    out = tmp_path / "ws.json"
+    assert tool.main(["--size", "768", "--jobs", "2", "--window", "2", "--no-client", "--json", str(out)]) == 0
+    assert not mute.exists()
+    result = json.loads(out.read_text())
+    assert result["size"] == 768 and result["client"] is False
+    assert len(result["pairs"]) == 8 and all(p == pytest.approx(10.0) for p in result["pairs"])
+    assert result["pooled"]["n"] == 8 and result["pooled"]["mean"] == 10.0
+    assert calls.count(("POST", "/api/v2/jobs")) == 2
+    printed = capsys.readouterr().out
+    assert "job 1: 4 pairs mean 10.0" in printed and "pooled: n 8 mean 10.0 %" in printed

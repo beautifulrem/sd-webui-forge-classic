@@ -1,8 +1,9 @@
 /**
  * One run controller per generation form: holds the `run-machine` state,
  * performs its effects (submit the form, interrupt, skip, cancel) and feeds
- * it the WebSocket job events. Jobs in flight are remembered in localStorage
- * so a reload can pick them up again (`restoreRuns`).
+ * it the WebSocket job events. Jobs in flight are remembered in localStorage,
+ * with "Generate forever" and the runs left of "Generate several times", so
+ * a reload picks them up again and goes on (`restoreRuns`).
  */
 import { toast } from "sonner"
 import { create } from "zustand"
@@ -31,31 +32,43 @@ export const useRuns = create<RunStore>()(() => ({ runs: { txt2img: IDLE, img2im
 
 export const persistKey = (tab: GenerateTab) => `remi-run:${tab}`
 
+/** What a page load leaves for the next one: the jobs in flight and the loops they belong to. */
+export type PersistedRun = { jobs: string[]; forever: boolean; repeatLeft: number }
+
 function persist(tab: GenerateTab, state: RunState) {
   try {
-    if (state.jobs.length > 0) localStorage.setItem(persistKey(tab), JSON.stringify(state.jobs))
-    else localStorage.removeItem(persistKey(tab))
+    if (state.jobs.length > 0 || state.forever || state.repeatLeft > 0) {
+      const saved: PersistedRun = { jobs: [...state.jobs], forever: state.forever, repeatLeft: state.repeatLeft }
+      localStorage.setItem(persistKey(tab), JSON.stringify(saved))
+    } else localStorage.removeItem(persistKey(tab))
   } catch {
     // Storage disabled: restoring after a reload is best-effort.
   }
 }
 
-/** Job ids a previous page load left in flight. */
-export function persistedJobs(tab: GenerateTab): string[] {
+/** The run a previous page load left (also the bare job list older versions wrote). */
+export function persistedRun(tab: GenerateTab): PersistedRun {
+  const ids = (value: unknown) => (Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [])
   try {
     const raw = JSON.parse(localStorage.getItem(persistKey(tab)) ?? "[]") as unknown
-    return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string") : []
+    if (Array.isArray(raw)) return { jobs: ids(raw), forever: false, repeatLeft: 0 }
+    const saved = (raw ?? {}) as Partial<Record<keyof PersistedRun, unknown>>
+    const repeatLeft = typeof saved.repeatLeft === "number" && Number.isFinite(saved.repeatLeft) ? Math.max(0, Math.floor(saved.repeatLeft)) : 0
+    return { jobs: ids(saved.jobs), forever: saved.forever === true, repeatLeft }
   } catch {
-    return []
+    return { jobs: [], forever: false, repeatLeft: 0 }
   }
 }
+
+/** Job ids a previous page load left in flight. */
+export const persistedJobs = (tab: GenerateTab): string[] => persistedRun(tab).jobs
 
 export function dispatchRun(tab: GenerateTab, event: RunEvent) {
   const before = useRuns.getState().runs[tab]
   const [after, effects] = reduce(before, event, { interruptOnly: clientOption("ctrl_enter_interrupt") })
   if (after !== before) {
     useRuns.setState((s) => ({ runs: { ...s.runs, [tab]: after } }))
-    if (after.jobs !== before.jobs) persist(tab, after)
+    if (after.jobs !== before.jobs || after.forever !== before.forever || after.repeatLeft !== before.repeatLeft) persist(tab, after)
   }
   for (const effect of effects) perform(tab, effect)
 }

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -117,12 +118,45 @@ def test_recorder_options():
         (["extensions-builtin/a/scripts/x.py", "--rev", "HEAD", "--legacy-tree", "/tmp/t"], "not allowed with argument"),
         (["extensions-builtin/a/scripts/x.py", "--tabs", "extras"], "invalid choice"),
         (["extensions-builtin/a/scripts/x.py", "--options", "{not json"], "invalid loads value"),
+        ([], "the script to record is required"),
+        (["--self-test", "extensions-builtin/a/scripts/x.py"], "--self-test takes no script"),
+        (["--self-test", "--tabs", "img2img"], "--self-test takes no script"),
     ],
 )
 def test_recorder_rejects_bad_arguments(argv, message, capsys):
     with pytest.raises(SystemExit):
         recorder.parse_args(argv)
     assert message in capsys.readouterr().err
+
+
+def test_recorder_self_test_checks_a_known_recording():
+    """--self-test records Spectrum at its last Gradio revision and compares with the committed fixtures."""
+
+    options = recorder.parse_args(["--self-test"])
+    assert options.check and options.script == Path(recorder.SELF_TEST[0]) and options.script_rev == recorder.SELF_TEST[1]
+    assert options.rev == recorder.LEGACY_REV
+    folder = recorder.output_folder(options)
+    assert (folder / "legacy_ui_txt2img.json").is_file() and (folder / "legacy_ui_img2img.json").is_file()
+    shown = subprocess.run(["git", "show", f"{recorder.SELF_TEST[1]}:{recorder.SELF_TEST[0]}"], cwd=REPO, capture_output=True, text=True)
+    if shown.returncode != 0:
+        pytest.skip("the self-test revision is not in this clone")
+    assert "def ui(self" in shown.stdout  # the revision still has the Gradio ui() to record
+
+
+def test_recorder_check_compares_like_the_snapshot_harness(tmp_path):
+    entry = {"kind": "slider", "label": "Steps", "default": 20, "infotext": "s", "paste": False, "preset": None}
+    committed = tmp_path / "legacy_ui_txt2img.json"
+    committed.write_text(json.dumps([entry]))
+    recorded = tmp_path / "recorded.json"
+    # describe() now adds the wiring keys; a fixture without them means "none"
+    recorded.write_text(json.dumps([{**entry, "exclusive": None, "visible_if": None, "enabled_if": None}]))
+    assert recorder.compare(recorded, committed) == []
+    recorded.write_text(json.dumps([{**entry, "default": 30}, entry]))
+    assert recorder.compare(recorded, committed) == [
+        "legacy_ui_txt2img.json: 2 arguments recorded, the fixture has 1",
+        "legacy_ui_txt2img.json: argument 0 ('Steps') default is 30, the fixture has 20",
+    ]
+    assert recorder.compare(recorded, tmp_path / "missing.json") == [f"{tmp_path / 'missing.json'} does not exist"]
 
 
 def test_recorder_extension_folder():

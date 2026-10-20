@@ -34,7 +34,7 @@ import { usePasteTarget } from "@/ui/paste-targets"
 import { fitView, isEmptyRect, nextZoomStep, type Rect, type View, zoomAt } from "../core/geometry"
 import { aspectFrame, inpaintArea, RESIZE_MODES, scaledSize } from "../core/overlays"
 import { parseHex, toHex } from "../core/pixels"
-import { type Command, commandFor, isMac, isTyping } from "../core/shortcuts"
+import { type Command, commandFor, isHovered, isMac, isTyping } from "../core/shortcuts"
 import type { EditorDocument } from "../engine/document"
 import { Interaction, type InteractionContext } from "../engine/interaction"
 import { type Overlays, Renderer } from "../engine/renderer"
@@ -466,9 +466,12 @@ export function EditorBody({ doc, editor, screenBrush, plainColor, toolbarAlways
   })
 
   useEffect(() => {
+    // The editor takes the keys while the pointer is over it or focus is in it. Pointer
+    // enter alone misses an editor that mounts under a resting pointer (e.g. after "Send
+    // to"), so any pointer move or press inside counts too, and so does :hover.
     const isActive = () => {
       const root = rootRef.current
-      return Boolean(root && (hovered.current || root.contains(document.activeElement)))
+      return Boolean(root && (hovered.current || isHovered(root) || root.contains(document.activeElement)))
     }
     const reset = () => {
       adjustKey.current = null
@@ -531,6 +534,8 @@ export function EditorBody({ doc, editor, screenBrush, plainColor, toolbarAlways
       data-slot="image-editor"
       className="group/editor @container relative isolate flex size-full min-h-0 flex-col overflow-hidden bg-canvas"
       onPointerEnter={() => (hovered.current = true)}
+      onPointerMoveCapture={() => (hovered.current = true)}
+      onPointerDownCapture={() => (hovered.current = true)}
       onPointerLeave={() => (hovered.current = false)}
       onDragOver={(event) => {
         if (editor.noUpload || !event.dataTransfer.types.includes("Files")) return
@@ -648,7 +653,7 @@ export function EditorBody({ doc, editor, screenBrush, plainColor, toolbarAlways
           ) : null}
 
           <div className="absolute inset-x-2 bottom-2 flex items-end justify-between gap-2">
-            <div role="toolbar" aria-label={t("History and zoom")} onKeyDown={toolbarKeys("horizontal")} className={cn(PANEL, "flex h-10 items-center gap-0.5 px-1")}>
+            <div role="toolbar" aria-label={t("History and zoom")} data-toast-obstacle onKeyDown={toolbarKeys("horizontal")} className={cn(PANEL, "flex h-10 items-center gap-0.5 px-1")}>
               {paintable ? (
                 <>
                   <IconButton label={t("Undo")} keys={[mod, "Z"]} onClick={() => run({ type: "undo" })} disabled={!canUndo}>
@@ -686,7 +691,7 @@ export function EditorBody({ doc, editor, screenBrush, plainColor, toolbarAlways
               </IconButton>
             </div>
 
-            <div role="toolbar" aria-label={t("Image")} onKeyDown={toolbarKeys("horizontal")} className={cn(PANEL, "flex h-10 min-w-0 items-center gap-0.5 px-1")}>
+            <div role="toolbar" aria-label={t("Image")} data-toast-obstacle onKeyDown={toolbarKeys("horizontal")} className={cn(PANEL, "flex h-10 min-w-0 items-center gap-0.5 px-1")}>
               {pending ? (
                 <span role="status" className="flex items-center gap-1.5 px-1.5 text-xs text-muted-foreground">
                   <Loader2 className="size-3 animate-spin" aria-hidden />

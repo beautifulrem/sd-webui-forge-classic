@@ -78,10 +78,56 @@ function precompress(): Plugin {
   }
 }
 
+/**
+ * The API documentation viewers the server shows at /docs (Swagger UI) and /redoc (ReDoc),
+ * vendored into the build instead of loaded from a CDN: pinned versions (package.json), served by
+ * the server itself under the page CSP, no third-party code on the app origin. Each package goes
+ * to `assets/<package>-<version>/` (a new version is a new path, so the immutable caching of
+ * /assets stays correct) with its license files; `api-docs.json` tells the server
+ * (remi/server/api_docs.py) where they are.
+ */
+function apiDocs(): Plugin {
+  const modules = path.resolve(import.meta.dirname, "node_modules")
+  const packages = {
+    swagger: { name: "swagger-ui-dist", files: ["swagger-ui-bundle.js", "swagger-ui.css", "swagger-ui-bundle.js.LICENSE.txt", "LICENSE", "NOTICE"] },
+    redoc: { name: "redoc", files: ["bundles/redoc.standalone.js", "bundles/redoc.standalone.js.LICENSE.txt", "LICENSE"] },
+  }
+  // Resources the viewers load from outside hosts on their own, replaced by local ones: ReDoc's
+  // "API docs by Redocly" attribution shows its logo from cdn.redoc.ly (the text and link stay).
+  // A build whose viewer still names one of these hosts fails, so an upgrade cannot bring it back.
+  const outside: [RegExp, string][] = [[/https:\/\/cdn\.redoc\.ly\/redoc\/logo-mini\.svg/g, "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='0' height='0'/%3E"]]
+  const forbidden = /https:\/\/(?:cdn\.redoc\.ly|cdn\.jsdelivr\.net|unpkg\.com|fonts\.(?:googleapis|gstatic)\.com)\//
+  return {
+    name: "remi-api-docs",
+    apply: "build",
+    async generateBundle() {
+      const urls: Record<string, string> = {}
+      for (const [key, { name, files }] of Object.entries(packages)) {
+        const root = path.join(modules, name)
+        const { version } = JSON.parse(await readFile(path.join(root, "package.json"), "utf8")) as { version: string }
+        for (const file of files) {
+          const fileName = `assets/${name}-${version}/${path.basename(file)}`
+          let source: string | Buffer = await readFile(path.join(root, file))
+          if (/\.(?:js|css)$/.test(file)) {
+            // the source maps are not shipped: no reference to a missing file
+            source = source.toString("utf8").replace(/\n\/[/*]# sourceMappingURL=\S+?(?: ?\*\/)?\s*$/, "\n")
+            for (const [pattern, local] of outside) source = source.replace(pattern, local)
+            const remote = forbidden.exec(source)
+            if (remote) this.error(`${name}/${file} loads ${remote[0]}…: add a local replacement in apiDocs()`)
+            urls[`${key}${file.endsWith(".css") ? "Css" : "Js"}`] = fileName
+          }
+          this.emitFile({ type: "asset", fileName, source })
+        }
+      }
+      this.emitFile({ type: "asset", fileName: "api-docs.json", source: `${JSON.stringify(urls, null, 2)}\n` })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   const mock = loadEnv(mode, process.cwd(), "VITE_").VITE_MOCK === "1"
   return {
-    plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss(), mock && mockFiles(), precompress()],
+    plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss(), mock && mockFiles(), apiDocs(), precompress()],
     resolve: { alias: { "@": path.resolve(import.meta.dirname, "./src") } },
     server: {
       proxy: mock
@@ -121,7 +167,8 @@ export default defineConfig(({ mode }) => {
     test: {
       environment: "jsdom",
       setupFiles: ["./src/test/setup.ts"],
-      include: ["src/**/*.test.{ts,tsx}"],
+      // the measurement tools' own tests (tools/perf/*.test.mjs) run with the app's
+      include: ["src/**/*.test.{ts,tsx}", "tools/**/*.test.mjs"],
       css: false,
       restoreMocks: true,
       // jsdom suites are CPU heavy: half the cores and generous timeouts keep runs stable under load
@@ -130,7 +177,7 @@ export default defineConfig(({ mode }) => {
       testTimeout: 20_000,
       hookTimeout: 30_000,
       // `vitest run --coverage` (tools/check.sh): the floors sit a little under the measured
-      // values (2026-10-20: lines 84.5%, statements 79.0%, functions 73.1%, branches 69.0%), so a
+      // values (2026-10-20: lines 86.1%, statements 80.6%, functions 76.2%, branches 70.6%), so a
       // change that drops coverage noticeably fails the check. Raise them as coverage grows.
       coverage: {
         provider: "v8",
@@ -138,7 +185,7 @@ export default defineConfig(({ mode }) => {
         exclude: ["src/**/*.test.{ts,tsx}", "src/test/**", "src/api/gen/**", "src/**/*.d.ts"],
         reporter: ["text-summary", ["text", { skipFull: true }]],
         reportsDirectory: "node_modules/.vitest-coverage",
-        thresholds: { lines: 83, statements: 77, functions: 72, branches: 68 },
+        thresholds: { lines: 85, statements: 79.5, functions: 75, branches: 69.5 },
       },
     },
   }

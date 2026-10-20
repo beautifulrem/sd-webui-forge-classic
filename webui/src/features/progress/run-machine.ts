@@ -9,7 +9,8 @@
  * - Interrupt stops the running job, cancels this form's queued jobs and
  *   ends "generate forever" and repeats. Skip only skips the current image.
  * - "Generate forever" and "repeat N" queue the next job when the previous
- *   one has finished (so each run picks up edits); a failure stops them.
+ *   one has finished (so each run picks up edits); a failure stops them. A
+ *   reload keeps them going (`resume`, after the jobs are restored).
  */
 
 export type RunPhase = "idle" | "submitting" | "queued" | "running" | "interrupting"
@@ -49,6 +50,12 @@ export type RunEvent =
   | { type: "stop-repeats" }
   /** Jobs found again after a page reload. */
   | { type: "restore"; jobs: readonly string[]; running: string | null }
+  /**
+   * The loops ("Generate forever", runs left of "Generate several times") a
+   * previous page load had going: they go on after the restored jobs, if one
+   * of them is still in flight.
+   */
+  | { type: "resume"; forever: boolean; repeatLeft: number }
   /** Hires. fix an existing result with the form's values (txt2img's ✨ button): one job. */
   | { type: "upscale"; source: UpscaleSource }
 
@@ -169,6 +176,10 @@ export function reduce(s: RunState, event: RunEvent, options: RunOptions): Resul
       return [{ ...s, repeatLeft: 0 }, []]
     case "upscale":
       return [{ ...s, pending: s.pending + 1 }, [{ type: "submit", upscale: event.source }]]
+    case "resume":
+      // Nothing in flight any more: the loop ended while the page was away.
+      if (!isBusy(s)) return [s, []]
+      return [{ ...s, forever: s.forever || event.forever, repeatLeft: Math.max(s.repeatLeft, event.repeatLeft) }, []]
     case "restore": {
       const jobs = [...new Set([...s.jobs, ...event.jobs])]
       return [{ ...s, jobs, running: event.running && jobs.includes(event.running) ? event.running : s.running }, []]

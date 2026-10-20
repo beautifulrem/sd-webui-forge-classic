@@ -30,7 +30,22 @@ def multidiffusion():
 def test_params_match_the_legacy_ui(multidiffusion):
     script = multidiffusion.MultiDiffusionForForge()
     assert not script.show(False) and script.show(True)
-    harness.assert_matches_snapshot(harness.script_layout(script, "img2img"), harness.load_snapshot(SCRIPT, "img2img"))
+    # Documented change: the keys the run writes are the params' infotext keys, so a paste restores them
+    keys = ("enabled", "method", "tile_width", "tile_height", "tile_overlap", "tile_batch_size")
+    changes = {index: {"infotext": f"multidiffusion_{name}"} for index, name in enumerate(keys)}
+    harness.assert_matches_snapshot(harness.script_layout(script, "img2img"), harness.load_snapshot(SCRIPT, "img2img"), changes)
+
+
+def test_the_infotext_the_run_writes_pastes_back(multidiffusion):
+    from remi.ui import Context
+
+    layout = harness.script_layout(multidiffusion.MultiDiffusionForForge(), "img2img")
+    # as parse_generation_parameters reads the keys process_before_every_sampling writes
+    written = {"multidiffusion_enabled": "True", "multidiffusion_method": "MultiDiffusion", "multidiffusion_tile_width": "1024", "multidiffusion_tile_height": "512", "multidiffusion_tile_overlap": "32", "multidiffusion_tile_batch_size": "2"}
+    ctx = Context()
+    pasted, problems = layout.paste(written, ctx)
+    assert not problems, [str(problem) for problem in problems]
+    assert layout.values_to_args({**layout.defaults(ctx), **pasted}, ctx) == [True, "MultiDiffusion", 1024, 512, 32, 2]
 
 
 def test_arguments_are_the_processing_signature(multidiffusion):

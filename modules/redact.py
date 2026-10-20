@@ -11,7 +11,11 @@ from typing import Any
 HIDDEN = "<hidden>"
 
 SECRET_FLAGS = ("--auth", "--api-auth", "--ngrok", "--ngrok-options", "--gradio-auth")
-"""command-line flags whose value is a password or token"""
+"""command-line flags whose value is a password or token. ``--gradio-auth``
+(the old name of ``--auth``) is no option any more, but an old launch command
+can still carry it: the launcher prints the arguments (``launch_utils``)
+before the parser refuses the unknown option, and ``COMMANDLINE_ARGS`` goes
+into the sysinfo dump, so its password stays hidden there."""
 
 _OTHER_FLAGS = ("--api", "--auth-file", "--ngrok-region")
 """flags sharing a prefix with a secret one (argparse accepts unique prefixes)"""

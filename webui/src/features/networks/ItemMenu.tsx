@@ -7,7 +7,7 @@ import { Menu } from "@base-ui/react/menu"
 import { Copy, FolderOpen, ImagePlus, Info, MinusCircle, Pencil, PlusCircle, Power } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import type { NetworkItem, NetworkKind } from "@/api/types"
-import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu-impl"
 import { isEditable, type MenuAnchor } from "./items"
 
 export type MenuCommand = "apply" | "metadata" | "edit" | "preview" | "copy" | "folder"

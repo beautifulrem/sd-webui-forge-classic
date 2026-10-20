@@ -719,6 +719,16 @@ What to test:
   ../remi-gradio-env/bin/python tools/record_legacy_ui.py extensions-builtin/<ext>/scripts/<script>.py --script-rev upstream/neo
   ```
 
+  `tools/legacy_ui_env.sh [folder]` does the first two lines (with `uv` when
+  it is installed) and then runs `record_legacy_ui.py --self-test`, which
+  records a known script (Spectrum at its last Gradio revision) and compares
+  the record with its committed fixtures, so a broken setup shows before a
+  real recording; `REMI_LEGACY_PYTHON=../remi-gradio-env/bin/python
+  tools/check.sh --only legacy-ui` repeats it. `--check` compares any
+  recording with the fixtures instead of writing them. A script whose class
+  has no `ui()` of its own at the given revision (already ported to
+  `params()`) is refused: record the revision before its port.
+
   A script that imports a package the file does not list needs it installed
   into the same environment (`../remi-gradio-env/bin/pip install <package>`).
 
@@ -732,6 +742,18 @@ What to test:
 Processing tests that need the WebUI's options and script runners without a
 model use `remi.testing.webui_state()`; server-level tests use
 `remi.server.testing.server_app()` (a running app with a stub executor).
+
+A real generation without the real model: `tools/tiny_anima.py` writes and
+loads a toy-size checkpoint of the Anima architecture (plus test LoRAs, a
+Control-LLLite and an ADetailer detector), and
+`tools/tiny_anima.py serve --data-dir <folder> --cpu` starts the WebUI with it.
+A built-in extension adds a case to `CASES` in `tests/remi_extensions_e2e.py`
+(its params switched on, the infotext keys it writes, the hooks that must get
+those params, whether the image must change) or, without a processing effect,
+a reason to `NOT_RUN` in `tests/test_remi_extensions_e2e.py`, which fails for
+an extension that is neither ([testing.md](testing.md#every-extension-end-to-end-on-a-tiny-model)).
+A setting a built-in extension drops is a row of the "Not carried over" table
+in its README (`tests/test_remi_extension_settings.py`).
 
 ## 14. Porting an A1111 / Forge extension
 
