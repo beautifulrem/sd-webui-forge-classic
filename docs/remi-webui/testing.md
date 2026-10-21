@@ -7,12 +7,19 @@ tools/check.sh                      # everything, ~15 min
 tools/check.sh --skip e2e           # leave steps out (names or prefixes, comma-separated)
 tools/check.sh --only ruff,pytest   # only these steps ("pytest" = core + every extension)
 tools/check.sh --list               # step names
+tools/check.sh --strict             # a skipped step fails the run too
 ```
 
 It keeps going after a failure, prints the last lines of each failing step's
 log, ends with a table (step, result, seconds) and exits 1 when any step
-failed. Logs go to `$REMI_CHECK_LOGS` (default: a temporary folder, printed at
-the end).
+failed. Every step is always in the table: a step that cannot run on this
+machine (only the `legacy-ui` steps, without their optional Gradio
+interpreter) is reported as `skip` with the reason under the table, and the
+last line counts it (`<n> of <m> steps passed, 2 skipped.`, never "All ...
+passed"); `--strict`
+turns a skip into a failure, and naming the step in `--only` fails it when it
+cannot run. Logs go to `$REMI_CHECK_LOGS` (default: a temporary folder,
+printed at the end).
 
 | step | what it runs |
 |---|---|
@@ -22,13 +29,15 @@ the end).
 | `ruff:extensions` | ruff on every `extensions-builtin/*/scripts` and `extensions-builtin/*/lib_*` (strict rules on the files Remi wrote, such as `lib_controlnet/unit_param.py`; legacy rules on the rest) |
 | `ruff:core` | ruff with the legacy rules on the upstream-origin runtime Remi edits: `modules/`, `modules_forge/` (not the vendored `packages/`), `backend/`, `scripts/`, `launch.py`, `webui.py` |
 | `ruff:syntax` | the whole tree (including vendored third-party code) for syntax errors (`E9`) and Gradio imports (`TID251`) |
-| `pytest:tests` | `pytest tests --cov=remi`, failing below 92 % line coverage of `remi/` (measured 93.6 %), or on a leaked resource (below) |
+| `pytest:tests` | `pytest tests --cov=remi`, failing below 92 % line coverage of `remi/` (measured 93.6 %; `tools/check_coverage.py remi`), or on a leaked resource (below) |
 | `pytest:<extension>` | `pytest extensions-builtin/<extension>/tests`, one run per directory (they share module names); a directory that collects nothing fails |
+| `pytest:coverage` | `tools/check_coverage.py strict`: each Remi file outside `remi/` (the runtime files of `pyproject.toml`'s strict list, such as `modules/redact.py`, `modules/extra_networks_pages.py`, the ControlNet unit editor in `lib_controlnet/`, `lib_stage_scheduler/params.py`, the prompt-tools extension scripts; `tools/check_coverage.py files` lists them) must reach 90 % line coverage on its own (measured: 95.6 % to 100 %, the lowest `unit_param.py`), over the combined data of every `pytest:*` step of the run (they are tested by different suites, so every pytest step measures them); a file no suite imports counts as 0 % |
 | `contract:openapi` | `tools/export_openapi.py --check`: `webui/src/api/openapi.json` matches the server |
 | `contract:settings` | `tools/dump_settings.py --check`: the SPA's settings contract matches `GET /api/v2/options` |
 | `contract:schemas` | `webui/tools/dump_schemas.py --check`: the tab schema fixtures the SPA contract tests render (`webui/src/api/mock/contract/{txt2img,img2img,extras}.json`) match `tab_schema()` |
 | `contract:line-endings` | `tools/check_line_endings.py`: the files shared with Forge Neo that upstream commits with CRLF (`tools/upstream_crlf.txt`) still have CRLF, so Neo merges stay line-by-line ([upstream-absorption.md §3](upstream-absorption.md#3-procedure)) |
-| `legacy-ui` | only with `$REMI_LEGACY_PYTHON` (the Gradio 4.40 interpreter `tools/legacy_ui_env.sh` builds, network needed once), or when named in `--only`: `tools/record_legacy_ui.py --self-test` records Spectrum's Gradio `ui()` at its last Gradio revision and compares it with the committed fixtures ([upstream-absorption.md §2.5](upstream-absorption.md#25-a-new-built-in-extension-upstream)) |
+| `legacy-ui` | `tools/record_legacy_ui.py --self-test` records Spectrum's Gradio `ui()` at its last Gradio revision and compares it with the committed fixtures ([upstream-absorption.md §2.5](upstream-absorption.md#25-a-new-built-in-extension-upstream)); its JSON result is `legacy-ui.json` in the logs. It needs the recorder's own Gradio interpreter, which `tools/legacy_ui_env.sh` builds once (network needed) at `../remi-gradio-env`, the default this step looks for (`$REMI_LEGACY_PYTHON` names another). Without it the step is a `skip` with that reason. Dated results: `docs/research/legacy-ui/<date>.json` (`--report`) |
+| `legacy-ui:fixtures` | `tools/record_legacy_ui.py --fixtures --check`: records every committed legacy `ui()` fixture again in the same revision and compares every value with the committed file: `tools/legacy_ui_recordings.py` lists each one (all the `legacy_ui_*.json` of `extensions-builtin/*/tests/fixtures` and `tests/fixtures/legacy_ui`, in their formats: the bare list of `remi_port_harness`, the `legacy_ui_contract` dicts, the Anima panels', ControlNet's, the pages', the processing scripts') with the script and revision it was recorded from and the WebUI context its `ui()` needs (the core components, the upscalers, ControlNet's preprocessors, ADetailer's detectors). Same interpreter and `skip` rule as `legacy-ui`; its JSON result is `legacy-ui-fixtures.json` in the logs (dated: `docs/research/legacy-ui/<date>-fixtures.json`, 40 recordings, 70 files, no difference). `tests/test_remi_legacy_ui_fixtures.py` (no Gradio) keeps that list complete and the comparison working on every format |
 | `i18n:server` | `tests/test_remi_core_zh_cn.py`: the zh_CN catalog covers every core string, glossary, language pack and extension catalogs agree |
 | `pnpm:install` | `pnpm install --frozen-lockfile` in `webui/` |
 | `i18n:spa` | `src/locales/locales.test.ts`: every chrome key has a zh-CN translation with the same placeholders |
@@ -67,8 +76,8 @@ report to the console as Forge does; Remi's own code logs. `TID251` bans
 `gradio`, `gradio_client` and `gradio_rangeslider` imports everywhere, and a
 `from tests import ...` (a site-packages `tests` package, as ultralytics
 installs, would shadow the repository's: load helpers by path). Long lines
-are the house style (black at 1024). The coverage data file goes to the log
-folder (`COVERAGE_FILE`), never into the repository.
+are the house style (black at 1024). The coverage data files go to the log
+folder (`COVERAGE_FILE`, one per pytest step), never into the repository.
 
 ## End-to-end tests (`webui/tests/e2e`)
 
@@ -178,6 +187,28 @@ second:
 
 ```sh
 $PYTHON tools/tiny_anima.py serve --data-dir /tmp/remi-tiny --port 7899 --cpu --api
+```
+
+## Gradio-free start and generation, without the real model
+
+`tests/test_remi_gradio_free_generation.py` (part of `pytest:tests`, about a
+minute and a half on the CPU) proves that the WebUI starts and generates
+without Gradio on any machine, Gradio installed or not: it starts the real
+server the way a user does (`launch.py` through `tools/tiny_anima.py serve`,
+uvicorn on a free port, every built-in extension, the job queue and its
+worker) under `-X importtime`, with an import hook that makes `gradio`,
+`gradio_client` and `gradio_rangeslider` unimportable and records every
+attempt. It then queues a 128x64 txt2img job through `POST /api/v2/jobs` over
+HTTP, waits for it and downloads the PNG (size, pixels, infotext with the
+tiny checkpoint's name), and checks that no Gradio module was imported or even
+tried. By hand:
+
+```sh
+$PYTHON tools/tiny_anima.py serve --data-dir /tmp/remi-tiny --port 7899 --cpu
+curl -s -X POST http://127.0.0.1:7899/api/v2/jobs -H 'Content-Type: application/json' \
+  -d '{"tab": "txt2img", "core": {"prompt": "a cat", "width": 64, "height": 64}, "scripts": {"sampler": {"steps": 4}}}'
+curl -s http://127.0.0.1:7899/api/v2/jobs/<job_id>      # "completed", outputs[0].id
+curl -s -o out.png http://127.0.0.1:7899/api/v2/files/<output id>
 ```
 
 ## Real-server smoke test
@@ -396,9 +427,11 @@ overhead).
 
 `.github/workflows/check.yml` runs `tools/check.sh` in two jobs: Python
 (CPU torch, `requirements.txt` + `requirements-dev.txt`, no Gradio; steps
-`env`, `ruff`, `pytest` with the coverage floor, `contract`, `i18n:server`)
-and the SPA (install, build, lint, Vitest with coverage, Playwright with
-Chromium; steps `pnpm`, `i18n:spa`, `e2e`). Logs and the Playwright report
+`env`, `ruff`, `pytest` with the coverage floors, `contract`, `i18n:server`)
+and the SPA (install, build, the bundle budget, lint, Vitest with coverage,
+Playwright with Chromium; steps `pnpm`, `i18n:spa`, `perf`, `e2e`).
+The `legacy-ui` steps are not in CI (they need a second, Gradio, environment): they run
+locally once `tools/legacy_ui_env.sh` has built that environment. Logs and the Playwright report
 are uploaded when a job fails. The workflow passes `actionlint`; it runs on
 pushes to `remi-webui`, `main` and `neo`, on pull requests and by hand
 (`workflow_dispatch`), so a run exists once the branch is pushed to GitHub.
@@ -406,5 +439,5 @@ Until then the same steps run locally with the command CI uses:
 
 ```sh
 PYTHON=/path/to/gradio-free/python tools/check.sh --only env,ruff,pytest,contract,i18n:server
-tools/check.sh --only pnpm,i18n:spa,e2e
+tools/check.sh --only pnpm,i18n:spa,perf,e2e
 ```

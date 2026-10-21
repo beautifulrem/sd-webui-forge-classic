@@ -5,17 +5,20 @@
 #   tools/check.sh --skip e2e         # leave steps out (comma-separated names or prefixes)
 #   tools/check.sh --only ruff,pytest # run only these steps (prefixes: "pytest" = core + extensions)
 #   tools/check.sh --list             # list the steps
+#   tools/check.sh --strict           # a skipped step (a missing optional interpreter) fails the run
 #
 # Steps: a Gradio-free Python - ruff (Remi code strict, test suites, the built-in extensions'
 # scripts and libraries, the upstream-origin runtime, the whole tree for syntax errors and
 # Gradio imports) - pytest for
 # tests/ (with a coverage floor for remi/) and for every extensions-builtin/*/tests directory
-# separately - OpenAPI, settings and tab schema contracts, upstream line endings - i18n coverage (server zh_CN catalog, SPA
+# separately, then a coverage floor for each Remi file outside remi/ over all of them - OpenAPI,
+# settings and tab schema contracts, upstream line endings - the legacy ui() recorder's self-test
+# (skipped, with the reason, without its Gradio interpreter) - i18n coverage (server zh_CN catalog, SPA
 # chrome catalog) - pnpm install (frozen lockfile), build (tsc + vite), the JS bundle budget,
 # oxlint, vitest (with coverage floors), Playwright end-to-end tests and axe scans against the
 # mock backend.
 # Steps keep running after a failure; the script ends with a summary table and exits 1
-# when any step failed.
+# when any step failed (or, with --strict, was skipped).
 #
 # Python: $PYTHON, else venv/ or .venv/ in the repo, else python3 - the first one with
 # requirements.txt and requirements-dev.txt (pytest, pytest-cov) installed, preferring one
@@ -24,7 +27,10 @@
 # Logs: $REMI_CHECK_LOGS (default a temporary directory, printed at the end). The
 # real-model smoke test is separate: tools/smoke_real.py.
 # legacy-ui (the legacy ui() recorder's self-test) needs the recorder's own Gradio 4.40 interpreter,
-# built once with the network by tools/legacy_ui_env.sh: it runs when $REMI_LEGACY_PYTHON names it.
+# built once with the network by tools/legacy_ui_env.sh: $REMI_LEGACY_PYTHON, else the one that
+# script builds by default (../remi-gradio-env/bin/python). Without it the step is reported as
+# "skip" with the reason (a failure when named in --only, or with --strict). So does
+# legacy-ui:fixtures, which records every committed legacy ui() fixture again and compares it.
 
 set -uo pipefail
 
@@ -34,14 +40,16 @@ cd "$ROOT" || exit 2
 ONLY=""
 SKIP=""
 LIST=0
+STRICT=0
 while [ $# -gt 0 ]; do
   case "$1" in
+    --strict) STRICT=1; shift ;;
     --only) ONLY="${2:-}"; shift 2 ;;
     --only=*) ONLY="${1#*=}"; shift ;;
     --skip) SKIP="${2:-}"; shift 2 ;;
     --skip=*) SKIP="${1#*=}"; shift ;;
     --list) LIST=1; shift ;;
-    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) echo "unknown argument: $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -87,6 +95,16 @@ else
   RUFF=(uvx ruff)
 fi
 
+# The legacy ui() recorder's Gradio 4.40 interpreter (tools/legacy_ui_env.sh's default location).
+LEGACY_DEFAULT="$(cd "$ROOT/.." && pwd)/remi-gradio-env/bin/python"
+if [ -n "${REMI_LEGACY_PYTHON:-}" ]; then
+  LEGACY_PY="$REMI_LEGACY_PYTHON"
+elif [ -x "$LEGACY_DEFAULT" ]; then
+  LEGACY_PY="$LEGACY_DEFAULT"
+else
+  LEGACY_PY=""
+fi
+
 LOGS="${REMI_CHECK_LOGS:-$(mktemp -d "${TMPDIR:-/tmp}/remi-check.XXXXXX")}"
 mkdir -p "$LOGS"
 # pytest-cov's data file goes with the logs, not into the repository.
@@ -102,6 +120,7 @@ export PYTHONDONTWRITEBYTECODE=1
 NAMES=()
 RESULTS=()
 TIMES=()
+SKIPPED=() # "<name>: <reason>" of each skipped step
 
 matches() { # matches <name> <comma list>: exact name or prefix
   local item
@@ -147,6 +166,22 @@ step() {
   fi
 }
 
+# skip_step <name> <reason>: a step that cannot run here (a missing optional interpreter). It is
+# still listed, and the summary reports it as "skip" with the reason; --strict counts it as failed.
+skip_step() {
+  local name="$1" reason="$2"
+  if [ "$LIST" = 1 ]; then
+    echo "$name"
+    return 0
+  fi
+  wanted "$name" || return 0
+  printf '==> %-44s skip (%s)\n' "$name" "$reason"
+  NAMES+=("$name")
+  TIMES+=("0")
+  RESULTS+=("skip")
+  SKIPPED+=("$name: $reason")
+}
+
 # pytest that also fails when nothing was collected (pytest exits 5).
 run_pytest() {
   py -m pytest "$@" -q -p no:cacheprovider -W ignore::DeprecationWarning
@@ -178,14 +213,40 @@ step ruff:extensions "${RUFF[@]}" check extensions-builtin/*/scripts extensions-
 step ruff:core "${RUFF[@]}" check modules modules_forge backend scripts launch.py webui.py --extend-exclude modules_forge/packages
 step ruff:syntax "${RUFF[@]}" check . --select E9,TID251 --output-format concise
 
-# Coverage floor for remi/ (the measured line coverage of tests/, minus a small margin).
+# Coverage floors (tools/check_coverage.py): remi/ as a whole (the measured line coverage of
+# tests/, minus a small margin), and each Remi file outside remi/ on its own (pyproject.toml's
+# strict list: modules/redact.py, the ControlNet unit editor, ...). Those files are tested by
+# different suites, so every pytest step measures them into a data file of its own
+# ($LOGS/.coverage.pytest_<name>) and pytest:coverage combines the data of this log folder.
 COVERAGE_FLOOR_PYTHON=92
-step pytest:tests run_pytest tests --cov=remi --cov-report=term:skip-covered --cov-fail-under="$COVERAGE_FLOOR_PYTHON"
+COVERAGE_FLOOR_STRICT=90
+coverage_data() { echo "$LOGS/.coverage.${1//[:\/]/_}"; }
+# pytest_cov <step name> <pytest args...>: run_pytest measuring the Remi files outside remi/
+pytest_cov() {
+  local data sources
+  data="$(coverage_data "$1")"
+  shift
+  sources="$(py tools/check_coverage.py sources)" || return 2
+  rm -f "$data"
+  # shellcheck disable=SC2086 # one --cov=<source> per word
+  COVERAGE_FILE="$data" run_pytest "$@" $sources --cov-report=
+}
+pytest_tests() {
+  local status=0
+  pytest_cov pytest:tests tests --cov=remi || status=$?
+  py tools/check_coverage.py remi --data "$(coverage_data pytest:tests)" --floor "$COVERAGE_FLOOR_PYTHON" || status=$((status ? status : 1))
+  return $status
+}
+step pytest:tests pytest_tests
 for dir in extensions-builtin/*/tests; do
   [ -d "$dir" ] || continue
   ext="${dir#extensions-builtin/}"
-  step "pytest:${ext%/tests}" run_pytest "$dir"
+  step "pytest:${ext%/tests}" pytest_cov "pytest:${ext%/tests}" "$dir"
 done
+strict_coverage() {
+  py tools/check_coverage.py strict --floor "$COVERAGE_FLOOR_STRICT" --data "$LOGS"/.coverage.pytest_*
+}
+step pytest:coverage strict_coverage
 
 step contract:openapi py tools/export_openapi.py --check
 step contract:settings py tools/dump_settings.py --check
@@ -195,15 +256,34 @@ step contract:schemas py webui/tools/dump_schemas.py --check
 step contract:line-endings py tools/check_line_endings.py
 # The legacy ui() recorder end to end: records a known script in the last Gradio-era revision and
 # compares the record with its committed fixtures (docs/remi-webui/upstream-absorption.md §2.5).
+# Its interpreter is optional (Gradio 4.40, built once with the network): without one the step is
+# a "skip" with the reason, unless --only names it (then it fails with the same message).
+LEGACY_MISSING="no Gradio 4.40 interpreter: build it with tools/legacy_ui_env.sh (to $LEGACY_DEFAULT) or set REMI_LEGACY_PYTHON"
 legacy_ui_self_test() {
-  if [ -z "${REMI_LEGACY_PYTHON:-}" ]; then
-    echo "REMI_LEGACY_PYTHON is not set: build the recorder's environment with tools/legacy_ui_env.sh" >&2
+  if [ -z "$LEGACY_PY" ]; then
+    echo "$LEGACY_MISSING" >&2
     return 2
   fi
-  "$REMI_LEGACY_PYTHON" tools/record_legacy_ui.py --self-test
+  "$LEGACY_PY" tools/record_legacy_ui.py --self-test --report "$LOGS/legacy-ui.json"
 }
-if [ "$LIST" = 1 ] || [ -n "${REMI_LEGACY_PYTHON:-}" ] || matches legacy-ui "$ONLY"; then
+if [ -n "$LEGACY_PY" ] || { [ -n "$ONLY" ] && matches legacy-ui "$ONLY"; }; then
   step legacy-ui legacy_ui_self_test
+else
+  skip_step legacy-ui "$LEGACY_MISSING"
+fi
+# Every committed legacy ui() fixture recorded again in that revision, each with its format and the
+# WebUI context its ui() needs (tools/legacy_ui_recordings.py), and compared value by value.
+legacy_ui_fixtures() {
+  if [ -z "$LEGACY_PY" ]; then
+    echo "$LEGACY_MISSING" >&2
+    return 2
+  fi
+  "$LEGACY_PY" tools/record_legacy_ui.py --fixtures --check --report "$LOGS/legacy-ui-fixtures.json"
+}
+if [ -n "$LEGACY_PY" ] || { [ -n "$ONLY" ] && matches legacy-ui:fixtures "$ONLY"; }; then
+  step legacy-ui:fixtures legacy_ui_fixtures
+else
+  skip_step legacy-ui:fixtures "$LEGACY_MISSING"
 fi
 
 step i18n:server run_pytest tests/test_remi_core_zh_cn.py
@@ -236,23 +316,39 @@ step e2e pnpm_in_webui exec playwright test --reporter=line
 # region Summary
 
 failed=0
+skipped=0
 echo
 printf '%-44s %-6s %8s\n' "step" "result" "seconds"
 printf '%-44s %-6s %8s\n' "--------------------------------------------" "------" "--------"
 for i in "${!NAMES[@]}"; do
   printf '%-44s %-6s %8s\n' "${NAMES[$i]}" "${RESULTS[$i]}" "${TIMES[$i]}"
-  [ "${RESULTS[$i]}" = "pass" ] || failed=$((failed + 1))
+  case "${RESULTS[$i]}" in
+    pass) ;;
+    skip) skipped=$((skipped + 1)) ;;
+    *) failed=$((failed + 1)) ;;
+  esac
 done
 echo
 echo "Python: ${PY:-none found}"
+echo "Legacy: ${LEGACY_PY:-none found}"
 echo "Logs:   $LOGS"
 if [ ${#NAMES[@]} -eq 0 ]; then
   echo "No step matched --only/--skip." >&2
   exit 2
 fi
+if [ $skipped -gt 0 ]; then
+  echo "Skipped (not run, not passed):"
+  printf '  %s\n' "${SKIPPED[@]}"
+fi
+passed=$((${#NAMES[@]} - failed - skipped))
 if [ $failed -gt 0 ]; then
-  echo "$failed of ${#NAMES[@]} steps failed."
+  echo "$failed of ${#NAMES[@]} steps failed ($passed passed, $skipped skipped)."
   exit 1
+fi
+if [ $skipped -gt 0 ]; then
+  echo "$passed of ${#NAMES[@]} steps passed, $skipped skipped."
+  [ "$STRICT" = 1 ] && { echo "--strict: a skipped step fails the run." >&2; exit 1; }
+  exit 0
 fi
 echo "All ${#NAMES[@]} steps passed."
 

@@ -2668,7 +2668,7 @@
     "step": 1
    },
    "comment_after": " <span class='info'>(requires Reload UI)</span>",
-   "needs_reload_ui": false
+   "needs_reload_ui": true
   },
   {
    "key": "ad_extra_models_dir",
@@ -2679,7 +2679,7 @@
     "placeholder": "path/to/models|another/path/to/models"
    },
    "comment_after": "<span class='info'>(<b>i.e.</b> <code> | </code> )</span> <span class='info'>(requires Reload UI)</span>",
-   "needs_reload_ui": false
+   "needs_reload_ui": true
   },
   {
    "key": "ad_save_images_dir",

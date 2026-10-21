@@ -154,6 +154,15 @@ export COMMANDLINE_ARGS="--uv"
 
 设置环境变量 `REMI_SKIP_WEBUI_BUILD=1` 可关闭自动构建；`--skip-install` 和 `--skip-prepare-environment` 也会跳过构建。
 
+### Docker（NVIDIA GPU）
+
+`docker/Dockerfile` 用当前检出的代码构建镜像（构建上下文是仓库根目录）：网页界面在 Node.js 阶段构建，服务器镜像包含 Python 3.13、启动器使用的 PyTorch 版本和 `requirements.txt`，不含 Gradio。全部用户数据放在同一个卷 `/home/remi/data` 中。详见 [docker/README.md](docker/README.md)。
+
+```bash
+docker build -f docker/Dockerfile -t remi-webui .
+docker run --gpus all -p 7860:7860 -v remi-data:/home/remi/data remi-webui
+```
+
 ### 首次 Anima 生成建议
 
 1. 在模型栏中选择受支持的 Anima checkpoint 及其文本编码器和 VAE。
@@ -166,7 +175,7 @@ export COMMANDLINE_ARGS="--uv"
 
 ## 启动参数
 
-把参数写在 `COMMANDLINE_ARGS`（`webui-user.bat`、`webui.settings.sh`）中，或直接传给 `python launch.py`。`python launch.py --help` 会列出全部参数。
+把参数写在 `COMMANDLINE_ARGS`（`webui-user.bat`、`webui.settings.sh`）中，或直接传给 `python launch.py`。`python launch.py --help` 会列出全部参数，包括内置和已安装扩展添加的参数（例如 `--agent-scheduler-sqlite-file`、`--controlnet-loglevel`、`--lora-dir`）。
 
 **服务器与访问**
 
@@ -176,6 +185,7 @@ export COMMANDLINE_ARGS="--uv"
 | `--listen` | 监听所有网卡（`0.0.0.0`），允许其他机器连接 |
 | `--server-name HOST` | 监听指定地址或主机名 |
 | `--subpath /sd` | 在路径前缀下提供服务，用于反向代理（代理是否去掉前缀均可） |
+| `--forwarded-allow-ips 127.0.0.1` | 信任来自这些反向代理（地址或网段，逗号分隔）的 `X-Forwarded-For` / `X-Forwarded-Proto`，从而按真实客户端统计登录失败次数。不设置时忽略这些请求头，代理后的所有客户端共用一个计数 |
 | `--tls-keyfile KEY --tls-certfile CERT` | 提供 HTTPS（会话 cookie 变为 `Secure`） |
 | `--auth user:pass[,user2:pass2]` | 网页界面、`/api/v2`、文件和 WebSocket 需要登录（原 `--gradio-auth`） |
 | `--auth-file PATH` | 从文件读取 `--auth` 格式的登录信息，每行一个或多个（原 `--gradio-auth-path`） |

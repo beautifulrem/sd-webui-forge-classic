@@ -121,11 +121,29 @@ def _unb64(text: str) -> bytes:
 
 
 def client_key(conn: Any) -> str:
-    """Who failed logins are counted for: the peer address (behind a reverse
-    proxy every client shares the proxy's, which errs on the safe side)."""
+    """Who failed logins are counted for: the peer address. Forwarding
+    headers count only from the proxies named by ``--forwarded-allow-ips``
+    (``remi.server.launch.ServerThread``), so a client cannot pick its own
+    key; without the flag every client behind a reverse proxy shares the
+    proxy's, which errs on the safe side."""
 
     client = getattr(conn, "client", None)
     return client.host if client else "?"
+
+
+def reached_over_https(conn: Any) -> bool:
+    """The request came over HTTPS, here or at a TLS proxy that says so
+    (``X-Forwarded-Proto`` / ``Forwarded: proto=``). Only used to mark the
+    session cookie ``Secure``, so the headers need no trust: a client that
+    lies only gets a cookie its browser will not send over plain HTTP."""
+
+    if conn.url.scheme in ("https", "wss"):
+        return True
+    headers = conn.headers
+    if (headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower() == "https":
+        return True
+    first = (headers.get("forwarded") or "").split(",")[0]
+    return any(key.strip().lower() == "proto" and value.strip().strip('"').lower() == "https" for key, _, value in (pair.partition("=") for pair in first.split(";")))
 
 
 @dataclass

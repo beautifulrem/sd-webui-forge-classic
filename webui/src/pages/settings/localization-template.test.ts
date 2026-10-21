@@ -18,6 +18,7 @@ describe("localization template", () => {
                 { type: "choice", name: "fmt", label: "Format", default: "png", notes: ["lossless"], links: [{ label: "wiki", url: "https://x" }], choices: [{ value: "png", label: "PNG" }] },
                 { type: "row", children: [{ type: "toggle", name: "a", label: "Inner", default: true }] },
                 { type: "html", text: "<b>Bold</b> help" },
+                { type: "markdown", text: "**Bold** help" },
               ],
             },
           ],
@@ -26,7 +27,7 @@ describe("localization template", () => {
       quicksettings: [],
       values: {},
     } as unknown as SettingsSchema
-    expect(settingsStrings(schema)).toEqual(["Saving", "Paths", "Format", "lossless", "wiki", "PNG", "Inner", "<b>Bold</b> help"])
+    expect(settingsStrings(schema)).toEqual(["Saving", "Paths", "Format", "lossless", "wiki", "PNG", "Inner", "<b>Bold</b> help", "**Bold** help"])
   })
 
   it("sorts unique keys and fills known translations", () => {

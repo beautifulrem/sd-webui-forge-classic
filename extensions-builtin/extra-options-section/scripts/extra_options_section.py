@@ -85,7 +85,7 @@ shared.options_templates.update(
     shared.options_section(
         ("settings_in_ui", "Settings in UI", "ui"),
         {
-            "settings_in_ui": shared.OptionHTML("This page allows you to add some settings to the main interface of txt2img and img2img tabs."),
+            "settings_in_ui": shared.OptionMarkdown("This page allows you to add some settings to the main interface of txt2img and img2img tabs."),
             "extra_options_txt2img": shared.OptionInfo(
                 [],
                 "Settings for txt2img",

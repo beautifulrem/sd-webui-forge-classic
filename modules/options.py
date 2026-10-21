@@ -84,6 +84,18 @@ class OptionHTML(OptionInfo):
         self.do_not_save = True
 
 
+class OptionMarkdown(OptionInfo):
+    """A help block between settings, written in Markdown: the settings schema
+    sends it as a ``markdown`` node, which the SPA renders as text, links and
+    emphasis (never as HTML). Remi's own options use it; ``OptionHTML`` stays
+    for A1111 extensions."""
+
+    def __init__(self, text):
+        super().__init__(str(text).strip(), label='', component=ui.Markdown)
+
+        self.do_not_save = True
+
+
 class OptionDiv(OptionInfo):
     def __init__(self):
         super().__init__("", label="", component=ui.Separator)

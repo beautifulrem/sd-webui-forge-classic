@@ -1,0 +1,20 @@
+{
+ "tool": "tools/record_legacy_ui.py",
+ "mode": "self-test",
+ "date": "2026-10-21T06:02:53+0800",
+ "revision": "70490a1f90039352ebc578dd78f5e7d6f107014a",
+ "uncommitted_changes": true,
+ "platform": "darwin",
+ "python": "3.13.13",
+ "gradio": "4.40.0",
+ "legacy_rev": "9c96c45ee561487d2c4baa6900a885d3a71affe5",
+ "script": "extensions-builtin/sd_forge_spectrum/scripts/spectrum.py",
+ "script_rev": "0cf62dd0e8431e3a48827e5d6f739aa96d5601ba",
+ "fixtures": null,
+ "compared": [
+  "extensions-builtin/sd_forge_spectrum/tests/fixtures/legacy_ui_txt2img.json",
+  "extensions-builtin/sd_forge_spectrum/tests/fixtures/legacy_ui_img2img.json"
+ ],
+ "differences": [],
+ "passed": true
+}

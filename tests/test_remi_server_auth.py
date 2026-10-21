@@ -2,6 +2,7 @@
 checks of the Remi server."""
 
 import base64
+import contextlib
 import time
 
 import pytest
@@ -181,6 +182,71 @@ def test_repeated_failed_logins_are_throttled(locked, monkeypatch):
     for _ in range(10):
         locked.client.post("/api/v2/auth/login", json={"username": "ann", "password": "x"})
     assert locked.client.post("/api/v2/auth/login", json={"username": "ann", "password": "s3cret"}).status_code == 429
+
+
+def test_session_cookies_are_secure_behind_a_tls_proxy(webui, tmp_path):
+    with server_app(tmp_path, auth=Auth({"ann": "1"}, b"k" * 32)) as server:
+
+        def cookie(headers):
+            response = server.client.post("/api/v2/auth/login", json={"username": "ann", "password": "1"}, headers=headers)
+            assert response.status_code == 204
+            return response.headers["set-cookie"].lower()
+
+        assert "secure" not in cookie({})
+        assert "secure" in cookie({"X-Forwarded-Proto": "https"})
+        assert "secure" in cookie({"Forwarded": 'for=203.0.113.9;proto="https", for=10.0.0.1'})
+        assert "secure" not in cookie({"X-Forwarded-Proto": "http"})
+
+
+@contextlib.contextmanager
+def _served(app, **options):
+    """``app`` on a real uvicorn server (TestClient skips uvicorn's proxy
+    header handling, which is what decides the client address)."""
+
+    import httpx
+
+    from remi.server import launch
+
+    port = launch.pick_port("127.0.0.1", None, 18830)
+    thread = launch.ServerThread(app, host="127.0.0.1", port=port, graceful_shutdown=0.5, **options)
+    thread.start()
+    try:
+        with httpx.Client(base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=10) as client:  # no proxy for loopback
+            yield client
+    finally:
+        thread.stop()
+
+
+def _login(client, password, forwarded_for=None):
+    headers = {"X-Forwarded-For": forwarded_for} if forwarded_for else {}
+    return client.post("/api/v2/auth/login", json={"username": "ann", "password": password}, headers=headers).status_code
+
+
+def test_forwarded_for_headers_do_not_dodge_the_login_throttle(webui, tmp_path, monkeypatch):
+    """Without --forwarded-allow-ips no client picks its own throttle key,
+    not even one connecting from loopback (a same-machine tunnel)."""
+
+    monkeypatch.setattr("remi.server.routes.system.LOGIN_FAILURE_DELAY", 0)
+    with server_app(tmp_path, auth=Auth({"ann": "s3cret"}, b"k" * 32)) as server, _served(server.app) as client:
+        assert [_login(client, "x", f"203.0.113.{index}") for index in range(10)] == [401] * 10
+        assert _login(client, "s3cret", "203.0.113.200") == 429
+        assert _login(client, "s3cret") == 429
+        # HTTP Basic shares the counter
+        assert client.get("/api/v2/queue", headers={**basic("ann", "s3cret"), "X-Forwarded-For": "198.51.100.7"}).status_code == 429
+
+
+def test_trusted_proxies_name_the_client(webui, tmp_path, monkeypatch):
+    """--forwarded-allow-ips: behind that proxy each client has its own
+    throttle, so one attacker does not lock everyone out."""
+
+    monkeypatch.setattr("remi.server.routes.system.LOGIN_FAILURE_DELAY", 0)
+    with server_app(tmp_path, auth=Auth({"ann": "s3cret"}, b"k" * 32)) as server, _served(server.app, forwarded_allow_ips="127.0.0.1") as client:
+        assert [_login(client, "x", "203.0.113.1") for _ in range(10)] == [401] * 10
+        assert _login(client, "s3cret", "203.0.113.1") == 429
+        # (a proxy appends the peer it saw: a spoofed first entry changes nothing)
+        assert _login(client, "s3cret", "198.51.100.1, 203.0.113.1") == 429
+        assert _login(client, "s3cret", "203.0.113.2") == 204
+        assert _login(client, "s3cret") == 204
 
 
 def test_cross_site_writes_and_rebound_hosts_are_refused(webui, tmp_path):

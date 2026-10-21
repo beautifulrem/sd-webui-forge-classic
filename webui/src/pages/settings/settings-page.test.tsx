@@ -15,6 +15,7 @@ import SettingsPage from "./index"
 import { INITIAL_FILTERS, useSettingsFilters } from "./settings-filters"
 import { buildSettingsIndex, filterSettings, settingInputs } from "./settings-model"
 import { useSettingsEditor } from "./settings-store"
+import { SettingItemView } from "./SettingRow"
 
 const contract = settingsContract as unknown as SettingsSchema
 
@@ -42,6 +43,18 @@ describe("real settings schema", () => {
     // choice descriptions are searchable help
     expect(keysFor("high quality preview method")).toContain("show_progress_type")
     expect(Object.keys(contract.defaults ?? {})).toEqual(Object.keys(contract.values))
+  })
+
+  it("renders the core help blocks as Markdown (the server sends no HTML for its own settings)", () => {
+    const items = buildSettingsIndex(contract).sections.flatMap((section) => section.items)
+    expect(items.filter((item) => item.kind === "html")).toEqual([])
+    const tome = items.find((item) => item.kind === "markdown" && item.node.text.startsWith("**Token Merging**"))
+    expect(tome).toBeDefined()
+    const { container } = render(<SettingItemView item={tome!} />)
+    expect(container.querySelector("strong")?.textContent).toBe("Token Merging")
+    const link = container.querySelector("a")
+    expect(link?.getAttribute("href")).toBe("https://github.com/dbolya/tomesd")
+    expect(link?.getAttribute("rel")).toBe("noopener noreferrer")
   })
 })
 

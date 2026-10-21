@@ -58,6 +58,7 @@ mem_mon: "memmon.MemUsageMonitor" = None
 options_section = options.options_section
 OptionInfo = options.OptionInfo
 OptionHTML = options.OptionHTML
+OptionMarkdown = options.OptionMarkdown
 
 natural_sort_key = util.natural_sort_key
 listfiles = util.listfiles

@@ -20,7 +20,17 @@ from modules.timer import startup_timer
 from modules_forge import forge_version
 from modules_forge.config import always_disabled_extensions
 
-args, _ = cmd_args.parser.parse_known_args()
+
+def _is_help_flag(arg: str) -> bool:
+    # argparse also accepts unambiguous prefixes of long options (--he, --hel)
+    return arg == "-h" or (arg.startswith("--he") and "--help".startswith(arg))
+
+
+_help_requested = any(_is_help_flag(a) for a in sys.argv[1:])
+
+# --help is answered at the end of this module, once the extension preloads have
+# registered their flags; parsing it here would print only the core options
+args, _ = cmd_args.parser.parse_known_args([a for a in sys.argv[1:] if not _is_help_flag(a)])
 
 python = sys.executable
 git = os.environ.get("GIT", "git")
@@ -729,3 +739,21 @@ def verify_version():
     print("\n\n")
 
     input("Press Enter to Continue...")
+
+
+def print_full_help() -> None:
+    """Print ``--help`` including the flags that extension ``preload.py`` files add.
+
+    Mirrors ``modules/shared_cmd_options.py``: installed extensions that are not
+    disabled, then every bundled extension.
+    """
+    from modules import script_loading
+
+    script_loading.preload_extensions(extensions_dir, cmd_args.parser, extension_list=list_extensions(args.ui_settings_file))
+    script_loading.preload_extensions(extensions_builtin_dir, cmd_args.parser)
+    cmd_args.parser.print_help()
+
+
+if _help_requested:
+    print_full_help()
+    sys.exit(0)

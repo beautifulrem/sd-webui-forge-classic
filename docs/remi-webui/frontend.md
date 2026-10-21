@@ -1022,10 +1022,11 @@ older server) nothing is shown.
   `title=` / `description=` literals (routes, commands, placeholders). No
   string concatenation, no plural suffixes; write sentences that work
   without plural forms.
-- Schema strings are passed to `t()` as-is (`t(node.label)`); `html` node text
-  and a setting's HTML comment are looked up whole (key = the exact markup;
-  the catalogs translate them keeping the markup) and sanitized like the
-  original. `tests/remi_core_strings.py` collects them, so an untranslated
+- Schema strings are passed to `t()` as-is (`t(node.label)`); `markdown` and
+  `html` node text and a setting's HTML comment are looked up whole (key = the
+  exact source text; the catalogs translate them keeping the Markdown or
+  markup), then rendered like the original (Markdown as React elements, HTML
+  sanitized). `tests/remi_core_strings.py` collects them, so an untranslated
   settings help block fails `tests/test_remi_core_zh_cn.py`.
 - `src/locales/zh-CN.json` must contain every chrome key:
   `locales/locales.test.ts` scans the sources and fails on a missing key or a

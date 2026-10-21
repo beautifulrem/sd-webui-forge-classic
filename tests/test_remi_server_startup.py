@@ -323,8 +323,9 @@ class FakeServerThread:
     instances: list[FakeServerThread] = []
     fail_starts = 0
 
-    def __init__(self, app, *, host, port, root="", ssl_keyfile=None, ssl_certfile=None, timeout_keep_alive=30, graceful_shutdown=10):
+    def __init__(self, app, *, host, port, root="", ssl_keyfile=None, ssl_certfile=None, timeout_keep_alive=30, graceful_shutdown=10, forwarded_allow_ips=None):
         self.app, self.host, self.port, self.root = app, host, port, root
+        self.forwarded_allow_ips = forwarded_allow_ips
         self.ssl = (ssl_keyfile, ssl_certfile)
         self.timeout_keep_alive = timeout_keep_alive
         self.url = f"http://{host}:{port}{root}/"
@@ -353,17 +354,17 @@ def fake_servers(monkeypatch):
 
 
 def opts_for_start(**overrides):
-    return SimpleNamespace(**{"subpath": "/sub", "tls_keyfile": None, "tls_certfile": None, "timeout_keep_alive": 45, **overrides})
+    return SimpleNamespace(**{"subpath": "/sub", "tls_keyfile": None, "tls_certfile": None, "timeout_keep_alive": 45, "forwarded_allow_ips": None, **overrides})
 
 
 def test_start_server_retries_while_the_old_server_holds_the_port(fake_servers, monkeypatch):
     free = iter([False, True, True])
     monkeypatch.setattr(launch, "wait_port_free", lambda host, port: next(free))
     fake_servers.fail_starts = 1
-    server = launch._start_server("app", "127.0.0.1", 7860, opts_for_start())
+    server = launch._start_server("app", "127.0.0.1", 7860, opts_for_start(forwarded_allow_ips="10.0.0.0/8"))
     assert len(fake_servers.instances) == 2 and server is fake_servers.instances[1] and server.started
     assert fake_servers.instances[0].stops == [5]  # the failed one is cleaned up
-    assert (server.root, server.timeout_keep_alive) == ("/sub", 45)
+    assert (server.root, server.timeout_keep_alive, server.forwarded_allow_ips) == ("/sub", 45, "10.0.0.0/8")
 
 
 def test_start_server_gives_up_after_the_attempts(fake_servers, monkeypatch):

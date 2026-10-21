@@ -31,6 +31,7 @@ const schema: SettingsSchema = {
             { type: "slider", name: "jpeg_quality", label: "Quality for saved jpeg images", default: 80, minimum: 1, maximum: 100, step: 1, integer: true, notes: ["also used for webp"] },
             { type: "toggle", name: "samples_save", label: "Always save all generated images", default: true },
             { type: "html", text: "<b>Grids</b>" },
+            { type: "markdown", text: "**Grid** layout" },
             {
               type: "row",
               children: [
@@ -113,6 +114,7 @@ describe("settings search", () => {
   it("drops help-only items while filtering and keeps them otherwise", () => {
     const all = filterSettings(index, filter())
     expect(all[0]!.visible.some((item) => item.kind === "html")).toBe(true)
+    expect(all[0]!.visible.some((item) => item.kind === "markdown" && item.node.text === "**Grid** layout")).toBe(true)
     expect(all[0]!.count).toBe(4)
     const found = filterSettings(index, filter({ query: "row count" }))
     expect(found[0]!.visible.map((item) => item.kind)).toEqual(["row"])
@@ -158,12 +160,12 @@ describe("filter modes", () => {
 describe("rows for the virtualized list", () => {
   it("puts category and section headings before the items and maps rows back to sections", () => {
     const rows = flattenRows(filterSettings(buildSettingsIndex(schema), filter()))
-    expect(rows.map((row) => row.kind)).toEqual(["category", "section", "item", "item", "item", "item", "item", "category", "section", "item"])
-    expect(sectionRowIndex(rows, "ui")).toBe(8)
+    expect(rows.map((row) => row.kind)).toEqual(["category", "section", "item", "item", "item", "item", "item", "item", "category", "section", "item"])
+    expect(sectionRowIndex(rows, "ui")).toBe(9)
     expect(sectionRowIndex(rows, "nope")).toBe(-1)
     expect(sectionOfRow(rows, 0)).toBe("saving-images")
-    expect(sectionOfRow(rows, 7)).toBe("ui")
-    expect(sectionOfRow(rows, 9)).toBe("ui")
+    expect(sectionOfRow(rows, 8)).toBe("ui")
+    expect(sectionOfRow(rows, 10)).toBe("ui")
   })
 })
 

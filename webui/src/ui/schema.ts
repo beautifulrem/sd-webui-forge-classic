@@ -281,7 +281,7 @@ export type SettingsSchema = {
   categories: {
     id: string
     label: string
-    sections: { id: string; label: string; items: (SettingNode | HtmlNode | SeparatorNode | RowNode)[] }[]
+    sections: { id: string; label: string; items: (SettingNode | MarkdownNode | HtmlNode | SeparatorNode | RowNode)[] }[]
   }[]
   quicksettings: string[]
   values: Record<string, Json>

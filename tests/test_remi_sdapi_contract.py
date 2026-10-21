@@ -131,3 +131,20 @@ def test_allowed_models_still_compare_names_and_defaults(monkeypatch):
     monkeypatch.setattr(contract, "ALLOWED", {"Flags": "test"})
     problems = contract.compare_models(models_module("up_flags", Flags=Upstream), models_module("remi_flags", Flags=Remi))
     assert problems == ["model Flags.debug: default True, upstream False"]
+
+
+def test_unresolved_merge_conflicts_stop_the_check_with_a_clear_message(monkeypatch, capsys):
+    # mid-merge the WebUI cannot be imported (conflict markers): say so instead of a SyntaxError traceback
+    monkeypatch.setattr(contract, "unmerged_files", lambda: ["modules/launch_utils.py", "scripts/xyz_grid.py"])
+    monkeypatch.setattr(contract, "check", lambda rev: pytest.fail("check() must not run while conflicts are unresolved"))
+
+    assert contract.main(["--rev", "HEAD"]) == 2
+    err = capsys.readouterr().err
+    assert "2 file(s) with unresolved merge conflicts: modules/launch_utils.py, scripts/xyz_grid.py" in err
+    assert "upstream-absorption.md" in err
+
+
+def test_unmerged_files_is_empty_outside_a_merge():
+    if not (REPO / ".git").exists():
+        pytest.skip("not a git checkout")
+    assert contract.unmerged_files() == []

@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils"
 import { runAction } from "@/ui/actions"
 import { jsonEqual } from "@/ui/conditions"
 import { RenderNode } from "@/ui/Renderer"
-import { SafeHtml } from "@/ui/RichText"
+import { Markdown, SafeHtml } from "@/ui/RichText"
 import { safeUrl } from "@/ui/rich-text"
 import type { SettingNode } from "@/ui/schema"
 import { serverStatusQuery } from "./queries"
@@ -237,6 +237,9 @@ export function SettingItemView({ item }: { item: SettingItem }) {
           ))}
         </div>
       )
+    case "markdown":
+      // Remi's help blocks: Markdown, keyed in the catalogs by their exact source text
+      return <Markdown text={t(item.node.text)} className="space-y-2 py-2 text-sm text-muted-foreground" />
     case "html":
       // The catalogs key a help block by its exact markup (translations keep the markup)
       return <SafeHtml html={t(item.node.text)} className="py-2 text-sm text-muted-foreground [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 hover:[&_a]:decoration-2" />

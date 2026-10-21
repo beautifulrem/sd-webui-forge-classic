@@ -154,6 +154,15 @@ Without Node.js on the machine:
 
 `REMI_SKIP_WEBUI_BUILD=1` turns the automatic build off; `--skip-install` and `--skip-prepare-environment` skip it too.
 
+### Docker (NVIDIA GPU)
+
+`docker/Dockerfile` builds an image of this checkout (the build context is the repository root): the web interface is built in a Node.js stage, the server image gets Python 3.13, the launcher's PyTorch build and `requirements.txt`, and no Gradio. Every piece of user data lives in one volume, `/home/remi/data`. See [docker/README.md](docker/README.md).
+
+```bash
+docker build -f docker/Dockerfile -t remi-webui .
+docker run --gpus all -p 7860:7860 -v remi-data:/home/remi/data remi-webui
+```
+
 ### Recommended first Anima run
 
 1. Choose a supported Anima checkpoint and its text encoder and VAE in the model bar.
@@ -166,7 +175,7 @@ The safe preset starts from `ER SDE`, `36` steps, `CFG 4.5` and the model's stan
 
 ## Launch Options
 
-Pass options in `COMMANDLINE_ARGS` (`webui-user.bat`, `webui.settings.sh`) or to `python launch.py`. `python launch.py --help` lists all of them.
+Pass options in `COMMANDLINE_ARGS` (`webui-user.bat`, `webui.settings.sh`) or to `python launch.py`. `python launch.py --help` lists all of them, including the ones bundled and installed extensions add (such as `--agent-scheduler-sqlite-file`, `--controlnet-loglevel` and `--lora-dir`).
 
 **Server and access**
 
@@ -176,6 +185,7 @@ Pass options in `COMMANDLINE_ARGS` (`webui-user.bat`, `webui.settings.sh`) or to
 | `--listen` | Listen on all interfaces (`0.0.0.0`) so other machines can connect |
 | `--server-name HOST` | Listen on a specific address or host name |
 | `--subpath /sd` | Serve the app under a path prefix, for a reverse proxy (with or without prefix stripping) |
+| `--forwarded-allow-ips 127.0.0.1` | Trust `X-Forwarded-For` / `X-Forwarded-Proto` from these reverse proxies (addresses or networks, comma-separated), so failed logins are counted per real client. Without it the headers are ignored and every client behind a proxy shares one counter |
 | `--tls-keyfile KEY --tls-certfile CERT` | Serve HTTPS (session cookies become `Secure`) |
 | `--auth user:pass[,user2:pass2]` | Require a login for the web interface, `/api/v2`, files and the WebSocket (formerly `--gradio-auth`) |
 | `--auth-file PATH` | Read logins in the `--auth` format from a file, one or more per line (formerly `--gradio-auth-path`) |

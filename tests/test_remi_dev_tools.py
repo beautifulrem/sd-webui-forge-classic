@@ -121,6 +121,7 @@ def test_recorder_options():
         ([], "the script to record is required"),
         (["--self-test", "extensions-builtin/a/scripts/x.py"], "--self-test takes no script"),
         (["--self-test", "--tabs", "img2img"], "--self-test takes no script"),
+        (["extensions-builtin/a/scripts/x.py", "--report", "/tmp/r.json"], "--report records a comparison"),
     ],
 )
 def test_recorder_rejects_bad_arguments(argv, message, capsys):
@@ -141,6 +142,25 @@ def test_recorder_self_test_checks_a_known_recording():
     if shown.returncode != 0:
         pytest.skip("the self-test revision is not in this clone")
     assert "def ui(self" in shown.stdout  # the revision still has the Gradio ui() to record
+
+
+def test_recorder_report_keeps_a_check_as_evidence(tmp_path):
+    """--report writes the --check / --self-test outcome as dated JSON (docs/research/legacy-ui/)."""
+
+    options = recorder.parse_args(["--self-test", "--report", str(tmp_path / "out" / "legacy-ui.json")])
+    fixture = recorder.output_folder(options) / "legacy_ui_txt2img.json"
+    recorder.write_report(options, [fixture], [])
+    report = json.loads((tmp_path / "out" / "legacy-ui.json").read_text(encoding="utf-8"))
+    assert report["tool"] == "tools/record_legacy_ui.py" and report["mode"] == "self-test" and report["passed"] is True
+    assert report["legacy_rev"] == recorder.LEGACY_REV and report["script"] == recorder.SELF_TEST[0] and report["script_rev"] == recorder.SELF_TEST[1]
+    assert report["compared"] == ["extensions-builtin/sd_forge_spectrum/tests/fixtures/legacy_ui_txt2img.json"]
+    assert report["differences"] == [] and report["date"] and report["python"] == sys.version.split()[0]
+    assert "gradio" in report  # None here: the WebUI's interpreter is Gradio-free
+
+    options = recorder.parse_args(["extensions-builtin/a/scripts/x.py", "--check", "--out", str(tmp_path), "--legacy-tree", str(tmp_path / "tree"), "--report", str(tmp_path / "r.json")])
+    failed = recorder.report(options, [tmp_path / "legacy_ui_img2img.json"], ["legacy_ui_img2img.json: argument 0 ('Steps') default is 30, the fixture has 20"])
+    assert failed["mode"] == "check" and failed["passed"] is False and failed["legacy_rev"] == str(tmp_path / "tree")
+    assert failed["compared"] == [str(tmp_path / "legacy_ui_img2img.json")] and len(failed["differences"]) == 1
 
 
 def test_recorder_check_compares_like_the_snapshot_harness(tmp_path):

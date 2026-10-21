@@ -12,7 +12,6 @@ type.
 
 from __future__ import annotations
 
-import html
 import re
 from collections.abc import Callable, Mapping
 from html.parser import HTMLParser
@@ -22,7 +21,7 @@ from remi.ui import nodes
 from remi.ui.context import Context, ensure_context
 from remi.ui.schema import SCHEMA_VERSION, jsonable
 
-REMI_WIDGETS = (nodes.Toggle, nodes.Slider, nodes.Number, nodes.Text, nodes.Choice, nodes.MultiChoice, nodes.Color, nodes.State, nodes.Json, nodes.Html, nodes.Separator, nodes.Row)
+REMI_WIDGETS = (nodes.Toggle, nodes.Slider, nodes.Number, nodes.Text, nodes.Choice, nodes.MultiChoice, nodes.Color, nodes.State, nodes.Json, nodes.Markdown, nodes.Html, nodes.Separator, nodes.Row)
 
 
 def is_remi_widget(component: Any) -> bool:
@@ -57,7 +56,9 @@ def setting_node(key: str, info, value: Any) -> nodes.Node:
     if args.get("allow_custom_value"):
         extra["allow_custom"] = True
 
-    if kind is nodes.Html:
+    if kind is nodes.Markdown:  # OptionMarkdown: Remi's help blocks
+        return nodes.Markdown(str(info.default))
+    if kind is nodes.Html:  # OptionHTML: an A1111 extension's help markup
         return nodes.Html(str(info.default))
     if kind in (nodes.Separator, nodes.Row):
         return kind()
@@ -211,7 +212,7 @@ def settings_schema(opts, ctx: Context | None = None, *, categories=None, quicks
         try:
             node = setting_node(key, info, value)
         except Exception as error:  # an extension option this exporter cannot read
-            node = nodes.Html(f"<i>{html.escape(key)}: {html.escape(str(error))}</i>")
+            node = nodes.Markdown(f"`{key}`: {error}")
 
         if isinstance(node, nodes.Row):  # OptionRow markers open and close a row
             if open_rows[section] is None:

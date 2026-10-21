@@ -32,7 +32,7 @@ function inputsByKey(schema: SettingsSchema): Map<string, SettingNode> {
   const out = new Map<string, SettingNode>()
   const visit = (node: SettingsSchema["categories"][number]["sections"][number]["items"][number]) => {
     if (node.type === "row") for (const child of node.children) visit(child as never)
-    else if (node.type !== "html" && node.type !== "separator") out.set(node.name, node)
+    else if (node.type !== "html" && node.type !== "markdown" && node.type !== "separator") out.set(node.name, node)
   }
   for (const category of schema.categories) for (const section of category.sections) section.items.forEach(visit)
   return out

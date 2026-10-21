@@ -270,9 +270,16 @@ To let other machines in:
    the answers. Never use `*` on an exposed server.
 7. **Reverse proxies:** forward `Host` (or `X-Forwarded-Host`) and the
    WebSocket upgrade for `/api/v2/ws`; with a path prefix use `--subpath`.
-   Login throttling counts per peer address, so behind a proxy all clients
+   Login throttling counts per peer address: `X-Forwarded-For` and
+   `X-Forwarded-Proto` are ignored (a client of a same-machine tunnel could
+   otherwise name a new address per guess), so behind a proxy all clients
    share one counter (a failed-login flood locks everyone out for a minute,
-   which errs on the safe side).
+   which errs on the safe side). Name your proxies with
+   `--forwarded-allow-ips` (e.g. `127.0.0.1` for one on this machine) to
+   count each client on its own; the proxy must then append (or set) the
+   address it saw in `X-Forwarded-For` (nginx with
+   `$proxy_add_x_forwarded_for`, Caddy by default), as the rightmost entry
+   that is not a named proxy is taken.
 8. `--ngrok` tunnels count as exposed (HTTPS is provided by ngrok).
 
 ## Residual risks
@@ -331,6 +338,7 @@ server with `--auth`, or a local server visited by a hostile page).
 | 22 | `/assets/` and `/assets/<missing>` served the SPA shell without a login | low | 404 for anything under `/assets` that is not a build file |
 | 23 | An unreadable upload's 415 named the incoming file's path in the data folder (also the network preview, PNG Info and reveal errors could carry OS error text) | low | fixed messages; the details are logged |
 | 24 | `/docs` and `/redoc` were FastAPI's defaults: Swagger UI / ReDoc scripts from `cdn.jsdelivr.net` (floating `@5` / `@2`, no SRI), Google Fonts and a `fastapi.tiangolo.com` favicon on every visit, third-party code on the app origin with the session, no CSP | medium | own pages with the build's pinned copies and the shell's CSP (`remi/server/api_docs.py`) |
+| 25 | uvicorn trusted `X-Forwarded-For` from loopback peers by default, so a client reaching a loopback-bound server through a same-machine tunnel (or any local program) could rotate the header and guess passwords without ever hitting the throttle | medium | proxy headers only from `--forwarded-allow-ips`; the `Secure` cookie flag still follows a TLS proxy's `X-Forwarded-Proto` (`remi.server.auth.reached_over_https`); real-server regression tests in `tests/test_remi_server_auth.py` |
 
 Checked and found sound: session signing and revocation, cookie flags,
 login timing, Origin/rebinding checks for writes and WebSockets, file serving

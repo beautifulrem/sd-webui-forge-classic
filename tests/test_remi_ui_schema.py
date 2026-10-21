@@ -2,12 +2,14 @@
 every node kind, strict JSON, and the settings schema."""
 
 import json
+import re
 from pathlib import Path
 
 import pytest
 
 from remi import ui
 
+ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT = Path(__file__).parent / "fixtures" / "remi_ui_schema_snapshot.json"
 
 
@@ -129,6 +131,7 @@ def _options():
                 "steps": options_module.OptionInfo(20, "Steps", ui.Slider, {"minimum": 1, "maximum": 150, "step": 1}).info("per pass").needs_reload_ui(),
                 "mode": options_module.OptionInfo("b", "Mode", ui.Choice, {"style": "radio", "choices": ("a", "b")}).link("wiki", "https://example.org").choice_info({"a": "first letter"}),
                 "hint": options_module.OptionHTML("Read <b>this</b>"),
+                "note": options_module.OptionMarkdown("Read **this** on the [wiki](https://example.org)"),
                 "row_open": options_module.OptionRow(),
                 "width": options_module.OptionInfo(1024, "Width"),
                 "name": options_module.OptionInfo("x", "Name", component_args={"visible": False}),
@@ -162,7 +165,7 @@ def test_settings_schema():
     (section,) = schema["categories"][0]["sections"]
     assert section["id"] == "demo" and section["label"] == "Demo"
     items = {item.get("name", item["type"]): item for item in section["items"]}
-    assert list(items) == ["steps", "mode", "html", "row", "separator", "colors", "flag", "locked", "order", "legacy"]
+    assert list(items) == ["steps", "mode", "html", "markdown", "row", "separator", "colors", "flag", "locked", "order", "legacy"]
     assert items["steps"] == {"type": "slider", "name": "steps", "label": "Steps", "default": 30, "minimum": 1, "maximum": 150, "step": 1, "integer": True, "notes": ["per pass"], "needs_reload_ui": True}
     assert items["mode"]["style"] == "radio" and items["mode"]["links"] == [{"label": "wiki", "url": "https://example.org"}]
     # Choice descriptions and default orders are data, not markup
@@ -171,6 +174,8 @@ def test_settings_schema():
     # A1111's comment_before / comment_after and .html() (third-party help markup) stay html help
     assert items["legacy"]["html"] == "<i>old</i><b>more</b>"
     assert items["html"] == {"type": "html", "text": "Read <b>this</b>"}
+    # Remi's own help blocks (OptionMarkdown) are Markdown nodes, rendered as text by the SPA
+    assert items["markdown"] == {"type": "markdown", "text": "Read **this** on the [wiki](https://example.org)"}
     assert [child["name"] for child in items["row"]["children"]] == ["width", "name"]
     assert items["row"]["children"][0]["type"] == "number" and items["row"]["children"][0]["integer"]
     assert items["row"]["children"][1]["hidden"] is True
@@ -181,7 +186,7 @@ def test_settings_schema():
     assert items["flag"]["links"] == [{"label": "FAQ", "url": "https://example.org/faq"}]
     assert items["locked"]["enabled_if"] is False and items["locked"]["restricted"] is True
     assert schema["quicksettings"] == ["steps"]
-    assert schema["values"]["steps"] == 30 and schema["values"]["secret"] == "s" and "hint" not in schema["values"]
+    assert schema["values"]["steps"] == 30 and schema["values"]["secret"] == "s" and "hint" not in schema["values"] and "note" not in schema["values"]
 
 
 def test_settings_widgets():
@@ -211,7 +216,9 @@ def _setting_items(nodes):
 
 
 def test_core_settings_ship_no_presentational_markup():
-    """Remi's own settings help is data (notes, links, choice_hints, default_order); only third-party .html() is markup."""
+    """Remi's own settings help is data (notes, links, choice_hints, default_order) and Markdown
+    help blocks (OptionMarkdown); only third-party OptionHTML / .html() is markup, and the core
+    settings (modules/shared_options.py, modules/shared_items.py, the built-in extensions) have none."""
 
     from types import SimpleNamespace
 
@@ -224,8 +231,13 @@ def test_core_settings_ship_no_presentational_markup():
         schema = settings_schema(state.opts)
     items = [item for category in schema["categories"] for section in category["sections"] for item in _setting_items(section["items"])]
     assert [item["name"] for item in items if item.get("html")] == []
-    texts = [item["text"] for item in items if item["type"] == "html"]
-    assert texts and not [text for text in texts if "class=" in text or "style=" in text]
+    assert [item["text"] for item in items if item["type"] == "html"] == []
+    texts = [item["text"] for item in items if item["type"] == "markdown"]
+    assert len(texts) >= 8 and not [text for text in texts if re.search(r"<[A-Za-z/!][^>]*>|&[A-Za-z#0-9]+;", text)]
+    # the links of the help blocks are Markdown links (the SPA renders them as links)
+    assert any("[Perfetto](https://ui.perfetto.dev/)" in text for text in texts)
+    for source in ("modules/shared_options.py", "modules/shared_items.py"):
+        assert "OptionHTML" not in (ROOT / source).read_text(encoding="utf-8"), source
     progress = next(item for item in items if item.get("name") == "show_progress_type")
     assert progress["choice_hints"] == {"Approx NN": "legacy preview method", "RGB": "fast but low quality preview method", "TAESD": "high quality preview method"}
 

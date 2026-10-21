@@ -28,8 +28,8 @@ export function settingsStrings(schema: SettingsSchema): string[] {
     item.notes?.forEach(add)
     item.links?.forEach((link) => add(link.label))
     item.choices?.forEach((choice) => add(choice.label))
-    // help markup is looked up whole (the key keeps its tags), like the SPA renders it
-    if (node.type === "html") add(item.text)
+    // help blocks are looked up whole (the key keeps its markup / Markdown), like the SPA renders them
+    if (node.type === "html" || node.type === "markdown") add(item.text)
     add(item.html)
     item.children?.forEach(visit)
   }

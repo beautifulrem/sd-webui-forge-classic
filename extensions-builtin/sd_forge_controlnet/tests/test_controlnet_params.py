@@ -691,6 +691,88 @@ def test_refresh_models_rescans_and_returns_the_catalog(cn, registry, files, mon
     assert calls == [1] and catalog["models"] == MODELS
 
 
+def test_preview_reports_a_failing_preprocessor_and_keeps_a_non_image_result(cn, registry, files, monkeypatch):
+    canny = registry.get_preprocessor("canny")
+    image = files.add_upload_bytes(png(Image.new("RGB", (100, 50), "white")), "in.png").id
+    script = cn.ControlNetForForgeOfficial()
+
+    def broken(self, *args, **kwargs):
+        raise RuntimeError("model download failed")
+
+    monkeypatch.setattr(type(canny), "__call__", broken)
+    toast = call(script, "preview", {"unit_0": {"module": "canny", "image": image}}, files, unit=0)["__toast__"]
+    assert toast["level"] == "error" and "model download failed" in json.dumps(toast)
+
+    # a result that is no image (e.g. a preprocessor that only reports a pose) previews the input
+    monkeypatch.setattr(type(canny), "__call__", lambda self, *args, **kwargs: None)
+    preview = call(script, "preview", {"unit_0": {"module": "canny", "image": image}}, files, unit=0)["__outputs__"]["preview"]
+    with Image.open(files.get(preview["image"]).path) as shown:
+        assert shown.size == (100, 50) and np.asarray(shown.convert("RGB")).min() == 255
+
+
+def test_preview_scales_a_painted_mask_to_the_image_and_reads_a_bad_size_as_512(cn, registry, files, monkeypatch):
+    seen = {}
+    canny = registry.get_preprocessor("canny")
+
+    def fake(self, input_image, resolution, input_mask=None, **kwargs):
+        seen.update(resolution=resolution, mask=input_mask)
+        return input_image
+
+    monkeypatch.setattr(type(canny), "__call__", fake)
+    image = files.add_upload_bytes(png(Image.new("RGB", (100, 50))), "in.png").id
+    alpha = np.zeros((25, 50), np.uint8)
+    alpha[:5] = 255  # the top fifth, painted at half the image's size
+    mask = files.add_upload_bytes(png(Image.fromarray(np.dstack([np.full_like(alpha, 255)] * 3 + [alpha]))), "m.png").id
+    values = {"unit_0": {"module": "canny", "image": image, "image_fg": mask, "pixel_perfect": True, "resize_mode": "Just Resize"}}
+    call(cn.ControlNetForForgeOfficial(), "preview", values, files, core={"width": "wide", "height": 512}, unit=0)
+    assert seen["mask"].shape == (50, 100, 3) and seen["mask"][9, 0, 0] == 255 and seen["mask"][10, 0, 0] == 0
+    assert seen["resolution"] == 512  # an unreadable width counts as 512: max(512/50, 512/100) * 50
+
+
+def test_actions_need_the_file_store(cn):
+    from remi import ui
+
+    ctx = ui.ActionContext(tab="txt2img", owner="controlnet", core={"width": 512, "height": 512}, files=None, extra={"unit": 0})
+    with pytest.raises(ui.ValidationError, match="file store"):
+        ui.call_action(cn.ControlNetForForgeOfficial(), "region_canvas", ctx, {})
+
+
+def test_pose_size_limit_and_animal_poses(cn, files):
+    from lib_controlnet import unit_actions
+
+    script = cn.ControlNetForForgeOfficial()
+    huge = json.dumps({"canvas_width": 64, "canvas_height": 32, "people": [], "pad": "x" * unit_actions.MAX_POSE_BYTES})
+    assert call(script, "render_pose", {}, files, unit=0, pose=huge)["__toast__"]["level"] == "error"
+    # an animal (AP-10K, 17 keypoints) is drawn when the pose holds no human
+    animal = [coordinate for i in range(17) for coordinate in (8 + 3 * i, 4 + i, 1)]
+    out = call(script, "render_pose", {}, files, unit=1, pose={"canvas_width": 64, "canvas_height": 32, "people": [], "animals": [animal]})["__outputs__"]["pose"]
+    with Image.open(files.get(out["image"]).path) as rendered:
+        assert rendered.size == (64, 32) and np.asarray(rendered.convert("RGB")).any()
+
+
+def test_check_pose_reads_the_openpose_json_shapes(cn):
+    from lib_controlnet import openpose
+
+    pose = {"canvas_width": 64, "canvas_height": 32, "people": []}
+    assert openpose.check_pose(pose) is pose
+    assert openpose.check_pose([pose, {"canvas_width": 1, "canvas_height": 1}]) is pose  # one pose per image: the first
+    for bad, message in (
+        ([], "the pose list is empty"),
+        ("pose", "a pose is a JSON object"),
+        ({"canvas_width": 64}, "canvas_height must be a size"),
+        ({"canvas_width": True, "canvas_height": 32}, "canvas_width must be a size"),
+        ({"canvas_width": float("nan"), "canvas_height": 32}, "canvas_width must be a size"),
+        ({"canvas_width": openpose.MAX_CANVAS + 1, "canvas_height": 32}, "canvas_width must be a size"),
+        ({**pose, "people": {}}, "people must be a list"),
+        ({**pose, "animals": "cat"}, "animals must be a list"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            openpose.check_pose(bad)
+    # keypoints that are no (x, y, confidence) triples are no OpenPose pose
+    with pytest.raises(ValueError, match="not an OpenPose JSON pose"):
+        openpose.render_pose({**pose, "people": [{"pose_keypoints_2d": [1, 2]}]})
+
+
 # endregion
 
 

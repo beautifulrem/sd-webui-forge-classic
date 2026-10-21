@@ -74,7 +74,7 @@ Each new sync adds a `docs/upstream-sync-YYYY-MM-DD.md` from the template in
 | `html/footer.html`, `html/ui.webp`, other `html/*` | none: `html/licenses.html` is the only file Remi keeps in `html/`. The others were Gradio page templates and assets (`footer.html`, the `extra-networks-*.html` cards, `card-no-preview.jpg`) or a screenshot of the old Gradio UI (`ui.webp`), and the SPA has its own | none: delete them again when a merge brings them back; a new runtime data file (read by Python, like `licenses.html`) is merged |
 | `scripts/*.py`, `modules/processing_scripts/*.py` | same files; `ui()` replaced by `params()` with the same arguments | merge processing; translate `ui()` changes into `params()` (§2.1) |
 | `extensions-builtin/<upstream ext>/` (ControlNet, LoRA, MultiDiffusion, Spectrum, …) | same folders; `ui()` → `params()`, `on_ui_tabs` → `remi.pages`, extension JS → widgets | merge `lib_*` / processing, **except the files Remi forked ([§1.1](#11-built-ins-whose-processing-remi-forked)): keep Remi's and port upstream fixes selectively**; translate UI (§2.1); upstream `mobile` and `prompt-bracket-checker` are SPA features and stay deleted |
-| `docker/` | upstream's image recipe, unchanged: it clones Forge Neo itself (not Remi) at build time, so it does not build Remi | merge (keeps the file identical to upstream); Remi ships no Docker image |
+| `docker/` | Remi's own image recipe: `docker/Dockerfile` builds this checkout (build context: the repository root, `.dockerignore`), the SPA in a Node.js stage, the server with `requirements.txt` and the launcher's PyTorch build; one data volume (`--data-dir`), no Gradio-era `ui-config.json`. Upstream's recipe cloned Forge Neo (the Gradio UI) at build time | translate: carry over base-image, apt-package and user changes by hand; never the `git clone` of upstream or the Gradio-era config files. `tests/test_remi_docker.py` keeps the torch pins and pnpm in step with the launcher |
 | `README.md`, `pyproject.toml`, `.gitignore`, `.github/`, `LICENSE`, `models/**/Put … here.txt`, `extensions/`, `localizations/` placeholders | Remi's own README (en, zh-CN), lint config and CI; placeholders unchanged | carry over what applies (README model-family list, new placeholder folders); keep Remi's versions otherwise |
 | **any other file** (including files upstream adds) | — | **merge** when it is runtime code or data; **translate** when it builds UI (imports `gradio`, defines `ui()` / `on_ui_tabs`, or is JavaScript / CSS / HTML for the page) and delete it again |
 
@@ -163,7 +163,8 @@ Upstream `shared_options.py` uses Gradio classes. Convert while merging:
 | `ui_components.DropdownMulti`, `gr.Dropdown(multiselect=True)` | `ui.MultiChoice` |
 | `gr.CheckboxGroup` | `ui.MultiChoice, {"style": "checkboxes"}` |
 | `gr.ColorPicker` | `ui.Color` |
-| `gr.HTML` | `ui.Html` |
+| `gr.HTML` | `ui.Markdown` (a help block: write it as `OptionMarkdown`) |
+| `OptionHTML("…<b>…</b><br><a href=…>…</a>")` | `OptionMarkdown("…**…**\n\n[…](…)")`: the same text in Markdown, with its `localizations/zh_CN.json` entry re-keyed (`tests/test_remi_ui_schema.py` fails on an `html` node or `OptionHTML` in the core settings) |
 
 Keep `.info()`, `.link()`, `.needs_restart()`, `.needs_reload_ui()`,
 `refresh=` and `onchange=`. Then check the setting in the SPA (Settings page
@@ -207,10 +208,11 @@ SPA has its own design system.
 Port it like Remi's own ports ([extension-guide.md §14](extension-guide.md#14-porting-an-a1111--forge-extension),
 architecture.md "Built-in extension porting rule"): snapshot its `ui()` with
 `tools/record_legacy_ui.py` (it runs the `ui()` in an export of the last
-Gradio-era revision, with an interpreter that has Gradio 4.40, set up once
-from `tools/legacy-ui-requirements.txt` as
+Gradio-era revision, with an interpreter that has that era's Gradio, set up
+once outside the checkout from the requirements `record_legacy_ui.py
+--requirements` derives from the git history, as
 [extension-guide.md §13](extension-guide.md#13-testing) shows; the current
-`requirements.txt` cannot be installed next to Gradio 4.40):
+`requirements.txt` cannot be installed next to that Gradio):
 
 ```bash
 tools/legacy_ui_env.sh        # once (network): builds ../remi-gradio-env, then runs --self-test
@@ -222,7 +224,11 @@ tools/legacy_ui_env.sh        # once (network): builds ../remi-gradio-env, then 
 ```
 
 `REMI_LEGACY_PYTHON=../remi-gradio-env/bin/python tools/check.sh --only legacy-ui`
-runs the self-test as a gate. A script already ported to `params()` at the
+runs the self-test as a gate, and `legacy-ui:fixtures` records every committed
+fixture again (`record_legacy_ui.py --fixtures --check`); add the new
+fixture to `RECORDINGS` in `tools/legacy_ui_recordings.py` (its script,
+the revision, its format and context), which
+`tests/test_remi_legacy_ui_fixtures.py` requires. A script already ported to `params()` at the
 given revision is refused (its `ui()` would record nothing): record the
 revision before its port.
 
@@ -295,7 +301,7 @@ python tools/upstream_forks.py review                                # files Rem
 Record the legacy snapshot of every new upstream extension or script now,
 before merging (§2.5).
 
-Then merge on a branch:
+Then merge on a branch. **Step A — merge and list the work:**
 
 ```bash
 git switch -c sync/neo-$(date +%Y-%m-%d)
@@ -309,6 +315,22 @@ git status --short | grep '^DU'     # upstream edited a file Remi deleted (modul
 git diff --name-only --diff-filter=A --cached | grep -E '(^|/)(javascript/|style\.css$)|^(html/|modules/ui|script\.js$)'
                                    # new upstream UI files (core or extension): translate, then git rm them
 git diff --name-only --diff-filter=U                       # content conflicts: resolve keeping Remi's hooks
+```
+
+Now work through those lists: resolve every content conflict (keeping
+Remi's hooks), translate each `DU` file and new upstream UI file (§2) and
+`git rm` it, and `git add` the results. The checks below read and import the
+merged tree, so they only mean something once nothing is left:
+`git diff --name-only --diff-filter=U` prints nothing and no file holds a
+`<<<<<<<` marker. Before that, ruff reports the conflict markers as syntax
+errors and `tools/sdapi_contract.py` stops with the list of unresolved files.
+
+**Step B — after every conflict is resolved and the upstream UI files are
+translated and removed:**
+
+```bash
+git diff --name-only --diff-filter=U  # must print nothing
+git grep -nE '^(<<<<<<<|>>>>>>>) '   # leftover conflict markers, also in files already added: must print nothing
 ruff check . --select TID251 --output-format concise  # Gradio imports (banned in pyproject.toml): must report none
 python tools/check_line_endings.py   # upstream files keep upstream's line endings (below); --fix repairs
 python tools/sdapi_contract.py --rev upstream/neo   # /sdapi/v1 routes and models still match upstream's
@@ -349,7 +371,7 @@ and deleted ones dropped. The UI rewrite had saved 19 of these files as LF
 they were converted back to CRLF on 2026-10-19, so `git diff 46af880c --
 modules/extensions.py` shows Remi's 37 changed lines instead of all 603.
 
-Resolve, translate, test (`tools/check.sh` runs every Python suite, the
+With step B passing, test (`tools/check.sh` runs every Python suite, the
 OpenAPI check, i18n coverage and the frontend build, lint and tests; then the
 real-model smoke test `tools/smoke_real.py` on a GPU or Apple Silicon
 machine), write the sync note (§5), and commit the merge. Then refresh the
@@ -389,7 +411,8 @@ note, because the merge base does not move.
 - [ ] Each `ui()` change is in `params()` with the hook's argument order;
       parity tests and `zh_CN` catalogs updated; new upstream extensions or
       scripts have a legacy snapshot (`tools/record_legacy_ui.py`, whose
-      `--self-test` passes in the recorder's environment).
+      `--self-test` and `--fixtures --check` pass in the recorder's
+      environment), listed in `tools/legacy_ui_recordings.py`.
 - [ ] New settings use `ui.*` widgets, have `zh_CN` labels, and are in the
       bootstrap `options` subset when the SPA reads them.
 - [ ] New core params are in `remi/core/forms.py` with infotext keys;

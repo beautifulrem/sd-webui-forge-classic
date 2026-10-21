@@ -1,0 +1,57 @@
+# Build context of docker/Dockerfile (docker build -f docker/Dockerfile .): the code of this
+# checkout, without user data, models, environments or build output. The image keeps all
+# user data in its data folder (--data-dir /home/remi/data).
+.git
+.github
+.vscode
+.DS_Store
+**/__pycache__
+**/*.pyc
+/.uv-cache
+/.coverage
+/.coverage.*
+/htmlcov
+/.remi-workflows
+
+# environments
+/venv
+/.venv
+
+# user data of a local installation
+/cache
+/config.json
+/config_states
+/embeddings
+/extension-data
+/extensions
+/models
+/output
+/outputs
+/params.txt
+/remi-data
+/repositories
+/styles.csv
+/styles.csv.bak
+/sysinfo*.json
+/tmp
+/ui-config.json
+/user.css
+/webui-user.bat
+/webui-user.sh
+/webui.settings.sh
+
+# weights anywhere
+**/*.bin
+**/*.ckpt
+**/*.gguf
+**/*.onnx
+**/*.pth
+**/*.safetensors
+**/*.sft
+
+# the web interface: built in the image's webui stage
+/webui/node_modules
+/webui/dist
+/webui/coverage
+/webui/test-results
+/webui/playwright-report

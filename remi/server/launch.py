@@ -116,7 +116,14 @@ class RootPathFix:
 class ServerThread:
     """One uvicorn server on a daemon thread."""
 
-    def __init__(self, app: Any, *, host: str, port: int, root: str = "", ssl_keyfile: str | None = None, ssl_certfile: str | None = None, timeout_keep_alive: int = 30, graceful_shutdown: float = GRACEFUL_SHUTDOWN) -> None:
+    def __init__(self, app: Any, *, host: str, port: int, root: str = "", ssl_keyfile: str | None = None, ssl_certfile: str | None = None, timeout_keep_alive: int = 30, graceful_shutdown: float = GRACEFUL_SHUTDOWN, forwarded_allow_ips: str | None = None) -> None:
+        """``forwarded_allow_ips`` (``--forwarded-allow-ips``): the proxies
+        whose ``X-Forwarded-For`` / ``-Proto`` replace the peer address and
+        scheme. Without it no header is trusted: uvicorn would otherwise
+        trust them from loopback peers, letting any client of a same-machine
+        tunnel pick its own address and dodge the login throttle
+        (``remi.server.auth.client_key``)."""
+
         import uvicorn
 
         config = uvicorn.Config(
@@ -128,6 +135,8 @@ class ServerThread:
             ssl_certfile=ssl_certfile,
             timeout_keep_alive=timeout_keep_alive,
             timeout_graceful_shutdown=graceful_shutdown,
+            proxy_headers=bool(forwarded_allow_ips),
+            forwarded_allow_ips=forwarded_allow_ips or None,
             log_level="warning",
             lifespan="on",
         )
@@ -260,7 +269,7 @@ def _start_server(app: Any, host: str, port: int, cmd_opts: Any, attempts: int =
     for attempt in range(1, attempts + 1):
         if not wait_port_free(host, port):
             log.warning("port %d is still in use", port)
-        server = ServerThread(app, host=host, port=port, root=root_path(cmd_opts), ssl_keyfile=cmd_opts.tls_keyfile, ssl_certfile=cmd_opts.tls_certfile, timeout_keep_alive=cmd_opts.timeout_keep_alive)
+        server = ServerThread(app, host=host, port=port, root=root_path(cmd_opts), ssl_keyfile=cmd_opts.tls_keyfile, ssl_certfile=cmd_opts.tls_certfile, timeout_keep_alive=cmd_opts.timeout_keep_alive, forwarded_allow_ips=getattr(cmd_opts, "forwarded_allow_ips", None))
         try:
             server.start()
             return server

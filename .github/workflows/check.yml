@@ -1,7 +1,8 @@
 # The non-GPU quality gates of tools/check.sh: a Gradio-free interpreter, lint, the Python suites
-# (CPU torch, no models, with the remi/ coverage floor),
-# the API / settings contracts, i18n coverage, the SPA build, lint, unit and end-to-end tests
-# (mock mode, with axe scans). The real-model smoke test (tools/smoke_real.py) runs locally.
+# (CPU torch, no models, with the coverage floors of remi/ and of each Remi file outside it),
+# the API / settings contracts, i18n coverage, the SPA build and its bundle budget, lint, unit and
+# end-to-end tests (mock mode, with axe scans). The real-model smoke test (tools/smoke_real.py) and
+# the legacy ui() recorder's self-test (legacy-ui: a second, Gradio, environment) run locally.
 name: check
 
 on:
@@ -87,7 +88,7 @@ jobs:
         env:
           CI: "1"
           REMI_CHECK_LOGS: ${{ runner.temp }}/remi-check
-        run: tools/check.sh --only pnpm,i18n:spa,e2e
+        run: tools/check.sh --only pnpm,i18n:spa,perf,e2e
 
       - name: Logs and Playwright report
         if: failure()

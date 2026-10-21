@@ -701,27 +701,32 @@ What to test:
   exports the last revision that still had the Gradio UI (`9c96c45e`, the
   parent of the commit that removed it) to a temporary folder and builds the
   `ui()` there; the record uses this checkout's `describe()`, the format
-  `assert_matches_snapshot` reads. Give it an interpreter with Gradio 4.40,
-  in an environment of its own built from `tools/legacy-ui-requirements.txt`:
-  that revision's requirements plus `gradio==4.40.0` and
-  `gradio_rangeslider==0.0.8`, with the Pillow 10 Gradio 4.40 requires
-  (`pillow<11`). Do not add Gradio to the WebUI's environment or install it
-  on top of the current `requirements.txt`: its Pillow pin (12 and later)
-  cannot be resolved with Gradio 4.40, and `tools/check.sh` refuses an
-  interpreter that can import Gradio.
+  `assert_matches_snapshot` reads. Give it an interpreter with that era's
+  Gradio, in an environment of its own outside the checkout. No file of the
+  checkout lists its requirements: `record_legacy_ui.py --requirements`
+  derives them from the git history (that revision's `requirements.txt`, the
+  Gradio packages the last Gradio-era launcher installed, and the Pillow 10
+  that Gradio requires instead of the revision's Pillow 12 pin). Do not add
+  Gradio to the WebUI's environment or install it on top of the current
+  `requirements.txt`: its Pillow pin (12 and later) cannot be resolved with
+  that Gradio, and `tools/check.sh` refuses an interpreter that can import
+  Gradio.
 
   ```bash
-  python3.13 -m venv ../remi-gradio-env   # outside the checkout, and outside /tmp (macOS purges it)
-  ../remi-gradio-env/bin/pip install -r tools/legacy-ui-requirements.txt
+  # outside the checkout, and outside /tmp (macOS purges it):
+  python3 tools/record_legacy_ui.py --requirements > ../remi-gradio-requirements.txt
+  python3.13 -m venv ../remi-gradio-env
+  ../remi-gradio-env/bin/pip install -r ../remi-gradio-requirements.txt
   # an extension folder on disk (third-party, or an upstream checkout):
   ../remi-gradio-env/bin/python tools/record_legacy_ui.py /path/to/my-ext/scripts/my_script.py --out /path/to/my-ext/tests/fixtures
   # a built-in or upstream extension, taken from a git revision (upstream/neo, or the pre-port commit):
   ../remi-gradio-env/bin/python tools/record_legacy_ui.py extensions-builtin/<ext>/scripts/<script>.py --script-rev upstream/neo
   ```
 
-  `tools/legacy_ui_env.sh [folder]` does the first two lines (with `uv` when
-  it is installed) and then runs `record_legacy_ui.py --self-test`, which
-  records a known script (Spectrum at its last Gradio revision) and compares
+  `tools/legacy_ui_env.sh [folder]` does the first three lines (with `uv`
+  when it is installed; the requirements go to
+  `<folder>/legacy-ui-requirements.txt`, outside the checkout) and then runs
+  `record_legacy_ui.py --self-test`, which records a known script (Spectrum at its last Gradio revision) and compares
   the record with its committed fixtures, so a broken setup shows before a
   real recording; `REMI_LEGACY_PYTHON=../remi-gradio-env/bin/python
   tools/check.sh --only legacy-ui` repeats it. `--check` compares any
@@ -738,6 +743,30 @@ What to test:
   Extra Options section records its `extra_options_*` lists this way),
   `--class` picks the script class when the file has several. `python
   tools/record_legacy_ui.py --help` lists every option.
+
+  Every committed fixture can be recorded again: `tools/legacy_ui_recordings.py`
+  lists each `legacy_ui_*.json` of the tree with the script and revision it
+  was recorded from, its format (the bare list above, or the dict formats
+  older ports and their harnesses use: `tests/legacy_ui_contract.py`'s
+  contract, the Anima panels', ControlNet's unit record, an `on_ui_tabs`
+  page, the processing scripts) and the context its `ui()` needs. The
+  recorder builds every `ui()` the way the WebUI did: the core components
+  first (`txt2img_width`, `txt2img_generate`, ... — what scripts find through
+  `on_after_component`), then the panel; a context adds the rest (the
+  upscalers for SD Upscale and the Extras Upscale operation, ControlNet's
+  legacy preprocessors, ADetailer's detectors without a download).
+
+  ```bash
+  ../remi-gradio-env/bin/python tools/record_legacy_ui.py --fixtures --check        # all of them (tools/check.sh: legacy-ui:fixtures)
+  ../remi-gradio-env/bin/python tools/record_legacy_ui.py --fixtures sd_forge_controlnet scripts/xyz_grid --check
+  ../remi-gradio-env/bin/python tools/record_legacy_ui.py --fixtures sd_forge_controlnet   # rewrite them from the recording
+  ```
+
+  A script listed there records in its own format and context when given
+  directly too (`record_legacy_ui.py extensions-builtin/sd-webui-detail-daemon/scripts/detail_daemon.py
+  --script-rev 80cfa274 --check`). A new port's fixture gets an entry
+  (`tests/test_remi_legacy_ui_fixtures.py` fails for a `legacy_ui_*.json`
+  that has none).
 
 Processing tests that need the WebUI's options and script runners without a
 model use `remi.testing.webui_state()`; server-level tests use

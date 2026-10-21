@@ -384,8 +384,8 @@
        "default": false
       },
       {
-       "type": "html",
-       "text": "Parameters for encoding videos in <b>H.264</b> using <b>FFmpeg</b><br>\nRefer to the <a href=\"https://trac.ffmpeg.org/wiki/Encode/H.264\">Wiki</a> for what these parameters mean"
+       "type": "markdown",
+       "text": "Parameters for encoding videos in **H.264** using **FFmpeg**\n\nRefer to the [Wiki](https://trac.ffmpeg.org/wiki/Encode/H.264) for what these parameters mean"
       },
       {
        "type": "slider",
@@ -1001,8 +1001,8 @@
      "label": "Profiler",
      "items": [
       {
-       "type": "html",
-       "text": "These settings allow you to enable PyTorch profiler during generation.<br>\nProfiling allows you to see which code uses how much of the computer's resources.\nEach generation writes its own profile to one file, overwriting previous ones.\nThe file can be viewed in <a href=\"chrome:tracing\">Chrome</a> or on the <a href=\"https://ui.perfetto.dev/\">Perfetto</a> website.\n<br><b>Warning:</b> Writing profile can take up to 30 seconds, and the file itself can be around 500MB in size."
+       "type": "markdown",
+       "text": "These settings allow you to enable PyTorch profiler during generation.\n\nProfiling allows you to see which code uses how much of the computer's resources.\nEach generation writes its own profile to one file, overwriting previous ones.\nThe file can be viewed in Chrome (`chrome://tracing`) or on the [Perfetto](https://ui.perfetto.dev/) website.\n\n**Warning:** Writing profile can take up to 30 seconds, and the file itself can be around 500MB in size."
       },
       {
        "type": "toggle",
@@ -1468,8 +1468,8 @@
        ]
       },
       {
-       "type": "html",
-       "text": "<b>Note:</b> Remember to change the setting before txt2img to clear the references"
+       "type": "markdown",
+       "text": "**Note:** Remember to change the setting before txt2img to clear the references"
       }
      ]
     },
@@ -1478,8 +1478,8 @@
      "label": "VAE",
      "items": [
       {
-       "type": "html",
-       "text": "<abbr title='Variational AutoEncoder'>VAE</abbr> is a neural network that transforms a standard <abbr title='Red/Green/Blue'>RGB</abbr>\nimage to and from latent space representation. Latent space is what Stable Diffusion works on during generation. For txt2img, VAE is used\nto create the resulting image after the sampling is finished. For img2img, VAE is additionally used to process user's input image before the sampling."
+       "type": "markdown",
+       "text": "VAE (Variational AutoEncoder) is a neural network that transforms a standard RGB (Red/Green/Blue)\nimage to and from latent space representation. Latent space is what Stable Diffusion works on during generation. For txt2img, VAE is used\nto create the resulting image after the sampling is finished. For img2img, VAE is additionally used to process user's input image before the sampling."
       },
       {
        "type": "choice",
@@ -1781,8 +1781,8 @@
        "type": "separator"
       },
       {
-       "type": "html",
-       "text": "<b>Token Merging</b> speeds up the diffusion process by fusing \"redundant\" tokens together, but also reduces quality as a result.\n[<a href=\"https://github.com/dbolya/tomesd\">GitHub</a>] <br>\n<b>Note:</b> Has no effect on SDXL when Max Downsample is set to 1"
+       "type": "markdown",
+       "text": "**Token Merging** speeds up the diffusion process by fusing \"redundant\" tokens together, but also reduces quality as a result.\n([GitHub](https://github.com/dbolya/tomesd))\n\n**Note:** Has no effect on SDXL when Max Downsample is set to 1"
       },
       {
        "type": "slider",
@@ -4859,7 +4859,7 @@
      "label": "Infotext",
      "items": [
       {
-       "type": "html",
+       "type": "markdown",
        "text": "Infotext is what the webui calls the text that contains generation parameters, and can be used to generate the same image again."
       },
       {
@@ -5441,8 +5441,8 @@
        ]
       },
       {
-       "type": "html",
-       "text": "Flux"
+       "type": "markdown",
+       "text": "**Flux**"
       },
       {
        "type": "slider",
@@ -5479,8 +5479,8 @@
        ]
       },
       {
-       "type": "html",
-       "text": "Qwen"
+       "type": "markdown",
+       "text": "**Qwen**"
       },
       {
        "type": "toggle",

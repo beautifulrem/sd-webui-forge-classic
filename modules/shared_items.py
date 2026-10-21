@@ -1,7 +1,7 @@
 import sys
 
 from modules import script_callbacks, scripts
-from modules.options import OptionHTML, OptionInfo
+from modules.options import OptionInfo, OptionMarkdown
 from remi import ui
 
 
@@ -111,7 +111,7 @@ def ui_reorder_categories():
 def callbacks_order_settings():
     options = {
         # (A1111 reused "sd_vae_explanation" here, which replaced the VAE section's explanation)
-        "callbacks_explanation": OptionHTML(
+        "callbacks_explanation": OptionMarkdown(
             """
     For categories below, callbacks added to dropdowns happen before others, in order listed.
     """

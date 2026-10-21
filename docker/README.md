@@ -1,92 +1,69 @@
-<h2 align="center">Stable Diffusion WebUI Forge - Neo (Docker)</h2>
+# Remi WebUI (Docker)
 
 > [!Warning]
-> Requires an **NVIDIA** GPU<br>
-> Ensure driver is up to date (`560+` required)
+> Requires an **NVIDIA** GPU and the NVIDIA Container Toolkit.
+> The image uses the PyTorch CUDA 13.0 build the launcher installs on Linux: driver `580+`.
 
-<hr>
+The image is built from this checkout, never from a clone: what it runs is the
+code of the folder you build it in, without Gradio (the WebUI's requirements do
+not include it).
 
-## Unraid Deployment
+## Build
 
-<table>
-	<tr>
-		<th>Container Path</th>
-		<th>Purpose</th>
-	</tr>
-	<tr>
-		<td>
-			<code>/home/forge/sd-webui/models</code>
-		</td>
-		<td>Checkpoint, Text Encoder, VAE, LoRA, ControlNet</td>
-	</tr>
-	<tr>
-		<td>
-			<code>/home/forge/sd-webui/output</code>
-		</td>
-		<td>Generated Images</td>
-	</tr>
-	<tr>
-		<td>
-			<code>/home/forge/sd-webui/extensions</code>
-		</td>
-		<td>User-Installed Extensions</td>
-	</tr>
-	<tr>
-		<td>
-			<code>/home/forge/sd-webui/config</code>
-		</td>
-		<td>User Settings</td>
-	</tr>
-</table>
-
-- The container runs as **UID 99** / **GID 100** (`nobody:users`) to match Unraid's default share permissions
-
-<hr>
-
-## Building Locally
+From the repository root (the build context must be the whole checkout):
 
 ```bash
-git clone https://github.com/Haoming02/sd-webui-forge-classic sd-webui-forge-neo --branch neo
-cd sd-webui-forge-neo/docker
-docker build -t forge-neo-local .
+docker build -f docker/Dockerfile -t remi-webui .
 ```
 
-<hr>
+- Stage `webui` builds the web interface (`webui/dist`) with Node.js and
+  `pnpm install --frozen-lockfile && pnpm build`.
+- The server stage installs Python 3.13 (uv), PyTorch, `requirements.txt`,
+  copies the checkout and the built interface, and runs the built-in extensions'
+  installers once (`launch.py --exit`). Node.js is not in the final image;
+  `REMI_SKIP_WEBUI_BUILD=1` keeps the launcher from rebuilding the interface.
+- `.dockerignore` (repository root) leaves models, outputs, virtual
+  environments, `webui/node_modules` and `webui/dist` out of the build context.
 
-## Pre-Built Image
+Build arguments: `CUDA_VERSION` (base image, default `13.0.0`), `NODE_VERSION`
+(default `24`), `PNPM_VERSION` (default `12`), `TORCH_INDEX_URL` and
+`TORCH_PACKAGES` (default: the launcher's Linux PyTorch build).
 
-> a non-official pre-built image is maintained on Docker Hub by [@oromis995](https://github.com/oromis995):
+## Run
 
 ```bash
-docker pull oromis995/sd-forge-neo:latest
+docker run --gpus all -p 7860:7860 -v remi-data:/home/remi/data remi-webui
 ```
 
-<hr>
+Open `http://localhost:7860/`. Extra launch options go after the image name or
+in `COMMANDLINE_ARGS` (for example `-e COMMANDLINE_ARGS="--auth user:password"`);
+the container always adds `--listen` and `--data-dir /home/remi/data`. Read
+[Security and Remote Access](../README.md#security-and-remote-access) before
+exposing the port beyond your machine.
+
+## Data
+
+Everything the WebUI keeps is in the data folder, `/home/remi/data` (`--data-dir`):
+
+| Path in the volume | Purpose |
+| --- | --- |
+| `models/` | Checkpoints (`Stable-diffusion`), `text_encoder`, `VAE`, `Lora`, `ControlNet`, `ESRGAN`, `embeddings` |
+| `output/` | Generated images |
+| `extensions/` | User-installed extensions |
+| `config.json`, `styles.csv`, `user.css` | Settings, prompt styles, custom CSS |
+| `remi-data/` | The queue, history, gallery stars and prompt tools data |
+
+Bind subfolders separately when they live elsewhere, for example
+`-v /mnt/models:/home/remi/data/models`. The container runs as **UID 99** /
+**GID 100** (`nobody:users`, Unraid's default share permissions): bound host
+folders must be writable by it.
 
 ## Image Details
 
-<table>
-	<tr>
-		<td>Base</td>
-		<td><code>nvidia/cuda:12.6.3-runtime-ubuntu22.04</code></td>
-	</tr>
-	<tr>
-		<td>Python</td>
-		<td><code>3.13</code> via <b>uv</b></td>
-	</tr>
-	<tr>
-		<td>PyTorch</td>
-		<td>Latest (<code>cu126</code>)</td>
-	</tr>
-	<tr>
-		<td>User</td>
-		<td><code>forge</code> (UID 99 / GID 100)</td>
-	</tr>
-	<tr>
-		<td>Port</td>
-		<td>7860</td>
-	</tr>
-</table>
-
-> [!Note]
-> On the first run, `prepare_environment()` will install requirements and dependencies. This may take a few minutes
+| | |
+| --- | --- |
+| Base | `nvidia/cuda:13.0.0-runtime-ubuntu22.04` |
+| Python | `3.13` via **uv** |
+| PyTorch | the launcher's Linux build (`torch==2.13.0+cu130`) |
+| User | `remi` (UID 99 / GID 100) |
+| Port | 7860 |

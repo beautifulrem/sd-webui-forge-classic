@@ -64,6 +64,7 @@ parser.add_argument("--server-name", type=str, help="Sets hostname of server", d
 parser.add_argument("--skip-version-check", action="store_true", help="Do not check versions of torch and xformers")
 parser.add_argument("--no-hashing", action="store_true", help="disable sha256 hashing of checkpoints to help loading performance", default=False)
 parser.add_argument("--subpath", type=str, help="serve the WebUI under this path prefix (ASGI root_path), for a reverse proxy")
+parser.add_argument("--forwarded-allow-ips", type=str, default=None, metavar="IPS", help="comma-separated addresses or networks of reverse proxies (e.g. 127.0.0.1 for one on this machine; '*' for any) whose X-Forwarded-For/-Proto name the real client; without it the connecting address is the client (failed logins are then counted per proxy)")
 parser.add_argument("--add-stop-route", action="store_true", help="does not do anything")
 parser.add_argument("--api-server-stop", action="store_true", help="enable server stop/restart/kill via api")
 parser.add_argument("--timeout-keep-alive", type=int, default=30, help="set timeout_keep_alive for uvicorn")

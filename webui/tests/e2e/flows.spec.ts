@@ -203,7 +203,7 @@ test.describe("appearance and language", () => {
     await expect(toast).not.toContainText("an image is required")
     await expect(page.getByRole("region", { name: "通知（Alt+T）" })).toBeAttached()
     await expect(toast.getByRole("button", { name: "关闭通知" })).toBeAttached()
-    // settings: an HTML help block is translated with its markup
+    // settings: a help block (Markdown) is translated by its source text
     await go(page, "#/settings")
     await page.getByRole("navigation", { name: "设置分区" }).getByRole("button", { name: "生成信息" }).click()
     await expect(page.getByText("生成信息（Infotext）是 WebUI 对包含生成参数的文本的称呼")).toBeVisible()

@@ -4,13 +4,16 @@
  * and "unsaved" filters, and the flat row list the virtualized view draws.
  */
 import { jsonEqual } from "@/ui/conditions"
-import type { HtmlNode, Json, Node, RowNode, SeparatorNode, SettingNode, SettingsSchema } from "@/ui/schema"
+import type { HtmlNode, Json, MarkdownNode, Node, RowNode, SeparatorNode, SettingNode, SettingsSchema } from "@/ui/schema"
 import { isInput } from "@/ui/schema"
 
 export type SettingItem =
   | { kind: "setting"; key: string; node: SettingNode }
   /** Settings shown side by side (a former `OptionRow` group). */
   | { kind: "row"; keys: string[]; node: RowNode; nodes: SettingNode[] }
+  /** A help block of Remi's own settings (`OptionMarkdown`), rendered as text, links and emphasis. */
+  | { kind: "markdown"; node: MarkdownNode }
+  /** A third-party (A1111) help block (`OptionHTML`), sanitised. */
   | { kind: "html"; node: HtmlNode }
   | { kind: "separator"; node: SeparatorNode }
 
@@ -55,6 +58,8 @@ export function buildSettingsIndex(schema: SettingsSchema): SettingsIndex {
           if (nodes.length === 0) continue
           section.items.push({ kind: "row", keys: nodes.map((n) => n.name), node, nodes })
           for (const child of nodes) byKey.set(child.name, { node: child, section })
+        } else if (node.type === "markdown") {
+          section.items.push({ kind: "markdown", node })
         } else if (node.type === "html") {
           section.items.push({ kind: "html", node })
         } else if (node.type === "separator") {

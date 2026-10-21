@@ -2,7 +2,7 @@ import os
 
 from backend.text_processing import emphasis as sd_emphasis
 from modules import localization, shared, shared_items, util
-from modules.options import OptionDiv, OptionHTML, OptionInfo, OptionRow, categories, options_section
+from modules.options import OptionDiv, OptionInfo, OptionMarkdown, OptionRow, categories, options_section
 from modules.paths_internal import data_path, default_output_dir
 from modules.shared_cmd_options import cmd_opts
 from modules_forge import presets as forge_presets
@@ -86,9 +86,10 @@ options_templates.update(
             "video_save_frames": OptionInfo(False, "Save intermediate frames when generating video"),
             "video_player_auto": OptionInfo(True, "Play the generated video when done"),
             "video_player_loop": OptionInfo(False, "Make the video player loop the playback"),
-            "video_explanation": OptionHTML("""
-Parameters for encoding videos in <b>H.264</b> using <b>FFmpeg</b><br>
-Refer to the <a href="https://trac.ffmpeg.org/wiki/Encode/H.264">Wiki</a> for what these parameters mean
+            "video_explanation": OptionMarkdown("""
+Parameters for encoding videos in **H.264** using **FFmpeg**
+
+Refer to the [Wiki](https://trac.ffmpeg.org/wiki/Encode/H.264) for what these parameters mean
                 """),
             "video_crf": OptionInfo(16, "CRF", ui.Slider, {"minimum": 0, "maximum": 51, "step": 1}),
             "video_preset": OptionInfo("fast", "Preset", ui.Choice, {"choices": ("ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow")}),
@@ -183,12 +184,14 @@ options_templates.update(
     options_section(
         ("profiler", "Profiler", "system"),
         {
-            "profiling_explanation": OptionHTML("""
-These settings allow you to enable PyTorch profiler during generation.<br>
+            "profiling_explanation": OptionMarkdown("""
+These settings allow you to enable PyTorch profiler during generation.
+
 Profiling allows you to see which code uses how much of the computer's resources.
 Each generation writes its own profile to one file, overwriting previous ones.
-The file can be viewed in <a href="chrome:tracing">Chrome</a> or on the <a href="https://ui.perfetto.dev/">Perfetto</a> website.
-<br><b>Warning:</b> Writing profile can take up to 30 seconds, and the file itself can be around 500MB in size.
+The file can be viewed in Chrome (`chrome://tracing`) or on the [Perfetto](https://ui.perfetto.dev/) website.
+
+**Warning:** Writing profile can take up to 30 seconds, and the file itself can be around 500MB in size.
                 """),
             "profiling_enable": OptionInfo(False, "Enable Profiling"),
             "profiling_activities": OptionInfo(["CPU"], "Activities", ui.MultiChoice, {"style": "checkboxes", "choices": ["CPU", "CUDA"]}),
@@ -266,7 +269,7 @@ options_templates.update(
             "qwen21_do_reference": OptionInfo(True, "[Qwen 2.1] Enable Reference").info("enable Edit ; disable img2img").info("pin to <b>Quicksettings</b> is recommended if changed often"),
             "anima_do_reference": OptionInfo(False, "[Anima] Enable Reference").info("enable Edit ; disable img2img").info("pin to <b>Quicksettings</b> is recommended if changed often").info("requires specfic Edit LoRA"),
             "krea2_do_reference": OptionInfo(False, "[Krea2] Enable Reference").info("enable Edit ; disable img2img").info("pin to <b>Quicksettings</b> is recommended if changed often").info("requires specfic Edit LoRA"),
-            "reference_explanation": OptionHTML("<b>Note:</b> Remember to change the setting before txt2img to clear the references"),
+            "reference_explanation": OptionMarkdown("**Note:** Remember to change the setting before txt2img to clear the references"),
         },
     )
 )
@@ -275,8 +278,8 @@ options_templates.update(
     options_section(
         ("vae", "VAE", "sd"),
         {
-            "sd_vae_explanation": OptionHTML("""
-<abbr title='Variational AutoEncoder'>VAE</abbr> is a neural network that transforms a standard <abbr title='Red/Green/Blue'>RGB</abbr>
+            "sd_vae_explanation": OptionMarkdown("""
+VAE (Variational AutoEncoder) is a neural network that transforms a standard RGB (Red/Green/Blue)
 image to and from latent space representation. Latent space is what Stable Diffusion works on during generation. For txt2img, VAE is used
 to create the resulting image after the sampling is finished. For img2img, VAE is additionally used to process user's input image before the sampling.
                 """),
@@ -332,10 +335,11 @@ options_templates.update(
             "s_min_uncond": OptionInfo(0.0, "Skip Negative Prompt during Later Steps", ui.Slider, {"minimum": 0.0, "maximum": 8.0, "step": 0.05}).info('in "sigma"; 0 = disable; higher = faster'),
             "s_min_uncond_all": OptionInfo(False, "For the above option, skip every step", infotext="NGMS all steps").info("otherwise, only skip every other step"),
             "div_tome": OptionDiv(),
-            "token_merging_explanation": OptionHTML("""
-<b>Token Merging</b> speeds up the diffusion process by fusing "redundant" tokens together, but also reduces quality as a result.
-[<a href="https://github.com/dbolya/tomesd">GitHub</a>] <br>
-<b>Note:</b> Has no effect on SDXL when Max Downsample is set to 1
+            "token_merging_explanation": OptionMarkdown("""
+**Token Merging** speeds up the diffusion process by fusing "redundant" tokens together, but also reduces quality as a result.
+([GitHub](https://github.com/dbolya/tomesd))
+
+**Note:** Has no effect on SDXL when Max Downsample is set to 1
                 """),
             "token_merging_ratio": OptionInfo(0.0, "Token Merging Ratio", ui.Slider, {"minimum": 0.0, "maximum": 0.9, "step": 0.05}, infotext="Token merging ratio").info("0 = disable; higher = faster"),
             "token_merging_ratio_img2img": OptionInfo(0.0, "Token Merging Ratio for img2img", ui.Slider, {"minimum": 0.0, "maximum": 0.9, "step": 0.05}).info("overrides base ratio if non-zero"),
@@ -447,7 +451,7 @@ options_templates.update(
     options_section(
         ("infotext", "Infotext", "ui"),
         {
-            "infotext_explanation": OptionHTML("Infotext is what the webui calls the text that contains generation parameters, and can be used to generate the same image again."),
+            "infotext_explanation": OptionMarkdown("Infotext is what the webui calls the text that contains generation parameters, and can be used to generate the same image again."),
             "enable_pnginfo": OptionInfo(True, "Write infotext to metadata of generated images"),
             "save_txt": OptionInfo(False, "Write infotext to a text file next to every generated image"),
             "add_model_name_to_info": OptionInfo(True, "Add model name to infotext"),
@@ -554,10 +558,10 @@ options_templates.update(
         ("svdq", "Nunchaku", "svdq"),
         {
             "svdq_cpu_offload": OptionInfo(True, "CPU Offload").info("recommended if the VRAM is less than 16 GB"),
-            "svdq_flux_exp": OptionHTML("Flux"),
+            "svdq_flux_exp": OptionMarkdown("**Flux**"),
             "svdq_cache_threshold": OptionInfo(0.0, "Cache Threshold", ui.Slider, {"minimum": 0.0, "maximum": 1.0, "step": 0.01}).info("increasing the value enhances speed at the cost of quality; a typical value is 0.12; setting it to 0 disables the effect"),
             "svdq_attention": OptionInfo("nunchaku-fp16", "Attention", ui.Choice, {"style": "radio", "choices": ["nunchaku-fp16", "flashattn2"]}).info("RTX 20s GPUs can only use nunchaku-fp16"),
-            "svdq_qwen_exp": OptionHTML("Qwen"),
+            "svdq_qwen_exp": OptionMarkdown("**Qwen**"),
             "svdq_use_pin_memory": OptionInfo(False, "Use Pinned Memory").info("improve load speed at the cost of higher RAM usage"),
             "svdq_num_blocks_on_gpu": OptionInfo(1, "Blocks on GPU", ui.Slider, {"minimum": 1, "maximum": 60, "step": 1}).info("higher = more VRAM usage ; lower = more RAM usage"),
         },

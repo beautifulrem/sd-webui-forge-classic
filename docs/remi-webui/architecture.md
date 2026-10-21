@@ -416,7 +416,8 @@ client has a bounded event queue and one preview slot.
   and `/openapi.json` need the login too; `/sdapi` gets the host and
   cross-site checks, and its login is `--api-auth` when set, else the WebUI
   login (clients on this machine exempt only with
-  `--api-no-auth-on-localhost`). Failed logins (form or Basic) are throttled;
+  `--api-no-auth-on-localhost`). Failed logins (form or Basic) are throttled
+  per peer address (uvicorn's proxy headers only from `--forwarded-allow-ips`);
   cross-site subresource `GET`s are refused (fetch metadata); responses carry
   `nosniff` and `Referrer-Policy`, HTML pages a hash-based CSP
   (`security.md`). Logging out revokes
@@ -589,11 +590,11 @@ Kept, each for a non-UI reason:
 | `html/licenses.html` | read by `GET /api/v2/licenses` |
 | HTML the server writes itself: the "not built" notice (`remi/server/spa.py` `NOT_BUILT`) and the API docs pages (`/docs`, `/redoc`, `remi/server/api_docs.py`) | no UI: the notice is static text for when there is no SPA to show anything (`pnpm build`), the docs pages are FastAPI's viewers of the API description. Everything a user works with, signing in included, is the SPA; a page load without a login gets the SPA shell with status 401 |
 | `modules/util.plaintext_to_html` | the A1111 `/sdapi/v1/extra-single-image` and `extra-batch-images` responses carry `html_info` (HTML) for API compatibility; Remi's own API and UI get plain infotext (`run_extras_named`) |
-| `OptionInfo.js()`, `OptionInfo(comment_before=, comment_after=)`, `OptionInfo.html()` | A1111 extension API: the two arguments and `.html()` become the setting's `html` help (for third-party options; Remi's own options use `.info()`, `.link()`, `.choice_info()` and `default_order`), `.js()` is ignored |
+| `OptionInfo.js()`, `OptionInfo(comment_before=, comment_after=)`, `OptionInfo.html()` | A1111 extension API: the two arguments and `.html()` become the setting's `html` help, and `OptionHTML` an `html` node (for third-party options; Remi's own options use `.info()`, `.link()`, `.choice_info()`, `default_order` and `OptionMarkdown` help blocks, sent as `markdown` nodes: the server writes no markup for its own settings), `.js()` is ignored |
 | `util.open_folder`, `ScriptRunner.set_named_arg` | A1111 helpers extensions call; Gradio-free now (`set_named_arg` takes param names) |
 | `--use-textbox-seed`, `--add-stop-route`, `--ngrok-region`, `--ui-config-file` | accepted so existing launch commands keep working; they do nothing (`--ui-config-file`: form drafts live in the browser, defaults come from `params()` and the UI presets) |
 | `--share` | accepted so existing launch commands keep working, but there is no public tunnel: the server logs a warning at startup (use `--listen`, a reverse proxy or `--ngrok`). Like those, it marks the server as non-local (`cmd_opts.webui_is_non_local`), so the protections of an exposed server stay on (installing extensions needs `--enable-insecure-extension-access`; the browser is not opened automatically) |
-| `legacy_ui_<tab>.json` test fixtures | the argument contract recorded from each script's Gradio `ui()` before its port (the control class is the `legacy_control` key in some); the ports are tested against them. New ones are recorded with `tools/record_legacy_ui.py` (in the format of `tests/remi_port_harness.describe`), which builds the `ui()` in an export of the last Gradio-era revision, run by an interpreter of its own (`tools/legacy-ui-requirements.txt`: that revision's requirements plus Gradio 4.40) |
+| `legacy_ui_<tab>.json` test fixtures | the argument contract recorded from each script's Gradio `ui()` before its port (the control class is the `legacy_control` key in some); the ports are tested against them. `tools/legacy_ui_recordings.py` lists every one with its script, revision, format and context, and `tools/record_legacy_ui.py --fixtures --check` records them all again and compares them (`tools/check.sh` step `legacy-ui:fixtures`). New ones are recorded with `tools/record_legacy_ui.py` (in the format of `tests/remi_port_harness.describe`), which builds the `ui()` in an export of the last Gradio-era revision, run by an interpreter of its own outside the checkout (`tools/legacy_ui_env.sh`). No tracked file lists Gradio as a dependency: `record_legacy_ui.py --requirements` derives that interpreter's requirements from the git history (the legacy revision's `requirements.txt` plus the Gradio pins of the last launcher that installed it); the recorder imports no Gradio module itself, and nothing imports it |
 
 Settings: every core option (`modules/shared_options.py`) and every UI
 preset option (`modules_forge/presets.py`) has a reader — processing, the

@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, WebSocket
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from remi.server import models as m
-from remi.server.auth import LOGIN_FAILURE_DELAY, client_key
+from remi.server.auth import LOGIN_FAILURE_DELAY, client_key, reached_over_https
 from remi.server.deps import UserDep
 
 router = APIRouter()
@@ -42,7 +42,7 @@ async def login(body: m.LoginRequest, request: Request) -> Response:
         await asyncio.sleep(LOGIN_FAILURE_DELAY)
         raise HTTPException(status_code=401, detail="wrong username or password")
     response = Response(status_code=204)
-    auth.set_cookie(response, body.username, https=request.url.scheme == "https")
+    auth.set_cookie(response, body.username, https=reached_over_https(request))
     return response
 
 

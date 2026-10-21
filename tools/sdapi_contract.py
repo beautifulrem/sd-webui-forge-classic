@@ -17,7 +17,7 @@ Documented exceptions are in ``ALLOWED``. Run it with the WebUI's
 interpreter (no model is loaded)::
 
     $PYTHON tools/sdapi_contract.py                     # against the last absorbed upstream commit
-    $PYTHON tools/sdapi_contract.py --rev upstream/neo  # during a sync, after the merge
+    $PYTHON tools/sdapi_contract.py --rev upstream/neo  # during a sync, once every conflict is resolved
 
 The default revision is ``git merge-base HEAD upstream/neo``, or
 ``LAST_ABSORBED`` in a clone without the ``upstream`` remote.
@@ -202,10 +202,20 @@ def check(rev: str) -> list[str]:
     return problems
 
 
+def unmerged_files() -> list[str]:
+    """Files with unresolved merge conflicts (``git diff --diff-filter=U``)."""
+    return git("diff", "--name-only", "--diff-filter=U").split()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--rev", help=f"upstream revision to compare with (default: merge base with {UPSTREAM}, else {LAST_ABSORBED[:10]})")
     options = parser.parse_args(argv)
+    # the check imports the WebUI, which cannot load while files hold conflict markers
+    if conflicts := unmerged_files():
+        print(f"{len(conflicts)} file(s) with unresolved merge conflicts: {', '.join(conflicts)}", file=sys.stderr)
+        print("resolve every conflict first (docs/remi-webui/upstream-absorption.md, section 3), then run this check again", file=sys.stderr)
+        return 2
     rev = options.rev or default_rev()
     label = f"{rev} ({git('rev-parse', '--short=10', rev).strip()})" if options.rev else rev[:10]
     problems = check(rev)

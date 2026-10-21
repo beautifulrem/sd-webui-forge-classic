@@ -341,9 +341,15 @@ to the core owner: core params bare, others `"owner.param"`):
 }
 ```
 
-Items are input nodes whose `name` is the setting key, plus `html`,
-`separator` and `row` nodes (a `row` groups the inputs between two former
-`OptionRow` markers). Setting inputs carry these extra keys:
+Items are input nodes whose `name` is the setting key, plus `markdown`,
+`html`, `separator` and `row` nodes (a `row` groups the inputs between two
+former `OptionRow` markers). A help block between settings is a `markdown`
+node (`OptionMarkdown`: text, emphasis, code and links, rendered as React
+elements, never as HTML); that is what Remi's own settings
+(`modules/shared_options.py`, `modules/shared_items.py`, the built-in
+extensions) use. An `html` node comes only from a third-party extension's
+`OptionHTML` (A1111 API) and is sanitised by the SPA;
+`tests/test_remi_ui_schema.py` keeps the core settings free of it. Setting inputs carry these extra keys:
 
 | key | meaning |
 |---|---|
