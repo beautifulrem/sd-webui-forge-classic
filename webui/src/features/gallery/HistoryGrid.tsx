@@ -4,11 +4,11 @@
  * Enter opens the viewer, Delete removes the result from the history.
  */
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { History } from "lucide-react"
 import { useEffect, useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { api } from "@/api/endpoints"
 import { cn } from "@/lib/utils"
+import { HistoryEmpty } from "./HistoryEmpty"
 import { selectedItem, useSession } from "./session-store"
 
 type HistoryGridProps = {
@@ -102,14 +102,7 @@ export function HistoryGrid({ onOpen, orientation = "grid", className }: History
     }
   }
 
-  if (items.length === 0) {
-    return (
-      <div className={cn("flex flex-col items-center justify-center gap-2 p-6 text-center text-xs text-muted-foreground", className)}>
-        <History className="size-6 opacity-50" aria-hidden />
-        <p>{t("Results of this session appear here")}</p>
-      </div>
-    )
-  }
+  if (items.length === 0) return <HistoryEmpty className={className} />
 
   return (
     <div

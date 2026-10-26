@@ -92,7 +92,8 @@ describe("favorites", () => {
     const { list } = setup()
     await screen.findByText("first prompt")
     act(() => screen.getByRole("combobox", { name: "Collection" }).click())
-    act(() => screen.getByRole("option", { name: "Faces (2)" }).click())
+    const faces = await screen.findByRole("option", { name: "Faces (2)" })
+    act(() => faces.click())
     await waitFor(() => expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ collection: "c1" }), expect.anything()))
   }, 20_000)
 

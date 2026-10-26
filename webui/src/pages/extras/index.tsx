@@ -84,7 +84,7 @@ function RunBar() {
         <Button size="lg" className="h-10 min-w-0 flex-1 gap-2 text-sm font-semibold shadow-sm" onClick={() => void runExtras()} disabled={submitting} aria-keyshortcuts="Control+Enter Meta+Enter">
           {submitting ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
           <span className="truncate">{busy ? t("Queue another") : t("Process")}</span>
-          <Kbd className="ml-1 hidden border border-primary-foreground/45 bg-transparent text-primary-foreground sm:inline-flex">{formatShortcut("Mod+Enter")}</Kbd>
+          <Kbd className="ml-1 hidden border border-primary-foreground/45 bg-transparent text-primary-foreground sm:inline-flex touch-only:hidden!">{formatShortcut("Mod+Enter")}</Kbd>
         </Button>
         <EnqueueButton tab="extras" />
         {busy ? (

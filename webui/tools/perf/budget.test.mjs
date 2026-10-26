@@ -64,6 +64,14 @@ describe("bundle budget", () => {
     expect(check(report, { ...budget, initialKB: 200, lazyKB: 160 })).toEqual(["initial JS 250 KB > 200 KB"])
   })
 
+  it("checks the default route together with the lazy parts its first render fetches", () => {
+    const parts = { ...budget, lazyKB: 160, exceptions: {}, routeKB: 200, defaultRouteParts: ["src/widgets/big/index.tsx"] }
+    const report = analyse(manifest, html, size, parts)
+    // each part alone is within its limit (160 and 155 KB), together they add 225 KB
+    expect(check(report, parts)).toEqual(["src/pages/generate/index.tsx with src/widgets/big/index.tsx adds 225 KB > 200 KB"])
+    expect(check(report, { ...parts, routeKB: 225 })).toEqual([])
+  })
+
   it("rejects a budget naming entries the build does not have", () => {
     const report = analyse(manifest, html, size, budget)
     expect(check(report, { ...budget, lazyKB: 160, exempt: { "src/gone.tsx": "removed" } })).toEqual(["src/gone.tsx: named in the budget but not a lazily loaded entry of this build"])

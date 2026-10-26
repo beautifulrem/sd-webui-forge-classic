@@ -285,4 +285,22 @@ test.describe("generate", () => {
     await viewer.getByRole("button", { name: "More actions" }).click()
     await expect(page.getByRole("menuitem", { name: "Copy generation parameters" })).toBeVisible()
   })
+
+  test("a touch-only tablet shows no keyboard hints, even where a wide screen has room for them @phone", async ({ page }) => {
+    // tablet width: the `sm`/`2xl` breakpoints would show the hints; the coarse pointer hides them
+    await page.setViewportSize({ width: 1366, height: 1024 })
+    expect(await page.evaluate(() => matchMedia("(any-pointer: fine)").matches)).toBe(false)
+    for (const route of ["txt2img", "extras", "settings"]) {
+      await page.goto(`/#/${route}`)
+      const main = page.getByRole("main")
+      await expect(main).toBeVisible()
+      await expect(main.locator("[aria-busy=true]")).toHaveCount(0)
+      await expect(page.getByRole("button").first()).toBeVisible()
+      await expect(page.locator("kbd:visible"), route).toHaveCount(0)
+    }
+    await open(page)
+    const prompt = await setPrompt(page, "x")
+    await prompt.press("Backspace") // the placeholder shows in an empty prompt
+    await expect(page.locator(".cm-placeholder").first()).toHaveText("Prompt")
+  })
 })

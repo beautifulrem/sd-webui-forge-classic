@@ -1,0 +1,776 @@
+{
+ "initial": {
+  "files": [
+   "assets/shell-DWL2i_Tb.js",
+   "assets/vendor-DybJX07u.js",
+   "assets/react-C0WMy7cJ.js",
+   "assets/rolldown-runtime-hePW80VL.js"
+  ],
+  "gzipKB": 188.2,
+  "brotliKB": 163,
+  "rawKB": 575.6,
+  "css": [
+   {
+    "file": "assets/shell-gh0KIUOB.css",
+    "raw": 204216,
+    "gzip": 33196,
+    "brotli": 26169
+   }
+  ]
+ },
+ "defaultRoute": {
+  "key": "src/pages/generate/index.tsx",
+  "addedKB": 61.7,
+  "withInitialKB": 249.9,
+  "parts": [
+   "src/pages/generate/ParamsPane.tsx"
+  ],
+  "withPartsAddedKB": 140.7
+ },
+ "entries": [
+  {
+   "key": "src/features/prompt-editor/PromptEditor.tsx",
+   "kind": "exempt",
+   "file": "assets/PromptEditor-9BpN2--D.js",
+   "chunkKB": 0.1,
+   "addedKB": 119,
+   "addedFiles": 9
+  },
+  {
+   "key": "src/ui/prompt/PromptEditor.tsx",
+   "kind": "exempt",
+   "file": "assets/PromptEditor-DAGyUN4Y.js",
+   "chunkKB": 0.1,
+   "addedKB": 119,
+   "addedFiles": 9
+  },
+  {
+   "key": "src/pages/settings/index.tsx",
+   "kind": "route",
+   "file": "assets/settings-CpUm72bw.js",
+   "chunkKB": 13.1,
+   "addedKB": 113.4,
+   "addedFiles": 81
+  },
+  {
+   "key": "src/canvas/ui/Editor.tsx",
+   "kind": "exempt",
+   "file": "assets/Editor-CjLvCAHI.js",
+   "chunkKB": 66,
+   "addedKB": 107.9,
+   "addedFiles": 52
+  },
+  {
+   "key": "src/features/prompt-tools/completion/source.ts",
+   "kind": "lazy",
+   "file": "assets/source-CjkA48qT.js",
+   "chunkKB": 3.5,
+   "addedKB": 106.6,
+   "addedFiles": 8
+  },
+  {
+   "key": "src/pages/generate/ParamsPane.tsx",
+   "kind": "lazy",
+   "file": "assets/ParamsPane-DgniyEBC.js",
+   "chunkKB": 11.3,
+   "addedKB": 103.1,
+   "addedFiles": 82
+  },
+  {
+   "key": "node_modules/.pnpm/@codemirror+commands@6.11.1/node_modules/@codemirror/commands/dist/index.js",
+   "kind": "lazy",
+   "file": "assets/dist-pIJ1yMCO.js",
+   "chunkKB": 0.8,
+   "addedKB": 101.2,
+   "addedFiles": 5
+  },
+  {
+   "key": "src/features/networks/NetworksDrawer.tsx",
+   "kind": "lazy",
+   "file": "assets/NetworksDrawer-Dv3kGWdx.js",
+   "chunkKB": 2.5,
+   "addedKB": 99.3,
+   "addedFiles": 62
+  },
+  {
+   "key": "src/pages/extras/index.tsx",
+   "kind": "route",
+   "file": "assets/extras-xpDX6AGA.js",
+   "chunkKB": 6.2,
+   "addedKB": 98.6,
+   "addedFiles": 83
+  },
+  {
+   "key": "src/pages/networks/index.tsx",
+   "kind": "route",
+   "file": "assets/networks-BDlRzVAM.js",
+   "chunkKB": 1.3,
+   "addedKB": 98.2,
+   "addedFiles": 62
+  },
+  {
+   "key": "src/canvas/img2img/SourcePanel.tsx",
+   "kind": "lazy",
+   "file": "assets/SourcePanel-B_HWgcQI.js",
+   "chunkKB": 6.2,
+   "addedKB": 89.1,
+   "addedFiles": 70
+  },
+  {
+   "key": "node_modules/.pnpm/@codemirror+view@6.43.14/node_modules/@codemirror/view/dist/index.js",
+   "kind": "lazy",
+   "file": "assets/dist-DR8o6423.js",
+   "chunkKB": 0.5,
+   "addedKB": 78.8,
+   "addedFiles": 3
+  },
+  {
+   "key": "src/ui/layout/Tabs.tsx",
+   "kind": "lazy",
+   "file": "assets/Tabs-BZMgG3QJ.js",
+   "chunkKB": 1.7,
+   "addedKB": 77.2,
+   "addedFiles": 61
+  },
+  {
+   "key": "src/pages/queue/index.tsx",
+   "kind": "route",
+   "file": "assets/queue-D0WRzS2E.js",
+   "chunkKB": 18.1,
+   "addedKB": 76.8,
+   "addedFiles": 59
+  },
+  {
+   "key": "src/pages/ext/index.tsx",
+   "kind": "route",
+   "file": "assets/ext-B7XNFdw5.js",
+   "chunkKB": 1.5,
+   "addedKB": 74.3,
+   "addedFiles": 62
+  },
+  {
+   "key": "src/features/quicksettings/QuickSettingsPanel.tsx",
+   "kind": "lazy",
+   "file": "assets/QuickSettingsPanel-Cogrc5yx.js",
+   "chunkKB": 2.5,
+   "addedKB": 74.1,
+   "addedFiles": 60
+  },
+  {
+   "key": "src/pages/gallery/index.tsx",
+   "kind": "route",
+   "file": "assets/gallery-URFyf4zj.js",
+   "chunkKB": 16.6,
+   "addedKB": 63.7,
+   "addedFiles": 46
+  },
+  {
+   "key": "src/features/prompt-tools/chips/ChipsView.tsx",
+   "kind": "lazy",
+   "file": "assets/ChipsView-wOzwCiXk.js",
+   "chunkKB": 8.8,
+   "addedKB": 63,
+   "addedFiles": 44
+  },
+  {
+   "key": "src/pages/generate/index.tsx",
+   "kind": "default-route",
+   "file": "assets/generate-CJzJN-yu.js",
+   "chunkKB": 17.6,
+   "addedKB": 61.7,
+   "addedFiles": 55
+  },
+  {
+   "key": "src/widgets/controlnet-unit/index.tsx",
+   "kind": "lazy",
+   "file": "assets/controlnet-unit-BeOtxSM2.js",
+   "chunkKB": 8.2,
+   "addedKB": 60.5,
+   "addedFiles": 56
+  },
+  {
+   "key": "src/widgets/stage-timeline/index.tsx",
+   "kind": "lazy",
+   "file": "assets/stage-timeline-D9Ys_7E0.js",
+   "chunkKB": 13.7,
+   "addedKB": 58.7,
+   "addedFiles": 45
+  },
+  {
+   "key": "src/pages/extensions/index.tsx",
+   "kind": "route",
+   "file": "assets/extensions-_SpHbaHj.js",
+   "chunkKB": 10.8,
+   "addedKB": 56.1,
+   "addedFiles": 49
+  },
+  {
+   "key": "src/widgets/xyz-values/index.tsx",
+   "kind": "lazy",
+   "file": "assets/xyz-values-C2kgmfwk.js",
+   "chunkKB": 1.9,
+   "addedKB": 38.1,
+   "addedFiles": 26
+  },
+  {
+   "key": "src/pages/extensions/AvailableView.tsx",
+   "kind": "lazy",
+   "file": "assets/AvailableView-C1yKpaU_.js",
+   "chunkKB": 5,
+   "addedKB": 35.8,
+   "addedFiles": 31
+  },
+  {
+   "key": "src/features/networks/MetadataDialog.tsx",
+   "kind": "lazy",
+   "file": "assets/MetadataDialog-C7ThI3xp.js",
+   "chunkKB": 6.3,
+   "addedKB": 35.6,
+   "addedFiles": 29
+  },
+  {
+   "key": "src/features/networks/EditMetadataDialog.tsx",
+   "kind": "lazy",
+   "file": "assets/EditMetadataDialog-D29KgnqF.js",
+   "chunkKB": 4.1,
+   "addedKB": 35.2,
+   "addedFiles": 32
+  },
+  {
+   "key": "src/widgets/artist-mix-table/index.tsx",
+   "kind": "lazy",
+   "file": "assets/artist-mix-table-DtBck0BO.js",
+   "chunkKB": 7.5,
+   "addedKB": 34,
+   "addedFiles": 24
+  },
+  {
+   "key": "src/features/lightbox/Lightbox.tsx",
+   "kind": "lazy",
+   "file": "assets/Lightbox-DTA7ds5G.js",
+   "chunkKB": 4.1,
+   "addedKB": 33.4,
+   "addedFiles": 32
+  },
+  {
+   "key": "src/widgets/block-weight-grid/index.tsx",
+   "kind": "lazy",
+   "file": "assets/block-weight-grid-BKRh9Jvl.js",
+   "chunkKB": 7.4,
+   "addedKB": 33,
+   "addedFiles": 29
+  },
+  {
+   "key": "src/pages/png-info/index.tsx",
+   "kind": "route",
+   "file": "assets/png-info-y_LqTGE6.js",
+   "chunkKB": 7.4,
+   "addedKB": 32.5,
+   "addedFiles": 34
+  },
+  {
+   "key": "src/ui/inputs/ChipsSelect.tsx",
+   "kind": "lazy",
+   "file": "assets/ChipsSelect-BzCnX6hU.js",
+   "chunkKB": 1.4,
+   "addedKB": 31.4,
+   "addedFiles": 21
+  },
+  {
+   "key": "src/app/CommandPalette.tsx",
+   "kind": "lazy",
+   "file": "assets/CommandPalette-NNaOTYsC.js",
+   "chunkKB": 18.4,
+   "addedKB": 30.7,
+   "addedFiles": 12
+  },
+  {
+   "key": "src/components/SearchSelectImpl.tsx",
+   "kind": "lazy",
+   "file": "assets/SearchSelectImpl-CN5EryEY.js",
+   "chunkKB": 3.1,
+   "addedKB": 29.5,
+   "addedFiles": 19
+  },
+  {
+   "key": "src/ui/inputs/Image.tsx",
+   "kind": "lazy",
+   "file": "assets/Image-CNTj5rdq.js",
+   "chunkKB": 4.3,
+   "addedKB": 29.3,
+   "addedFiles": 31
+  },
+  {
+   "key": "src/components/ui/dropdown-menu-impl.tsx",
+   "kind": "lazy",
+   "file": "assets/dropdown-menu-impl-CI_ivXaM.js",
+   "chunkKB": 0.2,
+   "addedKB": 28,
+   "addedFiles": 20
+  },
+  {
+   "key": "src/components/ui/select-impl.tsx",
+   "kind": "lazy",
+   "file": "assets/select-impl-CCjeF4q-.js",
+   "chunkKB": 10.4,
+   "addedKB": 26.3,
+   "addedFiles": 22
+  },
+  {
+   "key": "src/app/ModelQuickBar.tsx",
+   "kind": "lazy",
+   "file": "assets/ModelQuickBar-ChZuGHqH.js",
+   "chunkKB": 0.1,
+   "addedKB": 25.4,
+   "addedFiles": 23
+  },
+  {
+   "key": "src/features/model-bar/ModelBar.tsx",
+   "kind": "lazy",
+   "file": "assets/ModelBar-BaueD0yl.js",
+   "chunkKB": 0.1,
+   "addedKB": 25.4,
+   "addedFiles": 23
+  },
+  {
+   "key": "src/features/networks/PreviewDialog.tsx",
+   "kind": "lazy",
+   "file": "assets/PreviewDialog-BcdohGPl.js",
+   "chunkKB": 4.1,
+   "addedKB": 24.8,
+   "addedFiles": 21
+  },
+  {
+   "key": "src/pages/settings/system/ServerView.tsx",
+   "kind": "lazy",
+   "file": "assets/ServerView-mz2xaQLL.js",
+   "chunkKB": 8.4,
+   "addedKB": 24.8,
+   "addedFiles": 23
+  },
+  {
+   "key": "src/locales/zh-CN.json",
+   "kind": "lazy",
+   "file": "assets/zh-CN-9SzYOA3m.js",
+   "chunkKB": 24,
+   "addedKB": 24,
+   "addedFiles": 1
+  },
+  {
+   "key": "src/features/prompt-editor/styles/StyleEditorDialog.tsx",
+   "kind": "lazy",
+   "file": "assets/StyleEditorDialog-DBwXEYPj.js",
+   "chunkKB": 3.5,
+   "addedKB": 21,
+   "addedFiles": 19
+  },
+  {
+   "key": "src/pages/extensions/BackupView.tsx",
+   "kind": "lazy",
+   "file": "assets/BackupView-CHmzyXeY.js",
+   "chunkKB": 5.5,
+   "addedKB": 20.6,
+   "addedFiles": 16
+  },
+  {
+   "key": "src/widgets/range-slider/index.tsx",
+   "kind": "lazy",
+   "file": "assets/range-slider-ua8BQO2p.js",
+   "chunkKB": 0.1,
+   "addedKB": 20,
+   "addedFiles": 20
+  },
+  {
+   "key": "src/canvas/img2img/Img2imgStage.tsx",
+   "kind": "lazy",
+   "file": "assets/Img2imgStage-Cg0VT_b_.js",
+   "chunkKB": 1.8,
+   "addedKB": 19.4,
+   "addedFiles": 16
+  },
+  {
+   "key": "src/features/prompt-tools/panels/FavoritesPanel.tsx",
+   "kind": "lazy",
+   "file": "assets/FavoritesPanel-B0Jsgk8W.js",
+   "chunkKB": 5.3,
+   "addedKB": 18.6,
+   "addedFiles": 22
+  },
+  {
+   "key": "src/widgets/shift-curve/index.tsx",
+   "kind": "lazy",
+   "file": "assets/shift-curve-B77HZ5VE.js",
+   "chunkKB": 2.5,
+   "addedKB": 18.2,
+   "addedFiles": 20
+  },
+  {
+   "key": "src/features/prompt-editor/facets.ts",
+   "kind": "lazy",
+   "file": "assets/facets-BbPb_L06.js",
+   "chunkKB": 0.1,
+   "addedKB": 16.2,
+   "addedFiles": 3
+  },
+  {
+   "key": "src/pages/extensions/InstallUrlView.tsx",
+   "kind": "lazy",
+   "file": "assets/InstallUrlView-B2Nw7gjx.js",
+   "chunkKB": 2.8,
+   "addedKB": 15.2,
+   "addedFiles": 14
+  },
+  {
+   "key": "src/widgets/region-boxes/index.tsx",
+   "kind": "lazy",
+   "file": "assets/region-boxes-sQe6O1pr.js",
+   "chunkKB": 4.5,
+   "addedKB": 14.9,
+   "addedFiles": 12
+  },
+  {
+   "key": "src/widgets/image-list/index.tsx",
+   "kind": "lazy",
+   "file": "assets/image-list-kubhRnY0.js",
+   "chunkKB": 3.7,
+   "addedKB": 14.3,
+   "addedFiles": 15
+  },
+  {
+   "key": "src/ui/inputs/File.tsx",
+   "kind": "lazy",
+   "file": "assets/File-uTY7QryS.js",
+   "chunkKB": 1.5,
+   "addedKB": 14,
+   "addedFiles": 14
+  },
+  {
+   "key": "src/features/prompt-tools/PromptToolbar.tsx",
+   "kind": "lazy",
+   "file": "assets/PromptToolbar-0sRPhUfq.js",
+   "chunkKB": 4.8,
+   "addedKB": 13.4,
+   "addedFiles": 10
+  },
+  {
+   "key": "src/features/server-control/ServerOverlay.tsx",
+   "kind": "lazy",
+   "file": "assets/ServerOverlay-NCPPm8xZ.js",
+   "chunkKB": 3,
+   "addedKB": 13.3,
+   "addedFiles": 8
+  },
+  {
+   "key": "src/widgets/block-weights/index.tsx",
+   "kind": "lazy",
+   "file": "assets/block-weights-BIGz3Mip.js",
+   "chunkKB": 1.2,
+   "addedKB": 12.7,
+   "addedFiles": 14
+  },
+  {
+   "key": "src/ui/layout/Outputs.tsx",
+   "kind": "lazy",
+   "file": "assets/Outputs-BLeQXU9I.js",
+   "chunkKB": 2.4,
+   "addedKB": 12.2,
+   "addedFiles": 11
+  },
+  {
+   "key": "src/components/ui/popover-impl.tsx",
+   "kind": "lazy",
+   "file": "assets/popover-impl-D3YmQB7x.js",
+   "chunkKB": 4.2,
+   "addedKB": 12,
+   "addedFiles": 7
+  },
+  {
+   "key": "src/app/ShortcutsDialog.tsx",
+   "kind": "lazy",
+   "file": "assets/ShortcutsDialog-_9RKhqmp.js",
+   "chunkKB": 1.5,
+   "addedKB": 11.8,
+   "addedFiles": 9
+  },
+  {
+   "key": "src/ui/inputs/Json.tsx",
+   "kind": "lazy",
+   "file": "assets/Json-rKbIVGMA.js",
+   "chunkKB": 1.2,
+   "addedKB": 11.6,
+   "addedFiles": 12
+  },
+  {
+   "key": "src/ui/inputs/Color.tsx",
+   "kind": "lazy",
+   "file": "assets/Color-CutNB7rY.js",
+   "chunkKB": 1.6,
+   "addedKB": 11.4,
+   "addedFiles": 11
+  },
+  {
+   "key": "src/widgets/pp-send/index.tsx",
+   "kind": "lazy",
+   "file": "assets/pp-send-DXQgsueb.js",
+   "chunkKB": 1.3,
+   "addedKB": 11.4,
+   "addedFiles": 11
+  },
+  {
+   "key": "src/features/gallery/HistoryGrid.tsx",
+   "kind": "lazy",
+   "file": "assets/HistoryGrid-kMRcNg0X.js",
+   "chunkKB": 1.8,
+   "addedKB": 11.3,
+   "addedFiles": 5
+  },
+  {
+   "key": "src/features/prompt-tools/TranslationKeyDialog.tsx",
+   "kind": "lazy",
+   "file": "assets/TranslationKeyDialog-CCn3yjaY.js",
+   "chunkKB": 1,
+   "addedKB": 11.2,
+   "addedFiles": 9
+  },
+  {
+   "key": "src/features/prompt-tools/panels/GroupsPanel.tsx",
+   "kind": "lazy",
+   "file": "assets/GroupsPanel-DNiXh5hn.js",
+   "chunkKB": 3,
+   "addedKB": 11.2,
+   "addedFiles": 9
+  },
+  {
+   "key": "src/widgets/resolution-presets/index.tsx",
+   "kind": "lazy",
+   "file": "assets/resolution-presets-DO9Dw5cb.js",
+   "chunkKB": 1.6,
+   "addedKB": 11.2,
+   "addedFiles": 10
+  },
+  {
+   "key": "src/app/MoreSheet.tsx",
+   "kind": "lazy",
+   "file": "assets/MoreSheet-DMYxfZDk.js",
+   "chunkKB": 0.9,
+   "addedKB": 10.7,
+   "addedFiles": 8
+  },
+  {
+   "key": "src/components/ConfirmDialogView.tsx",
+   "kind": "lazy",
+   "file": "assets/ConfirmDialogView-DCngRgD6.js",
+   "chunkKB": 0.3,
+   "addedKB": 10.5,
+   "addedFiles": 7
+  },
+  {
+   "key": "src/widgets/task-runner/index.tsx",
+   "kind": "lazy",
+   "file": "assets/task-runner-E-8YgfMV.js",
+   "chunkKB": 1.7,
+   "addedKB": 10.5,
+   "addedFiles": 14
+  },
+  {
+   "key": "src/widgets/source-size-fit/index.tsx",
+   "kind": "lazy",
+   "file": "assets/source-size-fit-D1VdriLb.js",
+   "chunkKB": 1.3,
+   "addedKB": 10.4,
+   "addedFiles": 10
+  },
+  {
+   "key": "src/widgets/sigma-curve/index.tsx",
+   "kind": "lazy",
+   "file": "assets/sigma-curve-DQK372Qd.js",
+   "chunkKB": 3.1,
+   "addedKB": 9.7,
+   "addedFiles": 7
+  },
+  {
+   "key": "src/features/prompt-tools/panels/GeneratePanel.tsx",
+   "kind": "lazy",
+   "file": "assets/GeneratePanel-DErQM2k5.js",
+   "chunkKB": 1.2,
+   "addedKB": 9.4,
+   "addedFiles": 11
+  },
+  {
+   "key": "src/features/prompt-tools/panels/HistoryPanel.tsx",
+   "kind": "lazy",
+   "file": "assets/HistoryPanel-COlPO6h0.js",
+   "chunkKB": 2.3,
+   "addedKB": 9.3,
+   "addedFiles": 14
+  },
+  {
+   "key": "src/widgets/send-button/index.tsx",
+   "kind": "lazy",
+   "file": "assets/send-button-DO6FisJE.js",
+   "chunkKB": 1.5,
+   "addedKB": 9.3,
+   "addedFiles": 10
+  },
+  {
+   "key": "src/pages/settings/system/SysinfoView.tsx",
+   "kind": "lazy",
+   "file": "assets/SysinfoView-BCNxrw0g.js",
+   "chunkKB": 3.3,
+   "addedKB": 8.9,
+   "addedFiles": 11
+  },
+  {
+   "key": "src/app/AppearanceMenu.tsx",
+   "kind": "lazy",
+   "file": "assets/AppearanceMenu-CbBRPT5_.js",
+   "chunkKB": 2.8,
+   "addedKB": 7.9,
+   "addedFiles": 6
+  },
+  {
+   "key": "src/features/quicksettings/QuickSettings.tsx",
+   "kind": "lazy",
+   "file": "assets/QuickSettings-CGqjjnxa.js",
+   "chunkKB": 2.9,
+   "addedKB": 7,
+   "addedFiles": 7
+  },
+  {
+   "key": "src/pages/settings/system/LicensesView.tsx",
+   "kind": "lazy",
+   "file": "assets/LicensesView-DRpW0CCg.js",
+   "chunkKB": 2.1,
+   "addedKB": 5.6,
+   "addedFiles": 6
+  },
+  {
+   "key": "src/widgets/secret-text/index.tsx",
+   "kind": "lazy",
+   "file": "assets/secret-text-Dr-HSp-r.js",
+   "chunkKB": 1,
+   "addedKB": 3.5,
+   "addedFiles": 5
+  },
+  {
+   "key": "src/widgets/text-file/index.tsx",
+   "kind": "lazy",
+   "file": "assets/text-file-CrSEVk23.js",
+   "chunkKB": 1.4,
+   "addedKB": 2.6,
+   "addedFiles": 5
+  },
+  {
+   "key": "src/pages/not-found/index.tsx",
+   "kind": "route",
+   "file": "assets/not-found-BFnoAAFZ.js",
+   "chunkKB": 0.5,
+   "addedKB": 1.9,
+   "addedFiles": 3
+  },
+  {
+   "key": "src/features/infotext/read-image-info.ts",
+   "kind": "lazy",
+   "file": "assets/read-image-info-BdD4Mmuo.js",
+   "chunkKB": 0.1,
+   "addedKB": 1.6,
+   "addedFiles": 2
+  }
+ ],
+ "largest": [
+  {
+   "file": "assets/vendor-DybJX07u.js",
+   "raw": 274402,
+   "gzip": 90298,
+   "brotli": 79044
+  },
+  {
+   "file": "assets/Editor-CjLvCAHI.js",
+   "raw": 211085,
+   "gzip": 67626,
+   "brotli": 58538
+  },
+  {
+   "file": "assets/react-C0WMy7cJ.js",
+   "raw": 218928,
+   "gzip": 67622,
+   "brotli": 58127
+  },
+  {
+   "file": "assets/dist-kQRq5OSE.js",
+   "raw": 200187,
+   "gzip": 63852,
+   "brotli": 55358
+  },
+  {
+   "file": "assets/shell-DWL2i_Tb.js",
+   "raw": 95349,
+   "gzip": 34335,
+   "brotli": 29315
+  },
+  {
+   "file": "assets/zh-CN-9SzYOA3m.js",
+   "raw": 67793,
+   "gzip": 24622,
+   "brotli": 20369
+  },
+  {
+   "file": "assets/TargetSwitch-Cu8eJQE9.js",
+   "raw": 49760,
+   "gzip": 19055,
+   "brotli": 16458
+  },
+  {
+   "file": "assets/CommandPalette-NNaOTYsC.js",
+   "raw": 55978,
+   "gzip": 18837,
+   "brotli": 16987
+  },
+  {
+   "file": "assets/queue-D0WRzS2E.js",
+   "raw": 50378,
+   "gzip": 18568,
+   "brotli": 15758
+  },
+  {
+   "file": "assets/generate-CJzJN-yu.js",
+   "raw": 47367,
+   "gzip": 18018,
+   "brotli": 15348
+  },
+  {
+   "file": "assets/Renderer-CK8cIWmx.js",
+   "raw": 50838,
+   "gzip": 17346,
+   "brotli": 14719
+  },
+  {
+   "file": "assets/gallery-URFyf4zj.js",
+   "raw": 42571,
+   "gzip": 16958,
+   "brotli": 14646
+  },
+  {
+   "file": "assets/dist-D6l_mHfa.js",
+   "raw": 49169,
+   "gzip": 16332,
+   "brotli": 14744
+  },
+  {
+   "file": "assets/stage-timeline-D9Ys_7E0.js",
+   "raw": 35432,
+   "gzip": 13992,
+   "brotli": 11574
+  },
+  {
+   "file": "assets/dist-C-ZdzF6M.js",
+   "raw": 39436,
+   "gzip": 13474,
+   "brotli": 12324
+  }
+ ],
+ "totalJs": {
+  "files": 279,
+  "gzip": 985246
+ }
+}

@@ -77,7 +77,10 @@ function defaultView(manifest, budget) {
 /**
  * Budget violations of a report: the initial JS over `initialKB`; a route or another lazy entry
  * adding more than `routeKB` / `lazyKB`, unless it is exempt (the editors) or a recorded exception
- * within its own cap; an exception or exemption naming an entry the build no longer has.
+ * within its own cap; the default route together with the lazy parts its first render fetches
+ * (`defaultRouteParts`) adding more than `routeKB` (a split of the route into lazy parts that all
+ * load at once must not hide its size); an exception or exemption naming an entry the build no
+ * longer has.
  */
 export function check(report, budget) {
   const problems = []
@@ -91,6 +94,11 @@ export function check(report, budget) {
     const exception = budget.exceptions?.[entry.key]
     const limit = exception?.maxKB ?? (entry.kind === "lazy" ? budget.lazyKB : budget.routeKB)
     if (entry.addedKB > limit) problems.push(`${entry.key} adds ${entry.addedKB} KB > ${limit} KB${exception ? " (its recorded exception)" : ""}`)
+  }
+  const parts = budget.defaultRouteParts ?? []
+  const partsLimit = budget.exceptions?.[budget.defaultRoute]?.maxKB ?? budget.routeKB
+  if (parts.length && report.defaultRoute && report.defaultRoute.withPartsAddedKB > partsLimit) {
+    problems.push(`${budget.defaultRoute} with ${parts.join(", ")} adds ${report.defaultRoute.withPartsAddedKB} KB > ${partsLimit} KB`)
   }
   const route = budget.defaultRoute && budget.exceptions?.[budget.defaultRoute]
   if (route?.withInitialMaxKB != null && report.defaultRoute && report.defaultRoute.withInitialKB > route.withInitialMaxKB) {

@@ -297,7 +297,7 @@ export default function SettingsPage({ route }: { route: Route }) {
                       <X />
                     </InputGroupButton>
                   ) : (
-                    <Kbd className="hidden sm:inline-flex">/</Kbd>
+                    <Kbd className="hidden sm:inline-flex touch-only:hidden!">/</Kbd>
                   )}
                 </InputGroupAddon>
               </InputGroup>

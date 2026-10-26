@@ -36,11 +36,20 @@ if (!URL.createObjectURL) {
   URL.revokeObjectURL = () => {}
 }
 
-// Dropdown menus load their implementation when one opens (components/ui/dropdown-menu.tsx).
-// Transform it once up front: opening a menu then still goes through the on-demand load, but a
-// test's `findByRole("menu")` does not also wait for the first transform on a busy machine.
+// Dropdown menus, popovers, selects and the history grid load their implementation on first use
+// (components/ui/dropdown-menu.tsx, popover.tsx, select.tsx, components/SearchSelect.tsx,
+// ui/inputs/MultiChoice.tsx, pages/generate/HistoryPane.tsx). Transform them once up front:
+// opening one then still goes through the on-demand load, but a test's `findByRole("menu")` does
+// not also wait for the first transform on a busy machine.
 beforeAll(async () => {
-  await import("@/components/ui/dropdown-menu-impl")
+  await Promise.all([
+    import("@/components/ui/dropdown-menu-impl"),
+    import("@/components/ui/popover-impl"),
+    import("@/components/ui/select-impl"),
+    import("@/components/SearchSelectImpl"),
+    import("@/ui/inputs/ChipsSelect"),
+    import("@/features/gallery/HistoryGrid"),
+  ])
 })
 
 afterEach(() => {

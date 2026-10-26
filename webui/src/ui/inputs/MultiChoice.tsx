@@ -1,26 +1,21 @@
-import { useId, useState } from "react"
+import { XIcon } from "lucide-react"
+import { useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Combobox,
-  ComboboxChip,
-  ComboboxChips,
-  ComboboxChipsInput,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxValue,
-  useComboboxAnchor,
-} from "@/components/ui/combobox"
+import { COMBOBOX_CHIP_CLASS, COMBOBOX_CHIP_REMOVE_CLASS, COMBOBOX_CHIPS_CLASS, COMBOBOX_CHIPS_INPUT_CLASS } from "@/components/ui/combobox-styles"
+import { cn } from "@/lib/utils"
+import { lazyModule, prefetch, standInFocus } from "@/lib/lazy-module"
 import { useParam } from "../hooks"
 import { describedBy, hintRef } from "../a11y"
 import { Field } from "../Field"
 import type { MultiChoiceNode } from "../schema"
 import { useFallbackName } from "../fallback-name"
 
-type Value = string | number
-type Option = { value: Value; label: string }
+import type { ChipsSelectProps, Option, Value } from "./chips-select-shared"
+
+// the chips select's combobox code loads when a field is about to be used (see ChipsField)
+const chipsSelect = lazyModule(() => import("./ChipsSelect"))
 
 export function MultiChoice({ node }: { node: MultiChoiceNode }) {
   const { t } = useTranslation()
@@ -69,7 +64,7 @@ export function MultiChoice({ node }: { node: MultiChoiceNode }) {
         })}
       </div>
     ) : (
-      <ChipsSelect
+      <ChipsField
         id={id}
         options={options}
         selected={selected}
@@ -100,75 +95,95 @@ export function MultiChoice({ node }: { node: MultiChoiceNode }) {
   )
 }
 
-function ChipsSelect(props: {
-  id: string
-  options: Option[]
-  selected: Value[]
-  onChange: (values: Value[]) => void
-  allowCustom: boolean
-  disabled: boolean
-  ariaLabel?: string
-  ariaDescribedBy?: string
-  invalid: boolean
-}) {
+/**
+ * The chips select of a dropdown-style multiple choice. Until it is used, a
+ * stand-in renders the same chips and search field without the combobox
+ * code (`ChipsSelect.tsx`); the pointer entering the field or focus fetches
+ * the code, and a press, typing or an opening key puts the real field in the
+ * stand-in's place (opened), keyboard focus with the focus: the typed text
+ * and the caret carry over. A chip's remove button works in the stand-in too.
+ */
+function ChipsField(props: Omit<ChipsSelectProps, "query" | "setQuery">) {
   const { t } = useTranslation()
-  const anchor = useComboboxAnchor()
+  const module = chipsSelect.useModule()
+  const key = useId()
   const [query, setQuery] = useState("")
-  const byValue = new Map(props.options.map((o) => [o.value, o]))
-  const selectedOptions = props.selected.map((v) => byValue.get(v) ?? { value: v, label: String(v) })
+  const [activation, setActivation] = useState<"open" | "focus" | null>(null)
+  // a press focuses the field before its click: that focus must not replace the field under the pointer
+  const pressing = useRef(false)
+  if (module && activation) return <module.ChipsSelect {...props} query={query} setQuery={setQuery} defaultOpen={activation === "open"} standInKey={key} />
 
-  const addCustom = () => {
-    const text = query.trim()
-    if (!props.allowCustom || !text || props.selected.includes(text)) return false
-    if (props.options.some((o) => o.label === text)) return false
-    props.onChange([...props.selected, text])
-    setQuery("")
-    return true
+  const activate = (how: "open" | "focus") => {
+    setActivation((current) => (current === "open" ? current : how))
+    prefetch(chipsSelect)
   }
-
+  const byValue = new Map(props.options.map((o) => [o.value, o]))
+  const chips: Option[] = props.selected.map((v) => byValue.get(v) ?? { value: v, label: String(v) })
   return (
-    <Combobox<Option, true>
-      multiple
-      items={props.options}
-      value={selectedOptions}
-      onValueChange={(next) => props.onChange(next.map((o) => o.value))}
-      inputValue={query}
-      onInputValueChange={setQuery}
-      itemToStringLabel={(o) => o.label}
-      isItemEqualToValue={(a, b) => a.value === b.value}
-      disabled={props.disabled}
-    >
-      <ComboboxChips ref={anchor} className="w-full">
-        <ComboboxValue>
-          {(values: Option[]) => (
-            <>
-              {values.map((option) => (
-                <ComboboxChip key={String(option.value)}>{option.label}</ComboboxChip>
-              ))}
-              <ComboboxChipsInput
-                id={props.id}
-                aria-label={props.ariaLabel}
-                aria-describedby={props.ariaDescribedBy}
-                aria-invalid={props.invalid || undefined}
-                placeholder={values.length === 0 ? t("Select…") : undefined}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && addCustom()) event.preventDefault()
-                }}
-              />
-            </>
-          )}
-        </ComboboxValue>
-      </ComboboxChips>
-      <ComboboxContent anchor={anchor}>
-        <ComboboxEmpty>{props.allowCustom ? t("Press Enter to add") : t("No matches")}</ComboboxEmpty>
-        <ComboboxList>
-          {(option: Option) => (
-            <ComboboxItem key={String(option.value)} value={option}>
-              {option.label}
-            </ComboboxItem>
-          )}
-        </ComboboxList>
-      </ComboboxContent>
-    </Combobox>
+    <div role={chips.length ? "toolbar" : undefined} data-slot="combobox-chips" className={cn(COMBOBOX_CHIPS_CLASS, "w-full")} onPointerEnter={() => prefetch(chipsSelect)}>
+      {chips.map((option) => (
+        <div key={String(option.value)} tabIndex={-1} data-slot="combobox-chip" className={COMBOBOX_CHIP_CLASS}>
+          {option.label}
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            tabIndex={-1}
+            data-slot="combobox-chip-remove"
+            aria-disabled={props.disabled}
+            disabled={props.disabled}
+            className={COMBOBOX_CHIP_REMOVE_CLASS}
+            onClick={() => props.onChange(props.selected.filter((v) => v !== option.value))}
+          >
+            <XIcon className="pointer-events-none" />
+          </Button>
+        </div>
+      ))}
+      <input
+        autoComplete="off"
+        spellCheck={false}
+        autoCorrect="off"
+        autoCapitalize="none"
+        role="combobox"
+        aria-expanded={false}
+        aria-haspopup="listbox"
+        aria-autocomplete="list"
+        id={props.id}
+        data-slot="combobox-chip-input"
+        aria-label={props.ariaLabel}
+        aria-describedby={props.ariaDescribedBy}
+        aria-invalid={props.invalid || undefined}
+        placeholder={chips.length === 0 ? t("Select…") : undefined}
+        disabled={props.disabled}
+        data-disabled={props.disabled ? "" : undefined}
+        className={COMBOBOX_CHIPS_INPUT_CLASS}
+        value={query}
+        onPointerDown={() => {
+          pressing.current = true
+        }}
+        onFocus={() => {
+          standInFocus.focused(key)
+          if (pressing.current) prefetch(chipsSelect)
+          else activate("focus")
+        }}
+        onBlur={() => {
+          pressing.current = false
+          standInFocus.blurred(key)
+        }}
+        onClick={() => {
+          pressing.current = false
+          activate("open")
+        }}
+        onChange={(event) => {
+          setQuery(event.target.value)
+          activate("open")
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault()
+            activate("open")
+          }
+        }}
+      />
+    </div>
   )
 }

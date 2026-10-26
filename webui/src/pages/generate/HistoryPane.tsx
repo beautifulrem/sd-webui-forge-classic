@@ -1,13 +1,32 @@
-/** This session's results beside (or under) the stage. */
+/**
+ * This session's results beside (or under) the stage. The grid (a
+ * virtualized listbox, `HistoryGrid`) loads with the session's first result:
+ * a session that has none shows the empty state without that code
+ * (docs/research/ui-performance.md, "Bundle").
+ */
 import { Trash2 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { ConfirmDialog, preloadConfirmDialog } from "@/components/ConfirmDialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { HistoryGrid } from "@/features/gallery/HistoryGrid"
+import { HistoryEmpty } from "@/features/gallery/HistoryEmpty"
 import { useSession } from "@/features/gallery/session-store"
+import { lazyModule, prefetch } from "@/lib/lazy-module"
+
+const historyGrid = lazyModule(() => import("@/features/gallery/HistoryGrid"))
+
+/** The grid once the session has results (fetched with the first one); the empty state before. */
+function HistoryResults({ count, onOpen, orientation, className }: { count: number; onOpen: (key: string) => void; orientation: "grid" | "strip"; className?: string }) {
+  const module = historyGrid.useModule()
+  useEffect(() => {
+    if (count > 0) prefetch(historyGrid)
+  }, [count])
+  if (count === 0) return <HistoryEmpty className={className} />
+  if (!module) return <div aria-busy className={className} />
+  return <module.HistoryGrid onOpen={onOpen} orientation={orientation} className={className} />
+}
 
 export function HistoryPane({ onOpen, orientation = "grid", className }: { onOpen: (key: string) => void; orientation?: "grid" | "strip"; className?: string }) {
   const { t } = useTranslation()
@@ -34,7 +53,7 @@ export function HistoryPane({ onOpen, orientation = "grid", className }: { onOpe
           </Button>
         ) : null}
       </div>
-      <HistoryGrid onOpen={onOpen} orientation={orientation} className={orientation === "grid" ? "flex-1" : undefined} />
+      <HistoryResults count={count} onOpen={onOpen} orientation={orientation} className={orientation === "grid" ? "flex-1" : undefined} />
       <ConfirmDialog
         open={confirm}
         onOpenChange={setConfirm}

@@ -61,7 +61,7 @@ export default function CommandPalette() {
                   >
                     {Icon ? <Icon aria-hidden /> : null}
                     <span className="truncate">{label}</span>
-                    {command.shortcut ? <CommandShortcut>{formatShortcut(command.shortcut)}</CommandShortcut> : null}
+                    {command.shortcut ? <CommandShortcut className="touch-only:hidden">{formatShortcut(command.shortcut)}</CommandShortcut> : null}
                   </CommandItem>
                 )
               })}

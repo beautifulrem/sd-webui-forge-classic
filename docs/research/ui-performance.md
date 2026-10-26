@@ -16,7 +16,12 @@ an offline startup comparison), and after the fourth review of 2026-10-21
 gallery's work per scroll frame and its fetch-ahead, [cold wheel
 scrolling](#fourth-review-2026-10-21-cold-wheel-scrolling-of-the-gallery); one
 wake-up of the server's event loop per served step and no previews for hidden
-pages, [Fourth review](#fourth-review-of-2026-10-21-the-whole-step-bound-under-load)).
+pages, [Fourth review](#fourth-review-of-2026-10-21-the-whole-step-bound-under-load)),
+and on 2026-10-26, when the Generate route and its parameter form were
+brought under 150 KB *together* (the split of 2026-10-21 alone had not made
+the first view smaller): popup controls loaded on use, the pane layout
+without its library, the history grid with the first result
+([Measured 2026-10-26](#measured-2026-10-26-the-route-and-its-form-under-150-kb-together)).
 The DOM, scrolling, preview and overhead
 figures of the result table are from the 2026-10-20 tree (commit `ef242b67`
 plus the verify stage's changes), the bundle figures from the tree after the
@@ -32,8 +37,8 @@ logs, without the large CDP traces) are committed under
 
 | budget | measured (final) | result |
 |---|---|---|
-| Initial JS ≤ 300 KB gzip | **188.2 KB** gzip (4 files; 162.9 KB brotli, as served; 2026-10-21). The default view before the first interaction (txt2img, measured) is reported with it: 531.2 KB = initial 188.2 + Generate route with its parameter form 197.5 + the exempt prompt editor 118.3 + the view's other lazy parts 27.3 ([Bundle](#1-bundle)) | pass |
-| No route chunk > 150 KB gzip, except justified lazy canvas / editor chunks | Counted as what each route or lazy entry adds on top of the initial JS (its whole static closure, not just its own chunk), **no exception**: the Generate route **90.8 KB** (before: 198.8 KB under a self-granted 210 KB exception, now removed), its parameter form a lazy entry of its own **140.6 KB**, settings 141.4, extras 132.7, networks 120.3, every other entry less; the editors (CodeMirror 119.0, canvas 111.7) are exempt; checked by `tools/check.sh` (`perf:bundle`), which fails the tree before the change, commit `e91c9c47` (198.8 > 150) | pass |
+| Initial JS ≤ 300 KB gzip | **188.2 KB** gzip (4 files; 163.0 KB brotli, as served; 2026-10-26). The default view's route and parameter form add **140.7 KB** on top (2026-10-21: 197.5 KB); the txt2img first view, i.e. the entries the measured view of 2026-10-21 fetched resolved in this build's graph (the same method gives the measured 531.2 KB for the build of that day): **474.1 KB** (initial, route and form, the exempt prompt editor 119 KB, the view's other lazy parts), img2img 572.0 KB (624.1); the browser measurement of this tree's first view is the verify stage's ([Bundle](#1-bundle)) | pass |
+| No route chunk > 150 KB gzip, except justified lazy canvas / editor chunks | Counted as what each route or lazy entry adds on top of the initial JS (its whole static closure, not just its own chunk), **no exception**, and the default route **together with the parameter form it fetches as it renders**: Generate route + form **140.7 KB** (route 61.7, form alone 103.1; before: 198.8 KB under a self-granted 210 KB exception, then 197.5 KB split in two), settings 113.4, extras 98.6, networks 98.2, every other entry less; the editors (CodeMirror 119.0, canvas 107.9) are exempt; checked by `tools/check.sh` (`perf:bundle`), which fails the trees of commits `e91c9c47` (198.8 > 150) and `511bba80` (route + form 197.5 > 150) | pass |
 | Generate view ≤ 3,000 DOM nodes, all built-in extensions loaded | **1,222** elements (1,549 DOM nodes incl. text, CDP `Nodes`) on txt2img, 1,292 / 1,662 on img2img; heaviest single section opened: 1,590 | pass |
 | INP p95 ≤ 50 ms typing a 300-token prompt, autocomplete on | verify stage (idle, this tree): p95 16 ms, INP 24 ms, max 32 ms (`final-real/load/`); **p95 24 ms** in all three earlier recorded runs (idle machine: max 40 ms, INP 24 ms; heavily loaded machine: max 152 ms, INP 24 ms). The 4× CPU-throttled margin check: p95 24 / 40 / 48 ms, max 56 / 88 / 144 ms, INP 24 / 48 / 56 ms (idle / review / loaded) | pass (unthrottled); the throttled margin shrinks under load |
 | 5,000 network cards scroll at 60 fps | headless **60.0 / 60.0 fps** (cold / warm pass), p95 frame 16.8 / 16.7 ms at 2,400 px/s over the whole list, **0 of 3,257** frames over 20 ms (verify stage, idle machine); headed (Google Chrome 155 on the real display, 144 Hz): **143 / 142 fps**, p95 8.4 ms, 3 and 10 of 3,257 frames over 20 ms, none with page work ([below](#verify-runs-of-2026-10-20-headless-and-headed)) | pass |
@@ -80,7 +85,7 @@ for that reason.
 | `tools/perf/fixtures.py create $PERF` | 5,000 LoRA files (valid metadata-only safetensors in 50 folders, each with a 96×128 PNG preview) and a `--data-dir` with 10,000 384×384 PNG outputs carrying an infotext; `remove` deletes everything (done after the runs) |
 | `tools/perf/fixtures.py prompt …/prompt300.txt` | the typing test's prompt: 103 common Danbooru general tags, exactly 300 CLIP tokens, 1,203 characters |
 | `tools/perf/serve_traced.py` | runs `launch.py` with probes added at import time (no server change): sampler step times, preview image assignment, preview frame publication, how many WebSocket clients each preview went to, every WebSocket connection, to a JSONL file (`time.time()`); a mute file makes the WebSocket hub act as if no client were connected; `REMI_PERF_WS_ONLY=HeadlessChrome` refuses WebSocket connections from other browsers (an open WebUI tab elsewhere reconnects to the port and would receive the previews too); `REMI_PERF_FAKE_SAMPLER=<blocks>` replaces the processing with a synthetic GPU sampler (no model: DiT-like blocks on MPS, about 3 s per step with 28 blocks, a live preview per step as the real callback makes it); `REMI_PERF_DIST` serves another SPA build |
-| `webui/tools/perf/bundle.mjs` | initial JS (scripts in `index.html` and their static imports) and what every lazy entry (route, dialog, widget, editor) adds on top of it, from the Vite manifest, gzip -6 and brotli -11; `--check` applies `budget.json` (limits, exempt editors, the recorded exception with its caps; `tools/check.sh` step `perf:bundle`), `--load` splits a measured page load into initial JS, default route, exempt editors and the rest (logic and tests: `budget.mjs`, `budget.test.mjs`) |
+| `webui/tools/perf/bundle.mjs` | initial JS (scripts in `index.html` and their static imports) and what every lazy entry (route, dialog, widget, editor) adds on top of it, from the Vite manifest, gzip -6 and brotli -11; `--check` applies `budget.json` (limits, exempt editors, the default route together with the lazy parts its first render fetches; recorded exceptions with their caps are supported, none is listed; `tools/check.sh` step `perf:bundle`), `--load` splits a measured page load into initial JS, default route, exempt editors and the rest (logic and tests: `budget.mjs`, `budget.test.mjs`) |
 | `webui/tools/perf/browser.mjs` | Playwright + CDP scenarios: `load`, `inp`, `networks`, `gallery` (with `longFrames`: what the renderer's main thread did in each frame over 20 ms), `gallery-wheel` (real mouse-wheel input on a fresh gallery while its later pages load; `--wheel-repeat`), `preview` (latency, frames drawn per step, the page's CPU per step, frames received / painted per image; `--batch-count`), `overhead`, `interleaved` (below; `paintedShare` checks that the page painted the previews it received; `--repeat N` pools the window pairs of N jobs, `--max-repeat M` adds jobs until the pooled bound settles the budget, `verdict`; `previewClients` and a warning when a preview went to more than the measuring page); `--headed` runs a visible browser; `--dist` names the build the server serves (the scripts' gzip sizes); `--inject-css` for A/B checks without a rebuild |
 | `tools/perf/startup.py` | starts old and new trees five times each per mode, alternating (after an unrecorded warm-up start each), and times them; proxies are removed from the environment; the readiness probe waits for a slow answer instead of retrying every 2 s (on a busy machine the old Gradio page takes seconds per request, and abandoned probes kept it from ever answering) |
 | `tools/perf/ws_interleave.py` | the `interleaved` measurement with a non-browser WebSocket client that receives and discards every frame (`--no-client`: none connected), against `serve_traced.py`'s trace and mute file; a diagnostic of the verify stage (below) |
@@ -191,6 +196,14 @@ fourth review called that self-granted and asked for the real 150 KB budget.
 Since 2026-10-21 `budget.json` has **no exception**: every route and lazy
 entry must stay at or under 150 KB, which the tree before this change (commit `e91c9c47`) fails
 (`bundle.mjs --check`: "src/pages/generate/index.tsx adds 198.8 KB > 150 KB").
+Since 2026-10-26 the check also holds the default route **together with the
+lazy parts its first render fetches** (`defaultRouteParts`: its parameter
+form) to the route budget, so splitting the route into parts that all load
+at once cannot pass it: the tree of commit `511bba80` (route 90.8 KB and form
+140.6 KB, each within 150 KB) fails it ("src/pages/generate/index.tsx with
+src/pages/generate/ParamsPane.tsx adds 197.5 KB > 150 KB"; test:
+`budget.test.mjs`, "checks the default route together with the lazy parts its
+first render fetches").
 
 The Generate page is now two lazily loaded parts
 (`webui/src/pages/generate/index.tsx`):
@@ -206,9 +219,11 @@ The Generate page is now two lazily loaded parts
   are in, as it already did while the schema loaded, so the frame of the page
   (panes, stage, history) no longer waits for the form's code.
 
-The split is a code-splitting boundary of the product, not a reduction of
-what the first visit downloads: route and form together add 197.5 KB on top
-of the initial JS (before: 198.8 KB). `bundle.mjs` reports that sum next to
+The split is a code-splitting boundary of the product, not by itself a
+reduction of what the first visit downloads: on 2026-10-21 route and form
+together added 197.5 KB on top of the initial JS (before: 198.8 KB). The
+reduction is the work of 2026-10-26 ([below](#measured-2026-10-26-the-route-and-its-form-under-150-kb-together)):
+together they add 140.7 KB. `bundle.mjs` reports that sum next to
 the route ("with the lazy parts its first render fetches", `defaultRouteParts`
 in `budget.json`) and counts the form in the route's share of the measured
 first view, so neither figure is hidden by the split. What the first view
@@ -226,7 +241,68 @@ are precompressed (brotli on the wire) and immutable-cached (`Cache-Control:
 immutable`, hashed names), so only the first load after an install or an
 update downloads them.
 
-### Measured (2026-10-21, after the fourth review)
+### Measured (2026-10-26): the route and its form under 150 KB together
+
+The split of 2026-10-21 left the first view as large as before (route and
+form 197.5 KB). What the default view loaded and did not need until the user
+acts was moved off its path, and one library was replaced:
+
+- **Popup controls load on use.** The selects (`components/ui/select.tsx`,
+  Base UI Select), the search selects (`components/SearchSelect.tsx`, Base
+  UI Combobox: sampler, checkpoint), the chips field of a multiple choice
+  (`ui/inputs/MultiChoice.tsx`: the styles) and the popovers
+  (`components/ui/popover.tsx`: aspect ratio, "Generate several times", model
+  settings) rendered their whole popup machinery (listbox, positioning, focus
+  management, typeahead) in the first view, closed. Each now renders a
+  stand-in of its closed state with the same markup and roles (a `combobox`
+  button with the selected label; the chips and the search field; the
+  popover trigger) and fetches the Base UI code (`select-impl.tsx`,
+  `SearchSelectImpl.tsx`, `ui/inputs/ChipsSelect.tsx`, `popover-impl.tsx`,
+  through `lib/lazy-module.ts`) when the pointer enters it or it gets focus.
+  A press or an opening key puts the real control in its place and opens it
+  the way a key press on its trigger does (its own focus handling, back to
+  the trigger on close), keyboard focus puts it there focused, typed text
+  and the caret carry over, and a stand-in is never replaced under a pointer
+  that is pressing it (the click would be lost). The popover keeps its own
+  trigger and anchors the loaded popup to it, as the dropdown menu has since
+  2026-10-20. Tests: `components/ui/select.test.tsx`,
+  `select.focus.test.tsx`, `SearchSelect.focus.test.tsx`,
+  `popover.test.tsx`, `ui/inputs/ChipsField.test.tsx`; the e2e suite (145
+  tests, mock mode) drives the real ones.
+- **The pane layout without its library.** `react-resizable-panels` (14.5 KB
+  of the first view) is replaced by `components/ui/resizable.tsx` (4 KB),
+  the subset of its API the app uses with the same semantics: sizes in
+  pixels or percent, collapsible panes with a panel ref, separators that
+  are focusable `separator`s moved by 5 % with the arrow keys (Home / End,
+  Enter collapses or expands, F6 to the next one), double-click to the
+  default size, and `useDefaultLayout` under the library's storage key and
+  format (kept layouts carry over). Tests: `components/ui/resizable.test.tsx`,
+  `pages/generate/page-layout.test.tsx`, e2e `layout.spec.ts`.
+- **The history grid with the first result.** The session history's grid
+  (TanStack Virtual, 9 KB) loads when the session has a result; an empty
+  session shows its empty state without it (`pages/generate/HistoryPane.tsx`,
+  test `HistoryPane.test.tsx`).
+
+`bundle.mjs --check` on the tree before (commit `511bba80`, built alike) and
+on this tree (raw: `perf-data/2026-10-26/review/bundle-*.json`):
+
+| | before (`511bba80`) | after | budget |
+|---|---|---|---|
+| Initial JS | 188.2 KB | **188.2 KB** | 300 KB |
+| Generate route + parameter form, added on top | 197.5 KB (route 90.8 + form 140.6, overlapping) | **140.7 KB** (route 61.7, form alone 103.1) | 150 KB, together |
+| Settings, extras, networks page, networks drawer | 141.4, 132.7, 120.3, 121.4 KB | 113.4, 98.6, 98.2, 99.3 KB | 150 KB |
+| Queue, gallery, extension pages, extensions | 90.6, 92.5, 108.5, 70.1 KB | 76.8, 63.7, 74.3, 56.1 KB | 150 KB |
+| `bundle.mjs --check` (route and form together) | fails (197.5 > 150) | **passes** | |
+| txt2img / img2img first view, the entries the measured view fetched resolved in each build | 143 scripts, 531.2 KB / 167 scripts, 624.1 KB (as measured) | 135 scripts, **474.1 KB** / 161 scripts, **572.0 KB** | |
+
+The first-view figures resolve the lazy entries the browser fetched on
+2026-10-21 (`browser-load-after-run1.json`: the route, its form, the prompt
+editor, the model bar, ...) with their static imports in a build's manifest;
+for the build of 2026-10-21 this gives exactly the measured 531.2 / 624.1 KB.
+A browser measurement of this tree's first view (`browser.mjs --only load`,
+real server) is the verify stage's.
+
+### Measured (2026-10-21, after the fourth review; superseded)
 
 `bundle.mjs` on the tree before the change (`git archive` of commit
 `e91c9c47`, built alike) and on this tree; the first views measured by `browser.mjs --only load`
@@ -1262,6 +1338,7 @@ results):
 | `2026-10-20/third-review/` | after the third review: `bundle-before.json` / `bundle-after.json` (`bundle.mjs`; the after report includes the measured first-view split), `browser-load-before.json` / `browser-load-after.json` (`load` scenario, the same server without a model, headless Chromium, load average 9-20) |
 | `2026-10-21/verify/` | the verify stage after the third review (commit `9b8682e5`, loaded machine): `startup.json` / `startup.log` (offline, both trees), `browser-load.json` and `bundle.json` (`bundle.mjs --check --load`), `il512-loaded/` (the adaptive interleaved run, its `step-segments.json`, `run.log` and the server trace) |
 | `2026-10-21/fourth-review/` | after the fourth review (real server without a model, the fixtures, headless Chromium, load average 7–17): `bundle-before.json` / `bundle-after.json` (`bundle.mjs --check --load`; before: a `git archive` of commit `e91c9c47` built alike), `browser-load-before-run1/2.json`, `browser-load-after-run1/2.json` (first views, alternating), `wheel-before-run1/2.json` (`gallery-wheel` on a build with the gallery grid of `e91c9c47`), `wheel-first-version-run1/2.json`, `gallery-before-run3.json` (`e91c9c47`) and `gallery-after-run1/2.json` (`gallery` and `gallery-wheel`) |
+| `2026-10-26/review/` | `bundle-before.json` (commit `511bba80`: the Generate route split from its form, together 197.5 KB) / `bundle-after.json` (`bundle.mjs --json`; route and form together 140.7 KB) |
 | `2026-10-19/` | the reruns of this revision: `fx-out/` (load, INP, INP at 4× throttling, scrolling, under load), `preview-ab/` (the before / after runs of the per-step cost, synthetic sampler), `interleaved-synthetic/` (the synthetic interleaved run), `startup.json` / `startup.log` (startup under load), `preview-trace/` (a compressed CDP trace of the final build during a job) |
 
 ## Caveats

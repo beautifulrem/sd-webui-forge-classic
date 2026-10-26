@@ -406,7 +406,8 @@ header slot, and each mode has its own form store and schema (the other
 mode's schema is prefetched).
 
 - **Layout**: desktop ≥ 72 rem: three resizable, collapsible panes
-  (parameters | stage | history; `react-resizable-panels`, sizes persisted);
+  (parameters | stage | history; `components/ui/resizable.tsx`, the subset of
+  react-resizable-panels' API the app uses, sizes persisted under its key);
   48–72 rem: parameters | stage with a history strip; phones: stage and
   history strip first, then the parameters with the run controls stuck to
   the bottom (and the stacked model bar). The run controls are sticky at the
@@ -1171,8 +1172,10 @@ Budget (scorecard dimension 5, `webui/tools/perf/budget.json`, checked by
 [docs/research/ui-performance.md](../research/ui-performance.md#1-bundle)):
 initial JS ≤ 300 KB gzip; every route and every other lazy entry ≤ 150 KB
 on top of it, counted with all its static imports; the editor chunks
-(canvas editor, CodeMirror prompt editor) exempt; the default Generate route
-a recorded exception with its own caps. The build groups everything the
+(canvas editor, CodeMirror prompt editor) exempt; no exception: the default
+Generate route together with its parameter form (a lazy part it fetches as
+it renders, `defaultRouteParts` in `webui/tools/perf/budget.json`) is held
+to the same 150 KB. The build groups everything the
 first paint needs into `react`, `vendor` (other node_modules) and `shell`
 chunks (`codeSplitting` groups with the `$initial` tag in
 `vite.config.ts`); everything else is lazy: pages, the prompt editor, the
@@ -1180,10 +1183,22 @@ command palette, the model picker, widgets, locale catalogs.
 
 Keeping a first view small:
 
-- Menus: `@/components/ui/dropdown-menu` renders its trigger itself and
-  loads the Base UI menu (`dropdown-menu-impl.tsx`) on hover, focus or open.
-  Code that builds on `Menu.Root` directly imports its parts from
-  `dropdown-menu-impl`.
+- Menus and popovers: `@/components/ui/dropdown-menu` and
+  `@/components/ui/popover` render their trigger themselves and load the
+  Base UI menu / popover (`dropdown-menu-impl.tsx`, `popover-impl.tsx`) on
+  hover, focus or open. Code that builds on `Menu.Root` directly imports its
+  parts from `dropdown-menu-impl`.
+- Selects: `@/components/ui/select`, `@/components/SearchSelect` and the
+  chips field of a multiple choice (`ui/inputs/MultiChoice.tsx`) render a
+  stand-in of their closed state (same markup and roles) until used; hover
+  or focus fetches the Base UI code (`select-impl.tsx`,
+  `SearchSelectImpl.tsx`, `ui/inputs/ChipsSelect.tsx`, through
+  `lib/lazy-module.ts`), a press or an opening key puts the real control in
+  place opened, keyboard focus puts it there focused (typed text and the
+  caret carry over); a stand-in is never replaced under a pressing pointer.
+- The history grid (`features/gallery/HistoryGrid.tsx`, TanStack Virtual)
+  loads with the session's first result; an empty session shows
+  `HistoryEmpty`.
 - Form views most first views do not show (image, file, color, JSON, tabs,
   outputs) are deferred in `ui/lazy-views.tsx`; a test that renders them
   synchronously calls `preloadViews()` first.

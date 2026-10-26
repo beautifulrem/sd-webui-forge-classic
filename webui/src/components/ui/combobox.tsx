@@ -12,6 +12,7 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group"
 import { CheckIcon, ChevronDownIcon, XIcon } from "lucide-react"
+import { COMBOBOX_CHIP_CLASS, COMBOBOX_CHIP_REMOVE_CLASS, COMBOBOX_CHIPS_CLASS, COMBOBOX_CHIPS_INPUT_CLASS } from "./combobox-styles"
 
 const Combobox = ComboboxPrimitive.Root
 
@@ -230,7 +231,7 @@ function ComboboxChips({
     <ComboboxPrimitive.Chips
       data-slot="combobox-chips"
       className={cn(
-        "flex min-h-8 flex-wrap items-center gap-1 rounded-lg border border-input bg-transparent bg-clip-padding px-2.5 py-1 text-sm transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 has-aria-invalid:border-destructive has-aria-invalid:ring-3 has-aria-invalid:ring-destructive/20 has-data-[slot=combobox-chip]:px-1 dark:bg-input/30 dark:has-aria-invalid:border-destructive/50 dark:has-aria-invalid:ring-destructive/40",
+        COMBOBOX_CHIPS_CLASS,
         className
       )}
       {...props}
@@ -250,7 +251,7 @@ function ComboboxChip({
     <ComboboxPrimitive.Chip
       data-slot="combobox-chip"
       className={cn(
-        "flex h-[calc(--spacing(5.25))] w-fit items-center justify-center gap-1 rounded-sm bg-muted px-1.5 text-xs font-medium whitespace-nowrap text-foreground has-disabled:pointer-events-none has-disabled:cursor-not-allowed has-disabled:opacity-50 has-data-[slot=combobox-chip-remove]:pr-0",
+        COMBOBOX_CHIP_CLASS,
         className
       )}
       {...props}
@@ -259,7 +260,7 @@ function ComboboxChip({
       {showRemove && (
         <ComboboxPrimitive.ChipRemove
           render={<Button variant="ghost" size="icon-xs" />}
-          className="-ml-1 opacity-50 hover:opacity-100"
+          className={COMBOBOX_CHIP_REMOVE_CLASS}
           data-slot="combobox-chip-remove"
         >
           <XIcon
@@ -278,7 +279,7 @@ function ComboboxChipsInput({
   return (
     <ComboboxPrimitive.Input
       data-slot="combobox-chip-input"
-      className={cn("min-w-16 flex-1 outline-none", className)}
+      className={cn(COMBOBOX_CHIPS_INPUT_CLASS, className)}
       {...props}
     />
   )

@@ -8,7 +8,7 @@
  "defaultRouteParts": [
   "src/pages/generate/ParamsPane.tsx"
  ],
- "$defaultRouteParts": "Lazy entries the default route fetches as it renders (its parameter form, a lazy boundary of its own): reported with the route (bundle.mjs: 'with the lazy parts', and the measured first view), checked like any lazy entry.",
+ "$defaultRouteParts": "Lazy entries the default route fetches as it renders (its parameter form, a lazy boundary of its own): checked like any lazy entry and, together with the route, against routeKB (bundle.mjs --check: the split must not hide the route's size); reported with the route and counted in the route's share of the measured first view.",
  "exempt": {
   "src/canvas/ui/Editor.tsx": "the canvas editor (Konva and the editor UI): an editor chunk, loaded when an image editor opens (img2img preloads it)",
   "src/features/prompt-editor/PromptEditor.tsx": "the prompt editor (CodeMirror): an editor chunk, loaded by the prompt fields",

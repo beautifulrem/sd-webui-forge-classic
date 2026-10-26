@@ -76,13 +76,13 @@ export function ItemMenu({
             <DropdownMenuItem onClick={run("metadata")}>
               <Info aria-hidden />
               {t("Metadata")}
-              <kbd className="ml-auto text-xs text-muted-foreground">I</kbd>
+              <kbd className="ml-auto text-xs text-muted-foreground touch-only:hidden">I</kbd>
             </DropdownMenuItem>
             {editable && (kind?.fields.length ?? 0) > 0 ? (
               <DropdownMenuItem onClick={run("edit")}>
                 <Pencil aria-hidden />
                 {t("Edit metadata")}
-                <kbd className="ml-auto text-xs text-muted-foreground">E</kbd>
+                <kbd className="ml-auto text-xs text-muted-foreground touch-only:hidden">E</kbd>
               </DropdownMenuItem>
             ) : null}
             {editable ? (
