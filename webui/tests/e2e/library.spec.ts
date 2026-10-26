@@ -1,5 +1,6 @@
 /** Gallery, PNG Info and the Queue against the mock backend. */
 import { expect, type Page, test } from "@playwright/test"
+import { injectFaults } from "./helpers"
 
 async function openGallery(page: Page) {
   await page.goto("/#/gallery")
@@ -9,6 +10,14 @@ async function openGallery(page: Page) {
 }
 
 test.describe("gallery", () => {
+  test("a failing server shows the error, and the toolbar stops saying Loading…", async ({ page }) => {
+    await injectFaults(page, [{ path: "^/gallery(/facets)?$", status: 500 }])
+    await page.goto("/#/gallery")
+    await expect(page.getByText("Gallery unavailable")).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole("main").getByText("Loading…")).toHaveCount(0)
+    await expect(page.getByRole("main").locator("[aria-busy=true]")).toHaveCount(0)
+  })
+
   test("filters by search and opens the viewer with the parameters beside the image", async ({ page }) => {
     const grid = await openGallery(page)
     await page.getByRole("searchbox", { name: "Search the gallery" }).fill("lighthouse")

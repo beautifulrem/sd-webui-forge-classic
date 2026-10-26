@@ -7,7 +7,7 @@
  "LoRA depth": "LoRA 层数",
  "{{size}} blocks": "{{size}} 层",
  "Inserted copies are marked; a 28-block LoRA applies each weight to its copies too.": "已标出插入的复制层；28 层 LoRA 的每个权重也作用于其复制层。",
- "Block {{index}}": "Block {{index}}",
+ "Block {{index}}": "块 {{index}}",
  "Layer {{index}}": "第 {{index}} 层",
  "All others": "其余全部",
  "{{band}} ({{start}}-{{end}})": "{{band}}（{{start}}-{{end}}）",

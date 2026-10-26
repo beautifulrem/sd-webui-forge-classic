@@ -3,7 +3,9 @@
  * and restarts, see `run-machine.ts`), Ctrl/Cmd+Shift+Enter adds the form to
  * the queue (the Agent Scheduler's "Enqueue" shortcut), Alt+Enter skips,
  * Escape interrupts unless it belongs to something else (a text field,
- * popup, dialog, menu).
+ * popup, dialog, menu). In a prompt editor Escape interrupts as in A1111
+ * once the editor has no use for it: CodeMirror consumes (preventDefault)
+ * the Escape that closes a completion list or drops a selection.
  */
 import { useEffect, useRef } from "react"
 import { enqueueForm } from "@/features/queue/edit-session"
@@ -12,6 +14,9 @@ import { isBusy } from "@/features/progress/run-machine"
 
 const TEXT_TARGETS = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], .cm-editor'
 const OWN_ESCAPE = '[role="dialog"], [role="alertdialog"], [role="menu"], [data-slot$="-content"]'
+/** The text of a prompt editor (not a decorator's own fields around it). */
+const PROMPT_TEXT = '[data-slot="prompt-editor"] .cm-editor'
+const IN_OVERLAY = '[role="dialog"], [role="alertdialog"], [role="menu"]'
 const OPEN_POPUP = '[data-open]:is([role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-side])'
 const OPEN_MODAL = '[data-open]:is([role="dialog"], [role="alertdialog"])'
 
@@ -22,7 +27,10 @@ const modalOpen = () => document.querySelector(OPEN_MODAL) !== null
 export function escapeIsFree(event: KeyboardEvent): boolean {
   if (event.defaultPrevented || event.isComposing) return false
   const target = event.target instanceof Element ? event.target : null
-  if (target?.closest(TEXT_TARGETS) || target?.closest(OWN_ESCAPE)) return false
+  if (target?.closest(PROMPT_TEXT)) {
+    // A prompt editor in a dialog (style editor) leaves Escape to the dialog.
+    if (target.closest(IN_OVERLAY)) return false
+  } else if (target?.closest(TEXT_TARGETS) || target?.closest(OWN_ESCAPE)) return false
   return document.querySelector(OPEN_POPUP) === null
 }
 

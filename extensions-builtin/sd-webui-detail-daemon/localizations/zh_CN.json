@@ -17,5 +17,15 @@
   "Exponent": "指数",
   "Fade": "淡化",
   "Daemon count": "Daemon 数量",
-  "Verbose": "详细日志"
+  "Verbose": "详细日志",
+  "[Detail Daemon] Mode": "[Detail Daemon] 模式",
+  "[Detail Daemon] Amount": "[Detail Daemon] 数量",
+  "[Detail Daemon] Start": "[Detail Daemon] 起始",
+  "[Detail Daemon] End": "[Detail Daemon] 结束",
+  "[Detail Daemon] Bias": "[Detail Daemon] 偏向",
+  "[Detail Daemon] Exponent": "[Detail Daemon] 指数",
+  "[Detail Daemon] Start Offset": "[Detail Daemon] 起始偏移",
+  "[Detail Daemon] End Offset": "[Detail Daemon] 结束偏移",
+  "[Detail Daemon] Fade": "[Detail Daemon] 淡化",
+  "[Detail Daemon] Smooth": "[Detail Daemon] 平滑"
 }

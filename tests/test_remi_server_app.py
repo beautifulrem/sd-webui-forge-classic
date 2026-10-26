@@ -1,6 +1,7 @@
 """Routes of the Remi server: bootstrap, schemas, actions, options, infotext,
 i18n, models, styles, the SPA and the OpenAPI export."""
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -229,6 +230,62 @@ def test_models(server, monkeypatch):
     data = server.client.get("/api/v2/models").json()
     assert {"checkpoints", "modules", "samplers", "schedulers", "upscalers", "styles", "unet_dtypes", "presets"} <= set(data)
     assert data["samplers"] and data["schedulers"] and "sd" in data["presets"]
+
+
+@pytest.mark.parametrize("route", ["/api/v2/models/refresh", "/api/v2/networks/refresh"])
+def test_refresh_picks_up_an_upscaler_added_while_running(server, webui, monkeypatch, tmp_path, route):
+    """A model dropped in the ESRGAN folder is a Hires. fix and Extras choice
+    (schema and job validation) after a refresh, without a restart."""
+
+    from modules import modelloader, shared
+    from remi.server import runtime
+
+    folder = tmp_path / "ESRGAN"
+    folder.mkdir()
+    monkeypatch.setattr(shared.cmd_opts, "esrgan_models_path", str(folder))
+    # only the upscalers matter here: the checkpoint and module scans are other tests'
+    monkeypatch.setattr(runtime, "_main_entry", lambda: type("M", (), {"refresh_models": lambda self: None})())
+    monkeypatch.setattr(shared, "refresh_checkpoints", lambda: None)
+    monkeypatch.setattr(shared, "sd_upscalers", list(shared.sd_upscalers))  # restored after the test
+    modelloader.load_upscalers()
+    spec = importlib.util.spec_from_file_location("postprocessing_upscale_under_test", ROOT / "scripts" / "postprocessing_upscale.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    operation = module.ScriptPostprocessingUpscale()
+    operation.filename = "postprocessing_upscale.py"
+    monkeypatch.setattr(webui.postproc, "scripts", [*webui.postproc.scripts, operation])
+
+    def choices(tab: str, name: str) -> list[str]:
+        nodes = [server.client.get(f"/api/v2/schema/{tab}").json()]
+        while nodes:
+            node = nodes.pop()
+            if isinstance(node, dict):
+                if node.get("name") == name and "choices" in node:
+                    return [choice["value"] if isinstance(choice, dict) else choice for choice in node["choices"]]
+                nodes.extend(node.values())
+            elif isinstance(node, list):
+                nodes.extend(node)
+        raise AssertionError(f"{name} not in the {tab} schema")
+
+    def job(upscaler: str) -> int:
+        core = {"prompt": "a cat", "enable_hr": True, "hr_upscaler": upscaler}
+        return server.client.post("/api/v2/jobs", json={"tab": "txt2img", "core": core, "scripts": {}}).status_code
+
+    assert "RealESRGAN_x4plus_anime_6B" not in choices("txt2img", "hr_upscaler")
+    assert job("RealESRGAN_x4plus_anime_6B") == 422
+
+    (folder / "RealESRGAN_x4plus_anime_6B.pth").write_bytes(b"")
+    events = []
+    server.services.bus.subscribe(type("R", (), {"send_event": lambda self, e: events.append(e), "send_frame": lambda self, f: None})())
+    assert server.client.post(route).json()["ok"] is True
+
+    assert "RealESRGAN_x4plus_anime_6B" in choices("txt2img", "hr_upscaler")
+    assert "RealESRGAN_x4plus_anime_6B" in choices("extras", "upscaler_1_name")
+    assert "RealESRGAN_x4plus_anime_6B" in choices("extras", "upscaler_2_name")
+    assert {"name": "RealESRGAN_x4plus_anime_6B"} in server.client.get("/api/v2/models").json()["upscalers"]
+    assert job("RealESRGAN_x4plus_anime_6B") in (200, 201, 202)
+    # clients refetch the tab schemas (and with them the choices) on options.changed
+    assert any(event["type"] == "options.changed" and "upscalers" in event["keys"] for event in events)
 
 
 def test_styles_crud(server, webui, tmp_path, monkeypatch):

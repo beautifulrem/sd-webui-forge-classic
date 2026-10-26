@@ -26,9 +26,24 @@ describe("useWs", () => {
     expect(socket.url).toMatch(/^ws:\/\/.+\/api\/v2\/ws$/)
     socket.open()
     expect(useWs.getState().status).toBe("open")
-    expect(JSON.parse(socket.sent[0]!)).toEqual({ type: "hello", features: [...CLIENT_FEATURES] })
+    expect(JSON.parse(socket.sent[0]!)).toEqual({ type: "hello", features: [...CLIENT_FEATURES], visible: true })
     socket.receive(JSON.stringify({ type: "hello", features: ["jobs", "preview.binary"] }))
     expect(useWs.getState().serverFeatures).toEqual(["jobs", "preview.binary"])
+    useWs.getState().disconnect()
+  })
+
+  it("tells the server when the page is hidden or shown (no previews for a hidden page)", async () => {
+    const { useWs, socket } = await setup()
+    socket.open()
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden")
+    document.dispatchEvent(new Event("visibilitychange"))
+    visibility.mockReturnValue("visible")
+    document.dispatchEvent(new Event("visibilitychange"))
+    const sent = socket.sent.map((text) => JSON.parse(text) as { type: string; visible?: boolean }).filter((message) => message.type === "visibility")
+    expect(sent).toEqual([
+      { type: "visibility", visible: false },
+      { type: "visibility", visible: true },
+    ])
     useWs.getState().disconnect()
   })
 

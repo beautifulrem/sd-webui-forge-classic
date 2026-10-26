@@ -195,23 +195,50 @@ class _Loop(threading.Thread):
 
 
 class ProgressMonitor(_Loop):
-    """Publishes ``job.progress`` whenever the running job's counters change."""
+    """Publishes ``job.progress`` whenever the running job's counters change.
+
+    The thread polls every ``interval``; :meth:`publish_now` publishes at once
+    (the preview encoder calls it just before a frame goes out, so a step's
+    progress and preview reach the hub together, see :class:`PreviewEncoder`)."""
 
     def __init__(self, bus: EventBus, current_job: CurrentJob, *, interval: float = 0.2, state: Callable[[], Any] = _shared_state, on_tick: Callable[[], None] | None = None) -> None:
         super().__init__("remi-progress")
         self.bus, self.current_job, self.interval, self.state, self.on_tick = bus, current_job, interval, state, on_tick
+        self._lock = threading.Lock()
+        """held while the progress is compared and published (by this thread or :meth:`publish_now`)"""
+        self._last: Any = None
 
     def run(self) -> None:
-        last = None
         while not self.wait(self.interval):
             try:
-                last = self.tick(last)
+                if self.on_tick is not None:
+                    self.on_tick()
+                with self._lock:
+                    self._last = self._publish(self._last)
             except Exception:
                 log.exception("progress monitor")
+
+    def publish_now(self) -> None:
+        """Publishes the running job's progress now if it changed (any thread; never
+        blocks: while this thread is publishing, it does it). The next poll finds
+        nothing new, so the hub's event loop wakes once for the step instead of
+        twice."""
+
+        if not self._lock.acquire(blocking=False):
+            return
+        try:
+            self._last = self._publish(self._last)
+        except Exception:
+            log.exception("progress monitor")
+        finally:
+            self._lock.release()
 
     def tick(self, last: Any) -> Any:
         if self.on_tick is not None:
             self.on_tick()
+        return self._publish(last)
+
+    def _publish(self, last: Any) -> Any:
         ref = self.current_job()
         if ref is None:
             return None
@@ -259,11 +286,18 @@ class PreviewEncoder(_Loop):
     GIL over and wait for this thread to be scheduled, which costs much more
     when the machine is busy. Larger previews, and newer ones assigned
     during a throttle wait, wake the thread, which encodes the newest one
-    after the wait. A state without that hook is polled every interval."""
+    after the wait. A state without that hook is polled every interval.
 
-    def __init__(self, bus: EventBus, current_job: CurrentJob, *, state: Callable[[], Any] = _shared_state, opts: Callable[[], Any] = _shared_opts) -> None:
+    ``before_frame`` runs just before each frame is published (the server
+    passes :meth:`ProgressMonitor.publish_now`): the step's ``job.progress``
+    goes to the hub right before its preview, in the same wake-up of the
+    hub's event loop. Each wake-up makes the sampler hand the GIL to the loop
+    thread and wait for it to be scheduled; with the progress polled
+    separately a served step cost two of them, a step nobody watches one."""
+
+    def __init__(self, bus: EventBus, current_job: CurrentJob, *, state: Callable[[], Any] = _shared_state, opts: Callable[[], Any] = _shared_opts, before_frame: Callable[[], None] | None = None) -> None:
         super().__init__("remi-preview")
-        self.bus, self.current_job, self.state, self.opts = bus, current_job, state, opts
+        self.bus, self.current_job, self.state, self.opts, self.before_frame = bus, current_job, state, opts, before_frame
         self._wake = threading.Event()
         self._listening: list[Callable[[], None]] | None = None
         self._lock = threading.Lock()
@@ -367,5 +401,10 @@ class PreviewEncoder(_Loop):
         fmt = preview_format(opts)
         data = encode_preview(image, fmt)
         step = int(state.current_image_sampling_step or state.sampling_step or 0)
+        if self.before_frame is not None:
+            try:
+                self.before_frame()
+            except Exception:
+                log.exception("preview encoder: before_frame")
         self.bus.publish_frame(PreviewFrame(fmt, ref.seq, step, data))
         return key

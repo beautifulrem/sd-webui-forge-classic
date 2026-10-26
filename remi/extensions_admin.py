@@ -844,11 +844,14 @@ def _state(state_id: str) -> dict[str, Any]:
 
 
 def _repo_entry(entry: dict[str, Any]) -> dict[str, Any]:
-    remote = entry.get("remote")
-    commit = entry.get("commit_hash")
+    # Saved states record "" where git info is missing (built-ins outside a
+    # checkout) while the live extension reports None: normalise both to None
+    # so a fresh backup compares equal to the current state.
+    remote = entry.get("remote") or None
+    commit = entry.get("commit_hash") or None
     return {
         "remote": display_remote(remote),
-        "branch": entry.get("branch"),
+        "branch": entry.get("branch") or None,
         "commit_hash": commit,
         "commit_url": commit_url(remote, commit),
         "commit_date": iso(entry.get("commit_date")),
@@ -858,7 +861,7 @@ def _repo_entry(entry: dict[str, Any]) -> dict[str, Any]:
 def _current_entry(ext: Any) -> dict[str, Any]:
     if not ext.have_info_from_repo:
         ext.read_info_from_repo()
-    return {**_repo_entry({"remote": ext.remote, "branch": ext.branch, "commit_hash": ext.commit_hash or None, "commit_date": ext.commit_date}), "enabled": bool(ext.enabled)}
+    return {**_repo_entry({"remote": ext.remote, "branch": ext.branch, "commit_hash": ext.commit_hash, "commit_date": ext.commit_date}), "enabled": bool(ext.enabled)}
 
 
 def config_state_detail(state_id: str) -> dict[str, Any]:

@@ -16,7 +16,7 @@
  "Switching gain = alpha x mean absolute conditional residual.": "切换增益 = alpha × 条件残差的平均绝对值。",
  "SMC surface lambda": "SMC 滑模面 lambda",
  "CFG-Zero* zero-init steps": "CFG-Zero* 零初始化步数",
- "Used only by CFG-Zero*. The first N sampler steps output zero velocity (the latent is left unchanged) when the pass starts from pure noise; hires and img2img passes are not zeroed. 0 keeps only the optimized scale.": "仅用于 CFG-Zero*。当该轮从纯噪声开始时，前 N 个采样步输出零速度（潜空间保持不变）；高清修复与图生图轮次不会被置零。0 表示只保留优化后的缩放。",
+ "Used only by CFG-Zero*. The first N sampler steps output zero velocity (the latent is left unchanged) when the pass starts from pure noise; hires and img2img passes are not zeroed. 0 keeps only the optimized scale.": "仅用于 CFG-Zero*。当该轮从纯噪声开始时，前 N 个采样步输出零速度（潜空间保持不变）；高分辨率修复与图生图轮次不会被置零。0 表示只保留优化后的缩放。",
  "APG eta": "APG eta",
  "Used only by APG. Weight of the guidance part parallel to the prediction (the oversaturating part); 1 keeps it like CFG.": "仅用于 APG。与预测平行的引导分量（导致过饱和的部分）的权重；1 表示与 CFG 相同。",
  "APG norm threshold": "APG 范数阈值",

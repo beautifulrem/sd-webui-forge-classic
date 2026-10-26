@@ -1,7 +1,7 @@
 // Browser measurements against a running WebUI (docs/research/ui-performance.md).
 //
 //   node tools/perf/browser.mjs --base http://127.0.0.1:7861 --out /tmp/remi-perf-out \
-//     [--only load,inp,networks,gallery,preview,overhead] [--trace /tmp/remi-perf-trace.jsonl] \
+//     [--only load,inp,networks,gallery,gallery-wheel,preview,overhead] [--trace /tmp/remi-perf-trace.jsonl] \
 //     [--prompt prompt300.txt] [--steps 24] [--size 768x768] [--jobs 4] [--pairs 6] [--gap 20]
 //     [--headed] [--channel chrome] [--cpu-throttle 4] [--window 15] [--batch-count 1] [--repeat 1]
 //     [--max-repeat <jobs; adaptive>] [--target-upper95 1] [--mute /tmp/remi-perf-mute] [--save-trace]
@@ -15,6 +15,8 @@
 //   reporting threshold count as 16 ms);
 // - networks / gallery: scrolls the virtualized grid from top to bottom at a fixed speed in a
 //   rAF loop and records every frame interval, plus a CDP trace of the run;
+// - gallery-wheel: real mouse-wheel input on a fresh gallery page while its later pages are
+//   still loading (cold: nothing cached), at a fast flick and a steady pace;
 // - preview: generates through the UI (infotext pasted, Generate clicked) and timestamps every
 //   preview frame when the socket receives it and when its <img> is painted (wall clock, see
 //   the clock check), joined with the server's trace (tools/perf/serve_traced.py);
@@ -365,34 +367,19 @@ function longFrames(traceEvents, frames, limitMs = 20) {
   return out
 }
 
-async function scrollRun(page, cdp, scroller, pxPerFrame, label) {
+/**
+ * Traces `drive` (which records rAF times on the page and resolves with `{ times, anchor,
+ * scrollHeight, ... }`) and summarises its frames: fps, intervals, frames over 20 / 33 ms, the
+ * compositor's presented / dropped frames and what the main thread did in the long ones.
+ */
+async function tracedFrames(cdp, label, drive) {
   const tracePath = path.join(OUT, `trace-${label}.json`)
   const chunks = []
   cdp.on("Tracing.dataCollected", ({ value }) => chunks.push(...value))
   const done = new Promise((resolve) => cdp.once("Tracing.tracingComplete", resolve))
   await cdp.send("Tracing.start", { traceConfig: { includedCategories: TRACE_CATEGORIES }, transferMode: "ReportEvents" })
   const before = await metrics(cdp)
-  const frames = await page.evaluate(
-    ([selector, step]) =>
-      new Promise((resolve) => {
-        const el = document.querySelector(selector)
-        el.scrollTop = 0
-        const times = []
-        const start = performance.now()
-        // puts the rAF times on the trace's clock (longFrames)
-        const anchor = performance.now()
-        console.timeStamp("perf-anchor")
-        const tick = (ts) => {
-          times.push(ts)
-          el.scrollTop += step
-          const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 2
-          if (atEnd || ts - start > 100_000) resolve({ times, anchor, scrollHeight: el.scrollHeight, rendered: el.querySelectorAll("img").length })
-          else requestAnimationFrame(tick)
-        }
-        requestAnimationFrame(tick)
-      }),
-    [scroller, pxPerFrame],
-  )
+  const frames = await drive()
   const after = await metrics(cdp)
   await cdp.send("Tracing.end")
   await done
@@ -405,8 +392,7 @@ async function scrollRun(page, cdp, scroller, pxPerFrame, label) {
     const reporter = e.name === "PipelineReporter" && e.ph === "b" ? (e.args?.frame_reporter ?? e.args?.chrome_frame_reporter) : null
     if (reporter) states[reporter.state] = (states[reporter.state] ?? 0) + 1
   }
-  const out = {
-    pxPerFrame,
+  return {
     frames: frames.times.length,
     seconds: round(elapsed, 2),
     fps: round((frames.times.length - 1) / elapsed),
@@ -422,7 +408,91 @@ async function scrollRun(page, cdp, scroller, pxPerFrame, label) {
     longFrames: longFrames(chunks, frames),
     trace: tracePath,
   }
-  log(`  ${label} @${pxPerFrame}px/frame: ${out.fps} fps over ${out.seconds}s, p95 ${out.interval.p95} ms, >20ms ${out.over20ms}/${intervals.length}, pipeline ${JSON.stringify(states)}; long frames with page work ${out.longFrames.pageWork}, without ${out.longFrames.noPageWork}`)
+}
+
+function logRun(label, speed, out) {
+  log(`  ${label} @${speed}: ${out.fps} fps over ${out.seconds}s, p95 ${out.interval.p95} ms, >20ms ${out.over20ms}/${out.frames - 1}, pipeline ${JSON.stringify(out.pipeline)}; long frames with page work ${out.longFrames.pageWork}, without ${out.longFrames.noPageWork}`)
+}
+
+async function scrollRun(page, cdp, scroller, pxPerFrame, label) {
+  const out = {
+    pxPerFrame,
+    ...(await tracedFrames(cdp, label, () =>
+      page.evaluate(
+        ([selector, step]) =>
+          new Promise((resolve) => {
+            const el = document.querySelector(selector)
+            el.scrollTop = 0
+            const times = []
+            const start = performance.now()
+            // puts the rAF times on the trace's clock (longFrames)
+            const anchor = performance.now()
+            console.timeStamp("perf-anchor")
+            const tick = (ts) => {
+              times.push(ts)
+              el.scrollTop += step
+              const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 2
+              if (atEnd || ts - start > 100_000) resolve({ times, anchor, scrollHeight: el.scrollHeight, rendered: el.querySelectorAll("img").length })
+              else requestAnimationFrame(tick)
+            }
+            requestAnimationFrame(tick)
+          }),
+        [scroller, pxPerFrame],
+      ),
+    )),
+  }
+  logRun(label, `${pxPerFrame}px/frame`, out)
+  return out
+}
+
+/**
+ * Real mouse-wheel input (`page.mouse.wheel`, `px` every `everyMs`) on the scroller from the top,
+ * straight after the page opened: the later pages load while the wheel scrolls (the gallery
+ * fetches ahead as its end approaches). Records every animation frame until the end of the list
+ * is reached with nothing more to load, or `maxSeconds`.
+ */
+async function wheelRun(page, cdp, scroller, px, everyMs, label, maxSeconds = 60) {
+  const box = await page.locator(scroller).boundingBox()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  const out = {
+    wheel: { px, everyMs, pxPerSecond: round((px * 1000) / everyMs) },
+    ...(await tracedFrames(cdp, label, async () => {
+      await page.evaluate(() => {
+        const rec = (window.__wheelFrames = { times: [], stop: false })
+        rec.anchor = performance.now()
+        console.timeStamp("perf-anchor")
+        const tick = (ts) => {
+          rec.times.push(ts)
+          if (!rec.stop) requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      })
+      const start = Date.now()
+      let events = 0
+      let stalled = 0
+      let lastTop = -1
+      for (;;) {
+        await page.mouse.wheel(0, px)
+        events++
+        await new Promise((resolve) => setTimeout(resolve, everyMs))
+        if (events % 15 !== 0) continue
+        const at = await page.evaluate((selector) => {
+          const el = document.querySelector(selector)
+          return { top: el.scrollTop, end: el.scrollTop + el.clientHeight >= el.scrollHeight - 2, busy: Boolean(el.querySelector("[aria-busy=true]")) }
+        }, scroller)
+        // at the end with no page in flight for a while: everything is loaded
+        stalled = at.end && !at.busy && at.top === lastTop ? stalled + 1 : 0
+        lastTop = at.top
+        if (stalled >= 3 || Date.now() - start > maxSeconds * 1000) break
+      }
+      return page.evaluate((selector) => {
+        window.__wheelFrames.stop = true
+        const el = document.querySelector(selector)
+        return { times: window.__wheelFrames.times, anchor: window.__wheelFrames.anchor, scrollHeight: el.scrollHeight, events: 0 }
+      }, scroller)
+    })),
+  }
+  logRun(label, `${out.wheel.pxPerSecond} px/s wheel`, out)
   return out
 }
 
@@ -500,8 +570,31 @@ async function measureGallery(browser) {
   for (const px of [40, 160]) out.runs.push(await scrollRun(page, cdp, selector, px, `gallery-${px}`))
   out.runs.push(await scrollRun(page, cdp, selector, 40, "gallery-40-warm"))
   out.dom = await page.evaluate(() => document.getElementsByTagName("*").length)
-  results.gallery = out
   await context.close()
+  results.gallery = out
+}
+
+/**
+ * `gallery-wheel`: cold wheel runs, a fresh page each (no page beyond the first loaded, no
+ * thumbnail cached): mouse-wheel input from the moment the first tiles show, at a fast flick
+ * (300 px every 16 ms, about 18,750 px/s) and a steady pace (120 px every 16 ms), while the
+ * later pages load. `--wheel-repeat N` repeats the pair.
+ */
+async function measureGalleryWheel(browser) {
+  const out = { runs: [] }
+  results["gallery-wheel"] = out
+  for (let repeat = 0; repeat < Number(args["wheel-repeat"] ?? 1); repeat++) {
+    for (const [px, everyMs] of [
+      [300, 16],
+      [120, 16],
+    ]) {
+      const fresh = await newPage(browser)
+      await fresh.page.goto(`${BASE}/#/gallery`)
+      await fresh.page.locator("[data-gallery-tile]").first().waitFor({ timeout: 60_000 })
+      out.runs.push(await wheelRun(fresh.page, fresh.cdp, "[data-testid=gallery-scroller]", px, everyMs, `gallery-wheel-${px}-${repeat}`))
+      await fresh.context.close()
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------- generation
@@ -994,6 +1087,7 @@ try {
     ["inp", measureInp],
     ["networks", measureNetworks],
     ["gallery", measureGallery],
+    ["gallery-wheel", measureGalleryWheel],
     ["preview", measurePreview],
     ["overhead", measureOverhead],
     ["interleaved", measureInterleaved],

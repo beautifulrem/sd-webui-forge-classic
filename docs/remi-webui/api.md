@@ -294,10 +294,20 @@ server sends `hello`, then a snapshot: `queue.changed`, and `job.started` +
 
 Unknown types must be ignored (new events may be added).
 
-**Client messages:** `{"type": "ping"}` and `{"type": "hello", "features":
-[...]}`. After a client `hello` the server only sends previews in the formats
-listed (`preview.binary` plus `preview.jpeg` and/or `preview.webp`); a client
-that never says hello receives every preview.
+**Client messages:** `{"type": "ping"}`, `{"type": "hello", "features":
+[...], "visible": bool}` and `{"type": "visibility", "visible": bool}`. After a
+client `hello` the server only sends previews in the formats listed
+(`preview.binary` plus `preview.jpeg` and/or `preview.webp`); a client that
+never says hello receives every preview. A client whose page is hidden says so
+(`visible: false`, in its `hello` or a `visibility` message when it changes):
+it gets no previews, and while no connected client is visible the server
+encodes none. Shown again, it gets the next preview (at most a second later
+mid-step). Events are sent either way; `visible` defaults to true.
+
+**Timing.** A step's `job.progress` is published together with its preview,
+right before the frame (one wake-up of the server's event loop per step); with
+no preview (none wanted, throttled, or every N steps) the progress is polled
+five times a second.
 
 **Binary frames** are live previews of the running job:
 

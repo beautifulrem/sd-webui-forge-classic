@@ -73,6 +73,23 @@ test.describe("generate", () => {
     await expect(page.getByRole("listbox", { name: "History" })).toHaveCount(0)
   })
 
+  test("Escape in the prompt editor interrupts, as its placeholder says, once the editor has no use for it", async ({ page }) => {
+    await open(page)
+    const prompt = await setPrompt(page, "1girl, escape")
+    await page.keyboard.press(`${mod}+Enter`)
+    const interrupt = page.getByRole("button", { name: "Interrupt" })
+    await expect(interrupt).toBeVisible()
+    // With a selection, the first Escape is the editor's: it drops the selection, the job goes on.
+    await page.keyboard.press(`${mod}+A`)
+    await page.keyboard.press("Escape")
+    expect(await page.evaluate(() => window.getSelection()?.isCollapsed)).toBe(true)
+    await expect(interrupt).toBeVisible()
+    // Nothing left for the editor: Escape interrupts, the focus stays in the prompt.
+    await page.keyboard.press("Escape")
+    await expect(interrupt).toBeHidden({ timeout: 5_000 })
+    await expect(prompt).toBeFocused()
+  })
+
   test("prompt editor: weight keys, bracket warning, token count", async ({ page }) => {
     await open(page)
     const prompt = await setPrompt(page, "a cat, blue sky")
@@ -228,6 +245,44 @@ test.describe("generate", () => {
     await open(page)
     const bar = page.getByRole("button", { name: /^Generate/ }).first()
     await expect(bar).toBeVisible()
-    await expect(page.getByRole("region", { name: "Result" })).toBeVisible()
+    // nothing to show yet: the prompt opens the page, not an empty result frame
+    await expect(page.getByRole("region", { name: "Result" })).toBeHidden()
+    const viewport = page.viewportSize()!
+    const promptBox = (await page.getByRole("textbox", { name: "Prompt", exact: true }).boundingBox())!
+    expect(promptBox.y + promptBox.height).toBeLessThan(viewport.height)
+    // a touch screen has no keyboard shortcuts to show
+    await expect(bar.locator("kbd")).toBeHidden()
+    const prompt = await setPrompt(page, "x")
+    await prompt.press("Backspace") // the placeholder shows in an empty prompt
+    await expect(page.locator(".cm-placeholder").first()).toHaveText("Prompt")
+    await setPrompt(page, "a lighthouse")
+    // the first run brings the result area in, above the form, scrolled into view
+    await bar.click()
+    const result = page.getByRole("region", { name: "Result" })
+    await expect(result).toBeInViewport()
+    await expect(page.getByRole("img", { name: "Generated image" })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole("listbox", { name: "History" }).getByRole("option")).toHaveCount(1)
+  })
+
+  test("the image viewer's bar fits a phone: one-line counter, the rarer actions in a menu @phone", async ({ page }) => {
+    await page.goto("/#/gallery")
+    const grid = page.getByRole("list", { name: "Images" })
+    await grid.getByRole("button").first().click()
+    const viewer = page.getByRole("dialog", { name: "Image viewer" })
+    await expect(viewer).toBeVisible()
+    const counter = viewer.getByText(/^\d+ of \d+$/)
+    await expect(counter).toBeVisible()
+    const box = (await counter.boundingBox())!
+    const lineHeight = await counter.evaluate((element) => parseFloat(getComputedStyle(element).lineHeight))
+    expect(box.height).toBeLessThan(lineHeight * 1.5)
+    // every control of the bar is inside the screen
+    const width = page.viewportSize()!.width
+    for (const button of await viewer.getByRole("button").all()) {
+      if (!(await button.isVisible())) continue
+      const rect = (await button.boundingBox())!
+      expect(rect.x + rect.width, (await button.getAttribute("aria-label")) ?? "").toBeLessThanOrEqual(width)
+    }
+    await viewer.getByRole("button", { name: "More actions" }).click()
+    await expect(page.getByRole("menuitem", { name: "Copy generation parameters" })).toBeVisible()
   })
 })

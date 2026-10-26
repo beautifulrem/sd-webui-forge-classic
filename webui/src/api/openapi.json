@@ -484,7 +484,7 @@
     },
     "/api/v2/models/refresh": {
       "post": {
-        "summary": "Re-scan checkpoints, VAE and text encoders",
+        "summary": "Re-scan checkpoints, VAE, text encoders and upscalers",
         "operationId": "refresh_models_api_v2_models_refresh_post",
         "responses": {
           "200": {
@@ -1964,7 +1964,7 @@
     },
     "/api/v2/networks/refresh": {
       "post": {
-        "summary": "Re-scan every kind (and prune the preview caches)",
+        "summary": "Re-scan every kind and the upscalers (and prune the preview caches)",
         "operationId": "refresh_all_api_v2_networks_refresh_post",
         "responses": {
           "200": {

@@ -184,7 +184,7 @@ export default function GalleryPage() {
   return (
     <div className="relative flex h-full flex-col">
       {header}
-      <GalleryToolbar count={items.length} total={total} />
+      <GalleryToolbar count={items.length} total={total} failed={list.isError && !list.data} />
       <div className="min-h-0 flex-1">{body}</div>
       {selection.ids.size > 0 ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center px-3">

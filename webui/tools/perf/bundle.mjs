@@ -64,7 +64,10 @@ report.totalJs = { files: chunks.length, gzip: chunks.reduce((n, c) => n + c.gzi
 console.log(`Initial JS: ${report.initial.gzipKB} KB gzip, ${report.initial.brotliKB} KB brotli, ${report.initial.rawKB} KB raw (${report.initial.files.length} files; budget ${budget.initialKB} KB)`)
 for (const file of report.initial.files) console.log(`  ${file.padEnd(48)} ${kb(size(file).gzip).padStart(7)} KB gzip`)
 for (const css of report.initial.css) console.log(`  ${css.file.padEnd(48)} ${kb(css.gzip).padStart(7)} KB gzip (CSS)`)
-if (report.defaultRoute) console.log(`Default route ${report.defaultRoute.key}: adds ${report.defaultRoute.addedKB} KB (with the initial JS ${report.defaultRoute.withInitialKB} KB)`)
+if (report.defaultRoute) {
+  const { key, addedKB, withInitialKB, parts, withPartsAddedKB } = report.defaultRoute
+  console.log(`Default route ${key}: adds ${addedKB} KB (with the initial JS ${withInitialKB} KB)${parts.length ? `; with the lazy parts its first render fetches (${parts.join(", ")}) ${withPartsAddedKB} KB` : ""}`)
+}
 console.log(`\nLazy entries (own chunk / added on top of the initial JS, gzip KB; kind):`)
 for (const entry of report.entries.slice(0, 30)) console.log(`  ${entry.key.replace(/^src\//, "").slice(0, 60).padEnd(60)} ${String(entry.chunkKB).padStart(6)} ${String(entry.addedKB).padStart(7)}  ${entry.kind} (${entry.addedFiles} files)`)
 console.log(`\nLargest chunks (gzip KB):`)

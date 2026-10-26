@@ -2,7 +2,9 @@
  * WebSocket client store: one connection to /api/v2/ws, JSON events fanned out
  * to subscribers, binary preview frames turned into object URLs (the previous
  * URL is revoked as soon as a newer frame arrives), automatic reconnect with
- * exponential backoff and a feature handshake.
+ * exponential backoff and a feature handshake. The page's visibility goes to
+ * the server (in the hello and on every change): a hidden page gets no
+ * previews, and while no page is shown the server encodes none.
  */
 import { create } from "zustand"
 import { API_BASE } from "./http"
@@ -98,6 +100,11 @@ function dispatch(event: WsEvent) {
       }
     }
   }
+}
+
+/** Whether the page is shown (no previews are sent to a hidden one). */
+function pageVisible(): boolean {
+  return typeof document === "undefined" || document.visibilityState !== "hidden"
 }
 
 let socket: SocketLike | null = null
@@ -211,7 +218,7 @@ export const useWs = create<WsState>()((set, get) => {
     ws.binaryType = "arraybuffer"
     ws.onopen = () => {
       set({ status: "open", attempt: 0 })
-      ws.send(JSON.stringify({ type: "hello", features: CLIENT_FEATURES }))
+      ws.send(JSON.stringify({ type: "hello", features: CLIENT_FEATURES, visible: pageVisible() }))
     }
     ws.onmessage = (ev) => {
       if (typeof ev.data === "string") handleText(ev.data)
@@ -264,6 +271,13 @@ export const useWs = create<WsState>()((set, get) => {
     },
   }
 })
+
+// A hidden tab tells the server, which stops sending it previews (and encoding them when no page
+// is shown); shown again, the next preview arrives within a step (the server's encoder looks at
+// the state at least once a second). The hello of a new connection carries the current state.
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => void useWs.getState().send({ type: "visibility", visible: pageVisible() }))
+}
 
 /** Whether the server announced a feature in its hello. */
 export function useServerFeature(feature: string): boolean {

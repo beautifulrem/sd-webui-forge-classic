@@ -5,16 +5,13 @@
  "lazyKB": 150,
  "routePattern": "^src/pages/[^/]+/index\\.tsx$",
  "defaultRoute": "src/pages/generate/index.tsx",
+ "defaultRouteParts": [
+  "src/pages/generate/ParamsPane.tsx"
+ ],
+ "$defaultRouteParts": "Lazy entries the default route fetches as it renders (its parameter form, a lazy boundary of its own): reported with the route (bundle.mjs: 'with the lazy parts', and the measured first view), checked like any lazy entry.",
  "exempt": {
   "src/canvas/ui/Editor.tsx": "the canvas editor (Konva and the editor UI): an editor chunk, loaded when an image editor opens (img2img preloads it)",
   "src/features/prompt-editor/PromptEditor.tsx": "the prompt editor (CodeMirror): an editor chunk, loaded by the prompt fields",
   "src/ui/prompt/PromptEditor.tsx": "the prompt editor's entry for schema text fields with prompt: true (the same CodeMirror chunks)"
- },
- "exceptions": {
-  "src/pages/generate/index.tsx": {
-   "maxKB": 210,
-   "withInitialMaxKB": 400,
-   "reason": "The default route: its first view needs the schema form renderer with the controls of the visible core parameters (sampler and scheduler choices with search, sliders and number fields, seed, toggles), the resizable three-pane layout, the history grid's virtualizer, the stage and the run bar. What only collapsed sections, img2img, dialogs or menus use is deferred. The caps sit a little above the measured sizes (2026-10-20: 198.6 KB, with the initial JS 386.3 KB) so growth fails the check."
-  }
  }
 }

@@ -77,9 +77,11 @@ def friendly_name(file: str):
 
 
 def load_upscalers():
-    from modules.esrgan_model import UpscalerESRGAN
+    """(Re-)scan the upscaler folders into ``shared.sd_upscalers``. The new
+    list replaces the old one in one assignment, so a generation running
+    during a rescan always sees a complete list."""
 
-    del shared.sd_upscalers
+    from modules.esrgan_model import UpscalerESRGAN
 
     commandline_model_path = shared.cmd_opts.esrgan_models_path
     upscaler = UpscalerESRGAN(commandline_model_path)

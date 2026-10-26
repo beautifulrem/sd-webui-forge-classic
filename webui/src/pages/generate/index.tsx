@@ -5,10 +5,11 @@
  * history strip. Phones: one column with the run controls stuck to the bottom.
  */
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
-import { lazy, Suspense, useState } from "react"
+import { lazy, Suspense, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useDefaultLayout, usePanelRef } from "react-resizable-panels"
 import { useClientOption } from "@/api/app-options"
+import { useProgress } from "@/api/progress"
 import { api } from "@/api/endpoints"
 import { useSchema } from "@/api/queries"
 import { useWs } from "@/api/ws"
@@ -20,16 +21,23 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useIsDesktop, useMediaQuery } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
 import { selectedItem, useSession } from "@/features/gallery/session-store"
-import type { GenerateTab } from "@/features/progress/run-controller"
+import { GENERATE_FORMS, type GenerateTab } from "@/features/progress/run-controller"
 import { NetworksDrawerHost } from "@/features/networks/NetworksDrawerHost"
 import { GenerateBar } from "./GenerateBar"
 import { HistoryPane } from "./HistoryPane"
 import { useOwnRunningJob } from "./hooks"
-import { ParamsPane } from "./ParamsPane"
 import { ResetFormDialog } from "./ResetFormDialog"
 import { useGenerateCommands, useGenerateRuntime } from "./runtime"
 import { useGenerateShortcuts } from "./shortcuts"
 import { Stage } from "./Stage"
+
+// The parameter form (the schema renderer with its controls, the prompt fields, the scripts) is its
+// own chunk. Its fetch starts when this module runs, alongside the schema request, so the page's
+// frame (panes, stage, history) does not wait for it; the column's skeleton stands in meanwhile
+// (docs/research/ui-performance.md, "Bundle").
+const loadParamsPane = () => import("./ParamsPane")
+void loadParamsPane().catch(() => {})
+const ParamsPane = lazy(() => loadParamsPane().then((m) => ({ default: m.ParamsPane })))
 
 // The viewer's chunk loads on first open.
 const Lightbox = lazy(() => import("@/features/lightbox/Lightbox").then((m) => ({ default: m.Lightbox })))
@@ -226,6 +234,41 @@ function DesktopLayout({ tab, openViewer, wide }: { tab: GenerateTab; openViewer
   )
 }
 
+/**
+ * Phones: one column, the run controls stuck to the bottom. The result area
+ * leads once it has something to show (a running job of this client, or a
+ * result); until then txt2img opens with the prompt rather than an empty
+ * frame. img2img's stage holds the source image, its main input: it always leads.
+ */
+function PhoneLayout({ tab, openViewer }: { tab: GenerateTab; openViewer: (key?: string) => void }) {
+  const running = useProgress((s) => Boolean(s.running && GENERATE_FORMS.includes(s.owned[s.running.jobId] as GenerateTab)))
+  const hasResults = useSession((s) => s.items.length > 0)
+  const showStage = tab === "img2img" || running || hasResults
+  const stage = useRef<HTMLDivElement>(null)
+  const shown = useRef(showStage)
+  // The stage appearing above the form (the first Generate) is brought into view: the run is seen.
+  useEffect(() => {
+    if (showStage && !shown.current) {
+      const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches
+      stage.current?.scrollIntoView?.({ block: "start", behavior: still ? "auto" : "smooth" })
+    }
+    shown.current = showStage
+  }, [showStage])
+
+  return (
+    <div className="relative h-full overflow-y-auto overscroll-contain">
+      {/* Hidden, not unmounted: its live region still announces the first run. */}
+      <div ref={stage} className={cn("flex flex-col gap-3 p-3 pb-0", !showStage && "hidden")}>
+        <Stage tab={tab} onOpenViewer={() => openViewer()} className="h-[min(70vh,36rem)]" />
+        <HistoryPane onOpen={openViewer} orientation="strip" />
+      </div>
+      <Suspense fallback={<ParamsFallback />}>
+        <ParamsColumn tab={tab} sticky="bottom" showModelBar />
+      </Suspense>
+    </div>
+  )
+}
+
 /** Window effects that follow every progress step (title, wake lock), kept out of the page's render. */
 function RuntimeEffects({ tab }: { tab: GenerateTab }) {
   useGenerateRuntime(tab)
@@ -250,15 +293,7 @@ export default function GeneratePage({ route }: { route: Extract<Route, { name: 
       {desktop ? (
         <DesktopLayout key={wide ? "wide" : "medium"} tab={tab} openViewer={openViewer} wide={wide} />
       ) : (
-        <div className="relative h-full overflow-y-auto overscroll-contain">
-          <div className="flex flex-col gap-3 p-3 pb-0">
-            <Stage tab={tab} onOpenViewer={() => openViewer()} className="h-[min(70vh,36rem)]" />
-            <HistoryPane onOpen={openViewer} orientation="strip" />
-          </div>
-          <Suspense fallback={<ParamsFallback />}>
-            <ParamsColumn tab={tab} sticky="bottom" showModelBar />
-          </Suspense>
-        </div>
+        <PhoneLayout tab={tab} openViewer={openViewer} />
       )}
       {viewer}
       <ResetFormDialog />

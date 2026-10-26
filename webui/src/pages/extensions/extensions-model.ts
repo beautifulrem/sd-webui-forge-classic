@@ -14,6 +14,24 @@ export type ExtensionIndex = Schemas["ExtensionIndex"]
 export type ConfigStateInfo = Schemas["ConfigStateInfo"]
 export type ConfigStateDetail = Schemas["ConfigStateDetail"]
 
+// ---------------------------------------------------------------- backups
+
+/** One side (backup or now) of an extension row in a backup detail. */
+export type BackupRepo = { commit_hash?: string | null; branch?: string | null; enabled?: boolean } | null | undefined
+
+/** Empty and missing values mean the same ("no git info"). */
+const norm = (value: string | null | undefined) => value || null
+
+/**
+ * Whether an extension changed since the backup: commit, branch or
+ * enablement. A built-in without git info records "" in older backups and
+ * null now, so empty and missing values compare equal.
+ */
+export function backupDiffers(saved: BackupRepo, current: BackupRepo): boolean {
+  if (!saved || !current) return true
+  return norm(saved.commit_hash) !== norm(current.commit_hash) || norm(saved.branch) !== norm(current.branch) || Boolean(saved.enabled) !== Boolean(current.enabled)
+}
+
 // ---------------------------------------------------------------- errors
 
 export type Translate = (key: string, options?: Record<string, unknown>) => string

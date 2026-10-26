@@ -388,14 +388,15 @@ def _size(path: str) -> int | None:
         return None
 
 
-@router.post("/models/refresh", response_model=m.Ok, summary="Re-scan checkpoints, VAE and text encoders")
+@router.post("/models/refresh", response_model=m.Ok, summary="Re-scan checkpoints, VAE, text encoders and upscalers")
 def refresh_models(services: ServicesDep) -> dict[str, Any]:
     from remi.server.runtime import refresh_models as refresh
 
     refresh()
     kinds = ("checkpoints", "vae", "text_encoders")
     services.networks.invalidate(*kinds)  # the registries were just re-scanned
-    services.bus.publish("options.changed", keys=["models"])
+    # Clients refetch the models and the tab schemas (the upscaler choices)
+    services.bus.publish("options.changed", keys=["models", "upscalers"])
     for kind in kinds:
         services.bus.publish("networks.changed", kind=kind)
     return {"ok": True}

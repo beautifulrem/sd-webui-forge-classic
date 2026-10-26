@@ -217,7 +217,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Re-scan checkpoints, VAE and text encoders */
+        /** Re-scan checkpoints, VAE, text encoders and upscalers */
         post: operations["refresh_models_api_v2_models_refresh_post"];
         delete?: never;
         options?: never;
@@ -698,7 +698,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Re-scan every kind (and prune the preview caches) */
+        /** Re-scan every kind and the upscalers (and prune the preview caches) */
         post: operations["refresh_all_api_v2_networks_refresh_post"];
         delete?: never;
         options?: never;

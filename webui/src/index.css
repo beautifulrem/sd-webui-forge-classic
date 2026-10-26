@@ -8,6 +8,15 @@
 @custom-variant dark (&:is(.dark *));
 /* `compact` density, also on <html>. */
 @custom-variant compact (&:is([data-density="compact"] *));
+/*
+ * `touch-only`: no mouse or trackpad (a phone or tablet): keyboard hints
+ * ("⌘Enter") are hidden there (src/lib/input-modality.ts is the same test in code).
+ */
+@custom-variant touch-only {
+  @media not (any-pointer: fine) {
+    @slot;
+  }
+}
 
 /*
  * Design tokens.

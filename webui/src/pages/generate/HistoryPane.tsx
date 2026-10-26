@@ -2,16 +2,7 @@
 import { Trash2 } from "lucide-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
+import { ConfirmDialog, preloadConfirmDialog } from "@/components/ConfirmDialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -30,32 +21,32 @@ export function HistoryPane({ onOpen, orientation = "grid", className }: { onOpe
           {count}
         </Badge>
         {count > 0 ? (
-          <Button variant="ghost" size="icon-xs" className="ml-auto text-muted-foreground" aria-label={t("Clear history")} onClick={() => setConfirm(true)}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="ml-auto text-muted-foreground"
+            aria-label={t("Clear history")}
+            onPointerEnter={preloadConfirmDialog}
+            onFocus={preloadConfirmDialog}
+            onClick={() => setConfirm(true)}
+          >
             <Trash2 />
           </Button>
         ) : null}
       </div>
       <HistoryGrid onOpen={onOpen} orientation={orientation} className={orientation === "grid" ? "flex-1" : undefined} />
-      <AlertDialog open={confirm} onOpenChange={setConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("Clear the history?")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("Only this list is cleared; the images stay in the gallery.")}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                setConfirm(false)
-                useSession.getState().clear()
-              }}
-            >
-              {t("Clear")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={confirm}
+        onOpenChange={setConfirm}
+        title={t("Clear the history?")}
+        description={t("Only this list is cleared; the images stay in the gallery.")}
+        confirmLabel={t("Clear")}
+        destructive
+        onConfirm={() => {
+          setConfirm(false)
+          useSession.getState().clear()
+        }}
+      />
     </section>
   )
 }

@@ -115,7 +115,10 @@ def test_the_range_reaches_the_patch(sparse, monkeypatch):
 
 
 @pytest.mark.parametrize("device", ["mps", "cpu"])
-def test_unsupported_devices_are_reported_not_silently_skipped(sparse, monkeypatch, device):
+def test_without_the_kernels_the_reference_runs_and_the_job_says_so(sparse, monkeypatch, device):
+    """MPS / the CPU have no Sol-Attn kernels: the run patches attention with
+    the reference implementation (tests/test_sparse_attention.py), records it
+    in the infotext like a GPU run, and warns that it is slower."""
     import torch
 
     from modules import devices
@@ -126,10 +129,11 @@ def test_unsupported_devices_are_reported_not_silently_skipped(sparse, monkeypat
     p = _fake_p(seen)
     script = sparse.SparseAttentionForForge()
     script.process_before_every_sampling(p, *harness.script_layout(script).values_to_args({"enable": True, "min_tokens": 256}))
-    assert p.comments == ["Sparse Attention Integrated was skipped: CUDA device is required"]
-    # nothing patched, nothing claimed in the infotext
-    assert "percents" not in seen and p.sd_model.forge_objects.unet.model_options["transformer_options"] == {}
-    assert p.extra_generation_params == {}
+    assert p.comments == ["Sparse Attention Integrated used the reference implementation (CUDA device is required): slower than regular attention"]
+    assert seen["percents"] == [0.15, 0.85]
+    override = p.sd_model.forge_objects.unet.model_options["transformer_options"]["optimized_attention_override"]
+    assert override.__closure__ is not None and any(getattr(cell.cell_contents, "fused", None) is False for cell in override.__closure__)
+    assert p.extra_generation_params == {"Sparse attention tau": 1.25, "Sparse attention range": "0.15, 0.85", "Sparse attention min tokens": 256, "Sparse attention extra tokens": 0}
 
 
 def test_schema_export(sparse):

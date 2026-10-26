@@ -29,7 +29,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { runServerCommandAfterApply } from "@/features/server-control/server-control"
 import { cn } from "@/lib/utils"
-import { adminErrorMessage, type ConfigStateDetail, formatDate } from "./extensions-model"
+import { adminErrorMessage, backupDiffers, type ConfigStateDetail, formatDate } from "./extensions-model"
 import { extensionKeys, stateQuery, statesQuery } from "./queries"
 
 type Repo = { commit_hash?: string | null; commit_url?: string | null; branch?: string | null; remote?: string | null; enabled?: boolean } | null | undefined
@@ -46,15 +46,10 @@ function Commit({ repo }: { repo: Repo }) {
   )
 }
 
-function differs(saved: Repo, current: Repo): boolean {
-  if (!saved || !current) return true
-  return saved.commit_hash !== current.commit_hash || saved.branch !== current.branch || saved.enabled !== current.enabled
-}
-
 function StateDetail({ detail }: { detail: ConfigStateDetail }) {
   const { t } = useTranslation()
-  const changed = detail.items.filter((row) => differs(row.saved, row.current)).length
-  const webuiDiffers = detail.webui.saved.commit_hash !== detail.webui.current.commit_hash
+  const changed = detail.items.filter((row) => backupDiffers(row.saved, row.current)).length
+  const webuiDiffers = (detail.webui.saved.commit_hash || null) !== (detail.webui.current.commit_hash || null)
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
@@ -87,7 +82,7 @@ function StateDetail({ detail }: { detail: ConfigStateDetail }) {
           </thead>
           <tbody>
             {detail.items.map((row) => {
-              const diff = differs(row.saved, row.current)
+              const diff = backupDiffers(row.saved, row.current)
               return (
                 <tr key={row.name} className={cn("border-t", diff && "bg-primary/[0.05]")}>
                   <th scope="row" className="px-3 py-1.5 font-medium">

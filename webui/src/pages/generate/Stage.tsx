@@ -167,7 +167,7 @@ export function Stage({ tab, onOpenViewer, className, leading, trailing, toolbar
 
   const actions = (
     <>
-      <ResultActions item={live ? null : item} tab={tab} upscalable />
+      <ResultActions item={live ? null : item} tab={tab} upscalable collapsible />
       <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={t("Open image viewer")} onClick={onOpenViewer} disabled={!src}>
         <Expand />
       </Button>

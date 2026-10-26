@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { api } from "@/api/endpoints"
 import type { FormTab, InfotextParsed } from "@/api/types"
-import { readImageParameters } from "@/features/infotext/read-image-info"
 import { applyPaste, pastePlan } from "@/features/infotext/paste"
 import { useForm } from "@/ui/hooks"
 
@@ -43,7 +42,8 @@ export function usePasteParameters() {
     const id = toast.loading(t("Reading parameters…"))
     try {
       // A file the browser cannot parse (corrupt EXIF, …) is still worth the server's look.
-      const text = await readImageParameters(file).catch(() => null)
+      // The image parsers load with the first dropped image (not with the form).
+      const text = await import("@/features/infotext/read-image-info").then(({ readImageParameters }) => readImageParameters(file)).catch(() => null)
       if (text) return apply(await api.parseInfotext(text, tab), id)
       const upload = await api.upload(file)
       const info = await api.imageInfo(upload.id, tab)

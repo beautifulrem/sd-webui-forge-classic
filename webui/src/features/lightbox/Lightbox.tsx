@@ -149,7 +149,7 @@ export function Lightbox({ open, onOpenChange, items, current, onNavigate, live,
             style={dim(toolbarOpacity)}
             className="flex h-12 shrink-0 items-center gap-2 bg-gradient-to-b from-black/60 to-transparent px-3 opacity-(--lightbox-dim) transition-opacity focus-within:opacity-100 hover:opacity-100"
           >
-            <span className="text-sm text-white/75 tabular-nums" aria-live="polite">
+            <span className="shrink-0 text-sm whitespace-nowrap text-white/75 tabular-nums" aria-live="polite">
               {live ? t("Live preview") : items.length > 0 ? t("{{index}} of {{count}}", { index: index + 1, count: items.length }) : ""}
             </span>
             {natural ? (
@@ -157,8 +157,8 @@ export function Lightbox({ open, onOpenChange, items, current, onNavigate, live,
                 {natural.width}×{natural.height} · {Math.round(view.scale * 100)}%
               </span>
             ) : null}
-            <div className="ml-auto flex items-center gap-0.5">
-              {!live ? <ResultActions item={item} tab={tab} tone="light" removable={false} upscalable={upscalable} onSent={() => onOpenChange(false)} /> : null}
+            <div className="ml-auto flex min-w-0 items-center gap-0.5">
+              {!live ? <ResultActions item={item} tab={tab} tone="light" removable={false} upscalable={upscalable} collapsible onSent={() => onOpenChange(false)} /> : null}
               <Button
                 variant="ghost"
                 size="icon-sm"

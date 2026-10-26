@@ -13,6 +13,20 @@ export const SHORTCUT_PLACEHOLDERS = {
   interrupt: "Esc",
 } as const
 
-export function placeholderText(t: TFunction, placeholder: string | null | undefined): string | undefined {
-  return placeholder ? t(placeholder, SHORTCUT_PLACEHOLDERS) : undefined
+/** Stands for a shortcut while the lines that name one are found. */
+const MARK = "\u0001"
+
+/**
+ * The translated placeholder with the shortcuts filled in. Without
+ * `keyboardHints` (a touch-only device, `useKeyboardHints`) the lines that
+ * name a shortcut ("(⌘Enter to Generate ; …)") are left out.
+ */
+export function placeholderText(t: TFunction, placeholder: string | null | undefined, keyboardHints = true): string | undefined {
+  if (!placeholder) return undefined
+  const full = t(placeholder, SHORTCUT_PLACEHOLDERS)
+  if (keyboardHints) return full
+  const lines = t(placeholder, { generate: MARK, skip: MARK, interrupt: MARK })
+    .split("\n")
+    .filter((line) => !line.includes(MARK))
+  return lines.length > 0 ? lines.join("\n") : full
 }

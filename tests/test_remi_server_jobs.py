@@ -165,15 +165,16 @@ def test_script_errors_during_a_job_become_its_warnings(webui, tmp_path):
 
 
 def test_processing_comments_become_job_warnings(webui, tmp_path):
-    """``p.comment()`` notes (e.g. Sparse Attention skipped on this device)
-    reach the job's warnings instead of being dropped."""
+    """``p.comment()`` notes (e.g. Sparse Attention running its slower
+    reference implementation on this device) reach the job's warnings
+    instead of being dropped."""
     from types import SimpleNamespace
 
     from remi.jobs.runner import _from_processed, comment_notes
 
     state = FakeState()
     stub = StubExecutor(state)
-    skipped = "Sparse Attention Integrated was skipped: CUDA device is required"
+    skipped = "Sparse Attention Integrated used the reference implementation (CUDA device is required): slower than regular attention"
 
     def executor(job, ctx):
         result = stub(job, ctx)

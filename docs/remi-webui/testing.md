@@ -116,6 +116,12 @@ already answers there, then runs:
   generating, the notification permission prompt and the notification and
   sound in the background, gamepad navigation and the live preview in the
   viewer, the "Check for updates" feedback.
+- `extensions-real.spec.ts` (`@fixture`, never against the mock): extension
+  management, the right-to-left locale an extension ships, the viewer's
+  sideways-wheel and gamepad navigation over the gallery, and the
+  confirmation before leaving, against a real server with a local git host
+  (`tools/smoke_extensions.py --browser`, see "Extension management against
+  a real server").
 - `extras.spec.ts`: Extras (upload a source, pick the upscaler and the scale,
   process, then the result size, the before / after comparison, its infotext
   and the viewer; the job carries the values by name), a txt2img result sent
@@ -260,9 +266,10 @@ takes the same LoKr (written for a tiny checkpoint) through Forge's loader
 part, each tab touches only its adapter kind, and the infotext keys are
 written; LoRA Stage
 Scheduler changes it; Anima FreeFuse routes the two LoRAs (infotext
-`Anima FreeFuse: 2 subjects ...`); Sparse Attention records its settings on a
-CUDA GPU with sol_attn and elsewhere leaves the image unchanged with the job
-warning "... was skipped: CUDA device is required"; inpaint with "Masked
+`Anima FreeFuse: 2 subjects ...`); Sparse Attention changes the image and
+records its settings - with the Sol-Attn kernels on a capable GPU, elsewhere
+with Comfy Kitchen's reference implementation and the job warning "... used the
+reference implementation (...)"; inpaint with "Masked
 content: latent noise" finishes and keeps the unmasked half. Each feature
 job's infotext (and Prompt Anchor's, PP Suite's and the Refiner's) goes through `POST /api/v2/infotext/parse`
 without problems and, queued again, gives the same pixels and infotext. So do
@@ -305,9 +312,13 @@ inputs they rely on: `face_yolov8n.pt` finds the one face in the baseline
 image, and the ESRGAN model loads with spandrel (the WebUI's loader) and
 upscales by its scale keeping the content.
 
-Sparse Attention Integrated needs CUDA (sol_attn); on MPS and CPU the job
-says so ("Sparse Attention Integrated was skipped: CUDA device is
-required") and the image is unchanged, which `--features` checks. The
+Sparse Attention Integrated is fast only with the fused Sol-Attn kernels
+(CUDA sm_80+ or ROCm with matrix cores); on MPS and the CPU it runs Comfy
+Kitchen's reference implementation of the same algorithm, slower than
+regular attention, and the job says so ("Sparse Attention Integrated used the
+reference implementation (CUDA device is required): slower than regular
+attention"). `--features` checks that it changes the image, records its
+infotext and round-trips. The
 Prompt Blacklist panel only acts through its button (it rewrites the
 prompt in the form), so it never changes a queued generation by design.
 
@@ -345,6 +356,50 @@ user assets are overridden for the page only (`overrideBootstrap` in
 512x512 images into the server's outputs. The gamepad reading and the sound
 are also unit-tested (`features/lightbox/gamepad.test.ts`,
 `features/progress/effects.test.ts`).
+
+### Extension management against a real server (`tools/smoke_extensions.py`)
+
+Installing, checking, updating and restoring extensions needs a git host and
+an extension index, and changes the install. `tools/smoke_extensions.py`
+brings both along on loopback and never loads a model, so it runs in about
+four minutes and next to another WebUI (its own port, 7883):
+
+```sh
+cd webui && pnpm build && cd ..                         # the server serves webui/dist (for --browser)
+$PYTHON tools/smoke_extensions.py [--browser] [--report docs/research/smoke/extensions-<date>.json]
+```
+
+- The fixture: two extension repositories served over git's smart HTTP
+  protocol (`git http-backend` behind `http.server`, as a git host serves
+  them; the installer's partial clone included) and an `index.json` listing
+  both; `POST /__advance/<repo>` pushes a new commit. One extension ships a
+  right-to-left `localizations/ar.json`.
+- The server: `launch.py` with an isolated `--data-dir`, an empty
+  `--model-ref` (nothing to load) and `WEBUI_EXTENSIONS_INDEX` at the
+  fixture's index; three PNGs with infotext in its output folder.
+- API checks, as the SPA calls them: install from a URL; the index (entries,
+  the `installed` mark) and install from it; a backup taken now equals the
+  current state on every row, built-ins included; the remote moves on, the
+  per-extension check and the bulk check report it; update (and its
+  automatic pre-update backup); the backup now differs on that extension
+  only; restore + Reload UI puts it back at the backed-up commit; the
+  shipped locale is offered after the reload; uninstall.
+- `--browser`: `webui/tests/e2e/extensions-real.spec.ts` (`@fixture`, run
+  with `REMI_E2E_GREP=@fixture`) drives the same through the UI - install
+  from a URL and from the index, Reload UI, a fresh backup showing
+  "0 extensions differ from now", Check for updates with its progress,
+  Apply and reload UI, the backup's difference, Restore - then the
+  right-to-left layout of the shipped Arabic catalog, a sideways wheel and a
+  gamepad (`navigator.getGamepads` probe) stepping through the gallery in
+  the viewer, and the browser's "leave site?" prompt with unsaved settings
+  and with `confirm_leave` (never applied: the server keeps its settings).
+- The backups the run made are removed from `config_states/` (it is in the
+  repository folder); the ones made before are left alone.
+  `tests/test_remi_smoke_extensions.py` checks the fixture itself (the
+  installer's clone, the update check, reset and restore over it).
+
+Recorded run: `docs/research/smoke/extensions-2026-10-21.json`, 17 of 17
+checks (12 API, 5 browser).
 
 ### Last recorded run
 

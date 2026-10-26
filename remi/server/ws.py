@@ -10,9 +10,11 @@ failed send closes the socket (the client reconnects).
 
 Protocol: the server sends ``{"type": "hello", "features": [...],
 "version": ...}`` on connect, then the current queue state; the client may
-send ``{"type": "hello", "features": [...]}`` (previews are only sent in the
-formats it lists, when it lists any) and ``{"type": "ping"}`` (answered with
-``pong``).
+send ``{"type": "hello", "features": [...], "visible": bool}`` (previews are
+only sent in the formats it lists, when it lists any), ``{"type":
+"visibility", "visible": bool}`` when its page is hidden or shown again (a
+hidden page gets no previews; while no client is visible none are encoded)
+and ``{"type": "ping"}`` (answered with ``pong``).
 """
 
 from __future__ import annotations
@@ -44,6 +46,8 @@ class Client:
         self.events: deque[dict[str, Any]] = deque(maxlen=max_events)
         self.preview: PreviewFrame | None = None
         self.features: set[str] | None = None
+        self.visible = True
+        """the client's page is shown (``visibility`` messages): a hidden one gets no previews"""
         self.wake = asyncio.Event()
         self.snapshot = snapshot
         self.dropped = 0
@@ -142,7 +146,8 @@ class Hub:
 
     def _fan_frame(self, frame: PreviewFrame) -> None:
         for client in self.clients:
-            client.push_frame(frame)
+            if client.visible:
+                client.push_frame(frame)
 
     # Connections
 
@@ -187,11 +192,20 @@ class Hub:
                 continue
             if data.get("type") == "hello" and isinstance(data.get("features"), list):
                 client.features = {str(item) for item in data["features"]}
+                if isinstance(data.get("visible"), bool):
+                    client.visible = data["visible"]
+            elif data.get("type") == "visibility" and isinstance(data.get("visible"), bool):
+                # a page shown again gets the next preview (the encoder looks at the state at least once a second)
+                client.visible = data["visible"]
+                if not client.visible:
+                    client.preview = None
             elif data.get("type") == "ping":
                 client.push_event({"type": "pong"})
 
     def wants_frames(self) -> bool:
-        return bool(self.clients)
+        """Whether a client's page is shown (any thread: the tuple copies the set in one step)."""
+
+        return any(client.visible for client in tuple(self.clients))
 
     async def close_all(self) -> None:
         for client in list(self.clients):

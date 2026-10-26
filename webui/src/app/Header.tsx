@@ -107,7 +107,7 @@ export function Header({ title, locales }: { title: string; locales: LocaleInfo[
         >
           <Search aria-hidden />
           <span>{t("Search")}</span>
-          <Kbd>{formatShortcut("Mod+K")}</Kbd>
+          <Kbd className="touch-only:hidden">{formatShortcut("Mod+K")}</Kbd>
         </Button>
         <Button variant="ghost" size="icon" onClick={openPalette} className="lg:hidden" aria-label={t("Search")}>
           <Search />

@@ -171,7 +171,7 @@ export function GenerateBar({ tab, className }: { tab: GenerateTab; className?: 
             {phase === "submitting" ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
             <span className="truncate">{busy ? t("Queue another") : t("Generate")}</span>
             {busy ? null : (
-              <Kbd className="ml-1 hidden border border-primary-foreground/45 bg-transparent text-primary-foreground @min-[14rem]/generate:inline-flex">
+              <Kbd className="ml-1 hidden border border-primary-foreground/45 bg-transparent text-primary-foreground @min-[14rem]/generate:inline-flex touch-only:hidden!">
                 {formatShortcut("Mod+Enter")}
               </Kbd>
             )}

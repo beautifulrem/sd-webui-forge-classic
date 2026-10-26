@@ -6,6 +6,7 @@
 import { ImageDown } from "lucide-react"
 import { type ReactNode, type Ref, Suspense, useId, useImperativeHandle, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { useKeyboardHints } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
 import { describedBy, hintRef, infoTextId } from "@/ui/a11y"
 import { FieldError, ModifiedDot } from "@/ui/Field"
@@ -60,7 +61,7 @@ export function PromptField({ node, kind = "positive", steps, styles, actions, o
   const { formId } = useForm()
   const value = typeof param.value === "string" ? param.value : ""
   const label = t(param.label)
-  const placeholder = placeholderText(t, node.placeholder)
+  const placeholder = placeholderText(t, node.placeholder, useKeyboardHints())
   const lines = minLines ?? Math.max(node.lines ?? 2, 2)
   const [dragging, setDragging] = useState(false)
   const depth = useRef(0)

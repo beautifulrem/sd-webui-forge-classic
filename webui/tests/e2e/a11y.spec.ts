@@ -4,7 +4,7 @@
  */
 import AxeBuilder from "@axe-core/playwright"
 import { expect, type Page, test } from "@playwright/test"
-import { openRoute, presetStorage, type Theme } from "./helpers"
+import { injectFaults, openRoute, presetStorage, type Theme } from "./helpers"
 
 /** A 96×64 solid PNG. */
 const SOURCE_PNG = Buffer.from(
@@ -77,6 +77,19 @@ for (const theme of ["light", "dark"] satisfies Theme[]) {
       await page.getByRole("button", { name: "Open image viewer" }).first().click()
       await expect(page.getByRole("dialog", { name: "Image viewer" })).toBeVisible()
       expect(await scan(page)).toEqual([])
+    })
+
+    test("networks drawer while its list is still loading", async ({ page }) => {
+      // the card list answers late: the scan sees the loading skeleton, not the cards
+      await injectFaults(page, [{ path: "^/networks/[^/]+$", delay: 12_000 }])
+      await openRoute(page, "txt2img")
+      await page.locator("body").press("Alt+N")
+      const drawer = page.getByRole("dialog", { name: "Networks" })
+      const skeleton = drawer.locator("[aria-busy=true]").first()
+      await expect(skeleton).toBeVisible()
+      expect(await scan(page)).toEqual([])
+      await expect(skeleton, "the scan saw the loading state").toBeVisible()
+      await expect(drawer.getByRole("option").first()).toBeVisible({ timeout: 20_000 })
     })
 
     test("prompt highlighting keeps every token readable", async ({ page }) => {

@@ -227,6 +227,49 @@ def test_preview_encoder_polls_a_state_without_listeners():
         encoder.join(2)
 
 
+def test_a_steps_progress_goes_out_right_before_its_preview():
+    """The encoder publishes the step's progress just before the frame (one wake-up of the
+    hub for both); the monitor's next poll then has nothing new to publish."""
+
+    bus, state = EventBus(), FakeState()
+    seen = recorder(bus)
+    ref = JobRef("j", 3, "txt2img")
+    monitor = ProgressMonitor(bus, lambda: ref, state=lambda: state)
+    opts = SimpleNamespace(live_previews_enable=True, live_previews_image_format="jpeg", live_preview_fps=30)
+    encoder = PreviewEncoder(bus, lambda: ref, state=lambda: state, opts=lambda: opts, before_frame=monitor.publish_now)
+    state.job_count, state.sampling_steps, state.time_start = 1, 8, time.time()
+    for step in (1, 2):
+        state.sampling_step = state.current_image_sampling_step = step
+        state.current_image, state.id_live_preview = Image.new("RGB", (8, 8)), step
+        encoder.tick(None)
+        monitor.publish_now()  # nothing new: no second event for the step
+    kinds = [("frame", item.step) if isinstance(item, PreviewFrame) else (item["type"], item["step"]) for item in seen]
+    assert kinds == [("job.progress", 1), ("frame", 1), ("job.progress", 2), ("frame", 2)]
+    # the polling thread shares the dedup: the step is not published again
+    with monitor._lock:
+        monitor._last = monitor._publish(monitor._last)
+    assert len(seen) == 4
+    # publish_now never waits for the polling thread
+    with monitor._lock:
+        state.sampling_step = 3
+        monitor.publish_now()
+    assert len(seen) == 4
+
+
+def test_a_failing_before_frame_hook_still_sends_the_frame(caplog):
+    bus, state = EventBus(), FakeState()
+    seen = recorder(bus)
+    opts = SimpleNamespace(live_previews_enable=True, live_previews_image_format="jpeg", live_preview_fps=30)
+
+    def broken():
+        raise RuntimeError("monitor")
+
+    encoder = PreviewEncoder(bus, lambda: JobRef("j", 1, "txt2img"), state=lambda: state, opts=lambda: opts, before_frame=broken)
+    state.current_image, state.id_live_preview = Image.new("RGB", (8, 8)), 1
+    encoder.tick(None)
+    assert [type(item) for item in seen] == [PreviewFrame] and "before_frame" in caplog.text
+
+
 def test_previews_are_not_encoded_when_nobody_watches():
     bus, state = EventBus(), FakeState()
 
@@ -336,6 +379,30 @@ def test_clients_only_get_preview_formats_they_announced():
     assert first is None and second.fmt == FORMAT_JPEG
 
 
+def test_hidden_pages_get_no_previews_and_none_are_encoded_for_them(webui, tmp_path):
+    """A page reports when it is hidden (``visibility``): it gets no frames, and while no
+    client is visible the hub does not want any (the encoder skips the work)."""
+
+    with server_app(tmp_path) as server, server.client.websocket_connect(WS_URL) as socket:
+        socket.receive_json(), socket.receive_json()  # hello, queue
+        bus = server.services.bus
+        socket.send_json({"type": "hello", "features": ["events.v1", "preview.binary", "preview.webp"], "visible": False})
+        socket.send_json({"type": "ping"})
+        assert socket.receive_json() == {"type": "pong"}  # the hello was handled
+        assert not bus.wants_frames()
+        bus.publish_frame(PreviewFrame(FORMAT_WEBP, 1, 1, b"hidden"))  # not sent
+        socket.send_json({"type": "visibility", "visible": True})
+        socket.send_json({"type": "ping"})
+        assert socket.receive_json() == {"type": "pong"}
+        assert bus.wants_frames()
+        bus.publish_frame(PreviewFrame(FORMAT_WEBP, 1, 2, b"shown"))
+        assert unpack_frame(socket.receive_bytes()) == PreviewFrame(FORMAT_WEBP, 1, 2, b"shown")
+        socket.send_json({"type": "visibility", "visible": False})
+        socket.send_json({"type": "ping"})
+        assert socket.receive_json() == {"type": "pong"}
+        assert not bus.wants_frames()
+
+
 def test_websocket_hello_events_and_binary_previews(webui, tmp_path):
     with server_app(tmp_path) as server, server.client.websocket_connect(WS_URL) as socket:
         hello = socket.receive_json()
@@ -374,6 +441,37 @@ def test_a_job_streams_progress_and_previews_over_the_socket(webui, tmp_path, mo
                     assert event["job_id"] == job["job_id"] and event["seq"] == job["seq"] and event["steps"] == 6
         assert types.index("job.queued") < types.index("job.started") < types.index("job.completed")
         assert "job.progress" in types and frames and all(frame.job_seq == job["seq"] for frame in frames)
+
+
+def test_each_steps_progress_arrives_right_before_its_preview(webui, tmp_path, monkeypatch):
+    """Served, a step's ``job.progress`` goes out with its frame (one wake-up of the hub per
+    step): the client sees the step's progress just before the step's preview, even with steps
+    longer than the progress poll."""
+
+    import json
+
+    state = FakeState()
+    monkeypatch.setitem(webui.opts.data, "live_preview_fps", 30)
+    monkeypatch.setitem(webui.opts.data, "live_previews_enable", True)
+    executor = StubExecutor(state, steps=4, step_time=0.35)
+    with server_app(tmp_path, state=state, executor=executor, realtime=True) as server, server.client.websocket_connect(WS_URL) as socket:
+        socket.receive_json(), socket.receive_json()  # hello, queue
+        server.client.post("/api/v2/jobs", json={"tab": "txt2img", "core": {"prompt": "x"}})
+        stream = []
+        while not stream or stream[-1] != ("job.completed", None):
+            message = socket.receive()
+            if message.get("bytes") is not None:
+                stream.append(("frame", unpack_frame(message["bytes"]).step))
+            elif message.get("text"):
+                event = json.loads(message["text"])
+                if event["type"] in ("job.progress", "job.completed"):
+                    stream.append((event["type"], event.get("step")))
+        frames = [index for index, item in enumerate(stream) if item[0] == "frame"]
+        assert [stream[index][1] for index in frames] == [1, 2, 3, 4]
+        assert all(stream[index - 1] == ("job.progress", stream[index][1]) for index in frames)
+        # and no second progress event for a step that already went out with its frame
+        steps = [step for kind, step in stream if kind == "job.progress"]
+        assert len(steps) == len(set(steps))
 
 
 # endregion

@@ -37,8 +37,9 @@ What it does (one model load, about three minutes on an M4 with Anima Turbo):
    - LoRA Stage
      Scheduler changes it; Anima FreeFuse routes the two subject LoRAs (infotext
      ``Anima FreeFuse: 2 subjects ...``, no ``error:``) - each with its infotext keys;
-   - Sparse Attention: on a CUDA GPU with sol_attn its infotext; elsewhere a job warning
-     "... was skipped: CUDA device is required" and an unchanged image (not a silent no-op);
+   - Sparse Attention changes the image and records its infotext (paste round-trip): with the
+     Sol-Attn kernels on a capable GPU, elsewhere with Comfy Kitchen's reference implementation
+     and a job warning "... used the reference implementation (...)";
    - inpaint with "Masked content: latent noise" finishes in time and keeps the unmasked half;
    - paste round-trips: each feature job's infotext through ``POST /api/v2/infotext/parse``
      (no problems) and queued again gives the same pixels and infotext - also for Prompt
@@ -148,11 +149,11 @@ class Report:
 
 
 class Server:
-    def __init__(self, python: str, port: int, data_dir: Path, log: Path, extra_args: list[str] | None = None) -> None:
+    def __init__(self, python: str, port: int, data_dir: Path, log: Path, extra_args: list[str] | None = None, *, model_ref: Path = ROOT / "models", env: dict[str, str] | None = None) -> None:
         self.base = f"http://127.0.0.1:{port}"
         self.log_path = log
-        args = [python, "launch.py", "--skip-prepare-environment", "--skip-install", "--api", "--port", str(port), "--data-dir", str(data_dir), "--model-ref", str(ROOT / "models"), *(extra_args or [])]
-        env = {**os.environ, "REMI_SKIP_WEBUI_BUILD": "1", "PYTHONUNBUFFERED": "1", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
+        args = [python, "launch.py", "--skip-prepare-environment", "--skip-install", "--api", "--port", str(port), "--data-dir", str(data_dir), "--model-ref", str(model_ref), *(extra_args or [])]
+        env = {**os.environ, **(env or {}), "REMI_SKIP_WEBUI_BUILD": "1", "PYTHONUNBUFFERED": "1", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost"}
         self.log = open(log, "wb")  # noqa: SIM115 - open for the life of the process
         self.process = subprocess.Popen(args, cwd=ROOT, env=env, stdout=self.log, stderr=subprocess.STDOUT, start_new_session=True)
 
@@ -540,17 +541,17 @@ def run_features(server: Server, out: Path, report: Report, base_values: dict) -
         report.check("FreeFuse changes the image", to_unrouted > 0.5, f"mean diff to the unrouted LoRAs {to_unrouted:.2f}")
         check_round_trip(server, report, "FreeFuse", "txt2img", routed, info)
 
-    # Sparse Attention: runs (infotext) or says why it did not (job warning)
+    # Sparse Attention: the fused Sol-Attn kernels on a capable GPU, Comfy Kitchen's
+    # reference implementation elsewhere (MPS, the CPU; the job warns it is slower)
     job, sparse_image, info = generate("sparse_attention", FEATURE_PROMPT, {sparse: {"enable": True, "min_tokens": 256}})
     if sparse_image is not None:
         notes = [json.dumps(note.get("values")) for note in job.get("warnings") or []]
-        if "Sparse attention tau" in info:
-            report.check("Sparse Attention ran (infotext)", True, info.splitlines()[-1][:300])
+        effect, _ = diff(sparse_image, plain)
+        reference = any("Sparse Attention Integrated used the reference implementation" in note for note in notes)
+        ran = "Sparse attention tau" in info
+        report.check("Sparse Attention changes the image (infotext)", ran and effect > 0, f"mean diff to without it {effect:.3f}; {'reference implementation' if reference else 'Sol-Attn kernels'}; warnings {notes}; " + info.splitlines()[-1][:300])
+        if ran:
             check_round_trip(server, report, "Sparse Attention", "txt2img", sparse_image, info)
-        else:
-            unchanged, _ = diff(sparse_image, plain)
-            skipped = any("Sparse Attention Integrated was skipped" in note for note in notes)
-            report.check("Sparse Attention reports why it did not run", skipped and unchanged == 0, f"warnings {notes}; mean diff to without it {unchanged:.3f}")
 
     # Paste round-trips of the other panels that rewrite the run
     _, anchored, info = generate("prompt_anchor", "masterpiece, 1girl", {anchor: {"enabled": True, "anchor": "red hair"}})

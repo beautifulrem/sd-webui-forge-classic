@@ -2,6 +2,7 @@ import { lazy, Suspense, use, useId, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { useKeyboardHints } from "@/lib/use-media-query"
 import { PromptDecorators } from "@/features/prompt-editor/PromptDecorators"
 import type { PromptEditorHandle } from "@/features/prompt-editor/PromptEditor"
 import { FormContext, useParam } from "../hooks"
@@ -22,7 +23,7 @@ export function Text({ node }: { node: TextNode }) {
   const param = useParam<string>(node)
   const value = typeof param.value === "string" ? param.value : ""
   const info = param.info
-  const placeholder = placeholderText(t, node.placeholder)
+  const placeholder = placeholderText(t, node.placeholder, useKeyboardHints())
   const lines = Math.max(1, node.lines ?? 1)
   const label = t(param.label)
   const fallbackName = useFallbackName(node.name)

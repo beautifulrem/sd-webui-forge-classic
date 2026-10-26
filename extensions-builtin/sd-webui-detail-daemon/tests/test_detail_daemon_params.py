@@ -119,6 +119,8 @@ def test_registers_its_xyz_axes(dd, monkeypatch):
     dd.xyz_support()
     labels = [x.label for x in xyz.axis_options if x.label.startswith("[Detail Daemon]")]
     assert labels[:3] == ["[Detail Daemon] Mode", "[Detail Daemon] Amount", "[Detail Daemon] Start"] and len(labels) == 10
+    # the X/Y/Z axis dropdown shows them: zh_CN translates each one
+    assert contract.missing_translations(set(labels), SCRIPT.parents[1] / "localizations" / "zh_CN.json") == []
 
 
 def test_the_widget_schedule_fixture_is_current(dd):

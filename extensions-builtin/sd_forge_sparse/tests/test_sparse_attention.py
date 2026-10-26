@@ -1,9 +1,11 @@
-"""The attention patch itself, on the CPU: Sol-Attn is a GPU kernel (NVIDIA
-sm_80+ or ROCm with matrix cores), so a stand-in with the kernel's calling
-convention computes exact attention and records its calls. The patch is
-installed as the enabled panel installs it and reached through the
-backend's own attention entry point (``backend.attention.attention_pytorch``
-and its ``optimized_attention_override`` hook)."""
+"""The attention patch itself, on the CPU. The fused Sol-Attn kernels need a
+GPU (NVIDIA sm_80+ or ROCm with matrix cores), so for that path a stand-in
+with the kernel's calling convention computes exact attention and records its
+calls; elsewhere the patch runs Comfy Kitchen's reference implementation,
+which is tested here for real. The patch is installed as the enabled panel
+installs it and reached through the backend's own attention entry point
+(``backend.attention.attention_pytorch`` and its ``optimized_attention_override``
+hook)."""
 
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,7 +38,7 @@ def kernel(sparse, monkeypatch):
         return out.transpose(1, 2).to(q.dtype)
 
     monkeypatch.setattr(sparse.ck, "sol_attn", sol_attn)
-    monkeypatch.setattr(sparse.SparseAttnPatch, "ineligible", staticmethod(lambda q, k, v, dim_head: None))
+    monkeypatch.setattr(sparse.SparseAttnPatch, "ineligible", staticmethod(lambda q, k, v, dim_head, fused=True: None))
     monkeypatch.setattr(sparse, "unavailable_reason", lambda device: None)
     return calls
 
@@ -141,23 +143,110 @@ def _meta(device="cuda", dtype=torch.bfloat16, shape=(1, TOKENS, HEADS, DIM_HEAD
 
 
 @pytest.mark.parametrize(
-    ("q", "k", "dim_head", "available", "reason"),
+    ("q", "k", "dim_head", "available", "reason", "reference_reason"),
     [
-        (_meta(), _meta(), DIM_HEAD, True, None),
-        (_meta(device="mps"), _meta(), DIM_HEAD, True, "CUDA device is required"),
-        (_meta(), _meta(), DIM_HEAD, False, "sol_attn is not available for this GPU"),
-        (_meta(dtype=torch.float64), _meta(dtype=torch.float64), DIM_HEAD, True, 'dtype "torch.float64" is not supported'),
-        (_meta(shape=(1, TOKENS, HEADS, 64)), _meta(shape=(1, TOKENS, HEADS, 64)), 64, True, "head_dim (64) != 128"),
-        (_meta(), _meta(shape=(1, 77, HEADS, DIM_HEAD)), DIM_HEAD, True, "cross-attention"),
-        (_meta(), _meta(dtype=torch.float16), DIM_HEAD, True, "mixed dtypes: torch.bfloat16/torch.float16/torch.bfloat16"),
+        (_meta(), _meta(), DIM_HEAD, True, None, None),
+        (_meta(device="mps"), _meta(), DIM_HEAD, True, "CUDA device is required", None),
+        (_meta(), _meta(), DIM_HEAD, False, "sol_attn is not available for this GPU", None),
+        (_meta(dtype=torch.float64), _meta(dtype=torch.float64), DIM_HEAD, True, 'dtype "torch.float64" is not supported', 'dtype "torch.float64" is not supported'),
+        (_meta(shape=(1, TOKENS, HEADS, 64)), _meta(shape=(1, TOKENS, HEADS, 64)), 64, True, "head_dim (64) != 128", "head_dim (64) != 128"),
+        (_meta(), _meta(shape=(1, 77, HEADS, DIM_HEAD)), DIM_HEAD, True, "cross-attention", "cross-attention"),
+        (_meta(), _meta(dtype=torch.float16), DIM_HEAD, True, "mixed dtypes: torch.bfloat16/torch.float16/torch.bfloat16", "mixed dtypes: torch.bfloat16/torch.float16/torch.bfloat16"),
     ],
 )
-def test_the_kernel_rules(sparse, monkeypatch, q, k, dim_head, available, reason):
+def test_the_kernel_rules(sparse, monkeypatch, q, k, dim_head, available, reason, reference_reason):
+    """The fused kernels need a capable GPU; the reference takes the same
+    calls on any device (so both make the same image)."""
     monkeypatch.setattr(sparse.ck, "sol_attn_is_available", lambda device: available)
     assert sparse.SparseAttnPatch.ineligible(q, k, q, dim_head) == reason
+    assert sparse.SparseAttnPatch.ineligible(q, k, q, dim_head, False) == reference_reason
 
 
-def test_the_panel_states_the_gpu_requirement(sparse):
+def test_the_panel_states_where_it_is_faster(sparse):
     schema = harness.script_layout(sparse.SparseAttentionForForge()).schema()
     note = schema["children"][0]
-    assert note["type"] == "markdown" and "GPU only" in note["text"] and "MPS" in note["text"]
+    assert note["type"] == "markdown" and "GPUs only" in note["text"] and "MPS" in note["text"] and "reference implementation" in note["text"]
+
+
+# region The reference implementation (no fused kernel: MPS, the CPU, older GPUs)
+
+
+def _structured_qkv(tokens=256, heads=HEADS, batch=1, skip_reshape=False, seed=0):
+    """Queries and keys that share a low-rank structure, so attention is
+    peaked (as in a real model) and the routing keeps some key blocks exact
+    and pools the others."""
+    generator = torch.Generator().manual_seed(seed)
+    base = torch.randn(batch, tokens, heads, 8, generator=generator)
+    projection = torch.randn(8, DIM_HEAD, generator=generator) * 1.5
+    q = base @ projection + 0.3 * torch.randn(batch, tokens, heads, DIM_HEAD, generator=generator)
+    k = base @ projection + 0.3 * torch.randn(batch, tokens, heads, DIM_HEAD, generator=generator)
+    v = torch.randn(batch, tokens, heads, DIM_HEAD, generator=generator)
+    if skip_reshape:
+        return [t.transpose(1, 2).contiguous() for t in (q, k, v)]
+    return [t.reshape(batch, tokens, heads * DIM_HEAD) for t in (q, k, v)]
+
+
+def _comfy_kitchen_reference(q, k, v, tau):
+    """Comfy Kitchen's own reference over all heads at once, ``(B, T, H, D)``."""
+    import comfy_kitchen
+
+    return comfy_kitchen.registry.get_implementation("sol_attn", backend="eager")(q, k, v, tau=tau)
+
+
+def test_the_reference_is_comfy_kitchens_in_head_chunks(sparse, monkeypatch):
+    """Chunking the heads (to bound memory) gives Comfy Kitchen's result for
+    the whole tensor: every (batch, head) is independent."""
+    q, k, v = (t.view(2, 256, HEADS * 2, DIM_HEAD) for t in _structured_qkv(batch=2, heads=HEADS * 2))
+    monkeypatch.setattr(sparse, "REFERENCE_SCORE_BYTES", 256 * 256 * 4)  # one head at a time
+    torch.testing.assert_close(sparse.reference_sol_attn(q, k, v, tau=1.25), _comfy_kitchen_reference(q, k, v, 1.25))
+    monkeypatch.setattr(sparse, "REFERENCE_SCORE_BYTES", 2**30)  # all at once
+    torch.testing.assert_close(sparse.reference_sol_attn(q, k, v, tau=1.25), _comfy_kitchen_reference(q, k, v, 1.25))
+
+
+@pytest.mark.parametrize("layout", [{}, {"skip_reshape": True}, {"skip_reshape": True, "skip_output_reshape": True}], ids=["tokens", "heads", "heads-out"])
+def test_without_the_kernels_the_patch_runs_the_reference(sparse, monkeypatch, layout):
+    """On the CPU (as on MPS): the enabled panel patches attention, eligible
+    calls give Comfy Kitchen's sparse result (not the dense one), in the
+    caller's layout and dtype, and the job says the reference ran."""
+    from backend.attention import attention_pytorch
+    from modules import devices
+
+    monkeypatch.setattr(devices, "device", torch.device("cpu"))
+    assert sparse.unavailable_reason(devices.device) == "CUDA device is required"
+    unet = _enabled_unet(sparse, tau=1.25)
+    q, k, v = _structured_qkv(skip_reshape=layout.get("skip_reshape", False))
+
+    out = _attention(unet, q, k, v, **layout)
+
+    dense = attention_pytorch(q, k, v, HEADS, **layout)
+    assert out.shape == dense.shape and out.dtype == q.dtype
+    as_bthd = (lambda t: t.transpose(1, 2)) if layout.get("skip_reshape") else (lambda t: t.view(1, 256, HEADS, DIM_HEAD))
+    expected = _comfy_kitchen_reference(*(as_bthd(t) for t in (q, k, v)), 1.25)
+    expected = expected.transpose(1, 2) if layout.get("skip_output_reshape") else expected.reshape(1, 256, HEADS * DIM_HEAD)
+    torch.testing.assert_close(out, expected)
+    # sparse: some key blocks were pooled, so the result is not dense attention
+    assert (out - dense).abs().max() > 1e-2
+
+
+def test_the_reference_falls_back_to_dense_when_it_cannot_run(sparse, monkeypatch):
+    """Out of memory (or too many tokens for the reference): that call stays
+    dense, with a warning, instead of failing the job."""
+    from backend.attention import attention_pytorch
+    from modules import devices
+
+    def fail(*args, **kwargs):
+        raise torch.OutOfMemoryError("MPS backend out of memory")
+
+    monkeypatch.setattr(devices, "device", torch.device("cpu"))
+    monkeypatch.setattr(sparse, "reference_sol_attn", fail)
+    warnings = []
+    monkeypatch.setattr(sparse.logger, "warning", warnings.append)
+    unet = _enabled_unet(sparse)
+    q, k, v = _structured_qkv()
+    out = _attention(unet, q, k, v)
+    _attention(unet, q, k, v)
+    torch.testing.assert_close(out, attention_pytorch(q, k, v, HEADS))
+    assert sum("reference sparse attention failed" in message for message in warnings) == 1  # once, not per call
+
+
+# endregion

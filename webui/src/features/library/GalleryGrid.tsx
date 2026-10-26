@@ -1,7 +1,15 @@
 /**
  * The gallery grid: justified rows or masonry columns at each image's exact
  * aspect ratio, virtualized (only tiles near the viewport exist), loading
- * the next page as the end scrolls into view.
+ * the next page well before the end scrolls into view.
+ *
+ * Scrolling re-renders the grid every frame, so that work stays small: the
+ * layout (aspects, justified rows) and the virtualizer's callbacks change
+ * only with the items, width or layout (a new `getItemKey` makes TanStack
+ * Virtual recompute every row's position), and tiles are memoised (only
+ * the ones entering the range render). Tiles are size- and paint-contained
+ * and their thumbnails decode off the main thread
+ * (docs/research/ui-performance.md, "Scrolling").
  *
  * A tile is a button: click opens the viewer, or — once something is
  * selected, or with Ctrl / Cmd — toggles its selection; Shift extends the
@@ -15,7 +23,8 @@
  */
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual"
 import { Check, Star } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import type { TFunction } from "i18next"
 import { useTranslation } from "react-i18next"
 import { api } from "@/api/endpoints"
 import type { GalleryItem } from "@/api/types"
@@ -26,6 +35,12 @@ import { aspectOf, justifiedNeighbor, justifiedRows, masonryColumns, rowOf, thum
 
 const GAP = 6
 const PADDING = 12
+/**
+ * The next page is requested once fewer than this many viewport heights of
+ * tiles are left below the view: at a fast flick (about 18,000 px/s) a page
+ * of thumbnails arrives and is laid out before the end comes into view.
+ */
+const PREFETCH_VIEWPORTS = 4
 
 type GalleryGridProps = {
   items: readonly GalleryItem[]
@@ -56,9 +71,17 @@ function useWidth(element: HTMLElement | null): number {
   return width
 }
 
+// Parsing an infotext per tile mount showed in fast scrolls: each item's label is computed once.
+const labels = new WeakMap<GalleryItem, string>()
+
 function label(item: GalleryItem): string {
-  const prompt = item.infotext ? splitInfotext(item.infotext).prompt : ""
-  return prompt ? prompt.slice(0, 140) : item.name
+  let text = labels.get(item)
+  if (text === undefined) {
+    const prompt = item.infotext ? splitInfotext(item.infotext).prompt : ""
+    text = prompt ? prompt.slice(0, 140) : item.name
+    labels.set(item, text)
+  }
+  return text
 }
 
 type TileProps = {
@@ -73,10 +96,12 @@ type TileProps = {
   current: boolean
   onFocusTile: (index: number) => void
   register: (id: string, element: HTMLButtonElement | null) => void
+  /** The grid's translate function (one i18n subscription for the grid, not one per tile). */
+  t: TFunction
 } & Pick<GalleryGridProps, "onActivate" | "onToggleSelect" | "onStar">
 
-function Tile({ item, width, height, selected, selecting, index, total, current, onFocusTile, register, onActivate, onToggleSelect, onStar }: TileProps) {
-  const { t } = useTranslation()
+// Memoised: a scroll frame re-renders the grid, but only tiles whose props changed (new in the range) render.
+const Tile = memo(function Tile({ item, width, height, selected, selecting, index, total, current, onFocusTile, register, t, onActivate, onToggleSelect, onStar }: TileProps) {
   const name = label(item)
   return (
     <div
@@ -85,7 +110,8 @@ function Tile({ item, width, height, selected, selecting, index, total, current,
       aria-posinset={index + 1}
       aria-setsize={total}
       className={cn(
-        "group/tile relative overflow-hidden rounded-md bg-muted outline-none",
+        // fixed size: size and paint containment keep a tile's image load or hover from relaying out the grid
+        "group/tile relative overflow-hidden rounded-md bg-muted outline-none [contain:strict]",
         selected && "ring-3 ring-primary ring-offset-2 ring-offset-background",
       )}
       style={{ width, height }}
@@ -152,7 +178,7 @@ function Tile({ item, width, height, selected, selecting, index, total, current,
       ) : null}
     </div>
   )
-}
+})
 
 export function GalleryGrid(props: GalleryGridProps) {
   // TanStack Virtual's virtualizer is a mutable object the React Compiler must not memoise.
@@ -162,9 +188,10 @@ export function GalleryGrid(props: GalleryGridProps) {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null)
   const width = useWidth(scroller)
   const target = TILE_SIZES[size]
-  const aspects = items.map((item) => aspectOf(item.width, item.height))
-  const rows = layout === "justified" ? justifiedRows(aspects, width, target, GAP) : []
-  const columns = masonryColumns(width, target, GAP)
+  // Recomputed when the items, width or layout change, not on every scroll frame.
+  const aspects = useMemo(() => items.map((item) => aspectOf(item.width, item.height)), [items])
+  const rows = useMemo(() => (layout === "justified" ? justifiedRows(aspects, width, target, GAP) : []), [layout, aspects, width, target])
+  const columns = useMemo(() => masonryColumns(width, target, GAP), [width, target])
   const selecting = selected.size > 0
   const total = props.total ?? items.length
 
@@ -175,20 +202,31 @@ export function GalleryGrid(props: GalleryGridProps) {
   const [focusInside, setFocusInside] = useState(false)
   const pinned = focusInside && items.length > 0 ? (layout === "justified" ? rowOf(rows, current) : current) : -1
 
+  // Stable between scroll frames: TanStack Virtual recomputes every position when `getItemKey` changes.
+  const getScrollElement = useCallback(() => scroller, [scroller])
+  const estimateSize = useCallback(
+    (index: number) => (layout === "justified" ? (rows[index]?.height ?? target) : columns.width / (aspects[index] ?? 1)) + GAP,
+    [layout, rows, target, columns, aspects],
+  )
+  const getItemKey = useCallback((index: number) => (layout === "justified" ? `row-${rows[index]?.start ?? index}` : (items[index]?.id ?? index)), [layout, rows, items])
+  const rangeExtractor = useCallback(
+    (range: Parameters<typeof defaultRangeExtractor>[0]) => {
+      const indexes = defaultRangeExtractor(range)
+      return pinned >= 0 && !indexes.includes(pinned) ? [...indexes, pinned].sort((a, b) => a - b) : indexes
+    },
+    [pinned],
+  )
   // oxlint-disable-next-line react/incompatible-library -- opted out of memoisation above
   const virtualizer = useVirtualizer({
     count: layout === "justified" ? rows.length : items.length,
-    getScrollElement: () => scroller,
-    estimateSize: (index) => (layout === "justified" ? (rows[index]?.height ?? target) : columns.width / (aspects[index] ?? 1)) + GAP,
+    getScrollElement,
+    estimateSize,
     lanes: layout === "masonry" ? columns.count : 1,
     overscan: layout === "justified" ? 4 : 12,
     paddingStart: PADDING,
     paddingEnd: PADDING,
-    getItemKey: (index) => (layout === "justified" ? `row-${rows[index]?.start ?? index}` : (items[index]?.id ?? index)),
-    rangeExtractor: (range) => {
-      const indexes = defaultRangeExtractor(range)
-      return pinned >= 0 && !indexes.includes(pinned) ? [...indexes, pinned].sort((a, b) => a - b) : indexes
-    },
+    getItemKey,
+    rangeExtractor,
   })
   // Sizes depend on the width, layout and size: re-measure when they change.
   const signature = `${layout}:${size}:${Math.round(width)}:${columns.count}`
@@ -200,11 +238,13 @@ export function GalleryGrid(props: GalleryGridProps) {
   }, [signature, virtualizer])
 
   const virtualItems = virtualizer.getVirtualItems()
-  const last = virtualItems.at(-1)
-  const lastItem = last ? (layout === "justified" ? (rows[last.index]?.end ?? 0) - 1 : last.index) : -1
+  // Fetch ahead: the next page is requested while several screens of tiles are still left below.
+  const viewport = scroller?.clientHeight ?? 0
+  const left = virtualizer.getTotalSize() - (virtualizer.scrollOffset ?? 0) - viewport
+  const nearEnd = items.length > 0 && left < Math.max(viewport, 1) * PREFETCH_VIEWPORTS
   useEffect(() => {
-    if (hasMore && !loadingMore && lastItem >= items.length - 12) onLoadMore()
-  }, [lastItem, items.length, hasMore, loadingMore, onLoadMore])
+    if (hasMore && !loadingMore && nearEnd) onLoadMore()
+  }, [nearEnd, items.length, hasMore, loadingMore, onLoadMore])
 
   // The tab stop: the current tile when rendered, else the first tile in view.
   const tileIndexes = (virtual: { index: number }) => {
@@ -218,7 +258,8 @@ export function GalleryGrid(props: GalleryGridProps) {
   const tabStop = rendered ? current : (tileIndexes(inView[0] ?? virtualItems[0] ?? { index: -1 })[0] ?? current)
   const buttons = useRef(new Map<string, HTMLButtonElement>())
   const pendingFocus = useRef<string | null>(null)
-  const register = (id: string, element: HTMLButtonElement | null) => {
+  // stable (refs only), so the memoised tiles do not re-render for it
+  const register = useCallback((id: string, element: HTMLButtonElement | null) => {
     if (element) {
       buttons.current.set(id, element)
       if (pendingFocus.current === id) {
@@ -226,7 +267,7 @@ export function GalleryGrid(props: GalleryGridProps) {
         element.focus({ preventScroll: true })
       }
     } else buttons.current.delete(id)
-  }
+  }, [])
   const focusIndex = (index: number) => {
     const target = Math.max(0, Math.min(index, items.length - 1))
     const item = items[target]
@@ -260,7 +301,7 @@ export function GalleryGrid(props: GalleryGridProps) {
     if (next !== null && next >= 0 && next < items.length && next !== current) focusIndex(next)
   }
 
-  const tileProps = { onActivate: props.onActivate, onToggleSelect: props.onToggleSelect, onStar: props.onStar, selecting, total, onFocusTile: setActive, register }
+  const tileProps = { onActivate: props.onActivate, onToggleSelect: props.onToggleSelect, onStar: props.onStar, selecting, total, onFocusTile: setActive, register, t }
 
   return (
     <div ref={setScroller} className="h-full overflow-y-auto overscroll-contain" data-testid="gallery-scroller">

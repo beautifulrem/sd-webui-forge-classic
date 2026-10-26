@@ -184,7 +184,9 @@ imperatively).
   `queryOptions` per resource. Schemas and bootstrap are `staleTime: Infinity`
   and are invalidated by WS events.
 - `ws.ts`: `useWs` (Zustand). One connection to `/api/v2/ws`; on open sends
-  `{"type":"hello","features":[…]}` and stores the server's `hello.features`
+  `{"type":"hello","features":[…],"visible":…}` (and `{"type":"visibility",
+  "visible":…}` when the page is hidden or shown: a hidden page gets no
+  previews) and stores the server's `hello.features`
   (`useServerFeature`). JSON events are dispatched to `onWsEvent(type, fn)`
   subscribers (`"*"` for all); both `{type, …fields}` and
   `{type, data: {…}}` envelopes are accepted, and `events.ts` validates the
@@ -314,8 +316,11 @@ Rules the renderer implements:
   `ctrl_enter_interrupt` is on, generates again once the job has ended.
   Ctrl/Cmd+Shift+Enter adds the form to the queue ("Add to queue").
   Alt+Enter skips. Escape interrupts only when nothing else owns it: not in a
-  text field or prompt editor, not inside a dialog, menu or popup, and no
-  popup open. Generate keys are ignored while a modal dialog is open.
+  text field, not inside a dialog, menu or popup, and no popup open. In a
+  prompt editor it interrupts as in A1111 (the placeholder advertises it)
+  unless the editor used it first (closing the completion list, dropping a
+  selection: CodeMirror calls `preventDefault`). Generate keys are ignored
+  while a modal dialog is open.
 - **Rows**: `width` 1–12 = share of 12 columns, `"fill"` = the rest,
   absent/`"auto"` = equal share, buttons hug content. Rows are CSS containers;
   under 30 rem spans and fills go full width (phones stack).

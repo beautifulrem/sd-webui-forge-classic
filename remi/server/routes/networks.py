@@ -46,10 +46,15 @@ def kinds(services: ServicesDep) -> list[dict[str, Any]]:
     return [{"id": info.id, "title": info.title, "action": info.action, "negative": info.negative, "fields": list(info.fields), "builtin": info.builtin} for info in services.networks.kind_infos()]
 
 
-@router.post("/networks/refresh", response_model=m.Ok, summary="Re-scan every kind (and prune the preview caches)")
+@router.post("/networks/refresh", response_model=m.Ok, summary="Re-scan every kind and the upscalers (and prune the preview caches)")
 async def refresh_all(services: ServicesDep) -> dict[str, Any]:
+    from remi.server.runtime import refresh_upscalers
+
     await run_in_threadpool(services.networks.refresh)
+    await run_in_threadpool(refresh_upscalers)
     services.bus.publish("networks.changed")
+    # The upscaler choices live in the tab schemas, which clients refetch on this
+    services.bus.publish("options.changed", keys=["upscalers"])
     threading.Thread(target=services.networks.prune_cache, name="remi-network-prune", daemon=True).start()
     return {"ok": True}
 

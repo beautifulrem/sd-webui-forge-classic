@@ -67,7 +67,9 @@ class Services:
         self.queue.start()
         if self.realtime:
             state = {"state": self.state} if self.state is not None else {}
-            self._threads = [ProgressMonitor(self.bus, self.queue.current_ref, on_tick=self.queue.poll, **state), PreviewEncoder(self.bus, self.queue.current_ref, **state)]
+            monitor = ProgressMonitor(self.bus, self.queue.current_ref, on_tick=self.queue.poll, **state)
+            # a step's progress goes out with its preview: one wake-up of the hub per step
+            self._threads = [monitor, PreviewEncoder(self.bus, self.queue.current_ref, before_frame=monitor.publish_now, **state)]
             for thread in self._threads:
                 thread.start()
         if self.housekeeping_enabled:

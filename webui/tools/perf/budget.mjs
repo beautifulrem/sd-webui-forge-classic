@@ -48,11 +48,30 @@ export function analyse(manifest, html, size, budget) {
     .sort((a, b) => b.addedKB - a.addedKB)
   const route = entries.find((entry) => entry.key === budget.defaultRoute)
   const defaultRouteFiles = route ? closure(manifest, [route.file]) : new Set()
+  // the route with the lazy parts its first render fetches (`defaultRouteParts`, e.g. its form)
+  const viewFiles = route ? defaultView(manifest, budget) : new Set()
   return {
     initial: { files: [...initial].filter(isJs), gzipKB: round1(kbOf(initial, size)), brotliKB: round1(kbOf(initial, size, "brotli")) },
-    defaultRoute: route ? { key: route.key, addedKB: route.addedKB, withInitialKB: round1(kbOf(new Set([...initial, ...defaultRouteFiles]), size)) } : null,
+    defaultRoute: route
+      ? {
+          key: route.key,
+          addedKB: route.addedKB,
+          withInitialKB: round1(kbOf(new Set([...initial, ...defaultRouteFiles]), size)),
+          parts: budget.defaultRouteParts ?? [],
+          withPartsAddedKB: round1(kbOf([...viewFiles].filter((file) => !initial.has(file)), size)),
+        }
+      : null,
     entries,
   }
+}
+
+/** The default route's static closure and those of the lazy parts it fetches as it renders (`defaultRouteParts`). */
+function defaultView(manifest, budget) {
+  const keys = [budget.defaultRoute, ...(budget.defaultRouteParts ?? [])].filter((key) => manifest[key])
+  return closure(
+    manifest,
+    keys.map((key) => manifest[key].file),
+  )
 }
 
 /**
@@ -64,7 +83,7 @@ export function check(report, budget) {
   const problems = []
   if (report.initial.gzipKB > budget.initialKB) problems.push(`initial JS ${report.initial.gzipKB} KB > ${budget.initialKB} KB`)
   const keys = new Set(report.entries.map((entry) => entry.key))
-  for (const key of [...Object.keys(budget.exempt ?? {}), ...Object.keys(budget.exceptions ?? {}), budget.defaultRoute].filter(Boolean)) {
+  for (const key of [...Object.keys(budget.exempt ?? {}), ...Object.keys(budget.exceptions ?? {}), budget.defaultRoute, ...(budget.defaultRouteParts ?? [])].filter(Boolean)) {
     if (!keys.has(key)) problems.push(`${key}: named in the budget but not a lazily loaded entry of this build`)
   }
   for (const entry of report.entries) {
@@ -82,12 +101,13 @@ export function check(report, budget) {
 
 /**
  * A measured page load (`browser.mjs --only load`, its `scripts.files`) split by budget: the
- * initial JS, the default route's static closure, the exempt editors and everything else the view
- * fetched before it was idle (lazy parts of the first view, e.g. the model bar).
+ * initial JS, the default route (its static closure and those of `defaultRouteParts`, the lazy
+ * parts it fetches as it renders), the exempt editors and everything else the view fetched
+ * before it was idle (lazy parts of the first view, e.g. the model bar).
  */
 export function firstView(manifest, html, size, budget, files) {
   const initial = closure(manifest, entryFiles(html))
-  const route = budget.defaultRoute ? closure(manifest, [manifest[budget.defaultRoute].file]) : new Set()
+  const route = budget.defaultRoute ? defaultView(manifest, budget) : new Set()
   const exemptFiles = new Set(Object.keys(budget.exempt ?? {}).flatMap((key) => (manifest[key] ? [...closure(manifest, [manifest[key].file])] : [])))
   const parts = { initial: 0, defaultRoute: 0, exempt: 0, other: 0 }
   for (const file of files) {

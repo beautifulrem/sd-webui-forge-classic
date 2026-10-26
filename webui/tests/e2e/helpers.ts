@@ -81,3 +81,30 @@ export async function overrideBootstrap(page: Page, patch: BootstrapPatch) {
     await page.addInitScript((value) => sessionStorage.setItem("remi-mock-bootstrap", value), JSON.stringify(patch))
   }
 }
+
+export type Fault = { path: string; delay?: number; status?: number }
+
+/**
+ * Makes `GET /api/v2…` requests slow or failing for this page: `path` is a
+ * regular expression on the path after `/api/v2`, `delay` waits that many ms,
+ * `status` answers with that error. On a real server the requests are routed,
+ * the mock backend reads the faults from sessionStorage (`FAULTS_KEY` in
+ * `src/api/mock/server.ts`). Call before the page loads.
+ */
+export async function injectFaults(page: Page, faults: Fault[]) {
+  if (REAL_SERVER) {
+    await page.route(
+      (url) => url.pathname.startsWith("/api/v2/"),
+      async (route) => {
+        const path = new URL(route.request().url()).pathname.replace(/^\/api\/v2/, "")
+        const fault = route.request().method() === "GET" ? faults.find((item) => new RegExp(item.path).test(path)) : undefined
+        if (!fault) return route.fallback()
+        if (fault.delay) await new Promise((resolve) => setTimeout(resolve, fault.delay))
+        if (fault.status) return route.fulfill({ status: fault.status, json: { detail: `Injected fault: ${path}` } })
+        return route.fallback()
+      },
+    )
+  } else {
+    await page.addInitScript((value) => sessionStorage.setItem("remi-mock-faults", value), JSON.stringify(faults))
+  }
+}

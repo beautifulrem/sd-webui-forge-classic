@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import {
+  backupDiffers,
   dirnameFromUrl,
   disabledList,
   type ExtensionInfo,
@@ -145,5 +146,23 @@ describe("server error messages", () => {
     const unknown = new ApiError(422, "the index is too large", { detail: "the index is too large", template: "the index is too large", params: {} })
     expect(adminErrorMessage(unknown, t)).toBe("the index is too large")
     expect(adminErrorMessage(new Error("plain"), t)).toBe("plain")
+  })
+})
+
+describe("backup comparison", () => {
+  it("treats a fresh backup as equal to now, empty and missing git info alike", () => {
+    // what the server stored for a built-in vs what it reports live
+    expect(backupDiffers({ commit_hash: "", branch: null, enabled: true }, { commit_hash: null, branch: null, enabled: true })).toBe(false)
+    expect(backupDiffers({ commit_hash: undefined, branch: "", enabled: true }, { commit_hash: null, branch: undefined, enabled: true })).toBe(false)
+    expect(backupDiffers({ commit_hash: "abc", branch: "main", enabled: true }, { commit_hash: "abc", branch: "main", enabled: true })).toBe(false)
+  })
+
+  it("flags a moved commit, another branch, a toggle, or a missing side", () => {
+    expect(backupDiffers({ commit_hash: "abc", branch: "main", enabled: true }, { commit_hash: "def", branch: "main", enabled: true })).toBe(true)
+    expect(backupDiffers({ commit_hash: "abc", branch: "main", enabled: true }, { commit_hash: "abc", branch: "dev", enabled: true })).toBe(true)
+    expect(backupDiffers({ commit_hash: "abc", branch: "main", enabled: true }, { commit_hash: "abc", branch: "main", enabled: false })).toBe(true)
+    expect(backupDiffers({ commit_hash: "", enabled: true }, { commit_hash: "abc", enabled: true })).toBe(true)
+    expect(backupDiffers(null, { commit_hash: "abc", enabled: true })).toBe(true)
+    expect(backupDiffers({ commit_hash: "abc", enabled: true }, null)).toBe(true)
   })
 })

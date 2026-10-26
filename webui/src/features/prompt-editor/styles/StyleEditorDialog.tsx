@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { LazyPromptEditor } from "../index"
+import { recountStyledTokens } from "../use-token-count"
 
 type StyleEditorDialogProps = {
   open: boolean
@@ -39,6 +40,8 @@ function refreshStyles() {
   void queryClient.invalidateQueries({ queryKey: keys.styles })
   // The forms' `styles` choices are resolved into the schema.
   void queryClient.invalidateQueries({ queryKey: ["schema"] })
+  // Token counters that include styles count the new style text.
+  recountStyledTokens()
 }
 
 export function StyleEditorDialog({ open, onOpenChange, currentPrompts, initial }: StyleEditorDialogProps) {

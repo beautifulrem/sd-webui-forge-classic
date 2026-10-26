@@ -182,7 +182,7 @@ function SearchBox({ value, onChange, inputRef, count }: { value: string; onChan
             <X />
           </Button>
         ) : (
-          <kbd className="hidden h-5 items-center rounded border px-1.5 font-mono text-[0.65rem] text-muted-foreground sm:inline-flex" aria-hidden>
+          <kbd className="hidden h-5 items-center rounded border px-1.5 font-mono text-[0.65rem] text-muted-foreground sm:inline-flex touch-only:hidden!" aria-hidden>
             /
           </kbd>
         )}
@@ -398,7 +398,7 @@ export function NetworkBrowser({ surface, form, toolbarEnd, toastOnApply, classN
       {kinds.isError ? (
         <ErrorState title={t("Could not load the network kinds")} error={kinds.error} onRetry={retry} />
       ) : list.isPending || !kind ? (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2.5 p-2" aria-busy="true" aria-label={t("Loading…")}>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2.5 p-2" role="status" aria-busy="true" aria-label={t("Loading…")}>
           {Array.from({ length: 12 }, (_, i) => (
             <Skeleton key={i} className="aspect-3/4 rounded-xl" />
           ))}

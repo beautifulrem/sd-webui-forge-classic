@@ -123,7 +123,8 @@ function DateRange() {
   )
 }
 
-export function GalleryToolbar({ count, total }: { count: number; total: number | null }) {
+/** `failed`: the image list could not be read (the page shows why): the toolbar shows no count then. */
+export function GalleryToolbar({ count, total, failed = false }: { count: number; total: number | null; failed?: boolean }) {
   const { t } = useTranslation()
   const view = useGalleryView()
   const facets = useQuery(galleryFacetsQuery)
@@ -199,10 +200,14 @@ export function GalleryToolbar({ count, total }: { count: number; total: number 
           />
         </div>
       </div>
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums" aria-live="polite">
-        {view.layout === "justified" ? <Rows3 className="size-3.5" aria-hidden /> : <LayoutGrid className="size-3.5" aria-hidden />}
-        {total === null ? t("Loading…") : filtered > 0 ? t("{{count}} of {{total}} images match", { count: total, total: facets.data?.total ?? total }) : t("Images: {{count}}", { count: total })}
-        {count < (total ?? 0) ? <span>· {t("{{count}} loaded", { count })}</span> : null}
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums empty:hidden" aria-live="polite">
+        {failed ? null : (
+          <>
+            {view.layout === "justified" ? <Rows3 className="size-3.5" aria-hidden /> : <LayoutGrid className="size-3.5" aria-hidden />}
+            {total === null ? t("Loading…") : filtered > 0 ? t("{{count}} of {{total}} images match", { count: total, total: facets.data?.total ?? total }) : t("Images: {{count}}", { count: total })}
+            {count < (total ?? 0) ? <span>· {t("{{count}} loaded", { count })}</span> : null}
+          </>
+        )}
         {view.q ? (
           <button type="button" className="inline-flex items-center gap-0.5 rounded px-1 hover:bg-muted" onClick={() => view.set({ q: "" })}>
             “{view.q}” <X className="size-3" aria-label={t("Clear search")} />

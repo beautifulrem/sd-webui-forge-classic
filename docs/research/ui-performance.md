@@ -11,7 +11,13 @@ machine ([Verify runs of 2026-10-20](#verify-runs-of-2026-10-20-real-model-idle-
 and after the third review of 2026-10-20 (the bundle budget counted per
 route closure and per first view, [Bundle](#1-bundle); the overhead's
 primary figure, [Primary figure and adaptive runs](#primary-figure-and-adaptive-runs);
-an offline startup comparison). The DOM, scrolling, preview and overhead
+an offline startup comparison), and after the fourth review of 2026-10-21
+(the Generate route under 150 KB with no exception, [Bundle](#1-bundle); the
+gallery's work per scroll frame and its fetch-ahead, [cold wheel
+scrolling](#fourth-review-2026-10-21-cold-wheel-scrolling-of-the-gallery); one
+wake-up of the server's event loop per served step and no previews for hidden
+pages, [Fourth review](#fourth-review-of-2026-10-21-the-whole-step-bound-under-load)).
+The DOM, scrolling, preview and overhead
 figures of the result table are from the 2026-10-20 tree (commit `ef242b67`
 plus the verify stage's changes), the bundle figures from the tree after the
 third review. The numbers come from the real server
@@ -26,14 +32,14 @@ logs, without the large CDP traces) are committed under
 
 | budget | measured (final) | result |
 |---|---|---|
-| Initial JS ≤ 300 KB gzip | **187.7 KB** gzip (4 files; 162.6 KB brotli, as served). The default view before the first interaction (txt2img, measured): 531.9 KB, 413.6 KB without the exempt prompt editor (before: 560.7 / 442.5 KB): a recorded, capped exception ([Bundle](#1-bundle)) | pass (initial JS); the default view is the recorded exception |
-| No route chunk > 150 KB gzip, except justified lazy canvas / editor chunks | Counted as what each route adds on top of the initial JS (its whole static closure): every route and lazy entry ≤ 150 KB (settings 140.7, extras 131.8, networks 120.1, before 170.3 / 160.8 / 160.7) except the default Generate route, 198.6 KB (before 233.4), the recorded exception capped at 210 KB; the editors (CodeMirror 119.0, canvas 111.7) are exempt; checked by `tools/check.sh` (`perf:bundle`) | pass, with the Generate route as the recorded exception |
+| Initial JS ≤ 300 KB gzip | **188.2 KB** gzip (4 files; 162.9 KB brotli, as served; 2026-10-21). The default view before the first interaction (txt2img, measured) is reported with it: 531.2 KB = initial 188.2 + Generate route with its parameter form 197.5 + the exempt prompt editor 118.3 + the view's other lazy parts 27.3 ([Bundle](#1-bundle)) | pass |
+| No route chunk > 150 KB gzip, except justified lazy canvas / editor chunks | Counted as what each route or lazy entry adds on top of the initial JS (its whole static closure, not just its own chunk), **no exception**: the Generate route **90.8 KB** (before: 198.8 KB under a self-granted 210 KB exception, now removed), its parameter form a lazy entry of its own **140.6 KB**, settings 141.4, extras 132.7, networks 120.3, every other entry less; the editors (CodeMirror 119.0, canvas 111.7) are exempt; checked by `tools/check.sh` (`perf:bundle`), which fails the tree before the change, commit `e91c9c47` (198.8 > 150) | pass |
 | Generate view ≤ 3,000 DOM nodes, all built-in extensions loaded | **1,222** elements (1,549 DOM nodes incl. text, CDP `Nodes`) on txt2img, 1,292 / 1,662 on img2img; heaviest single section opened: 1,590 | pass |
 | INP p95 ≤ 50 ms typing a 300-token prompt, autocomplete on | verify stage (idle, this tree): p95 16 ms, INP 24 ms, max 32 ms (`final-real/load/`); **p95 24 ms** in all three earlier recorded runs (idle machine: max 40 ms, INP 24 ms; heavily loaded machine: max 152 ms, INP 24 ms). The 4× CPU-throttled margin check: p95 24 / 40 / 48 ms, max 56 / 88 / 144 ms, INP 24 / 48 / 56 ms (idle / review / loaded) | pass (unthrottled); the throttled margin shrinks under load |
 | 5,000 network cards scroll at 60 fps | headless **60.0 / 60.0 fps** (cold / warm pass), p95 frame 16.8 / 16.7 ms at 2,400 px/s over the whole list, **0 of 3,257** frames over 20 ms (verify stage, idle machine); headed (Google Chrome 155 on the real display, 144 Hz): **143 / 142 fps**, p95 8.4 ms, 3 and 10 of 3,257 frames over 20 ms, none with page work ([below](#verify-runs-of-2026-10-20-headless-and-headed)) | pass |
-| 10,000 gallery items scroll at 60 fps | headless **60.0 fps**, p95 16.8 / 16.7 ms, 0 of 5,725 frames over 20 ms; headed **144 fps**, p95 8.6 ms, 0 frames over 20 ms (verify stage) | pass |
+| 10,000 gallery items scroll at 60 fps | headless **60.0 fps**, p95 16.8 / 16.7 ms, 0 of 5,725 frames over 20 ms; headed **144 fps**, p95 8.6 ms, 0 frames over 20 ms (verify stage). 2026-10-21, load average 8–12: every page loaded, cold and warm **60.0 fps**, 0–1 of 5,725 frames over 20 ms; **real mouse-wheel input on a fresh page while the later pages load** (`gallery-wheel`), 18,750 px/s: **59.7 fps**, 10–12 of 2,350 frames over 20 ms, 3 with page work (before the fix of that day 58.9–59.4 fps, 22–38 frames over 20 ms, 7–17 with page work), 7,500 px/s: 59.6–59.7 fps ([cold wheel scrolling](#fourth-review-2026-10-21-cold-wheel-scrolling-of-the-gallery)) | pass |
 | Preview frame latency p95 ≤ 150 ms | **p95 35.1 ms** (sampler → painted, real model, 768×768, 4 jobs × 16 steps, 60 of 60 frames painted, idle machine, verify stage); **batch count 3: p95 35.6 ms, 42 of 42 frames painted, 7 per image for all 6 images**. Until 2026-10-20 the page dropped the previews of the second and later images of a job (the step starts again at 0 for each image) | pass |
-| UI overhead on generation speed ≤ 1 % it/s | Real model, batch count 1, only the measuring page connected. **Primary, the server's cost per step measured directly** (`step_segments.py`: served − muted, per job): **512×512 2.11 ± 0.07 ms of a 2.58 s step = 0.082 %, one-sided 95 % upper bound 0.084 %** (20 jobs); **768×768 3.17 ± 0.29 ms of 6.86 s = 0.046 %, upper bound 0.050 %** (10 jobs). **Secondary, whole steps interleaved** (the browser's share included): 512×512 −0.13 ± 0.85 %, upper bound 0.58 % (251 window pairs); 768×768 +0.26 ± 0.84 %, upper bound 0.96 % (168 pairs); every preview painted (1,578 of 1,578 and 812 of 812); idle machine (load average 1–1.5). The third review's 4-job run at load 8–10: +0.41 ± 0.86 %, upper bound 1.13 % (too few jobs for that load: `--max-repeat` now adds jobs until the bound settles), its direct cost 3.17 ms per step (0.11 %) ([below](#primary-figure-and-adaptive-runs)). Sensitivity check with each window's first step dropped: upper bound 0.68 % (768×768), 1.24 % (512×512). Verify rerun of 2026-10-21 on a heavily loaded machine (load average 10–28, 10 jobs): interleaved +0.50 ± 0.56 %, upper bound 0.96 % (verdict within); the direct cost grows under CPU contention to 32 ms per step, 0.93 %, upper bound 1.43 % ([below](#verify-runs-of-2026-10-21-after-the-third-review-loaded-machine)) | **pass** on an idle machine (direct cost ≤ 1 % with its bound; interleaved bound ≤ 1 % at both sizes); the first-step-dropped bound at 512×512 is 1.24 %; under heavy load every point estimate ≤ 1 % and the interleaved bound 0.96 %, the direct bound 1.43 % |
+| UI overhead on generation speed ≤ 1 % it/s | Real model, batch count 1, only the measuring page connected. **Primary (since the fourth review): the whole step, interleaved** (served vs muted windows inside each job, the browser's share included; pooled over jobs; one-sided 95 % upper bound of the window pairs): idle machine (load 1–1.5) 512×512 **−0.13 ± 0.85 %, upper bound 0.58 %** (251 pairs, 20 jobs), 768×768 **+0.26 ± 0.84 %, upper bound 0.96 %** (168 pairs, 10 jobs); loaded machine (load 10–28, 2026-10-21 verify) 512×512 **+0.50 ± 0.56 %, upper bound 0.96 %** (171 pairs, 10 jobs, verdict "within"); the fourth review's loaded run (load 13–32, 8 jobs, its cap) +0.78 ± 1.26 %, upper bound 1.84 %, verdict "inconclusive". Every preview painted in every run. Diagnostic, the server's cost per step measured directly (`step_segments.py`): 2.1 ms idle (0.08 %), 15–32 ms under heavy load (0.4–0.9 %), the GIL hand-offs to the event loop growing with CPU contention. Since 2026-10-21 a served step wakes the server's event loop once instead of twice (progress sent with its preview) and hidden pages get no previews ([Fourth review](#fourth-review-of-2026-10-21-the-whole-step-bound-under-load)); the loaded-machine rerun of this tree (adaptive, 10 to 40 jobs until the verdict) is the verify stage's | **pass** idle and in the loaded verify run (whole-step bound ≤ 1 % at both sizes); the review's 8-job loaded run did not settle the bound; rerun of this tree: pending (verify stage) |
 | Server startup no slower than before the rewrite | UI mode **4.37 s** vs 12.02 s (Gradio); API only 4.19 s vs 6.58 s (medians of 5, idle machine). On a loaded machine everything is slower (the review: 9.6 s for the new UI mode; 2026-10-19 at load average 13–16: UI 23.9 s vs 68.0 s, API 29.8 s vs 33.6 s, alternating runs; 2026-10-21, both trees offline, load average 4–7: UI 10.38 s vs 26.23 s, API 9.81 s vs 15.61 s) | pass (the ratio; absolute times depend on load) |
 
 Four things missed their budget or were found wasteful and were changed (see
@@ -75,7 +81,7 @@ for that reason.
 | `tools/perf/fixtures.py prompt …/prompt300.txt` | the typing test's prompt: 103 common Danbooru general tags, exactly 300 CLIP tokens, 1,203 characters |
 | `tools/perf/serve_traced.py` | runs `launch.py` with probes added at import time (no server change): sampler step times, preview image assignment, preview frame publication, how many WebSocket clients each preview went to, every WebSocket connection, to a JSONL file (`time.time()`); a mute file makes the WebSocket hub act as if no client were connected; `REMI_PERF_WS_ONLY=HeadlessChrome` refuses WebSocket connections from other browsers (an open WebUI tab elsewhere reconnects to the port and would receive the previews too); `REMI_PERF_FAKE_SAMPLER=<blocks>` replaces the processing with a synthetic GPU sampler (no model: DiT-like blocks on MPS, about 3 s per step with 28 blocks, a live preview per step as the real callback makes it); `REMI_PERF_DIST` serves another SPA build |
 | `webui/tools/perf/bundle.mjs` | initial JS (scripts in `index.html` and their static imports) and what every lazy entry (route, dialog, widget, editor) adds on top of it, from the Vite manifest, gzip -6 and brotli -11; `--check` applies `budget.json` (limits, exempt editors, the recorded exception with its caps; `tools/check.sh` step `perf:bundle`), `--load` splits a measured page load into initial JS, default route, exempt editors and the rest (logic and tests: `budget.mjs`, `budget.test.mjs`) |
-| `webui/tools/perf/browser.mjs` | Playwright + CDP scenarios: `load`, `inp`, `networks`, `gallery` (with `longFrames`: what the renderer's main thread did in each frame over 20 ms), `preview` (latency, frames drawn per step, the page's CPU per step, frames received / painted per image; `--batch-count`), `overhead`, `interleaved` (below; `paintedShare` checks that the page painted the previews it received; `--repeat N` pools the window pairs of N jobs, `--max-repeat M` adds jobs until the pooled bound settles the budget, `verdict`; `previewClients` and a warning when a preview went to more than the measuring page); `--headed` runs a visible browser; `--dist` names the build the server serves (the scripts' gzip sizes); `--inject-css` for A/B checks without a rebuild |
+| `webui/tools/perf/browser.mjs` | Playwright + CDP scenarios: `load`, `inp`, `networks`, `gallery` (with `longFrames`: what the renderer's main thread did in each frame over 20 ms), `gallery-wheel` (real mouse-wheel input on a fresh gallery while its later pages load; `--wheel-repeat`), `preview` (latency, frames drawn per step, the page's CPU per step, frames received / painted per image; `--batch-count`), `overhead`, `interleaved` (below; `paintedShare` checks that the page painted the previews it received; `--repeat N` pools the window pairs of N jobs, `--max-repeat M` adds jobs until the pooled bound settles the budget, `verdict`; `previewClients` and a warning when a preview went to more than the measuring page); `--headed` runs a visible browser; `--dist` names the build the server serves (the scripts' gzip sizes); `--inject-css` for A/B checks without a rebuild |
 | `tools/perf/startup.py` | starts old and new trees five times each per mode, alternating (after an unrecorded warm-up start each), and times them; proxies are removed from the environment; the readiness probe waits for a slow answer instead of retrying every 2 s (on a busy machine the old Gradio page takes seconds per request, and abandoned probes kept it from ever answering) |
 | `tools/perf/ws_interleave.py` | the `interleaved` measurement with a non-browser WebSocket client that receives and discards every frame (`--no-client`: none connected), against `serve_traced.py`'s trace and mute file; a diagnostic of the verify stage (below) |
 
@@ -95,8 +101,8 @@ REMI_PERF_WS_ONLY=HeadlessChrome REMI_PERF_TRACE=$PERF/trace.jsonl REMI_PERF_MUT
 cd webui
 # bash (zsh does not split $B: write ${=B} there); a later --out replaces this one
 B="--base http://127.0.0.1:7861 --out $OUT --dist $PERF/dist --trace $PERF/trace.jsonl --mute $PERF/mute --prompt $OUT/prompt300.txt"
-node tools/perf/browser.mjs $B --only load,inp,networks,gallery
-node tools/perf/bundle.mjs $PERF/dist --check --load $OUT/browser-load-inp-networks-gallery.json --json $OUT/bundle.json
+node tools/perf/browser.mjs $B --only load,inp,networks,gallery,gallery-wheel
+node tools/perf/bundle.mjs $PERF/dist --check --load $OUT/browser-load-inp-networks-gallery-gallery-wheel.json --json $OUT/bundle.json
 node tools/perf/browser.mjs $B --only inp --cpu-throttle 4
 node tools/perf/browser.mjs $B --only networks,gallery --headed --channel chrome   # a visible window of the installed Chrome, real compositor
 node tools/perf/browser.mjs $B --only preview --steps 16 --jobs 4
@@ -173,27 +179,75 @@ The budget is checked on three levels, from the Vite manifest of a
 - **The default view before the first interaction**: what txt2img (the
   route every session starts on) fetches until it is idle, measured in the
   browser (`browser.mjs --only load`, split by `bundle.mjs --load`): the
-  initial JS, the Generate route's closure, the exempt prompt editor and the
-  view's other lazy parts (model bar, prompt toolbar, quick settings,
-  appearance menu, widgets of the visible form).
+  initial JS, the Generate route's closure with its parameter form (below),
+  the exempt prompt editor and the view's other lazy parts (model bar, prompt
+  toolbar, quick settings, appearance menu, widgets of the visible form).
+  Reported, with no limit of its own in the scorecard (it holds the initial
+  JS, so it could never be under the 150 KB of a route).
 
-The default view is over 300 KB, and the Generate route is the one route
-over 150 KB: a **recorded exception**, with its own caps in `budget.json`
-(the route ≤ 210 KB, with the initial JS ≤ 400 KB) so that it cannot grow
-unnoticed. Why: the first view of the Generate page is the product's main
-working surface, and its parts are needed before the first interaction -
-the schema form renderer with the controls of the visible core parameters
-(sampler and scheduler choices with search, sliders and number fields for
-steps, CFG and size, seed, toggles; 33 scripts' sections), the resizable
-three-pane layout, the history grid's virtualizer, the stage and the run
-bar. What the first view does not show is deferred (below). The assets are
-precompressed (brotli on the wire) and immutable-cached (`Cache-Control:
+Until 2026-10-21 the Generate route was the one route over 150 KB (198.8 KB),
+listed in `budget.json` as a "recorded exception" with its own cap; the
+fourth review called that self-granted and asked for the real 150 KB budget.
+Since 2026-10-21 `budget.json` has **no exception**: every route and lazy
+entry must stay at or under 150 KB, which the tree before this change (commit `e91c9c47`) fails
+(`bundle.mjs --check`: "src/pages/generate/index.tsx adds 198.8 KB > 150 KB").
+
+The Generate page is now two lazily loaded parts
+(`webui/src/pages/generate/index.tsx`):
+
+- **the route**: the resizable panes, the stage with the live preview and
+  the result actions, the history grid with its virtualizer, the run bar, the
+  page's shortcuts and commands: **90.8 KB**;
+- **its parameter form** (`ParamsPane.tsx`: the schema form renderer with the
+  controls of the core parameters, the prompt fields, styles and the 33
+  scripts' sections): a lazy entry of its own, **140.6 KB**, whose fetch starts
+  when the route's module runs (before React renders it), in parallel with
+  the schema request. The parameter column shows its skeleton until both
+  are in, as it already did while the schema loaded, so the frame of the page
+  (panes, stage, history) no longer waits for the form's code.
+
+The split is a code-splitting boundary of the product, not a reduction of
+what the first visit downloads: route and form together add 197.5 KB on top
+of the initial JS (before: 198.8 KB). `bundle.mjs` reports that sum next to
+the route ("with the lazy parts its first render fetches", `defaultRouteParts`
+in `budget.json`) and counts the form in the route's share of the measured
+first view, so neither figure is hidden by the split. What the first view
+does not use is deferred: the confirmation dialogs of the Generate page
+(clear the history, clear the prompts, reset all parameters:
+`webui/src/components/ConfirmDialog.tsx`, the alert-dialog code loads when
+one first opens, prefetched when the pointer enters or the focus reaches the
+button that opens it) and the browser-side image metadata reader of a
+dropped image (loaded with the first drop). What is left in the first view
+is what it renders: the controls of the visible core parameters (sampler and
+scheduler choices with search, sliders and number fields for steps, CFG and
+size, seed, toggles), the 33 scripts' section headers, the prompt editor
+(CodeMirror, exempt), the panes, the history grid and the run bar. The assets
+are precompressed (brotli on the wire) and immutable-cached (`Cache-Control:
 immutable`, hashed names), so only the first load after an install or an
-update downloads them; first contentful paint was 92 ms and the view
-ready (prompt editor present, network idle) after 2.2 s on a machine at
-load average 9-20 (2026-10-20, after the changes).
+update downloads them.
 
-### Measured (2026-10-20, after the third review)
+### Measured (2026-10-21, after the fourth review)
+
+`bundle.mjs` on the tree before the change (`git archive` of commit
+`e91c9c47`, built alike) and on this tree; the first views measured by `browser.mjs --only load`
+against the real server without a model (the same fixtures, headless
+Chromium, load average 7-14, two alternating runs each, identical results;
+raw: `perf-data/2026-10-21/fourth-review/bundle-*.json`,
+`browser-load-*.json`):
+
+| | before (`e91c9c47`) | after | budget |
+|---|---|---|---|
+| Initial JS | 187.7 KB | **188.2 KB** (the shell +0.5 KB: other work of the day and the page-visibility message) | 300 KB |
+| Generate route, added on top | 198.8 KB (recorded exception, cap 210 KB) | **90.8 KB** (60 files) | 150 KB |
+| Generate parameter form (lazy entry) | (in the route) | **140.6 KB** (90 files) | 150 KB |
+| Generate route + form, added on top | 198.8 KB | 197.5 KB | (reported) |
+| Settings, extras, networks | 141.0, 132.0, 120.2 KB | 141.4, 132.7, 120.3 KB | 150 KB |
+| `bundle.mjs --check` with no exception | fails (198.8 > 150) | **passes** | |
+| txt2img first view, measured | 142 scripts, 532.1 KB = initial 187.7 + route 198.8 + prompt editor 118.3 + other 27.3 | 143 scripts, **531.2 KB** = initial 188.2 + route and form 197.5 + prompt editor 118.3 + other 27.3 | |
+| img2img first view, measured | 164 scripts, 622.0 KB | 167 scripts, 624.1 KB (the canvas editor is preloaded) | |
+| txt2img: DOM elements, first contentful paint, ready | 1,220, 168-180 ms, 2.4-2.5 s | 1,226, 172-184 ms, 2.4-2.5 s | |
+
+### Measured (2026-10-20, after the third review; superseded)
 
 `bundle.mjs` before and after the changes below, the same server and
 headless Chromium (raw: `2026-10-20/third-review/`):
@@ -422,6 +476,68 @@ these rare frames are the cost of a new row at fling speed or a GC landing
 in that frame, not a steady per-frame cost (the mean is 1.8–1.9 ms).
 These are headless runs; the headed runs (installed Google Chrome on the
 real display) are the verify runs [above](#verify-runs-of-2026-10-20-headless-and-headed).
+
+### Fourth review (2026-10-21): cold wheel scrolling of the gallery
+
+The fourth review measured the gallery's cold pass (every page loaded,
+thumbnails not cached) at 59.3 fps with 9 of 5,678 frames over 20 ms, and
+with real mouse-wheel input before every page had loaded (about 18,000
+px/s) 58.4 fps with 31 of 1,167 frames over 20 ms (load average 10–12).
+Where the page work of the long frames went (the grid's code and TanStack
+Virtual's, the traces of the runs below, and a CPU profile of a fast wheel
+run on an unminified build): the grid re-rendered on every scroll frame, as
+the virtualizer does, and
+each render also recomputed the aspect ratios and justified rows of every
+loaded image and passed TanStack Virtual a new `getItemKey`, which makes it
+recompute every row's position (10,000 images: about 1,500 rows) per frame;
+every mounted tile rendered again (new callbacks each time); each tile
+mounting in the range subscribed to i18next on its own and parsed its
+image's infotext for its label; and the next page was only requested when
+the last rendered tile was within 12 of the end, so at a fast flick the
+scroll reached the end before the page had come.
+
+Changes (`webui/src/features/library/GalleryGrid.tsx`):
+
+- the layout (aspects, rows, columns) and the virtualizer's callbacks
+  (`estimateSize`, `getItemKey`, `rangeExtractor`, the scroll element) are
+  memoised on the items, width, size and layout: positions are recomputed
+  when a page arrives or the width changes, not per frame;
+- tiles are memoised, their callbacks stable (`register`, the grid's `t`
+  passed down: one i18n subscription for the grid), their labels parsed once
+  per item; a tile is size- and paint-contained (`contain: strict`: it has a
+  fixed size), so an image arriving in it does not relayout the grid;
+  thumbnails keep `decoding="async"` (decoded off the main thread);
+- the next page is requested once fewer than **four screens** of tiles are
+  left below the view (it was 12 tiles, about one row), so pages arrive
+  ahead of a fast flick.
+
+`browser.mjs --only gallery-wheel` reproduces the review's input on a fresh
+page (nothing loaded beyond the first page, nothing cached): Playwright's
+`mouse.wheel` every 16 ms over the grid from the first tile on, 300 px per
+event (18,750 px/s; the browser's smooth scrolling and the pages arriving
+make the effective rate 5,600-5,900 px/s over the whole list) and 120 px
+(7,500 px/s), until the end of the list with nothing left to load; the same
+frame statistics and long-frame attribution as the other scrolling runs.
+Real server without a model, the fixtures (10,072 images), headless
+Chromium 1920×1080, load average 8–17 from other sessions, the builds
+alternating (raw: `perf-data/2026-10-21/fourth-review/wheel-*`, `gallery-*`):
+
+| build | 18,750 px/s: fps | frames > 20 ms | with page work | 7,500 px/s: fps | frames > 20 ms | with page work |
+|---|---|---|---|---|---|---|
+| before: the grid of `e91c9c47` (runs 1, 2, 3) | 59.1, 58.9, 59.4 | 38 of 2,426, 34 of 2,399, 22 of 2,434 | 15, 17, 7 | 59.6, 59.7, 59.8 | 22, 18, 13 of ~3,590 | 3, 2, 1 |
+| first version of the change (runs 1, 2) | 59.6, 59.5 | 14, 15 of 2,348 | 1, 3 | 59.7, 59.8 | 18, 9 of ~3,590 | 2, 1 |
+| **this tree** (runs 1, 2) | **59.7, 59.7** | **12 of 2,346, 10 of 2,373** | **3, 3** | **59.7, 59.6** | 20, 19 of ~3,610 | 0, 2 |
+
+With every page loaded (the `gallery` scenario, the same servers and load):
+this tree 60.0 / 59.9–60.0 / 60.0 fps (2,400 px/s cold, 9,600 px/s, warm),
+0–1, 0–2 and 0 frames over 20 ms of 5,725 / 1,431 / 5,725; the tree
+before 60.0 / 60.0 / 60.0 fps with 0, 0 and 1 frames over 20 ms at this
+load. The page's share of the long frames of the fast wheel run fell from
+7–17 to 3; what is left of them (7–9 per run, 0.3 %) had no page work: the
+browser's compositing, and other processes taking the CPU at this load. On a
+heavier load (average about 25, a first set of runs that day, the first
+version of the change) the fast flick dropped to 52–55 fps: at that load the
+machine decides.
 
 ## 5. Preview frame latency
 
@@ -840,7 +956,10 @@ previews painted) but not the bound: 1.13 %. Its direct measurement gave
 enough jobs for the machine's load, so the overhead is now reported in two
 parts:
 
-- **Primary: the server's cost per step, measured directly.**
+(Since the fourth review the whole step is the primary figure again and
+the direct cost the diagnostic: [below](#fourth-review-of-2026-10-21-the-whole-step-bound-under-load).)
+
+- **Primary (until 2026-10-21): the server's cost per step, measured directly.**
   `step_segments.py --run <interleaved result>` takes the run's time range
   from the result file (`traceSince` / `traceUntil`, recorded by
   `browser.mjs` since this change; older runs: their start time and number of
@@ -865,7 +984,7 @@ parts:
   jobs; per-job medians scatter by about 2.4 % with the step times) and
   0.00 ± 0.64 % (768×768): no systematic difference, and no tighter than the
   whole-step comparison.
-- **Secondary: the whole step, interleaved** (`pairStats`), which contains
+- **Secondary (primary since 2026-10-21): the whole step, interleaved** (`pairStats`), which contains
   the browser's share; the table [above](#verify-runs-of-2026-10-20-real-model-idle-machine).
   `browser.mjs --only interleaved --repeat N --max-repeat M` is adaptive:
   after N jobs it adds jobs until the pooled one-sided bound settles the
@@ -927,6 +1046,100 @@ within its 210 KB cap, every other entry ≤ 150 KB; txt2img first view
 532.1 KB, 413.8 KB without the prompt editor; raw `perf-data/2026-10-21/verify/bundle.json`,
 `browser-load.json`) and the offline startup comparison
 ([Server startup](#7-server-startup)).
+
+### Fourth review of 2026-10-21: the whole-step bound under load
+
+The fourth review ran `interleaved` on a loaded machine (real model,
+512×512, 120 steps, 15 s windows, 8 jobs, load average 13–32): on 3,633 vs
+off 3,611 ms per step (+0.61 %), window pairs **+0.78 ± 1.26 %, one-sided
+upper bound 1.84 %**, verdict "inconclusive" at its 8-job cap (first step
+dropped: 2.16 %); the direct server cost 14.66 ± 25.64 ms per step (0.40 %,
+upper bound 0.97 %), seven times the idle 2.11 ms. Every point estimate is
+under 1 %, but the bound was not established at that load, and the server's
+cost grows with CPU contention.
+
+**Which figure is primary.** As the review asks, the whole-step interleaved
+bound (`pairStats.upper95`, pooled over the jobs) is the primary figure
+again: it contains everything the page costs, the browser's share and the
+server's. The direct cost per step (`step_segments.py`) stays as the
+diagnostic that locates the server's part. The result table reports it so.
+
+**Why the server's cost grows under load.** The sampler's thread holds the
+interpreter while it dispatches the next step (26 ms idle, 530–680 ms at
+load 10–28: it waits for CPUs). Each message for the page wakes the
+server's event loop on another thread, which then needs the interpreter: the
+sampler hands it over, and with more runnable threads than cores both
+threads wait to be scheduled again, so each wake-up costs the sampler a
+scheduling delay rather than the microseconds of the work. A served step
+had **two** such wake-ups: the preview frame (published by the generation
+thread as the preview is assigned) and, up to 0.2 s later, the step's
+`job.progress` (published by the progress monitor's poll). A muted step,
+the comparison's baseline, has one (the progress event still wakes the loop,
+which drops it).
+
+**Changes (2026-10-21):**
+
+- **One wake-up per served step** (`remi/realtime.py`,
+  `remi/server/services.py`): just before a frame goes out, the preview
+  encoder has the progress monitor publish the step's progress
+  (`ProgressMonitor.publish_now`, which never waits for the monitor's own
+  thread); the monitor's next poll finds nothing new. The event loop wakes
+  once for the step's progress and preview, as often as when nobody is
+  served. The page still draws the step once: its progress gate releases the
+  progress with the frame that follows it (`webui/src/api/progress-gate.ts`),
+  now the same step's frame, so the step counter and the image of a step
+  change together (before: the counter of step *k* changed with the image of
+  step *k + 1*). Tests: `test_a_steps_progress_goes_out_right_before_its_preview`,
+  `test_each_steps_progress_arrives_right_before_its_preview` (the socket
+  sees each step's progress immediately before its frame and no second
+  progress event for it) in `tests/test_remi_server_ws.py`.
+- **No previews for hidden pages** (`remi/server/ws.py`,
+  `webui/src/api/ws.ts`): a page tells the server whether it is shown (in its
+  `hello` and with a `visibility` message on every change); a hidden page
+  gets no frames, and while no connected page is shown the server encodes
+  none (`wants_frames`). A tab in the background no longer costs the sampler
+  a preview encode, a send and a wake-up per step; shown again, it gets the
+  next preview (at most a second later mid-step: the encoder looks at the
+  state at least once a second). Events (progress, completion, the tab
+  title's progress) still go to hidden pages. Tests:
+  `test_hidden_pages_get_no_previews_and_none_are_encoded_for_them`
+  (`tests/test_remi_server_ws.py`), `ws.test.ts`.
+
+**Kept, with the reasons:**
+
+- **Small previews are still encoded on the generation thread.** The
+  review suggests encoding off the sampler thread or outside the GIL. The
+  encoding itself already runs outside it (Pillow releases the interpreter
+  while its JPEG / WebP encoder works); what costs under load is handing the
+  interpreter to another thread, which encoding on a thread would add back:
+  that was the state before 2026-10-20, when the sampler → published p95 was
+  up to 141 ms under load against 1.8–4.2 ms since
+  ([2026-10-20](#2026-10-20-batch-previews-and-the-per-step-cost)). Previews
+  larger than 256 × 256 px (JPEG) or 96 × 96 px (WebP), e.g. TAESD's, still
+  go to the encoder thread.
+- **The default preview cadence stays at every step, at most 6 fps.** The
+  live preview is the main feedback during a 1–7 s step and every step
+  carries a new image; the server's share at that cadence is 2–3 ms per step
+  on an idle machine, so halving the frames would halve an already small
+  cost and make the preview twice as coarse for every user. Users who want
+  fewer frames set "Generate live preview every N step" (Settings → Live
+  previews); this is recorded as a product decision.
+
+**To measure (verify stage, real model).** The loaded-machine run the review
+asks for, with enough jobs to settle the verdict, on this tree: the
+documented adaptive command, at the machine's load, with its
+`step_segments.py` diagnostic:
+
+```sh
+node tools/perf/browser.mjs $B --out $OUT/il512-loaded --only interleaved --steps 150 --size 512x512 --window 15 --batch-count 1 --repeat 10 --max-repeat 40
+$PY ../tools/perf/step_segments.py $PERF/trace.jsonl --run $OUT/il512-loaded/browser-interleaved.json
+```
+
+`verdict` "within" requires `pairStats.upper95` ≤ 1 %. With a pair scatter
+like the review's (an SD of about 6 %: its ±1.26 % from roughly 100 pairs)
+and an overhead of 0.3–0.5 %, that takes about 200–390 pairs, i.e. 12–23
+jobs of 150 steps at 512×512 (about 17 pairs each), which `--max-repeat 40`
+allows ([the table above](#primary-figure-and-adaptive-runs)).
 
 ## 7. Server startup
 
@@ -1017,6 +1230,10 @@ API-only stays ahead (1.1×, 1.6× idle). Raw: `perf-data/2026-10-19/startup.jso
 | 2026-10-20 (verify): measurement tools: the preview's client count and every WebSocket connection in the server trace, `REMI_PERF_WS_ONLY` (other browsers' WebUI tabs refused); `previewClients`, `--repeat` and the t quantiles beyond 30 pairs in `browser.mjs`; `--channel chrome` (headed runs in the installed Chrome); `pool_interleaved.py` (pools runs, re-derives old runs' jobs and checks them); `step_segments.py` (the server's cost per step from the trace) | `tools/perf/serve_traced.py`, `tools/perf/pool_interleaved.py`, `tools/perf/step_segments.py`, `webui/tools/perf/browser.mjs`, tests in `tests/test_remi_perf_tools.py` | a second client no longer distorts the overhead; the bound can be tightened by adding jobs |
 | 2026-10-20 (third review): menus, form views that a first view does not show, img2img's surfaces and the networks dialogs load on first use | `webui/src/components/ui/dropdown-menu.tsx` (+ `dropdown-menu-impl.tsx`), `webui/src/ui/lazy-views.tsx`, `webui/src/canvas/img2img/lazy.tsx`, `webui/src/features/networks/NetworkBrowser.tsx`; tests `dropdown-menu.test.tsx`, `lazy-views.test.tsx` | Generate route 233.4 → 198.6 KB, settings 170.3 → 140.7, extras 160.8 → 131.8, networks 160.7 → 120.1; txt2img first view 560.7 → 531.9 KB ([Bundle](#1-bundle)) |
 | 2026-10-20 (third review): measurement tools: the bundle budget as a check (`bundle.mjs --check`, `budget.json`, `tools/check.sh` step `perf:bundle`) and the first-view split (`--load`); adaptive `interleaved` runs (`--max-repeat`, `--target-upper95`, `verdict`), the run's trace range in its result; `step_segments.py --run` with the server's cost per step bounded over the jobs (`serverCost`) and the GPU-bound part compared (`gpuPart`); `startup.py` starts both trees offline | `webui/tools/perf/bundle.mjs`, `budget.mjs`, `budget.json`, `stats.mjs`, `browser.mjs`, `tools/perf/step_segments.py`, `tools/perf/startup.py`, `tools/check.sh`; tests `budget.test.mjs`, `stats.test.mjs`, `tests/test_remi_perf_tools.py` | the budget cannot regress unnoticed; the overhead's primary figure is resolved on a loaded machine; the startup comparison runs without network |
+| 2026-10-21 (fourth review): the Generate page in two lazy parts (the route; its parameter form, fetched as the route's module runs), the page's confirmation dialogs and the dropped-image metadata reader on first use; `budget.json` without the recorded exception; the route reported with the form it fetches (`defaultRouteParts`) | `webui/src/pages/generate/index.tsx`, `webui/src/components/ConfirmDialog.tsx` (+ `ConfirmDialogView.tsx`), `HistoryPane.tsx`, `PromptsPanel.tsx`, `ResetFormDialog.tsx`, `paste-parameters.ts`, `webui/tools/perf/budget.json`, `budget.mjs`, `bundle.mjs`; tests `generate.test.tsx`, `budget.test.mjs` | Generate route 198.8 → 90.8 KB, its form 140.6 KB; every entry ≤ 150 KB with no exception ([Bundle](#1-bundle)) |
+| 2026-10-21 (fourth review): the gallery's work per scroll frame (layout and virtualizer callbacks only change with the items, width or layout; memoised, size- and paint-contained tiles; one translation subscription for the grid; labels parsed once) and its fetch-ahead (four screens before the end) | `webui/src/features/library/GalleryGrid.tsx` | cold wheel scrolling at 18,750 px/s: frames over 20 ms 34–38 → 14–15, with page work 15–17 → 1–3 ([Scrolling](#fourth-review-2026-10-21-cold-wheel-scrolling-of-the-gallery)) |
+| 2026-10-21 (fourth review): a served step's progress goes out with its preview (one event-loop wake-up per step, as when muted); hidden pages get no previews, none are encoded while no page is shown | `remi/realtime.py`, `remi/server/services.py`, `remi/server/ws.py`, `webui/src/api/ws.ts`; tests in `tests/test_remi_server_ws.py`, `ws.test.ts` | fewer GIL hand-offs on the sampler's thread per served step; a background tab costs no preview work ([Fourth review](#fourth-review-of-2026-10-21-the-whole-step-bound-under-load)) |
+| 2026-10-21 (fourth review): measurement tools: `gallery-wheel` (real mouse-wheel input on a fresh gallery while its pages load), `--wheel-repeat`; the mock gallery's size (`VITE_MOCK_GALLERY_SIZE`) and its cached filter | `webui/tools/perf/browser.mjs`, `webui/src/api/mock/library.ts` | the review's cold wheel test is reproducible from the repository |
 
 Docs updated: `architecture.md` (preview encoder, precompressed assets, one
 paint per step), `api.md` (preview and progress timing),
@@ -1025,7 +1242,9 @@ endless animations while a job runs; one commit and one frame per step, no
 backdrop blur on per-step surfaces; since 2026-10-20 no fade between preview
 frames); 2026-10-20: `api.md` and `architecture.md` (frames are ordered by
 arrival, the step restarts per image; small previews encoded on the
-generation thread), `upstream-absorption.md` (what the hook calls).
+generation thread), `upstream-absorption.md` (what the hook calls);
+2026-10-21: `api.md`, `architecture.md` and `frontend.md` (the page's
+`visible` / `visibility` messages, a step's progress sent with its preview).
 
 ## Raw data
 
@@ -1042,6 +1261,7 @@ results):
 | `2026-10-20/final-real/` | the verify stage, real model, idle machine: `il512/`, `il512b/`, `il768/`, `il768b/` (interleaved, batch count 1, each with `run.log`, `load.log` and `step-segments.json`), `pooled-512.json`, `pooled-768.json` (`pool_interleaved.py`), `server-trace.jsonl.gz` (the server's step / preview / client probes of all these runs), `il512-run1/` (the first 4-job run after the second client was shut out; load average up to 21, superseded by `il512/`), `il512-shared-7861/` (the discarded runs with an old WebUI tab connected, the WebSocket-client and no-client diagnostics of `tools/perf/ws_interleave.py`: `ws_interleave_512*.json`, `ws512.log`, `aa512.log`), `step-segments-512.json` / `step-segments-768.json` (the server's cost per step of the pooled runs, with bounds; recomputed after the third review with `step_segments.py --run`), `preview-b1/`, `preview-b3/` (latency; every image of a batch), `load/` (DOM, scripts, INP), `bundle/`, `scroll-headless/`, `scroll-headed/` (Google Chrome on the real display) |
 | `2026-10-20/third-review/` | after the third review: `bundle-before.json` / `bundle-after.json` (`bundle.mjs`; the after report includes the measured first-view split), `browser-load-before.json` / `browser-load-after.json` (`load` scenario, the same server without a model, headless Chromium, load average 9-20) |
 | `2026-10-21/verify/` | the verify stage after the third review (commit `9b8682e5`, loaded machine): `startup.json` / `startup.log` (offline, both trees), `browser-load.json` and `bundle.json` (`bundle.mjs --check --load`), `il512-loaded/` (the adaptive interleaved run, its `step-segments.json`, `run.log` and the server trace) |
+| `2026-10-21/fourth-review/` | after the fourth review (real server without a model, the fixtures, headless Chromium, load average 7–17): `bundle-before.json` / `bundle-after.json` (`bundle.mjs --check --load`; before: a `git archive` of commit `e91c9c47` built alike), `browser-load-before-run1/2.json`, `browser-load-after-run1/2.json` (first views, alternating), `wheel-before-run1/2.json` (`gallery-wheel` on a build with the gallery grid of `e91c9c47`), `wheel-first-version-run1/2.json`, `gallery-before-run3.json` (`e91c9c47`) and `gallery-after-run1/2.json` (`gallery` and `gallery-wheel`) |
 | `2026-10-19/` | the reruns of this revision: `fx-out/` (load, INP, INP at 4× throttling, scrolling, under load), `preview-ab/` (the before / after runs of the per-step cost, synthetic sampler), `interleaved-synthetic/` (the synthetic interleaved run), `startup.json` / `startup.log` (startup under load), `preview-trace/` (a compressed CDP trace of the final build during a job) |
 
 ## Caveats
@@ -1058,6 +1278,13 @@ results):
 - The synthetic sampler loads the GPU like a DiT of about Anima's step time
   but has none of the real pipeline's Python work per step; it measures what
   the page costs, not the overhead on the real model.
+- Both conditions of the overhead measurement decode the live preview's
+  latent: Forge's `shared.state.set_current_image` runs at every preview
+  step whether or not a client watches (as it did under Gradio, which
+  polled it), and the decode waits for the GPU to finish the step. The
+  comparison measures what serving the page adds to that (encoding,
+  sending, progress events, the browser), not the cost of having previews
+  on at all; with live previews off (Settings) neither happens.
 - The overhead measurement's "off" condition keeps an idle page open (the
   page that owns the job). That page has no animation and receives nothing
   while muted, so it should cost nothing, but this was not measured on its

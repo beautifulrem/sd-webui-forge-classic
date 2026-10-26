@@ -753,11 +753,35 @@ const routes: [method: string, pattern: RegExp, handler: Handler][] = [
   ],
 ]
 
+/**
+ * Where an end-to-end test leaves slow or failing endpoints before the app
+ * loads (`tests/e2e/helpers.ts` `injectFaults`): a list of
+ * `{ path, delay?, status? }`, `path` a regular expression on the path after
+ * `/api/v2`. The first matching fault waits `delay` ms, then answers with
+ * `status` (an error body) or goes on as usual.
+ */
+export const FAULTS_KEY = "remi-mock-faults"
+
+type Fault = { path: string; delay?: number; status?: number }
+
+function faultFor(method: string, path: string): Fault | null {
+  try {
+    const raw = typeof sessionStorage === "undefined" ? null : sessionStorage.getItem(FAULTS_KEY)
+    if (!raw || method !== "GET") return null
+    return (JSON.parse(raw) as Fault[]).find((fault) => new RegExp(fault.path).test(path)) ?? null
+  } catch {
+    return null
+  }
+}
+
 export async function handleMockRequest(request: Request): Promise<Response> {
   const url = new URL(request.url, location.origin)
   const path = url.pathname.replace(/^\/api\/v2/, "")
   const refused = mockRefusal(path)
   if (refused) return json(refused.body, refused.status)
+  const fault = faultFor(request.method, path)
+  if (fault?.delay) await delay(fault.delay)
+  if (fault?.status) return json({ detail: `Mock fault: ${request.method} ${path}` }, fault.status)
   for (const [method, pattern, handler] of routes) {
     if (method !== request.method) continue
     const match = pattern.exec(path)

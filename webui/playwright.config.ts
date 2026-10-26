@@ -6,13 +6,16 @@
  * With `REMI_E2E_BASE_URL` (a running WebUI with a model, e.g. the one
  * `tools/smoke_real.py --browser` starts) only the tests tagged `@real` run,
  * against that server and its built SPA: the real-server browser smoke
- * (docs/remi-webui/testing.md).
+ * (docs/remi-webui/testing.md). `REMI_E2E_GREP` picks other tests there:
+ * `tools/smoke_extensions.py` runs the `@fixture` ones, which need its local
+ * git and index fixture (they never run against the mock).
  */
 import { defineConfig, devices } from "@playwright/test"
 
 const PORT = Number(process.env.REMI_E2E_PORT ?? 5199)
 const CI = Boolean(process.env.CI)
 const REAL = process.env.REMI_E2E_BASE_URL?.replace(/\/+$/, "") || null
+const REAL_GREP = process.env.REMI_E2E_GREP ? new RegExp(process.env.REMI_E2E_GREP) : /@real/
 
 // The dev server is on loopback: never reach it through an HTTP(S) proxy from the environment.
 for (const key of ["NO_PROXY", "no_proxy"]) {
@@ -53,9 +56,9 @@ export default defineConfig({
         timeout: 90_000,
       },
   projects: REAL
-    ? [{ name: "real", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } }, grep: /@real/ }]
+    ? [{ name: "real", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } }, grep: REAL_GREP }]
     : [
-        { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } }, grepInvert: /@phone/ },
-        { name: "phone", use: { ...devices["Pixel 7"] }, grep: /@phone/ },
+        { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } }, grepInvert: /@phone|@fixture/ },
+        { name: "phone", use: { ...devices["Pixel 7"] }, grep: /@phone/, grepInvert: /@fixture/ },
       ],
 })

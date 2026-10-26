@@ -14,6 +14,7 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import { api } from "@/api/endpoints"
 import { ApiError } from "@/api/http"
+import { cjkSpacing } from "./cjk-spacing"
 
 export const DEFAULT_LOCALE = "en"
 
@@ -100,7 +101,7 @@ export function browserLocale(): string {
 
 export const i18n = i18next.createInstance()
 
-void i18n.use(initReactI18next).init({
+void i18n.use(initReactI18next).use(cjkSpacing).init({
   lng: DEFAULT_LOCALE,
   fallbackLng: false,
   ns: ["chrome", "server"],
@@ -110,6 +111,8 @@ void i18n.use(initReactI18next).init({
   nsSeparator: false,
   returnEmptyString: false,
   interpolation: { escapeValue: false },
+  // "启用{{title}}" + "ADetailer" → "启用 ADetailer" (cjk-spacing.ts)
+  postProcess: ["cjkSpacing"],
   resources: {},
   react: { bindI18nStore: "added" },
 })

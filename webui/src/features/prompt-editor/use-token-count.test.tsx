@@ -7,7 +7,7 @@ import { bootstrap } from "@/api/mock/fixtures"
 import { keys, queryClient } from "@/api/queries"
 import { useWs } from "@/api/ws"
 import { FakeSocket } from "@/test/fake-socket"
-import { TOKEN_DEBOUNCE_MS, type TokenCountInput, useTokenCount } from "./use-token-count"
+import { recountStyledTokens, TOKEN_DEBOUNCE_MS, type TokenCountInput, useTokenCount } from "./use-token-count"
 
 const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
 
@@ -65,5 +65,29 @@ describe("useTokenCount", () => {
     send({ type: "job.completed", job_id: "j", outputs: [] })
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(count).toHaveBeenCalledTimes(1)
+  })
+
+  it("recounts styled counts when a style is saved or deleted, not plain ones", async () => {
+    const send = await socket()
+    const count = vi.spyOn(api, "countTokens").mockImplementation(async (body) => ({ tokens: body.styles?.length ? 27 : 4, max_length: 75 }))
+    const styledHook = renderHook(() => useTokenCount({ text: "a cat", styles: ["scoretest"] }), { wrapper })
+    const plainHook = renderHook(() => useTokenCount({ text: "a dog" }), { wrapper })
+    await waitFor(() => expect(styledHook.result.current.data?.tokens).toBe(27))
+    await waitFor(() => expect(plainHook.result.current.data?.tokens).toBe(4))
+    expect(count).toHaveBeenCalledTimes(2)
+    // The style text grows on the server: the same key must be counted again.
+    count.mockImplementation(async (body) => ({ tokens: body.styles?.length ? 30 : 4, max_length: 75 }))
+    send({ type: "options.changed", keys: ["styles"] })
+    await waitFor(() => expect(styledHook.result.current.data?.tokens).toBe(30))
+    expect(count).toHaveBeenCalledTimes(3)
+    expect(count.mock.calls[2]![0]).toMatchObject({ text: "a cat", styles: ["scoretest"] })
+    // An unrelated option change leaves both alone; the editor's own save recounts at once.
+    send({ type: "options.changed", keys: ["sd_vae"] })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(count).toHaveBeenCalledTimes(3)
+    count.mockImplementation(async (body) => ({ tokens: body.styles?.length ? 32 : 4, max_length: 75 }))
+    recountStyledTokens()
+    await waitFor(() => expect(styledHook.result.current.data?.tokens).toBe(32))
+    expect(count).toHaveBeenCalledTimes(4)
   })
 })

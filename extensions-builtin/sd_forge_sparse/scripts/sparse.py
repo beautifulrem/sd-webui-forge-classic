@@ -22,7 +22,8 @@ HEAD_DIM = 128
 
 class SparseAttnPatch:
 
-    def __init__(self, tau, sigma_start, sigma_end, min_tokens, extra_tokens, dense_blocks, verbose):
+    def __init__(self, tau, sigma_start, sigma_end, min_tokens, extra_tokens, dense_blocks, verbose, fused=True):
+        self.fused = fused  # the Sol-Attn kernels run the sparse calls (else reference_sol_attn)
         self.tau = tau
         self.sigma_start = sigma_start
         self.sigma_end = sigma_end
@@ -33,10 +34,11 @@ class SparseAttnPatch:
 
         self._logged: set[str] = set()
 
-    def log_once(self, key: str, message: str):
-        if self.verbose and key not in self._logged:
+    def log_once(self, key: str, message: str, *, always: bool = False):
+        """Log ``message`` once per ``key``: with "Verbose", or ``always`` (a warning)."""
+        if (self.verbose or always) and key not in self._logged:
             self._logged.add(key)
-            logger.info(message)
+            (logger.warning if always else logger.info)(message)
 
     def dense_reason(self, transformer_options: dict, tokens: int, block_index: int) -> str | None:
         if (sigmas := transformer_options.get("sigmas")) is not None:
@@ -53,11 +55,15 @@ class SparseAttnPatch:
         return None
 
     @staticmethod
-    def ineligible(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, dim_head: int) -> str | None:
-        if q.device.type != "cuda":
-            return "CUDA device is required"
-        if not ck.sol_attn_is_available(q.device):
-            return "sol_attn is not available for this GPU"
+    def ineligible(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, dim_head: int, fused: bool = True) -> str | None:
+        """Why this call stays dense (None: it runs sparse). ``fused``: the
+        Sol-Attn kernels must take it; otherwise the reference does, under
+        the same rules for the tensors, so both run on the same calls."""
+        if fused:
+            if q.device.type != "cuda":
+                return "CUDA device is required"
+            if not ck.sol_attn_is_available(q.device):
+                return "sol_attn is not available for this GPU"
         if q.dtype not in (torch.bfloat16, torch.float16, torch.float32):
             return f'dtype "{q.dtype}" is not supported'
         if dim_head != HEAD_DIM:
@@ -70,9 +76,9 @@ class SparseAttnPatch:
 
 
 def unavailable_reason(device) -> str | None:
-    """Why sparse attention cannot run on ``device`` at all (None: it can).
-    Checked once per sampling pass, so an unsupported device is reported
-    instead of silently running every attention dense."""
+    """Why the fused Sol-Attn kernels cannot run on ``device`` (None: they
+    can). Checked once per sampling pass: elsewhere the run uses
+    :func:`reference_sol_attn` and says so."""
 
     device = torch.device(device)
     if device.type != "cuda":
@@ -86,13 +92,41 @@ def unavailable_reason(device) -> str | None:
     return None
 
 
+REFERENCE_SCORE_BYTES = 512 * 2**20
+"""The reference materialises its attention scores (fp32, tokens x tokens per
+head): it runs as many heads at a time as fit in this (at least one)."""
+
+
+def reference_sol_attn(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, tau: float, scale: float | None = None) -> torch.Tensor:
+    """Sol-Attn without the fused kernels: Comfy Kitchen's reference
+    implementation (eager PyTorch, any device) of the same algorithm - the
+    same block routing, in full precision instead of the kernels' INT8, so
+    the result matches theirs up to rounding (and Extra Tokens, a detail of
+    the kernels' routing, has no effect). ``(B, T, H, D)`` tensors.
+
+    Every (batch, head) is independent, so it runs a few heads at a time to
+    bound the memory of its dense score tensors; slower than regular
+    attention."""
+
+    implementation = ck.registry.get_implementation("sol_attn", backend="eager")
+    batch, tokens, heads, _ = q.shape
+    step = max(1, min(heads, REFERENCE_SCORE_BYTES // (tokens * tokens * 4)))
+    out = torch.empty(v.shape, dtype=v.dtype, device=v.device)
+    for b in range(batch):
+        for h in range(0, heads, step):
+            part = (slice(b, b + 1), slice(None), slice(h, h + step))
+            out[part] = implementation(q[part], k[part], v[part], tau=tau, scale=scale)
+    return out
+
+
 INFOTEXT_PREFIX = "Sparse attention"
 
-# What unavailable_reason() checks, said before a run instead of after it
+# What unavailable_reason() decides, said before a run instead of after it
 REQUIREMENT_NOTE = (
-    "**GPU only:** needs the Comfy Kitchen Sol-Attn kernels, i.e. an NVIDIA GPU of compute capability 8.0 or newer "
-    "(RTX 30 series and later) or an AMD GPU with matrix cores (ROCm). On Apple Silicon (MPS) or the CPU the run "
-    "skips it with a warning and makes the image with regular attention."
+    "**Faster on supported GPUs only:** the fused Comfy Kitchen Sol-Attn kernels need an NVIDIA GPU of compute capability "
+    "8.0 or newer (RTX 30 series and later) or an AMD GPU with matrix cores (ROCm). Elsewhere (Apple Silicon (MPS), the "
+    "CPU, older GPUs) the run uses Comfy Kitchen's reference implementation of the same algorithm: the same sparse-attention "
+    "image (up to the kernels' rounding), but slower than regular attention, and the job says so."
 )
 
 
@@ -123,16 +157,22 @@ def make_attention_override(patch: "SparseAttnPatch", prev_attn: Callable) -> Ca
             dim_head //= heads
             qs, ks, vs = (t.view(b, -1, heads, dim_head) for t in (q, k, v))
 
-        reason = patch.ineligible(qs, ks, vs, dim_head)
+        reason = patch.ineligible(qs, ks, vs, dim_head, patch.fused)
         if reason is not None:
             patch.log_once(("ineligible", tuple(qs.shape), reason), f"dense: {reason}")
             return dense()
 
-        if q.dtype == torch.float32:
-            qs, ks, vs = (t.to(dtype=torch.bfloat16) for t in (qs, ks, vs))
-
-        out = ck.sol_attn(qs, ks, vs, tau=patch.tau, scale=kwargs.get("scale"), token_aug=patch.extra_tokens).to(q.dtype)
-        patch.log_once(("sparse", tuple(qs.shape)), "sparse")
+        if patch.fused:
+            if q.dtype == torch.float32:
+                qs, ks, vs = (t.to(dtype=torch.bfloat16) for t in (qs, ks, vs))
+            out = ck.sol_attn(qs, ks, vs, tau=patch.tau, scale=kwargs.get("scale"), token_aug=patch.extra_tokens).to(q.dtype)
+        else:
+            try:
+                out = reference_sol_attn(qs, ks, vs, tau=patch.tau, scale=kwargs.get("scale"))
+            except RuntimeError as error:  # out of memory, or too many tokens for the reference
+                patch.log_once(("reference failed", tuple(qs.shape)), f"dense: the reference sparse attention failed for {tuple(qs.shape)}: {error}", always=True)
+                return dense()
+        patch.log_once(("sparse", tuple(qs.shape)), "sparse" if patch.fused else "sparse (reference)")
 
         if kwargs.get("skip_output_reshape", False):
             return out.transpose(1, 2)
@@ -177,13 +217,12 @@ class SparseAttentionForForge(scripts.Script):
         from modules import devices
 
         if (reason := unavailable_reason(devices.device)) is not None:
-            # Reported as a job warning (p.comment) instead of a silent no-op;
-            # no infotext: the image was made without sparse attention
-            message = f"{self.title()} was skipped: {reason}"
+            # The reference runs instead: said in the job's warnings (p.comment),
+            # as it is slower than regular attention
+            message = f"{self.title()} used the reference implementation ({reason}): slower than regular attention"
             if callable(comment := getattr(p, "comment", None)):
                 comment(message)
             logger.warning(message)
-            return
 
         unet = p.sd_model.forge_objects.unet
 
@@ -196,6 +235,7 @@ class SparseAttentionForForge(scripts.Script):
             extra_tokens=extra_tokens,
             dense_blocks=self._parse_block_list(dense_blocks),
             verbose=verbose,
+            fused=reason is None,
         )
 
         p.sd_model.forge_objects.unet = patched_unet
@@ -210,7 +250,7 @@ class SparseAttentionForForge(scripts.Script):
                 extra[f"{INFOTEXT_PREFIX} dense blocks"] = dense_blocks.strip()
 
     @staticmethod
-    def _apply_block_sparse_attention(model: "ModelPatcher", tau: float, start_percent: float, end_percent: float, min_tokens: int, extra_tokens: int, dense_blocks: set[int], verbose: bool) -> "ModelPatcher":
+    def _apply_block_sparse_attention(model: "ModelPatcher", tau: float, start_percent: float, end_percent: float, min_tokens: int, extra_tokens: int, dense_blocks: set[int], verbose: bool, fused: bool = True) -> "ModelPatcher":
         model_sampling = model.model.predictor
 
         patch = SparseAttnPatch(
@@ -221,6 +261,7 @@ class SparseAttentionForForge(scripts.Script):
             extra_tokens=extra_tokens,
             dense_blocks=dense_blocks,
             verbose=verbose,
+            fused=fused,
         )
 
         m = model.clone()

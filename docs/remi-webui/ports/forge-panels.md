@@ -17,17 +17,24 @@ and no Gradio import remains. Snapshots:
   `alwayson_scripts` args may omit it. It is stored in drafts and queued jobs.
   Drop it once core can mark an input as form-only.
 - **Sparse** `percent` is one `[low, high]` argument (`ui.RangeSlider`), as
-  Gradio's RangeSlider passed it. Sparse attention runs only on a GPU with the
-  Comfy Kitchen Sol-Attn kernels (NVIDIA compute capability 8.0+, or ROCm with
-  matrix cores); the panel says so in a note above its controls. On MPS or
-  the CPU an enabled panel is skipped with a job warning ("Sparse Attention
-  Integrated was skipped: CUDA device is required"), patches nothing and
-  writes no infotext. `tests/test_sparse_attention.py` covers the patch on the
-  CPU: through `backend.attention.attention_pytorch`, eligible calls reach a
-  stand-in kernel with the panel's tau / extra tokens and return the dense
-  result in the caller's layout; masked, out-of-range, under-threshold and
-  dense-block calls stay dense, and the kernel's eligibility rules are
-  checked one by one.
+  Gradio's RangeSlider passed it. Sparse attention is fast only on a GPU with
+  the Comfy Kitchen Sol-Attn kernels (NVIDIA compute capability 8.0+, or ROCm
+  with matrix cores); the panel says so in a note above its controls. Elsewhere
+  (MPS, the CPU, older GPUs) it runs Comfy Kitchen's reference implementation
+  of the same algorithm (`reference_sol_attn`: same block routing in full
+  precision, a few heads at a time to bound its dense score memory; a call it
+  cannot run, e.g. out of memory, stays dense with a warning) - the image and
+  infotext a GPU run makes, up to the kernels' rounding, but slower than
+  regular attention, which the job says ("Sparse Attention Integrated used the
+  reference implementation (CUDA device is required): slower than regular
+  attention"). Before, this upstream-skipped path made an unchanged image, so
+  a pasted GPU infotext could not be reproduced on a Mac. `tests/test_sparse_attention.py`
+  covers the patch on the CPU: through `backend.attention.attention_pytorch`,
+  eligible calls reach a stand-in fused kernel with the panel's tau / extra
+  tokens, or (without the kernels) the real reference, which gives Comfy
+  Kitchen's result in head chunks and differs from dense attention; masked,
+  out-of-range, under-threshold and dense-block calls stay dense, and the
+  eligibility rules of both paths are checked one by one.
 - **PiD** switch carries `exclusive=("pid_hires", "pid")` on txt2img only
   (the former `wire_exclusive_components(("pid", "hires"))`).
 - **NegPiP**, **LoRA schedule**: no panel (no `ui()`); the runner gives

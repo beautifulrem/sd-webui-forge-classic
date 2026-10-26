@@ -403,6 +403,26 @@ def test_config_states_round_trip(env, monkeypatch):
     assert env.client.get("/api/v2/extensions/config-states").json() == []
 
 
+def test_a_fresh_backup_matches_the_current_state(env, monkeypatch):
+    """Built-ins outside a git checkout record commit_hash "" in the saved
+    state while the live extension has no commit at all: a backup taken a
+    moment ago must still compare equal on every row."""
+
+    from modules import config_states, extensions
+
+    monkeypatch.setattr(config_states, "get_webui_config", lambda: {"remote": None, "commit_hash": None, "commit_date": None, "branch": None})
+    builtin = fake_ext("builtin-one", path=env.ext_dir / "b", builtin=True, remote=None, branch=None, version="", commit_hash="", commit_date=None, have_info_from_repo=False)
+    monkeypatch.setattr(extensions, "extensions", [builtin, fake_ext("one", path=env.ext_dir / "one")])
+    saved = env.client.post("/api/v2/extensions/config-states", json={"name": "now"}).json()
+    detail = env.client.get(f"/api/v2/extensions/config-states/{saved['id']}").json()
+    rows = {row["name"]: row for row in detail["items"]}
+    assert rows["builtin-one"]["saved"] == rows["builtin-one"]["current"]
+    assert rows["builtin-one"]["saved"]["commit_hash"] is None and rows["builtin-one"]["saved"]["branch"] is None
+    for row in detail["items"]:
+        assert row["saved"] == row["current"], row["name"]
+    assert detail["webui"]["saved"] == detail["webui"]["current"]
+
+
 def test_the_webui_checkout_is_never_restored(env, monkeypatch):
     from modules import config_states, extensions, shared
 

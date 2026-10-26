@@ -112,7 +112,7 @@ UNTRANSLATED_WORDS = frozenset(
         *("inpaint", "inpainted", "inpainting", "sketch", "hires", "detect", "detected", "detector", "detectors"),
         *("detection", "encoder", "encoders", "outputs", "profiler", "epoch", "epochs", "workflow", "block"),
         *("blocks", "mask", "masks", "strength", "upscaler", "denoise", "padding", "noise", "multiplier"),
-        *("enabled", "disabled", "image", "images", "width", "height", "infotext"),
+        *("enabled", "disabled", "image", "images", "width", "height", "infotext", "refiner"),
     }
 )
 _WORD = re.compile(r"(?<![\w=./\\\-])([A-Za-z][a-z]*)(?![\w=./\\\-])")
@@ -152,6 +152,39 @@ def test_no_mixed_language_labels_in_any_catalog():
             if words:
                 mixed.append(f"{name}: {key[:60]!r} -> {sorted(words)}")
     assert mixed == [], "\n".join(mixed)
+
+
+# Kept in English on purpose: technical names that read the same in the
+# Chinese UI (parameter names of a paper or library, prompt examples).
+KEPT_IN_ENGLISH = frozenset({"Dense Block", "sigma noise", "retro artstyle, sketch, watercolor, flat color, 1990s (style)"})
+
+
+def test_untranslated_entries_are_technical_names():
+    """An entry left in English ("Block {{index}}": "Block {{index}}") is
+    either a technical name listed above or contains no common word."""
+
+    left = []
+    for name, path in _zh_catalogs():
+        for key, value in json.loads(path.read_text(encoding="utf-8")).items():
+            if isinstance(value, str) and not re.search(r"[一-鿿]", value) and value not in KEPT_IN_ENGLISH and _mixed_words(value):
+                left.append(f"{name}: {key[:60]!r} -> {value[:60]!r}")
+    assert left == [], "\n".join(left)
+
+
+# One Chinese term per concept in every catalog (core, extensions, SPA, widgets).
+SHARED_TERMS = {"Hires. fix": ("高分辨率修复", "高清修复"), "Refiner": ("精炼器", "Refiner")}
+
+
+def test_every_catalog_uses_the_shared_terms():
+    stray = []
+    for name, path in _zh_catalogs():
+        for key, value in json.loads(path.read_text(encoding="utf-8")).items():
+            if not isinstance(value, str) or not re.search(r"[一-鿿]", value):
+                continue
+            for _concept, (_term, wrong) in SHARED_TERMS.items():
+                if wrong in _EXEMPT.sub(" ", value):
+                    stray.append(f"{name}: {key[:60]!r} uses {wrong!r}")
+    assert stray == [], "\n".join(stray)
 
 
 def test_the_glossary_check_catches_mixed_labels():

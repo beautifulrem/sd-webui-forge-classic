@@ -8,17 +8,8 @@
 import { ClipboardPaste, Eraser } from "lucide-react"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { useClientOption } from "@/api/app-options"
+import { ConfirmDialog, preloadConfirmDialog } from "@/components/ConfirmDialog"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { PromptField } from "@/features/prompt-editor/PromptField"
@@ -30,10 +21,12 @@ import { Slot } from "@/ui/layout/Slot"
 import type { MultiChoiceNode, TextNode } from "@/ui/schema"
 import { usePasteParameters } from "./paste-parameters"
 
-function IconAction({ label, onClick, disabled, children }: { label: string; onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
+function IconAction({ label, onClick, onIntent, disabled, children }: { label: string; onClick: () => void; onIntent?: () => void; disabled?: boolean; children: React.ReactNode }) {
   return (
     <Tooltip>
-      <TooltipTrigger render={<Button variant="ghost" size="icon-xs" aria-label={label} onClick={onClick} disabled={disabled} />}>{children}</TooltipTrigger>
+      <TooltipTrigger render={<Button variant="ghost" size="icon-xs" aria-label={label} onClick={onClick} onPointerEnter={onIntent} onFocus={onIntent} disabled={disabled} />}>
+        {children}
+      </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
   )
@@ -75,7 +68,7 @@ export function PromptsPanel({ prompt, negative, styles }: { prompt: TextNode | 
               >
                 <ClipboardPaste />
               </IconAction>
-              <IconAction label={t("Clear prompts")} onClick={() => setConfirmClear(true)}>
+              <IconAction label={t("Clear prompts")} onClick={() => setConfirmClear(true)} onIntent={preloadConfirmDialog}>
                 <Eraser />
               </IconAction>
             </>
@@ -85,29 +78,21 @@ export function PromptsPanel({ prompt, negative, styles }: { prompt: TextNode | 
       {negative ? <PromptField node={negative} kind="negative" steps={steps} styles={styleList} onDropImage={(file) => void paste.fromImage(file)} /> : null}
       {styles ? <StylesField node={styles} prompt={prompt?.name} negative={negative?.name} /> : null}
 
-      <AlertDialog open={confirmClear} onOpenChange={setConfirmClear}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("Clear both prompts?")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("The prompt and the negative prompt are emptied. Undo with Ctrl+Z in each editor.")}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                setConfirmClear(false)
-                const cleared: Record<string, string> = {}
-                if (prompt) cleared[prompt.name] = ""
-                if (negative) cleared[negative.name] = ""
-                store.getState().setValues("core", cleared)
-              }}
-            >
-              {t("Clear")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={confirmClear}
+        onOpenChange={setConfirmClear}
+        title={t("Clear both prompts?")}
+        description={t("The prompt and the negative prompt are emptied. Undo with Ctrl+Z in each editor.")}
+        confirmLabel={t("Clear")}
+        destructive
+        onConfirm={() => {
+          setConfirmClear(false)
+          const cleared: Record<string, string> = {}
+          if (prompt) cleared[prompt.name] = ""
+          if (negative) cleared[negative.name] = ""
+          store.getState().setValues("core", cleared)
+        }}
+      />
     </section>
   )
 }

@@ -1,0 +1,609 @@
+{
+ "base": "http://127.0.0.1:18519",
+ "date": "2026-10-21T01:46:31.971Z",
+ "throttle": 1,
+ "browser": "156.0.8078.4",
+ "gallery": {
+  "loadAllMs": 12712,
+  "scrollHeight": 229970,
+  "countText": null,
+  "idleFps": 60,
+  "runs": [
+   {
+    "pxPerFrame": 40,
+    "frames": 5726,
+    "seconds": 95.41,
+    "fps": 60,
+    "interval": {
+     "n": 5725,
+     "mean": 16.7,
+     "p50": 16.7,
+     "p95": 16.7,
+     "p99": 16.8,
+     "max": 16.8
+    },
+    "over20ms": 0,
+    "over33ms": 0,
+    "scrollHeight": 229970,
+    "pipeline": {
+     "STATE_NO_UPDATE_DESIRED": 2,
+     "STATE_PRESENTED_ALL": 5726,
+     "STATE_DROPPED": 1,
+     "STATE_PRESENTED_PARTIAL": 5725
+    },
+    "taskDurationS": 14.8,
+    "layoutDurationS": 1.06,
+    "recalcStyleDurationS": 0.74,
+    "nodesAfter": 1087,
+    "longFrames": {
+     "count": 0,
+     "pageWork": 0,
+     "noPageWork": 0,
+     "byEvent": {},
+     "worst": []
+    },
+    "trace": "/Volumes/Remi/Anima/.perf-r5/galf/final-1/trace-gallery-40.json"
+   },
+   {
+    "pxPerFrame": 160,
+    "frames": 1432,
+    "seconds": 23.88,
+    "fps": 59.9,
+    "interval": {
+     "n": 1431,
+     "mean": 16.7,
+     "p50": 16.7,
+     "p95": 16.8,
+     "p99": 16.8,
+     "max": 33.4
+    },
+    "over20ms": 2,
+    "over33ms": 0,
+    "scrollHeight": 229970,
+    "pipeline": {
+     "STATE_NO_UPDATE_DESIRED": 2,
+     "STATE_PRESENTED_ALL": 1433,
+     "STATE_DROPPED": 3,
+     "STATE_PRESENTED_PARTIAL": 1431
+    },
+    "taskDurationS": 9.51,
+    "layoutDurationS": 0.72,
+    "recalcStyleDurationS": 0.72,
+    "nodesAfter": 1087,
+    "longFrames": {
+     "count": 2,
+     "pageWork": 2,
+     "noPageWork": 0,
+     "byEvent": {
+      "ProxyMain::BeginMainFrame": 22.6,
+      "FunctionCall": 0.1,
+      "EventDispatch": 1.1,
+      "MajorGC": 16.8,
+      "V8.GC_HEAP_EXTERNAL_EPILOGUE": 0,
+      "V8.GC_HEAP_EXTERNAL_SECOND_PASS_CALLBACKS": 0
+     },
+     "worst": [
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 18.7,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         17.8
+        ],
+        [
+         "EventDispatch",
+         0.8
+        ],
+        [
+         "FunctionCall",
+         0.1
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.2,
+       "mainBusyMs": 21.9,
+       "top": [
+        [
+         "MajorGC",
+         16.8
+        ],
+        [
+         "ProxyMain::BeginMainFrame",
+         4.8
+        ],
+        [
+         "EventDispatch",
+         0.3
+        ]
+       ]
+      }
+     ]
+    },
+    "trace": "/Volumes/Remi/Anima/.perf-r5/galf/final-1/trace-gallery-160.json"
+   },
+   {
+    "pxPerFrame": 40,
+    "frames": 5726,
+    "seconds": 95.41,
+    "fps": 60,
+    "interval": {
+     "n": 5725,
+     "mean": 16.7,
+     "p50": 16.7,
+     "p95": 16.7,
+     "p99": 16.8,
+     "max": 16.8
+    },
+    "over20ms": 0,
+    "over33ms": 0,
+    "scrollHeight": 229970,
+    "pipeline": {
+     "STATE_NO_UPDATE_DESIRED": 4,
+     "STATE_PRESENTED_ALL": 5727,
+     "STATE_DROPPED": 1,
+     "STATE_PRESENTED_PARTIAL": 5725
+    },
+    "taskDurationS": 12.44,
+    "layoutDurationS": 0.78,
+    "recalcStyleDurationS": 0.69,
+    "nodesAfter": 1087,
+    "longFrames": {
+     "count": 0,
+     "pageWork": 0,
+     "noPageWork": 0,
+     "byEvent": {},
+     "worst": []
+    },
+    "trace": "/Volumes/Remi/Anima/.perf-r5/galf/final-1/trace-gallery-40-warm.json"
+   }
+  ],
+  "dom": 1000
+ },
+ "gallery-wheel": {
+  "runs": [
+   {
+    "wheel": {
+     "px": 300,
+     "everyMs": 16,
+     "pxPerSecond": 18750
+    },
+    "frames": 2347,
+    "seconds": 39.32,
+    "fps": 59.7,
+    "interval": {
+     "n": 2346,
+     "mean": 16.8,
+     "p50": 16.7,
+     "p95": 16.7,
+     "p99": 16.8,
+     "max": 50
+    },
+    "over20ms": 12,
+    "over33ms": 3,
+    "scrollHeight": 229970,
+    "pipeline": {
+     "STATE_PRESENTED_ALL": 4432,
+     "STATE_DROPPED": 13,
+     "STATE_NO_UPDATE_DESIRED": 184,
+     "STATE_PRESENTED_PARTIAL": 94
+    },
+    "taskDurationS": 14.77,
+    "layoutDurationS": 0.71,
+    "recalcStyleDurationS": 1.4,
+    "nodesAfter": 11674,
+    "longFrames": {
+     "count": 12,
+     "pageWork": 3,
+     "noPageWork": 9,
+     "byEvent": {
+      "ProxyMain::BeginMainFrame": 83.1,
+      "FunctionCall": 0.2,
+      "EventDispatch": 1.7,
+      "V8.GC_HEAP_EXTERNAL_PROLOGUE": 0.3,
+      "MinorGC": 6.4,
+      "V8.GC_HEAP_EXTERNAL_EPILOGUE": 0,
+      "V8.GC_MC_INCREMENTAL": 0.9,
+      "MajorGC": 33.3,
+      "V8.GC_HEAP_EXTERNAL_SECOND_PASS_CALLBACKS": 0.1,
+      "TimerFire": 14.2,
+      "UpdateLayoutTree": 0.2,
+      "LocalFrameView::layout": 0.2,
+      "LocalFrameView::performPostLayoutTasks": 0.9
+     },
+     "worst": [
+      {
+       "gapMs": 50,
+       "mainBusyMs": 7.5,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         7.4
+        ],
+        [
+         "EventDispatch",
+         0.1
+        ],
+        [
+         "FunctionCall",
+         0
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 10.7,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         10.3
+        ],
+        [
+         "EventDispatch",
+         0.3
+        ],
+        [
+         "FunctionCall",
+         0.1
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 8,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         7.9
+        ],
+        [
+         "EventDispatch",
+         0
+        ],
+        [
+         "FunctionCall",
+         0
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 24.9,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         11.9
+        ],
+        [
+         "TimerFire",
+         8.2
+        ],
+        [
+         "MinorGC",
+         3.4
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 9.1,
+       "top": [
+        [
+         "MajorGC",
+         6
+        ],
+        [
+         "ProxyMain::BeginMainFrame",
+         2.9
+        ],
+        [
+         "EventDispatch",
+         0.1
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.3,
+       "mainBusyMs": 9,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         7.7
+        ],
+        [
+         "MinorGC",
+         0.8
+        ],
+        [
+         "EventDispatch",
+         0.4
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.3,
+       "mainBusyMs": 16.7,
+       "top": [
+        [
+         "MajorGC",
+         13.6
+        ],
+        [
+         "ProxyMain::BeginMainFrame",
+         1.8
+        ],
+        [
+         "V8.GC_MC_INCREMENTAL",
+         0.9
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.3,
+       "mainBusyMs": 10.4,
+       "top": [
+        [
+         "MajorGC",
+         7
+        ],
+        [
+         "ProxyMain::BeginMainFrame",
+         3.2
+        ],
+        [
+         "EventDispatch",
+         0.1
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.3,
+       "mainBusyMs": 16.8,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         8.5
+        ],
+        [
+         "TimerFire",
+         6
+        ],
+        [
+         "MinorGC",
+         2.2
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.3,
+       "mainBusyMs": 8.2,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         8.1
+        ],
+        [
+         "EventDispatch",
+         0.1
+        ],
+        [
+         "FunctionCall",
+         0
+        ]
+       ]
+      }
+     ]
+    },
+    "trace": "/Volumes/Remi/Anima/.perf-r5/galf/final-1/trace-gallery-wheel-300-0.json"
+   },
+   {
+    "wheel": {
+     "px": 120,
+     "everyMs": 16,
+     "pxPerSecond": 7500
+    },
+    "frames": 3617,
+    "seconds": 60.6,
+    "fps": 59.7,
+    "interval": {
+     "n": 3616,
+     "mean": 16.8,
+     "p50": 16.7,
+     "p95": 16.8,
+     "p99": 16.8,
+     "max": 33.4
+    },
+    "over20ms": 20,
+    "over33ms": 6,
+    "scrollHeight": 161668,
+    "pipeline": {
+     "STATE_NO_UPDATE_DESIRED": 683,
+     "STATE_PRESENTED_ALL": 5889,
+     "STATE_PRESENTED_PARTIAL": 695,
+     "STATE_DROPPED": 5
+    },
+    "taskDurationS": 15.15,
+    "layoutDurationS": 0.95,
+    "recalcStyleDurationS": 1.42,
+    "nodesAfter": 1497,
+    "longFrames": {
+     "count": 20,
+     "pageWork": 0,
+     "noPageWork": 20,
+     "byEvent": {
+      "ProxyMain::BeginMainFrame": 106.9,
+      "FunctionCall": 0,
+      "EventDispatch": 1,
+      "V8.GC_HEAP_EXTERNAL_PROLOGUE": 0,
+      "MinorGC": 3.6,
+      "V8.GC_HEAP_EXTERNAL_EPILOGUE": 0,
+      "MajorGC": 9.8,
+      "V8.GC_HEAP_EXTERNAL_SECOND_PASS_CALLBACKS": 0,
+      "LocalFrameView::layout": 0.2,
+      "LocalFrameView::performPostLayoutTasks": 0
+     },
+     "worst": [
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 8.3,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         8.3
+        ],
+        [
+         "FunctionCall",
+         0
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 7,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         7
+        ],
+        [
+         "FunctionCall",
+         0
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 12.7,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         7.3
+        ],
+        [
+         "MajorGC",
+         5.4
+        ],
+        [
+         "FunctionCall",
+         0
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 6.8,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         6.8
+        ],
+        [
+         "FunctionCall",
+         0
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 3.4,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         3.4
+        ],
+        [
+         "FunctionCall",
+         0
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 11.9,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         7.4
+        ],
+        [
+         "MajorGC",
+         4.4
+        ],
+        [
+         "V8.GC_HEAP_EXTERNAL_SECOND_PASS_CALLBACKS",
+         0
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 2.7,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         2.7
+        ],
+        [
+         "FunctionCall",
+         0
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 2.8,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         2.5
+        ],
+        [
+         "LocalFrameView::layout",
+         0.2
+        ],
+        [
+         "EventDispatch",
+         0.1
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.4,
+       "mainBusyMs": 3.1,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         3
+        ],
+        [
+         "EventDispatch",
+         0.2
+        ],
+        [
+         "FunctionCall",
+         0
+        ]
+       ]
+      },
+      {
+       "gapMs": 33.3,
+       "mainBusyMs": 2.7,
+       "top": [
+        [
+         "ProxyMain::BeginMainFrame",
+         2.7
+        ],
+        [
+         "FunctionCall",
+         0
+        ]
+       ]
+      }
+     ]
+    },
+    "trace": "/Volumes/Remi/Anima/.perf-r5/galf/final-1/trace-gallery-wheel-120-0.json"
+   }
+  ]
+ }
+}

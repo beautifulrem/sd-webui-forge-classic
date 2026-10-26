@@ -24,7 +24,7 @@ function mockServer(jobs: (body: unknown) => [number, unknown]) {
   return calls
 }
 
-function renderPage() {
+async function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const schema = tabSchema("txt2img")
   client.setQueryData(keys.schema("txt2img"), schema)
@@ -36,6 +36,8 @@ function renderPage() {
       <GeneratePage route={{ name: "generate", tab: "txt2img" }} />
     </QueryClientProvider>,
   )
+  // the parameter form is its own chunk (the page's lazy boundary); the first test transforms it
+  await screen.findByRole("form", { name: "Parameters" }, { timeout: 15_000 })
 }
 
 /** The main Generate button ("Generate" + its shortcut hint), not "Generate several times". */
@@ -53,7 +55,7 @@ describe("generate page", () => {
 
   it("submits the form and tracks the job as this form's", async () => {
     const calls = mockServer(() => [200, { job_id: "job-7" }])
-    renderPage()
+    await renderPage()
     fireEvent.click(generateButton())
     await waitFor(() => expect(useProgress.getState().owned).toEqual({ "job-7": "txt2img" }))
     const body = posted(calls, "/jobs")[0]?.body as { tab: string; scripts: Record<string, unknown> }
@@ -72,7 +74,7 @@ describe("generate page", () => {
         ],
       },
     ])
-    renderPage()
+    await renderPage()
     fireEvent.click(generateButton())
     expect(await screen.findByText("must be at most 4")).toBeInTheDocument() // inside the (closed) Hires. fix section
     expect(screen.getByText("too many steps")).toBeInTheDocument()
@@ -83,7 +85,7 @@ describe("generate page", () => {
 
   it("Ctrl/Cmd+Enter generates once per press; Escape interrupts unless it belongs to a field", async () => {
     const calls = mockServer(() => [200, { job_id: "job-1" }])
-    renderPage()
+    await renderPage()
     fireEvent.keyDown(window, { key: "Enter", ctrlKey: true })
     fireEvent.keyDown(window, { key: "Enter", ctrlKey: true, repeat: true })
     fireEvent.keyDown(window, { key: "Enter", ctrlKey: true, repeat: true })
@@ -105,7 +107,7 @@ describe("generate page", () => {
 
   it("Ctrl/Cmd+Shift+Enter adds the form to the queue without making it this form's run", async () => {
     const calls = mockServer(() => [201, { job_id: "job-q", seq: 4 }])
-    renderPage()
+    await renderPage()
     fireEvent.keyDown(window, { key: "Enter", ctrlKey: true, shiftKey: true })
     fireEvent.keyDown(window, { key: "Enter", metaKey: true, shiftKey: true, repeat: true })
     await waitFor(() => expect(posted(calls, "/jobs")).toHaveLength(1))
@@ -116,7 +118,7 @@ describe("generate page", () => {
 
   it("Alt+Enter skips the running job; the Interrupt button interrupts", async () => {
     const calls = mockServer(() => [200, { job_id: "job-2" }])
-    renderPage()
+    await renderPage()
     fireEvent.click(generateButton())
     await waitFor(() => expect(useRuns.getState().runs.txt2img.jobs).toEqual(["job-2"]))
     act(() => dispatchRun("txt2img", { type: "started", jobId: "job-2" }))
@@ -128,7 +130,7 @@ describe("generate page", () => {
 
   it("files finished jobs into the history and shows the newest on the stage", async () => {
     mockServer(() => [200, { job_id: "job-3" }])
-    renderPage()
+    await renderPage()
     act(() => {
       useProgress.getState().track("job-3", "txt2img")
       useProgress.getState().completed({ job_id: "job-3", outputs: [{ id: "out-a", kind: "image" }, { id: "out-b", kind: "image" }], infotext: "a cat\nSteps: 20, Seed: 42, Size: 512x512" })

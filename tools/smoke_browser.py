@@ -65,8 +65,10 @@ def results(report: dict) -> list[tuple[str, bool, str]]:
     return rows
 
 
-def run_browser(base_url: str, out: Path, check: Check) -> None:
-    """Runs the ``@real`` tests against ``base_url``; one ``check`` row per test."""
+def run_browser(base_url: str, out: Path, check: Check, *, grep: str | None = None, env: dict[str, str] | None = None) -> None:
+    """Runs the ``@real`` tests (or those matching ``grep``, see ``REMI_E2E_GREP`` in
+    ``webui/playwright.config.ts``) against ``base_url``; one ``check`` row per test.
+    ``env`` is added to the tests' environment."""
 
     pnpm = shutil.which("pnpm")
     if pnpm is None:
@@ -76,7 +78,9 @@ def run_browser(base_url: str, out: Path, check: Check) -> None:
         check("browser smoke", False, "no built SPA: run `pnpm build` in webui/ first")
         return
     out.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "REMI_E2E_BASE_URL": base_url, "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost", "FORCE_COLOR": "0"}
+    env = {**os.environ, **(env or {}), "REMI_E2E_BASE_URL": base_url, "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost", "FORCE_COLOR": "0"}
+    if grep:
+        env["REMI_E2E_GREP"] = grep
     env.pop("CI", None)  # no retries: a real-server failure is reported as it happened
     command = [pnpm, "exec", "playwright", "test", "--reporter=json", "--output", str(out / "browser-results")]
     print(f"browser: {' '.join(command[1:])} (REMI_E2E_BASE_URL={base_url})", flush=True)
@@ -89,10 +93,10 @@ def run_browser(base_url: str, out: Path, check: Check) -> None:
         return
     rows = results(report)
     if not rows:
-        check("browser smoke", False, "no @real test ran: " + "; ".join(str(error.get("message", ""))[:300] for error in report.get("errors", [])))
+        check("browser smoke", False, f"no {grep or '@real'} test ran: " + "; ".join(str(error.get("message", ""))[:300] for error in report.get("errors", [])))
         return
     for title, passed, detail in rows:
-        check(f"browser: {title.removesuffix(' @real')}", passed, detail)
+        check(f"browser: {re.sub(r' @[a-z-]+$', '', title)}", passed, detail)
 
 
 def main() -> int:

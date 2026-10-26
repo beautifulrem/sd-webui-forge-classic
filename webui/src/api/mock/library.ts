@@ -24,7 +24,8 @@ const CATEGORIES = ["txt2img", "txt2img", "txt2img", "img2img", "extras", "grids
 const PROMPTS = ["a red fox in fresh snow", "lighthouse at dusk, volumetric light", "portrait of a knight, intricate armor", "city street in the rain, neon", "watercolor garden with koi pond"]
 
 const now = Date.now()
-const library: GalleryItem[] = Array.from({ length: 260 }, (_, index) => {
+// VITE_MOCK_GALLERY_SIZE=10000 gives the scrolling measurement its 10,000 images (docs/research/ui-performance.md)
+const library: GalleryItem[] = Array.from({ length: Number(import.meta.env.VITE_MOCK_GALLERY_SIZE) || 260 }, (_, index) => {
   const [width, height] = SIZES[index % SIZES.length]!
   const category = CATEGORIES[index % CATEGORIES.length]!
   const model = MODELS[index % MODELS.length]!
@@ -45,6 +46,20 @@ const library: GalleryItem[] = Array.from({ length: 260 }, (_, index) => {
     infotext: `${prompt}\nNegative prompt: lowres, blurry\nSteps: 28, Sampler: Euler a, Schedule type: Karras, CFG scale: 5, Seed: ${100000 + index}, Size: ${width}x${height}, Model: ${model}`,
   }
 })
+
+/** Bumped by every change to the library (stars, removal): the filtered list is cached per query until then. */
+let libraryVersion = 0
+let lastFiltered: { key: string; version: number; items: GalleryItem[] } | null = null
+
+/**
+ * The query's items, cached: a page of a large mock library (VITE_MOCK_GALLERY_SIZE) must not
+ * filter and sort every image on the page's main thread, as no real server does.
+ */
+function filteredCached(query: GalleryQuery): GalleryItem[] {
+  const key = JSON.stringify(query)
+  if (lastFiltered?.key !== key || lastFiltered.version !== libraryVersion) lastFiltered = { key, version: libraryVersion, items: filtered(query) }
+  return lastFiltered.items
+}
 
 function filtered(query: GalleryQuery): GalleryItem[] {
   const terms = (query.q ?? "").toLowerCase().split(/\s+/).filter(Boolean)
@@ -142,7 +157,7 @@ export const libraryRoutes: [method: string, pattern: RegExp, handler: Handler][
     "GET",
     /^\/gallery$/,
     (_m, _body, url) => {
-      const items = filtered(queryOf(url))
+      const items = filteredCached(queryOf(url))
       const start = Number(url.searchParams.get("cursor") ?? 0) || 0
       const limit = Number(url.searchParams.get("limit") ?? 100) || 100
       const page = items.slice(start, start + limit)
@@ -186,6 +201,7 @@ export const libraryRoutes: [method: string, pattern: RegExp, handler: Handler][
         item.starred = starred
         count++
       }
+      libraryVersion++
       broadcast({ type: "outputs.changed", ids: [...wanted] })
       return { count }
     },
@@ -197,6 +213,7 @@ export const libraryRoutes: [method: string, pattern: RegExp, handler: Handler][
       const wanted = ids(body)
       const before = library.length
       library.splice(0, library.length, ...library.filter((item) => !wanted.has(item.id)))
+      libraryVersion++
       broadcast({ type: "outputs.changed", ids: [...wanted] })
       return { count: before - library.length }
     },

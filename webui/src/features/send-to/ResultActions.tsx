@@ -4,7 +4,7 @@
  * parameters, Hires. fix it (txt2img's ✨), send to img2img / inpaint /
  * extras, remove from history.
  */
-import { ArrowRightLeft, ClipboardPaste, Copy, Download, ExternalLink, FileArchive, ImagePlus, Paintbrush, Recycle, Save, Sparkles, Trash2, Wand } from "lucide-react"
+import { ArrowRightLeft, ClipboardPaste, Copy, Download, Ellipsis, ExternalLink, FileArchive, ImagePlus, Paintbrush, Recycle, Save, Sparkles, Trash2, Wand } from "lucide-react"
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -25,7 +25,7 @@ import { type ResultItem, useSession } from "@/features/gallery/session-store"
 import { upscaleResult } from "@/features/progress/run-controller"
 import { applyParameters, reuseSeed, saveResults, sendWithFeedback } from "./result-actions"
 
-function Action(props: { label: string; shortcut?: string; onClick: () => void; disabled?: boolean; children: ReactNode; tone?: "light" }) {
+function Action(props: { label: string; shortcut?: string; onClick: () => void; disabled?: boolean; children: ReactNode; tone?: "light"; className?: string }) {
   return (
     <Tooltip>
       <TooltipTrigger
@@ -37,7 +37,7 @@ function Action(props: { label: string; shortcut?: string; onClick: () => void; 
             aria-keyshortcuts={props.shortcut}
             onClick={props.onClick}
             disabled={props.disabled}
-            className={cn(props.tone === "light" && "text-white/85 hover:bg-white/12 hover:text-white")}
+            className={cn(props.tone === "light" && "text-white/85 hover:bg-white/12 hover:text-white", props.className)}
           />
         }
       >
@@ -60,10 +60,18 @@ type ResultActionsProps = {
   upscalable?: boolean
   /** After "Send to" switched pages (the lightbox closes itself). */
   onSent?: () => void
+  /**
+   * Narrow screens (below the `sm` breakpoint): the less used actions move
+   * into a "More actions" menu and "Send to" shows its icon only, so the bar
+   * fits beside the viewer's own buttons.
+   */
+  collapsible?: boolean
   className?: string
 }
 
-export function ResultActions({ item, tab, tone, removable = true, upscalable = false, onSent, className }: ResultActionsProps) {
+type SecondaryAction = { label: string; icon: ReactNode; disabled: boolean; run: () => void }
+
+export function ResultActions({ item, tab, tone, removable = true, upscalable = false, onSent, collapsible = false, className }: ResultActionsProps) {
   const { t } = useTranslation()
   const disabled = !item
   const infotext = item?.infotext ?? null
@@ -74,6 +82,37 @@ export function ResultActions({ item, tab, tone, removable = true, upscalable = 
   // An img2img result sends its image only, unless `allow_i2i_send_info` (A1111's behaviour).
   const sendImage = (target: "img2img" | "inpaint" | "extras", result: ResultItem) =>
     send(target, tab === "img2img" && !clientOption("allow_i2i_send_info") ? { fileId: result.fileId, width: result.width, height: result.height } : result)
+
+  const secondary: SecondaryAction[] = [
+    { label: t("Open in new tab"), icon: <ExternalLink />, disabled, run: () => item && openInNewTab(item.fileId) },
+    {
+      label: t("Copy generation parameters"),
+      icon: <Copy />,
+      disabled: !infotext,
+      run: () => {
+        if (infotext) void copyText(infotext).then((ok) => (ok ? toast.success(t("Copied")) : toast.error(t("Could not copy"))))
+      },
+    },
+    {
+      label: t("Reuse seed"),
+      icon: <Recycle />,
+      disabled: !infotext,
+      run: () => {
+        if (reuseSeed(tab, infotext)) toast.success(t("Seed reused"))
+        else toast.error(t("This image has no seed to reuse"))
+      },
+    },
+    { label: t("Use these parameters"), icon: <ClipboardPaste />, disabled: !infotext || tab === "extras", run: () => infotext && tab !== "extras" && applyParameters(tab, infotext) },
+  ]
+  if (upscalable && tab === "txt2img") {
+    secondary.push({
+      label: t("Upscale with Hires. fix"),
+      icon: <Sparkles />,
+      // The grid, extra images (detected maps) and video frames are not first passes.
+      disabled: !item || item.tab !== "txt2img" || Boolean(item.role) || Boolean(item.videoId),
+      run: () => item && upscaleResult({ fileId: item.fileId, key: item.key }),
+    })
+  }
 
   return (
     <div role="toolbar" aria-label={t("Image actions")} className={cn("flex items-center gap-0.5", className)}>
@@ -111,48 +150,35 @@ export function ResultActions({ item, tab, tone, removable = true, upscalable = 
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <Action label={t("Open in new tab")} tone={tone} disabled={disabled} onClick={() => item && openInNewTab(item.fileId)}>
-        <ExternalLink />
-      </Action>
-      <Action
-        label={t("Copy generation parameters")}
-        tone={tone}
-        disabled={!infotext}
-        onClick={() => {
-          if (infotext) void copyText(infotext).then((ok) => (ok ? toast.success(t("Copied")) : toast.error(t("Could not copy"))))
-        }}
-      >
-        <Copy />
-      </Action>
-      <Action
-        label={t("Reuse seed")}
-        tone={tone}
-        disabled={!infotext}
-        onClick={() => {
-          if (reuseSeed(tab, infotext)) toast.success(t("Seed reused"))
-          else toast.error(t("This image has no seed to reuse"))
-        }}
-      >
-        <Recycle />
-      </Action>
-      <Action
-        label={t("Use these parameters")}
-        tone={tone}
-        disabled={!infotext || tab === "extras"}
-        onClick={() => infotext && tab !== "extras" && applyParameters(tab, infotext)}
-      >
-        <ClipboardPaste />
-      </Action>
-      {upscalable && tab === "txt2img" ? (
-        <Action
-          label={t("Upscale with Hires. fix")}
-          tone={tone}
-          // The grid, extra images (detected maps) and video frames are not first passes.
-          disabled={!item || item.tab !== "txt2img" || Boolean(item.role) || Boolean(item.videoId)}
-          onClick={() => item && upscaleResult({ fileId: item.fileId, key: item.key })}
-        >
-          <Sparkles />
+      {secondary.map((action) => (
+        <Action key={action.label} label={action.label} tone={tone} disabled={action.disabled} onClick={action.run} className={cn(collapsible && "hidden sm:inline-flex")}>
+          {action.icon}
         </Action>
+      ))}
+      {collapsible ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("More actions")}
+                disabled={disabled}
+                className={cn("sm:hidden", tone === "light" && "text-white/85 hover:bg-white/12 hover:text-white")}
+              />
+            }
+          >
+            <Ellipsis />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-52">
+            {secondary.map((action) => (
+              <DropdownMenuItem key={action.label} disabled={action.disabled} onClick={action.run}>
+                {action.icon}
+                {action.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       ) : null}
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -166,7 +192,7 @@ export function ResultActions({ item, tab, tone, removable = true, upscalable = 
           }
         >
           <ArrowRightLeft />
-          <span>{t("Send to")}</span>
+          <span className={cn(collapsible && "sr-only sm:not-sr-only")}>{t("Send to")}</span>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-44">
           <DropdownMenuItem onClick={() => item && sendImage("img2img", item)}>

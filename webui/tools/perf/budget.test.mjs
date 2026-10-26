@@ -40,7 +40,10 @@ describe("bundle budget", () => {
       "src/widgets/big/index.tsx": ["lazy", 155],
       "src/pages/settings/index.tsx": ["route", 110],
     })
-    expect(report.defaultRoute).toEqual({ key: "src/pages/generate/index.tsx", addedKB: 160, withInitialKB: 410 })
+    expect(report.defaultRoute).toEqual({ key: "src/pages/generate/index.tsx", addedKB: 160, withInitialKB: 410, parts: [], withPartsAddedKB: 160 })
+    // a lazy part the route fetches as it renders counts with it (shared files once)
+    const withParts = analyse(manifest, html, size, { ...budget, defaultRouteParts: ["src/widgets/big/index.tsx"] })
+    expect(withParts.defaultRoute).toMatchObject({ addedKB: 160, parts: ["src/widgets/big/index.tsx"], withPartsAddedKB: 225 })
   })
 
   it("classifies routes, the default route, exempt editors and other lazy entries", () => {
@@ -64,10 +67,14 @@ describe("bundle budget", () => {
   it("rejects a budget naming entries the build does not have", () => {
     const report = analyse(manifest, html, size, budget)
     expect(check(report, { ...budget, lazyKB: 160, exempt: { "src/gone.tsx": "removed" } })).toEqual(["src/gone.tsx: named in the budget but not a lazily loaded entry of this build"])
+    expect(check(report, { ...budget, lazyKB: 160, defaultRouteParts: ["src/gone.tsx"] })).toEqual(["src/gone.tsx: named in the budget but not a lazily loaded entry of this build"])
   })
 
   it("splits a measured first view into initial, default route, editors and the rest", () => {
     const view = firstView(manifest, html, size, budget, ["assets/main.js", "assets/vendor.js", "assets/generate.js", "assets/form.js", "assets/editor.js", "assets/big.js"])
     expect(view).toEqual({ scripts: 6, totalKB: 875, withoutExemptKB: 475, initialKB: 250, defaultRouteKB: 160, exemptKB: 400, otherKB: 65 })
+    // the route's form part, fetched as it renders, is the route's
+    const parts = firstView(manifest, html, size, { ...budget, defaultRouteParts: ["src/widgets/big/index.tsx"] }, ["assets/main.js", "assets/vendor.js", "assets/generate.js", "assets/form.js", "assets/editor.js", "assets/big.js"])
+    expect(parts).toMatchObject({ defaultRouteKB: 225, otherKB: 0 })
   })
 })

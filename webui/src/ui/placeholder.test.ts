@@ -9,6 +9,13 @@ describe("placeholderText", () => {
     expect(text).toBe(`Prompt\n(${formatShortcut("Mod+Enter")} to Generate ; ${formatShortcut("Alt+Enter")} to Skip ; Esc to Interrupt)`)
   })
 
+  it("leaves the shortcut line out where there is no keyboard", () => {
+    expect(placeholderText(i18n.t, "Prompt\n({{generate}} to Generate ; {{skip}} to Skip ; {{interrupt}} to Interrupt)", false)).toBe("Prompt")
+    // nothing but shortcuts: kept whole rather than left empty
+    expect(placeholderText(i18n.t, "{{generate}} to Generate", false)).toBe(`${formatShortcut("Mod+Enter")} to Generate`)
+    expect(placeholderText(i18n.t, "Path to a video file", false)).toBe("Path to a video file")
+  })
+
   it("keeps other placeholders and nothing as they are", () => {
     expect(placeholderText(i18n.t, "Path to a video file")).toBe("Path to a video file")
     expect(placeholderText(i18n.t, null)).toBeUndefined()

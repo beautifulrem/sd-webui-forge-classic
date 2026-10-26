@@ -198,9 +198,22 @@ def select_unet_dtype(dtype: str) -> bool:
 
 
 def refresh_models() -> None:
-    """Re-scan checkpoints, VAE and text encoders (once each)."""
+    """Re-scan checkpoints, VAE and text encoders (once each), and the
+    upscalers."""
 
     _main_entry().refresh_models()
+    refresh_upscalers()
+
+
+def refresh_upscalers() -> None:
+    """Re-scan the upscaler folders (``shared.sd_upscalers``): the Hires. fix,
+    Extras, SD upscale and settings choices are built from that list on every
+    schema request and validation, so a model added while the server runs
+    can be picked without a restart."""
+
+    from modules import modelloader
+
+    modelloader.load_upscalers()
 
 
 # endregion

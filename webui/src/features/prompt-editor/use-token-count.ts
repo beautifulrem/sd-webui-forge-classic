@@ -22,19 +22,35 @@ const TOKENS = ["tokens"] as const
 /** Counts taken while no model was loaded (`tokens: null`). */
 const uncounted = (query: Query) => (query.state.data as TokenCount | undefined)?.tokens == null
 
+/** Counts that include styles: their text lives on the server, not in the key. */
+const styled = (query: Query) => {
+  const styles = query.queryKey[5]
+  return Array.isArray(styles) && styles.length > 0
+}
+
+/** Recounts the prompts that include styles (a style was saved or deleted). */
+export function recountStyledTokens() {
+  void queryClient.invalidateQueries({ queryKey: TOKENS, predicate: styled })
+}
+
 let wired = false
 
 /**
  * Counts depend on the loaded model, which can change under the same
  * checkpoint name (the first load, a reload): recount after `model.loaded`,
  * and after a finished job while a count is still unknown (that job loaded
- * the model).
+ * the model). Styled counts are recounted when the styles change.
  */
 export function wireTokenRecount() {
   if (wired) return
   wired = true
   onWsEvent("model.loaded", () => void queryClient.invalidateQueries({ queryKey: TOKENS }))
   onWsEvent("job.completed", () => void queryClient.invalidateQueries({ queryKey: TOKENS, predicate: uncounted }))
+  // Saving or deleting a style (here or in another tab) changes the text a
+  // styled count includes under the same style names.
+  onWsEvent("options.changed", (event) => {
+    if (!event.keys || event.keys.includes("styles")) recountStyledTokens()
+  })
 }
 
 export function useTokenCount({ text, steps, styles = [], negative = false }: TokenCountInput) {
