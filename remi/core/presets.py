@@ -1,5 +1,6 @@
 """Preset patches as named values: the Forge "UI preset" (architecture
-defaults, from ``modules_forge.main_entry.on_preset_change``) and Remi's
+defaults per preset, formerly applied by the Gradio-era
+``main_entry.on_preset_change``, deleted with the Gradio UI) and Remi's
 Anima presets (``modules.anima_presets``).
 
 :func:`forge_preset_patch` and :func:`anima_preset_patch` are pure reads of

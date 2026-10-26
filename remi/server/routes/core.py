@@ -263,6 +263,9 @@ def run_action(owner: str, action: str, body: m.ActionRequest, request: Request,
     settings = patch.get("__settings__")
     if isinstance(settings, dict):
         publish_options_changed(services, list(settings))
+    refreshed = patch.get("__refresh__")
+    if isinstance(refreshed, dict):
+        publish_options_changed(services, list(refreshed.get("keys", ())))
     return patch
 
 

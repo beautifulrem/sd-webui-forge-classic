@@ -317,3 +317,16 @@ class TestActions:
     def test_merge_patches(self):
         merged = ui.merge_patches({"a": {"value": 1}, "__toast__": {"level": "info", "message": "x"}}, {"a": {"enabled": False}, "__toast__": {"level": "warning", "message": "y"}})
         assert merged == {"a": {"value": 1, "enabled": False}, "__toast__": {"level": "warning", "message": "x; y"}}
+
+
+def test_refresh_patch_names_rescanned_lists():
+    """``__refresh__`` lets an action announce rescanned server lists without
+    reaching the server's services (the action route publishes them)."""
+
+    from remi.ui.actions import check_patch
+    from remi.ui.errors import SchemaError
+
+    assert check_patch({"__refresh__": {"keys": ["upscalers"]}}) == {"__refresh__": {"keys": ["upscalers"]}}
+    for bad in ({"keys": "upscalers"}, {"keys": [""]}, {"keys": [3]}, {}):
+        with pytest.raises(SchemaError):
+            check_patch({"__refresh__": bad})

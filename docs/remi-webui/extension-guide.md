@@ -327,8 +327,10 @@ def refresh_models(self, ctx: ui.ActionContext, values: dict) -> dict:
   patches another owner (`"core.width"`). Special keys: `__toast__` (use
   `ui.toast(message, level)`, levels `info`, `success`, `warning`,
   `error`), `__outputs__` (`{output name: value}` for `Output` / `Gallery`
-  nodes) and `__settings__` (settings the action already changed on the
-  server). `ui.update(value=..., visible=...)` builds one entry.
+  nodes), `__settings__` (settings the action already changed on the
+  server) and `__refresh__` (`{"keys": ["upscalers"]}`: lists the action
+  rescanned; the server tells every client to refetch the schemas that
+  offer them, so an action never needs the server's services). `ui.update(value=..., visible=...)` builds one entry.
 - Texts shown to the user are translated by the client: return English
   catalog keys, and `ui.message("Saved {{name}}", name=...)` for texts with
   variable parts (the template is the catalog key, placeholders are filled

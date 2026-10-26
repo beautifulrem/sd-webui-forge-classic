@@ -6,10 +6,14 @@ An action receives ``(self, ctx, values)``: the owner's current named values
 
     {"param": {"value": 3, "enabled": False}, "core.width": {"value": 1024},
      "__toast__": {"level": "info", "message": "..."}, "__outputs__": {...},
-     "__settings__": {setting: value}}
+     "__settings__": {setting: value}, "__refresh__": {"keys": ["upscalers"]}}
 
 ``__settings__`` reports settings the action has already changed on the
 server (the client refreshes its copy; it must not write them back).
+``__refresh__`` names server-side lists the action rescanned (``"models"``,
+``"upscalers"``, ...); the server announces them as ``options.changed`` so
+every client refetches the schemas that offer them. Actions never reach the
+server's services themselves.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from remi.ui.errors import ParamError, SchemaError, ValidationError
 from remi.ui.types import Patch, PatchEntry
 
 PATCH_KEYS = frozenset({"value", "choices", "visible", "enabled", "label", "info", "hint", "minimum", "maximum", "step"})
-SPECIAL_KEYS = frozenset({"__toast__", "__outputs__", "__settings__"})
+SPECIAL_KEYS = frozenset({"__toast__", "__outputs__", "__settings__", "__refresh__"})
 TOAST_LEVELS = ("info", "success", "warning", "error")
 
 
@@ -185,6 +189,12 @@ def check_patch(patch: Mapping[str, Any]) -> Patch:
                 raise SchemaError(f"{key} takes an object")
             if key == "__toast__" and entry.get("level", "info") not in TOAST_LEVELS:
                 raise SchemaError(f"toast level is one of {TOAST_LEVELS}")
+            if key == "__refresh__":
+                keys = entry.get("keys")
+                if not isinstance(keys, list | tuple) or not all(isinstance(k, str) and k for k in keys):
+                    raise SchemaError("__refresh__ takes {\"keys\": [name, ...]}")
+                result[key] = {"keys": list(keys)}
+                continue
             result[key] = dict(entry)
             continue
         if not isinstance(key, str) or key.startswith("__"):

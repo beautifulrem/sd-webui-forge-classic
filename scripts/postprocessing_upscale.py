@@ -103,14 +103,10 @@ class ScriptPostprocessingUpscale(scripts_postprocessing.ScriptPostprocessing):
         from modules.modelloader import load_upscalers
 
         load_upscalers()
-        if ctx.request is not None:
-            # Other tabs' upscaler choices (Hires. fix, SD upscale) live in their schemas, which
-            # clients refetch on options.changed, as after POST /models/refresh.
-            from remi.server.deps import get_services, publish_options_changed
-
-            publish_options_changed(get_services(ctx.request), ["upscalers"])
         choices = upscaler_names()
-        return {"upscaler_1_name": ui.update(choices=choices), "upscaler_2_name": ui.update(choices=choices)}
+        # Other tabs' upscaler choices (Hires. fix, SD upscale) live in their schemas: the server
+        # announces the rescan so clients refetch them, as after POST /models/refresh.
+        return {"upscaler_1_name": ui.update(choices=choices), "upscaler_2_name": ui.update(choices=choices), "__refresh__": {"keys": ["upscalers"]}}
 
     @ui.action
     def upscaler_scale(self, ctx, values):

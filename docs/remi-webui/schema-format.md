@@ -289,7 +289,8 @@ returns a patch:
   "<other_owner>.<param>": {...},          // patch another owner (e.g. "core.width")
   "__toast__": {"level": "info" | "success" | "warning" | "error", "message": str | {"text": str, "params"?: {...}}},  // a message (ui.message) is translated, then its {{name}} placeholders filled
   "__outputs__": {"<output name>": value},
-  "__settings__": {"<setting>": value}     // settings the action already changed on the server
+  "__settings__": {"<setting>": value},    // settings the action already changed on the server
+  "__refresh__": {"keys": ["<list>", ...]} // server lists the action rescanned ("models", "upscalers", ...)
 }
 ```
 
@@ -302,7 +303,10 @@ placeholders filled from `params` after translation.
 `visible`/`enabled` set in a patch override the static node state until the
 next patch or schema reload; they are combined with `visible_if`/`enabled_if`
 by logical AND. `__settings__` reports settings the server has stored: the
-client updates its cached option values and must not write them back. Bad
+client updates its cached option values and must not write them back.
+`__refresh__` names server-side lists the action rescanned; the server
+announces them as an `options.changed` event (`keys`), so every client
+refetches the schemas that offer them; clients ignore the key itself. Bad
 action input answers with the §3 error body.
 
 Built-in server actions with owner `core` (keys of their patches are relative
