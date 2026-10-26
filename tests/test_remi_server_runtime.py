@@ -215,6 +215,44 @@ def test_the_server_thread_serves_and_stops(webui_tmp):
         assert not thread.thread.is_alive()
 
 
+def test_websockets_are_not_deflated():
+    """The WebSocket's big frames are JPEG previews: the server declines
+    permessage-deflate (a browser always asks for it), so neither side spends
+    CPU per preview compressing incompressible bytes during generation."""
+
+    import socket
+
+    from fastapi import FastAPI, WebSocket
+
+    from remi.server import launch
+
+    app = FastAPI()
+
+    @app.websocket("/ws")
+    async def ws(socket_: WebSocket):
+        await socket_.accept()
+        await socket_.send_bytes(b"\xff\xd8" + bytes(range(256)) * 64)
+        await socket_.close()
+
+    port = launch.pick_port("127.0.0.1", None, 18800)
+    server = launch.ServerThread(app, host="127.0.0.1", port=port, graceful_shutdown=0.5)
+    server.start()
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=10) as connection:
+            connection.sendall(
+                b"GET /ws HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                b"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n"
+                b"Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\n\r\n"
+            )
+            head = b""
+            while b"\r\n\r\n" not in head:
+                head += connection.recv(4096)
+        assert head.startswith(b"HTTP/1.1 101")
+        assert b"sec-websocket-extensions" not in head.lower()
+    finally:
+        assert server.stop()
+
+
 def test_stopping_does_not_wait_forever_for_a_blocked_request_and_frees_the_port():
     import threading
     import time

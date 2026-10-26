@@ -137,6 +137,11 @@ class ServerThread:
             timeout_graceful_shutdown=graceful_shutdown,
             proxy_headers=bool(forwarded_allow_ips),
             forwarded_allow_ips=forwarded_allow_ips or None,
+            # No permessage-deflate: the WebSocket's large frames are live previews, already
+            # JPEG, so deflating them (about 2-12 ms of server CPU per frame, the same again
+            # in the browser to inflate) saved nothing while costing the generation time on a
+            # busy machine; the JSON events are a few hundred bytes.
+            ws_per_message_deflate=False,
             log_level="warning",
             lifespan="on",
         )

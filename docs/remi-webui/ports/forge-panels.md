@@ -23,7 +23,14 @@ and no Gradio import remains. Snapshots:
   (MPS, the CPU, older GPUs) it runs Comfy Kitchen's reference implementation
   of the same algorithm (`reference_sol_attn`: same block routing in full
   precision, a few heads at a time to bound its dense score memory; a call it
-  cannot run, e.g. out of memory, stays dense with a warning) - the image and
+  cannot run, e.g. out of memory, stays dense with a warning). It is a copy of
+  Comfy Kitchen's eager `sol_attn` (`_deterministic_sol_attn`) with one change:
+  the per-query-block mean of the block scores is a fixed-order block sum, not
+  `scatter_add_`, which adds in a varying order on MPS and CUDA - a last-bit
+  change at the routing threshold flipped key blocks between exact and pooled,
+  so the same job (a pasted infotext) made a visibly different image on MPS
+  (verify stage 2026-10-26: mean pixel difference 9.9, max 237). The result
+  equals Comfy Kitchen's and repeats bit for bit (tests, MPS included) - the image and
   infotext a GPU run makes, up to the kernels' rounding, but slower than
   regular attention, which the job says ("Sparse Attention Integrated used the
   reference implementation (CUDA device is required): slower than regular

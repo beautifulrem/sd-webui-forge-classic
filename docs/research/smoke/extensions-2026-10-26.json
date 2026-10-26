@@ -1,0 +1,101 @@
+{
+ "tool": "tools/smoke_extensions.py",
+ "date": "2026-10-26T15:42:41+0800",
+ "revision": "2668a11406f19a74beacae44e8ae6f60cf4bde72",
+ "uncommitted_changes": true,
+ "platform": "darwin",
+ "server_python": "/Volumes/Remi/Anima/.venv-remi/bin/python",
+ "server_python_gradio_modules": [],
+ "model": null,
+ "features": false,
+ "models": false,
+ "passed": true,
+ "checks": [
+  {
+   "name": "extension management is allowed",
+   "ok": true,
+   "detail": "{\"access\": true, \"disabled_by\": null}"
+  },
+  {
+   "name": "install from a URL",
+   "ok": true,
+   "detail": "remi-smoke-ext at a728ac7d, the remote at a728ac7d"
+  },
+  {
+   "name": "the index lists the extensions and marks the installed one",
+   "ok": true,
+   "detail": "2 entries from http://127.0.0.1:59000/index.json"
+  },
+  {
+   "name": "install from the index",
+   "ok": true,
+   "detail": "Remi smoke extension: installed=True, Remi smoke index extension: installed=True"
+  },
+  {
+   "name": "a backup taken now matches the current state",
+   "ok": true,
+   "detail": "47 rows (45 built-in), differing: none"
+  },
+  {
+   "name": "the per-extension check finds the update",
+   "ok": true,
+   "detail": "status 'new commits'"
+  },
+  {
+   "name": "the bulk check finds it and nothing else",
+   "ok": true,
+   "detail": "remi-smoke-ext: new commits, remi-smoke-index-ext: latest"
+  },
+  {
+   "name": "update moves to the remote's commit, after a backup",
+   "ok": true,
+   "detail": "a728ac7d -> 2000cd10; new backups: ['Backup (pre-update)']"
+  },
+  {
+   "name": "the backup now differs on the updated extension only",
+   "ok": true,
+   "detail": "differing: ['remi-smoke-ext']"
+  },
+  {
+   "name": "restore + Reload UI puts the extension back at the backed-up commit",
+   "ok": true,
+   "detail": "reloaded=True, now at a728ac7d, backed up a728ac7d"
+  },
+  {
+   "name": "the locale an extension ships is offered after the reload",
+   "ok": true,
+   "detail": "locales ['ar', 'de_DE', 'es_ES', 'fr_FR', 'it_IT', 'ja_JP', 'ko_KR', 'pl_PL', 'pt_BR', 'ru_RU', 'zh_CN']"
+  },
+  {
+   "name": "uninstall",
+   "ok": true,
+   "detail": "left: none"
+  },
+  {
+   "name": "browser: installs from a URL and from the index, then loads them with Reload UI",
+   "ok": true,
+   "detail": "extensions-real.spec.ts, 11.6 s"
+  },
+  {
+   "name": "browser: a fresh backup matches now; Check for updates shows its progress; the update and Restore move the commit",
+   "ok": true,
+   "detail": "extensions-real.spec.ts, 22.5 s"
+  },
+  {
+   "name": "browser: lays the app out right to left in the language an extension ships",
+   "ok": true,
+   "detail": "extensions-real.spec.ts, 2.1 s"
+  },
+  {
+   "name": "browser: steps through the gallery in the viewer with a sideways wheel and a gamepad",
+   "ok": true,
+   "detail": "extensions-real.spec.ts, 2.1 s"
+  },
+  {
+   "name": "browser: asks before leaving with unsaved settings, and always with “confirm_leave”",
+   "ok": true,
+   "detail": "extensions-real.spec.ts, 4.8 s"
+  }
+ ],
+ "browser": true
+}

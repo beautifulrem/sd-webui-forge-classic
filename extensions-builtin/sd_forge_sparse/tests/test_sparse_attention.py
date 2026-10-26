@@ -203,6 +203,34 @@ def test_the_reference_is_comfy_kitchens_in_head_chunks(sparse, monkeypatch):
     torch.testing.assert_close(sparse.reference_sol_attn(q, k, v, tau=1.25), _comfy_kitchen_reference(q, k, v, 1.25))
 
 
+def test_the_reference_is_reproducible(sparse, monkeypatch):
+    """The same inputs give the same output on every run, so a pasted
+    infotext regenerates the image: no order-dependent accumulation
+    (``scatter_add_`` sums in a varying order on MPS and CUDA, and a flipped
+    routing decision changed the real model's image), and on a ragged last
+    block too."""
+
+    def unordered(*args, **kwargs):
+        raise AssertionError("scatter_add_ adds in a varying order on GPUs")
+
+    q, k, v = (t.view(1, 250, HEADS, DIM_HEAD) for t in _structured_qkv(tokens=250))
+    with monkeypatch.context() as patched:
+        patched.setattr(torch.Tensor, "scatter_add_", unordered)
+        first = sparse.reference_sol_attn(q, k, v, tau=1.25)
+        assert torch.equal(first, sparse.reference_sol_attn(q, k, v, tau=1.25))
+    torch.testing.assert_close(first, _comfy_kitchen_reference(q, k, v, 1.25))
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs MPS (Apple Silicon)")
+def test_the_reference_is_reproducible_on_mps(sparse):
+    """Where it runs instead of the kernels: bit-identical repeats on MPS."""
+
+    generator = torch.Generator().manual_seed(0)  # unstructured: many block scores near the routing threshold
+    q, k, v = (torch.randn(1, 1024, 4, DIM_HEAD, generator=generator).to("mps", torch.bfloat16) for _ in range(3))
+    outputs = [sparse.reference_sol_attn(q, k, v, tau=1.25) for _ in range(6)]
+    assert all(torch.equal(out, outputs[0]) for out in outputs[1:])
+
+
 @pytest.mark.parametrize("layout", [{}, {"skip_reshape": True}, {"skip_reshape": True, "skip_output_reshape": True}], ids=["tokens", "heads", "heads-out"])
 def test_without_the_kernels_the_patch_runs_the_reference(sparse, monkeypatch, layout):
     """On the CPU (as on MPS): the enabled panel patches attention, eligible

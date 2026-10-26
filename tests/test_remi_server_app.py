@@ -232,10 +232,11 @@ def test_models(server, monkeypatch):
     assert data["samplers"] and data["schedulers"] and "sd" in data["presets"]
 
 
-@pytest.mark.parametrize("route", ["/api/v2/models/refresh", "/api/v2/networks/refresh"])
+@pytest.mark.parametrize("route", ["/api/v2/models/refresh", "/api/v2/networks/refresh", "extras-refresh"])
 def test_refresh_picks_up_an_upscaler_added_while_running(server, webui, monkeypatch, tmp_path, route):
     """A model dropped in the ESRGAN folder is a Hires. fix and Extras choice
-    (schema and job validation) after a refresh, without a restart."""
+    (schema and job validation) after a refresh, without a restart: the
+    refresh endpoints and the Extras upscaler's own Refresh button."""
 
     from modules import modelloader, shared
     from remi.server import runtime
@@ -277,7 +278,14 @@ def test_refresh_picks_up_an_upscaler_added_while_running(server, webui, monkeyp
     (folder / "RealESRGAN_x4plus_anime_6B.pth").write_bytes(b"")
     events = []
     server.services.bus.subscribe(type("R", (), {"send_event": lambda self, e: events.append(e), "send_frame": lambda self, f: None})())
-    assert server.client.post(route).json()["ok"] is True
+    if route == "extras-refresh":
+        from remi.core.extras import assign_args
+
+        owner = next(layout.owner for script, layout in assign_args(webui.postproc) if script is operation)
+        patch = server.client.post(f"/api/v2/actions/{owner}/refresh_upscalers", json={"tab": "extras", "values": {}}).json()
+        assert "RealESRGAN_x4plus_anime_6B" in [choice["value"] for choice in patch["upscaler_1_name"]["choices"]]
+    else:
+        assert server.client.post(route).json()["ok"] is True
 
     assert "RealESRGAN_x4plus_anime_6B" in choices("txt2img", "hr_upscaler")
     assert "RealESRGAN_x4plus_anime_6B" in choices("extras", "upscaler_1_name")

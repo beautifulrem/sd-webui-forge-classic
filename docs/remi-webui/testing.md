@@ -318,7 +318,8 @@ Kitchen's reference implementation of the same algorithm, slower than
 regular attention, and the job says so ("Sparse Attention Integrated used the
 reference implementation (CUDA device is required): slower than regular
 attention"). `--features` checks that it changes the image, records its
-infotext and round-trips. The
+infotext and round-trips (the paste regenerates the image bit for bit: the
+reference adds in a fixed order, see `ports/forge-panels.md`). The
 Prompt Blacklist panel only acts through its button (it rewrites the
 prompt in the form), so it never changes a queued generation by design.
 

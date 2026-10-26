@@ -106,17 +106,97 @@ def reference_sol_attn(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, tau
 
     Every (batch, head) is independent, so it runs a few heads at a time to
     bound the memory of its dense score tensors; slower than regular
-    attention."""
+    attention. Each part runs :func:`_deterministic_sol_attn`, so the same
+    job gives the same image again (a pasted infotext regenerates it)."""
 
-    implementation = ck.registry.get_implementation("sol_attn", backend="eager")
     batch, tokens, heads, _ = q.shape
     step = max(1, min(heads, REFERENCE_SCORE_BYTES // (tokens * tokens * 4)))
     out = torch.empty(v.shape, dtype=v.dtype, device=v.device)
     for b in range(batch):
         for h in range(0, heads, step):
             part = (slice(b, b + 1), slice(None), slice(h, h + step))
-            out[part] = implementation(q[part], k[part], v[part], tau=tau, scale=scale)
+            out[part] = _deterministic_sol_attn(q[part], k[part], v[part], tau=tau, scale=scale)
     return out
+
+
+SOL_BLOCK = 64
+_LOG2E = 1.4426950408889634
+_MAX_SCORE_BYTES = 4 * 2**30  # Comfy Kitchen's limit for its dense score tensor
+
+
+def _block_sums(x: torch.Tensor, blocks: int, dim: int) -> torch.Tensor:
+    """Sums of consecutive ``SOL_BLOCK`` slices of ``x`` along ``dim`` (the last one zero-padded)."""
+
+    pad = blocks * SOL_BLOCK - x.shape[dim]
+    if pad:
+        shape = list(x.shape)
+        shape[dim] = pad
+        x = torch.cat([x, x.new_zeros(shape)], dim=dim)
+    return x.unflatten(dim, (blocks, SOL_BLOCK)).sum(dim + 1)
+
+
+def _deterministic_sol_attn(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, *, tau: float, scale: float | None = None) -> torch.Tensor:
+    """Comfy Kitchen's eager ``sol_attn`` (``comfy_kitchen/backends/eager/sol_attn.py``,
+    tau routing, no sinks, key bias, block lengths or coarse branch: what this
+    panel uses), step for step, except for the per-query-block mean of the
+    block scores: Comfy Kitchen sums it with ``scatter_add_``, which on MPS
+    (and CUDA) adds in a varying order, and a last-bit change at the routing
+    threshold flips a key block between exact and pooled - the same job then
+    made a visibly different image. A fixed-order block sum makes the run
+    reproducible; the routing is otherwise the same (tests compare both)."""
+
+    b, t, h, d = q.shape
+    n = (t + SOL_BLOCK - 1) // SOL_BLOCK
+    if b * h * t * t * 4 > _MAX_SCORE_BYTES:
+        raise RuntimeError(f"sol_attn reference: the dense score tensor would need {b * h * t * t * 4 / 2**30:.1f} GiB (B={b}, H={h}, T={t})")
+    if scale is None:
+        scale = d**-0.5
+    log2s = scale * _LOG2E
+
+    fq, fk, fv = q.float(), k.float(), v.float()
+    lengths = torch.full((n,), float(SOL_BLOCK), device=q.device)
+    if (last := t - (n - 1) * SOL_BLOCK) < SOL_BLOCK:
+        lengths[-1] = float(last)
+    kc = _block_sums(fk, n, 1) / lengths.view(1, -1, 1, 1)  # (B, N, H, D) summary keys
+    vc = _block_sums(fv, n, 1)  # (B, N, H, D) summed values
+
+    # centring K shifts every score in a row by a constant: softmax-invariant
+    k_mean = kc.mean(dim=1, keepdim=True)
+    kcc = kc - k_mean
+    kc_var = kcc.pow(2).mean(dim=1)  # (B, H, D)
+    centroid = _block_sums(fq, n, 1) / lengths.view(1, -1, 1, 1)
+
+    qh = fq.permute(0, 2, 1, 3)  # (B, H, T, D)
+    kh = (fk - k_mean).permute(0, 2, 1, 3)
+    vh = fv.permute(0, 2, 1, 3)
+    kch = kcc.permute(0, 2, 1, 3)  # (B, H, N, D)
+    vch = vc.permute(0, 2, 1, 3)
+
+    s_tok = (qh @ kh.transpose(-1, -2)) * log2s  # (B, H, T, T)
+    s_blk = (qh @ kch.transpose(-1, -2)) * log2s  # (B, H, T, N)
+
+    # routed: the block score's mean over the query block clears the threshold; the diagonal +-1 is always exact
+    qblk = torch.arange(t, device=q.device) // SOL_BLOCK
+    colmean = _block_sums(s_blk, n, 2) / lengths.view(1, 1, n, 1)  # (B, H, NQ, N)
+    idx = torch.arange(n, device=q.device)
+    var = (centroid.pow(2) * kc_var.unsqueeze(1)).sum(-1)  # (B, N, H)
+    thr = tau * torch.sqrt(var * log2s * log2s + 1e-6)
+    exact = colmean > thr.permute(0, 2, 1).unsqueeze(-1)
+    exact |= ((idx.view(1, -1) - idx.view(-1, 1)).abs() <= 1).view(1, 1, n, n)
+
+    ex_tok = exact.gather(2, qblk.view(1, 1, t, 1).expand(b, h, t, n))  # (B, H, T, N)
+    keep_tok = ex_tok.repeat_interleave(SOL_BLOCK, dim=-1)[..., :t]
+    neg = torch.finfo(s_tok.dtype).min
+    s_tok = s_tok.masked_fill(~keep_tok, neg)
+    # every row shares its query block's pooled term (colmean is the centroid score)
+    s_blk = colmean.gather(2, qblk.view(1, 1, t, 1).expand(b, h, t, n)).masked_fill(ex_tok, neg)
+
+    # one softmax over both branches; a pooled term weighs its block length (vc is a sum)
+    logits = torch.cat([s_tok, s_blk], dim=-1)
+    p = torch.exp2(logits - logits.amax(dim=-1, keepdim=True)).masked_fill(logits <= neg, 0.0)
+    num = p[..., :t] @ vh + p[..., t:] @ vch
+    den = p[..., :t].sum(-1) + (p[..., t:] * lengths.view(1, 1, 1, n)).sum(-1)
+    return (num / den.clamp_min(1e-30).unsqueeze(-1)).permute(0, 2, 1, 3).to(v.dtype).contiguous()
 
 
 INFOTEXT_PREFIX = "Sparse attention"
