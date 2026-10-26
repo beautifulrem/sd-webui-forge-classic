@@ -298,8 +298,20 @@ git diff --name-status --diff-filter=A "$BASE" upstream/neo                     
 python tools/upstream_forks.py review                                # files Remi forked (§1.1): port, never merge
 ```
 
-Record the legacy snapshot of every new upstream extension or script now,
-before merging (§2.5).
+Record the legacy snapshot of every new upstream `Script` class that has a
+`ui()` now, before merging (§2.5). Two kinds of new items have no snapshot:
+
+- **Tab-only or JavaScript-only extensions** (`on_ui_tabs`, `javascript/`,
+  no `Script.ui()`): port the tab to a `remi.pages` page (or an SPA feature
+  for pure JavaScript behaviour), list it in
+  [inventory/extensions.md](inventory/extensions.md), and delete the Gradio and
+  JavaScript files after the port.
+- **Scripts without UI** (an `AlwaysVisible` script whose controls are
+  settings, or with no controls): register its options through §2.2
+  (`OptionInfo` with `ui.*` widgets); nothing to snapshot.
+
+`record_legacy_ui.py` reports `found [] (use --class)` for both kinds, which
+is the signal to take one of these two routes.
 
 Then merge on a branch. **Step A — merge and list the work:**
 
@@ -314,6 +326,9 @@ git status --short | grep '^DU'     # upstream edited a file Remi deleted (modul
                                    # translate the change (§2), then: git rm <file>
 git diff --name-only --diff-filter=A --cached | grep -E '(^|/)(javascript/|style\.css$)|^(html/|modules/ui|script\.js$)'
                                    # new upstream UI files (core or extension): translate, then git rm them
+git diff --name-only --diff-filter=A --cached -- '*.py' | xargs -r git grep -lE 'import gradio|from gradio|on_ui_tabs' --cached --
+                                   # new upstream Python that builds Gradio UI: translate (§2, §2.5), then
+                                   # git rm it or remove its Gradio code
 git diff --name-only --diff-filter=U                       # content conflicts: resolve keeping Remi's hooks
 ```
 
@@ -331,7 +346,8 @@ translated and removed:**
 ```bash
 git diff --name-only --diff-filter=U  # must print nothing
 git grep -nE '^(<<<<<<<|>>>>>>>) '   # leftover conflict markers, also in files already added: must print nothing
-ruff check . --select TID251 --output-format concise  # Gradio imports (banned in pyproject.toml): must report none
+ruff check . --select TID251 --output-format concise  # Gradio imports (banned in pyproject.toml): must report none;
+                                     # a hit is upstream UI still to translate (§2) and then git rm
 python tools/check_line_endings.py   # upstream files keep upstream's line endings (below); --fix repairs
 python tools/sdapi_contract.py --rev upstream/neo   # /sdapi/v1 routes and models still match upstream's
 ```

@@ -177,7 +177,7 @@ job from the UI; "effect" compares the output with the plain run
 
 | # | Issue | Status |
 |---|---|---|
-| 1 | Artist mixer: a generation made its panel the schema default, so API / imported jobs inherited the last run's artists | fixed: the defaults are the built-in ones; nothing is written by a generation (the browser draft remembers the user's panel); `tests/test_panel_defaults.py` |
+| 1 | Artist mixer: a generation made its panel the schema default, so API / imported jobs inherited the last run's artists | fixed: the defaults are the built-in ones; nothing is written by a generation (the browser draft remembers the user's panel); `extensions-builtin/anima-artist-scheduled-mixer/tests/test_panel_defaults.py` |
 | 2 | Server toasts English-only | fixed: toasts use catalog keys / `ui.message` (D11); zh-CN verified in the browser ("尺寸已设为 1536 x 1536（源图 512 x 512）。") |
 | 3 | Language pack zh_CN partial English ("Preset") | fixed: "Preset" → 预设 and the D6 entries; the core catalog wins (`test_remi_core_zh_cn.py`) |
 | 4 | `test_internal_routes` after runtime tests | verified fixed: `pytest tests/test_remi_server_runtime.py tests/test_remi_server_jobs.py tests/test_remi_server_app.py` → 68 passed |
