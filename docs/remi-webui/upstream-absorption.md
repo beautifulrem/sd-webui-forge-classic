@@ -310,8 +310,12 @@ Record the legacy snapshot of every new upstream `Script` class that has a
   settings, or with no controls): register its options through §2.2
   (`OptionInfo` with `ui.*` widgets); nothing to snapshot.
 
-`record_legacy_ui.py` reports `found [] (use --class)` for both kinds, which
-is the signal to take one of these two routes.
+`record_legacy_ui.py` refuses both kinds: a file with no `Script` class
+reports `found [] (use --class)`, and a script with no Gradio `ui()` at the
+upstream revision reports `has no Gradio ui() at upstream/neo`. For a new
+upstream item either message is the signal to take one of these two routes
+(the `--script-rev` hint in the second one applies only to a script Remi
+already ported).
 
 Then merge on a branch. **Step A — merge and list the work:**
 
@@ -326,7 +330,7 @@ git status --short | grep '^DU'     # upstream edited a file Remi deleted (modul
                                    # translate the change (§2), then: git rm <file>
 git diff --name-only --diff-filter=A --cached | grep -E '(^|/)(javascript/|style\.css$)|^(html/|modules/ui|script\.js$)'
                                    # new upstream UI files (core or extension): translate, then git rm them
-git diff --name-only --diff-filter=A --cached -- '*.py' | xargs -r git grep -lE 'import gradio|from gradio|on_ui_tabs' --cached --
+git diff --name-only --diff-filter=A --cached -- '*.py' | xargs -r git grep --cached -lE 'import gradio|from gradio|on_ui_tabs' --
                                    # new upstream Python that builds Gradio UI: translate (§2, §2.5), then
                                    # git rm it or remove its Gradio code
 git diff --name-only --diff-filter=U                       # content conflicts: resolve keeping Remi's hooks

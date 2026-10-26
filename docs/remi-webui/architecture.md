@@ -351,7 +351,7 @@ warnings?}` (`warnings`: notes on script hooks that raised during the run and
 were skipped, and the processing's `p.comment()` notes — e.g. a feature
 skipped on this device — also kept on the job),
 `job.failed{job_id, seq, tab, status, error, errors?}`, `queue.changed{size,
-paused, running}`, `options.changed{keys}`, `networks.changed{kind}`,
+paused, running}`, `options.changed{keys}`, `networks.changed{kind?}`,
 `outputs.changed{ids}` (gallery stars / removals),
 `model.loading{stage, model}`, `model.loaded{model, error?}`, `pong`,
 `resync{dropped}` (the client's queue overflowed: the backlog is replaced by a
