@@ -25,6 +25,7 @@ keyboard shortcuts, migration from the Gradio UI and troubleshooting.
 | [../../webui/README.md](../../webui/README.md) | frontend quick commands |
 | [remi-architecture-notes.md](../remi-architecture-notes.md) | how the Anima features hook into the Forge runtime (seams) and the trade-offs made on purpose |
 | [scorecard.md](scorecard.md) | the acceptance criteria of the Gradio-free rewrite |
+| [score-history.md](score-history.md) | independent scoring rounds and the final scores |
 | [testing.md](testing.md) / [integration-checklist.md](integration-checklist.md) | the quality gates (`tools/check.sh`), the real-server smoke test and browser audit, and the last full browser walk-through with its evidence |
 
 ## Maintaining Remi against Forge Neo
