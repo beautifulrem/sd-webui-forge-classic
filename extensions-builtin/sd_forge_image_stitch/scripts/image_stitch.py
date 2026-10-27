@@ -10,11 +10,14 @@ from modules.sd_samplers_common import images_tensor_to_samples
 from modules.shared import device, opts
 from remi import ui
 
-T2I_INFO = """For **Flux.1-Kontext** / **Flux.2-Klein** / **Qwen-Image-Edit** / **Anima Edit** / **Krea2 Edit**: Use in **txt2img** to achieve the effect of empty latent with custom resolution\\
+# upstream 04772d93: one "Edit Models" entry (a hover list there; Markdown has no hover)
+_EDIT_MODELS = "Flux.1-Kontext, Flux.2-Klein, Qwen-Image-Edit, Qwen-Image-2.1, Anima Edit, Krea2 Edit"
+
+T2I_INFO = f"""For **Edit Models** ({_EDIT_MODELS}): Use in **txt2img** to achieve the effect of empty latent with custom resolution\\
 For **Wan 2.2 I2V**: Use in **txt2img** to set as the Last Frame to achieve LastFrameToVideo\\
 **Note:** This doesn't actually stitch the images; **Tip:** paste images straight into the list"""
 
-I2I_INFO = """For **Flux.1-Kontext** / **Flux.2-Klein** / **Qwen-Image-Edit** / **Anima Edit** / **Krea2 Edit**: Use in **img2img** to achieve the effect of multiple input images\\
+I2I_INFO = f"""For **Edit Models** ({_EDIT_MODELS}): Use in **img2img** to achieve the effect of multiple input images\\
 For **Wan 2.2 I2V**: Use in **img2img** to set as the Last Frame to achieve FirstLastFrameToVideo\\
 **Note:** This doesn't actually stitch the images; **Tip:** paste images straight into the list"""
 

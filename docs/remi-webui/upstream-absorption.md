@@ -21,8 +21,10 @@ So an upstream update is two kinds of work:
 
 History of earlier syncs:
 [2026-10-02](../upstream-sync-2026-10-02.md) (selective port from reviewed
-diffs) and [2026-10-14](../upstream-sync-2026-10-14.md) (Git merge of `neo`
-at `46af880c`, the last upstream commit absorbed before the UI rewrite).
+diffs), [2026-10-14](../upstream-sync-2026-10-14.md) (Git merge of `neo`
+at `46af880c`, the last upstream commit absorbed before the UI rewrite) and
+[2026-10-27](../upstream-sync-2026-10-27.md) (merge of `c6c2b43d`, the first
+one done with this procedure).
 Each new sync adds a `docs/upstream-sync-YYYY-MM-DD.md` from the template in
 [§5](#5-sync-note-template).
 
@@ -102,7 +104,7 @@ equal).
 
 | upstream file(s) | Remi's version | seams it relies on ([remi-architecture-notes.md](../remi-architecture-notes.md#seams)) |
 |---|---|---|
-| `extensions-builtin/sd_forge_spectrum/lib_spectrum/` (`forecaster.py`, `presets.py`, `__init__.py`, Remi's `pass_context.py` and `sea.py`) and `extensions-builtin/sd_forge_spectrum/scripts/spectrum.py` (its hooks: `process_before_every_sampling`, …) | a fork: per-branch forecasters that rebuild on shape changes and handle cond/uncond split calls, Remi-only `pass_context.py` (the steps and parameters of the pass being sampled: hires, img2img) and `sea.py` (the SEA cache-decision metric with per-configuration calibration), presets and the controls upstream lacks. Upstream's `34022261` "rewrite Spectrum" (after `46af880c`) conflicts in `forecaster.py` and `spectrum.py` and moves `SpectrumNode` into `lib_spectrum/__init__.py`, which merges *cleanly* (Remi's holds only the logger; Remi's `SpectrumNode` stays in `forecaster.py`), so only `upstream_forks.py restore` keeps it out; the 2026-10-14 sync already kept Remi's `forecaster.py` over upstream's shape guard | "Spectrum \"run a real forward\" requests" (`modules/spectrum_force.py`), "`model_function_wrapper` chain", "Script-argument check" (defaults for the controls upstream lacks) |
+| `extensions-builtin/sd_forge_spectrum/lib_spectrum/` (`forecaster.py`, `presets.py`, `__init__.py`, Remi's `pass_context.py` and `sea.py`) and `extensions-builtin/sd_forge_spectrum/scripts/spectrum.py` (its hooks: `process_before_every_sampling`, …) | a fork: per-branch forecasters that rebuild on shape changes and handle cond/uncond split calls, Remi-only `pass_context.py` (the steps and parameters of the pass being sampled: hires, img2img) and `sea.py` (the SEA cache-decision metric with per-configuration calibration), presets and the controls upstream lacks. Upstream's `34022261` "rewrite Spectrum" (after `46af880c`) conflicts in `forecaster.py` and `spectrum.py` and moves `SpectrumNode` into `lib_spectrum/__init__.py`, which merges *cleanly* (Remi's holds only the logger; Remi's `SpectrumNode` stays in `forecaster.py`), so only `upstream_forks.py restore` keeps it out; the 2026-10-14 sync already kept Remi's `forecaster.py` over upstream's shape guard | "Spectrum \"run a real forward\" requests" (`modules/spectrum_force.py`), "`model_function_wrapper` chain", "Script-argument check" (defaults for the controls upstream lacks), "Replaced blocks in a branch's signature" (`_replaced_blocks`: since the 2026-10-27 sync, the block keys of `transformer_options["patches_replace"]` are part of a branch's signature, for Skip Layer Guidance; check Spectrum when upstream changes `modules/processing_scripts/slg.py` or how `patches_replace` is built) |
 | `extensions-builtin/sd_forge_compile/scripts/compile.py` (`process_batch` and the compile presets) | upstream's presets plus Remi's "Anima per-block" preset (Remi-only `anima_block_compile.py`), the Windows compiler probe and the eager fallback while a forward override is active | "Temporary forward overrides", "Per-call block forward pre-hooks" (Modulation keeps the compiled blocks) |
 | `extensions-builtin/sd_forge_controlnet/lib_controlnet/controlnet_ui/` (deleted in Remi, stays deleted), `extensions-builtin/sd_forge_controlnet/lib_controlnet/infotext.py`, `extensions-builtin/sd_forge_controlnet/lib_controlnet/external_code.py` (infotext and API unit parsing) | the Gradio unit UI is replaced by Remi-only `unit_param.py` / `unit_actions.py` / `openpose.py` / `region_canvas.py`; `infotext.py` parses an entry into unit fields (`parse_unit_fields`) instead of wiring Gradio components; `external_code.py` also reads the A1111 API's `{"image", "mask"}` dict | none (UI port); processing in `lib_controlnet` other than these files merges normally |
 
@@ -258,7 +260,7 @@ Then review what is new (bash or zsh, from the repository root):
 
 ```bash
 git fetch upstream
-BASE=$(git merge-base HEAD upstream/neo)             # last absorbed upstream commit (46af880c after the 2026-10-14 sync)
+BASE=$(git merge-base HEAD upstream/neo)             # last absorbed upstream commit (c6c2b43d after the 2026-10-27 sync)
 git log --oneline --no-merges "$BASE"..upstream/neo  # what is new
 
 # Review by path group (the §1 rows); "other" is everything the groups leave out

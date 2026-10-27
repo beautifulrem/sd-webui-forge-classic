@@ -5,7 +5,7 @@ from lib_spectrum.forecaster import SpectrumNode
 from lib_spectrum.pass_context import resolve_pass_context
 from lib_spectrum.presets import CONTROLS, DEFAULT, ENABLE_KEY, INFOTEXT_KEYS, PresetManager
 
-from modules import paths, scripts, shared
+from modules import paths, scripts
 from modules.anima_support import script_arguments, table_params
 from remi import ui
 
@@ -153,9 +153,11 @@ class SpectrumForForge(scripts.Script):
             args[_HISTORY] = minimum_history
         args = tuple(args)
 
-        if shared.opts.skip_early_cond > 0.0 or shared.opts.s_min_uncond > 0.0:
-            logger.warning('Spectrum does not support "Ignore/Skip Negative Prompt" optimizations.')
-            return
+        # "Ignore Negative Prompt during Early Steps" / "Skip Negative Prompt
+        # during Later Steps" (skip_early_cond, s_min_uncond) drop the uncond
+        # branch from some steps: its forecaster is dropped with it and
+        # rebuilt from actual steps when it comes back, while the cond one
+        # keeps caching (upstream 34022261 removed this guard as well).
 
         x = kwargs.get("x")
         latent_shape = tuple(x.shape[-2:]) if x is not None else None

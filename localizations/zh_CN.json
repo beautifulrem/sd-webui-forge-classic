@@ -215,6 +215,7 @@
   "PID": "PID",
   "KREA": "KREA",
   "QWEN21": "QWEN21",
+  "MOSS": "MOSS",
   "\nUse this setting to load different LoRAs between the normal pass and the refiner pass\n- Each line can contain one rule to process the LoRA names\n- **Available Rules:**\n    - `AAA=BBB` : the `AAA` within a LoRA would be replaced with `BBB` during the refiner pass\n    - `-CCC` : any LoRA that contains `CCC` would be removed during the refiner pass\n    - `DDD+EEE` : the LoRA named `DDD` would be added with strength `EEE` during the refiner pass\n- **Example:**\n    - The default value would replace any occurrence of \"`high_noise`\" with \"`low_noise`\"\n": "\n用此设置让普通阶段与精炼器阶段加载不同的 LoRA\n- 每行写一条处理 LoRA 名称的规则\n- **可用规则：**\n    - `AAA=BBB`：精炼器阶段中，LoRA 名称里的 `AAA` 替换为 `BBB`\n    - `-CCC`：精炼器阶段中，移除名称包含 `CCC` 的 LoRA\n    - `DDD+EEE`：精炼器阶段中，以强度 `EEE` 加入名为 `DDD` 的 LoRA\n- **示例：**\n    - 默认值会把所有“`high_noise`”替换为“`low_noise`”\n",
   "\"When searched\" option will only show the item when the search string contains 4 characters or more": "“搜索时”选项仅在搜索内容不少于 4 个字符时显示该项",
   "\"webp\" is recommended if supported": "如果支持，推荐使用“webp”",

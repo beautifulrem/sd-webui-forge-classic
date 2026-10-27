@@ -183,9 +183,11 @@ def _dimensions(tab: str) -> list[ui.Input]:
     step = resolution_step()
     # txt2img: the Hires. fix target resolution follows the size
     on_change = "hr_resolution" if tab == "txt2img" else None
+    # as upstream's ui.py (be6fa5d4): txt2img goes up to 4096, img2img stays at 2048
+    maximum = 4096 if tab == "txt2img" else 2048
     return [
-        ui.Slider("width", 64, 2048, 1024, step, label="Width", infotext="Size-1", on_change=on_change),
-        ui.Slider("height", 64, 2048, 1024, step, label="Height", infotext="Size-2", on_change=on_change),
+        ui.Slider("width", 64, maximum, 1024, step, label="Width", infotext="Size-1", on_change=on_change),
+        ui.Slider("height", 64, maximum, 1024, step, label="Height", infotext="Size-2", on_change=on_change),
     ]
 
 

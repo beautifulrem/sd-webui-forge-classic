@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -86,6 +87,45 @@ class TorchInstallTests(unittest.TestCase):
 
 
 @unittest.skipUnless(os.name == "posix", "Unix launcher")
+class StartupVersionCheckTests(unittest.TestCase):
+    """The startup check (``initialize.check_versions`` → ``errors.check_versions``)
+    warns below the torch the launcher installs: upstream a02a0516 raised both to
+    2.14.0, and Remi's former copy of the check in ``initialize.py`` stayed at 2.13.0."""
+
+    def setUp(self):
+        sys.path.insert(0, str(ROOT))
+        self.addCleanup(sys.path.remove, str(ROOT))
+        from modules import errors
+
+        self.errors = errors
+        pin = re.search(r"torch==(\d+)\.(\d+)\.(\d+)", load_launch_helpers()["default_torch_command"](platform="linux"))
+        self.pin = tuple(int(part) for part in pin.groups())
+
+    def warnings_for(self, torch_version):
+        import torch
+
+        messages = []
+        with (
+            patch.object(torch, "__version__", torch_version),
+            patch.object(torch.cuda, "is_available", return_value=False),
+            patch.object(self.errors, "print_error_explanation", messages.append),
+        ):
+            self.errors.check_versions()
+        return messages
+
+    def test_expected_torch_is_the_launcher_pin(self):
+        major, minor, patch_ = self.pin
+        self.assertEqual(self.warnings_for(f"{major}.{minor}.{patch_}+cu130"), [])
+        self.assertEqual(len(self.warnings_for(f"{major}.{minor - 1}.99+cu130")), 1)
+
+    def test_initialize_delegates_to_errors(self):
+        source = ast.parse((ROOT / "modules/initialize.py").read_text())
+        check = next(node for node in source.body if isinstance(node, ast.FunctionDef) and node.name == "check_versions")
+        calls = {ast.unparse(node.func) for node in ast.walk(check) if isinstance(node, ast.Call)}
+        self.assertIn("errors.check_versions", calls)
+        self.assertNotIn("expected_torch", ast.unparse(check))
+
+
 class UnixLauncherTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="remi launch ")

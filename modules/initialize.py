@@ -36,18 +36,9 @@ def check_versions():
     if cmd_opts.skip_version_check:
         return
 
-    import torch
-    from packaging import version
-
     from modules import errors
 
-    expected_torch = "2.10.0" if torch.cuda.is_available() and torch.cuda.get_device_properties().major < 8 else "2.13.0"
-    if version.parse(torch.__version__) < version.parse(expected_torch):
-        errors.print_error_explanation(
-            f"You are running PyTorch {torch.__version__}, which is outdated.\n\n"
-            "Delete the venv folder to do a reinstall is recommended.\n"
-            "Use --skip-version-check commandline argument to disable the version checks."
-        )
+    errors.check_versions()
 
     startup_timer.record("version check")
 

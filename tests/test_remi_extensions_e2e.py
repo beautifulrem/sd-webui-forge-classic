@@ -51,6 +51,7 @@ NOT_RUN: dict[str, str] = {
     "extensions-builtin/sd-webui-language-diffusion": "UI translations (tests/test_remi_core_zh_cn.py, its own tests)",
     "extensions-builtin/sd-webui-prompt-all-in-one-neo": "prompt tools of the editor (tests/test_remi_prompt_tools.py); no generation hook",
     "extensions-builtin/sd-webui-tagcomplete-neo": "tag completion in the prompt editor (tests/test_remi_prompt_tools.py); no generation hook",
+    "extensions-builtin/sd_forge_json_builder": "a page that writes a MOSS-Image prompt into the forms (tests in its folder and its SPA view's); no script",
     "extensions-builtin/sd_forge_anima_presets": "an action that fills the form from a preset (tests in its folder, tests/test_anima_presets.py); its process() only logs Turbo advice",
     # ControlNet preprocessors and models (canny, tile_colorfix, inpaint_only and the Anima Control-LLLite run as cases)
     "extensions-builtin/forge_preprocessor_reference": "reference_only / reference_adain record and patch the SD 1.5 / SDXL UNet's attn1 blocks, which the Anima DiT does not have",

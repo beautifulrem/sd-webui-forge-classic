@@ -51,6 +51,7 @@ Gradio UI that was replaced; line numbers refer to the pre-rewrite tree.
 | [ports/scripts-postprocess-detail-daemon.md](ports/scripts-postprocess-detail-daemon.md) | ports of `scripts/`, Post Processing Suite and Detail Daemon; the "UI-only params come last" rule |
 | [ports/forge-panels.md](ports/forge-panels.md) | ports of the Forge panels (compile, MultiDiffusion, Never OOM, PiD, Radial, Sparse, Spectrum, …) |
 | [ports/adetailer.md](ports/adetailer.md) | the ADetailer port |
+| [ports/json-builder.md](ports/json-builder.md) | the JSON Builder port (MOSS-Image Layout prompts; a JavaScript-only tab become an SPA page) |
 
 ## Research
 

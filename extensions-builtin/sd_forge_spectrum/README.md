@@ -24,7 +24,12 @@ one-branch or standard two-branch Forge CFG batches (also when low VRAM makes
 Forge run uncond and cond as separate calls: both branches are forecast on the
 same steps), invalidates history when
 the latent shape or text conditioning changes, and refuses unknown model
-wrappers. `Strict` currently keeps every step actual because Forge does not
+wrappers. Each branch keeps its own history: when the negative prompt drops
+out of some steps ("Ignore Negative Prompt during Early Steps", "Skip Negative
+Prompt during Later Steps", CFG 1) its history is dropped and rebuilt from
+actual steps while the positive branch keeps caching, and a branch whose DiT
+blocks are replaced for part of the pass (Moss-Image's Skip Layer Guidance)
+rebuilds its history at the switch. `Strict` currently keeps every step actual because Forge does not
 expose stable per-conditioning UUIDs, so Spectrum is not installed at all
 (the option stays for API and infotext compatibility). `Legacy / fastest` is an explicit
 quality-risk opt-in for complex wrapper chains.

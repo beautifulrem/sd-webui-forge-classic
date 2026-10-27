@@ -395,8 +395,7 @@ class ScriptPostprocessingDegrid(scripts_postprocessing.ScriptPostprocessing):
     def params(self):
         return ui.Section(
             "DeGrid",
-            enable=ui.Toggle("degrid_enabled", True, label="DeGrid"),
-            open=True,
+            enable=ui.Toggle("degrid_enabled", False, label="DeGrid"),
             children=[ui.Slider("degrid_threshold", 0.0, 1.0, 0.0, 0.05, label="Threshold", info="0.0 for Auto")],
         )
 
@@ -481,6 +480,8 @@ send buttons) and `sd-forge-prompt-workshop`.
 
 A page with `widget="name"` is a dedicated frontend view instead
 (`webui/src/pages/custom/<name>/index.tsx`); see frontend.md "Adding a page".
+Example: `sd_forge_json_builder` (the script only registers the page; the
+editor is `webui/src/pages/custom/json-builder`).
 
 ## 10. Settings
 

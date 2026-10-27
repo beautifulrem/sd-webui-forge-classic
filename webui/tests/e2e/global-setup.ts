@@ -6,7 +6,7 @@
  */
 import { chromium, type FullConfig } from "@playwright/test"
 
-const ROUTES = ["txt2img", "img2img", "extras", "png-info", "gallery", "networks", "queue", "settings", "extensions", "ext/toolbox"]
+const ROUTES = ["txt2img", "img2img", "extras", "png-info", "gallery", "networks", "queue", "settings", "extensions", "ext/toolbox", "ext/json-builder"]
 
 export default async function globalSetup(config: FullConfig) {
   const baseURL = config.projects[0]?.use.baseURL

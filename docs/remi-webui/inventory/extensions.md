@@ -1,7 +1,7 @@
 # Inventory C: built-in extensions and bundled scripts
 
 Branch `remi-webui`, Gradio 4.40.0 + `gradio_rangeslider==0.0.8` (pinned in `modules/launch_utils.py:306`).
-This file covers all 49 directories in `extensions-builtin/`, plus `scripts/` (7 files) and `modules/processing_scripts/` (6 files).
+This file covers all 49 directories in `extensions-builtin/` (plus `sd_forge_json_builder`, added upstream after the audit: row 50), plus `scripts/` (7 files) and `modules/processing_scripts/` (7 files; `slg.py` added upstream after the audit).
 The goal is to decide which of them run unchanged on a Remi-owned Gradio-compatible package (UI-tree and event-graph recorder, a handler-executing server, and a React SPA renderer) and which need native work.
 
 ## 0. Method and how to read the numbers
@@ -92,6 +92,7 @@ Column key:
 | 47 | sd_forge_sparse | Sparse attention with timestep range | S-AO | 14 / 1 | none | 0 | **RangeSlider** (`scripts/sparse.py:12,132`) | 0 | **2** |
 | 48 | sd_forge_spectrum | Spectrum step forecasting (feature caching) | S-AO | 37 / 4 | none | 0 | presets via `gr.update`/`gr.skip` lists | 8 | **1** |
 | 49 | soft-inpainting | Soft inpainting (A1111 port) | S-AO (img2img only, section `inpaint`) | 22 / 1 | none | 0 | InputAccordion, 9 Markdown | 0 | **1** |
+| 50 | sd_forge_json_builder | Visual editor for MOSS-Image Layout prompts (canvas boxes, compile / decompile, send prompt and size to txt2img / img2img); added upstream 2026-10 (`be6fa5d4`), after this audit | T "JSON Builder" (an empty `gr.Blocks()`), JS only | 0 / 0 (tab built by JS) | 3 files 41,975 B (`main.js` 28,354 B) / `style.css` 12,188 B | 0 | none (DOM editor, `updateInput`, `switch_to_txt2img`) | 0 | **2** — **ported**: SPA page `#/ext/json-builder` ([ports/json-builder.md](../ports/json-builder.md)) |
 
 **Totals.**
 * Python LOC excluding `forge_legacy_preprocessors`: 67,988. Including it: 182,960.
@@ -99,7 +100,7 @@ Column key:
 * CSS: 58 files, 1.17 MB.
 * Custom HTTP routes: **113** (ADetailer 3, agent-scheduler 34, PAIO 46, prompt-queue 8, tagcomplete 16, ControlNet 4, LoRA 2).
 * AlwaysVisible scripts with UI: 31. Two more AlwaysVisible scripts have no UI: negpip and lora_schedule.
-* `on_ui_tabs` tabs: 4 (Agent Scheduler, Prompt Workshop, JoyCaption, Queue).
+* `on_ui_tabs` tabs: 4 (Agent Scheduler, Prompt Workshop, JoyCaption, Queue). JSON Builder (row 50) came later.
 * Extensions with `tests/test_*.py`: 17 (68 test files).
 
 ---
@@ -281,6 +282,7 @@ Column key:
 
   Work: a native **HighlightedText** with a select event. The extra-networks card browser is a core SPA feature (see the core-frontend inventory).
 * **sd_forge_sparse.** `RangeSlider(value=(0.15, 0.85))` (`scripts/sparse.py:132`). Work: a native RangeSlider (shared with ADetailer and ControlNet).
+* **sd_forge_json_builder** (added upstream after this audit). `scripts/builder.py` registers an empty `gr.Blocks()` tab; `javascript/main.js` builds the editor into it, writes `#txt2img_prompt` / `_width` / `_height` (`updateInput`) and calls `switch_to_txt2img()`. **Done**: a dedicated SPA view (`Page(..., widget="json-builder")`, `webui/src/pages/custom/json-builder`), compile / decompile ported to TypeScript, "Send to" through `features/send-to`; no JS / CSS / Gradio left ([ports/json-builder.md](../ports/json-builder.md)).
 
 ### Class 1: notes that still impose compat requirements
 
@@ -327,6 +329,7 @@ Column key:
 | `modules/processing_scripts/rescale_cfg.py` (78 L) | ScriptBuiltinUI (section `cfg`, `opts.show_rescale_cfg`) | Rescale CFG | 2 / 0 | none | 1 (core) |
 | `modules/processing_scripts/mahiro.py` (62 L) | ScriptBuiltinUI (section `cfg`, `opts.show_mahiro`) | MaHiRo | 2 / 0 | `PasteField(..., api=…)` | 1 (core) |
 | `modules/processing_scripts/comments.py` (68 L) | AO, no UI | Strips `#` comments from prompts | 0 / 0 | none | 1 |
+| `modules/processing_scripts/slg.py` (105 L, upstream be6fa5d4 after this audit) | AO, no UI (settings `slg_*` in the SD section) | Skip Layer Guidance for Moss-Image: the uncond pass skips the listed `single_block`s between two percents; patches `sampling_function.calc_cond_uncond_batch` at import (a pass-through without a `sampler_calc_cond_batch_function`), reverted `on_script_unloaded` | 0 / 0 | none (no `params()`: its controls are settings with `infotext=` keys; `tests/test_processing_script_slg.py`) | 1 |
 
 ---
 

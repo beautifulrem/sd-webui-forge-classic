@@ -58,7 +58,7 @@ Below 72 rem the history becomes a strip; on phones the stage comes first and th
 
 **Extensions.** Installed extensions (enable, disable, check for updates, update, uninstall), the extension index with search and tag filters, install from a git URL, and configuration backups you can restore.
 
-**Extension pages.** Extensions add their own pages: **JoyCaption** (image captioning, single or folder, with progress and cancel) and **Prompt Workshop** ship with Remi.
+**Extension pages.** Extensions add their own pages: **JoyCaption** (image captioning, single or folder, with progress and cancel), **Prompt Workshop** and **JSON Builder** (lay out a MOSS-Image structured prompt as boxes on a canvas, then send it with its size to txt2img or img2img) ship with Remi.
 
 **Prompt tools.** Under every prompt: a tag view (chips you can reorder, reweight, disable or delete), quick tag groups, prompt history, favorites in collections, optional translation through a provider you configure, and, with an OpenAI-compatible provider, "Write a prompt" (an LLM writes or changes the prompt from a description in any language). Nothing is sent anywhere until you choose a provider.
 
@@ -273,7 +273,7 @@ Remi's interface is new; the generation engine, models, settings file, styles, o
 | PNG Info tab | **PNG Info** page |
 | Settings tab, "Defaults" and "Actions" | **Settings** page; server actions under "Server and models". `ui-config.json` is no longer read: forms start from defaults, the UI preset and your browser's saved values |
 | Extensions tab | **Extensions** page |
-| JoyCaption and Prompt Workshop tabs | pages of the same name |
+| JoyCaption, Prompt Workshop and JSON Builder tabs | pages of the same name |
 | Checkpoint Merger tab | **Checkpoint Merger** page (the same controls; merges and saves run behind generation with progress and Cancel) |
 | `/file=` links | files are served by id (`/api/v2/files/{id}`) |
 | `/agent-scheduler/v1/*`, `/prompt-queue/*` APIs | `POST /api/v2/jobs` and `/api/v2/queue/*` ([API guide](docs/remi-webui/api.md)); the old routes answer `410 Gone` |
@@ -288,7 +288,7 @@ Remi's interface is new; the generation engine, models, settings file, styles, o
 Remi ships a curated set of integrated extensions, all ported to the new interface:
 
 - ADetailer Neo, NegPiP, Detail Daemon, Prompt Anchor, Prompt Blacklist, Post Processing Suite, Lock img2img Steps
-- JoyCaption and Prompt Workshop (pages), prompt tools (successor of Prompt All-in-One) and tag completion, localization packs
+- JoyCaption, Prompt Workshop and JSON Builder (pages), prompt tools (successor of Prompt All-in-One) and tag completion, localization packs
 - Forge ControlNet with preprocessors, ControlLLLite and IP-Adapter, MultiDiffusion, Image Stitch, Soft Inpainting, Never OOM, Sparse / Radial attention, compile and PiD
 - Remi's Anima guidance, Regional, FreeFuse, Artist Mixer, DAVE, Cross-Attention Boost, LoRA layer weights and stage scheduling, prompt rescale, resolutions, Dynamic Shift, Hires Guard, Spectrum and presets
 

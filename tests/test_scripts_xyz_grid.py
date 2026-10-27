@@ -211,3 +211,73 @@ def test_the_runner_hands_run_the_index(webui):
 
 def test_ported():
     contract.assert_ported(ROOT / "scripts" / "xyz_grid.py")
+
+
+# region Upstream ad607938 "xyz" / f74f60c5 "cost"
+
+
+COSTS = {"Checkpoint name": 2.0, "Refiner checkpoint": 1.0, "VAE": 0.7, 'VAE ("state_dict" only)': 0.3, "Prompt S/R": 0.1, "Prompt order": 0.1, "Styles": 0.1, "Steps": 0.0}
+
+
+def test_axis_costs_follow_the_setting(webui, monkeypatch):
+    costs = {x.label: x.cost for x in load_xyz().axis_options if x.label in COSTS}
+    assert costs == COSTS
+    # "Enable the cost system for X/Y/Z Plot" (needs a restart: read when the axes are built)
+    monkeypatch.setitem(webui.opts.data, "xyz_use_cost", False)
+    assert {x.cost for x in load_xyz().axis_options} == {0.0}
+
+
+def test_the_vae_ranges_after_vae_and_before_clip_skip(xyz):
+    labels = [x.label for x in make(xyz).current_axis_options]
+    assert labels[labels.index("VAE") :][:3] == ["VAE", 'VAE ("state_dict" only)', "Clip skip"]
+
+
+def test_checkpoint_axis_overrides_the_setting(xyz, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(xyz, "get_closet_checkpoint_match", lambda name: SimpleNamespace(name=f"sub/{name}.safetensors"))
+    p = SimpleNamespace(override_settings={})
+    xyz.apply_checkpoint(p, "anima", ["anima", "other"])
+    assert p.override_settings == {"sd_model_checkpoint": "sub/anima.safetensors"}
+
+
+def test_vae_axes(webui, xyz, monkeypatch):
+    from types import SimpleNamespace
+
+    from modules import sd_vae
+
+    monkeypatch.setattr(sd_vae, "vae_dict", {"a.safetensors": "/m/VAE/a.safetensors", "b.safetensors": "/m/VAE/b.safetensors"})
+    monkeypatch.setitem(webui.opts.data, "forge_additional_modules", ["/m/VAE/a.safetensors", "/m/text_encoder/te.safetensors"])
+
+    # "VAE": swaps the VAE among the loaded modules (the text encoders stay)
+    p = SimpleNamespace(override_settings={})
+    xyz.apply_vae(p, "b.safetensors", ["a.safetensors", "b.safetensors"])
+    assert p.override_settings == {"forge_additional_modules": ["/m/text_encoder/te.safetensors", "/m/VAE/b.safetensors"]}
+    assert webui.opts.forge_additional_modules == ["/m/VAE/a.safetensors", "/m/text_encoder/te.safetensors"]  # not touched
+    # 'VAE ("state_dict" only)': the old override of the VAE weights only
+    p = SimpleNamespace(override_settings={})
+    xyz.apply_vae_fast(p, "b.safetensors", ["b.safetensors"])
+    assert p.override_settings == {"sd_vae": "/m/VAE/b.safetensors"}
+    xyz.apply_vae_fast(p, "None", ["None"])
+    assert p.override_settings == {"sd_vae": "None"}
+
+
+def test_loading_params_are_reset_from_the_settings(webui, xyz, monkeypatch):
+    """After the grid (checkpoints now switch through ``override_settings``,
+    restored by ``process_images``) the loading parameters are rebuilt from
+    the settings, with Remi's Anima quantization choice."""
+
+    from types import SimpleNamespace
+
+    from modules import sd_models
+    from modules_forge import main_entry
+
+    info = SimpleNamespace(name="anima.safetensors")
+    monkeypatch.setattr(xyz, "select_checkpoint", lambda: info)
+    monkeypatch.setattr(sd_models.model_data, "forge_loading_parameters", {"checkpoint_info": SimpleNamespace(name="other.safetensors")}, raising=False)
+    monkeypatch.setitem(webui.opts.data, "forge_additional_modules", ["/m/VAE/a.safetensors"])
+
+    xyz.refresh_loading_params_for_xyz_grid()
+    assert sd_models.model_data.forge_loading_parameters == main_entry.forge_loading_parameters(info, webui.opts.forge_unet_storage_dtype)
+    assert sd_models.model_data.forge_loading_parameters["checkpoint_info"] is info
+    assert sd_models.model_data.forge_loading_parameters["additional_modules"] == ["/m/VAE/a.safetensors"]

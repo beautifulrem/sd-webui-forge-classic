@@ -211,7 +211,8 @@ after a reload) and `__cancel__` (`{task}`); one task per page, name and user
 runs at a time; `Page.busy(*names)` tells whether any user's task of the page
 is queued or running (JoyCaption refuses "Unload" then). The `task-runner` widget starts and follows them.
 The built-in pages: JoyCaption (`sd-webui-joycaption-modified`) and Prompt
-Workshop (`sd-forge-prompt-workshop`).
+Workshop (`sd-forge-prompt-workshop`), schema-rendered, and JSON Builder
+(`sd_forge_json_builder`), a dedicated view (`widget="json-builder"`).
 
 ### Settings
 

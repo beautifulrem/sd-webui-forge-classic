@@ -17,6 +17,7 @@ describe("model bar helpers", () => {
 
   it("names presets", () => {
     expect(presetLabel("xl")).toBe("SDXL")
+    expect(presetLabel("moss")).toBe("Moss-Image")
     expect(presetLabel("future")).toBe("future")
   })
 })

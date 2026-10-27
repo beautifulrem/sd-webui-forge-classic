@@ -161,6 +161,19 @@ test.describe("extension pages", () => {
     console.assertClean()
   })
 
+  test("JSON Builder sends its compiled prompt and size to txt2img", async ({ page }) => {
+    const console = watchConsole(page)
+    await openRoute(page, "ext/json-builder")
+    const main = page.getByRole("main")
+    await expect(main.getByTestId("json-builder-canvas")).toBeVisible()
+    await main.getByLabel("Caption", { exact: true }).fill("A cat on a sofa")
+    await main.getByLabel("Caption of item 1").fill("an orange cat")
+    await main.getByRole("button", { name: "Send to txt2img" }).click()
+    await expect(page).toHaveURL(/#\/txt2img$/)
+    await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toContainText('{"summary":{"canvas":"single","caption":"A cat on a sofa"}')
+    console.assertClean()
+  })
+
   test("lists installed extensions and their tabs", async ({ page }) => {
     await openRoute(page, "extensions")
     await expect(page.getByRole("tab", { name: "Installed" })).toHaveAttribute("aria-selected", "true")

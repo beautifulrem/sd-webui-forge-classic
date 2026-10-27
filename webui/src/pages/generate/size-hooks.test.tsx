@@ -38,7 +38,7 @@ describe("useSetSize", () => {
   it("clamps to the sliders' bounds, an action's override first", () => {
     const { result } = renderHook(() => useSetSize(), { wrapper })
     result.current({ width: 10, height: 99_999 })
-    expect(size()).toEqual({ width: 64, height: 2048 }) // the mock sliders: 64 to 2048
+    expect(size()).toEqual({ width: 64, height: 4096 }) // the mock txt2img sliders: 64 to 4096
 
     store.setState({ overrides: { core: { width: { maximum: 1024 }, height: { minimum: 512 } } } })
     result.current({ width: 1600, height: 100 })

@@ -62,7 +62,6 @@ def _args(**controls):
 
 @pytest.fixture(autouse=True)
 def _environment(monkeypatch, tmp_path):
-    monkeypatch.setattr(spectrum.shared, "opts", SimpleNamespace(skip_early_cond=0.0, s_min_uncond=0.0), raising=False)
     monkeypatch.setattr(spectrum.paths, "data_path", str(tmp_path))
 
 
@@ -107,6 +106,20 @@ def test_feature_history_is_raised_to_degree_plus_two():
 
     p = _run(_process(), spec_m=2, spec_history_size=12)
     assert p.extra_generation_params["spec_history_size"] == 12
+
+
+def test_negative_prompt_skips_do_not_turn_spectrum_off(monkeypatch):
+    # Upstream 34022261 removed the early return for "Ignore Negative Prompt
+    # during Early Steps" / "Skip Negative Prompt during Later Steps": the
+    # per-branch forecasters cope with uncond missing from steps.
+    from modules import shared
+
+    monkeypatch.setattr(shared, "opts", SimpleNamespace(skip_early_cond=0.5, s_min_uncond=2.0), raising=False)
+    p = _process()
+    unet = p.sd_model.forge_objects.unet
+    _run(p)
+    assert len(p._spectrum_states) == 1 and "model_function_wrapper" in unet.model_options
+    assert p.extra_generation_params["spec_enabled"] is True
 
 
 def test_cleanup_resets_and_drops_the_pass_states():

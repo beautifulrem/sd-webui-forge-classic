@@ -241,6 +241,22 @@ def _call_samples(timestep, conditioning, branches: Sequence[int]):
     return sigma, {key: (shape, dtype, sample) for key, sample in zip(branches, samples)}
 
 
+def _replaced_blocks(transformer_options) -> tuple:
+    """The blocks a call's ``patches_replace`` swaps out (``("dit",
+    "('single_block', 22)")``, ...), as a sorted tuple; empty without any.
+
+    A replaced block changes what the model returns for that call, and a
+    script can replace blocks for one branch over part of the pass (Skip
+    Layer Guidance: the uncond call of a Moss-Image step skips layers between
+    two percents). Part of the branch's signature, so its history is rebuilt
+    instead of forecast across the switch."""
+
+    replaced = transformer_options.get("patches_replace") if isinstance(transformer_options, dict) else None
+    if not isinstance(replaced, dict):
+        return ()
+    return tuple(sorted((str(name), repr(block)) for name, blocks in replaced.items() if isinstance(blocks, dict) for block in blocks))
+
+
 class SpectrumState:
     def __init__(
         self,
@@ -474,6 +490,9 @@ class SpectrumNode:
             branches, valid_branches = _branch_info(args, input_x.shape[0])
             keys = _branch_keys(branches)
             current_sigma, signatures = _call_samples(sigma, args.get("c") if valid_branches else None, keys)
+            transformer_options = args.get("c", {}).get("transformer_options", {})
+            if signatures is not None and (replaced := _replaced_blocks(transformer_options)):
+                signatures = {key: (*signature, replaced) for key, signature in signatures.items()}
             new_step = state.advance(current_sigma, input_x, len(branches) if valid_branches else 1)
             # When one CFG batch does not fit, Forge runs uncond and cond as
             # separate calls at the same sigma (uncond first): each branch's
@@ -511,7 +530,6 @@ class SpectrumNode:
             state.input_shape = tuple(input_x.shape[1:])
 
             compatible = valid_branches
-            transformer_options = args.get("c", {}).get("transformer_options", {})
             forced = spectrum_force.is_forced(transformer_options.get(spectrum_force.KEY), current_sigma)
             if new_step:
                 if state.was_forced and not forced:

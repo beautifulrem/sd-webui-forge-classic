@@ -370,7 +370,9 @@ that widget) returning translated text or `null`. It is imported eagerly
   `({ route })`), add the route name to `router.ts`, its loader in
   `routes.tsx` and a `BUILTIN_NAV` entry.
 - Extension page with a dedicated view (`Page(..., widget="x")`): create
-  `src/pages/custom/x/index.tsx` (default export `({ page })`). Without
+  `src/pages/custom/x/index.tsx` (default export `({ page })`; example:
+  `custom/json-builder`, the JSON Builder, which keeps its draft in a
+  persisted store and sends with `deliver()` from `features/send-to`). Without
   `widget`, the page is schema-rendered from `GET /api/v2/pages/{id}` by
   `pages/ext` (`PageView`): its form `page:<id>` is loaded once per schema
   object and kept across visits (values, upload ids and outputs survive

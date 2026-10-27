@@ -80,3 +80,14 @@ def test_localized(env):
 
 def test_standalone(ext_kit):
     ext_kit.assert_standalone(EXTENSION, [SCRIPT])
+
+
+@pytest.mark.parametrize("tab, verb", [("txt2img", "**txt2img**"), ("img2img", "**img2img**")])
+def test_help_names_the_edit_models(env, tab, verb):
+    """Upstream 04772d93: the help block lists the supported models under one
+    "Edit Models" entry, now with Qwen-Image-2.1 (a hover title there)."""
+
+    _script, layout = env.kit.layout_of(env.module.ImageStitch, tab)
+    (text,) = [string for string in env.kit.schema_strings(layout.schema()) if string.startswith("For **Edit Models**")]
+    assert text.startswith(f"For **Edit Models** (Flux.1-Kontext, Flux.2-Klein, Qwen-Image-Edit, Qwen-Image-2.1, Anima Edit, Krea2 Edit): Use in {verb}")
+    assert "<" not in text and "paste images straight into the list" in text

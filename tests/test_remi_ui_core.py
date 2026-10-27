@@ -78,6 +78,23 @@ def test_img2img_and_extras_forms(webui):
     assert core_layout("extras").defaults() == {"mode": "Single Image", "image": None, "image_batch": [], "input_dir": "", "output_dir": "", "show_extras_results": True, "video_input": ""}
 
 
+def test_size_bounds_follow_upstream(webui):
+    """Upstream's ui.py (be6fa5d4): the txt2img Width / Height go up to
+    4096, img2img's stay at 2048; the core actions' layouts agree."""
+
+    from remi.core import forms
+    from remi.core.tabs import core_layout
+
+    for tab, maximum in (("txt2img", 4096), ("img2img", 2048)):
+        for layout in (core_layout(tab), forms.dimensions_layout(tab)):
+            for name in ("width", "height"):
+                node = layout.by_name[name]
+                assert (node.minimum, node.maximum, node.default) == (64, maximum, 1024), (tab, name)
+        assert forms.dimensions_layout(tab).coerce({"width": 8192, "height": 3072}) == {"width": maximum, "height": min(3072, maximum)}
+    hires = forms.hires_resolution_layout()
+    assert hires.by_name["width"].maximum == hires.by_name["height"].maximum == 4096
+
+
 @pytest.mark.parametrize("tab", ["txt2img", "img2img", "extras"])
 def test_tab_schema_is_strict_json(webui, tab):
     from remi.core.tabs import tab_schema
@@ -612,6 +629,31 @@ def test_forge_preset_patch():
     img2img = forge_preset_patch("img2img", "wan", SimpleNamespace(wan_i2i_batch_size=17))
     assert img2img["batch_size"]["label"] == "Frames" and img2img["batch_size"]["step"] > 1 and "hr_cfg" not in img2img
     assert img2img["batch_size"]["hint"] == "How many frames to generate for the video"  # the tooltip follows the label
+
+
+def test_moss_ui_preset_defaults_reach_the_forms():
+    """Upstream's Moss-Image UI preset (be6fa5d4): its registered option
+    defaults (Euler / Simple / 50 steps / CFG 3 / Shift 5) patch both forms,
+    with the Shift slider shown under its own label."""
+
+    from modules_forge import presets
+    from remi.core.presets import check_preset, forge_preset_patch
+
+    templates: dict = {}
+    presets.register(templates)
+    opts = SimpleNamespace(**{name: info.default for name, info in templates.items() if name.startswith("moss_")})
+    assert check_preset("moss") == "moss" and presets.use_shift("moss") and not presets.use_distill("moss")
+
+    for tab in ("txt2img", "img2img"):
+        patch = forge_preset_patch(tab, "moss", opts)
+        assert patch["sampler.sampler_name"] == {"value": "Euler"} and patch["sampler.scheduler"] == {"value": "Simple"}
+        assert patch["sampler.steps"] == {"value": 50} and patch["cfg_scale"] == {"value": 3.0}
+        assert patch["distilled_cfg_scale"] == {"value": 5.0, "visible": True, "label": "Shift"}
+        assert "width" not in patch and "height" not in patch  # 0: the preset leaves the size alone
+    assert patch["batch_size"]["label"] == "Batch Size"
+    txt2img = forge_preset_patch("txt2img", "moss", opts)
+    assert txt2img["hr_second_pass_steps"] == {"value": 50} and txt2img["hr_cfg"] == {"value": 3.0}
+    assert txt2img["hr_distilled_cfg"] == {"value": 5.0, "visible": True, "label": "Shift"}
 
 
 def _find(node, name):

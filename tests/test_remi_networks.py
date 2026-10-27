@@ -115,6 +115,25 @@ def test_archs_follow_the_presets():
     assert tuple(PresetArch.choices()) == nm.ARCHS
 
 
+def test_spa_preset_labels_follow_the_presets():
+    """The SPA names every UI preset (model bar, network browser, the metadata
+    editor's "SD version" choices) and its mock server lists them all."""
+
+    import re
+    from pathlib import Path
+
+    from modules_forge.presets import PresetArch
+
+    src = Path(__file__).resolve().parents[1] / "webui" / "src"
+    options = (src / "features" / "model-bar" / "model-options.ts").read_text(encoding="utf-8")
+    labels = re.search(r"PRESET_LABELS: Record<string, string> = \{(.*?)\n\}", options, re.S)
+    assert labels, "PRESET_LABELS not found"
+    assert tuple(re.findall(r"^\s*(\w+):", labels.group(1), re.M)) == tuple(PresetArch.choices())
+    fixtures = (src / "api" / "mock" / "fixtures.ts").read_text(encoding="utf-8")
+    presets = re.search(r"^\s*presets: \[(.*?)\],", fixtures, re.M)
+    assert presets and tuple(re.findall(r'"(\w+)"', presets.group(1))) == tuple(PresetArch.choices())
+
+
 def test_training_tags_are_summed_and_sorted():
     assert nm.build_tags({"ss_tag_frequency": TAGS}) == [("1girl", 12), ("solo", 9), ("smile", 7), ("outdoors", 1)]
     sentences = {"ss_tag_frequency": {"a": {"a photo of a red bicycle by the sea": 3, "a red car parked near the sea": 1}}}

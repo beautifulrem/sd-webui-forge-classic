@@ -23,6 +23,7 @@ const PAGES = [
   "settings",
   "extensions",
   "ext/toolbox",
+  "ext/json-builder",
   "no-such-page",
 ] as const
 

@@ -6,6 +6,7 @@
 import {
   BookOpen,
   Boxes,
+  Braces,
   Brush,
   CalendarClock,
   Camera,
@@ -34,6 +35,7 @@ import {
 const PAGE_ICONS: Record<string, LucideIcon> = {
   "book-open": BookOpen,
   boxes: Boxes,
+  braces: Braces,
   brush: Brush,
   "calendar-clock": CalendarClock,
   camera: Camera,

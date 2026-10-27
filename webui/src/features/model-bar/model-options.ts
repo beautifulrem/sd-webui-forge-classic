@@ -32,6 +32,7 @@ export const PRESET_LABELS: Record<string, string> = {
   pid: "PiD",
   krea: "Krea 2",
   qwen21: "Qwen-Image 2.1",
+  moss: "Moss-Image",
 }
 
 export const presetLabel = (id: string) => PRESET_LABELS[id] ?? id

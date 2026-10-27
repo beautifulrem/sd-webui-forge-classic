@@ -43,12 +43,13 @@ const IMG2IMG_REQUIRED: RequiredInput[] = [
   { param: "mask_upload", message: "a mask image is required", when: { param: "mode", eq: "Inpaint upload" } },
 ]
 
-const sizeSlider = (name: "width" | "height", extra: { on_change?: string }): Node => ({
+// Like the real forms (remi/core/forms.py `_dimensions`): txt2img goes up to 4096, img2img to 2048
+const sizeSlider = (tab: "txt2img" | "img2img", name: "width" | "height", extra: { on_change?: string }): Node => ({
   type: "slider",
   name,
   label: name === "width" ? "Width" : "Height",
   minimum: 64,
-  maximum: 2048,
+  maximum: tab === "txt2img" ? 4096 : 2048,
   step: 8,
   integer: true,
   infotext: name === "width" ? "Size-1" : "Size-2",
@@ -122,7 +123,7 @@ function coreLayout(tab: "txt2img" | "img2img"): Node {
                     type: "tabs",
                     bind: "resize_tab",
                     children: [
-                      { type: "tab", title: "Resize to", value: "Resize to", children: [sizeSlider("width", hires), sizeSlider("height", hires)] },
+                      { type: "tab", title: "Resize to", value: "Resize to", children: [sizeSlider(tab, "width", hires), sizeSlider(tab, "height", hires)] },
                       {
                         type: "tab",
                         title: "Resize by",
@@ -136,7 +137,7 @@ function coreLayout(tab: "txt2img" | "img2img"): Node {
                   },
                 ],
               }
-            : { type: "column", width: "fill", children: [sizeSlider("width", hires), sizeSlider("height", hires)] },
+            : { type: "column", width: "fill", children: [sizeSlider(tab, "width", hires), sizeSlider(tab, "height", hires)] },
           { type: "button", label: "Swap", action: "swap_dimensions", variant: "tool" },
           {
             type: "column",
@@ -715,7 +716,11 @@ export const bootstrap: Bootstrap = {
   version: "remi-mock",
   features: ["jobs", "uploads", "preview.binary", "folders.open"],
   tabs: ["txt2img", "img2img", "extras", "png-info", "gallery", "networks", "queue", "settings", "extensions"],
-  pages: [{ id: "toolbox", title: "Toolbox", icon: "wrench" }],
+  pages: [
+    { id: "toolbox", title: "Toolbox", icon: "wrench" },
+    // a page with a dedicated view (src/pages/custom/json-builder), as the built-in JSON Builder registers it
+    { id: "json-builder", title: "JSON Builder", icon: "braces", widget: "json-builder" },
+  ],
   locales: [{ id: "zh_CN", name: "简体中文" }],
   locale: null,
   options: {
@@ -776,7 +781,7 @@ export const models: Models = {
     "float8-e4m3fn (Anima scaled)",
     "int8 (Anima ConvRot)",
   ],
-  presets: ["sd", "xl", "flux", "klein", "qwen", "lumina", "zit", "wan", "anima", "ernie", "pid", "krea", "qwen21"],
+  presets: ["sd", "xl", "flux", "klein", "qwen", "lumina", "zit", "wan", "anima", "ernie", "pid", "krea", "qwen21", "moss"],
   samplers: SAMPLERS.map((s) => ({ name: String(s.value), aliases: [] })),
   schedulers: SCHEDULERS.map((s) => ({ name: String(s.value) })),
   upscalers: [{ name: "Latent" }, { name: "R-ESRGAN 4x+" }],

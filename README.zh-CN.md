@@ -58,7 +58,7 @@ Forge Neo Remi 是 [Forge Neo](https://github.com/Haoming02/sd-webui-forge-class
 
 **扩展。** 已安装扩展（启用、禁用、检查更新、更新、卸载）、可搜索并按标签筛选的扩展索引、从 git 网址安装，以及可恢复的配置备份。
 
-**扩展页面。** 扩展可以添加自己的页面：Remi 自带 **JoyCaption**（图片描述，单张或整个文件夹，带进度与取消）和 **Prompt Workshop**。
+**扩展页面。** 扩展可以添加自己的页面：Remi 自带 **JoyCaption**（图片描述，单张或整个文件夹，带进度与取消）、**Prompt Workshop** 和 **JSON Builder**（在画布上用方框排布 MOSS-Image 结构化提示词，连同尺寸发送到 txt2img 或 img2img）。
 
 **提示词工具。** 每个提示词下方都有：标签视图（可重新排序、调整权重、禁用或删除的标签块）、快捷标签组、提示词历史、按收藏夹分组的收藏、通过你配置的服务进行的可选翻译，以及在使用 OpenAI 兼容服务时的“AI 撰写提示词”（由大语言模型根据任意语言的描述撰写或修改提示词）。在你选择翻译服务之前，不会向任何地方发送内容。
 
@@ -273,7 +273,7 @@ Remi 的界面是全新的；生成引擎、模型、设置文件、样式、输
 | PNG Info 标签页 | **图片信息**页面 |
 | 设置标签页及其“默认值”和“操作” | **设置**页面；服务器操作位于“服务器与模型”。不再读取 `ui-config.json`：表单从默认值、界面预设和浏览器保存的值开始 |
 | 扩展标签页 | **扩展**页面 |
-| JoyCaption 和 Prompt Workshop 标签页 | 同名页面 |
+| JoyCaption、Prompt Workshop 和 JSON Builder 标签页 | 同名页面 |
 | 模型合并（Checkpoint Merger）标签页 | **模型融合** 页面（控件相同；合并与保存在生成之后排队执行，显示进度并可取消） |
 | `/file=` 链接 | 文件通过 id 提供（`/api/v2/files/{id}`） |
 | `/agent-scheduler/v1/*`、`/prompt-queue/*` API | `POST /api/v2/jobs` 和 `/api/v2/queue/*`（[API 指南](docs/remi-webui/api.md)）；旧路由返回 `410 Gone` |
@@ -288,7 +288,7 @@ Remi 的界面是全新的；生成引擎、模型、设置文件、样式、输
 Remi 内置一组经过筛选、已全部移植到新界面的扩展：
 
 - ADetailer Neo、NegPiP、Detail Daemon、Prompt Anchor、Prompt Blacklist、Post Processing Suite、Lock img2img Steps
-- JoyCaption 和 Prompt Workshop（页面）、提示词工具（Prompt All-in-One 的后继）与标签补全、语言包
+- JoyCaption、Prompt Workshop 和 JSON Builder（页面）、提示词工具（Prompt All-in-One 的后继）与标签补全、语言包
 - Forge ControlNet 及其预处理器、ControlLLLite 和 IP-Adapter、MultiDiffusion、Image Stitch、Soft Inpainting、Never OOM、Sparse / Radial attention、编译和 PiD
 - Remi 的 Anima 引导、Regional、FreeFuse、Artist Mixer、DAVE、Cross-Attention Boost、LoRA 分层权重与阶段调度、提示词缩放、分辨率、Dynamic Shift、Hires Guard、Spectrum 和预设
 

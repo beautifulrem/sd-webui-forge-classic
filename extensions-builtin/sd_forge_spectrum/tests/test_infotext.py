@@ -54,8 +54,6 @@ def webui():
 
 @pytest.fixture(autouse=True)
 def _environment(webui, monkeypatch, tmp_path):
-    monkeypatch.setitem(webui.opts.data, "skip_early_cond", 0.0)
-    monkeypatch.setitem(webui.opts.data, "s_min_uncond", 0.0)
     monkeypatch.setattr(spectrum.paths, "data_path", str(tmp_path))
 
 

@@ -92,7 +92,21 @@ def test_extras_operations_keep_the_legacy_contract(webui):
     _op, degrid = operation_layout(load("degrid"), "ScriptPostprocessingDegrid")
     snapshot = contract.load_snapshot(FIXTURES / "degrid_extras.json")
     assert degrid.names == [entry.pop("name") for entry in snapshot["inputs"]]
-    assert contract.differences(degrid, snapshot) == []
+    # Upstream 3a0e725a "off": the DeGrid accordion starts unchecked (InputAccordion(False, ...))
+    assert contract.differences(degrid, snapshot, expected={0: {"default": False}}) == []
+
+
+def test_degrid_is_off_by_default(webui):
+    """Upstream 3a0e725a: an Extras job (or an /sdapi extras call without script
+    args) no longer runs DeGrid unless it is enabled; process() keeps True as
+    its own default, as upstream does."""
+
+    import inspect
+
+    operation, degrid = operation_layout(load("degrid"), "ScriptPostprocessingDegrid")
+    assert degrid.values_to_args({}) == [False, 0.0]
+    assert degrid.root.open is False
+    assert inspect.signature(operation.process).parameters["degrid_enabled"].default is True
 
 
 def test_processing_arguments(webui):
@@ -159,7 +173,7 @@ def test_extras_runner_passes_named_values(webui):
         runner.scripts.append(operation)
     assigned = {layout.owner: (operation, layout) for operation, layout in assign_args(runner)}
     assert set(assigned) == {"upscale", "degrid"}
-    args = postprocessing_args(runner, {"upscale": {"upscale_mode": 1, "upscale_to_width": 512}, "degrid": {"degrid_threshold": 0.4}})
+    args = postprocessing_args(runner, {"upscale": {"upscale_mode": 1, "upscale_to_width": 512}, "degrid": {"degrid_enabled": True, "degrid_threshold": 0.4}})
     upscale, _ = assigned["upscale"]
     received = dict(zip(upscale.arg_names, args[upscale.args_from : upscale.args_to], strict=True))
     assert received["upscale_mode"] == 1 and received["upscale_to_width"] == 512 and received["upscale_enabled"] is True
@@ -169,8 +183,9 @@ def test_extras_runner_passes_named_values(webui):
 
 
 def test_degrid_runs_on_the_torch_device(webui, monkeypatch):
-    """DeGrid is on by default, so it must not call ``.cuda()``: every Extras job
-    failed on CPU / MPS machines ("Torch not compiled with CUDA enabled")."""
+    """DeGrid must not call ``.cuda()``: when it was on by default, every Extras
+    job failed on CPU / MPS machines ("Torch not compiled with CUDA enabled");
+    an enabled DeGrid still runs there."""
 
     import numpy as np
     import torch

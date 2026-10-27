@@ -14,8 +14,7 @@ class ScriptPostprocessingDegrid(scripts_postprocessing.ScriptPostprocessing):
     def params(self):
         return ui.Section(
             "DeGrid",
-            enable=ui.Toggle("degrid_enabled", True, label="DeGrid"),
-            open=True,
+            enable=ui.Toggle("degrid_enabled", False, label="DeGrid"),
             children=[ui.Slider("degrid_threshold", 0.0, 1.0, 0.0, 0.05, label="Threshold", info="0.0 for Auto")],
         )
 
@@ -28,7 +27,7 @@ class ScriptPostprocessingDegrid(scripts_postprocessing.ScriptPostprocessing):
 
         from modules import devices
 
-        # The torch device (not .cuda()): DeGrid is on by default, so a CPU/MPS machine must run it too
+        # The torch device (not .cuda()): a CPU/MPS machine must run DeGrid too
         image = degrid(image.to(devices.device), degrid_threshold)
 
         image = image.detach().clone().cpu().numpy()
