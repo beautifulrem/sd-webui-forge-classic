@@ -25,13 +25,15 @@ class QuantPlatformPolicyTests(unittest.TestCase):
         for backend in ("mps", "xpu", "directml", "cuda", "cpu"):
             with self.subTest(backend=backend):
                 namespace = {
+                    "is_device_cpu": lambda device: device == "cpu",
                     "is_device_mps": lambda device: device == "mps",
                     "mps_mode": lambda: backend == "mps",
                     "is_intel_xpu": lambda: backend == "xpu",
                     "is_directml_enabled": lambda: backend == "directml",
                 }
                 supports_int8 = load_function("backend/memory_management.py", "supports_int8_compute", namespace)
-                expected = backend in ("cuda", "cpu")
+                # upstream 796c65f7: no quantized compute on a CPU device
+                expected = backend == "cuda"
                 self.assertEqual(supports_int8(backend), expected)
                 management = SimpleNamespace(
                     supports_int8_compute=supports_int8,
@@ -45,6 +47,7 @@ class QuantPlatformPolicyTests(unittest.TestCase):
 
     def test_explicit_mps_device_disables_int8_outside_mps_mode(self):
         namespace = {
+            "is_device_cpu": lambda device: device == "cpu",
             "is_device_mps": lambda device: device == "mps",
             "mps_mode": lambda: False,
             "is_intel_xpu": lambda: False,

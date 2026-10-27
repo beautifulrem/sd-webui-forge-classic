@@ -880,5 +880,19 @@
   "paint the area to inpaint": "请涂抹需要重绘的区域",
   "upload the images to process": "请上传要处理的图片",
   "a video file is required": "需要一个视频文件",
-  "an input directory is required": "需要输入目录"
+  "an input directory is required": "需要输入目录",
+  "Alpha Threshold": "Alpha 阈值",
+  "alpha below this value is considered fully transparent": "低于此值的 alpha 视为完全透明",
+  "[Moss-Image] Enable Skip Layer Guidance": "[Moss-Image] 启用跳层引导（SLG）",
+  "the official document recommends skipping uncond for layer 22, optionally 24 and 26": "官方文档建议在无条件分支中跳过第 22 层，也可再跳过第 24 和 26 层",
+  "Layers to Skip": "要跳过的层",
+  "comma-separated block indices": "以逗号分隔的块序号",
+  "Start Percent": "开始百分比",
+  "End Percent": "结束百分比",
+  "[Moss-Image] Reference Method": "[Moss-Image] 参考图方式",
+  "ai-toolkit": "ai-toolkit",
+  "Moss-Image-Edit": "Moss-Image-Edit",
+  "Enable the cost system for X/Y/Z Plot": "为 X/Y/Z 图表启用开销排序",
+  "swap expensive axis (e.g. Checkpoint) the least number of times ; may generate images out of the order specified in the UI": "尽量少地切换开销大的轴（如模型）；生成顺序可能与界面中指定的顺序不同",
+  "VAE (\"state_dict\" only)": "VAE（仅 state_dict）"
 }

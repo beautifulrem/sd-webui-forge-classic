@@ -64,6 +64,6 @@ folders must be writable by it.
 | --- | --- |
 | Base | `nvidia/cuda:13.0.0-runtime-ubuntu22.04` |
 | Python | `3.13` via **uv** |
-| PyTorch | the launcher's Linux build (`torch==2.13.0+cu130`) |
+| PyTorch | the launcher's Linux build (`torch==2.14.0+cu130`) |
 | User | `remi` (UID 99 / GID 100) |
 | Port | 7860 |

@@ -137,6 +137,8 @@ def test_training_tags_are_summed_and_sorted():
         ({"ss_base_model_version": "flux1_krea"}, "flux"),
         ({"modelspec.architecture": "krea-2/lora"}, "krea"),
         ({"modelspec.architecture": "qwen-image/lora"}, "qwen"),
+        ({"modelspec.architecture": "moss-image/lora"}, "moss"),
+        ({"ss_base_model_version": "MOSS-Image-SFT"}, "moss"),
         ({"ss_network_module": "networks.lora_anima"}, "anima"),
         ({"ss_base_model_version": "sd_v2", "ss_v2": "True"}, None),
         ({"ss_network_module": "networks.lora"}, None),

@@ -93,6 +93,7 @@ Remi 保留 Forge Neo 对现代模型的支持重点，并对 Anima 提供更深
 - Krea 2 和 Krea 2 Identity Edit
 - FLUX Kontext 和 FLUX.2 Klein
 - Qwen-Image、Qwen-Image-Edit 和 Qwen-Image-2.1
+- Moss-Image 和 Moss-Image-Edit
 - Ernie-Image、PiD 1.5、Z-Image、Mugen、Lumina Image 2 和 Chroma
 - Wan 2.2 图像/视频工作流
 

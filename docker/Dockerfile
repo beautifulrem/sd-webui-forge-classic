@@ -39,7 +39,7 @@ FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu22.04
 
 # The PyTorch build the launcher installs on Linux (modules/launch_utils.default_torch_command)
 ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu130
-ARG TORCH_PACKAGES="torch==2.13.0+cu130 torchvision==0.28.0+cu130"
+ARG TORCH_PACKAGES="torch==2.14.0+cu130 torchvision==0.29.0+cu130"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \

@@ -69,7 +69,6 @@ parser.add_argument("--sage", action="store_true", help="install sageattention")
 parser.add_argument("--flash", action="store_true", help="install flash_attn")
 parser.add_argument("--xformers", action="store_true", help="install xformers")
 parser.add_argument("--nunchaku", action="store_true", help="install nunchaku for SVDQ inference")
-parser.add_argument("--onnxruntime-gpu", action="store_true", help="install nightly onnxruntime-gpu with cu130 support")
 parser.add_argument("--pynvml", action="store_true", help="install pyNVML for accurate VRAM tracking")
 
 parser.add_argument("--disable-sage", action="store_true", help="disable sageattention")
@@ -174,8 +173,14 @@ class dynamic_args(metaclass=_DynamicArgsMeta):
     """Anima"""
     krea2: bool = False
     """Krea 2"""
+    moss: bool = False
+    """Moss-Image"""
     ref_latents: list["torch.Tensor"] = []
-    """Reference Latent(s) for Flux Kontext / Qwen-Image-Edit / Flux.2 Klein"""
+    """Reference Latent(s) for Edit Models"""
+    moss_reference_method: str = None
+    """reference_latents_method for Moss-Image"""
+    moss_ref_kv: "torch.Tensor" = None
+    """Cached per-block reference K/V for Moss-Image isolated reference methods"""
     concat_latent: "torch.Tensor" = None
     """Input Latent for Wan 2.2 I2V"""
     lq_latent: list["torch.Tensor", "torch.Tensor"] = [None, None]
@@ -199,6 +204,8 @@ class dynamic_args(metaclass=_DynamicArgsMeta):
             return
 
         cls.ref_latents.clear()
+        cls.moss_reference_method = None
+        cls.moss_ref_kv = None
         cls.concat_latent = None
         cls.lq_latent = [None, None]
         cls.context_handler = None
@@ -206,4 +213,4 @@ class dynamic_args(metaclass=_DynamicArgsMeta):
 
     @classmethod
     def can_reference(cls) -> bool:
-        return any(getattr(cls, key) for key in ("kontext", "edit", "qwen21", "klein", "wan", "anima", "krea2"))
+        return any(getattr(cls, key) for key in ("kontext", "edit", "qwen21", "klein", "wan", "anima", "krea2", "moss"))

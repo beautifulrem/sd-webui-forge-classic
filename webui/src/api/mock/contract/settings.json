@@ -261,6 +261,19 @@
        "default": false
       },
       {
+       "type": "slider",
+       "name": "alpha_threshold",
+       "label": "Alpha Threshold",
+       "default": 16,
+       "minimum": 0,
+       "maximum": 255,
+       "step": 1,
+       "integer": true,
+       "notes": [
+        "alpha below this value is considered fully transparent"
+       ]
+      },
+      {
        "type": "toggle",
        "name": "export_for_4chan",
        "label": "Save copies of large images as JPG",
@@ -1397,6 +1410,54 @@
        "type": "separator"
       },
       {
+       "type": "toggle",
+       "name": "slg_enable",
+       "label": "[Moss-Image] Enable Skip Layer Guidance",
+       "default": true,
+       "infotext": "Skip Layer Guidance",
+       "notes": [
+        "the official document recommends skipping uncond for layer 22, optionally 24 and 26"
+       ]
+      },
+      {
+       "type": "text",
+       "name": "slg_single_layers",
+       "label": "Layers to Skip",
+       "default": "22",
+       "lines": 1,
+       "max_lines": 1,
+       "placeholder": "22, 24, 26",
+       "prompt": false,
+       "infotext": "SLG Single Layers",
+       "notes": [
+        "comma-separated block indices"
+       ]
+      },
+      {
+       "type": "row",
+       "children": [
+        {
+         "type": "number",
+         "name": "slg_start_percent",
+         "label": "Start Percent",
+         "default": 0.0,
+         "integer": false,
+         "infotext": "SLG Start Percent"
+        },
+        {
+         "type": "number",
+         "name": "slg_end_percent",
+         "label": "End Percent",
+         "default": 0.5,
+         "integer": false,
+         "infotext": "SLG End Percent"
+        }
+       ]
+      },
+      {
+       "type": "separator"
+      },
+      {
        "type": "text",
        "name": "neta_template_positive",
        "label": "[Lumina] Positive Template",
@@ -1461,6 +1522,33 @@
        "name": "krea2_do_reference",
        "label": "[Krea2] Enable Reference",
        "default": false,
+       "notes": [
+        "enable Edit ; disable img2img",
+        "pin to Quicksettings is recommended if changed often",
+        "requires specfic Edit LoRA"
+       ]
+      },
+      {
+       "type": "choice",
+       "name": "moss_do_reference",
+       "label": "[Moss-Image] Reference Method",
+       "default": "Disable",
+       "choices": [
+        {
+         "value": "Disable",
+         "label": "Disable"
+        },
+        {
+         "value": "ai-toolkit",
+         "label": "ai-toolkit"
+        },
+        {
+         "value": "Moss-Image-Edit",
+         "label": "Moss-Image-Edit"
+        }
+       ],
+       "style": "dropdown",
+       "allow_custom": false,
        "notes": [
         "enable Edit ; disable img2img",
         "pin to Quicksettings is recommended if changed often",
@@ -2465,6 +2553,16 @@
        "needs_restart": true
       },
       {
+       "type": "toggle",
+       "name": "xyz_use_cost",
+       "label": "Enable the cost system for X/Y/Z Plot",
+       "default": true,
+       "notes": [
+        "swap expensive axis (e.g. Checkpoint) the least number of times ; may generate images out of the order specified in the UI"
+       ],
+       "needs_restart": true
+      },
+      {
        "type": "separator"
       },
       {
@@ -2580,6 +2678,10 @@
         {
          "value": "allow_i2i_send_info",
          "label": "allow_i2i_send_info"
+        },
+        {
+         "value": "alpha_threshold",
+         "label": "alpha_threshold"
         },
         {
          "value": "always_discard_next_to_last_sigma",
@@ -3026,6 +3128,10 @@
          "label": "forge_additional_modules_lumina"
         },
         {
+         "value": "forge_additional_modules_moss",
+         "label": "forge_additional_modules_moss"
+        },
+        {
          "value": "forge_additional_modules_pid",
          "label": "forge_additional_modules_pid"
         },
@@ -3098,6 +3204,10 @@
          "label": "forge_checkpoint_lumina"
         },
         {
+         "value": "forge_checkpoint_moss",
+         "label": "forge_checkpoint_moss"
+        },
+        {
          "value": "forge_checkpoint_pid",
          "label": "forge_checkpoint_pid"
         },
@@ -3156,6 +3266,10 @@
         {
          "value": "forge_unet_storage_dtype_lumina",
          "label": "forge_unet_storage_dtype_lumina"
+        },
+        {
+         "value": "forge_unet_storage_dtype_moss",
+         "label": "forge_unet_storage_dtype_moss"
         },
         {
          "value": "forge_unet_storage_dtype_pid",
@@ -3628,6 +3742,90 @@
         {
          "value": "memmon_poll_rate",
          "label": "memmon_poll_rate"
+        },
+        {
+         "value": "moss_do_reference",
+         "label": "moss_do_reference"
+        },
+        {
+         "value": "moss_i2i_batch_size",
+         "label": "moss_i2i_batch_size"
+        },
+        {
+         "value": "moss_i2i_cfg",
+         "label": "moss_i2i_cfg"
+        },
+        {
+         "value": "moss_i2i_dcfg",
+         "label": "moss_i2i_dcfg"
+        },
+        {
+         "value": "moss_i2i_height",
+         "label": "moss_i2i_height"
+        },
+        {
+         "value": "moss_i2i_sampler",
+         "label": "moss_i2i_sampler"
+        },
+        {
+         "value": "moss_i2i_scheduler",
+         "label": "moss_i2i_scheduler"
+        },
+        {
+         "value": "moss_i2i_step",
+         "label": "moss_i2i_step"
+        },
+        {
+         "value": "moss_i2i_width",
+         "label": "moss_i2i_width"
+        },
+        {
+         "value": "moss_show_shift",
+         "label": "moss_show_shift"
+        },
+        {
+         "value": "moss_t2i_batch_size",
+         "label": "moss_t2i_batch_size"
+        },
+        {
+         "value": "moss_t2i_cfg",
+         "label": "moss_t2i_cfg"
+        },
+        {
+         "value": "moss_t2i_dcfg",
+         "label": "moss_t2i_dcfg"
+        },
+        {
+         "value": "moss_t2i_height",
+         "label": "moss_t2i_height"
+        },
+        {
+         "value": "moss_t2i_hr_cfg",
+         "label": "moss_t2i_hr_cfg"
+        },
+        {
+         "value": "moss_t2i_hr_dcfg",
+         "label": "moss_t2i_hr_dcfg"
+        },
+        {
+         "value": "moss_t2i_hr_step",
+         "label": "moss_t2i_hr_step"
+        },
+        {
+         "value": "moss_t2i_sampler",
+         "label": "moss_t2i_sampler"
+        },
+        {
+         "value": "moss_t2i_scheduler",
+         "label": "moss_t2i_scheduler"
+        },
+        {
+         "value": "moss_t2i_step",
+         "label": "moss_t2i_step"
+        },
+        {
+         "value": "moss_t2i_width",
+         "label": "moss_t2i_width"
         },
         {
          "value": "multiple_tqdm",
@@ -4334,6 +4532,22 @@
          "label": "skip_early_cond"
         },
         {
+         "value": "slg_enable",
+         "label": "slg_enable"
+        },
+        {
+         "value": "slg_end_percent",
+         "label": "slg_end_percent"
+        },
+        {
+         "value": "slg_single_layers",
+         "label": "slg_single_layers"
+        },
+        {
+         "value": "slg_start_percent",
+         "label": "slg_start_percent"
+        },
+        {
          "value": "stochastic_sampling",
          "label": "stochastic_sampling"
         },
@@ -4646,6 +4860,10 @@
          "label": "xl_t2i_width"
         },
         {
+         "value": "xyz_use_cost",
+         "label": "xyz_use_cost"
+        },
+        {
          "value": "zit_i2i_batch_size",
          "label": "zit_i2i_batch_size"
         },
@@ -4949,6 +5167,22 @@
         {
          "value": "RNG",
          "label": "RNG"
+        },
+        {
+         "value": "Skip Layer Guidance",
+         "label": "Skip Layer Guidance"
+        },
+        {
+         "value": "SLG Single Layers",
+         "label": "SLG Single Layers"
+        },
+        {
+         "value": "SLG Start Percent",
+         "label": "SLG Start Percent"
+        },
+        {
+         "value": "SLG End Percent",
+         "label": "SLG End Percent"
         },
         {
          "value": "VAE Encoder",
@@ -5635,7 +5869,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -5721,7 +5955,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -5844,7 +6078,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -5930,7 +6164,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -6204,7 +6438,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -6290,7 +6524,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -6413,7 +6647,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -6499,7 +6733,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -6814,7 +7048,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -6900,7 +7134,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -7023,7 +7257,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -7109,7 +7343,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -7418,7 +7652,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -7504,7 +7738,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -7627,7 +7861,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -7713,7 +7947,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -7987,7 +8221,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -8073,7 +8307,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -8196,7 +8430,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -8282,7 +8516,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -8556,7 +8790,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -8642,7 +8876,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -8765,7 +8999,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -8851,7 +9085,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -9166,7 +9400,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -9252,7 +9486,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -9375,7 +9609,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -9461,7 +9695,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -9776,7 +10010,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -9862,7 +10096,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -9985,7 +10219,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -10071,7 +10305,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -10386,7 +10620,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -10472,7 +10706,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -10595,7 +10829,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -10681,7 +10915,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -10996,7 +11230,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -11082,7 +11316,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -11205,7 +11439,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -11291,7 +11525,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -11606,7 +11840,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -11692,7 +11926,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -11815,7 +12049,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -11901,7 +12135,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -12216,7 +12450,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -12302,7 +12536,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -12425,7 +12659,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -12511,7 +12745,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -12826,7 +13060,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -12912,7 +13146,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -13035,7 +13269,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         },
         {
          "type": "choice",
@@ -13121,7 +13355,7 @@
           }
          ],
          "style": "dropdown",
-         "allow_custom": false
+         "allow_custom": true
         }
        ]
       },
@@ -13271,6 +13505,616 @@
        ]
       }
      ]
+    },
+    {
+     "id": "ui_moss",
+     "label": "MOSS",
+     "items": [
+      {
+       "type": "row",
+       "children": [
+        {
+         "type": "choice",
+         "name": "moss_t2i_sampler",
+         "label": "txt2img Sampler",
+         "default": "Euler",
+         "choices": [
+          {
+           "value": "DPM++ 2M",
+           "label": "DPM++ 2M"
+          },
+          {
+           "value": "DPM++ SDE",
+           "label": "DPM++ SDE"
+          },
+          {
+           "value": "DPM++ 2M SDE",
+           "label": "DPM++ 2M SDE"
+          },
+          {
+           "value": "DPM++ 3M SDE",
+           "label": "DPM++ 3M SDE"
+          },
+          {
+           "value": "DPM++ 2s a RF",
+           "label": "DPM++ 2s a RF"
+          },
+          {
+           "value": "Euler a",
+           "label": "Euler a"
+          },
+          {
+           "value": "Euler",
+           "label": "Euler"
+          },
+          {
+           "value": "Anima Flow Euler",
+           "label": "Anima Flow Euler"
+          },
+          {
+           "value": "Anima Flow UniPC2",
+           "label": "Anima Flow UniPC2"
+          },
+          {
+           "value": "Anima Flow PC3",
+           "label": "Anima Flow PC3"
+          },
+          {
+           "value": "Anima SPEED",
+           "label": "Anima SPEED"
+          },
+          {
+           "value": "Anima FreeFuse Euler",
+           "label": "Anima FreeFuse Euler"
+          },
+          {
+           "value": "ER SDE",
+           "label": "ER SDE"
+          },
+          {
+           "value": "Anima ER SDE CNS",
+           "label": "Anima ER SDE CNS"
+          },
+          {
+           "value": "LCM",
+           "label": "LCM"
+          },
+          {
+           "value": "LMS",
+           "label": "LMS"
+          },
+          {
+           "value": "Heun",
+           "label": "Heun"
+          },
+          {
+           "value": "DPM2",
+           "label": "DPM2"
+          },
+          {
+           "value": "Res Multistep",
+           "label": "Res Multistep"
+          },
+          {
+           "value": "Kohaku LoNyu Yog",
+           "label": "Kohaku LoNyu Yog"
+          },
+          {
+           "value": "Restart",
+           "label": "Restart"
+          },
+          {
+           "value": "UniPC",
+           "label": "UniPC"
+          },
+          {
+           "value": "DDIM",
+           "label": "DDIM"
+          },
+          {
+           "value": "PLMS",
+           "label": "PLMS"
+          },
+          {
+           "value": "DPM++ 2M CFG++",
+           "label": "DPM++ 2M CFG++"
+          },
+          {
+           "value": "Euler a CFG++",
+           "label": "Euler a CFG++"
+          },
+          {
+           "value": "Euler CFG++",
+           "label": "Euler CFG++"
+          }
+         ],
+         "style": "dropdown",
+         "allow_custom": true
+        },
+        {
+         "type": "choice",
+         "name": "moss_t2i_scheduler",
+         "label": "txt2img Scheduler",
+         "default": "Simple",
+         "choices": [
+          {
+           "value": "Automatic",
+           "label": "Automatic"
+          },
+          {
+           "value": "Karras",
+           "label": "Karras"
+          },
+          {
+           "value": "Exponential",
+           "label": "Exponential"
+          },
+          {
+           "value": "Polyexponential",
+           "label": "Polyexponential"
+          },
+          {
+           "value": "Normal",
+           "label": "Normal"
+          },
+          {
+           "value": "Simple",
+           "label": "Simple"
+          },
+          {
+           "value": "Uniform",
+           "label": "Uniform"
+          },
+          {
+           "value": "SGM Uniform",
+           "label": "SGM Uniform"
+          },
+          {
+           "value": "Linear Quadratic",
+           "label": "Linear Quadratic"
+          },
+          {
+           "value": "KL Optimal",
+           "label": "KL Optimal"
+          },
+          {
+           "value": "DDIM",
+           "label": "DDIM"
+          },
+          {
+           "value": "Align Your Steps",
+           "label": "Align Your Steps"
+          },
+          {
+           "value": "Beta",
+           "label": "Beta"
+          },
+          {
+           "value": "Beta57",
+           "label": "Beta57"
+          },
+          {
+           "value": "Turbo",
+           "label": "Turbo"
+          },
+          {
+           "value": "Bong Tangent",
+           "label": "Bong Tangent"
+          },
+          {
+           "value": "FlowMatchEulerDiscrete",
+           "label": "FlowMatchEulerDiscrete"
+          },
+          {
+           "value": "Anima FlowMatch",
+           "label": "Anima FlowMatch"
+          },
+          {
+           "value": "Flux2",
+           "label": "Flux2"
+          }
+         ],
+         "style": "dropdown",
+         "allow_custom": true
+        }
+       ]
+      },
+      {
+       "type": "row",
+       "children": [
+        {
+         "type": "choice",
+         "name": "moss_i2i_sampler",
+         "label": "img2img Sampler",
+         "default": "Euler",
+         "choices": [
+          {
+           "value": "DPM++ 2M",
+           "label": "DPM++ 2M"
+          },
+          {
+           "value": "DPM++ SDE",
+           "label": "DPM++ SDE"
+          },
+          {
+           "value": "DPM++ 2M SDE",
+           "label": "DPM++ 2M SDE"
+          },
+          {
+           "value": "DPM++ 3M SDE",
+           "label": "DPM++ 3M SDE"
+          },
+          {
+           "value": "DPM++ 2s a RF",
+           "label": "DPM++ 2s a RF"
+          },
+          {
+           "value": "Euler a",
+           "label": "Euler a"
+          },
+          {
+           "value": "Euler",
+           "label": "Euler"
+          },
+          {
+           "value": "Anima Flow Euler",
+           "label": "Anima Flow Euler"
+          },
+          {
+           "value": "Anima Flow UniPC2",
+           "label": "Anima Flow UniPC2"
+          },
+          {
+           "value": "Anima Flow PC3",
+           "label": "Anima Flow PC3"
+          },
+          {
+           "value": "Anima SPEED",
+           "label": "Anima SPEED"
+          },
+          {
+           "value": "Anima FreeFuse Euler",
+           "label": "Anima FreeFuse Euler"
+          },
+          {
+           "value": "ER SDE",
+           "label": "ER SDE"
+          },
+          {
+           "value": "Anima ER SDE CNS",
+           "label": "Anima ER SDE CNS"
+          },
+          {
+           "value": "LCM",
+           "label": "LCM"
+          },
+          {
+           "value": "LMS",
+           "label": "LMS"
+          },
+          {
+           "value": "Heun",
+           "label": "Heun"
+          },
+          {
+           "value": "DPM2",
+           "label": "DPM2"
+          },
+          {
+           "value": "Res Multistep",
+           "label": "Res Multistep"
+          },
+          {
+           "value": "Kohaku LoNyu Yog",
+           "label": "Kohaku LoNyu Yog"
+          },
+          {
+           "value": "Restart",
+           "label": "Restart"
+          },
+          {
+           "value": "UniPC",
+           "label": "UniPC"
+          },
+          {
+           "value": "DDIM",
+           "label": "DDIM"
+          },
+          {
+           "value": "PLMS",
+           "label": "PLMS"
+          },
+          {
+           "value": "DPM++ 2M CFG++",
+           "label": "DPM++ 2M CFG++"
+          },
+          {
+           "value": "Euler a CFG++",
+           "label": "Euler a CFG++"
+          },
+          {
+           "value": "Euler CFG++",
+           "label": "Euler CFG++"
+          }
+         ],
+         "style": "dropdown",
+         "allow_custom": true
+        },
+        {
+         "type": "choice",
+         "name": "moss_i2i_scheduler",
+         "label": "img2img Scheduler",
+         "default": "Simple",
+         "choices": [
+          {
+           "value": "Automatic",
+           "label": "Automatic"
+          },
+          {
+           "value": "Karras",
+           "label": "Karras"
+          },
+          {
+           "value": "Exponential",
+           "label": "Exponential"
+          },
+          {
+           "value": "Polyexponential",
+           "label": "Polyexponential"
+          },
+          {
+           "value": "Normal",
+           "label": "Normal"
+          },
+          {
+           "value": "Simple",
+           "label": "Simple"
+          },
+          {
+           "value": "Uniform",
+           "label": "Uniform"
+          },
+          {
+           "value": "SGM Uniform",
+           "label": "SGM Uniform"
+          },
+          {
+           "value": "Linear Quadratic",
+           "label": "Linear Quadratic"
+          },
+          {
+           "value": "KL Optimal",
+           "label": "KL Optimal"
+          },
+          {
+           "value": "DDIM",
+           "label": "DDIM"
+          },
+          {
+           "value": "Align Your Steps",
+           "label": "Align Your Steps"
+          },
+          {
+           "value": "Beta",
+           "label": "Beta"
+          },
+          {
+           "value": "Beta57",
+           "label": "Beta57"
+          },
+          {
+           "value": "Turbo",
+           "label": "Turbo"
+          },
+          {
+           "value": "Bong Tangent",
+           "label": "Bong Tangent"
+          },
+          {
+           "value": "FlowMatchEulerDiscrete",
+           "label": "FlowMatchEulerDiscrete"
+          },
+          {
+           "value": "Anima FlowMatch",
+           "label": "Anima FlowMatch"
+          },
+          {
+           "value": "Flux2",
+           "label": "Flux2"
+          }
+         ],
+         "style": "dropdown",
+         "allow_custom": true
+        }
+       ]
+      },
+      {
+       "type": "row",
+       "children": [
+        {
+         "type": "slider",
+         "name": "moss_t2i_step",
+         "label": "txt2img Steps",
+         "default": 50,
+         "minimum": 0,
+         "maximum": 150,
+         "step": 1,
+         "integer": true
+        },
+        {
+         "type": "slider",
+         "name": "moss_t2i_hr_step",
+         "label": "txt2img Hires. Steps",
+         "default": 50,
+         "minimum": 0,
+         "maximum": 150,
+         "step": 1,
+         "integer": true
+        },
+        {
+         "type": "slider",
+         "name": "moss_i2i_step",
+         "label": "img2img Steps",
+         "default": 50,
+         "minimum": 0,
+         "maximum": 150,
+         "step": 1,
+         "integer": true
+        }
+       ]
+      },
+      {
+       "type": "row",
+       "children": [
+        {
+         "type": "slider",
+         "name": "moss_t2i_cfg",
+         "label": "txt2img CFG",
+         "default": 3.0,
+         "minimum": 0,
+         "maximum": 24,
+         "step": 0.5,
+         "integer": false
+        },
+        {
+         "type": "slider",
+         "name": "moss_t2i_hr_cfg",
+         "label": "txt2img Hires. CFG",
+         "default": 3.0,
+         "minimum": 0,
+         "maximum": 24,
+         "step": 0.5,
+         "integer": false
+        },
+        {
+         "type": "slider",
+         "name": "moss_i2i_cfg",
+         "label": "img2img CFG",
+         "default": 3.0,
+         "minimum": 0,
+         "maximum": 24,
+         "step": 0.5,
+         "integer": false
+        }
+       ]
+      },
+      {
+       "type": "toggle",
+       "name": "moss_show_shift",
+       "label": "Display Shift Slider",
+       "default": true
+      },
+      {
+       "type": "row",
+       "children": [
+        {
+         "type": "slider",
+         "name": "moss_t2i_dcfg",
+         "label": "txt2img Shift",
+         "default": 5.0,
+         "minimum": 1,
+         "maximum": 24,
+         "step": 0.5,
+         "integer": false
+        },
+        {
+         "type": "slider",
+         "name": "moss_t2i_hr_dcfg",
+         "label": "txt2img Hires. Shift",
+         "default": 5.0,
+         "minimum": 1,
+         "maximum": 24,
+         "step": 0.5,
+         "integer": false
+        },
+        {
+         "type": "slider",
+         "name": "moss_i2i_dcfg",
+         "label": "img2img Shift",
+         "default": 5.0,
+         "minimum": 1,
+         "maximum": 24,
+         "step": 0.5,
+         "integer": false
+        }
+       ]
+      },
+      {
+       "type": "row",
+       "children": [
+        {
+         "type": "slider",
+         "name": "moss_t2i_batch_size",
+         "label": "txt2img Batch Size",
+         "default": 1,
+         "minimum": 1,
+         "maximum": 8,
+         "step": 1,
+         "integer": true
+        },
+        {
+         "type": "slider",
+         "name": "moss_i2i_batch_size",
+         "label": "img2img Batch Size",
+         "default": 1,
+         "minimum": 1,
+         "maximum": 8,
+         "step": 1,
+         "integer": true
+        }
+       ]
+      },
+      {
+       "type": "row",
+       "children": [
+        {
+         "type": "slider",
+         "name": "moss_t2i_width",
+         "label": "txt2img Width",
+         "default": 0,
+         "minimum": 0,
+         "maximum": 2048,
+         "step": 64,
+         "integer": true
+        },
+        {
+         "type": "slider",
+         "name": "moss_i2i_width",
+         "label": "img2img Width",
+         "default": 0,
+         "minimum": 0,
+         "maximum": 2048,
+         "step": 64,
+         "integer": true
+        }
+       ]
+      },
+      {
+       "type": "row",
+       "children": [
+        {
+         "type": "slider",
+         "name": "moss_t2i_height",
+         "label": "txt2img Height",
+         "default": 0,
+         "minimum": 0,
+         "maximum": 2048,
+         "step": 64,
+         "integer": true
+        },
+        {
+         "type": "slider",
+         "name": "moss_i2i_height",
+         "label": "img2img Height",
+         "default": 0,
+         "minimum": 0,
+         "maximum": 2048,
+         "step": 64,
+         "integer": true
+        }
+       ]
+      }
+     ]
     }
    ]
   }
@@ -13300,6 +14144,7 @@
   "save_mask_composite": false,
   "jpeg_quality": 85,
   "webp_lossless": false,
+  "alpha_threshold": 16,
   "export_for_4chan": true,
   "img_downscale_threshold": 4.0,
   "target_side_length": 4096,
@@ -13384,6 +14229,10 @@
   "sdxl_refiner_low_aesthetic_score": 2.5,
   "sdxl_refiner_high_aesthetic_score": 6.0,
   "sdxl_zero_neg": false,
+  "slg_enable": true,
+  "slg_single_layers": "22",
+  "slg_start_percent": 0.0,
+  "slg_end_percent": 0.5,
   "neta_template_positive": "You are an assistant designed to generate anime images with the highest degree of image-text alignment based on danbooru tags. <Prompt Start>",
   "neta_template_negative": "You are an assistant designed to generate low-quality images based on textual prompts. <Prompt Start>",
   "qwen_vae_resize": false,
@@ -13391,6 +14240,7 @@
   "qwen21_do_reference": true,
   "anima_do_reference": false,
   "krea2_do_reference": false,
+  "moss_do_reference": "Disable",
   "sd_vae": "Automatic",
   "sd_vae_encode_method": "Full",
   "sd_vae_decode_method": "Full",
@@ -13457,6 +14307,7 @@
   "paste_safe_guard": false,
   "ctrl_enter_interrupt": false,
   "forbidden_knowledge": false,
+  "xyz_use_cost": true,
   "dimensions_and_batch_together": true,
   "sd_checkpoint_dropdown_use_short": false,
   "sd_modules_dropdown_use_short": true,
@@ -13821,6 +14672,29 @@
   "qwen21_i2i_width": 0,
   "qwen21_t2i_height": 0,
   "qwen21_i2i_height": 0,
+  "forge_checkpoint_moss": null,
+  "forge_additional_modules_moss": [],
+  "forge_unet_storage_dtype_moss": "Automatic",
+  "moss_t2i_sampler": "Euler",
+  "moss_t2i_scheduler": "Simple",
+  "moss_i2i_sampler": "Euler",
+  "moss_i2i_scheduler": "Simple",
+  "moss_t2i_step": 50,
+  "moss_t2i_hr_step": 50,
+  "moss_i2i_step": 50,
+  "moss_t2i_cfg": 3.0,
+  "moss_t2i_hr_cfg": 3.0,
+  "moss_i2i_cfg": 3.0,
+  "moss_show_shift": true,
+  "moss_t2i_dcfg": 5.0,
+  "moss_t2i_hr_dcfg": 5.0,
+  "moss_i2i_dcfg": 5.0,
+  "moss_t2i_batch_size": 1,
+  "moss_i2i_batch_size": 1,
+  "moss_t2i_width": 0,
+  "moss_i2i_width": 0,
+  "moss_t2i_height": 0,
+  "moss_i2i_height": 0,
   "refiner_lora_replacement": "high_noise=low_noise\nhigh-noise=low-noise",
   "enable_prompt_comments": true,
   "save_prompt_comments": false,
@@ -13853,6 +14727,7 @@
   "save_mask_composite": false,
   "jpeg_quality": 85,
   "webp_lossless": false,
+  "alpha_threshold": 16,
   "export_for_4chan": true,
   "img_downscale_threshold": 4.0,
   "target_side_length": 4096,
@@ -13937,6 +14812,10 @@
   "sdxl_refiner_low_aesthetic_score": 2.5,
   "sdxl_refiner_high_aesthetic_score": 6.0,
   "sdxl_zero_neg": false,
+  "slg_enable": true,
+  "slg_single_layers": "22",
+  "slg_start_percent": 0.0,
+  "slg_end_percent": 0.5,
   "neta_template_positive": "You are an assistant designed to generate anime images with the highest degree of image-text alignment based on danbooru tags. <Prompt Start>",
   "neta_template_negative": "You are an assistant designed to generate low-quality images based on textual prompts. <Prompt Start>",
   "qwen_vae_resize": false,
@@ -13944,6 +14823,7 @@
   "qwen21_do_reference": true,
   "anima_do_reference": false,
   "krea2_do_reference": false,
+  "moss_do_reference": "Disable",
   "sd_vae": "Automatic",
   "sd_vae_encode_method": "Full",
   "sd_vae_decode_method": "Full",
@@ -14010,6 +14890,7 @@
   "paste_safe_guard": false,
   "ctrl_enter_interrupt": false,
   "forbidden_knowledge": false,
+  "xyz_use_cost": true,
   "dimensions_and_batch_together": true,
   "sd_checkpoint_dropdown_use_short": false,
   "sd_modules_dropdown_use_short": true,
@@ -14374,6 +15255,29 @@
   "qwen21_i2i_width": 0,
   "qwen21_t2i_height": 0,
   "qwen21_i2i_height": 0,
+  "forge_checkpoint_moss": null,
+  "forge_additional_modules_moss": [],
+  "forge_unet_storage_dtype_moss": "Automatic",
+  "moss_t2i_sampler": "Euler",
+  "moss_t2i_scheduler": "Simple",
+  "moss_i2i_sampler": "Euler",
+  "moss_i2i_scheduler": "Simple",
+  "moss_t2i_step": 50,
+  "moss_t2i_hr_step": 50,
+  "moss_i2i_step": 50,
+  "moss_t2i_cfg": 3.0,
+  "moss_t2i_hr_cfg": 3.0,
+  "moss_i2i_cfg": 3.0,
+  "moss_show_shift": true,
+  "moss_t2i_dcfg": 5.0,
+  "moss_t2i_hr_dcfg": 5.0,
+  "moss_i2i_dcfg": 5.0,
+  "moss_t2i_batch_size": 1,
+  "moss_i2i_batch_size": 1,
+  "moss_t2i_width": 0,
+  "moss_i2i_width": 0,
+  "moss_t2i_height": 0,
+  "moss_i2i_height": 0,
   "refiner_lora_replacement": "high_noise=low_noise\nhigh-noise=low-noise",
   "enable_prompt_comments": true,
   "save_prompt_comments": false,

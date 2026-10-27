@@ -57,6 +57,11 @@ def test_params_keep_the_legacy_contract(xyz, tab):
     script = make(xyz, tab)
     snapshot = contract.load_snapshot(FIXTURES / f"xyz_grid_{tab}.json")
     expected = {position: {"kind": "custom", "default": [], "infotext": None, "paste": True} for position in DROPDOWNS}
+    # upstream ad607938 "xyz": the old state-dict VAE override is an axis of its own after "VAE"
+    for position in (0, 3, 6):
+        choices = list(snapshot["inputs"][position]["choices"])
+        choices.insert(choices.index("VAE") + 1, 'VAE ("state_dict" only)')
+        expected[position] = {"choices": choices}
     assert contract.differences(script.layout, snapshot, expected=expected) == []
     assert [node.name for node in script.layout.inputs][:3] == ["x_type", "x_values", "x_values_dropdown"]
 

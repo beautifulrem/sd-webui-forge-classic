@@ -62,6 +62,7 @@ NOT_RUN: dict[str, str] = {
     "scripts/checkpoint_merger.py": "the Checkpoint Merger page (tests/test_remi_merger.py); no script",
     "modules/processing_scripts/sampler.py": "sets the sampler, scheduler and steps of every case (the round trips restore them)",
     "modules/processing_scripts/seed.py": "sets the seed of every case (the round trips restore it; xyz_plot varies it)",
+    "modules/processing_scripts/slg.py": "Skip Layer Guidance (settings only) acts only on a Moss-Image model (dynamic_args.moss); the e2e model is not one",
 }
 """Built-in extensions and scripts without a case, with the reason."""
 

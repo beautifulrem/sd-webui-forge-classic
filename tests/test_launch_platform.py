@@ -31,21 +31,21 @@ class TorchInstallTests(unittest.TestCase):
 
     def test_macos_uses_native_wheels_even_with_cuda_index_configured(self):
         with patch.dict(os.environ, {"TORCH_INDEX_URL": "https://example.invalid/cu130"}):
-            for nunchaku in (False, True):
-                command = self.helpers["default_torch_command"](platform="darwin", nunchaku=nunchaku)
-                self.assertEqual(command, "pip install torch torchvision")
+            command = self.helpers["default_torch_command"](platform="darwin")
+            self.assertEqual(command, "pip install torch torchvision")
 
     def test_linux_and_windows_keep_upstream_cuda_versions(self):
         with patch.dict(os.environ, {"TORCH_INDEX_URL": "https://example.invalid/cu130"}):
             for platform in ("linux", "win32"):
                 command = self.helpers["default_torch_command"](platform=platform)
-                self.assertIn("torch==2.13.0+cu130", command)
-                self.assertIn("torchvision==0.28.0+cu130", command)
+                self.assertIn("torch==2.14.0+cu130", command)
+                self.assertIn("torchvision==0.29.0+cu130", command)
                 self.assertIn("--extra-index-url https://example.invalid/cu130", command)
 
-    def test_nunchaku_keeps_its_older_cuda_pair(self):
-        command = self.helpers["default_torch_command"](platform="linux", nunchaku=True)
-        self.assertIn("torch==2.11.0+cu130 torchvision==0.26.0+cu130", command)
+    def test_nunchaku_uses_the_same_cuda_pair(self):
+        # upstream a02a0516 dropped the older PyTorch pair for --nunchaku (Nunchaku 1.4.0 wheels follow torch)
+        self.assertEqual(self.helpers["default_torch_command"](platform="linux").count("torch=="), 1)
+        self.assertNotIn("2.11.0", self.helpers["default_torch_command"](platform="linux"))
 
     def test_native_and_accelerator_version_strings(self):
         versions = {

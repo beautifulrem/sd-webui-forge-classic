@@ -19,7 +19,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-ARCHS = ("sd", "xl", "flux", "klein", "qwen", "lumina", "zit", "wan", "anima", "ernie", "pid", "krea", "qwen21")
+ARCHS = ("sd", "xl", "flux", "klein", "qwen", "lumina", "zit", "wan", "anima", "ernie", "pid", "krea", "qwen21", "moss")
 """``modules_forge.presets.PresetArch`` names (kept in sync by a test)."""
 SD_VERSIONS = ("Unknown", *ARCHS)
 """Values of the user-metadata ``sd version`` key (sd_forge_lora's ``network.SD_VERSION``)."""
@@ -188,6 +188,7 @@ _ARCH_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
         ("anima", r"anima"),
         ("ernie", r"ernie"),
         ("pid", r"(?:^|[^a-z])pid(?:[^a-z]|$)"),
+        ("moss", r"moss[-_ ]?image"),
         ("sd", r"stable-diffusion-v1|(?:^|[^a-z])sd[-_ ]?v?1(?:[-_.]?5)?(?:[^0-9]|$)"),
     )
 )

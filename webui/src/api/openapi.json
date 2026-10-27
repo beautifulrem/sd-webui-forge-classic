@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Remi WebUI",
-    "version": "neo 2.30"
+    "version": "neo 2.31"
   },
   "paths": {
     "/api/v2/app": {

@@ -93,6 +93,7 @@ Remi retains Forge Neo's modern-model focus and adds deeper Anima integration.
 - Krea 2 and Krea 2 Identity Edit
 - FLUX Kontext and FLUX.2 Klein
 - Qwen-Image, Qwen-Image-Edit and Qwen-Image-2.1
+- Moss-Image and Moss-Image-Edit
 - Ernie-Image, PiD 1.5, Z-Image, Mugen, Lumina Image 2, and Chroma
 - Wan 2.2 image/video workflows
 
