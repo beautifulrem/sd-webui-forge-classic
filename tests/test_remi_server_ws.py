@@ -78,6 +78,25 @@ def test_progress_monitor_publishes_changes_only():
     assert ProgressMonitor(bus, lambda: JobRef("j2", 5, "txt2img", begun=False), state=lambda: state).tick("x") == "x" and len(seen) == 2
 
 
+def test_progress_monitor_skips_the_finishing_state():
+    """A poll between the end of sampling (counters reset) and job.completed must not
+    send the step again at 0 % (it raced under load and flickered the progress bar)."""
+
+    bus, state = EventBus(), FakeState()
+    seen = recorder(bus)
+    monitor = ProgressMonitor(bus, lambda: JobRef("j1", 4, "txt2img"), state=lambda: state)
+    state.job_count, state.sampling_steps, state.sampling_step, state.time_start = 1, 4, 4, time.time()
+    last = monitor.tick(None)
+    state.job_count = 0  # as the executor / shared.state does when the job ends
+    assert monitor.tick(last) == last
+    assert [(event["step"], event["progress"]) for event in seen] == [(4, 1.0)]
+    # a new job starting from a reset state still publishes
+    other = ProgressMonitor(bus, lambda: JobRef("j2", 5, "txt2img"), state=lambda: state)
+    state.job_count, state.sampling_step = 1, 1
+    other.tick(last)
+    assert len(seen) == 2 and (seen[-1]["job_id"], seen[-1]["step"]) == ("j2", 1)
+
+
 def test_preview_encoder_sends_only_the_newest_frame_in_the_configured_format():
     bus, state = EventBus(), FakeState()
     seen = recorder(bus)

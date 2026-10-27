@@ -245,6 +245,10 @@ class ProgressMonitor(_Loop):
         if not ref.begun:  # the state is still the previous job's
             return last
         snapshot = progress_snapshot(self.state())
+        if snapshot["job_count"] == 0 and last is not None and last[0] == ref.job_id:
+            # The job is finishing (the state's counters are already reset): its
+            # job.completed follows; a progress event now would read as 0 %.
+            return last
         key = (ref.job_id, snapshot["step"], snapshot["steps"], snapshot["job_no"], snapshot["job_count"], snapshot["text"])
         if key != last:
             self.bus.publish("job.progress", **ref.fields(), **snapshot)
