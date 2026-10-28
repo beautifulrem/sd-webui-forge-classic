@@ -6,7 +6,7 @@
  * localization template.
  */
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { Bell, BookOpen, Box, Download, ExternalLink, FileUp, Fingerprint, HardDriveDownload, Languages, ListTree, Loader2, Power, RefreshCw, Upload } from "lucide-react"
+import { Bell, BookOpen, Box, Download, ExternalLink, FileUp, Fingerprint, HardDriveDownload, Languages, ListTree, Loader2, Power, RefreshCw, Upload } from "@/components/icons"
 import { type ReactNode, useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -30,7 +30,7 @@ function Panel(props: { icon: typeof Box; title: string; description: string; ch
   const headingId = useId()
   const Icon = props.icon
   return (
-    <section className="flex flex-col gap-3 rounded-xl border bg-card p-4" aria-labelledby={headingId}>
+    <section className="flex flex-col gap-3 rounded-md bg-card p-4" aria-labelledby={headingId}>
       <div className="flex items-start gap-3">
         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
           <Icon className="size-4.5" aria-hidden />

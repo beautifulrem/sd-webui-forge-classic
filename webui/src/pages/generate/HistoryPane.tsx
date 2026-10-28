@@ -4,11 +4,10 @@
  * a session that has none shows the empty state without that code
  * (docs/research/ui-performance.md, "Bundle").
  */
-import { Trash2 } from "lucide-react"
+import { Trash2 } from "@/components/icons"
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { ConfirmDialog, preloadConfirmDialog } from "@/components/ConfirmDialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { HistoryEmpty } from "@/features/gallery/HistoryEmpty"
@@ -35,10 +34,8 @@ export function HistoryPane({ onOpen, orientation = "grid", className }: { onOpe
   return (
     <section aria-label={t("History")} className={cn("flex min-h-0 flex-col gap-2", className)}>
       <div className="flex items-center gap-2">
-        <h2 className="text-sm font-medium">{t("History")}</h2>
-        <Badge variant="secondary" className="tabular-nums">
-          {count}
-        </Badge>
+        <h2 className="text-[1.0625rem] font-semibold tracking-[-0.01em]">{t("History")}</h2>
+        <span className="text-sm text-muted-foreground tabular-nums">{count}</span>
         {count > 0 ? (
           <Button
             variant="ghost"

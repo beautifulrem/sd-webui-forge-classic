@@ -5,7 +5,7 @@
  * fresh: nothing picked, on the session's results when there are any.
  */
 import { useInfiniteQuery, useMutation } from "@tanstack/react-query"
-import { Check, ImageUp, Loader2 } from "lucide-react"
+import { Check, ImageUp, Loader2 } from "@/components/icons"
 import { type KeyboardEvent, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -176,7 +176,7 @@ export function PreviewDialog({ item, open, onOpenChange }: { item: NetworkItem 
                 const image = [...event.dataTransfer.files].find((candidate) => candidate.type.startsWith("image/"))
                 if (image) apply.mutate({ file: image })
               }}
-              className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-12 text-sm text-muted-foreground transition-colors outline-none hover:border-ring/50 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+              className="flex w-full flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed px-4 py-12 text-sm text-muted-foreground transition-colors outline-none hover:border-ring/50 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               {apply.isPending ? <Loader2 className="size-6 animate-spin" aria-hidden /> : <ImageUp className="size-6" aria-hidden />}
               {t("Drop an image here or click to choose one")}

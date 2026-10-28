@@ -6,7 +6,7 @@
  */
 import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { Check, Download, ExternalLink, Loader2, PackageSearch, Search, Star } from "lucide-react"
+import { Check, Download, ExternalLink, Loader2, PackageSearch, Search, Star } from "@/components/icons"
 import { useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -155,7 +155,7 @@ function IndexList({ items, tags, access }: { items: IndexEntry[]; tags: Record<
     )
   }
   return (
-    <div className="rounded-xl border bg-card px-3">
+    <div className="rounded-md bg-card px-3">
       <div ref={list} role="list" aria-label={t("Available extensions")} className="relative" style={{ height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((row) => {
           const entry = items[row.index]

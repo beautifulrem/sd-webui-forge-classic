@@ -1,6 +1,6 @@
 /** The viewer's side panel for a gallery image: file facts, star, parameters and library actions ("show in folder" only where folders may be opened). */
 import { useQuery } from "@tanstack/react-query"
-import { FileSearch, FolderOpen, Star, Trash2 } from "lucide-react"
+import { FileSearch, FolderOpen, Star, Trash2 } from "@/components/icons"
 import { useTranslation } from "react-i18next"
 import { bootstrapQuery } from "@/api/queries"
 import type { GalleryCategory, GalleryItem } from "@/api/types"

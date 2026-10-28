@@ -4,7 +4,7 @@
  * Home/End). "All" is the root; selecting a folder filters the grid to it and
  * its subfolders.
  */
-import { ChevronRight, Folder, FolderOpen, Library } from "lucide-react"
+import { ChevronRight, Folder, FolderOpen, Library } from "@/components/icons"
 import { useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { NetworkFolder } from "@/api/types"

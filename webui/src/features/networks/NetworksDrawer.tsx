@@ -5,7 +5,7 @@
  * (unless a menu, dialog or search text takes the key); focus moves into the
  * search on open and back to the header button on close.
  */
-import { Maximize2, X } from "lucide-react"
+import { Maximize2, X } from "@/components/icons"
 import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { routeHref } from "@/app/router"
@@ -94,7 +94,7 @@ export default function NetworksDrawer({ tab, autoFocus, onClose, returnFocus }:
         close()
       }}
       className={cn(
-        "fixed z-40 flex flex-col border-border bg-background/95 shadow-2xl backdrop-blur supports-backdrop-filter:bg-background/90",
+        "fixed z-40 flex flex-col border-border bg-background shadow-2xl",
         "animate-in duration-200 fade-in-0",
         desktop ? "top-12 right-0 bottom-0 border-l slide-in-from-right-8" : "inset-x-0 bottom-0 h-[82dvh] rounded-t-2xl border-t slide-in-from-bottom-8",
       )}

@@ -109,6 +109,12 @@ async function openWithImage(page: Page) {
   return surface
 }
 
+// The mock server's module URL is read from the resource timings: the dev server loads a few hundred
+// modules, more than the browser's default buffer of 250 entries keeps.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(5000))
+})
+
 test.describe("image editor", () => {
   test.describe.configure({ timeout: 150_000 })
 

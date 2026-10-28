@@ -1,6 +1,6 @@
 import { NumberField as NumberFieldPrimitive } from "@base-ui/react/number-field"
 import { cn } from "cn"
-import { ChevronDownIcon, ChevronUpIcon } from "lucide-react"
+import { ChevronDownIcon, ChevronUpIcon } from "@/components/icons"
 import { useTranslation } from "react-i18next"
 
 /** Numeric input in the base-nova style; steppers are optional (`steppers={false}` for tight spots). */
@@ -31,7 +31,7 @@ function NumberField({
       <NumberFieldPrimitive.Group
         data-size={size}
         data-invalid={ariaInvalid || undefined}
-        className="flex w-full items-stretch overflow-hidden rounded-lg border border-input bg-transparent transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 data-disabled:cursor-not-allowed data-disabled:opacity-50 data-invalid:border-destructive data-invalid:ring-3 data-invalid:ring-destructive/20 data-[size=default]:h-8 data-[size=sm]:h-7 dark:bg-input/30"
+        className="flex w-full items-stretch overflow-hidden rounded-sm border border-transparent bg-field shadow-[inset_0_-1px_0_var(--input)] transition-colors focus-within:shadow-[inset_0_-2px_0_var(--ring)] data-disabled:cursor-not-allowed data-disabled:opacity-50 data-invalid:border-destructive data-invalid:ring-3 data-invalid:ring-destructive/20 data-[size=default]:h-8 data-[size=sm]:h-7"
       >
         <NumberFieldPrimitive.Input
           aria-label={ariaLabel}
@@ -45,7 +45,7 @@ function NumberField({
         />
         {steppers ? (
           <div className="flex w-5 shrink-0 flex-col border-l border-input">
-            <NumberFieldPrimitive.Increment aria-label={t("Increase")} className="grid flex-1 place-items-center text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground disabled:opacity-40">
+            <NumberFieldPrimitive.Increment aria-label={t("Increase")} className="grid flex-1 place-items-center text-muted-foreground transition-[color,background-color,box-shadow] outline-none hover:bg-muted hover:text-foreground disabled:opacity-40">
               <ChevronUpIcon className="size-3" />
             </NumberFieldPrimitive.Increment>
             <NumberFieldPrimitive.Decrement aria-label={t("Decrease")} className="grid flex-1 place-items-center border-t border-input text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground disabled:opacity-40">

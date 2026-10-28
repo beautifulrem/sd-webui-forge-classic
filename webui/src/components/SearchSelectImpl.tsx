@@ -5,7 +5,7 @@
  * is pressed, so a page's first load does not carry the combobox code.
  */
 import { Combobox } from "@base-ui/react/combobox"
-import { Check, CornerDownLeft } from "lucide-react"
+import { Check, CornerDownLeft } from "@/components/icons"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"

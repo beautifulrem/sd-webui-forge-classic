@@ -1,5 +1,5 @@
 /** Confirm dialog and reconnecting overlay for "Reload UI" / "Restart server". */
-import { AlertTriangle, Check, Loader2, Power, RefreshCw } from "lucide-react"
+import { AlertTriangle, Check, Loader2, Power, RefreshCw } from "@/components/icons"
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useProgress } from "@/api/progress"

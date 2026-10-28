@@ -1,4 +1,4 @@
-import { CircleAlert, CircleCheck, CircleX, ImageOff, Info } from "lucide-react"
+import { CircleAlert, CircleCheck, CircleX, ImageOff, Info } from "@/components/icons"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { useFormState, useOwner } from "../hooks"

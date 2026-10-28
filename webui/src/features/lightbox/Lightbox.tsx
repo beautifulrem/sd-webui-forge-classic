@@ -5,7 +5,7 @@
  * runs it can follow the live preview (`js_live_preview_in_modal_lightbox`).
  */
 import { Dialog } from "@base-ui/react/dialog"
-import { ChevronLeft, ChevronRight, Grid2x2, Maximize, Minimize, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Grid2x2, Maximize, Minimize, X } from "@/components/icons"
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useClientOption } from "@/api/app-options"

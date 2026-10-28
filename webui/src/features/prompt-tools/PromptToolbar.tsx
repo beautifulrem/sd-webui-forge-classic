@@ -4,7 +4,7 @@
  * OpenAI-compatible provider, writing a prompt from a description (each
  * panel is its own lazy chunk, loaded when first opened).
  */
-import { BrushCleaning, History, KeyRound, Languages, LayoutGrid, Sparkles, Star, Tags, TextCursorInput } from "lucide-react"
+import { BrushCleaning, History, KeyRound, Languages, LayoutGrid, Sparkles, Star, Tags, TextCursorInput } from "@/components/icons"
 import { lazy, type ReactNode, Suspense, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"

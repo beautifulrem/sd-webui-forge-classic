@@ -1,5 +1,5 @@
 /** PNG Info tables: parsed parameters, every metadata entry by group, and the PNG chunk list. */
-import { Check, Copy } from "lucide-react"
+import { Check, Copy } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { ImageMetadata, MetadataEntry } from "@/api/types"
@@ -73,7 +73,7 @@ export function EntriesTable({ entries }: { entries: readonly MetadataEntry[] })
     <div className="flex flex-col gap-4">
       {groups.map(([group, rows]) => (
         <section key={group} aria-label={t(group)}>
-          <h3 className="mb-1 text-[0.7rem] font-semibold tracking-wide text-muted-foreground uppercase">{t(group)}</h3>
+          <h3 className="mb-1 text-[0.8rem] font-medium text-muted-foreground">{t(group)}</h3>
           <Rows rows={rows} caption={t(group)} />
         </section>
       ))}

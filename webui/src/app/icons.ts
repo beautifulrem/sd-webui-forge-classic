@@ -1,7 +1,7 @@
 /**
- * Icons extension pages may name in `Page(icon=...)`. A curated map keeps the
- * shell bundle small (no dynamic import of all of lucide); unknown names fall
- * back to a puzzle piece. Add entries here when a built-in page needs one.
+ * Icons extension pages may name in `Page(icon=...)` (Lucide's kebab-case
+ * names, the API's vocabulary; drawn from the app's own set). A curated map
+ * keeps the shell bundle small; unknown names fall back to a puzzle piece. Add entries here when a built-in page needs one.
  */
 import {
   BookOpen,
@@ -20,7 +20,7 @@ import {
   Image,
   Layers,
   ListChecks,
-  type LucideIcon,
+  type IconComponent,
   Palette,
   Puzzle,
   ScrollText,
@@ -30,9 +30,9 @@ import {
   Terminal,
   Wand2,
   Wrench,
-} from "lucide-react"
+} from "@/components/icons"
 
-const PAGE_ICONS: Record<string, LucideIcon> = {
+const PAGE_ICONS: Record<string, IconComponent> = {
   "book-open": BookOpen,
   boxes: Boxes,
   braces: Braces,
@@ -60,6 +60,6 @@ const PAGE_ICONS: Record<string, LucideIcon> = {
   wrench: Wrench,
 }
 
-export function pageIcon(name: string | null | undefined): LucideIcon {
+export function pageIcon(name: string | null | undefined): IconComponent {
   return (name && PAGE_ICONS[name]) || Puzzle
 }

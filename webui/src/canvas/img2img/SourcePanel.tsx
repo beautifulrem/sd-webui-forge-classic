@@ -9,7 +9,7 @@
  */
 import { Radio } from "@base-ui/react/radio"
 import { RadioGroup } from "@base-ui/react/radio-group"
-import { Brush, ImageIcon, ImageUp, Images, Palette, PaintbrushVertical, PencilRuler, Proportions, Upload, X, type LucideIcon } from "lucide-react"
+import { Brush, ImageIcon, ImageUp, Images, Palette, PaintbrushVertical, PencilRuler, Proportions, Upload, X, type IconComponent } from "@/components/icons"
 import { type CSSProperties, type ReactNode, useEffect, useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -32,7 +32,7 @@ import { setCoreValues, setSizeFromImage, setSourceImage, useImg2imgBinding, use
  * (the tiles are app chrome, translated without the server catalog) and a
  * short description shown under the picker. Unknown modes use the tab title.
  */
-const MODES: Record<string, { icon: LucideIcon; label: string; description: string }> = {
+const MODES: Record<string, { icon: IconComponent; label: string; description: string }> = {
   img2img: { icon: ImageIcon, label: "img2img", description: "Redraws the whole image." },
   Sketch: { icon: Brush, label: "Sketch", description: "Paint colours over the image; the result is redrawn." },
   Inpaint: { icon: PaintbrushVertical, label: "Inpaint", description: "Paint a mask; only the masked area is redrawn." },
@@ -64,7 +64,7 @@ function ModePicker({ tabs, modeNode }: { tabs: TabsNode; modeNode: InputNode })
         aria-labelledby={labelId}
         disabled={!param.enabled}
         style={modeColumns(options.length)}
-        className="grid grid-cols-[repeat(var(--cols),minmax(0,1fr))] gap-1 rounded-xl bg-muted p-1 @[34rem]:grid-cols-[repeat(var(--cols-wide),minmax(0,1fr))]"
+        className="grid grid-cols-[repeat(var(--cols),minmax(0,1fr))] gap-1 rounded-md bg-muted p-1 @[34rem]:grid-cols-[repeat(var(--cols-wide),minmax(0,1fr))]"
       >
         {options.map((tab) => {
           const value = String(tab.value)

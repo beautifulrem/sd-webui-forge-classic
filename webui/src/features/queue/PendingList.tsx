@@ -9,7 +9,7 @@
  * `reorder.ts`), so a job that starts mid-drag does not shift the target.
  */
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual"
-import { ArrowDownToLine, ArrowUpToLine, Copy, Flag, GripVertical, MoreHorizontal, PencilLine, X } from "lucide-react"
+import { ArrowDownToLine, ArrowUpToLine, Copy, Flag, GripVertical, MoreHorizontal, PencilLine, X } from "@/components/icons"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { api } from "@/api/endpoints"

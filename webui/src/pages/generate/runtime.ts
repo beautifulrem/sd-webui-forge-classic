@@ -1,5 +1,5 @@
 /** Page-level wiring of the generate view: controllers, session results, restore, commands. */
-import { Ban, GalleryVerticalEnd, Images, Infinity as InfinityIcon, RotateCcw, SkipForward, Sparkles, WandSparkles } from "lucide-react"
+import { Ban, GalleryVerticalEnd, Images, Infinity as InfinityIcon, RotateCcw, SkipForward, Sparkles, WandSparkles } from "@/components/icons"
 import { useEffect, useMemo } from "react"
 import { useClientOption } from "@/api/app-options"
 import { queryClient, schemaQuery } from "@/api/queries"

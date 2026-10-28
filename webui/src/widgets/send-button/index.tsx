@@ -11,7 +11,7 @@
  *   all: label (English, translated), variant?: "primary" | "secondary" | "outline" | "ghost" (secondary)
  * value: unused (null)
  */
-import { ExternalLink, Loader2, Send } from "lucide-react"
+import { ExternalLink, Loader2, Send } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"

@@ -1,6 +1,6 @@
 /** Gallery filters: search, form / folder, model, date range, stars, sort, layout and tile size. */
 import { useQuery } from "@tanstack/react-query"
-import { CalendarRange, FilterX, LayoutGrid, Rows3, Search, Star, X } from "lucide-react"
+import { CalendarRange, FilterX, LayoutGrid, Rows3, Search, Star, X } from "@/components/icons"
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { GalleryCategory, GallerySort } from "@/api/types"
@@ -133,7 +133,7 @@ export function GalleryToolbar({ count, total, failed = false }: { count: number
   const filtered = activeFilters(view)
 
   return (
-    <div className="flex flex-col gap-2 border-b bg-background/95 px-3 py-2 backdrop-blur">
+    <div className="flex flex-col gap-2 border-b bg-background px-3 py-2">
       <div className="flex flex-wrap items-center gap-1.5">
         <SearchBox />
         <PlainSelect

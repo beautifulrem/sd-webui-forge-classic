@@ -4,7 +4,7 @@
  * `AuthGate` shows this form, alone while signed out, over the app (which
  * keeps its state) once its session ended.
  */
-import { LogIn } from "lucide-react"
+import { LogIn } from "@/components/icons"
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { api } from "@/api/endpoints"
@@ -44,7 +44,7 @@ function SignInForm({ expired, onSignedIn }: { expired: boolean; onSignedIn: (us
       onSubmit={(event) => void submit(event)}
       aria-labelledby={`${id}-title`}
       aria-describedby={`${id}-description`}
-      className="grid w-full max-w-sm gap-4 rounded-xl bg-card p-6 text-card-foreground shadow-lg ring-1 ring-foreground/10"
+      className="grid w-full max-w-sm gap-4 rounded-md bg-card p-6 text-card-foreground shadow-lg ring-1 ring-foreground/10"
     >
       <div className="grid gap-1">
         <h1 id={`${id}-title`} className="font-heading text-lg font-semibold tracking-tight">
@@ -112,7 +112,7 @@ export function SignInScreen() {
 export function SignInDialog() {
   const { t } = useTranslation()
   return (
-    <div role="dialog" aria-modal="true" aria-label={t("Sign in")} className="fixed inset-0 z-[100] grid place-items-center bg-background/80 p-4 backdrop-blur-sm">
+    <div role="dialog" aria-modal="true" aria-label={t("Sign in")} className="fixed inset-0 z-[100] grid place-items-center bg-background p-4">
       <SignInForm
         expired
         onSignedIn={(user) => {

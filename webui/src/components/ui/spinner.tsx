@@ -1,6 +1,6 @@
 import { cn } from "cn"
 
-import { Loader2Icon } from "lucide-react"
+import { Loader2Icon } from "@/components/icons"
 import { useTranslation } from "react-i18next"
 
 function Spinner({ className, ...props }: React.ComponentProps<"svg">) {

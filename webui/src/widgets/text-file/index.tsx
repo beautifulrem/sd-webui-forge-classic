@@ -5,7 +5,7 @@
  *
  * props: { accept?: string, lines?: number, max_lines?: number, placeholder?: string }   value: string
  */
-import { FileText } from "lucide-react"
+import { FileText } from "@/components/icons"
 import { useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"

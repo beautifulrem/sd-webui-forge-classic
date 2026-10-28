@@ -8,7 +8,7 @@
  *
  * props: { action: string, target?: "img2img" | "inpaint" }   value: unused (null)
  */
-import { ImageUp, Loader2 } from "lucide-react"
+import { ImageUp, Loader2 } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"

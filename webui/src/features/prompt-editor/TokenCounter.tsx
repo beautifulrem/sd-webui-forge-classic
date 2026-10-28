@@ -3,6 +3,7 @@
  * server after typing pauses. Requests are cancelled when superseded and
  * never block typing; the last count stays visible while the next loads.
  */
+import NumberFlow from "@number-flow/react"
 import { useTranslation } from "react-i18next"
 import { useClientOption } from "@/api/app-options"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -19,7 +20,6 @@ export function TokenCounter(props: TokenCounterProps) {
   const tokens = data?.tokens
   const max = data?.max_length
   const known = typeof tokens === "number" && typeof max === "number"
-  const label = known ? `${tokens}/${max}` : "–/–"
   const description = known
     ? t("{{tokens}} tokens; the prompt is split into chunks of 75", { tokens })
     : isError
@@ -33,14 +33,22 @@ export function TokenCounter(props: TokenCounterProps) {
           <span
             aria-hidden
             className={cn(
-              "inline-flex h-5 min-w-12 items-center justify-center rounded-md bg-muted px-1.5 font-mono text-[0.7rem] text-muted-foreground tabular-nums transition-opacity",
-              isFetching && "opacity-60",
+              "inline-flex h-5 min-w-12 items-baseline justify-end gap-px px-1 text-xs text-muted-foreground tabular-nums",
+              known && tokens > max && "text-foreground",
+              isFetching && "opacity-70",
               props.className,
             )}
           />
         }
       >
-        {label}
+        {known ? (
+          <>
+            <NumberFlow value={tokens} className="font-medium text-foreground" />
+            <span>/{max}</span>
+          </>
+        ) : (
+          "–/–"
+        )}
       </TooltipTrigger>
       <TooltipContent>{description}</TooltipContent>
     </Tooltip>

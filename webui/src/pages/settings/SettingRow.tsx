@@ -5,7 +5,7 @@
  * choices, pin to quick settings, revert the unsaved edit).
  */
 import { useQuery } from "@tanstack/react-query"
-import { ExternalLink, Lock, Pin, PinOff, RefreshCw, Undo2 } from "lucide-react"
+import { ExternalLink, Lock, Pin, PinOff, RefreshCw, Undo2 } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useStore } from "zustand"
@@ -200,7 +200,7 @@ export function SettingView({ node }: { node: SettingNode }) {
     <div
       data-setting={node.name}
       className={cn(
-        "group/setting relative -mx-3 flex flex-col gap-2 rounded-xl px-3 py-3 transition-colors",
+        "group/setting relative -mx-3 flex flex-col gap-2 rounded-md px-3 py-3 transition-colors",
         unsaved ? "bg-primary/[0.06]" : "hover:bg-muted/40",
       )}
     >

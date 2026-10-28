@@ -1,4 +1,4 @@
-import { XIcon } from "lucide-react"
+import { XIcon } from "@/components/icons"
 import { useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"

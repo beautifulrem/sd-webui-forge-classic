@@ -1,7 +1,7 @@
 /** Layer visibility and opacity, mask colour, previews and input preferences. */
 import { Radio } from "@base-ui/react/radio"
 import { RadioGroup } from "@base-ui/react/radio-group"
-import { Eye, EyeOff, ImageIcon, Layers } from "lucide-react"
+import { Eye, EyeOff, ImageIcon, Layers } from "@/components/icons"
 import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Segmented } from "@/components/Segmented"

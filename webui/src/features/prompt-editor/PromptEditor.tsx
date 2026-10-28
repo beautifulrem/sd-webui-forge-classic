@@ -49,23 +49,29 @@ export type PromptEditorProps = {
 const externalSync = Annotation.define<boolean>()
 
 const theme = EditorView.theme({
+  // An entry sheet: an inset sheet of paper, underlined in blue pencil while being written on.
   "&": {
-    fontSize: "0.875rem",
-    borderRadius: "var(--radius-lg)",
-    border: "1px solid var(--input)",
-    backgroundColor: "color-mix(in oklch, var(--input) 30%, transparent)",
-    transition: "border-color 120ms, box-shadow 120ms",
+    fontSize: "0.9rem",
+    borderRadius: "var(--radius-sm)",
+    border: "none",
+    backgroundColor: "color-mix(in oklch, var(--foreground) 4.5%, transparent)",
+    boxShadow: "inset 0 -1px 0 var(--input)",
+    transition: "box-shadow 140ms",
   },
   "&.cm-focused": {
     outline: "none",
-    borderColor: "var(--ring)",
-    boxShadow: "0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent)",
+    boxShadow: "inset 0 -2px 0 var(--ring)",
   },
-  ".cm-scroller": { fontFamily: "var(--font-sans)", lineHeight: "1.25rem", overflow: "auto" },
-  ".cm-content": { padding: "0.4rem 0", caretColor: "var(--foreground)" },
+  ".cm-scroller": {
+    fontFamily: "var(--font-hand)",
+    fontVariationSettings: "'CASL' 1",
+    lineHeight: "1.5rem",
+    overflow: "auto",
+  },
+  ".cm-content": { padding: "0.45rem 0", caretColor: "var(--ring)" },
   ".cm-line": { padding: "0 0.625rem" },
   ".cm-placeholder": { color: "var(--muted-foreground)" },
-  ".cm-cursor": { borderLeftColor: "var(--foreground)" },
+  ".cm-cursor": { borderLeftColor: "var(--ring)", borderLeftWidth: "2px" },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
     backgroundColor: "color-mix(in oklch, var(--primary) 28%, transparent) !important",
   },
@@ -81,13 +87,13 @@ const theme = EditorView.theme({
     backgroundColor: "color-mix(in oklch, var(--destructive) 14%, transparent)",
     borderRadius: "2px",
   },
-  ".cm-prompt-schedule": { color: "color-mix(in oklch, var(--chart-3) 72%, var(--foreground))", fontWeight: "600" },
+  ".cm-prompt-schedule": { color: "color-mix(in oklch, var(--chart-3) 48%, var(--foreground))", fontWeight: "600" },
   ".cm-prompt-extra": {
     color: "color-mix(in oklch, var(--chart-2) 55%, var(--foreground))",
     backgroundColor: "color-mix(in oklch, var(--chart-2) 10%, transparent)",
     borderRadius: "3px",
   },
-  ".cm-prompt-keyword": { color: "color-mix(in oklch, var(--chart-3) 72%, var(--foreground))", fontWeight: "700", letterSpacing: "0.02em" },
+  ".cm-prompt-keyword": { color: "color-mix(in oklch, var(--chart-3) 48%, var(--foreground))", fontWeight: "700", letterSpacing: "0.02em" },
   ".cm-prompt-wildcard": { color: "color-mix(in oklch, var(--chart-5) 72%, var(--foreground))", fontStyle: "italic" },
   ".cm-prompt-comment": { color: "var(--muted-foreground)", fontStyle: "italic" },
   ".cm-prompt-escape": { color: "var(--muted-foreground)" },

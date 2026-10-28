@@ -7,7 +7,7 @@
  * turns a compiled prompt back into a draft; drafts save to and load from
  * JSON files. The draft is kept in the browser (`./store`).
  */
-import { Braces, ClipboardCopy, FileDown, FileUp, Images, Plus, Ratio, Trash2, Wand, X } from "lucide-react"
+import { Braces, ClipboardCopy, FileDown, FileUp, Images, Plus, Ratio, Trash2, Wand, X } from "@/components/icons"
 import { useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -36,9 +36,9 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 function Section({ title, children, className, actions }: { title: string; children: React.ReactNode; className?: string; actions?: React.ReactNode }) {
   return (
-    <section className={cn("flex flex-col gap-2.5 rounded-xl border bg-card p-3", className)}>
+    <section className={cn("flex flex-col gap-2.5 rounded-md bg-card p-3", className)}>
       <div className="flex min-h-6 items-center justify-between gap-2">
-        <h2 className="text-[0.7rem] font-semibold tracking-wide text-muted-foreground uppercase">{title}</h2>
+        <h2 className="text-[0.8rem] font-medium text-muted-foreground">{title}</h2>
         {actions}
       </div>
       {children}

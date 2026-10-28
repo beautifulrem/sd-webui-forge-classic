@@ -5,7 +5,7 @@
  * line (queue position, step, ETA, forever / repeat state).
  */
 import { useQuery } from "@tanstack/react-query"
-import { Ban, Bell, ChevronDown, Infinity as InfinityIcon, Loader2, Repeat, RotateCcw, SkipForward, Sparkles, X } from "lucide-react"
+import { Ban, Bell, ChevronDown, Infinity as InfinityIcon, Loader2, Repeat, RotateCcw, SkipForward, X } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -24,8 +24,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Kbd } from "@/components/ui/kbd"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
+import { ExposureSheet } from "@/features/progress/ExposureSheet"
 import { formatEta, stepText, notificationsAvailable } from "@/features/progress/effects"
 import { dispatchRun, type GenerateTab, useRuns } from "@/features/progress/run-controller"
 import { phaseOf } from "@/features/progress/run-machine"
@@ -46,7 +46,7 @@ function RepeatPopover({ tab, disabled }: { tab: GenerateTab; disabled?: boolean
   const [open, setOpen] = useState(false)
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger render={<Button variant="outline" size="icon-lg" className="size-10" aria-label={t("Generate several times")} disabled={disabled} />}>
+      <PopoverTrigger render={<Button variant="outline" size="icon-lg" className="size-11" aria-label={t("Generate several times")} disabled={disabled} />}>
         <Repeat />
       </PopoverTrigger>
       <PopoverContent aria-label={t("Generate several times")} side="top" align="end" className="w-60">
@@ -92,52 +92,57 @@ function StatusLine({ tab }: { tab: GenerateTab }) {
   const fraction = progressFraction(job)
   const eta = formatEta(job?.eta)
 
-  let text: string | null = null
-  if (phase === "submitting") text = t("Queueing…")
-  else if (phase === "interrupting") text = t("Interrupting…")
-  else if (phase === "queued") text = ahead !== null ? t("Queued · {{count}} ahead", { count: ahead }) : t("Queued")
+  // Each fact its own span, spaced apart: no "A · B · C" string.
+  let parts: (string | null)[] = []
+  if (phase === "submitting") parts = [t("Queueing…")]
+  else if (phase === "interrupting") parts = [t("Interrupting…")]
+  else if (phase === "queued") parts = [ahead !== null ? t("Queued, {{count}} ahead", { count: ahead }) : t("Queued")]
   else if (job) {
-    const parts = [
+    parts = [
       stepText(job),
       job.jobCount && job.jobCount > 1 ? t("Batch {{index}} of {{count}}", { index: (job.jobNo ?? 0) + 1, count: job.jobCount }) : null,
       eta ? t("ETA {{eta}}", { eta }) : null,
     ]
-    text = parts.filter(Boolean).join(" · ")
   }
+  const facts = parts.filter((part): part is string => Boolean(part))
 
   const extras = run.forever || run.repeatLeft > 0 || run.jobs.length > 1
-  if (!text && !extras) return null
+  if (facts.length === 0 && !extras) return null
   return (
     <div className="flex flex-col gap-1.5">
-      {phase === "running" && fraction !== null ? (
-        <Progress value={fraction * 100} aria-label={t("Generation progress")} className="h-1" />
+      {phase === "running" && job && fraction !== null ? (
+        <ExposureSheet step={job.step} steps={job.steps} fraction={fraction} aria-label={t("Generation progress")} />
       ) : null}
-      <div className="flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-        {text ? <span className="tabular-nums">{text}</span> : null}
+      <div className="flex min-h-5 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        {facts.map((fact, index) => (
+          <span key={index} className={cn("tabular-nums", index === 0 && "text-foreground")}>
+            {fact}
+          </span>
+        ))}
         {run.jobs.length > 1 ? <span className="tabular-nums">{t("{{count}} of yours queued", { count: run.jobs.length })}</span> : null}
         {run.forever ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-primary/12 py-0.5 pr-0.5 pl-2 text-primary">
+          <span className="inline-flex items-center gap-1 rounded-sm bg-primary/12 py-0.5 pr-0.5 pl-1.5 text-primary">
             <InfinityIcon className="size-3.5" aria-hidden />
             {t("Generating forever")}
             <button
               type="button"
               aria-label={t("Stop generating forever")}
               onClick={() => dispatchRun(tab, { type: "forever", on: false })}
-              className="grid size-4 place-items-center rounded-full outline-none hover:bg-primary/20 focus-visible:ring-2 focus-visible:ring-ring"
+              className="grid size-4 place-items-center rounded-xs outline-none hover:bg-primary/20 focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="size-3" />
             </button>
           </span>
         ) : null}
         {run.repeatLeft > 0 ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-muted py-0.5 pr-0.5 pl-2">
+          <span className="inline-flex items-center gap-1 rounded-sm bg-muted py-0.5 pr-0.5 pl-1.5">
             <Repeat className="size-3.5" aria-hidden />
             {t("{{count}} more runs", { count: run.repeatLeft })}
             <button
               type="button"
               aria-label={t("Cancel the remaining runs")}
               onClick={() => dispatchRun(tab, { type: "stop-repeats" })}
-              className="grid size-4 place-items-center rounded-full outline-none hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring"
+              className="grid size-4 place-items-center rounded-xs outline-none hover:bg-foreground/10 focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="size-3" />
             </button>
@@ -162,16 +167,17 @@ export function GenerateBar({ tab, className }: { tab: GenerateTab; className?: 
         {/* a size container: the shortcut hint shows only when the label fits beside it */}
         <div className="@container/generate flex min-w-0 flex-1">
           <Button
+            variant="glow"
             size="lg"
-            className="h-10 min-w-0 flex-1 gap-2 rounded-r-none text-sm font-semibold shadow-sm"
+            className="h-11 min-w-0 flex-1 gap-2 rounded-r-none text-[0.95rem] font-semibold"
             onClick={() => dispatchRun(tab, { type: "generate" })}
             disabled={phase === "submitting"}
             aria-keyshortcuts="Control+Enter Meta+Enter"
           >
-            {phase === "submitting" ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
+            {phase === "submitting" ? <Loader2 className="animate-spin" aria-hidden /> : null}
             <span className="truncate">{busy ? t("Queue another") : t("Generate")}</span>
             {busy ? null : (
-              <Kbd className="ml-1 hidden border border-primary-foreground/45 bg-transparent text-primary-foreground @min-[14rem]/generate:inline-flex touch-only:hidden!">
+              <Kbd className="ml-1 hidden border border-glow-foreground/30 bg-transparent font-normal text-glow-foreground/75 @min-[14rem]/generate:inline-flex touch-only:hidden!">
                 {formatShortcut("Mod+Enter")}
               </Kbd>
             )}
@@ -180,8 +186,9 @@ export function GenerateBar({ tab, className }: { tab: GenerateTab; className?: 
             <DropdownMenuTrigger
               render={
                 <Button
+                  variant="glow"
                   size="icon-lg"
-                  className="h-10 w-8 rounded-l-none border-l border-primary-foreground/20 shadow-sm"
+                  className="h-11 w-9 rounded-l-none border-l border-glow-foreground/15"
                   aria-label={t("More generate options")}
                 />
               }
@@ -222,7 +229,7 @@ export function GenerateBar({ tab, className }: { tab: GenerateTab; className?: 
             <Button
               variant="outline"
               size="icon-lg"
-              className="size-10"
+              className="size-11"
               onClick={() => dispatchRun(tab, { type: "skip" })}
               aria-label={t("Skip")}
               aria-keyshortcuts="Alt+Enter"
@@ -237,7 +244,7 @@ export function GenerateBar({ tab, className }: { tab: GenerateTab; className?: 
           <Button
             variant="destructive"
             size="icon-lg"
-            className="size-10"
+            className="size-11"
             onClick={() => dispatchRun(tab, { type: "interrupt" })}
             aria-label={t("Interrupt")}
             aria-keyshortcuts="Escape"

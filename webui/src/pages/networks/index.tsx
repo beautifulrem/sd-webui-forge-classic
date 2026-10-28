@@ -4,7 +4,6 @@
  * keeps them for when its page opens; checkpoint and module cards switch the
  * model at once.
  */
-import { ArrowRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { HeaderSlot } from "@/app/header-slot"
 import { routeHref } from "@/app/router"
@@ -25,7 +24,6 @@ export default function NetworksPage() {
           <PromptTargetSwitch className="shrink-0" />
           <Button variant="ghost" size="sm" render={<a href={routeHref({ name: "generate", tab: form })} />} nativeButton={false} className="text-muted-foreground">
             {t("Open {{form}}", { form: t(form) })}
-            <ArrowRight aria-hidden />
           </Button>
         </div>
       </HeaderSlot>
@@ -37,7 +35,6 @@ export default function NetworksPage() {
           <PromptTargetSwitch className="shrink-0" />
           <Button variant="ghost" size="sm" render={<a href={routeHref({ name: "generate", tab: form })} />} nativeButton={false} className="hidden shrink-0 text-muted-foreground sm:inline-flex">
             {t("Open {{form}}", { form: t(form) })}
-            <ArrowRight aria-hidden />
           </Button>
         </div>
         <NetworkBrowser surface="page" form={form} toastOnApply className="min-h-0 flex-1" />

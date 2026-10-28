@@ -1,4 +1,4 @@
-import { ChevronsUpDown } from "lucide-react"
+import { ChevronsUpDown } from "@/components/icons"
 import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 import type { SelectOption } from "./search-select-shared"

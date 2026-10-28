@@ -3,7 +3,7 @@
  * the current pixel budget, and typing or pasting "W x H" (pasting such
  * text anywhere in the size card sets both).
  */
-import { RectangleHorizontal } from "lucide-react"
+import { RectangleHorizontal } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"

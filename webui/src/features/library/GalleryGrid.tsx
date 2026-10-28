@@ -22,7 +22,7 @@
  * rendered while it has the focus, wherever the grid is scrolled.
  */
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual"
-import { Check, Star } from "lucide-react"
+import { Check, Star } from "@/components/icons"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { TFunction } from "i18next"
 import { useTranslation } from "react-i18next"

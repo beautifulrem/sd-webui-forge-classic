@@ -10,7 +10,7 @@
  *          variant?: "primary" | "secondary" (default "primary"), interval?: number (ms, 750) }
  * value: unused (null)
  */
-import { Loader2, Play, X } from "lucide-react"
+import { Loader2, Play, X } from "@/components/icons"
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { ActionExtra } from "@/api/types"

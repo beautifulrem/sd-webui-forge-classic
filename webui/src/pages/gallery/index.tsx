@@ -8,7 +8,7 @@
  * to the image with "use parameters", send-to, PNG Info and show in folder.
  */
 import { useInfiniteQuery } from "@tanstack/react-query"
-import { Columns2, Download, GalleryVerticalEnd, RefreshCw, Star, StarOff, Trash2, X } from "lucide-react"
+import { Columns2, Download, GalleryVerticalEnd, RefreshCw, Star, StarOff, Trash2, X } from "@/components/icons"
 import { lazy, Suspense, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -45,7 +45,7 @@ function BulkBar(props: { count: number; onClear: () => void; onZip: () => void;
     <div
       role="toolbar"
       aria-label={t("Selected images")}
-      className="pointer-events-auto flex items-center gap-1 rounded-xl border bg-popover/95 p-1 pl-3 shadow-lg backdrop-blur animate-in fade-in-0 slide-in-from-bottom-2"
+      className="pointer-events-auto flex items-center gap-1 rounded-md border bg-popover p-1 pl-3 shadow-lg animate-in fade-in-0 slide-in-from-bottom-2"
     >
       <span className="mr-1 text-sm font-medium tabular-nums">{t("{{count}} selected", { count: props.count })}</span>
       {action(t("Download as zip"), props.onZip, <Download />)}

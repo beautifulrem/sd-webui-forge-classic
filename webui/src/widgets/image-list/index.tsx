@@ -13,7 +13,7 @@
  *
  * props: { columns?: number (default 3) }   value: string[] (upload ids)
  */
-import { ArrowLeft, ArrowRight, ImageOff, ImagePlus, Loader2, Replace, Trash2, X } from "lucide-react"
+import { ArrowLeft, ArrowRight, ImageOff, ImagePlus, Loader2, Replace, Trash2, X } from "@/components/icons"
 import { type KeyboardEvent, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"

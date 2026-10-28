@@ -23,7 +23,7 @@ import {
   Search,
   ShieldCheck,
   X,
-} from "lucide-react"
+} from "@/components/icons"
 import { lazy, type ReactNode, type Ref, type RefObject, Suspense, useEffect, useImperativeHandle, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -400,7 +400,7 @@ export function NetworkBrowser({ surface, form, toolbarEnd, toastOnApply, classN
       ) : list.isPending || !kind ? (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2.5 p-2" role="status" aria-busy="true" aria-label={t("Loading…")}>
           {Array.from({ length: 12 }, (_, i) => (
-            <Skeleton key={i} className="aspect-3/4 rounded-xl" />
+            <Skeleton key={i} className="aspect-3/4 rounded-md" />
           ))}
         </div>
       ) : list.isError ? (

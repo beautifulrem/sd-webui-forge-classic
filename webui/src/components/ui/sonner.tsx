@@ -3,7 +3,7 @@
 import { useTheme } from "@/lib/theme"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 
-import { CircleCheckIcon, InfoIcon, Loader2Icon, OctagonXIcon, TriangleAlertIcon } from "lucide-react"
+import { CircleCheckIcon, InfoIcon, Loader2Icon, OctagonXIcon, TriangleAlertIcon } from "@/components/icons"
 
 /** `closeButtonAriaLabel`: the close buttons' label (sonner sets it per toast). */
 const Toaster = ({ closeButtonAriaLabel, ...props }: ToasterProps & { closeButtonAriaLabel?: string }) => {

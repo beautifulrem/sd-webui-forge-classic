@@ -7,7 +7,7 @@
  * edit rewrites only the touched chips of the prompt text.
  */
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
-import { EyeOff, Layers, MessageSquare, Shuffle } from "lucide-react"
+import { EyeOff, Layers, MessageSquare, Shuffle } from "@/components/icons"
 import { type KeyboardEvent, type PointerEvent, useId, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"

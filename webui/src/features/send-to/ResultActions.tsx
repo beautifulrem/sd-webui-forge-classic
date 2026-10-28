@@ -4,7 +4,7 @@
  * parameters, Hires. fix it (txt2img's ✨), send to img2img / inpaint /
  * extras, remove from history.
  */
-import { ArrowRightLeft, ClipboardPaste, Copy, Download, Ellipsis, ExternalLink, FileArchive, ImagePlus, Paintbrush, Recycle, Save, Sparkles, Trash2, Wand } from "lucide-react"
+import { ArrowRightLeft, ClipboardPaste, Copy, Download, Ellipsis, ExternalLink, FileArchive, ImagePlus, Paintbrush, Recycle, Save, Sparkles, Trash2, Wand } from "@/components/icons"
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"

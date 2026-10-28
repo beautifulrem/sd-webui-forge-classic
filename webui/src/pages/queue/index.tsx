@@ -6,7 +6,7 @@
  * Scheduler and Prompt Queue data, stops generate-forever jobs and clears.
  */
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
-import { Ban, Eraser, Import, Infinity as InfinityIcon, ListOrdered, MoreHorizontal, Pause, Play, Search, Star } from "lucide-react"
+import { Ban, Eraser, Import, Infinity as InfinityIcon, ListOrdered, MoreHorizontal, Pause, Play, Search, Star } from "@/components/icons"
 import { lazy, Suspense, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { api } from "@/api/endpoints"
@@ -66,12 +66,12 @@ function Pending({ status }: { status: QueueStatus | undefined }) {
       <section aria-labelledby="queue-pending-title" className="flex flex-col gap-2">
         <h2 id="queue-pending-title" className="flex items-center gap-2 text-sm font-semibold">
           {t("Up next")}
-          {items.isPending ? null : <span className="rounded-full bg-muted px-1.5 text-xs font-medium text-muted-foreground tabular-nums">{jobs.length}</span>}
+          {items.isPending ? null : <span className="text-sm text-muted-foreground tabular-nums">{jobs.length}</span>}
         </h2>
         {items.isPending ? (
           <Skeleton className="h-24 w-full" />
         ) : jobs.length === 0 ? (
-          <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
+          <p className="py-4 text-sm text-muted-foreground">
             {t("No jobs are waiting. Use “Add to queue” next to Generate to line jobs up.")}
           </p>
         ) : (
@@ -152,7 +152,7 @@ function History({ onView }: { onView: (job: Job, index: number) => void }) {
           {errorText(history.error)}
         </p>
       ) : jobs.length === 0 ? (
-        <p className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+        <p className="py-4 text-sm text-muted-foreground">
           {q || starred || filter !== "all" || tab !== ALL_TABS ? t("No jobs match.") : t("Finished jobs appear here.")}
         </p>
       ) : (

@@ -4,7 +4,7 @@
  * Route: `#/extensions?tab=installed|available|url|backup`.
  */
 import { useQuery } from "@tanstack/react-query"
-import { Archive, Download, Link2, Package, ShieldAlert } from "lucide-react"
+import { Archive, Download, Link2, Package, ShieldAlert } from "@/components/icons"
 import { lazy, Suspense } from "react"
 import { useTranslation } from "react-i18next"
 import { navigate, type Route } from "@/app/router"

@@ -47,7 +47,7 @@ export function Text({ node }: { node: TextNode }) {
         fieldId={id}
       >
         <Suspense
-          fallback={<div aria-hidden className="rounded-lg border border-input bg-input/30" style={{ minHeight }} />}
+          fallback={<div aria-hidden className="rounded-sm bg-field shadow-[inset_0_-1px_0_var(--input)]" style={{ minHeight }} />}
         >
           <PromptEditor
             ref={handle}

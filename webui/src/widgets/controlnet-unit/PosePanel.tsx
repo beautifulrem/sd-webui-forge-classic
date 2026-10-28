@@ -3,7 +3,7 @@
  * "Apply" draws it on the server and makes it the unit's input, as the old
  * editor's render did.
  */
-import { Download, Play, Upload } from "lucide-react"
+import { Download, Play, Upload } from "@/components/icons"
 import { useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"

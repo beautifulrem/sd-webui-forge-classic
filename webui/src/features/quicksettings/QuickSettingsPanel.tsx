@@ -1,6 +1,6 @@
 /** The quick settings popover's content: the pinned settings, rendered and applied as they change (lazy chunk: it carries the schema renderer). */
 import { useQuery } from "@tanstack/react-query"
-import { Loader2, PinOff } from "lucide-react"
+import { Loader2, PinOff } from "@/components/icons"
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { optionsQuery } from "@/api/queries"

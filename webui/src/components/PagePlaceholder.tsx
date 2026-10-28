@@ -1,10 +1,10 @@
-import type { LucideIcon } from "lucide-react"
+import type { IconComponent } from "@/components/icons"
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 
 /** Empty state for pages whose full view lands in a later wave. */
-export function PagePlaceholder(props: { icon: LucideIcon; title: string; description: string; children?: ReactNode }) {
+export function PagePlaceholder(props: { icon: IconComponent; title: string; description: string; children?: ReactNode }) {
   const { t } = useTranslation()
   const Icon = props.icon
   return (

@@ -1,5 +1,5 @@
 /** The unsaved-changes bar (Apply / Discard / Review) and the "takes effect after a reload/restart" notice. */
-import { Loader2, Power, RefreshCw, X } from "lucide-react"
+import { Loader2, Power, RefreshCw, X } from "@/components/icons"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
@@ -17,7 +17,7 @@ export function ApplyBar(props: { count: number; onApply: () => void; onDiscard:
       aria-label={t("Unsaved changes")}
       className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center px-3 pb-3 sm:pb-4"
     >
-      <div data-toast-obstacle className="pointer-events-auto flex w-full max-w-2xl flex-wrap items-center gap-2 rounded-xl border bg-popover/95 px-3 py-2 shadow-lg backdrop-blur supports-backdrop-filter:bg-popover/85 animate-in fade-in slide-in-from-bottom-2">
+      <div data-toast-obstacle className="pointer-events-auto flex w-full max-w-2xl flex-wrap items-center gap-2 rounded-md border bg-popover px-3 py-2 shadow-lg animate-in fade-in slide-in-from-bottom-2">
         <p className="min-w-0 flex-1 text-sm" aria-live="polite">
           {applying ? t("Applying…") : t("Unsaved changes: {{count}}", { count: props.count })}
         </p>

@@ -6,7 +6,7 @@
  * sidecar with `PATCH /networks/{kind}/{name}/meta`.
  */
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { Copy, Dices, Save } from "lucide-react"
+import { Copy, Dices, Save } from "@/components/icons"
 import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"

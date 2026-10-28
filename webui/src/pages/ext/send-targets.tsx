@@ -1,5 +1,5 @@
 /** "Send to <page>" buttons for an image (PNG Info); nothing when no page accepts images. See `./targets`. */
-import { Send } from "lucide-react"
+import { Send } from "@/components/icons"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { sendImageToPage, usePageSendTargets } from "./targets"

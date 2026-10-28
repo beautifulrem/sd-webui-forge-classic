@@ -1,5 +1,5 @@
 /** The options of the current tool (brush size, opacity, …) and the layer actions. */
-import { Blend, CircleDot, Contrast, Feather, SlidersHorizontal, Trash2 } from "lucide-react"
+import { Blend, CircleDot, Contrast, Feather, SlidersHorizontal, Trash2 } from "@/components/icons"
 import { useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { Segmented } from "@/components/Segmented"

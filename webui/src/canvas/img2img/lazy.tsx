@@ -25,7 +25,7 @@ export function Img2imgSourcePanel(props: SourcePanelProps) {
 /** The img2img stage (`Img2imgStage`), fetched the first time it renders. */
 export function Img2imgStage(props: StageProps) {
   return (
-    <Suspense fallback={<Skeleton className={cn("rounded-xl", props.className)} />}>
+    <Suspense fallback={<Skeleton className={cn("rounded-md", props.className)} />}>
       <Stage {...props} />
     </Suspense>
   )

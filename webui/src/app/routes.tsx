@@ -7,11 +7,11 @@ import {
   Images,
   Layers,
   ListOrdered,
-  type LucideIcon,
+  type IconComponent,
   Puzzle,
   Settings,
   WandSparkles,
-} from "lucide-react"
+} from "@/components/icons"
 import type { PageInfo } from "@/api/types"
 import { pageIcon } from "./icons"
 import { type Route, routeKey } from "./router"
@@ -52,7 +52,7 @@ export type NavItem = {
   id: string
   /** English label; translated at render time. */
   label: string
-  icon: LucideIcon
+  icon: IconComponent
   route: Route
   group: NavGroup
   /** Shown in the mobile bottom bar. */

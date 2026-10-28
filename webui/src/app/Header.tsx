@@ -1,4 +1,4 @@
-import { Palette, Search } from "lucide-react"
+import { Palette, Search } from "@/components/icons"
 import { lazy, Suspense } from "react"
 import { useTranslation } from "react-i18next"
 import type { LocaleInfo } from "@/api/types"
@@ -87,12 +87,12 @@ export function Header({ title, locales }: { title: string; locales: LocaleInfo[
     // Opaque, no backdrop-filter: only the page background is behind it, and its progress line
     // changes every step (a blur would be redrawn with it).
     <header className="relative flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3 md:px-4">
-      <h1 className="shrink-0 truncate font-heading text-sm font-semibold tracking-tight">{title}</h1>
+      <h1 className="shrink-0 truncate font-heading text-xl font-semibold tracking-[-0.015em]">{title}</h1>
       {/* page controls keep their size; the model bar (checkpoint name) is what shrinks */}
       <div ref={setSlot} className="flex shrink-0 items-center gap-2" />
       <div className="ml-auto flex min-w-0 items-center gap-1">
         <div className="hidden min-w-0 sm:block">
-          <Suspense fallback={<div aria-hidden className="h-7 w-[min(22rem,40vw)] rounded-lg border border-input" />}>
+          <Suspense fallback={<div aria-hidden className="h-7 w-[min(22rem,40vw)] rounded-sm bg-field" />}>
             <ModelQuickBar />
           </Suspense>
         </div>

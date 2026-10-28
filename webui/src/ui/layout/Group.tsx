@@ -1,5 +1,5 @@
 import { Collapsible } from "@base-ui/react/collapsible"
-import { ChevronRight } from "lucide-react"
+import { ChevronRight } from "@/components/icons"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { useForm, useFormState, useOwner } from "../hooks"
@@ -18,7 +18,7 @@ export function Group({ node }: { node: GroupNode }) {
 
   if (!node.title) {
     return (
-      <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-muted/25 p-3">
+      <div className="flex flex-col gap-3">
         <RenderChildren nodes={node.children} />
       </div>
     )
@@ -28,7 +28,7 @@ export function Group({ node }: { node: GroupNode }) {
     <Collapsible.Root open={open} onOpenChange={(next) => store.getState().setOpen(key, next)} className="flex flex-col">
       <Collapsible.Trigger
         className={cn(
-          "group/trigger -mx-1 flex items-center gap-1 rounded-md px-1 py-1 text-left text-xs font-semibold tracking-wide text-muted-foreground uppercase outline-none",
+          "group/trigger -mx-1 flex items-center gap-1 rounded-sm px-1 py-1 text-left text-[0.8rem] font-medium text-muted-foreground outline-none",
           "hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50",
         )}
       >

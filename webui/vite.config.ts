@@ -124,10 +124,36 @@ function apiDocs(): Plugin {
   }
 }
 
+/**
+ * Phosphor ships every icon in six weights; the app draws three (`bold`, `regular`, `fill`; see
+ * src/components/icons.tsx). Drop the others from each icon's definitions: about half of every
+ * icon's bytes, in the first load as much as anywhere.
+ */
+const PHOSPHOR_WEIGHTS = new Set(["bold", "regular", "fill"])
+function phosphorWeights(): Plugin {
+  const entry = /\n {2}\[\n {4}"(\w+)",/g
+  return {
+    name: "remi-phosphor-weights",
+    enforce: "pre",
+    transform(code, id) {
+      if (!/@phosphor-icons[\\/]react[\\/]dist[\\/]defs[\\/]/.test(id)) return null
+      const starts = [...code.matchAll(entry)]
+      const end = code.lastIndexOf("\n]);")
+      if (starts.length === 0 || end < 0) return null
+      const head = code.slice(0, starts[0]!.index)
+      const kept = starts
+        .map((match, i) => ({ weight: match[1]!, body: code.slice(match.index, i + 1 < starts.length ? starts[i + 1]!.index : end).replace(/,\s*$/, "") }))
+        .filter((part) => PHOSPHOR_WEIGHTS.has(part.weight))
+        .map((part) => part.body)
+      return { code: `${head}${kept.join(",")}${code.slice(end)}`, map: null }
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   const mock = loadEnv(mode, process.cwd(), "VITE_").VITE_MOCK === "1"
   return {
-    plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss(), mock && mockFiles(), apiDocs(), precompress()],
+    plugins: [phosphorWeights(), react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss(), mock && mockFiles(), apiDocs(), precompress()],
     resolve: { alias: { "@": path.resolve(import.meta.dirname, "./src") } },
     server: {
       proxy: mock

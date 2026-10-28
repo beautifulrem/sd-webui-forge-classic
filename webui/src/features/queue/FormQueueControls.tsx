@@ -4,7 +4,7 @@
  * pages' shortcuts) and, while a queued job is
  * being edited, the banner with "Update job" / "Cancel".
  */
-import { ListPlus, Loader2, PencilLine, X } from "lucide-react"
+import { ListPlus, Loader2, PencilLine, X } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { FormTab } from "@/api/types"
@@ -26,7 +26,7 @@ export function EnqueueButton({ tab, className, size = "icon-lg" }: { tab: FormT
           <Button
             variant="outline"
             size={size}
-            className={cn(size === "icon-lg" && "size-10", className)}
+            className={cn(size === "icon-lg" && "size-11", className)}
             aria-label={label}
             disabled={busy}
             onClick={() => {

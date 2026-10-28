@@ -1,5 +1,5 @@
 /** Header menu: theme, density, accent colour, language, and signing out (with a login). */
-import { Check, Keyboard, Languages, LogOut, Monitor, Moon, Palette, Rows3, Rows4, Sun } from "lucide-react"
+import { Check, Keyboard, Languages, LogOut, Monitor, Moon, Palette, Rows3, Rows4, Sun } from "@/components/icons"
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { useTranslation } from "react-i18next"
 import { useSession } from "@/api/session"
@@ -37,8 +37,8 @@ const DENSITY_OPTIONS = [
 ] as const satisfies readonly { value: Density; label: string; icon: unknown }[]
 
 const ACCENT_LABELS: Record<Accent, string> = {
-  iris: "Iris",
   blue: "Blue",
+  iris: "Iris",
   teal: "Teal",
   green: "Green",
   amber: "Amber",

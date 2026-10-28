@@ -16,7 +16,7 @@
  * props: `UnitProps` (unit index, tab, labels and choices, the catalog of
  *        preprocessors, models and control types).
  */
-import { Download, ImageIcon, LoaderCircle, RefreshCw, Shapes, X, Zap } from "lucide-react"
+import { Download, ImageIcon, LoaderCircle, RefreshCw, Shapes, X, Zap } from "@/components/icons"
 import { useEffect, useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { api } from "@/api/endpoints"

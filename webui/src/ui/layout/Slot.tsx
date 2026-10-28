@@ -31,8 +31,8 @@ function ScriptView({ script }: { script: ScriptSchema }) {
           <RenderLayout layout={layout} />
         ) : (
           // A bare layout gets a light frame so scripts stay distinguishable.
-          <div role="group" aria-label={t(script.title)} className="flex flex-col gap-3 rounded-xl border bg-card p-3">
-            <div className="text-sm font-medium">{t(script.title)}</div>
+          <div role="group" aria-label={t(script.title)} className="flex flex-col gap-3 rounded-md bg-card p-3">
+            <h2 className="text-[1.0625rem] font-semibold tracking-[-0.01em]">{t(script.title)}</h2>
             <RenderLayout layout={body} />
           </div>
         )}

@@ -19,11 +19,11 @@ import { SizeTools } from "./SizeTools"
 export function Card({ title, actions, children, className, onPaste }: { title: string; actions?: ReactNode; children: ReactNode; className?: string; onPaste?: (event: React.ClipboardEvent) => void }) {
   const id = useId()
   return (
-    <section aria-labelledby={id} onPaste={onPaste} className={cn("flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-3 text-card-foreground", className)}>
+    <section aria-labelledby={id} onPaste={onPaste} className={cn("flex min-w-0 flex-col gap-3 rounded-md bg-card p-3 text-card-foreground", className)}>
       <div className="flex min-h-7 items-center gap-2">
-        <h3 id={id} className="text-sm font-medium">
+        <h2 id={id} className="text-[1.0625rem] font-semibold tracking-[-0.01em]">
           {title}
-        </h3>
+        </h2>
         {actions ? <div className="ml-auto flex items-center gap-1">{actions}</div> : null}
       </div>
       {children}

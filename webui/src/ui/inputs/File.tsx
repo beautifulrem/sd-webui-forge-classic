@@ -1,4 +1,4 @@
-import { FileUp, Loader2, X } from "lucide-react"
+import { FileUp, Loader2, X } from "@/components/icons"
 import { useId } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"

@@ -15,7 +15,7 @@
  *   templates are refreshed by the actions' `__outputs__.templates`.
  * value: { auto, start, end, peak, strength, curve }
  */
-import { Copy, HelpCircle, Library } from "lucide-react"
+import { Copy, HelpCircle, Library } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"

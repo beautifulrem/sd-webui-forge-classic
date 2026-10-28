@@ -3,7 +3,7 @@
  * page actions, the CodeMirror editor, a bracket-balance summary and image
  * drops (an image dropped anywhere on the field is handed to `onDropImage`).
  */
-import { ImageDown } from "lucide-react"
+import { ImageDown } from "@/components/icons"
 import { type ReactNode, type Ref, Suspense, useId, useImperativeHandle, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useKeyboardHints } from "@/lib/use-media-query"
@@ -131,7 +131,7 @@ export function PromptField({ node, kind = "positive", steps, styles, actions, o
         fieldId={id}
         main
       >
-        <Suspense fallback={<div aria-hidden className="rounded-lg border border-input bg-input/30" style={{ minHeight: `${lines * LINE_REM + 0.9}rem` }} />}>
+        <Suspense fallback={<div aria-hidden className="rounded-sm bg-field shadow-[inset_0_-1px_0_var(--input)]" style={{ minHeight: `${lines * LINE_REM + 0.9}rem` }} />}>
           <LazyPromptEditor
             ref={handle}
             id={id}
@@ -160,7 +160,7 @@ export function PromptField({ node, kind = "positive", steps, styles, actions, o
       {dragging ? (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary bg-background/80 text-sm font-medium text-primary backdrop-blur-[2px]"
+          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary bg-background text-sm font-medium text-primary"
         >
           <ImageDown className="size-4" />
           {t("Drop an image to read its parameters")}

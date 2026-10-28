@@ -7,7 +7,7 @@
  * props: { placeholder?: string (English, translated) }
  * value: string
  */
-import { Eye, EyeOff } from "lucide-react"
+import { Eye, EyeOff } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group"

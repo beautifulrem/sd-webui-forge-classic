@@ -9,7 +9,7 @@
  * The search and filter also survive leaving the page (`settings-filters.ts`).
  */
 import { useQuery } from "@tanstack/react-query"
-import { Download, Ellipsis, FileUp, ListTree, Lock, RefreshCw, Search, Settings as SettingsIcon, X } from "lucide-react"
+import { Download, Ellipsis, FileUp, ListTree, Lock, RefreshCw, Search, Settings as SettingsIcon, X } from "@/components/icons"
 import { lazy, Suspense, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"

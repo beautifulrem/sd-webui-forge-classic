@@ -5,7 +5,7 @@
  * Bits". While the server loads a model, `model.loading` shows its stage.
  */
 import { useQuery } from "@tanstack/react-query"
-import { Box, CircleHelp, Layers, Loader2, SlidersHorizontal } from "lucide-react"
+import { Box, CircleHelp, Layers, Loader2, SlidersHorizontal } from "@/components/icons"
 import { useEffect, useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useClientOption } from "@/api/app-options"

@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
 import { ariaKeyShortcuts } from "./a11y"
 
 /** Floating toolbar surface over the canvas. */
-export const PANEL = "pointer-events-auto rounded-xl border bg-popover/90 text-popover-foreground shadow-md ring-1 ring-black/5 backdrop-blur-md supports-backdrop-filter:bg-popover/75 dark:ring-white/5"
+export const PANEL = "pointer-events-auto rounded-md border bg-popover text-popover-foreground shadow-md ring-1 ring-black/5 dark:ring-white/5"
 
 /**
  * A tooltip that opens on hover and on keyboard focus only: focus coming

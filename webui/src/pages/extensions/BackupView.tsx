@@ -6,7 +6,7 @@
  * from here (a reset would drop local work and old backups predate Remi).
  */
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { Archive, Info, Loader2, RotateCcw, Save, Trash2 } from "lucide-react"
+import { Archive, Info, Loader2, RotateCcw, Save, Trash2 } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -173,7 +173,7 @@ export function BackupView({ access }: { access: boolean }) {
         ) : states.data.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("No backups yet. One is made before every update.")}</p>
         ) : (
-          <ul role="listbox" aria-label={t("Backups")} className="flex max-h-[60dvh] flex-col gap-0.5 overflow-y-auto rounded-xl border bg-card p-1">
+          <ul role="listbox" aria-label={t("Backups")} className="flex max-h-[60dvh] flex-col gap-0.5 overflow-y-auto rounded-md bg-card p-1">
             {states.data.map((state) => (
               <li
                 key={state.id}

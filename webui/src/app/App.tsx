@@ -1,7 +1,7 @@
 /** The application shell: rail + header + lazily loaded page, plus global services. */
 import { DirectionProvider } from "@base-ui/react/direction-provider"
 import { useQuery } from "@tanstack/react-query"
-import { Keyboard, Languages, Monitor, Moon, Rows3, Rows4, Sun } from "lucide-react"
+import { Keyboard, Languages, Monitor, Moon, Rows3, Rows4, Sun } from "@/components/icons"
 import { lazy, Suspense, useEffect, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { bootstrapQuery } from "@/api/queries"
@@ -16,6 +16,7 @@ import { useAppearance, useApplyAppearance } from "@/lib/theme"
 import { type Command, useCommands, useRegisterCommands } from "./commands"
 import { Header } from "./Header"
 import { availableLocales } from "./locales"
+import { MotionRoot } from "./MotionRoot"
 import { BottomBar, NavRail } from "./NavRail"
 import { buildNav, pageFor, type NavItem } from "./routes"
 import { onShortcutsKey, useShortcutsHelp } from "./shortcuts-help"
@@ -130,6 +131,7 @@ export function App() {
 
   return (
     <DirectionProvider direction={direction}>
+      <MotionRoot>
       <TooltipProvider delay={400}>
         <a
           href="#main"
@@ -169,6 +171,7 @@ export function App() {
         <AppToaster />
         <ServerControlHost />
       </TooltipProvider>
+      </MotionRoot>
     </DirectionProvider>
   )
 }

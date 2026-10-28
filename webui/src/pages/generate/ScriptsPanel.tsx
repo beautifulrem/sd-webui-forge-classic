@@ -4,7 +4,7 @@
  * reset, followed by the selectable-script choice and the chosen script.
  */
 import { Collapsible } from "@base-ui/react/collapsible"
-import { ChevronRight, ListFilter, RotateCcw, Search } from "lucide-react"
+import { ChevronRight, ListFilter, RotateCcw, Search } from "@/components/icons"
 import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"
@@ -52,7 +52,7 @@ function ScriptCard({ script }: { script: ScriptSchema }) {
         ) : collapsed ? (
           <RenderLayout layout={collapsed} />
         ) : (
-          <div role="group" aria-label={t(script.title)} className="flex flex-col gap-3 rounded-xl border bg-card p-3">
+          <div role="group" aria-label={t(script.title)} className="flex flex-col gap-3 rounded-md bg-card p-3">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{t(script.title)}</span>
               {modified ? (
@@ -168,7 +168,7 @@ export function ScriptsPanel({ schema, scriptChoice }: { schema: TabSchema; scri
       ) : null}
 
       {scriptChoice ? (
-        <section aria-label={t("Script")} className="flex flex-col gap-3 rounded-xl border bg-card p-3">
+        <section aria-label={t("Script")} className="flex flex-col gap-3 rounded-md bg-card p-3">
           <OwnerProvider owner="core">
             <RenderNode node={scriptChoice} />
           </OwnerProvider>

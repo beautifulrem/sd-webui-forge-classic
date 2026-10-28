@@ -3,7 +3,7 @@
  * (materialize: writes the selected styles into the prompts and clears the
  * selection) and the style editor.
  */
-import { Pencil, Stamp } from "lucide-react"
+import { Pencil, Stamp } from "@/components/icons"
 import { lazy, Suspense, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"

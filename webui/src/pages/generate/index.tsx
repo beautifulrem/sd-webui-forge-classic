@@ -4,7 +4,7 @@
  * sticky run controls | stage | history. Tablets: parameters | stage with a
  * history strip. Phones: one column with the run controls stuck to the bottom.
  */
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react"
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "@/components/icons"
 import { lazy, Suspense, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useClientOption } from "@/api/app-options"
@@ -41,7 +41,7 @@ const ParamsPane = lazy(() => loadParamsPane().then((m) => ({ default: m.ParamsP
 // The viewer's chunk loads on first open.
 const Lightbox = lazy(() => import("@/features/lightbox/Lightbox").then((m) => ({ default: m.Lightbox })))
 
-/** txt2img ↔ img2img: two links styled as a segmented control (they are navigation). */
+/** txt2img ↔ img2img: two links set as tabs on the header's bottom edge (they are navigation). */
 function ModeSwitch({ tab }: { tab: GenerateTab }) {
   const { t } = useTranslation()
   const modes: { value: GenerateTab; label: string }[] = [
@@ -49,16 +49,16 @@ function ModeSwitch({ tab }: { tab: GenerateTab }) {
     { value: "img2img", label: t("img2img") },
   ]
   return (
-    <nav aria-label={t("Mode")} className="inline-flex shrink-0 items-center gap-0.5 rounded-lg bg-muted p-0.5">
+    <nav aria-label={t("Mode")} className="inline-flex h-12 shrink-0 items-stretch gap-4 pl-2">
       {modes.map((mode) => (
         <a
           key={mode.value}
           href={routeHref({ name: "generate", tab: mode.value })}
           aria-current={mode.value === tab ? "page" : undefined}
           className={cn(
-            "flex h-6 items-center rounded-md px-2.5 text-[0.8rem] font-medium whitespace-nowrap text-muted-foreground transition-colors outline-none select-none",
-            "hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60",
-            "aria-[current=page]:bg-background aria-[current=page]:text-foreground aria-[current=page]:shadow-sm dark:aria-[current=page]:bg-accent",
+            "relative flex h-12 items-center text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors outline-none select-none",
+            "after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-transparent rounded-sm hover:text-foreground focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-inset",
+            "aria-[current=page]:text-foreground aria-[current=page]:after:bg-primary",
           )}
         >
           {mode.label}
@@ -127,8 +127,8 @@ function ParamsColumn({ tab, sticky, showModelBar }: { tab: GenerateTab; sticky:
       data-toast-obstacle={sticky === "bottom" ? "" : undefined}
       className={
         sticky === "top"
-          ? "sticky top-0 z-10 border-b bg-background/85 p-3 backdrop-blur supports-backdrop-filter:bg-background/70"
-          : "sticky bottom-0 z-10 border-t bg-background/90 p-3 backdrop-blur supports-backdrop-filter:bg-background/75"
+          ? "sticky top-0 z-10 border-b bg-background p-3"
+          : "sticky bottom-0 z-10 border-t bg-background p-3"
       }
     >
       <GenerateBar tab={tab} />
@@ -149,8 +149,8 @@ function ParamsFallback() {
   return (
     <div className="flex flex-col gap-3 p-3" aria-busy>
       <Skeleton className="h-10 rounded-lg" />
-      <Skeleton className="h-28 rounded-xl" />
-      <Skeleton className="h-40 rounded-xl" />
+      <Skeleton className="h-28 rounded-md" />
+      <Skeleton className="h-40 rounded-md" />
     </div>
   )
 }

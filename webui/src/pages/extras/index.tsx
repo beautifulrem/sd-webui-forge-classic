@@ -5,7 +5,7 @@
  * against its source, with download, send-to and the viewer; this session's
  * runs stay in a strip below.
  */
-import { Ban, ImageIcon, ImageUpscale, Loader2, Maximize2, Sparkles } from "lucide-react"
+import { Ban, ImageIcon, ImageUpscale, Loader2, Maximize2 } from "@/components/icons"
 import { lazy, Suspense, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { api } from "@/api/endpoints"
@@ -16,7 +16,7 @@ import { formatShortcut } from "@/app/commands"
 import { Segmented } from "@/components/Segmented"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
-import { Progress } from "@/components/ui/progress"
+import { ExposureSheet } from "@/features/progress/ExposureSheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useIsDesktop } from "@/lib/use-media-query"
 import { cn } from "@/lib/utils"
@@ -62,9 +62,9 @@ function ExtrasForm() {
 function FormSkeleton() {
   return (
     <div className="flex flex-col gap-3" aria-busy>
-      <Skeleton className="h-56 rounded-xl" />
-      <Skeleton className="h-32 rounded-xl" />
-      <Skeleton className="h-24 rounded-xl" />
+      <Skeleton className="h-56 rounded-md" />
+      <Skeleton className="h-32 rounded-md" />
+      <Skeleton className="h-24 rounded-md" />
     </div>
   )
 }
@@ -81,27 +81,30 @@ function RunBar() {
     <div className="flex flex-col gap-2">
       <QueueEditBanner tab="extras" />
       <div className="flex items-center gap-1.5">
-        <Button size="lg" className="h-10 min-w-0 flex-1 gap-2 text-sm font-semibold shadow-sm" onClick={() => void runExtras()} disabled={submitting} aria-keyshortcuts="Control+Enter Meta+Enter">
-          {submitting ? <Loader2 className="animate-spin" aria-hidden /> : <Sparkles aria-hidden />}
+        <Button variant="glow" size="lg" className="h-11 min-w-0 flex-1 gap-2 text-[0.95rem] font-semibold" onClick={() => void runExtras()} disabled={submitting} aria-keyshortcuts="Control+Enter Meta+Enter">
+          {submitting ? <Loader2 className="animate-spin" aria-hidden /> : null}
           <span className="truncate">{busy ? t("Queue another") : t("Process")}</span>
-          <Kbd className="ml-1 hidden border border-primary-foreground/45 bg-transparent text-primary-foreground sm:inline-flex touch-only:hidden!">{formatShortcut("Mod+Enter")}</Kbd>
+          <Kbd className="ml-1 hidden border border-glow-foreground/30 bg-transparent font-normal text-glow-foreground/75 sm:inline-flex touch-only:hidden!">{formatShortcut("Mod+Enter")}</Kbd>
         </Button>
         <EnqueueButton tab="extras" />
         {busy ? (
-          <Button variant="destructive" size="icon-lg" className="size-10" onClick={interruptExtras} aria-label={t("Interrupt")} title={`${t("Interrupt")} (Esc)`} aria-keyshortcuts="Escape">
+          <Button variant="destructive" size="icon-lg" className="size-11" onClick={interruptExtras} aria-label={t("Interrupt")} title={`${t("Interrupt")} (Esc)`} aria-keyshortcuts="Escape">
             <Ban />
           </Button>
         ) : null}
       </div>
       {busy ? (
         <div className="flex flex-col gap-1.5" role="status">
-          {job && fraction !== null ? <Progress value={fraction * 100} aria-label={t("Processing progress")} className="h-1" /> : null}
-          <p className="text-xs text-muted-foreground tabular-nums">
-            {job
+          {job && fraction !== null ? <ExposureSheet step={job.step} steps={job.steps} fraction={fraction} aria-label={t("Processing progress")} /> : null}
+          <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground tabular-nums">
+            {(job
               ? [job.text ? t(job.text) : t("Processing"), job.jobCount && job.jobCount > 1 ? t("Image {{index}} of {{count}}", { index: (job.jobNo ?? 0) + 1, count: job.jobCount }) : null, eta ? t("ETA {{eta}}", { eta }) : null]
-                  .filter(Boolean)
-                  .join(" · ")
-              : t("Queued")}
+              : [t("Queued")]
+            )
+              .filter(Boolean)
+              .map((fact, index) => (
+                <span key={index}>{fact}</span>
+              ))}
           </p>
         </div>
       ) : null}
@@ -196,7 +199,7 @@ function ResultStage() {
           <ResultActions item={item} tab="txt2img" removable={false} />
         </div>
       </div>
-      <div className="relative flex min-h-0 flex-1 items-center justify-center rounded-xl border bg-canvas/40 p-2">{view}</div>
+      <div className="relative flex min-h-0 flex-1 items-center justify-center rounded-md border bg-canvas/40 p-2">{view}</div>
       {items.length > 1 ? (
         <div role="listbox" aria-label={t("Images of this run")} className="flex gap-1.5 overflow-x-auto pb-1">
           {items.map((entry) => (
@@ -231,7 +234,7 @@ function RecentRuns() {
   if (results.length < 2) return null
   return (
     <div className="flex flex-col gap-1">
-      <h2 className="text-[0.7rem] font-semibold tracking-wide text-muted-foreground uppercase">{t("This session")}</h2>
+      <h2 className="text-[0.8rem] font-medium text-muted-foreground">{t("This session")}</h2>
       <div role="listbox" aria-label={t("Recent runs")} className="flex gap-1.5 overflow-x-auto pb-1">
         {results.map((result) => {
           const first = result.outputs.find((output) => (output.kind ?? "image") === "image")
@@ -282,7 +285,7 @@ export default function ExtrasPage() {
   return (
     <div className={cn("h-full", desktop ? "grid grid-cols-[minmax(22rem,30rem)_minmax(0,1fr)]" : "overflow-y-auto")}>
       <div className={cn("flex flex-col", desktop && "min-h-0 border-r")}>
-        <div className="sticky top-0 z-10 border-b bg-background/95 p-3 backdrop-blur">
+        <div className="sticky top-0 z-10 border-b bg-background p-3">
           <RunBar />
         </div>
         <div className={cn("p-3", desktop && "min-h-0 flex-1 overflow-y-auto")}>

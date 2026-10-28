@@ -8,7 +8,7 @@
  * the import paused it) stays until "Done".
  */
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { CheckCircle2, CircleAlert, DatabaseZap, Loader2, Play } from "lucide-react"
+import { CheckCircle2, CircleAlert, DatabaseZap, Loader2, Play } from "@/components/icons"
 import { useEffect, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"

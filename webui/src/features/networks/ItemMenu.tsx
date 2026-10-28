@@ -4,7 +4,7 @@
  * preview and open folder are offered for items with a model file only.
  */
 import { Menu } from "@base-ui/react/menu"
-import { Copy, FolderOpen, ImagePlus, Info, MinusCircle, Pencil, PlusCircle, Power } from "lucide-react"
+import { Copy, FolderOpen, ImagePlus, Info, MinusCircle, Pencil, PlusCircle, Power } from "@/components/icons"
 import { useTranslation } from "react-i18next"
 import type { NetworkItem, NetworkKind } from "@/api/types"
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu-impl"

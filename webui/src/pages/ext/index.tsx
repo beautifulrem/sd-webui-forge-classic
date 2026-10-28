@@ -6,7 +6,7 @@
  * `sendToPage` (`./deliver`), e.g. PNG Info's send targets (`./send-targets`).
  */
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query"
-import { Puzzle } from "lucide-react"
+import { Puzzle } from "@/components/icons"
 import { type ComponentType, lazy, type LazyExoticComponent, Suspense, useEffect } from "react"
 import { bootstrapQuery, pageSchemaQuery } from "@/api/queries"
 import type { PageInfo } from "@/api/types"

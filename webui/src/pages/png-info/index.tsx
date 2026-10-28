@@ -6,7 +6,7 @@
  * inpaint or Extras.
  */
 import { useQuery } from "@tanstack/react-query"
-import { ArrowRight, ClipboardCopy, FileSearch, ImageUp, Images, ListTree, Paintbrush, Rows3, SlidersHorizontal, Upload, Wand, X } from "lucide-react"
+import { ArrowRight, ClipboardCopy, FileSearch, ImageUp, Images, ListTree, Paintbrush, Rows3, SlidersHorizontal, Upload, Wand, X } from "@/components/icons"
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -55,7 +55,7 @@ function Actions({ fileId, infotext }: { fileId: string; infotext: string | null
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1.5">
-        <h3 className="text-[0.7rem] font-semibold tracking-wide text-muted-foreground uppercase">{t("Send parameters")}</h3>
+        <h3 className="text-[0.8rem] font-medium text-muted-foreground">{t("Send parameters")}</h3>
         <div className="flex flex-wrap gap-1.5">
           <Button size="sm" disabled={!infotext} onClick={() => applyParameters("txt2img", params)}>
             <Wand aria-hidden />
@@ -77,7 +77,7 @@ function Actions({ fileId, infotext }: { fileId: string; infotext: string | null
         </div>
       </div>
       <div className="flex flex-col gap-1.5">
-        <h3 className="text-[0.7rem] font-semibold tracking-wide text-muted-foreground uppercase">{t("Send image")}</h3>
+        <h3 className="text-[0.8rem] font-medium text-muted-foreground">{t("Send image")}</h3>
         <div className="flex flex-wrap gap-1.5">
           <Button size="sm" variant="outline" onClick={() => sendWithFeedback("img2img", { fileId, infotext })}>
             <Images aria-hidden />
@@ -113,7 +113,7 @@ function Details({ fileId }: { fileId: string }) {
   const data = info.data
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-xl border bg-card p-4">
+      <div className="rounded-md bg-card p-4">
         <div className="mb-3 flex items-baseline justify-between gap-2">
           <h2 className="truncate text-sm font-semibold" title={data.name}>
             {data.name}
@@ -131,7 +131,7 @@ function Details({ fileId }: { fileId: string }) {
           <Actions fileId={fileId} infotext={data.infotext ?? null} />
         </div>
       </div>
-      <Tabs defaultValue="params" className="rounded-xl border bg-card p-3">
+      <Tabs defaultValue="params" className="rounded-md bg-card p-3">
         <TabsList variant="line" className="w-full justify-start border-b pb-px">
           <TabsTrigger value="params" className="flex-none px-2.5">
             <SlidersHorizontal aria-hidden />
@@ -187,7 +187,7 @@ export default function PngInfoPage({ route }: { route: Route }) {
     return (
       <div className="flex h-full items-center justify-center overflow-y-auto p-4">
         <DropZone onFiles={onFiles} accept={ACCEPT} disabled={busy} aria-label={t("Choose an image to read")} className="flex w-full max-w-xl flex-col items-center gap-3 px-6 py-16 text-center">
-          <span className="grid size-14 place-items-center rounded-2xl bg-primary/10 text-primary">{busy ? <Upload className="size-6 animate-pulse" aria-hidden /> : <FileSearch className="size-6" aria-hidden />}</span>
+          <span className="grid size-14 place-items-center rounded-md bg-primary/10 text-primary">{busy ? <Upload className="size-6 animate-pulse" aria-hidden /> : <FileSearch className="size-6" aria-hidden />}</span>
           <span className="text-base font-semibold">{busy ? t("Reading…") : t("Drop an image here")}</span>
           <span className="max-w-sm text-sm text-muted-foreground">
             {t("Or paste it, or click to choose a file. PNG, JPEG, WebP and other formats: the generation parameters, metadata and PNG chunks are shown.")}
@@ -209,7 +209,7 @@ export default function PngInfoPage({ route }: { route: Route }) {
         <div className="flex flex-col gap-2 lg:sticky lg:top-4">
           <DropZone onFiles={onFiles} accept={ACCEPT} disabled={busy} aria-label={t("Replace the image")} className="overflow-hidden border-solid">
             <img src={api.fileUrl(fileId)} alt={t("The image being read")} className="max-h-[70dvh] w-full bg-checker object-contain" />
-            <span className="absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-md bg-background/85 px-2 py-1 text-xs font-medium shadow-sm backdrop-blur">
+            <span className="absolute right-2 bottom-2 inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-xs font-medium shadow-sm">
               <ImageUp className="size-3.5" aria-hidden />
               {busy ? t("Reading…") : t("Drop, paste or click to replace")}
             </span>

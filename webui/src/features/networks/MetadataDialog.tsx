@@ -5,7 +5,7 @@
  * table.
  */
 import { useQuery } from "@tanstack/react-query"
-import { ChevronDown, Copy, Search } from "lucide-react"
+import { ChevronDown, Copy, Search } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -158,7 +158,7 @@ function Body({ meta }: { meta: NetworkMeta }) {
       {meta.description ? <p className="text-[0.8rem] whitespace-pre-wrap text-foreground/85">{meta.description}</p> : null}
       {rows.length ? (
         <section aria-labelledby="network-meta-training" className="flex flex-col gap-2">
-          <h3 id="network-meta-training" className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+          <h3 id="network-meta-training" className="text-[0.8rem] font-medium text-muted-foreground">
             {t("Training")}
           </h3>
           <Facts rows={rows} />
@@ -167,7 +167,7 @@ function Body({ meta }: { meta: NetworkMeta }) {
       {tags.length ? (
         <section aria-labelledby="network-meta-tags" className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
-            <h3 id="network-meta-tags" className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            <h3 id="network-meta-tags" className="text-[0.8rem] font-medium text-muted-foreground">
               {t("Training tags")}
             </h3>
             <span className="text-xs text-muted-foreground tabular-nums">{tags.length}</span>

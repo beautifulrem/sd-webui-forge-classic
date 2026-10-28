@@ -4,7 +4,8 @@
  * result), with step / percent / ETA over the image, the result actions and
  * the generation parameters.
  */
-import { ChevronDown, Expand, ImageIcon, Radio } from "lucide-react"
+import { ChevronDown, Expand, Radio } from "@/components/icons"
+import * as m from "motion/react-m"
 import { type ReactNode, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useClientOption } from "@/api/app-options"
@@ -12,10 +13,11 @@ import { api } from "@/api/endpoints"
 import { progressFraction, type RunningJob } from "@/api/progress"
 import { useWs } from "@/api/ws"
 import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 import { selectedItem, useSession } from "@/features/gallery/session-store"
 import { InfotextPanel } from "@/features/infotext/InfotextPanel"
+import { formatShortcut } from "@/app/commands"
+import { ExposureSheet } from "@/features/progress/ExposureSheet"
 import { formatEta, stepText } from "@/features/progress/effects"
 import type { GenerateTab } from "@/features/progress/run-controller"
 import { ResultActions } from "@/features/send-to/ResultActions"
@@ -29,17 +31,16 @@ function ProgressOverlay({ job }: { job: RunningJob }) {
   const eta = formatEta(job.eta)
   return (
     // No backdrop-filter: the preview under it changes every step, and a blur would be redrawn with it.
-    <div className="absolute inset-x-3 bottom-3 rounded-lg bg-background/90 p-2.5 shadow-sm">
-      <div className="mb-1.5 flex items-center justify-between gap-2 text-xs tabular-nums">
-        <span className="truncate">
-          {stepText(job)}
-          {job.jobCount && job.jobCount > 1 ? ` · ${t("Batch {{index}} of {{count}}", { index: (job.jobNo ?? 0) + 1, count: job.jobCount })}` : ""}
-        </span>
-        <span className="shrink-0 text-muted-foreground">
-          {Math.round(fraction * 100)}%{eta ? ` · ${t("ETA {{eta}}", { eta })}` : ""}
-        </span>
+    <div className="absolute inset-x-3 bottom-3 rounded-md bg-background/92 px-3 pt-2 pb-2.5">
+      <div className="mb-1.5 flex items-baseline gap-3 text-xs tabular-nums">
+        <span className="truncate">{stepText(job)}</span>
+        {job.jobCount && job.jobCount > 1 ? (
+          <span className="shrink-0 text-muted-foreground">{t("Batch {{index}} of {{count}}", { index: (job.jobNo ?? 0) + 1, count: job.jobCount })}</span>
+        ) : null}
+        <span className="ml-auto shrink-0 font-medium">{Math.round(fraction * 100)}%</span>
+        {eta ? <span className="shrink-0 text-muted-foreground">{t("ETA {{eta}}", { eta })}</span> : null}
       </div>
-      <Progress value={fraction * 100} aria-label={t("Generation progress")} />
+      <ExposureSheet step={job.step} steps={job.steps} fraction={fraction} aria-label={t("Generation progress")} />
     </div>
   )
 }
@@ -116,7 +117,7 @@ export function Stage({ tab, onOpenViewer, className, leading, trailing, toolbar
   }, [])
 
   const image = (
-    <div className="relative flex min-h-48 flex-1 items-center justify-center overflow-hidden rounded-xl border bg-canvas">
+    <div data-lit={job ? "" : undefined} className="relative flex min-h-48 flex-1 items-center justify-center overflow-hidden rounded-md bg-canvas data-lit:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--glow)_30%,transparent),inset_0_0_80px_-20px_var(--glow-dim)]">
       {video && item ? (
         // A generated video (e.g. Wan): played here; its frames stay in the history and the viewer.
         <video
@@ -140,14 +141,22 @@ export function Stage({ tab, onOpenViewer, className, leading, trailing, toolbar
           {live ? (
             <LivePreview src={live} alt={t("Live preview")} />
           ) : (
-            <img src={src} alt={t("Generated image")} className={cn("max-h-full max-w-full object-contain", job && "opacity-90")} />
+            // a finished picture is laid on the table: one short settle, only when the picture changes
+            <m.img
+              key={src}
+              src={src}
+              alt={t("Generated image")}
+              initial={{ opacity: 0, scale: 0.985 }}
+              animate={{ opacity: job ? 0.9 : 1, scale: 1 }}
+              transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
+              className="max-h-full max-w-full object-contain"
+            />
           )}
         </button>
       ) : (
-        <div className="flex flex-col items-center gap-2 p-6 text-center text-sm text-muted-foreground">
-          <ImageIcon className="size-8 opacity-50" aria-hidden />
-          <p>{job ? t("Waiting for the first preview…") : t("Generated images appear here")}</p>
-        </div>
+        <p className="max-w-[28ch] p-6 text-center text-sm text-balance text-muted-foreground">
+          {job ? t("Waiting for the first preview…") : t("Write a prompt, then press {{shortcut}} to generate", { shortcut: formatShortcut("Mod+Enter") })}
+        </p>
       )}
       {job && !follow ? (
         <Button
@@ -185,7 +194,7 @@ export function Stage({ tab, onOpenViewer, className, leading, trailing, toolbar
   )
 
   // Never more than about a quarter of the stage: the image keeps the room.
-  const info = infoOpen && item && !live ? <InfotextPanel infotext={item.infotext} className="max-h-[max(4.5rem,min(12rem,25%))] shrink-0 overflow-y-auto rounded-lg border bg-card p-3" /> : null
+  const info = infoOpen && item && !live ? <InfotextPanel infotext={item.infotext} className="max-h-[max(4.5rem,min(12rem,25%))] shrink-0 overflow-y-auto rounded-sm px-1 py-1.5" /> : null
   const toolbarRow = toolbar ? (
     <div className="flex items-center gap-1">
       {leading}

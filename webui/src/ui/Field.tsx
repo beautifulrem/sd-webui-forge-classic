@@ -1,5 +1,5 @@
 /** Shared chrome for inputs: label (with its hint tooltip), modified dot (click = reset), trailing slot, info text. */
-import { CircleAlert, RotateCcw } from "lucide-react"
+import { CircleAlert, RotateCcw } from "@/components/icons"
 import { type ReactElement, type ReactNode, use } from "react"
 import { useTranslation } from "react-i18next"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"

@@ -3,7 +3,7 @@
  * to the img2img form, or the results. Batch modes have no canvas: the
  * stage shows the results only.
  */
-import { Images, PencilRuler } from "lucide-react"
+import { Images, PencilRuler } from "@/components/icons"
 import { type ReactNode, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"

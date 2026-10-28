@@ -29,5 +29,5 @@ export function summarizeSection(values: Record<string, unknown> | undefined, in
     const text = summaries.get(widget)?.(values, nodes)
     if (text) parts.push(text)
   }
-  return parts.length > 0 ? parts.join(" · ") : null
+  return parts.length > 0 ? parts.join(", ") : null
 }

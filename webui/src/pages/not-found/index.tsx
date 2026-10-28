@@ -1,4 +1,4 @@
-import { Compass } from "lucide-react"
+import { Compass } from "@/components/icons"
 import { useTranslation } from "react-i18next"
 import { navigate } from "@/app/router"
 import { PagePlaceholder } from "@/components/PagePlaceholder"

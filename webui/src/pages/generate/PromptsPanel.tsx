@@ -5,7 +5,7 @@
  * the negative prompt has text with `paste_safe_guard`), "clear"
  * (confirmed) and image drops that read the image's parameters.
  */
-import { ClipboardPaste, Eraser } from "lucide-react"
+import { ClipboardPaste, Eraser } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useClientOption } from "@/api/app-options"

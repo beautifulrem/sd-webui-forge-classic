@@ -4,7 +4,7 @@
  * Saving refreshes the style list and the forms' `styles` choices.
  */
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { ClipboardCopy, Save, Trash2 } from "lucide-react"
+import { ClipboardCopy, Save, Trash2 } from "@/components/icons"
 import { Suspense, useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"

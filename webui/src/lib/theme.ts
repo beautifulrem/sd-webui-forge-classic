@@ -4,7 +4,7 @@ import { persist } from "zustand/middleware"
 
 export type Theme = "light" | "dark" | "system"
 export type Density = "comfortable" | "compact"
-export const ACCENTS = ["iris", "blue", "teal", "green", "amber", "coral", "rose"] as const
+export const ACCENTS = ["blue", "iris", "teal", "green", "amber", "coral", "rose"] as const
 export type Accent = (typeof ACCENTS)[number]
 
 /** Storage key; index.html reads it before first paint to avoid a theme flash. */
@@ -51,20 +51,23 @@ export const useAppearance = create<AppearanceState>()(
       theme: serverTheme() ?? "dark",
       themeChosen: false,
       density: "comfortable",
-      accent: "iris",
+      accent: "blue",
       setTheme: (theme) => set({ theme, themeChosen: true }),
       setDensity: (density) => set({ density }),
       setAccent: (accent) => set({ accent }),
     }),
     {
       name: APPEARANCE_KEY,
-      version: 2,
+      version: 3,
       partialize: ({ theme, themeChosen, density, accent }) => ({ theme, themeChosen, density, accent }),
       // Version 1 stored the theme in effect without telling whether it was picked: keep it as picked.
-      // (missing keys are filled by `merge`)
+      // Version 2's default accent was iris; the blue pencil is the default since, and a stored iris is
+      // almost always that old default, not a choice. (missing keys are filled by `merge`)
       migrate: (persisted, version) => {
-        const state = (persisted ?? {}) as Partial<StoredAppearance>
-        return (version < 2 ? { ...state, themeChosen: isTheme(state.theme) } : state) as StoredAppearance
+        let state = (persisted ?? {}) as Partial<StoredAppearance>
+        if (version < 2) state = { ...state, themeChosen: isTheme(state.theme) }
+        if (version < 3 && state.accent === "iris") state = { ...state, accent: "blue" }
+        return state as StoredAppearance
       },
       // A theme never picked follows the server's `--theme` (it may have changed since).
       merge: (persisted, current) => {

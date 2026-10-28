@@ -23,7 +23,7 @@ import {
   SquareDashed,
   Undo2,
   X,
-} from "lucide-react"
+} from "@/components/icons"
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { createStore, useStore } from "zustand"
@@ -729,7 +729,7 @@ export function EditorBody({ doc, editor, screenBrush, plainColor, toolbarAlways
       ) : null}
 
       {dragging ? (
-        <div className="pointer-events-none absolute inset-2 z-30 grid place-items-center rounded-xl border-2 border-dashed border-primary bg-primary/10 text-sm font-medium text-primary backdrop-blur-[1px]">
+        <div className="pointer-events-none absolute inset-2 z-30 grid place-items-center rounded-md border-2 border-dashed border-primary bg-primary/10 text-sm font-medium text-primary">
           {hasImage ? t("Drop to replace the image") : t("Drop the image here")}
         </div>
       ) : null}

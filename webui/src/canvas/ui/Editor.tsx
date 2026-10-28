@@ -4,7 +4,7 @@
  * uploads new backgrounds (pick, drop, paste, blank canvas), and shows the
  * editor inline or maximised.
  */
-import { Maximize2 } from "lucide-react"
+import { Maximize2 } from "@/components/icons"
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useClientOption } from "@/api/app-options"
@@ -185,7 +185,7 @@ export default function Editor(props: ImageEditorProps) {
       role="group"
       aria-label={props.label ?? t("Image editor")}
       data-fill={props.fill ? "" : undefined}
-      className={cn("relative min-h-0 overflow-hidden rounded-xl border bg-canvas", props.error && "border-destructive/60", props.className)}
+      className={cn("relative min-h-0 overflow-hidden rounded-md border bg-canvas", props.error && "border-destructive/60", props.className)}
       style={props.fill ? undefined : { height: props.height ?? canvasHeight }}
     >
       {maximized ? (

@@ -1,5 +1,5 @@
 /** Brush colour: swatch button with a popover (picker, hex, swatches, recent, eyedropper). */
-import { Pipette } from "lucide-react"
+import { Pipette } from "@/components/icons"
 import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"

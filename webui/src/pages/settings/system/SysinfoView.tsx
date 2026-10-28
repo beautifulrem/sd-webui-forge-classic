@@ -1,6 +1,6 @@
 /** Settings → System info: the sysinfo report (summary + collapsible sections), download, copy, and a file check. */
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { Check, ChevronRight, Copy, Download, FileCheck2, Loader2, X } from "lucide-react"
+import { Check, ChevronRight, Copy, Download, FileCheck2, Loader2, X } from "@/components/icons"
 import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -133,7 +133,7 @@ export function SysinfoView() {
         </p>
       ) : (
         <>
-          <dl className="grid gap-x-4 gap-y-2 rounded-xl border bg-card p-4 text-sm sm:grid-cols-[max-content_1fr]">
+          <dl className="grid gap-x-4 gap-y-2 rounded-md bg-card p-4 text-sm sm:grid-cols-[max-content_1fr]">
             {summary.map((key) => (
               <div key={key} className="contents">
                 <dt className="text-muted-foreground">{t(key)}</dt>

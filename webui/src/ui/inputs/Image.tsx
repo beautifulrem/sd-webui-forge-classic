@@ -1,4 +1,4 @@
-import { ImagePlus, Loader2, X } from "lucide-react"
+import { ImagePlus, Loader2, X } from "@/components/icons"
 import { useId } from "react"
 import { useTranslation } from "react-i18next"
 import { Badge } from "@/components/ui/badge"

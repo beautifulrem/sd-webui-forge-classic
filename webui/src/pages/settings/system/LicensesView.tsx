@@ -4,7 +4,7 @@
  * upstream repository when its entry is opened, as plain text.
  */
 import { useQuery } from "@tanstack/react-query"
-import { ChevronRight, ExternalLink } from "lucide-react"
+import { ChevronRight, ExternalLink } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { api } from "@/api/endpoints"
@@ -92,7 +92,7 @@ export function LicensesView() {
       ) : (
         licenses.data.groups.map((group) => (
           <section key={group.title} aria-label={t(group.title)} className="flex flex-col gap-2">
-            {group.title ? <h2 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t(group.title)}</h2> : null}
+            {group.title ? <h2 className="text-[0.8rem] font-medium text-muted-foreground">{t(group.title)}</h2> : null}
             <ul className="flex flex-col gap-2">
               {group.items.map((entry) => (
                 <LicenseEntry key={entry.id} entry={entry} />

@@ -1,5 +1,5 @@
 /** Generation parameters of a result: prompt, negative prompt and parameter chips, copyable. */
-import { Check, Copy } from "lucide-react"
+import { Check, Copy } from "@/components/icons"
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -38,14 +38,14 @@ export function InfotextPanel({ infotext, className }: { infotext: string | null
     <div className={cn("flex flex-col gap-2.5 text-xs", className)}>
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <h3 className="mb-0.5 text-[0.7rem] font-medium tracking-wide text-muted-foreground uppercase">{t("Prompt")}</h3>
+          <h3 className="mb-0.5 text-[0.8rem] font-medium text-muted-foreground">{t("Prompt")}</h3>
           <p className="leading-relaxed break-words whitespace-pre-wrap select-text">{parts.prompt || "—"}</p>
         </div>
         <CopyButton text={infotext} label={t("Copy generation parameters")} />
       </div>
       {parts.negative ? (
         <div>
-          <h3 className="mb-0.5 text-[0.7rem] font-medium tracking-wide text-muted-foreground uppercase">{t("Negative prompt")}</h3>
+          <h3 className="mb-0.5 text-[0.8rem] font-medium text-muted-foreground">{t("Negative prompt")}</h3>
           <p className="leading-relaxed break-words whitespace-pre-wrap text-muted-foreground select-text">{parts.negative}</p>
         </div>
       ) : null}

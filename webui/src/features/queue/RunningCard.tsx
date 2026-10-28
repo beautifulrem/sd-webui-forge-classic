@@ -1,6 +1,6 @@
 /** The job the worker runs now: live preview, progress, and interrupt / skip. */
 import { useQuery } from "@tanstack/react-query"
-import { Ban, Hourglass, Pause, SkipForward, Sparkles } from "lucide-react"
+import { Ban, Hourglass, Pause, SkipForward } from "@/components/icons"
 import { useTranslation } from "react-i18next"
 import { useClientOption } from "@/api/app-options"
 import { api } from "@/api/endpoints"
@@ -28,7 +28,7 @@ export function RunningCard({ paused, queued, loading = false }: { paused: boole
 
   if (!running && loading) {
     return (
-      <section aria-label={t("Now running")} aria-busy="true" className="flex items-center gap-3 rounded-xl border border-dashed bg-card/50 px-4 py-3">
+      <section aria-label={t("Now running")} aria-busy="true" className="flex items-center gap-3 rounded-md bg-card px-4 py-3">
         <Skeleton className="size-10 shrink-0 rounded-lg" />
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <Skeleton className="h-3.5 w-32" />
@@ -41,10 +41,8 @@ export function RunningCard({ paused, queued, loading = false }: { paused: boole
 
   if (!running) {
     return (
-      <section aria-label={t("Now running")} className="flex items-center gap-3 rounded-xl border border-dashed bg-card/50 px-4 py-3">
-        <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
-          {paused ? <Pause className="size-4" aria-hidden /> : <Sparkles className="size-4" aria-hidden />}
-        </span>
+      <section aria-label={t("Now running")} className="flex items-center gap-3 rounded-md bg-card px-4 py-3">
+        {paused ? <Pause className="size-5 shrink-0 text-muted-foreground" aria-hidden /> : null}
         <div className="min-w-0">
           <p className="text-sm font-medium">{paused ? t("The queue is paused") : t("Nothing is running")}</p>
           <p className="text-xs text-muted-foreground">
@@ -63,7 +61,7 @@ export function RunningCard({ paused, queued, loading = false }: { paused: boole
   const eta = formatEta(running.eta)
   const job = detail.data
   return (
-    <section aria-label={t("Now running")} className="overflow-hidden rounded-xl border bg-card shadow-sm">
+    <section aria-label={t("Now running")} className="overflow-hidden rounded-md bg-card">
       <div className="flex gap-3 p-3">
         <div className="relative grid size-24 shrink-0 place-items-center overflow-hidden rounded-lg bg-checker sm:size-28">
           {preview && livePreviews ? (

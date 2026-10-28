@@ -13,7 +13,7 @@
  * select (docs/research/ui-performance.md, "Bundle").
  */
 import type { Select as SelectPrimitive } from "@base-ui/react/select"
-import { ChevronDownIcon } from "lucide-react"
+import { ChevronDownIcon } from "@/components/icons"
 import * as React from "react"
 import { cn } from "cn"
 import { lazyModule, prefetch, standInFocus } from "@/lib/lazy-module"

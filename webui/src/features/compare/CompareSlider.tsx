@@ -5,7 +5,7 @@
  * Images of different sizes are both fitted to the frame (the "before"
  * image's aspect ratio), so an upscale compares feature for feature.
  */
-import { ChevronsLeftRight } from "lucide-react"
+import { ChevronsLeftRight } from "@/components/icons"
 import { useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"

@@ -1,4 +1,4 @@
-import { History } from "lucide-react"
+import { History } from "@/components/icons"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 

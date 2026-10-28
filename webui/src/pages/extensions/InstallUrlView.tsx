@@ -1,6 +1,6 @@
 /** Install an extension from a git URL, optionally a branch and a folder name. */
 import { useMutation } from "@tanstack/react-query"
-import { CheckCircle2, Download, Loader2 } from "lucide-react"
+import { CheckCircle2, Download, Loader2 } from "@/components/icons"
 import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { api } from "@/api/endpoints"

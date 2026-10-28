@@ -7,10 +7,10 @@ export type Theme = "light" | "dark"
 
 /** Persists an appearance (and optionally a locale) before the app boots, as the user's stored choice. */
 export async function presetStorage(page: Page, options: { theme?: Theme; locale?: string; accent?: string } = {}) {
-  await page.addInitScript(({ theme, locale, accent = "iris" }) => {
+  await page.addInitScript(({ theme, locale, accent = "blue" }) => {
     if (sessionStorage.getItem("remi-e2e-preset")) return // only on the first load: later reloads keep what the test changed
     sessionStorage.setItem("remi-e2e-preset", "1")
-    if (theme) localStorage.setItem("remi-appearance", JSON.stringify({ state: { theme, density: "comfortable", accent }, version: 1 }))
+    if (theme) localStorage.setItem("remi-appearance", JSON.stringify({ state: { theme, themeChosen: true, density: "comfortable", accent }, version: 3 }))
     if (locale) localStorage.setItem("remi-locale", JSON.stringify({ state: { chosen: locale }, version: 1 }))
   }, options)
 }

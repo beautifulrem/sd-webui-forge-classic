@@ -25,10 +25,10 @@ export type SearchSelectProps = {
 }
 
 export const SEARCH_SELECT_TRIGGER_CLASS = cn(
-  "flex w-full min-w-0 items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent pr-2 pl-2.5 text-left text-sm whitespace-nowrap transition-colors outline-none select-none",
-  "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50",
+  "flex w-full min-w-0 items-center justify-between gap-1.5 rounded-sm border border-transparent bg-field shadow-[inset_0_-1px_0_var(--input)] pr-2 pl-2.5 text-left text-sm whitespace-nowrap transition-[color,background-color,box-shadow] outline-none select-none hover:bg-field-hover",
+  "focus-visible:shadow-[inset_0_-2px_0_var(--ring)] disabled:cursor-not-allowed disabled:opacity-50",
   "aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20",
-  "data-[size=default]:h-8 data-[size=sm]:h-7 dark:bg-input/30 dark:hover:bg-input/50",
+  "data-[size=default]:h-8 data-[size=sm]:h-7",
 )
 
 /** The option a value shows as (a value not among the options shows as itself). */

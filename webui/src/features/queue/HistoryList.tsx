@@ -4,7 +4,7 @@
  * remove. Imported jobs that cannot run as they are say why.
  */
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { AlertTriangle, CheckCircle2, CircleSlash, FileInput, ImageOff, Loader2, RotateCw, Star, Trash2, XCircle } from "lucide-react"
+import { AlertTriangle, CheckCircle2, CircleSlash, FileInput, ImageOff, Loader2, RotateCw, Star, Trash2, XCircle } from "@/components/icons"
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { api } from "@/api/endpoints"

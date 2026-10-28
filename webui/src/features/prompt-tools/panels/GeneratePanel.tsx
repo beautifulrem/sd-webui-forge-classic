@@ -4,7 +4,7 @@
  * scratch or by changing the current one; the answer can be edited before it
  * replaces the prompt or is added to it (Prompt All-in-One's "ChatGPT prompt").
  */
-import { Loader2, Sparkles } from "lucide-react"
+import { Loader2, Sparkles } from "@/components/icons"
 import { useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"

@@ -1,4 +1,4 @@
-import { TriangleAlert } from "lucide-react"
+import { TriangleAlert } from "@/components/icons"
 import { Component, type ErrorInfo, type ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { t } from "@/i18n"

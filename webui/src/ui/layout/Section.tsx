@@ -1,5 +1,5 @@
 import { Collapsible } from "@base-ui/react/collapsible"
-import { ChevronRight } from "lucide-react"
+import { ChevronRight } from "@/components/icons"
 import { useId } from "react"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
@@ -60,27 +60,25 @@ export function Section({ node }: { node: SectionNode }) {
       onOpenChange={setOpen}
       render={<section aria-labelledby={`${id}-title`} />}
       data-enabled={enabled || undefined}
-      className={cn(
-        "rounded-xl border bg-card text-card-foreground shadow-xs transition-colors",
-        "data-enabled:border-primary/35 data-enabled:shadow-[inset_3px_0_0_var(--primary)]",
-      )}
+      // Not a card: an open section is a sheet laid on the desk, a closed one is just its title.
+      className={cn("group/section rounded-md", open && "bg-card text-card-foreground")}
     >
-      <div className="flex min-h-10 items-center gap-2 pr-3 pl-1.5">
+      <div className="flex min-h-10 items-center gap-2 pr-2 pl-1">
         <Collapsible.Trigger
           className={cn(
-            "group/trigger flex min-w-0 flex-1 items-center gap-1.5 self-stretch rounded-lg px-1.5 text-left text-sm font-medium outline-none",
+            "group/trigger flex min-w-0 flex-1 items-center gap-1.5 self-stretch rounded-md px-1.5 text-left text-[1.0625rem] font-semibold tracking-[-0.01em] outline-none",
             "focus-visible:ring-3 focus-visible:ring-ring/50",
           )}
         >
           <ChevronRight
             aria-hidden
-            className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[panel-open]/trigger:rotate-90"
+            className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[panel-open]/trigger:rotate-90"
           />
           <span id={`${id}-title`} title={title} className={cn("truncate", enabled && "text-foreground")}>
             {title}
           </span>
           {summary ? (
-            <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-px text-[0.7rem] leading-4 font-medium text-primary">{summary}</span>
+            <span className="min-w-0 shrink truncate text-xs font-normal text-primary">{summary}</span>
           ) : null}
         </Collapsible.Trigger>
         {modified ? (
@@ -97,7 +95,7 @@ export function Section({ node }: { node: SectionNode }) {
           "data-ending-style:h-0 data-starting-style:h-0",
         )}
       >
-        <div className="flex flex-col gap-3 px-3 pt-1 pb-3">
+        <div className="flex flex-col gap-3 px-3 pt-0.5 pb-3.5">
           <ContainerTitleContext value={title}>
             <RenderChildren nodes={node.children} />
           </ContainerTitleContext>

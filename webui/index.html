@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="dark" data-density="comfortable" data-accent="iris">
+<html lang="en" class="dark" data-density="comfortable" data-accent="blue">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -12,7 +12,8 @@
       // Apply persisted appearance before first paint (see src/lib/theme.ts).
       try {
         // Theme: ?__theme=… in the URL, else the user's pick, else the server's --theme, else dark.
-        var s = JSON.parse(localStorage.getItem("remi-appearance") || "{}").state || {}
+        var p = JSON.parse(localStorage.getItem("remi-appearance") || "{}")
+        var s = p.state || {}
         var d = document.documentElement
         var themes = { light: 1, dark: 1, system: 1 }
         var q = new URLSearchParams(location.search).get("__theme")
@@ -20,7 +21,8 @@
         var dark = t === "light" ? false : t === "system" ? matchMedia("(prefers-color-scheme: dark)").matches : true
         d.classList.toggle("dark", dark)
         if (s.density) d.dataset.density = s.density
-        if (s.accent) d.dataset.accent = s.accent
+        // version 2's default iris became blue (the store's migrate)
+        if (s.accent) d.dataset.accent = s.accent === "iris" && (p.version || 0) < 3 ? "blue" : s.accent
       } catch (e) {}
     </script>
   </head>

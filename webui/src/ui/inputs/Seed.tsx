@@ -1,4 +1,4 @@
-import { Dices, Recycle } from "lucide-react"
+import { Dices, Recycle } from "@/components/icons"
 import { use, useId } from "react"
 import { useTranslation } from "react-i18next"
 import { lastResult, useProgress } from "@/api/progress"

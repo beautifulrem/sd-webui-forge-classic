@@ -1,6 +1,6 @@
 /** The popover of a chip: its text, weight, enable / disable, favorite, delete. */
 import { useQueryClient } from "@tanstack/react-query"
-import { Eye, EyeOff, Minus, Plus, RotateCcw, Star, Trash2 } from "lucide-react"
+import { Eye, EyeOff, Minus, Plus, RotateCcw, Star, Trash2 } from "@/components/icons"
 import { useEffect, useId, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"

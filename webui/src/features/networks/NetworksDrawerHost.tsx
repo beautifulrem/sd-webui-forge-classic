@@ -3,7 +3,7 @@
  * palette) toggling the drawer, whose chunk loads on first open, and the
  * prompt-focus tracking that decides where cards go.
  */
-import { Layers } from "lucide-react"
+import { Layers } from "@/components/icons"
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { type Command, formatShortcut, useRegisterCommands } from "@/app/commands"

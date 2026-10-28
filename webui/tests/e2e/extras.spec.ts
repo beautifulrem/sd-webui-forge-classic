@@ -41,6 +41,12 @@ async function makePng(page: Page, width: number, height: number): Promise<Buffe
   return Buffer.from(data, "base64")
 }
 
+// The mock server's module URL is read from the resource timings: the dev server loads a few hundred
+// modules, more than the browser's default buffer of 250 entries keeps.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => performance.setResourceTimingBufferSize(5000))
+})
+
 test.describe("extras", () => {
   test("upscales an uploaded image with the chosen upscaler and scale", async ({ page }) => {
     const console = watchConsole(page)

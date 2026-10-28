@@ -34,6 +34,15 @@ describe("theme sources", () => {
     expect(legacy.useAppearance.getState()).toMatchObject({ theme: "light", themeChosen: true })
   })
 
+  it("moves version 2's default iris accent to blue, and keeps other accents", async () => {
+    const old = await load({ server: "dark", stored: { state: { theme: "dark", themeChosen: false, density: "comfortable", accent: "iris" }, version: 2 } })
+    expect(old.useAppearance.getState().accent).toBe("blue")
+    const teal = await load({ server: "dark", stored: { state: { theme: "dark", themeChosen: false, density: "comfortable", accent: "teal" }, version: 2 } })
+    expect(teal.useAppearance.getState().accent).toBe("teal")
+    const picked = await load({ server: "dark", stored: { state: { theme: "dark", themeChosen: false, density: "comfortable", accent: "iris" }, version: 3 } })
+    expect(picked.useAppearance.getState().accent).toBe("iris")
+  })
+
   it("?__theme= picks the theme and remembers it; unknown values are ignored", async () => {
     const { useAppearance, urlTheme } = await load({ server: "dark", search: "?__theme=light" })
     expect(useAppearance.getState()).toMatchObject({ theme: "light", themeChosen: true })
@@ -97,7 +106,7 @@ describe("theme in effect", () => {
     const root = document.documentElement
     renderHook(() => useApplyAppearance())
     expect(root.classList.contains("dark")).toBe(true)
-    expect(root.dataset).toMatchObject({ density: "comfortable", accent: "iris" })
+    expect(root.dataset).toMatchObject({ density: "comfortable", accent: "blue" })
     act(() => {
       useAppearance.getState().setTheme("light")
       useAppearance.getState().setDensity("compact")
@@ -114,6 +123,6 @@ describe("theme in effect", () => {
     localStorage.setItem("remi-appearance", "{not json")
     vi.resetModules()
     const { useAppearance } = await import("./theme")
-    expect(useAppearance.getState()).toMatchObject({ theme: "dark", themeChosen: false, density: "comfortable", accent: "iris" })
+    expect(useAppearance.getState()).toMatchObject({ theme: "dark", themeChosen: false, density: "comfortable", accent: "blue" })
   })
 })

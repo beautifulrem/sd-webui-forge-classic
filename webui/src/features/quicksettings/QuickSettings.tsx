@@ -4,7 +4,7 @@
  * changes. Hidden while nothing is pinned; pin settings from the Settings
  * page. The model bar next to it covers checkpoint, VAE / TE, dtype, preset.
  */
-import { Loader2, Settings2, Zap } from "lucide-react"
+import { Loader2, Settings2, Zap } from "@/components/icons"
 import { lazy, Suspense } from "react"
 import { useTranslation } from "react-i18next"
 import { optionsQuery, queryClient } from "@/api/queries"

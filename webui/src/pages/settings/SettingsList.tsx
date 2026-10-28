@@ -4,7 +4,7 @@
  * view back. Search terms are highlighted in the rendered text.
  */
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { SearchX } from "lucide-react"
+import { SearchX } from "@/components/icons"
 import { type Ref, useEffect, useImperativeHandle, useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -29,7 +29,7 @@ type Props = {
 
 function estimate(row: SettingsRowItem | undefined): number {
   if (!row) return 80
-  if (row.kind === "category") return 64
+  if (row.kind === "category") return 72
   if (row.kind === "section") return 44
   if (row.item.kind === "row") return 120
   if (row.item.kind === "separator") return 20
@@ -40,14 +40,14 @@ function RowView({ row, first }: { row: SettingsRowItem; first: boolean }) {
   const { t } = useTranslation()
   if (row.kind === "category") {
     return (
-      <h2 className={cn("pb-1 font-heading text-xs font-semibold tracking-wider text-muted-foreground uppercase", first ? "pt-4" : "pt-8")}>
+      <h2 className={cn("pb-1 font-heading text-xl font-semibold tracking-tight", first ? "pt-4" : "pt-10")}>
         {t(row.label)}
       </h2>
     )
   }
   if (row.kind === "section") {
     return (
-      <h3 id={`settings-section-${row.id}`} className="flex items-baseline gap-2 border-b pt-3 pb-2 text-base font-semibold tracking-tight">
+      <h3 id={`settings-section-${row.id}`} className="flex items-baseline gap-2 pt-4 pb-2 text-[0.95rem] font-semibold text-muted-foreground">
         {t(row.label)}
       </h3>
     )

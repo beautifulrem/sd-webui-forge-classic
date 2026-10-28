@@ -32,9 +32,9 @@ export function ParamsPane({ schema, tab, showModelBar = false }: { schema: TabS
   if (!ready) {
     return (
       <div className="flex flex-col gap-3" aria-busy>
-        <Skeleton className="h-28 rounded-xl" />
-        <Skeleton className="h-16 rounded-xl" />
-        <Skeleton className="h-40 rounded-xl" />
+        <Skeleton className="h-28 rounded-md" />
+        <Skeleton className="h-16 rounded-md" />
+        <Skeleton className="h-40 rounded-md" />
       </div>
     )
   }
@@ -45,7 +45,7 @@ export function ParamsPane({ schema, tab, showModelBar = false }: { schema: TabS
         <ScriptsProvider scripts={schema.scripts}>
           <div className="flex flex-col gap-3" aria-label={t("Parameters")} role="form">
             {showModelBar ? (
-              <Suspense fallback={<Skeleton className="h-16 rounded-xl" />}>
+              <Suspense fallback={<Skeleton className="h-16 rounded-md" />}>
                 <ModelBarStacked />
               </Suspense>
             ) : null}

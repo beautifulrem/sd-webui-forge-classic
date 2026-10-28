@@ -12,7 +12,7 @@
  * value: Row[] ({ enabled, artist, weight, blocks, start, end, peak, curve, stage, auto_shift })
  */
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { ArrowDown, ArrowUp, CopyPlus, Plus, Trash2 } from "lucide-react"
+import { ArrowDown, ArrowUp, CopyPlus, Plus, Trash2 } from "@/components/icons"
 import { useRef } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"

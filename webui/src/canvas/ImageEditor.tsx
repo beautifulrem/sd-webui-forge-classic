@@ -21,7 +21,7 @@ const Editor = lazy(() => import("./ui/Editor"))
 
 export function ImageEditor(props: ImageEditorProps) {
   return (
-    <Suspense fallback={<Skeleton className={cn("rounded-xl", props.className)} style={props.fill ? undefined : { height: props.height ?? clientOption("forge_canvas_height") }} />}>
+    <Suspense fallback={<Skeleton className={cn("rounded-md", props.className)} style={props.fill ? undefined : { height: props.height ?? clientOption("forge_canvas_height") }} />}>
       <Editor {...props} />
     </Suspense>
   )

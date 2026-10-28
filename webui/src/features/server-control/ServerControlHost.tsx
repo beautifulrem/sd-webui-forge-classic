@@ -4,7 +4,7 @@
  * command is being confirmed or followed) the confirm dialog and the
  * reconnecting overlay.
  */
-import { RefreshCw, Power } from "lucide-react"
+import { RefreshCw, Power } from "@/components/icons"
 import { lazy, Suspense, useEffect, useMemo } from "react"
 import { type Command, useRegisterCommands } from "@/app/commands"
 import { requestServerCommand, useServerControl } from "./server-control"

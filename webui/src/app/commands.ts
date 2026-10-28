@@ -4,7 +4,7 @@
  * `useRegisterCommands` while mounted.
  */
 import { useEffect } from "react"
-import type { LucideIcon } from "lucide-react"
+import type { IconComponent } from "@/components/icons"
 import { create } from "zustand"
 
 export type Command = {
@@ -13,7 +13,7 @@ export type Command = {
   label: string
   /** English group heading. */
   group: string
-  icon?: LucideIcon
+  icon?: IconComponent
   /** Extra search terms (not shown). */
   keywords?: string[]
   /** Display-only shortcut hint, e.g. "Mod+Enter". */

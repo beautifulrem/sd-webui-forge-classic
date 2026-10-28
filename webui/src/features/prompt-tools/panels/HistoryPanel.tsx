@@ -4,7 +4,7 @@
  * entries are kept when the history is trimmed), delete, clear.
  */
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, ListPlus, Pencil, Star, Trash2 } from "lucide-react"
+import { Check, ListPlus, Pencil, Star, Trash2 } from "@/components/icons"
 import { type ReactNode, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"

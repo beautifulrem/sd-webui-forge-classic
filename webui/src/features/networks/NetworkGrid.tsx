@@ -199,7 +199,7 @@ export function NetworkGrid({ items, total, kind, view, size, isActive, currentA
                       onAction={action}
                     />
                   ) : (
-                    <Skeleton aria-hidden className={view === "list" ? "size-full rounded-lg" : "size-full rounded-xl"} />
+                    <Skeleton aria-hidden className={view === "list" ? "size-full rounded-lg" : "size-full rounded-md"} />
                   )}
                 </div>,
               )

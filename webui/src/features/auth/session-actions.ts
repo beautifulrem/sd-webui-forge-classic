@@ -1,6 +1,6 @@
 /** Signing in and out outside the form: error texts, the sign-out action and its palette command. */
 import { type TFunction } from "i18next"
-import { LogOut } from "lucide-react"
+import { LogOut } from "@/components/icons"
 import { useMemo } from "react"
 import { api } from "@/api/endpoints"
 import { ApiError } from "@/api/http"

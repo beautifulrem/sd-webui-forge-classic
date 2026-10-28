@@ -6,7 +6,7 @@
  * the left one on the background while zoomed in) pans, a double-click on the
  * background fits the stage again.
  */
-import { Maximize, ZoomIn, ZoomOut } from "lucide-react"
+import { Maximize, ZoomIn, ZoomOut } from "@/components/icons"
 import { type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -262,7 +262,7 @@ export function LayoutCanvas({
     <div
       ref={setArea}
       data-testid="json-builder-canvas"
-      className={cn("relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-xl border bg-card", panning && "cursor-grabbing", className)}
+      className={cn("relative flex min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-md bg-card", panning && "cursor-grabbing", className)}
       onPointerDown={(event) => {
         if (event.button === 1 || (event.button === 0 && view.scale > 1 && onBackground(event.target))) {
           event.preventDefault()

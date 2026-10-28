@@ -6,7 +6,7 @@
  * not contain buttons); the keyboard reaches the same actions through the
  * item menu (see NetworkGrid).
  */
-import { AlertTriangle, Box, Check, ImagePlus, Info, Layers, MoreHorizontal, Pencil, Sparkles, Type } from "lucide-react"
+import { AlertTriangle, Box, Check, ImagePlus, Info, Layers, MoreHorizontal, Pencil, Sparkles, Type } from "@/components/icons"
 import { type CSSProperties, memo, type MouseEvent, type ReactNode, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { api } from "@/api/endpoints"
@@ -134,7 +134,7 @@ function HoverActions({ item, kind, index, onAction, variant, className }: Pick<
           }}
           className={
             variant === "card"
-              ? "grid size-7 place-items-center rounded-md bg-black/45 text-white backdrop-blur-sm transition-colors outline-none hover:bg-black/70 [&_svg]:size-3.5"
+              ? "grid size-7 place-items-center rounded-md bg-black/45 text-white transition-colors outline-none hover:bg-black/70 [&_svg]:size-3.5"
               : "grid size-7 place-items-center rounded-md text-muted-foreground outline-none hover:bg-background hover:text-foreground [&_svg]:size-3.5"
           }
         >
@@ -166,7 +166,7 @@ function CardView({ item, kind, id, index, active, cursor, mismatch, width, onAp
         onClick={() => onApply(item, index)}
         onContextMenu={contextMenu(onAction, item, index)}
         className={cn(
-          "relative size-full cursor-pointer overflow-hidden rounded-xl bg-card shadow-xs ring-1 ring-border transition-shadow select-none",
+          "relative size-full cursor-pointer overflow-hidden rounded-md bg-card shadow-xs ring-1 ring-border transition-shadow select-none",
           "group-hover/card:shadow-md group-hover/card:ring-foreground/20",
           "data-active:ring-2 data-active:ring-primary",
           "data-cursor:outline-2 data-cursor:outline-offset-2 data-cursor:outline-ring/70",
@@ -179,12 +179,12 @@ function CardView({ item, kind, id, index, active, cursor, mismatch, width, onAp
         </div>
         <div className="pointer-events-none absolute top-1.5 left-1.5 flex max-w-[70%] flex-wrap gap-1">
           {item.arch ? (
-            <span className={cn("rounded-md px-1.5 py-px text-[0.65rem] leading-4 font-medium backdrop-blur-sm", mismatch ? "bg-warning/85 text-black" : "bg-black/50 text-white")}>
+            <span className={cn("rounded-md px-1.5 py-px text-[0.65rem] leading-4 font-medium", mismatch ? "bg-warning/85 text-black" : "bg-black/50 text-white")}>
               {mismatch ? <AlertTriangle className="-mt-px mr-0.5 inline size-2.5" aria-hidden /> : null}
               {archLabel(item.arch)}
             </span>
           ) : null}
-          {item.subtype && item.subtype !== "LoRA" ? <span className="rounded-md bg-black/50 px-1.5 py-px text-[0.65rem] leading-4 font-medium text-white backdrop-blur-sm">{item.subtype}</span> : null}
+          {item.subtype && item.subtype !== "LoRA" ? <span className="rounded-md bg-black/50 px-1.5 py-px text-[0.65rem] leading-4 font-medium text-white">{item.subtype}</span> : null}
         </div>
         {active ? (
           <span aria-hidden className="absolute right-1.5 bottom-1.5 grid size-5 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm ring-2 ring-black/20">

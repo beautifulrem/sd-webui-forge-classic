@@ -5,7 +5,7 @@
  * apart; built-in ones cannot be uninstalled.
  */
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { ArrowUpCircle, Check, ChevronRight, CircleAlert, ExternalLink, GitBranch, Loader2, MoreHorizontal, RefreshCw, Search, Trash2, X } from "lucide-react"
+import { ArrowUpCircle, Check, ChevronRight, CircleAlert, ExternalLink, GitBranch, Loader2, MoreHorizontal, RefreshCw, Search, Trash2, X } from "@/components/icons"
 import { useEffect, useId, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -196,8 +196,8 @@ function Group(props: { title: string; count: number; defaultOpen: boolean; filt
     if (props.filtering && props.count > 0) setOpen(true)
   }
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="rounded-xl border bg-card">
-      <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/60">
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-md bg-card">
+      <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-sm font-semibold outline-none hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/60">
         <ChevronRight className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-90")} aria-hidden />
         {t(props.title)}
         <span className="text-xs font-normal text-muted-foreground tabular-nums">{props.count}</span>
@@ -390,7 +390,7 @@ export function InstalledView() {
 
       {count > 0 ? (
         <div role="region" aria-label={t("Pending extension changes")} className="sticky bottom-3 z-10 flex justify-center">
-          <div data-toast-obstacle className="flex w-full max-w-2xl flex-wrap items-center gap-2 rounded-xl border bg-popover/95 px-3 py-2 shadow-lg backdrop-blur animate-in fade-in slide-in-from-bottom-2">
+          <div data-toast-obstacle className="flex w-full max-w-2xl flex-wrap items-center gap-2 rounded-md border bg-popover px-3 py-2 shadow-lg animate-in fade-in slide-in-from-bottom-2">
             <p className="min-w-0 flex-1 text-sm" aria-live="polite">
               {t("{{toggles}} switched, {{updates}} to update", { toggles: Object.keys(staged.enabled).length, updates: staged.update.length })}
             </p>

@@ -4,7 +4,7 @@
  * create / rename / delete collections; export and import as JSON.
  */
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowUp, Check, Download, FolderInput, FolderPlus, ListPlus, Pencil, Plus, Trash2, Upload, X } from "lucide-react"
+import { ArrowUp, Check, Download, FolderInput, FolderPlus, ListPlus, Pencil, Plus, Trash2, Upload, X } from "@/components/icons"
 import { type ReactNode, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -300,7 +300,7 @@ export default function FavoritesPanel({ value, setValue, kind, disabled, close 
                     >
                       <span className="flex items-center gap-1.5">
                         {item.name ? <span className="truncate text-xs font-semibold">{item.name}</span> : null}
-                        {item.kind === "tags" ? <span className="rounded bg-muted px-1 text-[0.6rem] font-medium text-muted-foreground uppercase">{t("Tags")}</span> : null}
+                        {item.kind === "tags" ? <span className="rounded bg-muted px-1 text-[0.65rem] font-medium text-muted-foreground">{t("Tags")}</span> : null}
                       </span>
                       <span className="line-clamp-3 text-xs break-words whitespace-pre-wrap">{item.text}</span>
                     </button>

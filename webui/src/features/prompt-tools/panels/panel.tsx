@@ -1,5 +1,5 @@
 /** Shared pieces of the prompt tools panels. */
-import { Search, X } from "lucide-react"
+import { Search, X } from "@/components/icons"
 import type { ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group"
